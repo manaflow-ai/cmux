@@ -1,5 +1,17 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-05: a collapsing group's text fades out fast. Leo, verbatim: "when you're collapsing a group, the text needs to
+  fade faster. Otherwise, you just get a ton of text like just jumbled up inside ... you still see like overlapping text
+  sometimes". The rows a collapse hides faded over the whole `.move` spring, as long as their slot takes to close; they
+  now fade on `fadeOut` (80 ms at normal speed) from the opacity on screen (`RowMotion.folding`), in both the fold
+  (`foldGroup`) and a reload that folds a group or section, a group nested in the folding one included (`SidebarRowTransition.isFolded`). The slot, the rows below, an expand, movement off and Reduce
+  Motion are unchanged. Regression: `SidebarFoldFadeTests`.
+- 2026-11-05: the session tree's Earlier says "Loading chats…" until acpmux first sends its rows. Leo, verbatim:
+  "something kinda messed up in my latest restart install of latest cmux nightly... i cant see any chats". acpmux took
+  42 s under load to start its chat index after the relaunch and answered `ready: false` until then; the history drew
+  nothing, which reads as data loss. Until the Earlier window's first answer (`AcpmuxChatWindows.Window.hasAnswered`),
+  Earlier keeps its header and one quiet Loading row in the Show More slot (no click action); folded, only its header.
+  An answered empty index still has no Earlier. Regression: `SidebarChatHistoryTests.earlierSaysLoadingUntilAcpmuxFirstSendsItsRows`.
 - 2026-11-05: sidebar corners follow the one concentric corner rule. Lawrence, verbatim (2026-11-04): "all nested
   radius everywhere, for all types of panes where it applies, must be concentric, where inner radius is outer minus
   padding, where padding is configurable too". Rows and rail tiles take the one corner radius
@@ -59,6 +71,13 @@
   takes `RowBadgeView.spinnerSide` (`SidebarStyle.statusGlyphSize`: 10 pt compact, 12 comfortable) on the same cell
   center; the red warning and needs-you marks keep 14 pt. Regression: `RowBadgeSpinnerDensityTests` (every density and
   minimal mode), `RowBadgeMarkSizeTests.theSpinnerIsSmallerThanTheWarning`.
+- 2026-11-05: the Downloading Update card's bytes line stops shifting as it counts. Leo, verbatim: "insane layout
+  shift with the downloading update. Like, why is it that as the left number grows, it just keeps shifting?". Both
+  counts read in the size's unit with one decimal ("115.0 MB of 265.3 MB"), the received count and the percent pad
+  with figure spaces to the total's and 100%'s widths (`UpdateTransfer.bytesText`), and a loading card's detail uses
+  `Typography.captionDigits` (tabular digits). A loading card keeps the cancel's column in every stage, so the bar and
+  text no longer widen when Starting turns into Downloading or narrow again at Preparing. Regression:
+  `UpdateDownloadLineTests`.
 - 2026-11-04: a download the person asked for (Download, Update) shows its progress on the notice card again until it
   is staged; a background download stays quiet (replaces half of the 2026-11-03 entry below, #33176; last good commit
   before it 1d7eb3fd486). Leo, verbatim: "the weird thing is that there's no more updating downloading progress bar for
@@ -113,6 +132,34 @@
   `SidebarRowsMoveOnRenderServerTests.collapsingAGroupClipsItsMembersInPlace`,
   `expandingAGroupOpensItsSlotOverTheMembersInPlace`, `aFoldWithoutMotionLeavesNoMask`.
 
+- 2026-11-05: group headers are glass, and the header name is the rows' size. Leo, verbatim: "We can afford to put
+  glass here, so why the f*** do we not have glass for this? Like, I mean, like, still keeping the colors, it's just,
+  like, but just make it glassier, you know? Like, the groups themselves. Why is it just one solid opaque block? Why
+  does it not have any sort of rim at all?" and "this strange f***ing font of the group on the side ... it just looks
+  sad". The band header (`sidebar.groupHeader` band) is the shared `group` surface role (`SurfaceRole.group`, new in
+  schemas/surface-roles/surface-roles.json): its veil over the sidebar's own glass, tinted by the group's color with
+  the chroma raised x1.3 (`GroupTint.glassRGB`) at 44% dark / 34% light (`vivid`), `GlassRimView`'s specular rim, and its name in
+  the theme's ink, held at 4.5:1 over the pane. Under Reduce Transparency it is the role's opaque fallback (the pane over
+  the sidebar's opaque background, a hairline). The rail under it takes the same vivid color.
+  Debug `sidebar.groupGlass`: `vivid` (default: in the gallery over a busy wallpaper it was the one whose colors still
+  read; `glass` at 30% / 22% washed out on dark, `frost` read as no color), `glass`, `frost`, `solid` (the opaque bar before). The palette, its
+  order and every color choice are unchanged. The name was 11 pt medium in the bare system face on the compact bar,
+  smaller than its own rows; it now takes `titleFont`'s size, semibold. The veil, rim and radius are the role's, owned
+  with the other glass roles (real-glass-material, #36240); only the color's share is sidebar's. Gallery: `AANoColorGroupGalleryTests`
+  (today and the three glass looks over a busy wallpaper). Regression: `GroupHeaderGlassTests`.
+- 2026-11-05: a group with no color reads as a group: one faint neutral block behind its header and members, no hue
+  and no indent (`sidebar.noColorGroup`, default `glass`: the `group` role untinted, its veil and rim). Leo, verbatim: "if you're gonna allow the no color option,
+  which is, like, I find kind of weird, you might as well have it be at least slightly distinguishing from, like,
+  literally depicting it as if it were unhovered", "a differently highlighted, differently refracted, differently
+  transparented thing ... a grouped up thing", and "we're not necessarily into that indentation thing". The group's
+  line view becomes its block (`SidebarGroupLine.isBlock`): from the header's top to the last shown member's bottom,
+  the header's width, a collapsed group's header alone, an open group's trailing Done, Archived and Show more rows
+  inside it (9bc3fb24b72, router review F2), under every row (below `decorations`) so hover, selection and
+  drop fills draw over it. The pane is the `group` role's veil (grey 0.11 at 6% dark, 0.99 at 20% light) with its rim, under the rows' hover. The
+  Debug choice keeps `tray` (no rim), `lit` (fades from the header) and `plain` (the look since #32198).
+  No hue comes back (#32198 and #32685 stand); a colored group keeps its rail. A tab group with no color washes its
+  tabs in the theme's `sidebarStep`, no hue. Gallery: `AANoColorGroupGalleryTests`. Regression:
+  `NoColorGroupBlockTests`, `GroupNoChosenColorTests.tabGroupWithNoColorDrawsNoDotAndNoUnderline`.
 - 2026-11-02: a group nobody colored draws no bar, chip or wash: a plain row with only its hover and drop fills. Leo,
   on an uncolored group's header: "WTF IS THIS GROUP COLOUR????" / "THE GROUP COLOUR SOMEHOW BEING THE THEME COLOUR???"
   / "IT'S USELESS". `GroupTint.none.headerChip` and `headerWash` were the opaque `sidebarBackground`, which drew the
@@ -525,6 +572,8 @@ A workspace close removes only the workspace. The daemon close path and remote-c
 | Row close (X) | The original close: a small x at the row's trailing end, shown on hover, in its rounded box. Not the top-right "dog-ear" fold. | Lawrence 11405 ("revert styling back to original, for the X button") |
 | Group rail | The rail's left edge is the group header pill's left edge, at every depth, every density, light and dark. | Lawrence 11240, 11371, 11405 |
 | Group rail shape | Chrome's line on that edge: 2 pt, one capsule (see Left bar), the header bar's own color, a 6 pt cut below the header, down to the last member's bottom. Debug `sidebar.groupLineLayout`: `edge` (default, the row above), `joined` (no cut, the bar's bottom-left corner square: one L, band header only), `inside` (the header reaches the corner inset further left, 4 pt compact and 5 pt comfortable, capped at the list's edge: the line under its corner). Members never move. | Leo 2026-10-23 ("WTF HAPPENED TO FOLLOWING CHROME"; asks ask-5b16be6ee9, ask-40133bf821, ask-7e10ebd553), #24513 |
+| Group header | The `group` surface role: its veil tinted by the group's color (chroma x1.3, 44% dark / 34% light) and its rim; the name in the theme's ink at the rows' title size, semibold. Debug `sidebar.groupGlass`: `vivid` (default), `glass`, `frost`, `solid`. | Leo 2026-11-05 ("just make it glassier"; "Why does it not have any sort of rim at all?") |
+| Group with no color | The `group` surface role untinted behind the header and its members (its veil and rim), the header's width, no hue and no indent; rows' hover and selection draw over it. Debug `sidebar.noColorGroup`: `glass` (default), `tray`, `lit`, `plain`. | Leo 2026-11-05 ("a grouped up thing"; "we're not necessarily into that indentation thing") |
 | Left bar: capsule, equal top/bottom rounding | The group rail beside member rows (`GroupLineView`, every place it draws: the list's lines and a lifted group's card) is one capsule: the layer's corner clip rounds all four corners by half the bar's width (`SidebarGroupLineShape`), so the top and bottom caps match, in light and dark, at every density and text size, in the line look and the connected (Chrome-Style Groups) look. Neither cap is clipped by the row, the scroll edge or a neighbour row. | Lawrence msg 19775 ("roundness of left bar needs to be better, like rounded on both top and bottom"); SidebarGroupRailCapsuleTests |
 | Row text | As far left as it originally was. A row with no icon starts its title at the row inset; no empty icon slot pushes it right. A top-level group's rows keep the ungrouped rows' left edge. Only nested groups step in. | Lawrence 11405 ("text needs to be as left as possible (how it originally was)"); #23975 |
 | Home unread | A blue dot, the same dot as other unread rows. No count badge. | Lawrence 11384 |

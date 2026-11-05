@@ -12,6 +12,8 @@
     private let item: @MainActor @Sendable (Model) -> Item?
     private let same: (Item, Item) -> Bool
     private let changed: () -> Void
+    /// The owner's `#fileID:#line`, for the streams it starts (``ObservationWakes`` names its wakes by it).
+    private let site: (fileID: StaticString, line: UInt)
 
     // A main-actor generic class needs a nonisolated deinit while the package targets macOS 14: the
     // implicit isolated deinit crashes swift-frontend 6.3.3's Release inliner (EarlyPerfInliner,
@@ -21,7 +23,8 @@
     /// `item` maps one model (nil: its owner is gone); `changed` runs after an item changed
     /// (`same` false: an item's equality may be main-actor isolated, so it is passed in).
     public init(item: @escaping @MainActor @Sendable (Model) -> Item?, same: @escaping (Item, Item) -> Bool,
-                changed: @escaping () -> Void) {
+                changed: @escaping () -> Void, fileID: StaticString = #fileID, line: UInt = #line) {
+        site = (fileID, line)
         self.item = item
         self.same = same
         self.changed = changed
@@ -55,7 +58,8 @@
         watches.removeValue(forKey: key)?.task.cancel()
         let item = item
         // A trigger, compared with the item handed out (not the one emitted last): `refresh` moves it.
-        let (first, later) = ObservationStream.current({ [weak model] in ObservationTrigger(model.flatMap(item)) })
+        let (first, later) = ObservationStream.current({ [weak model] in ObservationTrigger(model.flatMap(item)) },
+                                                       fileID: site.fileID, line: site.line)
         guard let value = first.value else { return nil }
         let task = Task { [weak self] in
             for await next in later {

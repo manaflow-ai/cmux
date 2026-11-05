@@ -222,7 +222,28 @@ def check(args) -> int:
                 step("open", False, error=opened)
                 return [f"open: {opened}"]
             doc = wait(lambda: [r for r in proxy.since(t_open) if f"/{PAGE}" in r[1]], 30)
-            if not step("open", bool(doc), open_to_page_ms=int((doc[0][0] - t_open) * 1000) if doc else None):
+            if not doc:
+                # What the app answered and showed, and what reached the server, for the report.
+                topo = inst.topology() or {}
+                (out / "topology.json").write_text(json.dumps(topo, indent=1, default=str))
+                try:
+                    subprocess.run(["screencapture", "-x", str(out / "open.png")], check=False, timeout=20)
+                    # The projection's own trace (WebProjection logs each document load and reload) and the
+                    # pages and windows the app reports.
+                    with open(out / "projection.log", "w") as trace:
+                        subprocess.run(["/usr/bin/log", "show", "--style", "compact", "--info", "--last", "5m", "--predicate",
+                                        f'processID == {int(process.pid)} AND subsystem == "com.cmuxterm.app.next" '
+                                        'AND (category == "projection" OR category == "page" OR category BEGINSWITH "page-host")'],
+                                       stdout=trace, stderr=subprocess.STDOUT, check=False, timeout=60)
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
+                for method in ("debug.surfaces", "debug.windows", "debug.layers"):
+                    (out / f"{method}.json").write_text(json.dumps(call(inst.sock, method, {}, timeout=20), indent=1, default=str))
+                step("open", False, open_to_page_ms=None, answer=opened, windows_before=windows_before,
+                     windows_after=len(topo.get("windows") or []), requests=[r[1] for r in proxy.since(0.0)][-40:])
+                failures.append("open: the projection window's page never loaded from the worktree")
+                return failures
+            if not step("open", True, open_to_page_ms=int((doc[0][0] - t_open) * 1000)):
                 failures.append("open: the projection window's page never loaded from the worktree")
                 return failures
 

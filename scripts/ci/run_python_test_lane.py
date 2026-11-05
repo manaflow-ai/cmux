@@ -30,11 +30,10 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
-from test_execution_registry import load_registry
+from test_execution_registry import load_tree
 
 
 ROOT = Path(__file__).resolve().parents[2]
-MANIFEST = ROOT / "tests" / "test-execution.toml"
 NON_RUNNABLE_LANES = {"legacy", "manual"}
 SUPPORTED_REQUIREMENTS = {"fish"}
 # A hung test must fail on its own rather than hold every later test's
@@ -171,7 +170,7 @@ def main(argv: list[str]) -> int:
             raise SystemExit(f"{lane!r} is inventory, not an executable lane")
 
     try:
-        entries = load_registry(MANIFEST)
+        entries = load_tree(ROOT)
     except (OSError, ValueError) as error:
         raise SystemExit(str(error)) from error
 

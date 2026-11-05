@@ -1,6 +1,10 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "permission.plan.label": {"comment":"Agent pane: accessible name of the plan shown on a plan approval card (Claude Code's ExitPlanMode, Grok and Cursor plan modes)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الخطة المقترحة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Predloženi plan"}},"da":{"stringUnit":{"state":"needs_review","value":"Foreslået plan"}},"de":{"stringUnit":{"state":"needs_review","value":"Vorgeschlagener Plan"}},"en":{"stringUnit":{"state":"translated","value":"Proposed plan"}},"es":{"stringUnit":{"state":"needs_review","value":"Plan propuesto"}},"fr":{"stringUnit":{"state":"needs_review","value":"Plan proposé"}},"it":{"stringUnit":{"state":"needs_review","value":"Piano proposto"}},"ja":{"stringUnit":{"state":"needs_review","value":"提案された計画"}},"km":{"stringUnit":{"state":"needs_review","value":"ផែនការដែលបានស្នើ"}},"ko":{"stringUnit":{"state":"needs_review","value":"제안된 계획"}},"nb":{"stringUnit":{"state":"needs_review","value":"Foreslått plan"}},"pl":{"stringUnit":{"state":"needs_review","value":"Proponowany plan"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Plano proposto"}},"ru":{"stringUnit":{"state":"needs_review","value":"Предложенный план"}},"th":{"stringUnit":{"state":"needs_review","value":"แผนที่เสนอ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Önerilen plan"}},"uk":{"stringUnit":{"state":"needs_review","value":"Запропонований план"}},"vi":{"stringUnit":{"state":"needs_review","value":"Kế hoạch đề xuất"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"建议的计划"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"建議的計畫"}}}},
+    "permission.plan.approve": {"comment":"Agent pane: the button on a plan approval card that approves the agent's plan, so it leaves plan mode and starts the work","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"اعتماد الخطة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Odobri plan"}},"da":{"stringUnit":{"state":"needs_review","value":"Godkend plan"}},"de":{"stringUnit":{"state":"needs_review","value":"Plan freigeben"}},"en":{"stringUnit":{"state":"translated","value":"Approve plan"}},"es":{"stringUnit":{"state":"needs_review","value":"Aprobar plan"}},"fr":{"stringUnit":{"state":"needs_review","value":"Approuver le plan"}},"it":{"stringUnit":{"state":"needs_review","value":"Approva il piano"}},"ja":{"stringUnit":{"state":"needs_review","value":"計画を承認"}},"km":{"stringUnit":{"state":"needs_review","value":"អនុម័តផែនការ"}},"ko":{"stringUnit":{"state":"needs_review","value":"계획 승인"}},"nb":{"stringUnit":{"state":"needs_review","value":"Godkjenn plan"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zatwierdź plan"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Aprovar plano"}},"ru":{"stringUnit":{"state":"needs_review","value":"Одобрить план"}},"th":{"stringUnit":{"state":"needs_review","value":"อนุมัติแผน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Planı onayla"}},"uk":{"stringUnit":{"state":"needs_review","value":"Схвалити план"}},"vi":{"stringUnit":{"state":"needs_review","value":"Duyệt kế hoạch"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"批准计划"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"核准計畫"}}}},
+    "permission.plan.keepPlanning": {"comment":"Agent pane: the button on a plan approval card that declines the plan and opens a field for what to change, so the agent keeps planning","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"متابعة التخطيط"}},"bs":{"stringUnit":{"state":"needs_review","value":"Nastavi planiranje"}},"da":{"stringUnit":{"state":"needs_review","value":"Bliv ved med at planlægge"}},"de":{"stringUnit":{"state":"needs_review","value":"Weiter planen"}},"en":{"stringUnit":{"state":"translated","value":"Keep planning"}},"es":{"stringUnit":{"state":"needs_review","value":"Seguir planificando"}},"fr":{"stringUnit":{"state":"needs_review","value":"Continuer à planifier"}},"it":{"stringUnit":{"state":"needs_review","value":"Continua a pianificare"}},"ja":{"stringUnit":{"state":"needs_review","value":"計画を続ける"}},"km":{"stringUnit":{"state":"needs_review","value":"បន្តរៀបចំផែនការ"}},"ko":{"stringUnit":{"state":"needs_review","value":"계속 계획하기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Fortsett å planlegge"}},"pl":{"stringUnit":{"state":"needs_review","value":"Planuj dalej"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Continuar planejando"}},"ru":{"stringUnit":{"state":"needs_review","value":"Продолжить планирование"}},"th":{"stringUnit":{"state":"needs_review","value":"วางแผนต่อ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Planlamaya devam et"}},"uk":{"stringUnit":{"state":"needs_review","value":"Продовжити планування"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tiếp tục lập kế hoạch"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"继续规划"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"繼續規劃"}}}},
+    "permission.plan.feedbackPlaceholder": {"comment":"Agent pane: placeholder and label of the field Keep planning opens on a plan approval card, for what the agent should change in its plan","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"ما الذي يجب تغييره في الخطة؟"}},"bs":{"stringUnit":{"state":"needs_review","value":"Šta treba promijeniti u planu?"}},"da":{"stringUnit":{"state":"needs_review","value":"Hvad skal ændres i planen?"}},"de":{"stringUnit":{"state":"needs_review","value":"Was soll sich am Plan ändern?"}},"en":{"stringUnit":{"state":"translated","value":"What should change in the plan?"}},"es":{"stringUnit":{"state":"needs_review","value":"¿Qué debería cambiar en el plan?"}},"fr":{"stringUnit":{"state":"needs_review","value":"Que faut-il changer dans le plan ?"}},"it":{"stringUnit":{"state":"needs_review","value":"Cosa va cambiato nel piano?"}},"ja":{"stringUnit":{"state":"needs_review","value":"計画のどこを変えますか？"}},"km":{"stringUnit":{"state":"needs_review","value":"តើគួរផ្លាស់ប្តូរអ្វីក្នុងផែនការ?"}},"ko":{"stringUnit":{"state":"needs_review","value":"계획에서 무엇을 바꿀까요?"}},"nb":{"stringUnit":{"state":"needs_review","value":"Hva bør endres i planen?"}},"pl":{"stringUnit":{"state":"needs_review","value":"Co zmienić w planie?"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"O que deve mudar no plano?"}},"ru":{"stringUnit":{"state":"needs_review","value":"Что изменить в плане?"}},"th":{"stringUnit":{"state":"needs_review","value":"ควรเปลี่ยนอะไรในแผน?"}},"tr":{"stringUnit":{"state":"needs_review","value":"Planda ne değişmeli?"}},"uk":{"stringUnit":{"state":"needs_review","value":"Що змінити в плані?"}},"vi":{"stringUnit":{"state":"needs_review","value":"Cần thay đổi gì trong kế hoạch?"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"计划中应改动什么？"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"計畫中應修改什麼？"}}}},
     "commandRules.pulling": {"comment":"Agent pane: a background command that pulls (git pull, docker pull)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"جارٍ السحب"}},"bs":{"stringUnit":{"state":"needs_review","value":"Povlačenje"}},"da":{"stringUnit":{"state":"needs_review","value":"Puller"}},"de":{"stringUnit":{"state":"needs_review","value":"Wird gepullt"}},"en":{"stringUnit":{"state":"translated","value":"Pulling"}},"es":{"stringUnit":{"state":"needs_review","value":"Descargando cambios"}},"fr":{"stringUnit":{"state":"needs_review","value":"Récupération"}},"it":{"stringUnit":{"state":"needs_review","value":"Pull in corso"}},"ja":{"stringUnit":{"state":"needs_review","value":"プル中"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងទាញ"}},"ko":{"stringUnit":{"state":"needs_review","value":"풀 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"Puller"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pobieranie zmian"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Baixando alterações"}},"ru":{"stringUnit":{"state":"needs_review","value":"Получение изменений"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังพูล"}},"tr":{"stringUnit":{"state":"needs_review","value":"Çekiliyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Отримання змін"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang kéo"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在拉取"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在拉取"}}}},
     "commandRules.fetching": {"comment":"Agent pane: a background command that runs git fetch","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"جارٍ الجلب"}},"bs":{"stringUnit":{"state":"needs_review","value":"Dohvatanje"}},"da":{"stringUnit":{"state":"needs_review","value":"Henter"}},"de":{"stringUnit":{"state":"needs_review","value":"Wird abgerufen"}},"en":{"stringUnit":{"state":"translated","value":"Fetching"}},"es":{"stringUnit":{"state":"needs_review","value":"Obteniendo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Récupération des références"}},"it":{"stringUnit":{"state":"needs_review","value":"Fetch in corso"}},"ja":{"stringUnit":{"state":"needs_review","value":"フェッチ中"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងទាញយក"}},"ko":{"stringUnit":{"state":"needs_review","value":"가져오는 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"Henter"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pobieranie"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Buscando"}},"ru":{"stringUnit":{"state":"needs_review","value":"Загрузка"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังดึงข้อมูล"}},"tr":{"stringUnit":{"state":"needs_review","value":"Getiriliyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Отримання"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang tải về"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在获取"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在擷取"}}}},
     "commandRules.committing": {"comment":"Agent pane: a background command that makes a git commit","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"جارٍ الإيداع"}},"bs":{"stringUnit":{"state":"needs_review","value":"Commit u toku"}},"da":{"stringUnit":{"state":"needs_review","value":"Committer"}},"de":{"stringUnit":{"state":"needs_review","value":"Wird committet"}},"en":{"stringUnit":{"state":"translated","value":"Committing"}},"es":{"stringUnit":{"state":"needs_review","value":"Haciendo commit"}},"fr":{"stringUnit":{"state":"needs_review","value":"Commit en cours"}},"it":{"stringUnit":{"state":"needs_review","value":"Commit in corso"}},"ja":{"stringUnit":{"state":"needs_review","value":"コミット中"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងបញ្ជូន"}},"ko":{"stringUnit":{"state":"needs_review","value":"커밋 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"Committer"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zatwierdzanie"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Fazendo commit"}},"ru":{"stringUnit":{"state":"needs_review","value":"Создание коммита"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังคอมมิต"}},"tr":{"stringUnit":{"state":"needs_review","value":"Commit ediliyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Створення коміту"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang commit"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在提交"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在提交"}}}},
@@ -73335,6 +73339,7 @@
         }
       }
     },
+    "error.versionMismatch": {"comment":"Agent pane: an agent service reply this app can't read (the app and its service are different versions); the error's own reason stays in its details","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This cmux and its agent service are different versions. Update cmux, then try again."}},"ar":{"stringUnit":{"state":"needs_review","value":"إصدار cmux هذا وخدمة الوكلاء التابعة له مختلفان. حدّث cmux، ثم أعد المحاولة."}},"bs":{"stringUnit":{"state":"needs_review","value":"Ovaj cmux i njegov servis agenata su različite verzije. Ažurirajte cmux, pa pokušajte ponovo."}},"da":{"stringUnit":{"state":"needs_review","value":"Denne cmux og dens agenttjeneste er forskellige versioner. Opdater cmux, og prøv igen."}},"de":{"stringUnit":{"state":"needs_review","value":"Dieses cmux und sein Agentendienst haben verschiedene Versionen. Aktualisiere cmux und versuche es erneut."}},"es":{"stringUnit":{"state":"needs_review","value":"Este cmux y su servicio de agentes son de versiones distintas. Actualiza cmux y vuelve a intentarlo."}},"fr":{"stringUnit":{"state":"needs_review","value":"Ce cmux et son service d’agents ne sont pas de la même version. Mettez cmux à jour, puis réessayez."}},"it":{"stringUnit":{"state":"needs_review","value":"Questo cmux e il suo servizio agenti sono versioni diverse. Aggiorna cmux, poi riprova."}},"ja":{"stringUnit":{"state":"needs_review","value":"この cmux とエージェントサービスのバージョンが異なります。cmux をアップデートしてから、もう一度お試しください。"}},"km":{"stringUnit":{"state":"needs_review","value":"cmux នេះ និងសេវាភ្នាក់ងាររបស់វាជាកំណែខុសគ្នា។ អាប់ដេត cmux រួចព្យាយាមម្តងទៀត។"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 cmux와 에이전트 서비스의 버전이 다릅니다. cmux를 업데이트한 다음 다시 시도하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Denne cmux og agenttjenesten dens er forskjellige versjoner. Oppdater cmux, og prøv igjen."}},"pl":{"stringUnit":{"state":"needs_review","value":"Ten cmux i jego usługa agentów to różne wersje. Zaktualizuj cmux, a potem spróbuj ponownie."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Este cmux e seu serviço de agentes são de versões diferentes. Atualize o cmux e tente de novo."}},"ru":{"stringUnit":{"state":"needs_review","value":"Версии этого cmux и его службы агентов не совпадают. Обновите cmux и повторите попытку."}},"th":{"stringUnit":{"state":"needs_review","value":"cmux นี้กับบริการเอเจนต์เป็นคนละเวอร์ชัน อัปเดต cmux แล้วลองอีกครั้ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu cmux ile ajan hizmeti farklı sürümlerde. cmux'u güncelleyin, sonra yeniden deneyin."}},"uk":{"stringUnit":{"state":"needs_review","value":"Версії цього cmux і його служби агентів різняться. Оновіть cmux і спробуйте ще раз."}},"vi":{"stringUnit":{"state":"needs_review","value":"cmux này và dịch vụ tác tử của nó khác phiên bản. Hãy cập nhật cmux rồi thử lại."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"此 cmux 与其代理服务版本不同。请更新 cmux，然后重试。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"此 cmux 與其代理服務版本不同。請更新 cmux，然後重試。"}}}},
     "error.interrupted": {
       "comment": "Agent pane",
       "extractionState": "manual",
@@ -73342,127 +73347,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "انقطع الاتصال بالوكيل. اقرأ حالته المحفوظة قبل إعادة المحاولة."
+            "value": "انقطع الاتصال بالوكيل. تحقّق من المحادثة، ثم أعد المحاولة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Veza s agentom je prekinuta. Pročitajte njegovo spremljeno stanje prije ponovnog pokušaja."
+            "value": "Veza s agentom je prekinuta. Provjerite chat, pa pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Agentforbindelsen blev afbrudt. Læs dens gemte tilstand, før du prøver igen."
+            "value": "Forbindelsen til agenten blev afbrudt. Tjek chatten, og prøv igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Die Verbindung zum Agent wurde unterbrochen. Lies den gespeicherten Zustand, bevor du es erneut versuchst."
+            "value": "Die Verbindung zum Agenten wurde unterbrochen. Prüfe den Chat und versuche es erneut."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The agent connection was interrupted. Read its saved state before retrying."
+            "value": "The connection to the agent dropped. Check the chat, then try again."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La conexión con el agente se interrumpió. Consulta su estado guardado antes de reintentar."
+            "value": "Se cortó la conexión con el agente. Revisa el chat y vuelve a intentarlo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La connexion à l’agent a été interrompue. Consultez son état enregistré avant de réessayer."
+            "value": "La connexion à l’agent a été coupée. Vérifiez la discussion, puis réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La connessione all’agente è stata interrotta. Leggi lo stato salvato prima di riprovare."
+            "value": "La connessione all’agente si è interrotta. Controlla la chat, poi riprova."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "エージェントとの接続が中断されました。再試行する前に保存された状態を確認してください。"
+            "value": "エージェントとの接続が切れました。チャットを確認してから、もう一度お試しください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ការតភ្ជាប់ទៅភ្នាក់ងារត្រូវបានរំខាន។ សូមអានស្ថានភាពដែលបានរក្សាទុករបស់វា មុនពេលព្យាយាមម្តងទៀត។"
+            "value": "ការតភ្ជាប់ទៅភ្នាក់ងារបានដាច់។ ពិនិត្យការជជែក រួចព្យាយាមម្តងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "에이전트 연결이 중단되었습니다. 다시 시도하기 전에 저장된 상태를 확인하세요."
+            "value": "에이전트와의 연결이 끊겼습니다. 채팅을 확인한 다음 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Agenttilkoblingen ble avbrutt. Les den lagrede tilstanden før du prøver igjen."
+            "value": "Forbindelsen til agenten ble brutt. Sjekk chatten, og prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Połączenie z agentem zostało przerwane. Przed ponowieniem odczytaj zapisany stan."
+            "value": "Połączenie z agentem zostało przerwane. Sprawdź czat, a potem spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "A conexão com o agente foi interrompida. Leia o estado salvo antes de tentar novamente."
+            "value": "A conexão com o agente caiu. Confira o chat e tente de novo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Соединение с агентом прервано. Перед повтором прочитайте его сохранённое состояние."
+            "value": "Соединение с агентом прервалось. Проверьте чат и повторите попытку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "การเชื่อมต่อกับเอเจนต์ถูกขัดจังหวะ อ่านสถานะที่บันทึกไว้ก่อนลองอีกครั้ง"
+            "value": "การเชื่อมต่อกับเอเจนต์หลุด ตรวจสอบแชท แล้วลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ajan bağlantısı kesildi. Yeniden denemeden önce kayıtlı durumunu okuyun."
+            "value": "Ajanla bağlantı koptu. Sohbeti kontrol edin, sonra yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "З’єднання з агентом перервано. Перед повтором прочитайте його збережений стан."
+            "value": "З’єднання з агентом обірвалося. Перевірте чат і спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kết nối với tác tử đã bị gián đoạn. Hãy đọc trạng thái đã lưu trước khi thử lại."
+            "value": "Kết nối với tác tử bị ngắt. Hãy kiểm tra cuộc trò chuyện rồi thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "智能体连接已中断。重试前请先读取其已保存的状态。"
+            "value": "与代理的连接已断开。请查看聊天，然后重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "代理連線已中斷。重試前請先讀取其已儲存的狀態。"
+            "value": "與代理的連線已中斷。請查看聊天，然後重試。"
           }
         }
       }
@@ -74530,127 +74535,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "انتهت مهلة طلب الوكيل. اقرأ حالته المحفوظة قبل إعادة المحاولة."
+            "value": "لم يستجب الوكيل في الوقت المحدد. تحقّق من المحادثة، ثم أعد المحاولة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zahtjev agentu je istekao. Pročitajte njegovo spremljeno stanje prije ponovnog pokušaja."
+            "value": "Agent nije odgovorio na vrijeme. Provjerite chat, pa pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Agentanmodningen fik timeout. Læs dens gemte tilstand, før du prøver igen."
+            "value": "Agenten svarede ikke i tide. Tjek chatten, og prøv igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Die Agent-Anfrage hat das Zeitlimit überschritten. Lies den gespeicherten Zustand, bevor du es erneut versuchst."
+            "value": "Der Agent hat nicht rechtzeitig geantwortet. Prüfe den Chat und versuche es erneut."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The agent request timed out. Read its saved state before retrying."
+            "value": "The agent didn't answer in time. Check the chat, then try again."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La solicitud al agente agotó el tiempo de espera. Consulta su estado guardado antes de reintentar."
+            "value": "El agente no respondió a tiempo. Revisa el chat y vuelve a intentarlo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La requête à l’agent a expiré. Consultez son état enregistré avant de réessayer."
+            "value": "L’agent n’a pas répondu à temps. Vérifiez la discussion, puis réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La richiesta all’agente è scaduta. Leggi lo stato salvato prima di riprovare."
+            "value": "L’agente non ha risposto in tempo. Controlla la chat, poi riprova."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "エージェントへのリクエストがタイムアウトしました。再試行する前に保存された状態を確認してください。"
+            "value": "エージェントが時間内に応答しませんでした。チャットを確認してから、もう一度お試しください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "សំណើទៅភ្នាក់ងារអស់ពេល។ សូមអានស្ថានភាពដែលបានរក្សាទុករបស់វា មុនពេលព្យាយាមម្តងទៀត។"
+            "value": "ភ្នាក់ងារមិនបានឆ្លើយតបទាន់ពេលទេ។ ពិនិត្យការជជែក រួចព្យាយាមម្តងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "에이전트 요청 시간이 초과되었습니다. 다시 시도하기 전에 저장된 상태를 확인하세요."
+            "value": "에이전트가 제시간에 응답하지 않았습니다. 채팅을 확인한 다음 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Agentforespørselen fikk tidsavbrudd. Les den lagrede tilstanden før du prøver igjen."
+            "value": "Agenten svarte ikke i tide. Sjekk chatten, og prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Żądanie do agenta przekroczyło limit czasu. Przed ponowieniem odczytaj zapisany stan."
+            "value": "Agent nie odpowiedział na czas. Sprawdź czat, a potem spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "A solicitação ao agente expirou. Leia o estado salvo antes de tentar novamente."
+            "value": "O agente não respondeu a tempo. Confira o chat e tente de novo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Время ожидания запроса к агенту истекло. Перед повтором прочитайте его сохранённое состояние."
+            "value": "Агент не ответил вовремя. Проверьте чат и повторите попытку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "คำขอไปยังเอเจนต์หมดเวลา อ่านสถานะที่บันทึกไว้ก่อนลองอีกครั้ง"
+            "value": "เอเจนต์ไม่ตอบกลับภายในเวลาที่กำหนด ตรวจสอบแชท แล้วลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ajan isteği zaman aşımına uğradı. Yeniden denemeden önce kayıtlı durumunu okuyun."
+            "value": "Ajan zamanında yanıt vermedi. Sohbeti kontrol edin, sonra yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Час очікування запиту до агента минув. Перед повтором прочитайте його збережений стан."
+            "value": "Агент не відповів вчасно. Перевірте чат і спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Yêu cầu tới tác tử đã hết thời gian chờ. Hãy đọc trạng thái đã lưu trước khi thử lại."
+            "value": "Tác tử không phản hồi kịp thời. Hãy kiểm tra cuộc trò chuyện rồi thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "智能体请求已超时。重试前请先读取其已保存的状态。"
+            "value": "代理未及时响应。请查看聊天，然后重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "代理請求已逾時。重試前請先讀取其已儲存的狀態。"
+            "value": "代理未及時回應。請查看聊天，然後重試。"
           }
         }
       }
@@ -112667,6 +112672,270 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "載入圖片"
+          }
+        }
+      }
+    },
+    "image.screenshotFromNumbered" : {
+      "comment" : "Agent pane: Session Info's Sources row for a pasted image with no file name, numbered {number} in chat order, copied from the app {source}",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "لقطة شاشة من {source} {number}"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Snimak ekrana iz aplikacije {source} {number}"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skærmbillede fra {source} {number}"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bildschirmfoto aus {source} {number}"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{source} screenshot {number}"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Captura de {source} {number}"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Capture d’écran de {source} {number}"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Istantanea di {source} {number}"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{source} のスクリーンショット {number}"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "រូបថតអេក្រង់ {source} {number}"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{source} 스크린샷 {number}"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skjermbilde fra {source} {number}"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zrzut ekranu z {source} {number}"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Captura de tela do {source} {number}"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Снимок экрана {source} {number}"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ภาพหน้าจอ {source} {number}"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{source} ekran görüntüsü {number}"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Знімок екрана {source} {number}"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ảnh chụp màn hình {source} {number}"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{source} 截屏 {number}"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{source} 螢幕截圖 {number}"
+          }
+        }
+      }
+    },
+    "image.screenshotNumbered" : {
+      "comment" : "Agent pane: Session Info's Sources row for a pasted image with no file name, numbered {number} in chat order",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "لقطة شاشة {number}"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Snimak ekrana {number}"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skærmbillede {number}"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bildschirmfoto {number}"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Screenshot {number}"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Captura de pantalla {number}"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Capture d’écran {number}"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Istantanea dello schermo {number}"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スクリーンショット {number}"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "រូបថតអេក្រង់ {number}"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "스크린샷 {number}"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skjermbilde {number}"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zrzut ekranu {number}"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Captura de tela {number}"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Снимок экрана {number}"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ภาพหน้าจอ {number}"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ekran görüntüsü {number}"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Знімок екрана {number}"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ảnh chụp màn hình {number}"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "截屏 {number}"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "螢幕截圖 {number}"
           }
         }
       }
@@ -187338,138 +187607,6 @@
         }
       }
     },
-    "recap.label" : {
-      "comment" : "Agent pane: accessible name of the card above the composer when the agent's last turn ended by asking the person a question (RecapCard.tsx)",
-      "extractionState" : "manual",
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "سؤال من الوكيل"
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Pitanje od agenta"
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Spørgsmål fra agenten"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Frage des Agenten"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Question from the agent"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Pregunta del agente"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Question de l'agent"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Domanda dell'agente"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "エージェントからの質問"
-          }
-        },
-        "km" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "សំណួរពីភ្នាក់ងារ"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "에이전트의 질문"
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Spørsmål fra agenten"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Pytanie od agenta"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Pergunta do agente"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Вопрос от агента"
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "คำถามจากเอเจนต์"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ajandan soru"
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Запитання від агента"
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Câu hỏi từ tác tử"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "来自智能体的问题"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "來自代理程式的問題"
-          }
-        }
-      }
-    },
     "recap.yes" : {
       "comment" : "Agent pane: the recap card's primary button when the agent's closing question offers no short action; it answers yes (RecapCard.tsx)",
       "extractionState" : "manual",
@@ -187602,138 +187739,6 @@
         }
       }
     },
-    "recap.yesAction" : {
-      "comment" : "Agent pane: the recap card's primary button, agreeing to what the agent offered; {action} is the agent's own words from its question, such as \"open PR\" (RecapCard.tsx)",
-      "extractionState" : "manual",
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "نعم، {action}"
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Da, {action}"
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ja, {action}"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ja, {action}"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Yes, {action}"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Sí, {action}"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Oui, {action}"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Sì, {action}"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "はい、{action}"
-          }
-        },
-        "km" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "បាទ/ចាស, {action}"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "예, {action}"
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ja, {action}"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Tak, {action}"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Sim, {action}"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Да, {action}"
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ใช่ {action}"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Evet, {action}"
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Так, {action}"
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Có, {action}"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "是，{action}"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "是，{action}"
-          }
-        }
-      }
-    },
     "recap.notNow" : {
       "comment" : "Agent pane: the recap card's secondary button, which hides the card for this turn without answering (RecapCard.tsx)",
       "extractionState" : "manual",
@@ -187862,270 +187867,6 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "暫不"
-          }
-        }
-      }
-    },
-    "recap.dismiss" : {
-      "comment" : "Agent pane: accessible name of the × that hides the recap card for this turn (RecapCard.tsx)",
-      "extractionState" : "manual",
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "تجاهل"
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Odbaci"
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Afvis"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ausblenden"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dismiss"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Descartar"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ignorer"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ignora"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "閉じる"
-          }
-        },
-        "km" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "បិទ"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "닫기"
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Lukk"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ukryj"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Dispensar"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Скрыть"
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ปิด"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Kapat"
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Приховати"
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Bỏ qua"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "关闭"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "關閉"
-          }
-        }
-      }
-    },
-    "recap.sendFailed" : {
-      "comment" : "Agent pane: a note on the recap card when its yes could not be sent to the agent; the card is back so the person can try again (RecapCard.tsx)",
-      "extractionState" : "manual",
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "لم يُرسل ردك. حاول مرة أخرى."
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Vaš odgovor nije poslan. Pokušajte ponovo."
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Dit svar blev ikke sendt. Prøv igen."
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Deine Antwort wurde nicht gesendet. Versuche es erneut."
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your reply wasn’t sent. Try again."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Tu respuesta no se envió. Inténtalo de nuevo."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Votre réponse n’a pas été envoyée. Réessayez."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "La tua risposta non è stata inviata. Riprova."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "返信を送信できませんでした。もう一度お試しください。"
-          }
-        },
-        "km" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ការឆ្លើយតបរបស់អ្នកមិនត្រូវបានផ្ញើទេ។ សូមព្យាយាមម្តងទៀត។"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "답장을 보내지 못했습니다. 다시 시도하세요."
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Svaret ditt ble ikke sendt. Prøv igjen."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Twoja odpowiedź nie została wysłana. Spróbuj ponownie."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Sua resposta não foi enviada. Tente novamente."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ваш ответ не отправлен. Попробуйте ещё раз."
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ส่งคำตอบของคุณไม่สำเร็จ ลองอีกครั้ง"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Yanıtınız gönderilmedi. Yeniden deneyin."
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Вашу відповідь не надіслано. Спробуйте ще раз."
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Chưa gửi được câu trả lời của bạn. Hãy thử lại."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "你的回复未发送。请重试。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "你的回覆未送出。請再試一次。"
           }
         }
       }
@@ -195505,6 +195246,1326 @@
           "stringUnit": {
             "state": "translated",
             "value": "等寬"
+          }
+        }
+      }
+    },
+    "chatDisplay.uiFont": {
+      "comment": "Agent pane: the chat's ··· menu Text & Width popover, the interface font (chatUiFont.ts)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interface"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الواجهة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sučelje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grænseflade"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oberfläche"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Interfaz"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Interface"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Interfaccia"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "インターフェイス"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចំណុចប្រទាក់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "인터페이스"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grensesnitt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Interfejs"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Interface"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Интерфейс"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อินเทอร์เฟซ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arayüz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Інтерфейс"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Giao diện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "界面"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "介面"
+          }
+        }
+      }
+    },
+    "chatDisplay.uiFontInterTuned": {
+      "comment": "Agent pane: the chat's ··· menu Text & Width popover, the interface font (chatUiFont.ts)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Inter (default)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (افتراضي)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (Zadano)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (Standard)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (Standard)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (Predeterminado)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (Par défaut)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (Predefinito)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (デフォルト)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (លំនាំដើម)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (기본값)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (Standard)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (Domyślny)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (Padrão)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (По умолчанию)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (ค่าเริ่มต้น)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (Varsayılan)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (За замовчуванням)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (Mặc định)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (默认)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (預設)"
+          }
+        }
+      }
+    },
+    "chatDisplay.uiFontInter": {
+      "comment": "Agent pane: the chat's ··· menu Text & Width popover, the interface font (chatUiFont.ts)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        }
+      }
+    },
+    "chatDisplay.uiFontVerdana": {
+      "comment": "Agent pane: the chat's ··· menu Text & Width popover, the interface font (chatUiFont.ts)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        }
+      }
+    },
+    "chatDisplay.uiFontRoboto": {
+      "comment": "Agent pane: the chat's ··· menu Text & Width popover, the interface font (chatUiFont.ts)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        }
+      }
+    },
+    "chatDisplay.uiFontPlex": {
+      "comment": "Agent pane: the chat's ··· menu Text & Width popover, the interface font (chatUiFont.ts)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        }
+      }
+    },
+    "chatDisplay.uiFontSourceSans": {
+      "comment": "Agent pane: the chat's ··· menu Text & Width popover, the interface font (chatUiFont.ts)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        }
+      }
+    },
+    "chatDisplay.uiFontGeist": {
+      "comment": "Agent pane: the chat's ··· menu Text & Width popover, the interface font (chatUiFont.ts)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        }
+      }
+    },
+    "chatDisplay.uiFontSystemUi": {
+      "comment": "Agent pane: the chat's ··· menu Text & Width popover, the interface font (chatUiFont.ts)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "النظام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sistemski"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "System"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "System"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sistema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Système"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sistema"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "システム"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រព័ន្ធ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "시스템"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "System"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Systemowa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sistema"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Системный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ระบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sistem"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Системний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hệ thống"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "系统"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "系統"
+          }
+        }
+      }
+    },
+    "chatDisplay.uiFontSystemUiTight": {
+      "comment": "Agent pane: the chat's ··· menu Text & Width popover, the interface font (chatUiFont.ts)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System, tight"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "النظام، متقارب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sistemski, zbijen"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "System, tæt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "System, eng"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sistema, ajustada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Système, serré"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sistema, stretto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "システム（詰め）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រព័ន្ធ, តឹង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "시스템 (좁게)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "System, tett"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Systemowa, ciasna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sistema, justa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Системный, плотный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ระบบ แบบชิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sistem, sıkı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Системний, щільний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hệ thống, khít"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "系统（紧凑）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "系統（緊湊）"
           }
         }
       }

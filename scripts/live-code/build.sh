@@ -51,13 +51,30 @@ sed -n 1,5p "$out/flipped-nm.txt"
 app="$(reload "$out/reload-2.log" "$@" CMUX_LIVE_CODE_INTERPOSABLE_LIST="$list")"
 [[ -n "$app" && -d "$app" ]] || fail_build "$out/reload-2.log"
 # Every symbol the relinked app binds from itself must be in its own export trie, or dyld stops the
-# launch; name the first few that are not.
+# launch: that fails the build. dyld_info -fixups also names a rebase's target, which needs no export,
+# so only its bind lines count; the other names are printed for the record.
 xcrun dyld_info -exports "$bin" | grep -oE '_\$s11CmuxNextApp[^ ]*' | sort -u > "$out/exports-2.txt" || true
-xcrun dyld_info -fixups "$bin" | grep -oE '_\$s11CmuxNextApp[^ ]*' | sort -u > "$out/binds-2.txt" || true
+xcrun dyld_info -fixups "$bin" > "$out/fixups-2.txt" || true
+grep -E '[[:space:]]((weak|lazy)-)?bind[[:space:]]' "$out/fixups-2.txt" | grep -oE '_\$s11CmuxNextApp[^ ]*' | sort -u > "$out/binds-2.txt" || true
+grep -oE '_\$s11CmuxNextApp[^ ]*' "$out/fixups-2.txt" | sort -u > "$out/named-2.txt" || true
+echo "live-code build: relinked: $(wc -l < "$out/binds-2.txt" | tr -d ' ') CmuxNextApp binds, $(wc -l < "$out/named-2.txt" | tr -d ' ') named by any fixup, $(wc -l < "$out/exports-2.txt" | tr -d ' ') exported"
+# The interposable list makes CmuxNextApp's calls bind through itself; none read means the bind
+# lines were not recognized, and the check below would pass blind.
+[[ -s "$out/binds-2.txt" ]] || { echo "live-code build: no CmuxNextApp bind found in dyld_info -fixups (its format?); first lines:" >&2; sed -n 1,5p "$out/fixups-2.txt" >&2; exit 1; }
+comm -23 "$out/named-2.txt" "$out/exports-2.txt" | comm -23 - "$out/binds-2.txt" > "$out/unexported-rebases-2.txt"
+if [[ -s "$out/unexported-rebases-2.txt" ]]; then
+  echo "live-code build: $(wc -l < "$out/unexported-rebases-2.txt" | tr -d ' ') unexported CmuxNextApp symbols are rebase targets only (no export needed); their fixups:"
+  grep -F -f <(sed -n 1,5p "$out/unexported-rebases-2.txt") "$out/fixups-2.txt" | head -n 10 || true
+fi
 comm -23 "$out/binds-2.txt" "$out/exports-2.txt" > "$out/missing-2.txt"
-missing="$(sed -n 1,5p "$out/missing-2.txt")"
-echo "live-code build: relinked: $(wc -l < "$out/binds-2.txt" | tr -d ' ') CmuxNextApp binds, $(wc -l < "$out/exports-2.txt" | tr -d ' ') exported"
-[[ -z "$missing" ]] || { echo "live-code build: the relinked app binds $(wc -l < "$out/missing-2.txt" | tr -d ' ') CmuxNextApp symbols it does not export, first:" >&2; echo "$missing" >&2; exit 1; }
+if [[ -s "$out/missing-2.txt" ]]; then
+  echo "live-code build: the relinked app binds $(wc -l < "$out/missing-2.txt" | tr -d ' ') CmuxNextApp symbols it does not export; their fixups:" >&2
+  grep -F -f <(sed -n 1,5p "$out/missing-2.txt") "$out/fixups-2.txt" | head -n 10 >&2 || true
+  exit 1
+fi
+# Whether CmuxNextApp compiled a file at a time (reload.sh's live build) or whole-module.
+wmo="$(grep -E -- "-module-name CmuxNextApp " "$log" | grep -c -- "-whole-module-optimization" || true)"
+echo "live-code build: CmuxNextApp frontend commands: $(grep -cE -- "-module-name CmuxNextApp " "$log" || true), whole-module: $wmo"
 echo "live-code build: built in $((SECONDS - build_start)) s"
 grep -E -- "-module-name CmuxNextApp " "$log" > "$out/cmuxnextapp-commands.log" || true
 printf '%s\n' "$app" > "$out/app-path"

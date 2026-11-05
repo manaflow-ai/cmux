@@ -233,6 +233,11 @@ export const PAGES = {
     out: "webviews/src/pages/stats/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/stats/Localizable.xcstrings" }],
   },
+  // The GitHub page (cmux-page://cmux.github/); its table lives next to it.
+  github: {
+    out: "webviews/src/pages/github/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/github/Localizable.xcstrings" }],
+  },
   // The Chief Usage page (cmux-page://cmux.chief-usage/); its table lives next to it.
   "chief-usage": {
     out: "webviews/src/pages/chief-usage/generated/strings.json",

@@ -37,23 +37,32 @@ public nonisolated struct SidebarChatHistoryState: Hashable, Sendable {
     public var hasMore = false
     /// The user folded Earlier to its header.
     public var earlierFolded = false
+    /// acpmux has not sent Earlier's rows yet (the app is connecting, or the daemon's chat index is still
+    /// starting after a relaunch). Earlier then keeps its header and one Loading row, so a slow start never
+    /// reads as every chat gone.
+    public var loading = false
 
     public init(pinned: [SidebarHistoryChat] = [], earlier: [SidebarHistoryChat] = [], hasEarlier: Bool = false,
-                hasMore: Bool = false, earlierFolded: Bool = false) {
+                hasMore: Bool = false, earlierFolded: Bool = false, loading: Bool = false) {
         self.pinned = pinned
         self.earlier = earlier
-        self.hasEarlier = hasEarlier || !earlier.isEmpty
+        self.hasEarlier = hasEarlier || !earlier.isEmpty || loading
         self.hasMore = hasMore
         self.earlierFolded = earlierFolded
+        self.loading = loading
     }
+
+    /// Earlier shows its Loading row: still loading, unfolded, with no row of its own yet.
+    public var showsLoading: Bool { loading && earlier.isEmpty && !earlierFolded }
 
     /// The history of `newest` (acpmux's Earlier window, newest first; read lazily, stopping once the
     /// page is full). `more`: acpmux has chats past that window (`hasMore`), which is Show More; this
     /// never reads past the page to find out. `live`: the chats an open workspace shows (the tree
     /// lists those). `pinned`: the pinned keys in pin order; `chat` finds a pinned chat outside the page.
     public static func make(newest: some Sequence<SidebarHistoryChat>, chat: (String) -> SidebarHistoryChat?,
-                            live: Set<String>, pinned: [String], limit: Int, folded: Bool, more: Bool = false) -> SidebarChatHistoryState {
-        var state = SidebarChatHistoryState(earlierFolded: folded)
+                            live: Set<String>, pinned: [String], limit: Int, folded: Bool, more: Bool = false,
+                            loading: Bool = false) -> SidebarChatHistoryState {
+        var state = SidebarChatHistoryState(earlierFolded: folded, loading: loading)
         state.pinned = pinned.compactMap(chat)
         let skipped = live.union(pinned)
         let wanted = folded ? 0 : max(0, limit)
@@ -76,11 +85,12 @@ public nonisolated struct SidebarChatHistoryState: Hashable, Sendable {
         pinned.isEmpty ? 0 : m.sectionHeaderHeight + CGFloat(pinned.count) * (m.rowHeight + m.rowSpacing)
     }
 
-    /// The Earlier block: its header, the page's rows and the Show More row; 0 with nothing earlier.
+    /// The Earlier block: its header, the page's rows and the Show More or Loading row; 0 with nothing earlier.
     public func earlierHeight(_ m: SidebarLayoutMetrics) -> CGFloat {
         guard hasEarlier else { return 0 }
         guard !earlierFolded else { return m.sectionHeaderHeight }
-        return m.sectionHeaderHeight + CGFloat(earlier.count + (hasMore ? 1 : 0)) * (m.rowHeight + m.rowSpacing)
+        let extraRow = hasMore || showsLoading ? 1 : 0
+        return m.sectionHeaderHeight + CGFloat(earlier.count + extraRow) * (m.rowHeight + m.rowSpacing)
     }
 }
 

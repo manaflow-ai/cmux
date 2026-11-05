@@ -29,7 +29,8 @@
 #
 # --live-code LOG: APP is a live code build (docs/cmux-next/live-code.md) and LOG its reload.sh log.
 # A swift-live PR whose changes are edits to CmuxNextApp's existing Swift files is then applied with
-# no build: the PR's diff goes onto APP's commit (CMUXCommit) in a scratch worktree, is sorted again
+# no build: the PR's diff goes onto APP's commit (CMUXCommit; a build stamped CMUXCommitDirty, or with
+# none, is refused) in a scratch worktree, is sorted again
 # there, and scripts/live-code/patch.py compiles those files against the build into the copy's
 # live-code/ folder, which the running copy loads (with --here, your app's live folder, Labs > Live
 # Code). Anything else takes the dev build, saying why. The verdict is a hint (live_apply.py), so
@@ -106,6 +107,49 @@ for reason, paths in sorted(json.load(sys.stdin)["reasons"].items()):
     print("  " + reason + ": " + ", ".join(paths[:5]) + (" …" if len(paths) > 5 else ""))
 ' <<<"$result"
 
+# The verdict above sorts the PR against its own base. A web-live verdict must also hold for the app
+# it patches: the PR's web UI can lean on Swift that came into the base after APP was built, and
+# that Swift is not in APP. So the change is sorted again from APP's commit (CMUXCommit) when APP is
+# older than the PR's base; anything but web UI from there means the PR's Swift side is not in that
+# build, and the live apply is refused for the dev build. An APP at or after the PR's base has all
+# the Swift the PR was written against.
+if [[ "$verdict" == web-live && -f "$from/Contents/Info.plist" ]]; then
+  recorded="$("$buddy" -c 'Print :CMUXCommit' "$from/Contents/Info.plist" 2>/dev/null || true)"
+  # Only a hex commit id is looked up: an empty or other value never resolves as a ref name.
+  app_commit=""
+  if [[ "$recorded" =~ ^[0-9a-f]{7,40}$ ]]; then
+    app_commit="$(git -C "$ROOT" rev-parse --verify -q "${recorded}^{commit}" 2>/dev/null || true)"
+  fi
+  # A reload build stamps CMUXCommitDirty when tracked files had local edits. Those are not in the
+  # commit and may change or remove Swift the PR leans on, so no sort from the commit vouches for it.
+  dirty="$("$buddy" -c 'Print :CMUXCommitDirty' "$from/Contents/Info.plist" 2>/dev/null || true)"
+  if [[ -n "$app_commit" && "$dirty" == true ]]; then
+    echo "web-live, but $from was built at ${app_commit:0:12} with local edits, so whether it has the PR's Swift side is unknown: the dev build instead (rebuild it from a clean checkout to apply web PRs live)"
+    verdict=rebuild
+  elif [[ -z "$app_commit" ]]; then
+    echo "web-live, but $from's commit '${recorded}' is not in this checkout, so whether it has the PR's Swift side is unknown: the dev build instead (git fetch first, or --from another app)"
+    verdict=rebuild
+  elif git -C "$ROOT" merge-base --is-ancestor "$base" "$app_commit"; then
+    :
+  elif git -C "$ROOT" merge-base --is-ancestor "$app_commit" "$base"; then
+    against="$(python3 "$ROOT/scripts/cmux-next/live_apply.py" --repo "$ROOT" --json "$app_commit" "$head")"
+    again="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["verdict"])' <<<"$against")"
+    if [[ "$again" != web-live && "$again" != no-app ]]; then
+      echo "web-live against its base, but $from was built at ${app_commit:0:12}, before it: from there the change is $again, so the PR's Swift side is not in that build. No live apply: the dev build instead"
+      python3 -c '
+import json, sys
+for kind, paths in sorted(json.load(sys.stdin)["files"].items()):
+    if kind not in ("web-live", "no-app"):
+        print("  " + kind + ": " + ", ".join(paths[:5]) + (" …" if len(paths) > 5 else ""))
+' <<<"$against"
+      verdict=rebuild
+    fi
+  else
+    echo "web-live, but $from was built at ${app_commit:0:12}, on another line than the PR's base: whether it has the PR's Swift side is unknown, so the dev build instead"
+    verdict=rebuild
+  fi
+fi
+
 # Makes the side instance from APP (again when it was made from another app, APP updated since, or
 # it was made with another --live-code), then opens it.
 open_side() {
@@ -138,7 +182,14 @@ await_line() {
 live_swift() {
   local recorded commit src made changed bad tree_id apply_id again live_dir log offset patch line
   [[ -f "$live_log" ]] || { echo "live code: no reload log at $live_log"; return 1; }
+  # The build's commit as reload.sh, the fleet and the nightly stamp it, and whether tracked files had
+  # local changes then: those changes are not in the commit, so a patch onto it would be built
+  # against other code than the app runs.
   recorded="$("$buddy" -c 'Print :CMUXCommit' "$from/Contents/Info.plist" 2>/dev/null || true)"
+  [[ -n "$recorded" ]] || { echo "live code: $from records no commit (CMUXCommit): build it again with a reload.sh that stamps one"; return 1; }
+  if [[ "$("$buddy" -c 'Print :CMUXCommitDirty' "$from/Contents/Info.plist" 2>/dev/null || true)" == true ]]; then
+    echo "live code: $from had local changes when it was built (CMUXCommitDirty), so its code is not ${recorded:0:12}'s"; return 1
+  fi
   commit="$(git -C "$ROOT" rev-parse --verify -q "${recorded:-none}^{commit}" 2>/dev/null || true)"
   [[ -n "$commit" ]] || { echo "live code: $from's commit '${recorded}' is not in this checkout (a dirty build, or git fetch first)"; return 1; }
   if [[ -n "$dry" ]]; then
@@ -147,21 +198,30 @@ live_swift() {
   fi
   made="$(mktemp -d "${TMPDIR:-/tmp}/try-pr-live.XXXXXX")"; src="$made/src"
   # The build's commit with the PR's change on it: what the patch is compiled from.
-  git -C "$ROOT" worktree add -q --detach "$src" "$commit"
-  drop() { git -C "$ROOT" worktree remove --force "$src" 2>/dev/null || true; rm -rf "$made"; }
+  drop() { trap - EXIT INT TERM; git -C "$ROOT" worktree remove --force "$src" 2>/dev/null || true; rm -rf "$made"; }
+  # Gone on every way out, Ctrl-C and a kill included. (live_swift runs as an if condition, so set -e
+  # is off in it: each step's failure is checked.)
+  trap drop EXIT
+  trap 'drop; exit 130' INT TERM
+  if ! git -C "$ROOT" worktree add -q --detach "$src" "$commit"; then
+    drop; echo "live code: no scratch worktree of $commit"; return 1
+  fi
   if ! git -C "$ROOT" diff --binary "$base" "$head" | git -C "$src" apply --3way -q 2>/dev/null; then
     drop; echo "live code: #$pr does not apply cleanly on the build's commit $commit"; return 1
   fi
-  git -C "$src" add -A
-  changed="$(git -C "$src" diff --cached --name-status "$commit")"
+  if ! git -C "$src" add -A || ! changed="$(git -C "$src" diff --cached --name-status "$commit")"; then
+    drop; echo "live code: the PR's change could not be read in the scratch worktree"; return 1
+  fi
   bad="$(awk -F'\t' '$1 != "M" || $2 !~ /^Packages\/macOS\/CmuxNext\/Sources\/CmuxNextApp\/.*\.swift$/ { print $NF }' <<<"$changed")"
   if [[ -n "$bad" ]]; then
     drop; echo "live code takes only edits to CmuxNextApp's existing Swift files; not: $(tr '\n' ' ' <<<"$bad")"; return 1
   fi
   # Sorted again against the build's own commit (the PR's base may be newer or older).
-  tree_id="$(git -C "$src" write-tree)"
-  apply_id="$(git -C "$src" -c user.name=try-pr -c user.email=try-pr@localhost commit-tree "$tree_id" -p "$commit" -m "try-pr #$pr on $commit")"
-  again="$(python3 "$ROOT/scripts/cmux-next/live_apply.py" --repo "$ROOT" --json "$commit" "$apply_id" | python3 -c 'import json,sys; print(json.load(sys.stdin)["verdict"])')"
+  if ! tree_id="$(git -C "$src" write-tree)" ||
+    ! apply_id="$(git -C "$src" -c user.name=try-pr -c user.email=try-pr@localhost commit-tree "$tree_id" -p "$commit" -m "try-pr #$pr on $commit")" ||
+    ! again="$(python3 "$ROOT/scripts/cmux-next/live_apply.py" --repo "$ROOT" --json "$commit" "$apply_id" | python3 -c 'import json,sys; print(json.load(sys.stdin)["verdict"])')"; then
+    drop; echo "live code: the change could not be sorted on the build's commit"; return 1
+  fi
   if [[ "$again" != swift-live ]]; then drop; echo "live code: on the build's commit the change is $again"; return 1; fi
   local files=() file
   while IFS=$'\t' read -r _ file; do files+=("$file"); done <<<"$changed"
@@ -252,9 +312,17 @@ case "$verdict" in
     [[ -n "$dry" || -x "$ci" ]] || { echo "no cmux-ci client at $ci (CMUX_CI names another)" >&2; exit 1; }
     # A later push with the same tag and workspace supersedes a queued build of an older head.
     build=(build cmux --ref "$head" --tag "pr-$pr" --backend-mode local --workspace "try-pr:$pr:$(id -un)")
+    # Build ahead (cmuxterm-hq build_ahead.go): the fleet may already have built this head's tree
+    # (a prebuild, or anyone's equal build under another tag). Take it: the side instance opens
+    # whatever .app the job holds. An older client without --any-tag still matches tag pr-N.
+    build_help="$([[ -n "$dry" ]] || "$ci" build --help 2>/dev/null || true)"
+    if [[ -n "$dry" || "$build_help" == *--any-tag* ]]; then build+=(--any-tag); fi
     if [[ -n "$dry" ]]; then run "$ci" "${build[@]}"; if [[ -n "$here" ]]; then echo "would wait for it and print where it is"; else echo "would wait for it and open it as cmux PR #$pr"; fi; exit 0; fi
     job="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$("$ci" "${build[@]}")")"
     echo "fleet job $job"
+    # Done already means a build of this tree was ready: no build waited on.
+    state="$("$ci" status "$job" 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("state", ""))' 2>/dev/null || true)"
+    if [[ "$state" == done ]]; then echo "built ahead: job $job already holds this tree's app"; fi
     "$ci" wait "$job" >&2 || { echo "job $job is not done; \`try-pr.sh $pr\` again picks up the same build" >&2; exit 1; }
     out="$side_root/builds/pr-$pr-${head:0:12}"
     if [[ ! -d "$out/bundle" ]]; then

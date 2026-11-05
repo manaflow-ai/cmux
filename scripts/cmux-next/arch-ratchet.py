@@ -90,6 +90,16 @@ range that changes no Package.swift reuses its base's).
                                                      # commits that raised each row over it (a report line
                                                      # for the perf cron, never a gate)
   scripts/cmux-next/arch-ratchet.py --list-rules
+  scripts/cmux-next/arch-ratchet.py --pre-push REMOTE < PRE-PUSH-STDIN
+                                                     # the pushed refs of git's pre-push stdin, alone: for a clone
+                                                     # without cmux's hooks (see "Where it runs")
+
+Where it runs. cmux's pre-push hook (scripts/install-git-hooks.sh) runs it through guardrails. A clone that never
+ran the installer (a `wt` mirror, a lane VM, whose `git push` goes through lane-gh) ran nothing, and the rises
+landed on feat-cmux-next: 60 "base red" arch fixes in the 7 days to 2026-11-05, each a lane moving another PR's
+App lines out (#35386 took back +26 from #35294, pushed from a lane VM; the ratchet refuses that commit in 7 s).
+The fleet's global pre-push hook (leo-workspace tools/git-hooks/pre-push) runs `--pre-push` for a push to
+manaflow-ai/cmux when the clone has no cmux pre-push hook of its own. Still no CI job (Lawrence 2026-10-23).
 """
 
 from __future__ import annotations
@@ -1138,6 +1148,25 @@ def update(repo: Path, rev: str = "HEAD", upstream_ref: str = UPSTREAM) -> int:
     return 0
 
 
+def pre_push(repo: Path, remote: str, lines: list[str], upstream_ref: str = UPSTREAM) -> int:
+    """1 when the ratchet refuses the pushed refs of LINES (git's pre-push stdin), else 0.
+
+    The ranges are push_range.pushed_ranges', the ones cmux's own hook judges. A ref whose range cannot be told
+    is a warning, not a refusal: this entry is the fallback for a clone without cmux's hooks, and like run_push it
+    fails open on its own errors."""
+    try:
+        ranges, errors = load_push_range().pushed_ranges(repo, lines, remote, upstream_ref)
+    except (Exception, SystemExit) as error:
+        print(f"arch-ratchet: WARNING: the pushed ranges could not be read ({type(error).__name__}: {error}); "
+              "not applied to this push", file=sys.stderr)
+        return 0
+    for error in errors:
+        print(f"arch-ratchet: WARNING: not judged: {error}", file=sys.stderr)
+    if not ranges:
+        return 0
+    return 1 if run_push(repo, ranges, upstream_ref) else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo")
@@ -1149,6 +1178,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", action="store_true", help="--audit: print one JSON object")
     parser.add_argument("--list-rules", action="store_true")
     parser.add_argument("--upstream", default=UPSTREAM, help="the shared branch whose landed work never counts")
+    parser.add_argument("--pre-push", metavar="REMOTE",
+                        help="judge the refs of git's pre-push stdin (REMOTE: the hook's first argument)")
     args = parser.parse_args(argv)
     repo = Path(args.repo).resolve() if args.repo else Path(git(Path.cwd(), "rev-parse", "--show-toplevel")[1])
     if args.list_rules:
@@ -1171,6 +1202,8 @@ def main(argv: list[str] | None = None) -> int:
     if os.environ.get("GITHUB_ACTIONS"):
         print("arch-ratchet: not run under GitHub Actions (local pre-push only)")
         return 0
+    if args.pre_push is not None:
+        return pre_push(repo, args.pre_push, sys.stdin.read().splitlines(), args.upstream)
     code, head = git(repo, "rev-parse", "--verify", f"{args.head}^{{commit}}")
     if code != 0:
         print(f"arch-ratchet: no commit {args.head}", file=sys.stderr)
