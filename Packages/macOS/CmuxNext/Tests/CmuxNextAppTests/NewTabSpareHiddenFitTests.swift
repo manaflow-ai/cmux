@@ -4,6 +4,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import CmuxNextTestSupport
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -86,6 +87,66 @@ struct NewTabSpareHiddenFitTests {
             let opened = try #require(pool.openings.dropFirst(openings).first, "Cmd-T recorded no opening")
             #expect(opened.spare, "Cmd-T loaded cold instead of taking the parked spare")
             #expect(!opened.refit, "Cmd-T found the spare at another size than its pane's")
+        }
+    }
+
+    /// Review 2 of #36266 (finding 1): pane resizes with no spring (a sidebar drag or reveal, a window resize in steps)
+    /// change the pane's size in every frame and the layout is still all the while. The hidden spare is laid out once, at
+    /// the last size, after the sizes settle; not once per frame (that would be the per-frame hidden-page cost again).
+    @Test func paneResizesWithNoSpringInEveryFrameFitTheSpareOnceAtTheLastSize() async throws {
+        try await PasswordManagerRouteTests.withApp { services, _ in
+            services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-spare-steps-fit")
+            try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
+            let (window, pane) = try await NewTabOpenFramesTests.focusedPane(services)
+            let folder = try NewTabRapidPairTests.folder()
+            var rig: NewTabRapidPairTests.Rig?
+            defer { NewTabRapidPairTests.cleanUp(services, rig, folder) }
+            rig = try await NewTabRapidPairTests.filledPool(services, window: window, folder: folder)
+            let spare = try #require(services.newTabSpares.spare?.view)
+            try await PasswordManagerRouteTests.until({ spare.frame.size == NewTabSparePool.newTabContentSize(in: pane) },
+                                                      report: { "the spare \(spare.frame.size) never took its pane's size before the steps" })
+            let content = try #require(window.contentView)
+            let base = content.bounds.size
+            var sizes: [CGSize] = [spare.frame.size]
+            func note() { if sizes.last != spare.frame.size { sizes.append(spare.frame.size) } }
+            // Eight steps one display frame or two apart (well inside the settle), as a drag's events come.
+            for step in 1...8 {
+                window.setContentSize(NSSize(width: base.width - CGFloat(step) * 24, height: base.height))
+                content.layoutSubtreeIfNeeded()
+                try await Task.sleep(for: .milliseconds(16)) // test harness wait: one frame between steps, as a drag
+                note()
+            }
+            let final = NewTabSparePool.newTabContentSize(in: pane)
+            try await PasswordManagerRouteTests.until({ note(); return spare.frame.size == final }, within: .seconds(2),
+                                                      report: { "the spare is \(spare.frame.size), its pane's content is \(final)" })
+            #expect(sizes.count == 2, "the hidden spare was laid out \(sizes.count - 1) times for one series of steps: \(sizes)")
+        }
+    }
+
+    /// Review 2 of #36266 (finding 2): work held for a still layout runs when a spring lands, also when the landing frame
+    /// changes no pane's size (nothing else asks again). Before, the landing asked while its own flag still said
+    /// "moving", so the work waited for the next unrelated change.
+    @Test func stillWorkHeldDuringASpringRunsWhenTheSpringLands() async throws {
+        try await PasswordManagerRouteTests.withApp { services, _ in
+            let (_, first) = try await NewTabOpenFramesTests.focusedPane(services)
+            let controller = try #require(services.windows.active)
+            #expect(services.registry.perform("splitRight", invocation: ActionInvocation(origin: .user)))
+            try await PasswordManagerRouteTests.until({ controller.focusedPane != nil && controller.focusedPane !== first },
+                                                      report: { "the split never took the focus" })
+            let layout = try #require(controller.content?.layoutView)
+            try await PasswordManagerRouteTests.until({ !layout.isInLayoutMotion }, report: { "the split never landed" })
+            let queue = FrameBatchQueue(owner: "NewTabSpareHiddenFitTests.still", budgeted: .background, on: services.mainWork)
+            var ranInMotion = false
+            var ran = false
+            #expect(services.registry.perform("resizePaneLeft", invocation: ActionInvocation(origin: .user)), "the press was refused")
+            try await PasswordManagerRouteTests.until({ layout.isInLayoutMotion }, within: .seconds(2), report: { "the press did not spring" })
+            layout.whenStill("NewTabSpareHiddenFitTests.still", on: queue) {
+                ran = true
+                ranInMotion = layout.isInLayoutMotion
+            }
+            try await PasswordManagerRouteTests.until({ !layout.isInLayoutMotion }, within: .seconds(3), report: { "the press never landed" })
+            try await PasswordManagerRouteTests.until({ ran }, within: .seconds(2), report: { "the held work never ran after the landing" })
+            #expect(!ranInMotion, "the held work ran while the layout moved")
         }
     }
 }
