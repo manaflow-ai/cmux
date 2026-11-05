@@ -7,7 +7,7 @@ import Foundation
 /// a second of samples is in.
 nonisolated struct UpdateTransferRate: Equatable, Sendable {
     /// One byte count and when it arrived.
-    struct Sample: Equatable {
+    struct Sample: Equatable, Sendable {
         var bytes: UInt64
         var at: Date
     }
