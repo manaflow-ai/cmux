@@ -650,15 +650,15 @@ final class AgentTabStore {
             (newTabPages[AgentTabKey(machine: scoped.machine, key: key)]?.handler ?? blankChatHandler?(key))?.open(key, request)
         }
         model.onRunAttach = { [weak self] request in guard let self, let runAttachScoped else { throw AgentPaneHostError.daemonStopped }; try await runAttachScoped(self.resolvedKey(scoped), request) }
-        model.onTypeAhead = { [weak self] text in self.map { $0.pageHandler($0.resolve(provisional, machine: scoped.machine))?.typeAhead($0.resolve(provisional, machine: scoped.machine), text) } }
+        model.onTypeAhead = { [weak self] text in self.map { $0.pageHandler($0.resolve(provisional, machine: scoped.machine), machine: scoped.machine)?.typeAhead($0.resolve(provisional, machine: scoped.machine), text) } }
         model.onNewTabInputReady = { [weak self] token in self.map { let key = $0.resolvedKey(scoped); $0.newTabPages[key]?.handler.inputReady(key.key, token) } }
         model.onRememberNewTab = { [weak self, weak model] pick in
             if let model { AgentPaneNewTabFrame.shared.modelChanged(pick, by: model) }
-            self?.pageHandler(self?.resolve(provisional, machine: scoped.machine) ?? provisional)?.remember(pick)
+            self?.pageHandler(self?.resolve(provisional, machine: scoped.machine) ?? provisional, machine: scoped.machine)?.remember(pick)
         }
-        model.onEditNewTab = { [weak self] edit in self?.pageHandler(self?.resolve(provisional, machine: scoped.machine) ?? provisional)?.edit(edit) }
-        model.onJump = { [weak self] target, id in self?.newTabPage(self?.resolve(provisional, machine: scoped.machine) ?? provisional)?.handler.jump(target, id) }
-        model.onEditShortcut = { [weak self] kind in self?.newTabPage(self?.resolve(provisional, machine: scoped.machine) ?? provisional)?.handler.editShortcut(kind) }
+        model.onEditNewTab = { [weak self] edit in self?.pageHandler(self?.resolve(provisional, machine: scoped.machine) ?? provisional, machine: scoped.machine)?.edit(edit) }
+        model.onJump = { [weak self] target, id in self?.newTabPage(self?.resolve(provisional, machine: scoped.machine) ?? provisional, machine: scoped.machine)?.handler.jump(target, id) }
+        model.onEditShortcut = { [weak self] kind in self?.newTabPage(self?.resolve(provisional, machine: scoped.machine) ?? provisional, machine: scoped.machine)?.handler.editShortcut(kind) }
         model.machineLink = machineLink
         model.onRunAction = { [weak self] id, arguments in
             guard let self else { return false }
@@ -666,7 +666,7 @@ final class AgentTabStore {
             // on the machine this tab's chat runs on, resolved here: the page never names a machine.
             let target: ActionTargetRef
             if id == "machine.reconnect" {
-                guard let machine = remoteMachineID(of: provisional) else { return false }
+                guard let machine = remoteMachineID(of: provisional, machine: scoped.machine) else { return false }
                 target = ActionTargetRef(kind: .machine, id: machine)
             } else {
                 target = ActionTargetRef(kind: .tab, id: resolve(provisional, machine: scoped.machine))
@@ -753,12 +753,18 @@ final class AgentTabStore {
 
     func existingView(_ key: String, machine: String? = nil) -> AgentPaneView? { views[tabKey(key, machine: machine)] }
 
-    func newTabPage(_ key: String) -> (page: AgentPaneNewTab, handler: NewTabPageHandler)? { newTabPages[resolve(key)] }
+    func newTabPage(_ key: String, machine: String? = nil) -> (page: AgentPaneNewTab, handler: NewTabPageHandler)? {
+        let scoped = tabKey(key, machine: machine)
+        return newTabPages[scoped]
+    }
     /// The New Tab page's handler, else a chat tab's (a chat's picks are remembered too, cx-q5x6r).
-    func pageHandler(_ key: String) -> NewTabPageHandler? { newTabPages[resolve(key)]?.handler ?? blankChatHandler?(resolve(key)) }
+    func pageHandler(_ key: String, machine: String? = nil) -> NewTabPageHandler? {
+        let scoped = tabKey(key, machine: machine)
+        return newTabPages[scoped]?.handler ?? blankChatHandler?(scoped.key)
+    }
 
     /// The tab still shows the new tab page (it has not become a chat).
-    func isNewTabPage(_ key: String) -> Bool { newTabPages[resolve(key)] != nil }
+    func isNewTabPage(_ key: String, machine: String? = nil) -> Bool { newTabPages[tabKey(key, machine: machine)] != nil }
 
     /// A chat outside any pane (onboarding's first task, Start Agent's panel), new or on `session`,
     /// on the same daemon and page as the tabs. The caller owns it and closes it.

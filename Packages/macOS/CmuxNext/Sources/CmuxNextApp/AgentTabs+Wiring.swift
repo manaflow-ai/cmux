@@ -261,7 +261,7 @@ extension AgentTabStore {
                     // task-owner: one creation reply; ends after tree arrival, cancellation or the mirror deadline
                     Task { [weak services, weak tabs] in
                         guard let tabs else { return }
-                        await TabMirror.performWhenReached(key, in: tabs.locate) {
+                        await TabMirror.performWhenReached(key, in: { tabs.locateScoped(AgentTabKey(machine: target.daemon.machineID, key: $0)) }) {
                             if let placed { if let surface = services?.locateTab(key, onMachine: target.daemon.machineID)?.0.surface { placed(surface) }; return }
                             _ = tabs.actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: key), origin: .user))
                         }

@@ -40,10 +40,10 @@ extension AgentTabStore {
     /// (``AgentPaneModel/terminalFolder``). Only a chat this Mac's acpmux runs, on this Mac's
     /// daemon, in a folder that exists here: a Cloud, SSH or peer chat's folder is another
     /// machine's path, even where the same path exists here.
-    func terminalFolder(of key: String) -> String? {
-        let key = resolve(key)
-        guard let folder = views[key]?.model.terminalFolder, daemonForTab(key)?.isLocal == true,
-              let host = lookup(key)?.record.host, host == localHost, WorkingURL.isDirectory(folder) else { return nil }
+    func terminalFolder(of key: String, machine: String? = nil) -> String? {
+        let scoped = tabKey(key, machine: machine)
+        guard let folder = views[scoped]?.model.terminalFolder, daemonForTabScoped(resolvedKey(scoped))?.isLocal == true,
+              let host = record(for: resolvedKey(scoped))?.record.host, host == localHost, WorkingURL.isDirectory(folder) else { return nil }
         return folder
     }
 
