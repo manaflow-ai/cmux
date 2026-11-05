@@ -203,6 +203,19 @@ await requireBrowserLane("composer-rich-paste.test.ts", async () => {
       await page.close();
     });
 
+    test(`${engine}: a copied message with a picture keeps its image Markdown, as before`, async () => {
+      const page = await newChat(engine);
+      const source = "- before\n\n![chart](https://example.com/chart.png)\n\n- after";
+      await paste(page, {
+        "text/plain": source,
+        "text/html":
+          "<ul><li>before</li></ul><p><img src='https://example.com/chart.png' alt='chart'></p><ul><li>after</li></ul>",
+      });
+      await settled(page, "after");
+      expect((await prompt(page)).plain).toContain("![chart](https://example.com/chart.png)");
+      await page.close();
+    });
+
     test(`${engine}: prose and a script with a # comment still paste as their lines`, async () => {
       const page = await newChat(engine);
       const source = "# install\nbrew install cmux\n\nthen run it";
