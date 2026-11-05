@@ -12,15 +12,20 @@ export function ImportHistoryGallery({
   empty = false,
   paste = false,
   autodetected = false,
+  partial = false,
 }: {
   layout?: HistoryLayout;
   phase?: Phase;
   empty?: boolean;
   paste?: boolean;
   autodetected?: boolean;
+  partial?: boolean;
 }) {
   const [store] = useState(() => {
     const rows = initialRows().map((row) => {
+      // Partial: Codex chats are not on this Mac and Claude memory is unchecked, so both providers read mixed or partly found.
+      if (partial && row.id === "codex-sessions") return row;
+      if (partial && row.id === "claude-memory") return { ...row, source: row.id, selected: false };
       if (row.kind === "local" && !empty && phase !== "detecting") return { ...row, source: row.id, selected: true };
       if (autodetected && row.id === "chatgpt")
         return {

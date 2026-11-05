@@ -422,7 +422,10 @@ describe("Bring your history", () => {
     const store = new ImportHistoryStore(client);
     await store.start();
     const rows = () => store.getSnapshot().rows;
-    const selected = () => rows().filter((row) => row.selected).map((row) => row.id);
+    const selected = () =>
+      rows()
+        .filter((row) => row.selected)
+        .map((row) => row.id);
     expect(groupState(rows(), claude)).toBe("on");
     expect(groupState(rows(), codex)).toBe("on");
 
