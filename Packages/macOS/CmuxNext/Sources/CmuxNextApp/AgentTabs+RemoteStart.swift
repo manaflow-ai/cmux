@@ -69,14 +69,14 @@ extension AgentTabStore {
         if ownerLink != nil, let teammate, await teammate() { throw AgentRemoteStartRefusal.teamMachine(machine: machine) }
         // Only an absolute folder of that machine (a `~` or relative one is not its path).
         let absolute = { (path: String?) in path.flatMap { $0.hasPrefix("/") ? $0 : nil } }
-        // Non-Cloud hosts keep the folder fallback; a Cloud host gets no cwd and makes `~/chats/<id>` (a link it cannot read fails as that).
+        // Non-Cloud hosts keep the folder fallback and refusal; a Cloud host gets no cwd and makes `~/chats/<id>` (its unread link fails as that).
         var fallback = absolute(chosen) ?? absolute(seed?.cwd) ?? (ownerLink == nil ? remoteFolder?(key) : nil)
         var supportsNoCwd = false
         if fallback == nil {
             let lister = AgentSessionAttachClient(surface: surface, reconnect: reconnect, endpoint: endpoint)
-            do { if ownerLink != nil { supportsNoCwd = try await lister.supportsNoCwd() }; if !supportsNoCwd { fallback = try await lister.folders().work } } catch {
+            do { if ownerLink != nil { supportsNoCwd = try await lister.supportsNoCwd() }; if !supportsNoCwd { fallback = try await lister.folders().work } } catch where ownerLink != nil {
                 await lister.close(); throw (error as? AgentSessionAttachError).map { AgentRemoteStartRefusal(code: $0.code, machine: machine, detail: $0.message) } ?? error
-            }
+            } catch {}
             await lister.close()
         }
         if fallback == nil && !supportsNoCwd {

@@ -238,7 +238,7 @@ that chat in the machine's own acpmux (`cmux-tui acp send|wait|last SESSION_ID`)
 `start-session` answers `machine_id`, `session_id` and `host` (the machine's
 `registry:` host), plus the chat's `workspace_id` and `surface_id`. The chat's
 tab opens in the machine's first workspace. Without `--cwd` the session starts
-in that workspace's folder. An agent's run starts at once, as the person's own
+in a new folder of its own, `~/chats/<chat-id>`, on the machine. An agent's run starts at once, as the person's own
 would; only the Cloud plan's limits refuse it. When the person turned off
 `cloud.agentsStartWithoutAsking`, an agent's run asks them first with a card in
 its own chat (Start, Not now), like an agent's `cloud move`, and waits up to 2
