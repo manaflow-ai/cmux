@@ -121,8 +121,8 @@ describe("layer snapshot GC", () => {
   const at = (h: number) => new Date(Date.UTC(2026, 10, 1) + h * 3600_000).toISOString();
   const now = Date.UTC(2026, 10, 3);
   const key = (c: string) => c.repeat(16);
-  const sys = (c: string, h: number) => ({ id: `sh-sys${c}`, slug: `cmuxnp-dev-vmimg-sys-${key(c)}`, displayName: `cmuxnp-dev-vmimg-sys-${key(c)}`, createdAt: at(h) });
-  const agt = (c: string, h: number, sysC?: string) => ({ id: `sh-agt${c}`, slug: `cmuxnp-dev-vmimg-agt-${key(c)}`, displayName: sysC ? `cmuxnp-dev-vmimg-agt-${key(c)} ^sys-${key(sysC)}` : `cmuxnp-dev-vmimg-agt-${key(c)}`, createdAt: at(h) });
+  const sys = (c: string, h: number) => ({ id: `sh-sys${c}`, slug: `cmuxnp-dev-vmimg-sys-${key(c)}`, displayName: `cmuxnp-dev-vmimg-sys-${key(c)}`, createdAt: at(h), lastUsedAt: at(h) });
+  const agt = (c: string, h: number, sysC?: string) => ({ id: `sh-agt${c}`, slug: `cmuxnp-dev-vmimg-agt-${key(c)}`, displayName: sysC ? `cmuxnp-dev-vmimg-agt-${key(c)} ^sys-${key(sysC)}` : `cmuxnp-dev-vmimg-agt-${key(c)}`, createdAt: at(h), lastUsedAt: at(h) });
   const app = (n: number, h: number, agtC?: string) => ({ id: `sh-app${n}`, slug: `cmuxnp-dev-vmimg-ci-${n}-1`, displayName: agtC ? `cmuxnp-dev-vmimg-ci-${n}-1 ^agt-${key(agtC)}` : `cmuxnp-dev-vmimg-ci-${n}-1`, createdAt: at(h) });
 
   test("a label names the parent layer and fits 64 characters; a provider parent gives the bare name", async () => {
@@ -153,13 +153,22 @@ describe("layer snapshot GC", () => {
     expect(later.remove.map((s) => s.id).sort()).toEqual(["sh-sys1", "sh-sys2"]);
   });
 
-  test("a layer made inside the window stays even without lastUsedAt", async () => {
+  test("a layer made inside the window stays though its last boot is older", async () => {
     const { planLayerGc } = await import("../scripts/cmux-vm-image/gc-layers");
     // The newest is kept as newest; the second newest stays only because it was made inside the window.
     const fresh = { ...sys("9", 0), createdAt: new Date(now - 120_000).toISOString() };
     const newest = { ...sys("2", 0), createdAt: new Date(now - 60_000).toISOString() };
     const all = [sys("1", 1), fresh, newest];
     expect(planLayerGc(all, new Set(), { keep: 1, recentMs: 3600_000, now }).remove.map((s) => s.id)).toEqual(["sh-sys1"]);
+  });
+
+  test("a layer whose last boot the list does not say stays a week after it was made", async () => {
+    const { planLayerGc, UNKNOWN_USE_MS } = await import("../scripts/cmux-vm-image/gc-layers");
+    const made = (c: string, ago: number) => ({ ...sys(c, 0), createdAt: new Date(now - ago).toISOString(), lastUsedAt: undefined });
+    const all = [made("1", UNKNOWN_USE_MS + 3600_000), made("2", UNKNOWN_USE_MS - 3600_000), made("3", 60_000)];
+    const plan = planLayerGc(all, new Set(), { keep: 1, recentMs: 3600_000, now });
+    expect(plan.keep.get("sh-sys2")).toBe("last boot unknown, made recently");
+    expect(plan.remove.map((s) => s.id)).toEqual(["sh-sys1"]);
   });
 
   test("a referenced snapshot and a recently booted layer stay", async () => {

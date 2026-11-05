@@ -498,6 +498,10 @@ def main(argv: list[str]) -> int:
     if len(argv) == 3 and argv[1] == 'prepare-host':
         mode, why = prepare_host(Path(argv[2]), workspace, toolchain_identity())
         print(f'NEXT Release build: {mode} DerivedData ({why}) in {Path(argv[2]) / "DerivedData"} (host build root)')
+        # This decides the build, not the slot's own prepare line above it in the log.
+        if summary := os.environ.get('GITHUB_STEP_SUMMARY'):
+            with open(summary, 'a', encoding='utf-8') as stream:
+                stream.write(f'### NEXT Release build\n- DerivedData: {mode} ({why}), host build root\n')
         return 0
     if len(argv) == 3 and argv[1] == 'finish-host':
         finish_host(Path(argv[2]), workspace, Path.home(), os.environ.get('RUNNER_NAME', ''))

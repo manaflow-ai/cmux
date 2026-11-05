@@ -36,6 +36,7 @@ from pathlib import Path
 POLL_S = 20  # how long one /next request waits for a command
 CALL_WAIT_S = 900  # how long a call waits for its result (a window verb runs about 90 s)
 AGENT_WAIT_S = 1800  # how long the agent waits for the host Mac to come up or say something
+DONE_WAIT_S = POLL_S + 10  # how long the host waits for the agent to take `done` (one poll)
 VERBS = {"latency-view": re.compile(r"^(key|pointer) [0-9]{1,5}$"), "window-view": re.compile(r"^[0-9]{1,4}$")}
 TARGET = re.compile(r"^[a-z0-9_-]{1,32}$")
 
@@ -86,8 +87,9 @@ def serve(bind: str, port: int, token: str, folder: Path) -> None:
                     for cmd in sorted(folder.glob("cmd-*.json"), key=lambda p: int(p.stem[4:])):
                         handed = cmd.with_suffix(".handed")
                         if not handed.exists():
+                            body = json.loads(cmd.read_text())  # whole: call() and done() write by rename
                             handed.touch()
-                            return self.reply(200, json.loads(cmd.read_text()))
+                            return self.reply(200, body)
                     time.sleep(0.1)  # bounded by POLL_S: the agent asks again
                 return self.reply(204)
             self.reply(404)
@@ -134,7 +136,7 @@ def call(folder: Path, target: str, verb: str, args: list[str]) -> int:
         sys.exit(f"peer.py call: {verb} is not a viewer verb")
     n = len(list(folder.glob("cmd-*.json"))) + 1
     cmd = {"id": n, "target": target, "verb": verb, "args": cmd_args, "env": env, "files": files, "go_file": go}
-    (folder / f"cmd-{n}.json").write_text(json.dumps(cmd))
+    put(folder / f"cmd-{n}.json", cmd)
     result = folder / f"result-{n}.json"
     deadline = time.monotonic() + CALL_WAIT_S
     while not result.exists():
@@ -157,8 +159,20 @@ def call(folder: Path, target: str, verb: str, args: list[str]) -> int:
 
 
 def done(folder: Path) -> None:
+    """Tells the viewer Mac to stop, and waits (DONE_WAIT_S at most) for it to say it got that, so the
+    host's server is not gone before the agent's next poll."""
     n = len(list(folder.glob("cmd-*.json"))) + 1
-    (folder / f"cmd-{n}.json").write_text(json.dumps({"id": n, "verb": "done"}))
+    put(folder / f"cmd-{n}.json", {"id": n, "verb": "done"})
+    deadline = time.monotonic() + DONE_WAIT_S
+    while not (folder / f"result-{n}.json").exists() and time.monotonic() < deadline:
+        time.sleep(0.2)  # bounded by DONE_WAIT_S
+
+
+def put(path: Path, value: dict) -> None:
+    """Writes JSON whole: a reader sees the old file or the new one, never part of it."""
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(value))
+    tmp.rename(path)
 
 
 # ---- viewer Mac ----
@@ -189,13 +203,19 @@ def agent(host: str, port: int, token: str, root: Path) -> int:
     state.mkdir(parents=True, exist_ok=True)
     os.chmod(state, 0o700)
     deadline = time.monotonic() + AGENT_WAIT_S
+    said = 0.0
     while True:  # the host Mac's step may start later than this one
         try:
             first = offsets()
             break
-        except OSError:
+        except OSError as error:
+            # A refusal (nothing listening yet) is the usual wait; anything else (no route, a
+            # timeout, a privacy or firewall refusal) is worth seeing, once a minute and at the end.
+            if time.monotonic() - said > 60:
+                print(f"peer.py agent: {base} not reachable yet: {error!r}", file=sys.stderr, flush=True)
+                said = time.monotonic()
             if time.monotonic() > deadline:
-                print(f"peer.py agent: no host Mac at {base} within {AGENT_WAIT_S} s", file=sys.stderr)
+                print(f"peer.py agent: no host Mac at {base} within {AGENT_WAIT_S} s (last: {error!r})", file=sys.stderr)
                 return 1
             time.sleep(5)  # bounded by AGENT_WAIT_S
     request("/hello/0", {"host": os.uname().nodename, **first})
@@ -214,6 +234,10 @@ def agent(host: str, port: int, token: str, root: Path) -> int:
             continue
         idle_until = time.monotonic() + AGENT_WAIT_S
         if cmd.get("verb") == "done":
+            try:
+                request(f"/result/{cmd['id']}", {"exit": 0}, timeout=10)
+            except OSError:
+                pass  # the host stops waiting on its own
             print("peer.py agent: done", flush=True)
             return 0
         target, verb, args = cmd.get("target", ""), cmd.get("verb", ""), cmd.get("args") or []

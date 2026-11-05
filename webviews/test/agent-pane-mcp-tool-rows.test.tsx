@@ -3,7 +3,7 @@
 // showed one escaped JSON line with the host's injected `<in-app-browser-context>` in it. Now a
 // run of the same MCP tool is one line that says what it did to what ("Sent 4 messages to
 // Coordination hub", the thread's id resolved to its title from another call's output), a call
-// opens to its request and response pretty-printed, nested JSON strings parsed, and internal
+// opens to its arguments as labeled fields and its response pretty-printed, nested JSON strings parsed, and internal
 // context blocks never reach the transcript.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
@@ -126,19 +126,24 @@ for (const [harness, call] of [
     expect(host.textContent).not.toContain("schemaVersion");
   });
 
-  test(`${harness}: an opened MCP call shows its request and response pretty-printed, without internal context`, async () => {
+  test(`${harness}: an opened MCP call shows its arguments as fields and its response pretty-printed, without internal context`, async () => {
     await render([call("r1", "read_thread", { threadId: THREAD }, readOutput)]);
     await click(toggles()[0]!);
+    // One labeled field per argument (ToolDetail.tsx; Leo, 2026-11-05), never one JSON block.
+    const fields = [...host.querySelectorAll(".cv-tool-detail__field")].map((node) => [
+      node.querySelector(".cv-tool-detail__key")?.textContent,
+      node.querySelector(".cv-tool-detail__value")?.textContent,
+    ]);
+    expect(fields).toEqual([["threadId", THREAD]]);
     const blocks = [...host.querySelectorAll(".cv-mcp-call__body, .cv-tool-output")].map(
       (node) => node.textContent ?? "",
     );
-    expect(blocks).toHaveLength(2);
-    expect(blocks[0]).toBe(`{\n  "threadId": "${THREAD}"\n}`);
+    expect(blocks).toHaveLength(1);
     // The text block's JSON string is parsed, not shown escaped.
-    expect(blocks[1]).toContain('"schemaVersion": 1');
-    expect(blocks[1]).toContain('"title": "Coordination hub"');
-    expect(blocks[1]).toContain('"preview": "ship it"');
-    expect(blocks[1]).not.toContain('\\"');
+    expect(blocks[0]).toContain('"schemaVersion": 1');
+    expect(blocks[0]).toContain('"title": "Coordination hub"');
+    expect(blocks[0]).toContain('"preview": "ship it"');
+    expect(blocks[0]).not.toContain('\\"');
     expect(host.textContent).not.toContain("in-app-browser-context");
     expect(host.textContent).not.toContain("ambient UI state");
   });
@@ -176,7 +181,7 @@ for (const [harness, call] of [
     const output = "PreToolUse:read_thread hook error: Blocked: example from documentation";
     await render([call("quoted", "read_thread", { threadId: THREAD }, output)]);
     await click(toggles()[0]!);
-    expect(host.querySelector(".cv-mcp-call")!.textContent).toContain(output);
+    expect(host.querySelector(".cv-tool-detail")!.textContent).toContain(output);
     expect(host.textContent).not.toContain("blocked by hook");
   });
 
@@ -209,11 +214,9 @@ for (const [harness, call] of [
     await click(toggles()[0]!);
     expect(labels()).toEqual(["Sent 2 messages", "Sent a message", "Sent a message"]);
     await click(toggles()[2]!);
-    const blocks = [...host.querySelectorAll(".cv-mcp-call__body, .cv-tool-output")].map(
-      (node) => node.textContent ?? "",
-    );
-    expect(blocks[0]).toContain('"message": "two"');
-    expect(host.textContent).not.toContain('"message": "one"');
+    const values = [...host.querySelectorAll(".cv-tool-detail__value")].map((node) => node.textContent ?? "");
+    expect(values).toEqual([THREAD, "two"]);
+    expect(host.textContent).not.toContain("one");
   });
 }
 
@@ -252,11 +255,13 @@ test("a settled run of Codex MCP calls folds as tools used, not commands run", a
   expect(toolRunSummary(en as never, items)).toBe("Used tools");
 });
 
-test("Find reads an MCP call as it draws: its pretty request and response, without internal context", async () => {
+test("Find reads an MCP call as it draws: its argument fields and pretty response, without internal context", async () => {
   const { activityText } = await import("../src/agent-session/acpmux/conversation/chatFind");
   const read = codexCall("r1", "read_thread", { threadId: THREAD }, readOutput);
   const text = activityText(read);
-  expect(text).toContain(`"threadId": "${THREAD}"`);
+  // The fields draw their values; their keys are labels Find skips (ToolDetail.tsx).
+  expect(text.split("\n")[0]).toBe(THREAD);
+  expect(text).not.toContain("threadId");
   expect(text).toContain('"preview": "ship it"');
   expect(text).not.toContain("ambient UI state");
   expect(text).not.toContain("codex_apps.read_thread call");
