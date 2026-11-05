@@ -37,10 +37,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
     private(set) var presence: SurfacePresence = .hidden
     var isVisible: Bool { presence == .visible }
     var pendingDock = PendingDockChats() // chats bound for a new chat dock, never in this strip (NewChatPlacement)
-    /// A tab this app just created here; selected once the daemon reports it (`selectWhenReported`).
-    var pendingSelectSurface: SurfaceID?  // set by selectWhenReported* (AgentBesidePlacement)
-    /// Same, named by tab resource id (a reopened tab's restored view).
-    private(set) var pendingSelectTab: String?
+    /// A tab this app just created or reopened here, selected once the daemon reports it (`selectWhenReported*`).
+    var pendingSelect = PendingTabSelect()
     private var observation: Task<Void, Never>?
     /// One observation per daemon tab's strip item and focus kind (`focusPane` reads it; I1, I2).
     private lazy var tabItems = ObservedItems<TabModel, (StripTabItem, FocusTopology.Kind)>(
@@ -122,10 +120,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         #if DEBUG
         DebugLayoutCounters.note("pane mount", #fileID, #line)
         #endif
-        // Cmd-N's stand-in this pane takes over (another layout id): its selected tab, or a select waiting there, selects here now.
+        // Cmd-N's stand-in this pane takes over (another layout id): what it waited to select, or selected, selects here now.
         if !ProvisionalPane.isStandIn(pane.handle), let standIn = workspace?.panes.values.first(where: { daemon.store.daemonPane(takingOver: $0.pane.handle) == pane.handle }) {
-            let selected = standIn.stripModel.selectedID.map { daemon.store.creations.replacement(ofStandIn: $0.rawValue, in: pane)?.id ?? $0.rawValue }
-            if let surface = standIn.pendingSelectSurface { pendingSelectSurface = surface } else { pendingSelectTab = standIn.pendingSelectTab ?? selected }
+            pendingSelect.takeOver(standIn.pendingSelect, selected: standIn.stripModel.selectedID?.rawValue) { daemon.store.creations.replacement(ofStandIn: $0, in: pane)?.id }
         }
         observe()
     }
@@ -345,16 +342,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         }
         if stripModel.showsNewTabButton != snapshot.takesNewTabs { stripModel.showsNewTabButton = snapshot.takesNewTabs }
         if !snapshot.items.isEmpty { LaunchReveal.shared.markReady(.tabs) }
-        var selectNew = false
-        if let pending = pendingSelectSurface, let tab = snapshot.tabs.first(where: { $0.surface == pending }) { // once listed (OutboundTab)
-            state?.selection.select(tab.id, in: paneKey)
-            pendingSelectSurface = nil
-            selectNew = true
-        } else if let pending = pendingSelectTab, let tab = pane.tabs.first(where: { $0.id == pending }) {
-            state?.selection.select(tab.id, in: paneKey)
-            pendingSelectTab = nil
-            selectNew = true
-        }
+        let selectNew = pendingSelect.take(shown: snapshot.tabs, record: pane.tabs) // once listed (OutboundTab)
+        if let selectNew { state?.selection.select(selectNew, in: paneKey) }
         // Members of a collapsed group are hidden: a closed selected tab's successor skips them while a shown tab survives (close-focus.md).
         let collapsed = Set(snapshot.groups.filter(\.isCollapsed).map(\.id))
         let hidden = Set(snapshot.items.filter { $0.groupID.map(collapsed.contains) ?? false }.map(\.id.rawValue))
@@ -363,7 +352,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         setStripSelection(selected.map { StripTabID($0) })
         let selectedID = stripModel.selectedID
         sendTopologyIfChanged() // focus learns the selection before the show: the keyboard leaves the old tab first (showSelected)
-        if selectNew {
+        if selectNew != nil {
             // A tab this window created: show it now (focus is the coordinator's expectation, not decided here).
             showSelected()
         } else if let selectedID, selectedID.rawValue != currentTabKey {
@@ -410,7 +399,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     func selectWhenReported(surface: SurfaceID) {
         if let successor { return successor.selectWhenReported(surface: surface) }
         guard ActionRunScope.viewChangeAllowed() else { return apply(snapshot()) }
-        pendingSelectSurface = surface
+        pendingSelect.surface = surface
         apply(snapshot())
     }
 
@@ -418,7 +407,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     func selectWhenReported(tab: String) {
         if let successor { return successor.selectWhenReported(tab: tab) }
         guard ActionRunScope.viewChangeAllowed() else { return apply(snapshot()) }
-        pendingSelectTab = tab
+        pendingSelect.tab = tab
         apply(snapshot())
     }
 

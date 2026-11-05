@@ -269,7 +269,7 @@ extension PaneBrowserTabOpener {
                     if let tab = controller.daemon.store.tab(surface: surface) { _ = cache.moveBrowser(pending.tab, to: tab) }
                 }
                 let selected = (controller.successor ?? controller).stripModel.selectedID?.rawValue // after Cmd-N's hand-over, the daemon pane's
-                if selected == nil || selected == pending.tab || (controller.successor ?? controller).pendingSelectSurface == pending.surface { controller.selectWhenReported(surface: surface) }
+                if selected == nil || selected == pending.tab || (controller.successor ?? controller).pendingSelect.surface == pending.surface { controller.selectWhenReported(surface: surface) }
                 controller.workspace?.expectFocus(on: surface, target: focusesAddressBar ? .addressBar : .content, generation: intent)
                 landed = true
                 then?(surface)

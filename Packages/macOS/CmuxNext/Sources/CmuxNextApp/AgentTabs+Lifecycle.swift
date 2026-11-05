@@ -175,7 +175,7 @@ extension AgentTabStore {
                 if hidden { pane.pendingDock.created(pending.key, as: created.key) }
                 // A remote store can answer before its tree lists the provisional tab, so the
                 // provisional selection never took: the store's tab is selected now (cx-k21v).
-                if select, !hidden, !daemon.isLocal, (pane.successor ?? pane).stripModel.selectedID?.rawValue != created.key {
+                if select, !hidden, !daemon.isLocal, pane.stripModel.selectedID?.rawValue != created.key {
                     pane.selectWhenReported(surface: created.surface)
                 }
                 then?(created.key)
