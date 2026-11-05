@@ -37,9 +37,6 @@ export type AgentSessionTheme = {
   borders?: "default" | "none";
   /// Whether keyboard focus outlines, including transcript response rows, are shown.
   focusRingEnabled?: boolean;
-  /// The chat column's width on a wide pane (Debug Settings `agent.chatWidth`, acpmux chatWidth.ts):
-  /// `standard`, `wide` or `wideBlocks`. Absent means standard.
-  chatWidth?: string;
   /// Codex-style tool runs in a running turn (Debug Settings `agentPane.debug.codexToolRuns`,
   /// acpmux codexToolRuns.ts). Native hosts send their default (true) explicitly; absent keeps it
   /// on, and false opts out.

@@ -2,9 +2,9 @@
 // Session Info's three places by the pane's width (SessionInfo.tsx sessionInfoStage; Leo, 2026-11-03:
 // "we previously had all that behaviour logic going from not affecting layout at all -> gradually
 // pushing into the chat layout -> overlay"). At 1600px the right gutter holds the panel and the chat
-// does not move; at 1100px it pushes the transcript's column left by only what the gutter lacks
-// (pushedRoom), the column at its own width; at 1200px a push would narrow the column (its 62.5% share),
-// so it lies over the chat above the composer (Leo, 2026-11-03: "the agent chat's horizontal width
+// does not move; at 1200px it pushes the transcript's column left by only what the gutter lacks
+// (pushedRoom), the column at its own width; at 1100px a push would narrow the 800px column, so it
+// lies over the chat above the composer (Leo, 2026-11-03: "the agent chat's horizontal width
 // shouldn't be shifted its position sure but it itself and its text shouldn't be affected by the
 // session info if it would need to be then session info should be an overlay"). Narrow panes:
 // agent-pane.session-info-narrow-pane.
@@ -32,7 +32,7 @@ export default componentEntry<{ surface: "transcript" }>({
   },
   variants: {
     opened: {
-      note: "Open: in the gutter at 1600px (nothing moves), pushing the column left at its own width at 1100px, over the chat above the composer at 1200px.",
+      note: "Open: in the gutter at 1600px (nothing moves), pushing the column left at its own width at 1200px, over the chat above the composer at 1100px.",
       props: { surface: "transcript" },
       play: async (ctx) => {
         const closed = 'button.acpmux-session-info-toggle[aria-pressed="false"]';

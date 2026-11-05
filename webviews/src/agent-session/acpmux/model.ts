@@ -1542,15 +1542,14 @@ const TABLE_ROW_HEIGHT = 40;
 const SCROLLBAR_HEIGHT = 15;
 /// Where text can't be measured (no canvas), a generous character width.
 const FALLBACK_CHAR_WIDTH = 8;
-/// The chat's one column (`--cv-column` and `--cv-inset` in conversation/conversation.css): 720px,
-/// 62.5% of a wider pane up to 800px (or the cap Debug Settings' `agent.chatWidth` picks, chatWidth.ts),
-/// centered, at least the page edge from each side. `endReserve` is room a card keeps at the
+/// The chat's one column (`--cv-column` and `--cv-inset` in conversation/conversation.css): the pane's
+/// width up to Chat Text Width (chatWidth.ts, 800px by default), at least 720px or that width, centered, at least the page edge from each side. `endReserve` is room a card keeps at the
 /// column's right (the computer use live preview, `--cv-inset-end`): the column's end moves in to
 /// leave it, its start stays.
 const PAGE_EDGE = gridLength("icon-box");
 /// The column's own width (`--cv-column`), before the 4 grid's 0-7 px leftover joins it.
-export const transcriptColumnSpan = (paneWidth: number, { min, max, share }: ChatColumn = chatColumn()) =>
-  Math.min(max, Math.max(min, paneWidth * share));
+export const transcriptColumnSpan = (paneWidth: number, { min, max }: ChatColumn = chatColumn()) =>
+  Math.min(max, Math.max(min, paneWidth));
 export function transcriptColumn(paneWidth: number, chat: ChatColumn = chatColumn(), endReserve = 0) {
   const column = transcriptColumnSpan(paneWidth, chat);
   // On the 4 grid (design/grid.md 5.5), as `round(down, ..., 4px)` in conversation.css.
@@ -2139,13 +2138,12 @@ function blockHeight(
   used?: Set<string>,
 ): number {
   switch (block.type) {
-    // Prose (lists, quotes, paragraphs, headings) keeps its measure in a wide column (chatWidth.ts).
     case "list":
-      return listHeight(block as Tokens.List, Math.min(width, chatColumn().prose), prepared, used);
+      return listHeight(block as Tokens.List, width, prepared, used);
     case "blockquote":
       return textHeight(
         measuredText((block as Tokens.Blockquote).tokens, (block as Tokens.Blockquote).text),
-        Math.min(width, chatColumn().prose) - QUOTE_INDENT,
+        width - QUOTE_INDENT,
         prepared,
         used,
       );
@@ -2160,7 +2158,7 @@ function blockHeight(
     case "heading":
       return textHeight(
         measuredText("tokens" in block ? block.tokens : undefined, (block as Tokens.Text).text),
-        Math.min(width, chatColumn().prose),
+        width,
         prepared,
         used,
       );
@@ -2390,7 +2388,7 @@ function measuredRowHeight(
   let contentHeight: number;
   if (plainUser) {
     // UserBubble -> PromptText draws this as literal spans, so avoid preparing Markdown tokens.
-    const plainWidth = Math.min(contentWidth, chatColumn().prose);
+    const plainWidth = contentWidth;
     const { measureFont, lineHeight } = metrics();
     const plainKey = `${measureFont}\n${lineHeight}\n${plainWidth}\n${row.text}`;
     if (entry.plainHeight?.key === plainKey) contentHeight = entry.plainHeight.height;

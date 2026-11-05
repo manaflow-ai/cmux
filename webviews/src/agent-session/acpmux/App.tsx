@@ -623,7 +623,7 @@ import { harnessLabel } from "./subagents/agentRuns";
 import { cloudStartBegun, cloudStartEnded, cloudStartPushed, type CloudStartProgress } from "./cloudStartProgress";
 import { CloudStartView } from "./CloudStartView";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
-import { chatColumnOf, configureChatWidth, useChatSizing } from "./chatWidth";
+import { chatColumnOf, useChatSizing } from "./chatWidth";
 import {
   registerChatDisplayHost,
   useChatDisplay,
@@ -3422,8 +3422,8 @@ export function VirtualTranscript({
   // left then, and kept room above the stack for FLOOR_HOLD_MS that then glided away (#24182).
   useLayoutEffect(() => noteQueue(), [sessionId, queueIds, noteQueue]);
   const [width, setWidth] = useState(() => lastTranscriptBox.width);
-  // The column's cap (layout.json `chatWidth`): a new one measures every row again.
-  const { width: chatWidth, scale: chatScale } = useChatSizing();
+  // The page zoom the column's cap is divided by: a new one measures every row again.
+  const { scale: chatScale } = useChatSizing();
   // The user's chat look (font, sizes, width; chatDisplay.ts): a new one measures every row again.
   const chatLook = useChatDisplay();
   const measuredLook = useRef(chatLook);
@@ -3452,7 +3452,7 @@ export function VirtualTranscript({
   }
   const drawnRef = useRef(drawn);
   drawnRef.current = drawn;
-  const scaledRowWidth = transcriptRowWidth(width, chatColumnOf(chatWidth, chatLook, chatScale), endReserve);
+  const scaledRowWidth = transcriptRowWidth(width, chatColumnOf(chatLook, chatScale), endReserve);
   const rowWidthRef = useRef(scaledRowWidth);
   rowWidthRef.current = scaledRowWidth;
   const rowsRef = useRef(rows);
@@ -6411,7 +6411,6 @@ function DefaultComposerChips({
 /** The same host theme before mount and on subsequent bridge pushes. */
 export function applyPaneTheme(theme: Record<string, unknown>): void {
   applyAgentTheme(theme as never);
-  configureChatWidth(theme.chatWidth);
   configureCodexToolRuns(theme.codexToolRuns);
   configureLiveLineBelow(theme.liveLineBelow);
   configureToolRunLook(theme.toolRunLook);

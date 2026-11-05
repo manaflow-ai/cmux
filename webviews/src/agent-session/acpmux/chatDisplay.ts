@@ -253,9 +253,6 @@ export function chatMetrics(display: ChatDisplay): ChatMetrics {
   };
 }
 
-/// Whether the column differs from the default one (then Debug Settings' chat width stops applying).
-export const ownsColumn = (display: ChatDisplay) => display.fullWidth || display.width !== DEFAULT_CHAT_DISPLAY.width;
-
 /// The CSS variables for `display`; a null value removes the variable (the stylesheet's default).
 export function chatDisplayVariables(display: ChatDisplay): Record<string, string | null> {
   const metrics = chatMetrics(display);
@@ -270,10 +267,12 @@ export function chatDisplayVariables(display: ChatDisplay): Record<string, strin
     "--cv-codeblock-line-height":
       isDefault("fontSize") && isDefault("codeScale") ? null : `${metrics.codeLineHeight}px`,
     "--cv-mono": codeFont,
-    "--cv-column": !ownsColumn(display)
-      ? null
-      : display.fullWidth
-        ? "100%"
+    // The stylesheet's default is the default width's column, so only another width or Full Width
+    // sets it; chatWidth.ts displayColumn mirrors both for the row estimator.
+    "--cv-column": display.fullWidth
+      ? "100%"
+      : isDefault("width")
+        ? null
         : `clamp(calc(${Math.min(720, display.width)}px / var(--cmux-ui-scale, 1)), 100%, calc(${display.width}px / var(--cmux-ui-scale, 1)))`,
   };
 }

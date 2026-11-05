@@ -305,7 +305,7 @@ export default agentPaneEntry({
   variants: {
     "unicode-boundary": {
       note: "The first line puts an emoji across the 240-code-unit preview boundary in both directions. At wide width the cutoff is visible; narrow width retains the normal CSS ellipsis.",
-      theme: { chatWidth: "wide" },
+      display: { "agentPane.display.width": 960 },
       snapshot: chat([
         activity([sendMessage("Jo", `${"i".repeat(239)}🦊 later`)], 3),
         received("Jo", `${"i".repeat(239)}🦊 later`, 2),

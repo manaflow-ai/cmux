@@ -901,7 +901,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   // A column the display owns (its own width) or a zoomed page's is a new object on every call: kept
   // while its numbers are the same, so the placement effect below (the shell's column pin and its
   // CHAT_LAYOUT_EVENT) runs only when the column changes, never once per streamed token.
-  const column = useSameValue(chatColumnOf(sizing.width, display, sizing.scale));
+  const column = useSameValue(chatColumnOf(display, sizing.scale));
   // It slides in from the pane's right edge and back out (ui/presence.ts), keeping its sections
   // while it leaves.
   const presence = usePresence(shown && !native, "right");

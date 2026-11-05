@@ -75,7 +75,7 @@ function ChatMinimapOn(props: Props) {
   const track = Math.floor(props.foot - MINIMAP_TOP - MINIMAP_BOTTOM);
   // The right gutter of the column the chat really draws (Text Width, Full Width): none, no minimap.
   const sizing = useChatSizing();
-  const column = chatColumnOf(sizing.width, useChatDisplay(), sizing.scale);
+  const column = chatColumnOf(useChatDisplay(), sizing.scale);
   const width = minimapWidth(transcriptColumn(props.width, column).inset);
   // The rows reach the map through a ref: a token renders nothing in it.
   const source = useRef<Source>({ rows: props.rows, layout: props.layout });

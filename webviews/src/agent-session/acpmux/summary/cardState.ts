@@ -5,19 +5,19 @@
 // A chat with summary content shows the inline card when there is room; an empty chat stays quiet
 // until the user explicitly opens the summary button. Any hide choice is stored for this pane.
 import { useCallback, useLayoutEffect, useState, useSyncExternalStore } from "react";
-import { chatColumnOf, uiScale, useChatSizing } from "../chatWidth";
+import { chatColumnOf, uiScale, useChatSizing, type ChatColumn } from "../chatWidth";
+import { useChatDisplay } from "../chatDisplay";
 
 /// The inline summary column is only useful when the chat keeps a readable width beside it.
 export const SUMMARY_COLUMN_WIDTH = 300;
 const CHAT_MIN_WIDTH = 660;
 
-/** Keep a wider mode wider than the preceding mode when the rail is inline. */
-/// The minimum readable standard column follows the same CSS-pixel scale as its cap. A caller can
-/// pass a scale explicitly for geometry tests; the live summary uses the page's effective zoom.
-export const inlineChatFloor = (chatWidth: Parameters<typeof chatColumnOf>[0], scale: number = uiScale()) =>
-  chatWidth === "standard"
-    ? CHAT_MIN_WIDTH / scale
-    : chatColumnOf(chatWidth === "wide" ? "standard" : "wide", undefined, scale).max;
+/// The chat beside the inline summary keeps its whole Chat Text Width column, and never less than a
+/// readable 660px; with Chat Full Width, the readable floor alone. Both follow the effective page scale
+/// as the column's cap does. A caller can pass a column and scale explicitly for geometry tests; the
+/// live summary uses the page's.
+export const inlineChatFloor = (column: ChatColumn = chatColumnOf(), scale: number = uiScale()) =>
+  Number.isFinite(column.max) ? Math.max(CHAT_MIN_WIDTH / scale, column.max) : CHAT_MIN_WIDTH / scale;
 
 const PANEL_KEY = "cmux.acpmux.summaryPanel";
 let panelHidden: boolean | undefined;
@@ -72,7 +72,8 @@ const subscribePanel = (listener: () => void) => {
 /** Whether the pane can keep a readable chat column beside the inline summary. */
 export function useSummaryColumn(shell: HTMLElement | null, blocked: boolean): boolean {
   const [room, setRoom] = useState(false);
-  const { width: chatWidth, scale } = useChatSizing();
+  const { scale } = useChatSizing();
+  const display = useChatDisplay();
   useLayoutEffect(() => {
     if (!shell || blocked) {
       setRoom(false);
@@ -82,11 +83,9 @@ export function useSummaryColumn(shell: HTMLElement | null, blocked: boolean): b
       const rail = shell.querySelector<HTMLElement>(":scope>.acpmux-session-info");
       const reserved = rail?.offsetWidth ?? 0;
       const available = shell.clientWidth - reserved;
-      // The summary takes 300px from the same flex row as the transcript. At a width where that
-      // would erase the active mode's extra measure, keep it as a popover. The preceding mode's
-      // cap is the floor for each wider mode.
-      const column = chatColumnOf(chatWidth, undefined, scale);
-      setRoom(available >= inlineChatFloor(chatWidth, scale) / column.share + SUMMARY_COLUMN_WIDTH);
+      // The summary takes 300px from the same flex row as the transcript. Where that would narrow
+      // the chat's column below its Chat Text Width, keep it as a popover.
+      setRoom(available >= inlineChatFloor(chatColumnOf(display, scale), scale) + SUMMARY_COLUMN_WIDTH);
     };
     measure();
     const frame = requestAnimationFrame(measure);
@@ -101,7 +100,7 @@ export function useSummaryColumn(shell: HTMLElement | null, blocked: boolean): b
       observer.disconnect();
       children.disconnect();
     };
-  }, [shell, blocked, chatWidth, scale]);
+  }, [shell, blocked, display, scale]);
   return room;
 }
 

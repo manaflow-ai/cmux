@@ -1,6 +1,8 @@
 // l10n-allow-file: gallery fixtures (sample prompts, replies and code), not shipped UI.
-// The chat column's width trial (chatWidth.ts, cx-ncc.107): one turn with prose, tool calls, a
-// table and wide code, in each Debug Settings `agent.chatWidth`. Render it at 1440 and 1920.
+// The chat column (chatWidth.ts): one turn with prose, tool calls, a table and wide code at Settings >
+// Agents > Chat Layout > Chat Text Width's default, at other widths and at Chat Full Width. Every
+// pane draws the width set, capped only by the pane (https://github.com/manaflow-ai/cmux/issues/36299).
+// Render it at 900, 1440 and 1920: the column is the same width in each that fits it.
 import { agentPaneEntry, type AgentPaneVariant } from "../../../gallery/format";
 import { activity, assistant, chat, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 
@@ -51,11 +53,11 @@ const rows = chat([
   summary(5, { status: "completed", durationMs: 48_000, toolCount: 4 }),
 ]);
 
-/// The pane as the app pushes the Debug Settings `agent.chatWidth` with the theme.
-const variant = (chatWidth: string, note: string): AgentPaneVariant => ({
+/// The pane as the app pushes Settings' `agentPane.display.*` keys (`display`, chatDisplay.ts).
+const variant = (display: Record<string, unknown>, note: string): AgentPaneVariant => ({
   note,
   snapshot: rows,
-  theme: { chatWidth },
+  display,
 });
 
 export default agentPaneEntry({
@@ -65,11 +67,9 @@ export default agentPaneEntry({
   height: 900,
   covers: ["agent-session/acpmux/App.tsx#VirtualTranscript"],
   variants: {
-    standard: variant("standard", "Today: 720px, widening to an 800px cap, for everything."),
-    wide: variant("wide", 'Debug Settings chat width "wide": a 960px cap for everything.'),
-    "wide-blocks": variant(
-      "wideBlocks",
-      'Debug Settings chat width "wideBlocks": code, tables and tools to 1120px; prose keeps the 800px measure.',
-    ),
+    standard: variant({}, "Chat Text Width's default: an 800px column in any pane at least that wide."),
+    narrow: variant({ "agentPane.display.width": 640 }, "Chat Text Width 640: a 640px column in every pane."),
+    wide: variant({ "agentPane.display.width": 960 }, "Chat Text Width 960: a 960px column where the pane fits it."),
+    "full-width": variant({ "agentPane.display.fullWidth": true }, "Chat Full Width: the column fills the pane."),
   },
 });

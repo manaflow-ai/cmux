@@ -126,16 +126,21 @@ describe("chat display drawing", () => {
     expect(style.has("--cv-font-size")).toBe(false);
   });
 
-  test("the user's width replaces the column trial; Full Width fills the pane", () => {
+  test("Chat Text Width sets every chat's column, the default too; Full Width fills the pane", () => {
     const wide = resolveChatDisplay({ "agentPane.display.width": 1200 });
-    expect(chatColumnOf("standard", wide, 1.25).max).toBe(960);
+    expect(chatColumnOf(wide, 1.25).max).toBe(960);
     expect(chatDisplayVariables(wide)["--cv-column"]).toBe(
       "clamp(calc(720px / var(--cmux-ui-scale, 1)), 100%, calc(1200px / var(--cmux-ui-scale, 1)))",
     );
     const full = resolveChatDisplay({ "agentPane.display.fullWidth": true });
-    expect(chatColumnOf("wide", full).max).toBe(Infinity);
+    expect(chatColumnOf(full).max).toBe(Infinity);
     expect(chatDisplayVariables(full)["--cv-column"]).toBe("100%");
-    // No width of the user's own: the Debug Settings trial still picks the column.
-    expect(chatColumnOf("wide", resolveChatDisplay({})).max).toBe(960);
+    // The default 800 is a width like any other (https://github.com/manaflow-ai/cmux/issues/36299): the
+    // pane's whole width up to 800px, never a share of a wide pane. The stylesheet draws it.
+    const standard = chatColumnOf(resolveChatDisplay({}), 1);
+    expect(standard).toEqual({ min: 720, max: 800 });
+    expect(chatDisplayVariables(resolveChatDisplay({}))["--cv-column"]).toBeNull();
+    // A narrower width than the 720px floor is its own floor: the column is that width in every pane.
+    expect(chatColumnOf(resolveChatDisplay({ "agentPane.display.width": 600 }), 1)).toEqual({ min: 600, max: 600 });
   });
 });

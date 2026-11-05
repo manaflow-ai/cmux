@@ -206,28 +206,6 @@ public nonisolated struct AgentPaneTunables {
         help: "An agent chat's Browser button opens the local page the chat named (its preview) beside the chat, and Preview is not a separate button. Off: separate Preview and Browser buttons.",
         default: true, code: "AgentPaneTunables.browserOpensPreview")
 
-    /// How wide the chat's column draws on a wide pane (cx-ncc.107, a trial before real Settings).
-    /// The page gets it with the theme (`AgentPaneTheme`, `chatWidth`), again on each change.
-    public static let chatWidth = Tunable<ChatWidth>.choice(
-        "agent.chatWidth", PageTunables.section, "Agent chat width",
-        help: "Standard: 800px. Wide: 960px. Wide blocks: code, tables and tools 1120px, prose 800px.",
-        default: .standard, code: "AgentPaneTunables.chatWidth")
-
-    /// The chat column choices (the page's acpmux chatWidth.ts).
-    public nonisolated enum ChatWidth: String, Sendable, CaseIterable, TunableChoice {
-        case standard
-        case wide
-        case wideBlocks
-
-        public var tunableTitle: String {
-            switch self {
-            case .standard: "Standard"
-            case .wide: "Wide"
-            case .wideBlocks: "Wide blocks"
-            }
-        }
-    }
-
     /// Claude Code desktop's in-session status in an agent chat: the live plan card and the recap
     /// card. Off by default; each open agent page follows a change (``AgentPaneView/sessionStatus``).
     public static let sessionStatus = Tunable<Bool>.toggle(
@@ -345,7 +323,7 @@ public nonisolated struct AgentPaneTunables {
 
     /// Repaints every window when ``codexToolRuns``, ``turnActionsPlacement`` or ``liveLineBelow``
     /// changes, so open agent pages get it with the theme at once (as AppServices.observeBorders
-    /// does for ``chatWidth``). The first theme push starts it
+    /// does for `appearance.borders`). The first theme push starts it
     /// (``AgentPaneTheme/values(_:motion:surface:)``).
     @MainActor static func followCodexToolRuns() {
         guard codexToolRunsFollow == nil else { return }
@@ -473,7 +451,6 @@ public nonisolated struct AgentPaneTunables {
             agentPairGuard.descriptor,
             agentPairCap.descriptor,
             agentPairWindow.descriptor,
-            chatWidth.descriptor,
             chromium.descriptor,
             codexToolRuns.descriptor,
             composerPlainFooter.descriptor,

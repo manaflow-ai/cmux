@@ -610,12 +610,12 @@ test("three stages by the pane's width: in the gutter, pushing gradually, over t
   expect(sessionInfoStage("overlay", tall(gutterFits - 1), 320)).toBe("push");
   expect(sessionInfoStage("overlay", tall(1600), 320)).toBe("float");
   expect(sessionInfoStage("overlay", tall(1420), 320)).toBe("push");
-  expect(sessionInfoStage("overlay", tall(1100), 320)).toBe("push");
+  expect(sessionInfoStage("overlay", tall(1200), 320)).toBe("push");
   // Leo, 2026-11-03: "the agent chat's horizontal width shouldn't be shifted its position sure but it
   // itself and its text shouldn't be affected by the session info if it would need to be then session
-  // info should be an overlay". Where pushing would narrow the column (its 62.5% share at 1200px, its
-  // 720px floor at 740px), it lies over the chat instead.
-  expect(sessionInfoStage("overlay", tall(1200), 320)).toBe("overlay");
+  // info should be an overlay". Where pushing would narrow the column (below Chat Text Width's 800px at
+  // 1100px, its 720px floor at 740px), it lies over the chat instead.
+  expect(sessionInfoStage("overlay", tall(1100), 320)).toBe("overlay");
   expect(sessionInfoStage("overlay", tall(740), 320)).toBe("overlay");
   expect(sessionInfoStage("overlay", tall(528), 320)).toBe("overlay");
   expect(sessionInfoStage("overlay", tall(370), 320)).toBe("overlay");
@@ -630,8 +630,8 @@ test("three stages by the pane's width: in the gutter, pushing gradually, over t
   // Unmeasured, it is nowhere yet: in the gutter.
   expect(sessionInfoStage("overlay", { width: 0, height: 0 }, 320)).toBe("float");
   // Settings Push always: wherever its whole room keeps the column's width; elsewhere over the chat.
-  for (const width of [1800, 1100]) expect(sessionInfoStage("push", tall(width), 320)).toBe("push");
-  for (const width of [1300, 740, 528, 370]) expect(sessionInfoStage("push", tall(width), 320)).toBe("overlay");
+  for (const width of [1800, 1300, 1200]) expect(sessionInfoStage("push", tall(width), 320)).toBe("push");
+  for (const width of [1100, 740, 528, 370]) expect(sessionInfoStage("push", tall(width), 320)).toBe("overlay");
   expect(sessionInfoPushes("overlay", tall(1420), 320)).toBe(true);
   expect(sessionInfoPushes("overlay", tall(528), 320)).toBe(false);
 });
@@ -681,8 +681,8 @@ test("the panel takes each stage's place as the pane narrows and widens", async 
   expect(panel(container)?.hasAttribute("data-over-chat")).toBe(false);
   expect(panel(container)?.style.width).toBe("320px");
   // Narrower panes where pushing keeps the column's width: it pushes, by part of its width at 1420px
-  // (the rest a negative left margin over the chat's own gutter), by most of it at 1100px.
-  for (const width of [1420, 1100]) {
+  // (the rest a negative left margin over the chat's own gutter), by most of it at 1200px.
+  for (const width of [1420, 1200]) {
     await act(async () => {
       paneWidth = width;
       for (const observer of observers) observer();
@@ -699,9 +699,9 @@ test("the panel takes each stage's place as the pane narrows and widens", async 
       container.querySelector<HTMLElement>(".acpmux-shell")!.style.getPropertyValue("--acpmux-session-info-column"),
     ).toBe(`${transcriptColumn(width).width}px`);
   }
-  // 1200px: pushing would narrow the column, so it lies over the chat and pins nothing.
+  // 1100px: pushing would narrow the column, so it lies over the chat and pins nothing.
   await act(async () => {
-    paneWidth = 1200;
+    paneWidth = 1100;
     for (const observer of observers) observer();
   });
   expect(panel(container)?.dataset.placement).toBe("overlay");
@@ -783,9 +783,13 @@ test("a floating panel that would lie over the chat's text pushes the chat left,
   expect(panel(container)?.dataset.placement).toBe("push");
   expect(sessionInfoPushes("overlay", { width: 1600, height: 700 }, 320, undefined, false, 100)).toBe(true);
   expect(sessionInfoPushes("overlay", { width: 1600, height: 700 }, 320, undefined, false, 0)).toBe(false);
-  // Reaching so far that clearing it would narrow the column (Leo, 2026-11-03: "if it would need to be
-  // then session info should be an overlay"): over the chat instead.
-  expect(sessionInfoStage("overlay", { width: 1600, height: 700 }, 320, undefined, false, 300)).toBe("overlay");
+  // Reaching far: it takes its whole room, which a 1600px pane gives without narrowing the 800px
+  // column. Where the whole room would narrow it (Leo, 2026-11-03: "if it would need to be then session
+  // info should be an overlay"), as for a 1300px Chat Text Width here, it lies over the chat instead.
+  expect(sessionInfoStage("overlay", { width: 1600, height: 700 }, 320, undefined, false, 300)).toBe("push");
+  expect(
+    sessionInfoStage("overlay", { width: 1600, height: 700 }, 320, { min: 720, max: 1300 }, false, 300),
+  ).toBe("overlay");
   row.remove();
   paneWidth = 0;
 });
@@ -799,7 +803,7 @@ test("the right gutter holds the panel only in a wide pane", () => {
   // Unmeasured, it is nowhere yet.
   expect(sessionInfoOverChat(0, 320)).toBe(false);
   // A wider column (the user's Text Width) leaves a 250px gutter.
-  expect(sessionInfoOverChat(1600, 320, { min: 720, max: 1100, share: 1, prose: Infinity })).toBe(true);
+  expect(sessionInfoOverChat(1600, 320, { min: 720, max: 1100 })).toBe(true);
   // A handoff review's 760px form: measured against the form's own gutter.
   expect(sessionInfoOverChat(1600, 320, undefined, true)).toBe(false);
   expect(sessionInfoOverChat(1200, 320, undefined, true)).toBe(true);
