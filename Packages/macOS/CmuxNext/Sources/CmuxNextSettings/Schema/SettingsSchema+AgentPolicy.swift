@@ -414,6 +414,12 @@ extension SettingsSchema {
         "agents.subsessions.maxChildren": .userOnly,
         "agents.subsessions.maxRunning": .userOnly,
         "agents.subsessions.maxDepth": .userOnly,
+        // What every agent is told, and which of the person's skills reach it, is the person's
+        // call: an agent must not switch off the guidance or the skills it was given.
+        "agents.guidance.claude": .userOnly,
+        "agents.guidance.codex": .userOnly,
+        "agents.guidance.otherAgents": .userOnly,
+        "agents.guidance.userSkills": .userOnly,
         // Whether and how often a failed turn is sent again spends the person's usage: their call,
         // as `sessions.resumeAgents` is.
         "agents.autoRetry.enabled": .userOnly,

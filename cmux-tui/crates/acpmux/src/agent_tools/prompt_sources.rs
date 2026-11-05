@@ -123,6 +123,26 @@ impl AgentTools {
                 false,
             ));
         }
+        if claude && let Some(dir) = &self.user_plugin_dir {
+            // The person's own skills (`agent_guidance.rs`), as Claude Code lists them.
+            for skill in crate::agent_guidance::user_skills(&dir.join("skills")) {
+                let text = format!("name: {}\ndescription: {}", skill.name, skill.description);
+                parts.push(with_text(
+                    source(
+                        format!("skill-{}-{}", crate::agent_guidance::USER_PLUGIN_NAME, skill.name),
+                        "skill-listing",
+                        format!(
+                            "Your skill: {}:{}",
+                            crate::agent_guidance::USER_PLUGIN_NAME,
+                            skill.name
+                        ),
+                        "skill-listing",
+                    ),
+                    &text,
+                    true,
+                ));
+            }
+        }
         if claude && self.plugin_dir.is_some() {
             for (path, body) in SKILL_FILES {
                 let Some(name) = path.strip_suffix("/SKILL.md") else { continue };
@@ -174,6 +194,7 @@ mod tests {
                 })
                 .collect(),
             plugin_dir: Some("/private/plugin".into()),
+            user_plugin_dir: None,
             displays: None,
         }
     }
@@ -226,7 +247,9 @@ mod tests {
     fn context_sources_keep_compiled_skill_descriptions_without_bodies_or_credentials() {
         let parts = tools().context_parts(true);
         let skills: Vec<_> = parts.iter().filter(|p| p.source == "cmux-skill-listing").collect();
-        assert_eq!(skills.len(), 4);
+        let compiled = SKILL_FILES.iter().filter(|(p, _)| p.ends_with("/SKILL.md")).count();
+        assert_eq!(skills.len(), compiled);
+        assert!(skills.iter().any(|p| p.id.ends_with("skill-cmux-cmux-chat")), "{skills:?}");
         for skill in &skills {
             let text = skill.text.as_deref().unwrap();
             assert!(text.starts_with("name:"));
@@ -261,7 +284,8 @@ mod tests {
         let before = inspectable(&meta);
         crate::context_inventory::record_tool_sources(&mut meta, parts.clone());
         let after = inspectable(&meta);
-        assert_eq!((before, after), (0, 6));
+        // The skill descriptions plus the two rule fragments (asking, computer use).
+        assert_eq!((before, after), (0, compiled + 2));
         println!(
             "context-source-fixture: inspectable_before={before}, inspectable_after={after}, rows={}, text_parts={}, persisted_bytes={}, skill_description_tokens={}, full_skill_body_tokens={}",
             parts.len(),
