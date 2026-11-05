@@ -678,13 +678,25 @@ struct CloudWelcomeRailFillTests {
 /// Hosts the shipped welcome with Reduce Motion forced off (hosted runners turn
 /// it on, which pauses clips and pins progress to 1), requires real AVPlayer
 /// playback of the bundled clips, and samples the real poster-rail FillView
-/// layer through first play, clip end and slide advance, and close/reopen.
+/// layer. First play, rail movement, finite geometry, slide advance and
+/// reopen are asserted separately.
 @Suite("Cloud welcome rendered rail diagnostics", .serialized)
 @MainActor
 struct CloudWelcomeRenderedRailDiagnostics {
     private struct Sample {
         let minX: Double
         let finite: Bool
+    }
+
+    private struct Phase {
+        var samples = 0
+        var nonfinite = 0
+        var positions = Set<Int>()
+        var minXs: [Double] = []
+
+        var summary: String {
+            "samples=\(samples) nonfinite=\(nonfinite) positions=\(positions.count) minX=[\(minXs.min() ?? .nan), \(minXs.max() ?? .nan)]"
+        }
     }
 
     private func card(_ revision: Int) -> AnyView {
@@ -718,11 +730,15 @@ struct CloudWelcomeRenderedRailDiagnostics {
         allViews(in: window).compactMap { $0.layer as? AVPlayerLayer }
     }
 
-    /// The poster rail's fill layers (the 1.5 pt high FillView).
+    private func fillViews(in window: NSWindow) -> [CloudWelcomeMediaCarousel.RailFill.FillView] {
+        allViews(in: window).compactMap { $0 as? CloudWelcomeMediaCarousel.RailFill.FillView }
+    }
+
+    /// The poster rail: the wide, thin FillView (the pager pill is 36 x 6).
+    /// The height is not matched exactly; layout may round 1.5 pt.
     private func posterRailSamples(in window: NSWindow) -> [Sample] {
-        allViews(in: window)
-            .compactMap { $0 as? CloudWelcomeMediaCarousel.RailFill.FillView }
-            .filter { abs($0.bounds.height - 1.5) < 0.01 }
+        fillViews(in: window)
+            .filter { $0.bounds.width > 100 && $0.bounds.height <= 3 }
             .compactMap { $0.layer?.sublayers?.first?.frame }
             .map { frame in
                 Sample(
@@ -763,69 +779,76 @@ struct CloudWelcomeRenderedRailDiagnostics {
 
         var clipsSeen = Set<String>()
         var clipTimes: [String: [Double]] = [:]
-        var positions = Set<Int>()
-        var minXs: [Double] = []
-        var nonfinite = 0
-        var samples = 0
-        func sample() {
+        var fillSizes = Set<String>()
+        func sample(into phase: inout Phase) {
             for clip in playingClips(in: window) {
                 clipsSeen.insert(clip.name)
                 clipTimes[clip.name, default: []].append(clip.seconds)
             }
+            for view in fillViews(in: window) {
+                fillSizes.insert("\(view.bounds.width)x\(view.bounds.height)")
+            }
             for rail in posterRailSamples(in: window) {
-                samples += 1
+                phase.samples += 1
                 if rail.finite {
-                    positions.insert(Int((rail.minX * 2).rounded()))
-                    minXs.append(rail.minX)
+                    phase.positions.insert(Int((rail.minX * 2).rounded()))
+                    phase.minXs.append(rail.minX)
                 } else {
-                    nonfinite += 1
+                    phase.nonfinite += 1
                 }
             }
         }
 
-        let playing = await pumpRunLoop(seconds: 30) { !playingClips(in: window).isEmpty }
+        let firstPlay = await pumpRunLoop(seconds: 30) { !playingClips(in: window).isEmpty }
         let state = movieLayers(in: window).map { layer -> String in
             let item = layer.player?.currentItem
             return "control \(layer.player?.timeControlStatus.rawValue ?? -1) rate \(layer.player?.rate ?? -1) item \(item?.status.rawValue ?? -1) error \(String(describing: item?.error)) duration \(item?.duration.seconds ?? -1)"
         }
-        try #require(playing, "no clip played, so the rail flow was not exercised: \(state)")
+        try #require(firstPlay, "no clip played, so the rail flow was not exercised: \(state)")
 
         // First play through clip end and slide advance. Each new root view
         // re-runs the TimelineView body on a host without animation frames.
+        var first = Phase()
         let firstPhaseEnd = Date().addingTimeInterval(24)
         while Date() < firstPhaseEnd {
             revision += 1
             hosting.rootView = card(revision)
             _ = await pumpRunLoop(seconds: 0.25) { false }
-            sample()
+            sample(into: &first)
         }
         let clipsBeforeReopen = clipsSeen.count
 
-        // Close and reopen: a fresh carousel starts its first clip again.
+        // Close and reopen: a fresh carousel must start playing again.
         window.contentView = nil
         _ = await pumpRunLoop(seconds: 0.5) { false }
-        let reopened = NSHostingView(rootView: card(revision + 1))
+        revision += 1
+        let reopened = NSHostingView(rootView: card(revision))
         window.contentView = reopened
-        _ = await pumpRunLoop(seconds: 20) { !playingClips(in: window).isEmpty }
+        let reopenedPlaying = await pumpRunLoop(seconds: 20) { !playingClips(in: window).isEmpty }
+        var reopen = Phase()
         let reopenEnd = Date().addingTimeInterval(4)
-        var reopenRevision = revision + 1
         while Date() < reopenEnd {
-            reopenRevision += 1
-            reopened.rootView = card(reopenRevision)
+            revision += 1
+            reopened.rootView = card(revision)
             _ = await pumpRunLoop(seconds: 0.25) { false }
-            sample()
+            sample(into: &reopen)
         }
 
         let advancing = clipTimes.values.contains { times in
             zip(times, times.dropFirst()).contains { pair in pair.1 > pair.0 + 0.1 }
         }
-        let summary = "CLOUD-WELCOME-DIAG samples=\(samples) nonfinite=\(nonfinite) positions=\(positions.count) minX=[\(minXs.min() ?? .nan), \(minXs.max() ?? .nan)] clips=\(clipsSeen.sorted()) clipsBeforeReopen=\(clipsBeforeReopen) advancing=\(advancing) os=\(ProcessInfo.processInfo.operatingSystemVersionString)"
+        let summary = "CLOUD-WELCOME-DIAG firstPlay=\(firstPlay) first{\(first.summary)} clipsBeforeReopen=\(clipsBeforeReopen) reopenedPlaying=\(reopenedPlaying) reopen{\(reopen.summary)} clips=\(clipsSeen.sorted()) advancing=\(advancing) fillSizes=\(fillSizes.sorted()) os=\(ProcessInfo.processInfo.operatingSystemVersionString)"
         print(summary)
         NSLog("%@", summary)
-        #expect(samples > 0, "no poster rail FillView was found")
-        #expect(nonfinite == 0, "\(nonfinite) of \(samples) rail samples had nonfinite geometry")
+
+        // Each claim is a separate expectation.
         #expect(advancing, "no clip's playhead advanced: \(clipTimes)")
-        #expect(positions.count >= 3, "the rail fill took \(positions.count) positions, so progress did not move")
+        #expect(first.samples > 0, "no poster rail FillView was found during first play; FillView sizes \(fillSizes.sorted())")
+        #expect(first.nonfinite == 0, "\(first.nonfinite) of \(first.samples) first-play rail samples had nonfinite geometry")
+        #expect(first.positions.count >= 3, "the rail fill took \(first.positions.count) positions during first play, so progress did not move")
         #expect(clipsBeforeReopen >= 2, "only \(clipsBeforeReopen) clip(s) played in 24 s, so no slide advance happened")
+        #expect(reopenedPlaying, "no clip played within 20 s after reopening")
+        #expect(reopen.samples > 0, "no poster rail FillView was found after reopening")
+        #expect(reopen.nonfinite == 0, "\(reopen.nonfinite) of \(reopen.samples) reopened rail samples had nonfinite geometry")
     }
 }
