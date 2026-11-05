@@ -1991,10 +1991,37 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "artifact"):
             self.judge()
 
+    def test_two_different_forty_hex_digests_are_not_one_red(self):
+        # cmux#35902: a bare 40-hex token was masked whatever it was, so a head red naming one digest
+        # matched a base red naming another and passed as a base red.
+        scheme = "cmux app scheme compile (Debug)"
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, scheme, "Build"), 2: failed_job(2, 20, BASE_SHA, scheme, "Build")}
+        line = "error: the runtime pack {} is not the one this tree pins"
+        self.gh.logs[1] = log(scheme, "Build", line.format("f06132224fc58d3cd5349ed190eaadc44736abf2"))
+        self.gh.logs[2] = log(scheme, "Build", line.format("2cadcc0a5426124272e806a9dca5273ce19940ea"))
+        with self.assertRaisesRegex(excuse.Refused, "runtime pack"):
+            self.judge()
+
     def test_only_commit_shas_are_masked(self):
         self.assertEqual(excuse.mask_shas(f"defaced 1234567 accede deadbeef1 {HEAD} at 8f0c2e1 tree `5948da7` "
                                           "commit 1234567 for abcdef12"),
                          "defaced 1234567 accede deadbeef1 <sha> at 8f0c2e1 tree `<sha>` commit <sha> for abcdef12")
+
+    def test_a_forty_hex_digest_named_as_a_stored_thing_is_not_masked(self):
+        # cmux#35902: every bare 40-hex token was masked, so two digests became one error line.
+        digest = "f06132224fc58d3cd5349ed190eaadc44736abf2"
+        for named in (f"the artifact {digest} does not match", f"runtime pack {digest} is not pinned",
+                      f"checksum `{digest}` differs", f"Digest {digest} unknown"):
+            self.assertEqual(excuse.mask_shas(named), named)
+        # A commit the line does not name as a stored thing still masks, with or without a keyword.
+        self.assertEqual(excuse.mask_shas(f"this run built {HEAD}"), "this run built <sha>")
+        self.assertEqual(excuse.mask_shas(f"source stamp {HEAD} != {BASE_SHA}"), "source stamp <sha> != <sha>")
+
+    def test_two_different_object_digests_are_two_error_lines(self):
+        first = "f06132224fc58d3cd5349ed190eaadc44736abf2"
+        second = "2cadcc0a5426124272e806a9dca5273ce19940ea"
+        self.assertNotEqual(excuse.normalise_error(f"##[error]artifact {first} does not match"),
+                            excuse.normalise_error(f"##[error]artifact {second} does not match"))
 
     def test_hex_ids_after_a_generic_word_are_compared_as_they_are(self):
         scheme = "cmux app scheme compile (Debug)"
@@ -2420,6 +2447,57 @@ class Script(unittest.TestCase):
                 unittest.mock.patch.object(excuse, "judge", judge), \
                 unittest.mock.patch.object(excuse.test_reds, "load_flake_state", lambda *a, **k: None):
             self.assertEqual(excuse.main(["--repo", REPO, "--base", "main", "--sha", HEAD, "--check", "x"]), 3)
+
+    def test_a_rate_limited_rollups_read_exits_3(self):
+        # The swallow this covers: load_rollups wraps every Refused from its contents reads as
+        # "no rollup red is excused", and main's RateLimited is a Refused, so a rate limit read as a
+        # verdict and main() returned 1 where gh-merge-green expects a rate limit (3).
+        class RateLimited(excuse.Refused):
+            pass
+
+        class Limited:
+            def json(self, route, *, paginate=False):
+                raise RateLimited("GitHub rate-limited `gh api`; resets in 14 minutes")
+
+            def log(self, repo, job):
+                raise AssertionError("no log is read once a read is rate-limited")
+
+        excuse._REPO_ROLLUPS.pop(HQ, None)
+        with unittest.mock.patch.object(excuse, "RateLimited", RateLimited), \
+                unittest.mock.patch.object(excuse, "GitHub", Limited), \
+                unittest.mock.patch.object(excuse.test_reds, "load_flake_state", lambda *a, **k: None):
+            self.assertEqual(excuse.main(["--repo", HQ, "--base", "main", "--sha", HEAD, "--check", "x"]), 3)
+
+    def test_an_ordinary_refusal_still_exits_1_with_this_branchs_reader(self):
+        # Not patched: this branch's main_fix_evidence.py has no RateLimited, so excuse.RateLimited is the empty
+        # tuple. A handler written `except (RateLimited, RateLimitedRead)` is then `except ((), RateLimitedRead)`,
+        # a TypeError on every ordinary refusal ("catching classes that do not inherit from BaseException"), so
+        # main() would crash instead of saying "not excused" (review of #35947, F1).
+        # main's main_fix_evidence.py has a RateLimited (a Refused); feat-cmux-next's has none.
+        reader = getattr(excuse._evidence, "RateLimited", None)
+        self.assertEqual(excuse.rate_limited_classes(),
+                         ((reader,) if reader else ()) + (excuse.RateLimitedRead,))
+
+        def judge(*args, **kwargs):
+            raise excuse.Refused("no failed job found on the head to compare with the base")
+
+        with unittest.mock.patch.object(excuse, "judge", judge), \
+                unittest.mock.patch.object(excuse.test_reds, "load_flake_state", lambda *a, **k: None):
+            self.assertEqual(excuse.main(["--repo", REPO, "--base", "main", "--sha", HEAD, "--check", "x"]), 1)
+
+    def test_a_rate_limited_read_leaves_judge_as_no_verdict(self):
+        class RateLimited(excuse.Refused):
+            pass
+
+        class Limited:
+            def json(self, route, *, paginate=False):
+                raise RateLimited("GitHub rate-limited `gh api`; resets in 14 minutes")
+
+        excuse._REPO_ROLLUPS.pop(HQ, None)
+        with unittest.mock.patch.object(excuse, "RateLimited", RateLimited):
+            # Not a Refused: a rate limit is no verdict on the red, so nothing may excuse or charge it.
+            with self.assertRaisesRegex(excuse.RateLimitedRead, "rate-limited"):
+                excuse.judge(HQ, "main", HEAD, [], Limited(), checks=["x"])
 
     def test_gh_merge_green_asks_the_base_before_refusing_a_red_lane(self):
         text = (ROOT / "scripts/gh-merge-green").read_text()
