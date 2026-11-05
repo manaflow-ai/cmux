@@ -294,7 +294,9 @@ fn flag_name(text: &str) -> Option<&str> {
     let name = text.strip_prefix("--")?;
     let name = name.split_once('=').map_or(name, |(name, _)| name);
     let ok = name.chars().next().is_some_and(|first| first.is_ascii_lowercase())
-        && name.chars().all(|character| character.is_ascii_alphanumeric() || character == '-' || character == '_');
+        && name.chars().all(|character| {
+            character.is_ascii_alphanumeric() || character == '-' || character == '_'
+        });
     ok.then_some(name)
 }
 
@@ -337,7 +339,11 @@ fn source_files() -> Vec<PathBuf> {
 /// The token after `index`'s `,` (and any `.to_owned()` before it): the next literal of a list.
 fn skip_conversion_ref(tokens: &[(Token, usize)], index: usize) -> Option<&(Token, usize)> {
     let index = skip_conversion(tokens, index);
-    if matches!(tokens.get(index), Some((Token::Punct(','), _))) { tokens.get(index + 1) } else { None }
+    if matches!(tokens.get(index), Some((Token::Punct(','), _))) {
+        tokens.get(index + 1)
+    } else {
+        None
+    }
 }
 
 /// Past a `.to_owned()`, `.into()` or `.to_string()` at `index`.
@@ -628,7 +634,9 @@ fn encoded(words: &[String]) -> Value {
     let command = super::super::app::parse(&words)
         .ok()
         .flatten()
-        .filter(|command| matches!(command, super::super::app::AppCommand::Call { method: "action.run", .. }))
+        .filter(|command| {
+            matches!(command, super::super::app::AppCommand::Call { method: "action.run", .. })
+        })
         .or_else(|| {
             // The app fallback: the leading words are the CLI name, the rest its flags.
             let split = words.iter().take_while(|word| !word.starts_with('-')).count();
@@ -639,7 +647,8 @@ fn encoded(words: &[String]) -> Value {
             )
             .ok()
         });
-    let Some(super::super::app::AppCommand::Call { method: "action.run", mut params, .. }) = command
+    let Some(super::super::app::AppCommand::Call { method: "action.run", mut params, .. }) =
+        command
     else {
         panic!("the CLI builds no action.run for {words:?}")
     };
@@ -653,12 +662,16 @@ fn encoded(words: &[String]) -> Value {
 fn cli_requests() -> Value {
     let path = repo_root().join("plans/cmux-next/action-surfaces.json");
     let root: Value =
-        serde_json::from_str(&std::fs::read_to_string(&path).expect("action-surfaces.json")).unwrap();
+        serde_json::from_str(&std::fs::read_to_string(&path).expect("action-surfaces.json"))
+            .unwrap();
     let mut requests = Vec::new();
     let relay = super::super::cloud_start_chat::tests::contract_relay_words();
-    requests.push(serde_json::json!({"source": "cmux cloud start-chat (relay)", "params": encoded(&relay)}));
+    requests.push(
+        serde_json::json!({"source": "cmux cloud start-chat (relay)", "params": encoded(&relay)}),
+    );
     for action in root["actions"].as_array().expect("actions") {
-        let Some(cli_name) = action["cli_name"].as_str().filter(|_| action["cli"] == "offered") else {
+        let Some(cli_name) = action["cli_name"].as_str().filter(|_| action["cli"] == "offered")
+        else {
             continue;
         };
         let args = action["args"].as_array().cloned().unwrap_or_default();
@@ -676,13 +689,18 @@ fn cli_requests() -> Value {
                 Some("bool") => None,
                 Some("int") => Some(arg["min"].as_i64().unwrap_or(1).to_string()),
                 Some("enum") => arg["values"][0].as_str().map(str::to_owned),
-                Some("target") => Some(format!("{}:contract-1", arg["target_kind"].as_str().unwrap_or("tab"))),
+                Some("target") => {
+                    Some(format!("{}:contract-1", arg["target_kind"].as_str().unwrap_or("tab")))
+                }
                 _ => Some("/tmp/contract".to_owned()),
             };
             let flag = kebab(name);
             // A name `run_action` takes for itself (`--target`, `--focus`) goes as `--arg name=value`.
             if CLI_FLAGS.contains(&flag.as_str()) {
-                words.extend(["--arg".to_owned(), format!("{name}={}", value.as_deref().unwrap_or("true"))]);
+                words.extend([
+                    "--arg".to_owned(),
+                    format!("{name}={}", value.as_deref().unwrap_or("true")),
+                ]);
                 continue;
             }
             words.push(format!("--{flag}"));

@@ -1197,6 +1197,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextGitHubViewer",
       "targets": [
         "CmuxNextAgentPane",
+        "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextPages",
         "CmuxNextSettings"
@@ -1208,6 +1209,7 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextGitHubViewerTests",
       "targets": [
         "CmuxNextAgentPane",
+        "CmuxNextDaemon",
         "CmuxNextGitHubViewer",
         "CmuxNextPages",
         "CmuxNextSettings"

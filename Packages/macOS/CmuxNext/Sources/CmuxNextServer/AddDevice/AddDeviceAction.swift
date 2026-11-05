@@ -24,6 +24,8 @@ public nonisolated enum AddDeviceAction: Equatable, Sendable {
     /// Hand off to the Pair Another Machine card (way ``AddDeviceWay/joinLine`` while signed in): the
     /// new machine runs `cmux pair CODE` and the person confirms its words, with no ssh.
     case pairAnotherMachine
+    /// Open or close Advanced, where the ssh way (``AddDeviceWay/network``) sits.
+    case toggleAdvanced
     case done
     case cancel
 }

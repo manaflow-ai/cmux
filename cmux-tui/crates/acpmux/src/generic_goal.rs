@@ -65,6 +65,14 @@ pub fn is_generic(goal: &GoalState) -> bool {
         && goal.extra.get("kind").and_then(Value::as_str) == Some(KIND)
 }
 
+/// Which state of `goal` a continuation was sent for: any later change (a report, a new goal, the
+/// next turn's step) gives another mark, so a continuation that waited sees its goal moved on.
+pub fn mark(goal: &GoalState) -> String {
+    let count = goal.extra.get(CONTINUATIONS).and_then(Value::as_u64).unwrap_or(0);
+    let at = |v: &Option<Value>| v.as_ref().map(Value::to_string).unwrap_or_default();
+    format!("{}:{}:{count}", at(&goal.created_at), at(&goal.updated_at))
+}
+
 /// The goal's done-when.
 pub fn done_when(goal: &GoalState) -> &str {
     goal.extra.get(DONE_WHEN).and_then(Value::as_str).unwrap_or_default()

@@ -8995,7 +8995,8 @@
         "unstaged",
         "staged",
         "committed",
-        "branch"
+        "branch",
+        "commits"
       ]
     },
     "GitChangeStatus": {
@@ -20410,7 +20411,27 @@
               "kind": "ref",
               "name": "GitDiffScope"
             },
-            "description": "uncommitted: the working tree against HEAD, with untracked files. unstaged: the working tree against the index, with untracked files. staged: the index against HEAD. committed: HEAD against its first parent. branch: the working tree against the merge base with the base branch, with untracked files."
+            "description": "uncommitted: the working tree against HEAD, with untracked files. unstaged: the working tree against the index, with untracked files. staged: the index against HEAD. committed: HEAD against its first parent. branch: the working tree against the merge base with the base branch, with untracked files. commits: head against its merge base with base (a pull request's change), both full commit ids already in the repository; nothing is fetched, and a missing one refuses with commit_missing."
+          },
+          "base": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 40,
+              "max_length": 64
+            },
+            "description": "The commits scope's base: the full commit id of the branch the change goes into. Required with commits, ignored otherwise."
+          },
+          "head": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 40,
+              "max_length": 64
+            },
+            "description": "The commits scope's head: the full commit id of the change. Required with commits, ignored otherwise."
           },
           "paths": {
             "required": false,
