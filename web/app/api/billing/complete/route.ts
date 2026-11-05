@@ -15,6 +15,7 @@ import {
 } from "../../../../services/billing/purchase";
 import { dashboardReturnPath } from "../../../../services/billing/returnTo";
 import { isStripeBillingConfigured, stripe } from "../../../../services/billing/stripe";
+import { selectPurchasedTeam as selectPurchasedTeamDefault } from "../../../../services/teams/admin";
 import {
   recordSpanError,
   withApiRouteSpan,
@@ -26,6 +27,7 @@ type BillingCompleteDependencies = {
   stripe: typeof stripe;
   recordCheckoutCompletion: typeof recordCheckoutCompletionDefault;
   recordFoundersCheckoutCompletion?: typeof recordFoundersCheckoutCompletionDefault;
+  selectPurchasedTeam: typeof selectPurchasedTeamDefault;
 };
 
 const defaultDependencies: BillingCompleteDependencies = {
@@ -33,6 +35,7 @@ const defaultDependencies: BillingCompleteDependencies = {
   stripe,
   recordCheckoutCompletion: recordCheckoutCompletionDefault,
   recordFoundersCheckoutCompletion: recordFoundersCheckoutCompletionDefault,
+  selectPurchasedTeam: selectPurchasedTeamDefault,
 };
 
 export const GET = makeBillingCompleteHandler();
@@ -97,6 +100,7 @@ export function makeBillingCompleteHandler(
               : "error";
             return NextResponse.redirect(new URL(`/pricing?billing=${reason}`, requestOrigin(request)));
           }
+          await selectTeamForBuyer(session, dependencies.selectPurchasedTeam);
           return NextResponse.redirect(paidSessionDestination(request, session, scheme));
         }
         return NextResponse.redirect(new URL("/pricing?welcome=pending", requestOrigin(request)));
@@ -111,6 +115,26 @@ export function makeBillingCompleteHandler(
     },
   );
   };
+}
+
+/**
+ * After a recorded Team purchase, select that team for the buyer. Both ids come
+ * from the Stripe session we created. Selection is a convenience: the purchase
+ * already stands, so a failure must not turn a paid checkout into an error page.
+ */
+async function selectTeamForBuyer(
+  session: Stripe.Checkout.Session,
+  selectPurchasedTeam: BillingCompleteDependencies["selectPurchasedTeam"],
+): Promise<void> {
+  if (session.metadata?.plan !== "team") return;
+  const teamId = session.metadata.stackTeamId?.trim();
+  const userId = session.metadata.stackUserId?.trim();
+  if (!teamId || !userId) return;
+  try {
+    await selectPurchasedTeam({ userId, teamId });
+  } catch {
+    console.error("team purchase selection failed", { teamId });
+  }
 }
 
 function expandedSubscription(session: Stripe.Checkout.Session): Stripe.Subscription | null {

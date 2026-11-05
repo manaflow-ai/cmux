@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
 
 import { makeBillingCompleteHandler } from "../app/api/billing/complete/route";
+import { selectPurchasedTeam as selectPurchasedTeamService } from "../services/teams/admin";
+import type { TeamStackApp } from "../services/teams/stack";
 
 let stripeConfigured = true;
 let retrievedSession: Record<string, unknown>;
@@ -48,7 +50,7 @@ describe("billing complete route", () => {
     retrieveSession.mockClear();
     recordCheckoutCompletion.mockClear();
     recordFoundersCheckoutCompletion.mockClear();
-    selectPurchasedTeam.mockReset();
+    selectPurchasedTeam.mockClear();
     selectPurchasedTeam.mockImplementation(async () => {});
     recordCheckoutCompletionResult = {
       stackUserId: "user-1",
@@ -183,15 +185,18 @@ describe("billing complete route", () => {
       expect(response.headers.get("location")).toBe("http://localhost:3777/dashboard/teams/team-paid/billing?welcome=team");
     });
 
-    test.each([
+    const unselectable: readonly (readonly [string, Record<string, string>])[] = [
       ["a personal purchase", { app: "cmux", plan: "pro", stackUserId: "buyer-1" }],
       ["a Team session without a team id", { app: "cmux", plan: "team", stackUserId: "buyer-1" }],
       ["a Team session without a buyer", { app: "cmux", plan: "team", stackTeamId: "team-paid" }],
-    ])("%s selects nothing", async (_name, metadata) => {
-      retrievedSession = { ...teamSession({}), metadata };
-      await complete();
-      expect(selectPurchasedTeam).not.toHaveBeenCalled();
-    });
+    ];
+    for (const [name, metadata] of unselectable) {
+      test(`${name} selects nothing`, async () => {
+        retrievedSession = { ...teamSession({}), metadata };
+        await complete();
+        expect(selectPurchasedTeam).not.toHaveBeenCalled();
+      });
+    }
 
     test("an unpaid Team session selects nothing", async () => {
       retrievedSession = { ...teamSession({ stackTeamId: "team-paid", stackUserId: "buyer-1" }), payment_status: "unpaid" };
@@ -324,5 +329,26 @@ describe("billing complete route", () => {
     expect(recordFoundersCheckoutCompletion).not.toHaveBeenCalled();
     expect(recordCheckoutCompletion).not.toHaveBeenCalled();
     expect(response.headers.get("location")).toBe("https://cmux.test/pricing?billing=error");
+  });
+});
+
+describe("selectPurchasedTeam", () => {
+  test("persists the purchased team as the buyer's selected team", async () => {
+    const update = mock(async (_update: { selectedTeamId?: string | null }) => {});
+    const getUser = mock(async (_userId: string) => ({ update }));
+    await selectPurchasedTeamService(
+      { userId: "buyer-1", teamId: "team-paid" },
+      { stack: { getUser } as unknown as TeamStackApp },
+    );
+    expect(getUser).toHaveBeenCalledWith("buyer-1");
+    expect(update).toHaveBeenCalledWith({ selectedTeamId: "team-paid" });
+  });
+
+  test("surfaces a Stack refusal to its caller", async () => {
+    const update = mock(async (_update: { selectedTeamId?: string | null }) => {
+      throw new Error("not a member");
+    });
+    const stack = { getUser: async () => ({ update }) } as unknown as TeamStackApp;
+    await expect(selectPurchasedTeamService({ userId: "buyer-1", teamId: "team-gone" }, { stack })).rejects.toThrow("not a member");
   });
 });
