@@ -209,10 +209,12 @@ fn main() -> ExitCode {
         }
         let units = beacon::clock_units((now * 1e9) as u64);
         let text = beacon::frame(
-            ws,
-            pane,
+            beacon::Beacon {
+                ws,
+                pane,
+                cell_cols,
+            },
             units,
-            cell_cols,
             &label,
             k,
             clear,
