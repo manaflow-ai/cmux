@@ -5,7 +5,8 @@
 //! The bundle carries `refs/cmux-seed/head` (HEAD), `refs/cmux-seed/index`
 //! (a commit of the staged tree, parent HEAD), `refs/cmux-seed/work` (a
 //! commit of the working tree with untracked files that are not ignored,
-//! less the secrets [`secrets`] names, parent the index commit) and
+//! less the secrets [`secrets`] names, heavy folders and big files (each
+//! named in `skipped`), parent the index commit) and
 //! `refs/cmux-seed/stash` when there is a stash, with `^BASE` as its one
 //! prerequisite. Git leaves out of the bundle any seed ref whose commit
 //! the machine already has (HEAD when it is the base; in a delta seed,

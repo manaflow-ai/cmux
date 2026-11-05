@@ -146,10 +146,10 @@ pub(super) fn failure_code(error: &anyhow::Error) -> String {
     SeedError::of(error).code
 }
 
-/// The error code and message of a failed [`push`].
-pub(super) fn failure(error: &anyhow::Error) -> (String, String) {
-    let error = SeedError::of(error);
-    (error.code, error.message)
+/// The answer line of a failed [`push`]: its code and message, and for a
+/// refused seed its `fallback_code` and what a copy would send.
+pub(super) fn failure(error: &anyhow::Error) -> Value {
+    SeedError::of(error).line()
 }
 
 /// What a push did.
