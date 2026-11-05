@@ -129,24 +129,27 @@ pub(super) async fn run(local_only: bool, json_out: bool) -> Result<()> {
     };
     let answer = revoke_at_hub(&record).await;
     let mac = format!("cmux machine revoke {}", record.name);
-    if !answer.revoked() && !local_only {
-        return Err(match &answer {
-            HubAnswer::Unsupported => leave_error(
-                "leave.revoke_from_mac",
-                3,
-                format!(
-                    "this hub cannot revoke a machine from the machine itself; revoke it from your Mac (`{mac}`), then run `acpmux machine leave --local-only`. Nothing here changed."
-                ),
+    // Refused unless the hub revoked it or the person asked for a local-only leave.
+    let refusal = match &answer {
+        _ if local_only => None,
+        HubAnswer::Revoked | HubAnswer::AlreadyGone => None,
+        HubAnswer::Unsupported => Some(leave_error(
+            "leave.revoke_from_mac",
+            3,
+            format!(
+                "this hub cannot revoke a machine from the machine itself; revoke it from your Mac (`{mac}`), then run `acpmux machine leave --local-only`. Nothing here changed."
             ),
-            HubAnswer::Unavailable(why) => leave_error(
-                "leave.hub_unavailable",
-                4,
-                format!(
-                    "the hub did not revoke this machine ({why}); retry, or revoke it from your Mac (`{mac}`) and run `acpmux machine leave --local-only`. Nothing here changed."
-                ),
+        )),
+        HubAnswer::Unavailable(why) => Some(leave_error(
+            "leave.hub_unavailable",
+            4,
+            format!(
+                "the hub did not revoke this machine ({why}); retry, or revoke it from your Mac (`{mac}`) and run `acpmux machine leave --local-only`. Nothing here changed."
             ),
-            HubAnswer::Revoked | HubAnswer::AlreadyGone => unreachable!(),
-        });
+        )),
+    };
+    if let Some(refusal) = refusal {
+        return Err(refusal);
     }
     let removed = remove_local(&home).map_err(|_| store_error())?;
     let daemon = tokio::time::timeout(
