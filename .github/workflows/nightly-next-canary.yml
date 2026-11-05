@@ -61,9 +61,9 @@ jobs:
     # OUT"): the nightly slot (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, glaeda's one runner per mini that takes only nightly
     # jobs). Its hook ranks main's scheduled canary as a nightly job (glaeda NIGHTLY_VERIFY_WORKFLOWS), re-runs
     # included; it refuses a dispatch (which picks its own build) and a pull request's run, which keep their routes.
-    # No secrets here. Unset, it falls back to Blacksmith. The guards forbid a literal owned label here
-    # (tests/test_ci_self_hosted_guard.sh), so the variable alone names the slot.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || github.event_name == 'schedule' && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # No secrets here. A value that names no nightly label (unset included) falls back to Blacksmith. The guards
+    # forbid a literal owned label here (tests/test_ci_self_hosted_guard.sh), so the variable alone names the slot.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || github.event_name == 'schedule' && contains(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, '-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -140,10 +140,11 @@ jobs:
     # No secrets: this job runs the published app. A scheduled run takes the pick's nightly slot, with no runner
     # read: the slot admits only nightly jobs, so its queue moves (on 2026-10-29 the canary of build 4095550219401,
     # run 40959228667, sat on the side label behind 43 PR jobs; the slot takes no PR job). A refused attempt is
-    # re-run by owned_pool_rescue.SIDE_WORKFLOW_PATHS onto the same pool. A dispatch, which the slot refuses, and a
-    # same-repository pull request take the side label on attempt 1, then vars.MACOS_RUNNER_26, then Blacksmith
-    # macOS 26. Never a GitHub-hosted Mac (tests/test_ci_no_github_hosted_macos.py).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || github.event_name == 'schedule' && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    # re-run by owned_pool_rescue.SIDE_WORKFLOW_PATHS onto the same pool. With no nightly slot named, a scheduled
+    # run takes Blacksmith macOS 26, never the side label, which no rescue watches for it. A dispatch, which the slot
+    # refuses, and a same-repository pull request take the side label on attempt 1, then vars.MACOS_RUNNER_26, then
+    # Blacksmith macOS 26. Never a GitHub-hosted Mac (tests/test_ci_no_github_hosted_macos.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || github.event_name == 'schedule' && contains(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, '-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || github.event_name == 'schedule' && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 25
     permissions:
       contents: read
@@ -269,7 +270,7 @@ jobs:
     needs: [pick, canary]
     if: always() && github.event_name == 'schedule' && needs.canary.outputs.verdict != ''
     # A scheduled run's only: the pick's nightly slot.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'schedule' && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'schedule' && contains(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, '-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     env:
       BUILD: ${{ needs.pick.outputs.build }}
@@ -338,7 +339,7 @@ jobs:
     needs: [pick, canary]
     if: always() && github.event_name != 'pull_request' && needs.canary.outputs.verdict == 'fail'
     # A scheduled run's on the pick's nightly slot; a dispatch's keeps Blacksmith.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'schedule' && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'schedule' && contains(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, '-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       actions: write # dispatch nightly-next-rollback.yml
