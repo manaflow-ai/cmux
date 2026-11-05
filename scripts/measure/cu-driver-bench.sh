@@ -38,7 +38,7 @@ elif [[ -d /Volumes/ephemeral0/cmux-agent-work && -w /Volumes/ephemeral0/cmux-ag
 else
   lume_home=/Users/Shared/cu-driver-bench
 fi
-mkdir -p "$lume_home/bin" "$lume_home/vms"
+mkdir -p "$lume_home/bin" "$lume_home/tmp" "$lume_home/.config"
 pin() { python3 -I -c 'import functools, json, sys; print(functools.reduce(lambda d, k: d[k], sys.argv[2:], json.load(open(sys.argv[1]))))' "$here/pins.json" "$@"; }
 facts="{}"
 note() { echo "CU-DRIVER-BENCH $*"; }
@@ -67,7 +67,14 @@ if [[ "$(shasum -a 256 "$lume_tgz" 2>/dev/null | awk '{print $1}')" != "$lume_su
 fi
 lume_dir="$lume_home/bin/$lume_sum"
 [[ -x "$lume_dir/lume" ]] || { mkdir -p "$lume_dir" && tar -xzf "$lume_tgz" -C "$lume_dir"; }
-lume() { HOME="$lume_home" LUME_TELEMETRY_ENABLED=0 "$lume_dir/lume" "$@"; }
+[[ -x "$lume_dir/lume" ]] || { rm -rf "$lume_dir"; finish "could not unpack the pinned Lume"; exit 4; }
+# Foundation takes the home directory from CFFIXED_USER_HOME, not HOME, and Lume assembles a pull in
+# TMPDIR: all three point into the cache, so the image, the clones and the pull's scratch live there.
+lume() {
+  HOME="$lume_home" CFFIXED_USER_HOME="$lume_home" XDG_CONFIG_HOME="$lume_home/.config" TMPDIR="$lume_home/tmp/" \
+    LUME_TELEMETRY_ENABLED=0 LUME_LOG_LEVEL=error "$lume_dir/lume" "$@"
+}
+note "lume home $lume_home"
 
 note "STAGE image"
 image_name=$(pin image name)
@@ -75,14 +82,32 @@ image_tag=$(pin image tag)
 image_digest=$(pin image digest)
 base="cu-bench-base-${image_tag//./-}"
 # The tag must still name the pinned digest; a moved tag is refused, never pulled.
-token=$(curl -fsSL "https://ghcr.io/token?scope=repository:$image_name:pull" | python3 -I -c 'import json, sys; print(json.load(sys.stdin)["token"])')
-live=$(curl -fsSI -H "Authorization: Bearer $token" -H "Accept: application/vnd.oci.image.manifest.v1+json" \
+token=$(curl -fsSL "https://ghcr.io/token?scope=repository:$image_name:pull" | python3 -I -c 'import json, sys; print(json.load(sys.stdin)["token"])') ||
+  { finish "could not get a ghcr.io pull token for $image_name"; exit 4; }
+accept="application/vnd.oci.image.manifest.v1+json,application/vnd.oci.image.index.v1+json"
+accept+=",application/vnd.docker.distribution.manifest.v2+json,application/vnd.docker.distribution.manifest.list.v2+json"
+live=$(curl -fsSI -H "Authorization: Bearer $token" -H "Accept: $accept" \
   "https://ghcr.io/v2/$image_name/manifests/$image_tag" | tr -d '\r' | awk 'tolower($1) == "docker-content-digest:" {print $2}')
 if [[ "$live" != "$image_digest" ]]; then
-  finish "ghcr.io/$image_name:$image_tag is $live, not the pinned $image_digest"
+  finish "ghcr.io/$image_name:$image_tag is ${live:-unreadable}, not the pinned $image_digest"
   exit 4
 fi
-if ! lume get "$base" >/dev/null 2>&1; then
+# A pull that was cut short leaves a base Lume still calls provisioning: delete it and pull again.
+base_status=$(lume get "$base" -f json 2>/dev/null | python3 -I -c '
+import json, sys
+try:
+    data = json.load(sys.stdin)
+except ValueError:
+    data = None
+row = data[0] if isinstance(data, list) and data else data
+print(row.get("status", "") if isinstance(row, dict) else "")' 2>/dev/null)
+if [[ -n "$base_status" && "$base_status" != stopped ]]; then
+  note "base $base is $base_status; pulling it again"
+  lume delete "$base" --force >/dev/null 2>&1 || true
+  base_status=""
+fi
+if [[ -z "$base_status" ]]; then
+  rm -rf "$lume_home/tmp/"lume_vm_*
   started=$(date +%s)
   lume pull "${image_name#*/}:$image_tag" "$base" --organization "${image_name%%/*}" >"$out/pull.log" 2>&1 ||
     { tail -20 "$out/pull.log"; finish "lume pull failed (pull.log)"; exit 4; }
@@ -90,17 +115,35 @@ if ! lume get "$base" >/dev/null 2>&1; then
 fi
 
 note "STAGE boot"
+# A clone an earlier run could not delete (its step was killed) is removed first.
+if [[ -s "$lume_home/leftover" ]]; then
+  while read -r old; do
+    [[ "$old" == cu-bench-* ]] || continue
+    lume stop "$old" >/dev/null 2>&1 || true
+    lume delete "$old" --force >/dev/null 2>&1 || true
+  done <"$lume_home/leftover"
+  : >"$lume_home/leftover"
+fi
 vm="cu-bench-$(date +%s)-$$"
+echo "$vm" >>"$lume_home/leftover"
+run_pid=""
 cleanup() {
   lume stop "$vm" >/dev/null 2>&1 || true
-  lume delete "$vm" --force >/dev/null 2>&1 || true
+  if [[ -n "$run_pid" ]]; then
+    kill "$run_pid" 2>/dev/null || true
+    wait "$run_pid" 2>/dev/null || true
+  fi
+  lume delete "$vm" --force >/dev/null 2>&1 && grep -v -x "$vm" "$lume_home/leftover" >"$lume_home/leftover.new" 2>/dev/null
+  [[ -f "$lume_home/leftover.new" ]] && mv "$lume_home/leftover.new" "$lume_home/leftover"
 }
 trap cleanup EXIT
 lume clone "$base" "$vm" >"$out/clone.log" 2>&1 || { finish "lume clone failed (clone.log)"; exit 4; }
 lume set "$vm" --cpu 6 --memory 12GB --display 1920x1080 >"$out/set.log" 2>&1 || { finish "lume set failed (set.log)"; exit 4; }
 lume run "$vm" --no-display >"$out/run.log" 2>&1 &
+run_pid=$!
 booted=0
 for _ in $(seq 1 90); do
+  kill -0 "$run_pid" 2>/dev/null || break
   if lume ssh "$vm" -t 10 true >/dev/null 2>&1; then booted=1; break; fi
   sleep 5 # bounded wait for the guest's SSH (7.5 min)
 done
@@ -125,10 +168,11 @@ lume ssh "$vm" -t 120 "$probe" >"$out/guest.txt" 2>"$out/guest.err" || note "the
 cat "$out/guest.txt"
 facts=$(python3 -I - "$out/guest.txt" "$(sw_vers -productVersion)" "$(scutil --get ComputerName 2>/dev/null || hostname)" "$image_name:$image_tag" "$image_digest" "$lume_sum" "$(git rev-parse HEAD)" <<'EOF'
 import json, sys
+KEYS = {"macos", "display", "sip", "xcode_tools", "swiftc", "brew", "python", "node", "git", "free", "console_user", "route"}
 guest = {}
 for line in open(sys.argv[1]):
     key, _, value = line.rstrip("\n").partition("=")
-    if key:
+    if key in KEYS:  # Lume's own log lines share this stream
         guest[key] = value
 print(json.dumps({"schema": "cmux.cu-driver-bench.vm/1", "host": sys.argv[3], "host_macos": sys.argv[2],
                   "image": sys.argv[4], "digest": sys.argv[5], "lume_sha256": sys.argv[6], "rev": sys.argv[7],
