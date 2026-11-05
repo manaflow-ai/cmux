@@ -62,3 +62,11 @@ export function webSources(tool: Tool | undefined): WebSource[] {
 export function withoutLinks(output: string): string {
   return output.replace(LINKS, "").replace(/\n{3,}/g, "\n\n");
 }
+
+/// The closed chip's line: the first `count` sites by name, and how many pages that leaves out
+/// ("+N"): every page past the one each named site stands for, so a second page from a named site
+/// counts too, and the number always matches the list the chip opens to.
+export function sourcesLine(sources: readonly WebSource[], count: number): { named: string[]; more: number } {
+  const named = [...new Set(sources.map((source) => source.host))].slice(0, count);
+  return { named, more: sources.length - named.length };
+}

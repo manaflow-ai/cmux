@@ -5,7 +5,7 @@ import { memo, useId, useState } from "react";
 import { callChipHost } from "../chips/host";
 import { useT } from "../i18n";
 import { ChevronRight, Globe } from "./icons";
-import type { WebSource } from "./webSourceList";
+import { sourcesLine, type WebSource } from "./webSourceList";
 import "./WebSources.css";
 
 /// The sites the closed line names before "+N", the pages from any other site.
@@ -18,10 +18,7 @@ export const WebSources = memo(function WebSources({ sources }: { sources: reado
   const [shown, setShown] = useState(false);
   const listId = useId();
   if (!sources.length) return null;
-  const hosts = [...new Set(sources.map((source) => source.host))];
-  const named = hosts.slice(0, NAMED);
-  // "+N" counts the pages the named sites leave out, so it reads as more sources, not more sites.
-  const more = sources.filter((source) => !named.includes(source.host)).length;
+  const { named, more } = sourcesLine(sources, NAMED);
   return (
     <div className="cv-web-sources">
       <button

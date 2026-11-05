@@ -3,7 +3,7 @@
 // call drew as a generic row, its links a line of JSON inside the opened result.
 import { describe, expect, test } from "bun:test";
 import type { AcpmuxActivity } from "../model";
-import { webSources, withoutLinks } from "./webSourceList";
+import { sourcesLine, webSources, withoutLinks } from "./webSourceList";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 const tool = (extra: Partial<Tool>): Tool =>
@@ -44,5 +44,22 @@ describe("webSources", () => {
     expect(withoutLinks(SEARCH)).toBe(
       'Web search results for query: "T3 Code desktop app"\n\nT3 Code is built around an Electron desktop app.',
     );
+  });
+});
+
+describe("sourcesLine", () => {
+  test("+N counts every page the named sites leave out, a named site's second page too", () => {
+    // Two GitHub pages and one repowise page: both sites named, one page left for "+1".
+    expect(sourcesLine(webSources(tool({ output: SEARCH })), 3)).toEqual({
+      named: ["github.com", "repowise.dev"],
+      more: 1,
+    });
+    const pages = ["a.com", "b.com", "c.com", "d.com", "a.com"].map((host, at) => ({
+      title: host,
+      url: `https://${host}/${at}`,
+      host,
+    }));
+    expect(sourcesLine(pages, 3)).toEqual({ named: ["a.com", "b.com", "c.com"], more: 2 });
+    expect(sourcesLine([], 3)).toEqual({ named: [], more: 0 });
   });
 });
