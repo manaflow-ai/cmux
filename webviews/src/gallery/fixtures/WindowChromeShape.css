@@ -40,10 +40,10 @@
 .chrome-window-sidebar-title { display: flex; align-items: center; gap: calc(var(--chrome-unit) * 2); padding-inline: calc(var(--chrome-unit) * 2); min-height: calc(var(--chrome-action-slot) * 1.5); }
 .chrome-sidebar-toggle { border: 0; background: transparent; color: var(--chrome-muted); font: inherit; cursor: pointer; }
 .chrome-sidebar-toggle:hover { color: var(--chrome-ink); }
-.chrome-traffic-lights { display: flex; gap: var(--chrome-unit); }
-.chrome-traffic-lights i { width: var(--chrome-icon-size); height: var(--chrome-icon-size); border-radius: 50%; background: #ff5f57; }
-.chrome-traffic-lights i:nth-child(2) { background: #febc2e; }
-.chrome-traffic-lights i:nth-child(3) { background: #28c840; }
+.chrome-traffic-lights { --chrome-light-close: #ff5f57; --chrome-light-minimize: #febc2e; --chrome-light-zoom: #28c840; display: flex; gap: var(--chrome-unit); }
+.chrome-traffic-lights i { width: var(--chrome-icon-size); height: var(--chrome-icon-size); border-radius: 50%; background: var(--chrome-light-close); }
+.chrome-traffic-lights i:nth-child(2) { background: var(--chrome-light-minimize); }
+.chrome-traffic-lights i:nth-child(3) { background: var(--chrome-light-zoom); }
 .chrome-window-body { display: flex; flex: 1; min-height: 0; gap: var(--chrome-inset); overflow: hidden; }
 .chrome-sidebar { width: calc(var(--chrome-unit) * 61); min-width: calc(var(--chrome-unit) * 61); padding: calc(var(--chrome-unit) * 4) calc(var(--chrome-unit) * 2); background: var(--chrome-sidebar); }
 .chrome-main { min-width: 0; flex: 1; display: flex; flex-direction: column; padding-right: var(--chrome-inset); }

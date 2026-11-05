@@ -1,8 +1,19 @@
 // l10n-allow-file: gallery fixtures, public-safe chrome and sample workspace labels.
 import { componentEntry } from "../format";
-import { WindowChromeShape, type ChromeDensity, type ChromeShapeVariant, type ChromeTheme, type WindowChromeShapeProps } from "./WindowChromeShape";
+import {
+  WindowChromeShape,
+  type ChromeDensity,
+  type ChromeShapeVariant,
+  type ChromeTheme,
+  type WindowChromeShapeProps,
+} from "./WindowChromeShape";
 
-type Props = { variant: ChromeShapeVariant; density: ChromeDensity; theme: ChromeTheme; menuScene?: WindowChromeShapeProps["menuScene"] };
+type Props = {
+  variant: ChromeShapeVariant;
+  density: ChromeDensity;
+  theme: ChromeTheme;
+  menuScene?: WindowChromeShapeProps["menuScene"];
+};
 
 const variants: Record<string, Props & { note: string }> = {};
 for (const variant of ["recommendation", "group-line", "aside-labels", "rex-icons"] as const)
@@ -18,12 +29,22 @@ for (const variant of ["recommendation", "group-line", "aside-labels", "rex-icon
     }
 
 for (const menuScene of [
-  "one-zen", "one-zen-hover", "one-visible", "three-zen", "one-always-strip", "one-title-menu", "three-pane-menu", "three-developer-menu",
+  "one-zen",
+  "one-zen-hover",
+  "one-visible",
+  "three-zen",
+  "one-always-strip",
+  "one-title-menu",
+  "three-pane-menu",
+  "three-developer-menu",
 ] as const)
   for (const density of ["compact", "comfortable"] as const)
     for (const theme of ["light", "dark"] as const) {
       variants[`recommendation-${density}-${theme}-${menuScene}`] = {
-        variant: "recommendation", density, theme, menuScene,
+        variant: "recommendation",
+        density,
+        theme,
+        menuScene,
         note: `header scene ${menuScene}; shared agent/browser pane header and reserved action slots`,
       };
     }

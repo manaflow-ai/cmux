@@ -63,11 +63,32 @@ export type SidebarGroup = Readonly<{
 
 export function sidebarGroups(variant: SidebarVariant): readonly SidebarGroup[] {
   const groups: SidebarGroup[] = [
-    { title: "Today", rows: [{ title: "Review parity", detail: "Working", icon: "agent.session", selected: true }, { title: "Design pass", detail: "2h ago", icon: "agent.chat" }] },
-    { title: "cmux NEXT", rows: [{ title: "Sidebar proportions", icon: "workspace" }, { title: "Cloud workspaces", detail: "Remote", icon: "cloud" }, { title: "Composer polish", icon: "agent.chat" }] },
-    { title: "Research", rows: [{ title: "Design references", icon: "browser" }, { title: "Native chrome", icon: "workspace" }, { title: "Archive", icon: "folder" }] },
+    {
+      title: "Today",
+      rows: [
+        { title: "Review parity", detail: "Working", icon: "agent.session", selected: true },
+        { title: "Design pass", detail: "2h ago", icon: "agent.chat" },
+      ],
+    },
+    {
+      title: "cmux NEXT",
+      rows: [
+        { title: "Sidebar proportions", icon: "workspace" },
+        { title: "Cloud workspaces", detail: "Remote", icon: "cloud" },
+        { title: "Composer polish", icon: "agent.chat" },
+      ],
+    },
+    {
+      title: "Research",
+      rows: [
+        { title: "Design references", icon: "browser" },
+        { title: "Native chrome", icon: "workspace" },
+        { title: "Archive", icon: "folder" },
+      ],
+    },
   ];
-  if (variant === "B") return groups.map((group) => ({ ...group, colour: "var(--agent-ansi-4, var(--cmux-accent, currentColor))" }));
+  if (variant === "B")
+    return groups.map((group) => ({ ...group, colour: "var(--agent-ansi-4, var(--cmux-accent, currentColor))" }));
   return groups;
 }
 

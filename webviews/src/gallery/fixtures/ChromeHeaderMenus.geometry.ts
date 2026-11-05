@@ -61,8 +61,7 @@ export function assertChromeHeaderGeometry(
   near("toolbar slot width", before.actionWidth, after.actionWidth);
   for (const state of [before, after]) {
     near("add shares row center line", state.addCenterY, state.height / 2);
-    if (state.titleChevron !== (state.paneKind === "agent"))
-      throw new Error("title chevron must be agent-only");
+    if (state.titleChevron !== (state.paneKind === "agent")) throw new Error("title chevron must be agent-only");
     if (state.addressRow !== (state.paneKind === "browser"))
       throw new Error("only browser panes get the address toolbar");
   }

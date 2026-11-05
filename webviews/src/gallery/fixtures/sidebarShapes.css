@@ -21,6 +21,7 @@
 }
 .sidebar-shape__disclosure { opacity: 0; }
 .sidebar-shape__group:hover .sidebar-shape__disclosure,
+.sidebar-shape__group:has([data-popup-open]) .sidebar-shape__disclosure,
 .sidebar-shape__group:focus-within .sidebar-shape__disclosure { opacity: .7; }
 .sidebar-shape__row {
   min-height: var(--sidebar-row-height);
@@ -56,6 +57,7 @@
   font-size: var(--sidebar-icon-size);
 }
 .sidebar-shape__row:hover .sidebar-shape__more,
+.sidebar-shape__row:has([data-popup-open]) .sidebar-shape__more,
 .sidebar-shape__row:focus-within .sidebar-shape__more { opacity: .7; background: color-mix(in srgb, currentColor 8%, transparent); }
 .sidebar-shape__row:hover .sidebar-shape__trail,
 .sidebar-shape__row:focus-within .sidebar-shape__trail { opacity: 0; }

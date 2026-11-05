@@ -12,7 +12,15 @@ export type WindowChromeShapeProps = {
   variant: ChromeShapeVariant;
   density: ChromeDensity;
   theme: ChromeTheme;
-  menuScene?: "one-zen" | "one-zen-hover" | "one-visible" | "three-zen" | "one-always-strip" | "one-title-menu" | "three-pane-menu" | "three-developer-menu";
+  menuScene?:
+    | "one-zen"
+    | "one-zen-hover"
+    | "one-visible"
+    | "three-zen"
+    | "one-always-strip"
+    | "one-title-menu"
+    | "three-pane-menu"
+    | "three-developer-menu";
 };
 
 function AgentPane({ children }: { children: ReactNode }) {
@@ -20,7 +28,12 @@ function AgentPane({ children }: { children: ReactNode }) {
     <section className="chrome-pane chrome-agent-pane">
       <div className="chrome-pane-content">
         {children}
-        <div className="chrome-transcript-rail" aria-label="Transcript rail"><i /><i /><i /><i /></div>
+        <div className="chrome-transcript-rail" aria-label="Transcript rail">
+          <i />
+          <i />
+          <i />
+          <i />
+        </div>
       </div>
     </section>
   );
@@ -45,16 +58,36 @@ export function WindowChromeShape({ variant, density, theme, menuScene }: Window
     "--chrome-density": density === "compact" ? 1 : 1.125,
   } as CSSProperties;
   return (
-    <div className="window-chrome-gallery" data-variant={variant} data-density={density} data-theme={theme} style={style}>
+    <div
+      className="window-chrome-gallery"
+      data-variant={variant}
+      data-density={density}
+      data-theme={theme}
+      style={style}
+    >
       <header className="chrome-window-header">
         <div className="chrome-window-sidebar-title">
-          <div className="chrome-traffic-lights"><i /><i /><i /></div>
-          <button className="chrome-sidebar-toggle" aria-label="Toggle sidebar">☰</button>
+          <div className="chrome-traffic-lights">
+            <i />
+            <i />
+            <i />
+          </div>
+          <button className="chrome-sidebar-toggle" aria-label="Toggle sidebar">
+            ☰
+          </button>
         </div>
         <div className="chrome-window-agent-title">
           <ChromeHeaderMenus
             paneKind="agent"
-            openMenu={menuScene?.includes("title") ? "title" : menuScene?.includes("developer") ? "developer" : menuScene?.includes("pane") ? "pane" : null}
+            openMenu={
+              menuScene?.includes("title")
+                ? "title"
+                : menuScene?.includes("developer")
+                  ? "developer"
+                  : menuScene?.includes("pane")
+                    ? "pane"
+                    : null
+            }
             visibility={menuScene?.includes("visible") ? "always" : "zen"}
             tabs={menuScene?.includes("three") ? 3 : 1}
             tabMode={menuScene?.includes("always-strip") ? "always" : "auto"}
@@ -67,11 +100,15 @@ export function WindowChromeShape({ variant, density, theme, menuScene }: Window
         </div>
       </header>
       <div className="chrome-window-body">
-        <aside className="chrome-sidebar"><SidebarShapes variant={sidebarVariants[variant]} density={density} appearance={theme} /></aside>
+        <aside className="chrome-sidebar">
+          <SidebarShapes variant={sidebarVariants[variant]} density={density} appearance={theme} />
+        </aside>
         <main className="chrome-main">
           <div className="chrome-content-surface">
             <div className="chrome-pane-grid">
-              <AgentPane><div className="chrome-chat-placeholder">Plan a small, reversible change.</div></AgentPane>
+              <AgentPane>
+                <div className="chrome-chat-placeholder">Plan a small, reversible change.</div>
+              </AgentPane>
               <BrowserPane />
             </div>
           </div>
