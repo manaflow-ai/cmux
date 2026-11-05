@@ -45,6 +45,16 @@ import Testing
         #expect(rig.asked == ["41"])
     }
 
+    @Test func oneClickInstallsOnce() async throws {
+        let rig = Rig()
+        #expect(try await rig.install(["build": .string("41")]) == .object([:]))
+        // The same click, still inside its one-second window, asks for another build.
+        #expect(await Self.code { try await rig.install(["build": .string("40")]) } == "cmux.changelog.user_only")
+        #expect(try await rig.install(["build": .string("40")], PageCallContext(page: "cmux.changelog", userGesture: true, gestureEvent: 101))
+            == .object([:]))
+        #expect(rig.asked == ["41", "40"])
+    }
+
     @Test func aRefusalReachesThePage() async throws {
         let rig = Rig()
         rig.refusal = "That build was pulled from the feed. Pick another one."

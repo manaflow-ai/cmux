@@ -15,6 +15,8 @@ public final class ChangelogInstallProvider: PageProvider {
     private let install: (@MainActor (String) async -> String?)?
     /// `updates.whatsNewInstall` as it is now.
     private let enabled: @MainActor () -> Bool
+    /// The click the last install spent: one click, one install (the gesture window is a second long).
+    private var spentGesture: TimeInterval?
 
     public init(install: (@MainActor (String) async -> String?)?, enabled: @escaping @MainActor () -> Bool = { true }) {
         self.install = install
@@ -40,12 +42,15 @@ public final class ChangelogInstallProvider: PageProvider {
         case "cmux.changelog.installable":
             return ["installs": .bool(install != nil && enabled())]
         case "cmux.changelog.install":
-            // It restarts the app into another build: the person's own click on What's New only.
-            guard context.page == PageDescriptor.changelog.id, context.userGesture else {
+            // It restarts the app into another build: the person's own click on What's New only, and
+            // that click installs once.
+            guard context.page == PageDescriptor.changelog.id, context.userGesture, let event = context.gestureEvent,
+                  event != spentGesture else {
                 throw PageError(code: "cmux.changelog.user_only", message: "only you can install another version")
             }
             guard let install, enabled() else { throw PageError.unknownOp(op) }
             guard let build = params["build"]?.stringValue, !build.isEmpty else { throw PageError.invalidParams("build is required") }
+            spentGesture = event
             if let failure = await install(build) { throw PageError(code: "cmux.page.refused", message: failure) }
             return .object([:])
         default:

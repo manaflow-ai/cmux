@@ -59,11 +59,16 @@ extension UpdaterService {
         if let item = offered.first(where: { $0.version == build }), let url = item.downloadURL {
             return url.scheme == "https" ? (url, item.signature) : nil
         }
-        guard identity.feed().channel == .nightlyNext, !identity.isTipBuild, let folder,
+        let feed = identity.feed()
+        guard feed.channel == .nightlyNext, !identity.isTipBuild, let folder,
               await (changelogNotes?.index() ?? []).contains(where: { $0.build == build }),
               !(await Self.pulled(in: folder)).contains(where: { $0.build == build })
         else { return nil }
-        return Self.nightlyDiskImageURL(build: build, in: folder).map { ($0, nil) }
+        // The DMG sits beside this app's own feed, not with the verdicts: since #36287 the one feed
+        // publishes to `/nightly-next/` while verdicts and pulls stay in `/nightly-next/next/`, and a
+        // build of the other identity would not install here anyway.
+        guard let feedFolder = URL(string: feed.url)?.deletingLastPathComponent() else { return nil }
+        return Self.nightlyDiskImageURL(build: build, in: feedFolder).map { ($0, nil) }
     }
 
     /// The DMG cmux NEXT's nightly publisher writes for `build` beside its feed; nil for a name
