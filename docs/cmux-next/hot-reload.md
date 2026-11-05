@@ -166,8 +166,25 @@ chat with no folder runs in, so its Home chats see your Home chats' files) and `
 `--here` patches your running app instead (web-only PRs) and, for a rebuild, only says where the
 build is. The rules are in `scripts/cmux-next/live_apply.py`. Over the last 3,895 NEXT-era PRs,
 about half of the ones that touch the app changed only web code or nothing in the app, so they
-need no new binary. A Swift change confined to function bodies and new files could be injected live once the
-app takes live code (the view shell does today); until then it takes the dev build.
+need no new binary.
+
+A Swift change confined to function bodies can also skip the build when `--from` names a live code build
+([live-code.md](live-code.md)) and `--live-code` its reload log:
+
+```sh
+scripts/cmux-next/try-pr.sh <PR> --from "<your live code build>.app" --live-code /tmp/cmux-reload-<tag>.log
+```
+
+The script puts the PR's diff onto the build's own commit (`CMUXCommit`) in a scratch worktree and sorts it
+again there. When every change is an edit to an existing `CmuxNextApp` Swift file, `scripts/live-code/patch.py
+--tree` compiles those files against the build into the side instance's `live-code/` folder, and the running
+copy loads them. With `--here`, the files go to your own app's live folder (Labs > Live Code). A new or deleted
+file, a change outside `CmuxNextApp`, a commit this checkout lacks, a failed compile or a patch the app refuses
+all take the dev build instead, and the script says which one it was. A reload or DEV build records no commit (`CMUXCommit`), so the script uses the HEAD of the checkout
+the build's log compiled, as long as that checkout has no uncommitted CmuxNextApp changes and has not moved since the build.
+`scripts/measure/try-pr-live-code.sh` runs the whole path on a fleet Mac: a live code bench build, a fixture PR that
+turns Home red, and captures before and after. Only Debug and bench builds load patches
+today, so the installed nightly still takes the dev build.
 `scripts/measure/try-pr-side-instance.sh` times a set of PRs from the command to the PR's page
 loading in the side instance.
 

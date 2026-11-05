@@ -217,3 +217,58 @@ fn a_send_by_host_and_name_reaches_another_machines_session_listed_and_audited_o
         (&json!("refused"), &json!("hostb/nobody"), &json!(1))
     );
 }
+
+/// A peer's `session/prompt` over the daemon socket, the way another machine's message arrives:
+/// the connection stays open until its turn ends.
+const PROMPT_CLIENT: &str = r#"
+import json, socket, sys
+s = socket.socket(socket.AF_UNIX)
+s.connect(sys.argv[1])
+f = s.makefile("rw")
+def call(i, method, params):
+    f.write(json.dumps({"jsonrpc": "2.0", "id": i, "method": method, "params": params}) + "\n")
+    f.flush()
+call(1, "initialize", {"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "t", "version": "1"}})
+while json.loads(f.readline()).get("id") != 1:
+    pass
+call(2, "session/prompt", {"sessionId": sys.argv[2], "prompt": [{"type": "text", "text": "until-cancel"}],
+                           "_meta": {"acpmux": {"fromAgent": "hosta/lane-a"}}})
+for line in f:
+    if json.loads(line).get("id") == 2:
+        break
+"#;
+
+#[test]
+fn a_message_from_another_machine_is_audited_when_it_arrives_not_when_its_turn_ends() {
+    let _ = &HERMETIC;
+    let b = home("r");
+    let _down = Shutdown(&b);
+    config(&b, json!({}));
+    let made = cli(&b, &["--json", "new", "-d", "-n", "lane-y"]);
+    assert!(made.status.success(), "{}", text(&made));
+    let id = serde_json::from_slice::<Value>(&made.stdout).unwrap()["sessionId"]
+        .as_str()
+        .expect("lane-y's id")
+        .to_owned();
+    // A prompt from another machine whose turn runs until it is cancelled: the receipt is in
+    // the log while it runs.
+    let mut turn = std::process::Command::new("python3")
+        .args(["-c", PROMPT_CLIENT, &b.join("acpmux.sock").display().to_string(), &id])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let received = (0..100).any(|_| {
+        let found = audit(&b).iter().any(|l| l["dir"] == "received" && l["from"] == "hosta/lane-a");
+        if !found {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        found
+    });
+    let running = turn.try_wait().unwrap().is_none();
+    let _ = cli(&b, &["session", "cancel", "lane-y"]);
+    let out = turn.wait_with_output().unwrap();
+    assert!(running, "the turn ended before the check: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(received, "no received line while the turn ran: {:?}", audit(&b));
+}

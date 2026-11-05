@@ -15,7 +15,7 @@ if [[ "${1:-}" == --diagnose ]]; then
   echo "== access rows"
   sudo -n sqlite3 "$system_db" "SELECT service, client, client_type, auth_value, auth_reason, auth_version, length(csreq), flags
     FROM access WHERE client LIKE '%cu-eval%' OR client LIKE '%bash%' OR client LIKE '%python%' OR client LIKE '%Python%'
-    OR client LIKE '%driver%' OR client LIKE '%cmux-cua%';"
+    OR client LIKE '%driver%' OR client LIKE '%cmux-cua%' OR client LIKE 'com.cmuxterm.%';"
   echo "== schema"
   sudo -n sqlite3 "$system_db" ".schema access"
   echo "== tccd, last 10 minutes"
@@ -36,16 +36,26 @@ for path in "$@"; do
     csreq -r- -b "$work/req" <<<"$requirement" 2>/dev/null; then
     csreq="X'$(xxd -p "$work/req" | tr -d '\n')'"
   fi
-  quoted=${path//\'/\'\'}
-  for service in kTCCServiceAccessibility kTCCServicePostEvent kTCCServiceScreenCapture; do
-    # client_type 1 is a path; auth_value 2 is allowed; auth_reason 4 is "set by the system".
-    row="INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version,
-      csreq, policy_id, indirect_object_identifier_type, indirect_object_identifier, flags, last_modified,
-      boot_uuid, last_reminded) VALUES ('$service', '$quoted', 1, 2, 4, 1, $csreq, NULL, 0, 'UNUSED', 0,
-      CAST(strftime('%s','now') AS INTEGER), 'UNUSED', CAST(strftime('%s','now') AS INTEGER));"
-    sudo -n sqlite3 "$system_db" "$row" || { echo "tcc-grant.sh: $service for $path: system write failed" >&2; status=1; }
+  # client_type 1 is a path. An app bundle's executable is also looked up by the bundle's id
+  # (client_type 0), so it gets a row under that id too.
+  clients=("1:$path")
+  if [[ "$path" == *.app/Contents/MacOS/* ]]; then
+    bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "${path%/MacOS/*}/Info.plist" 2>/dev/null)
+    [[ "$bundle_id" =~ ^[A-Za-z0-9.-]+$ ]] && clients+=("0:$bundle_id")
+  fi
+  for entry in "${clients[@]}"; do
+    client_type=${entry%%:*} client=${entry#*:}
+    quoted=${client//\'/\'\'}
+    for service in kTCCServiceAccessibility kTCCServicePostEvent kTCCServiceScreenCapture; do
+      # auth_value 2 is allowed; auth_reason 4 is "set by the system".
+      row="INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version,
+        csreq, policy_id, indirect_object_identifier_type, indirect_object_identifier, flags, last_modified,
+        boot_uuid, last_reminded) VALUES ('$service', '$quoted', $client_type, 2, 4, 1, $csreq, NULL, 0, 'UNUSED', 0,
+        CAST(strftime('%s','now') AS INTEGER), 'UNUSED', CAST(strftime('%s','now') AS INTEGER));"
+      sudo -n sqlite3 "$system_db" "$row" || { echo "tcc-grant.sh: $service for $client: system write failed" >&2; status=1; }
+    done
   done
-  echo "tcc-grant.sh: granted $path (csreq ${csreq:0:4})"
+  echo "tcc-grant.sh: granted ${clients[*]} (csreq ${csreq:0:4})"
 done
 sudo -n launchctl kickstart -k system/com.apple.tccd >/dev/null 2>&1 || true
 # The user's tccd may hold an earlier answer; from inside the login session this restarts it too.

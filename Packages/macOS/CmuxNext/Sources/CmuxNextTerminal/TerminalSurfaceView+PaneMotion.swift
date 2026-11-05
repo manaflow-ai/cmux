@@ -49,15 +49,20 @@ extension TerminalSurfaceView: PaneMotionTargeting {
         return host.surfaceSize(forHostSize: hostSize)
     }
 
-    /// Reports the grid a view of `size` points fits and holds the surface at that size in its host. In a key resize
-    /// whose pane its host follows (FRAME OWNER S3) with `motion.frameOwner.terminals` on, only the grid goes (cmux-ad m6:
-    /// the program's size per press); the surface takes its pane's size in every frame
-    /// (``TerminalHostView/followedSurfaceFrame(_:in:)``), never held at the final size. One exception, as for a split
-    /// or a close: a pane that grows down with the prompt in its lower half (`motionAnchor` answers `.bottom`) keeps a
-    /// bottom hold at the final size. With the switch on the host uses only its height, at the area's width, and only while
-    /// that height is more than the area's: the surface's bottom rides the moving bottom edge, so the prompt on the final
-    /// grid's last row stays in view (a surface at the pane's size shows the final grid's top rows; review of #35470, F2
-    /// and H1). With the switch off the surface keeps the whole final size on that edge.
+    /// Reports the grid a view of `size` points fits, and holds the surface at that size in its host unless the host
+    /// follows its pane with `motion.frameOwner.terminals` on.
+    ///
+    /// In a key resize whose pane its host follows (FRAME OWNER S3) with the switch on, only the grid goes (cmux-ad m6:
+    /// the program's size per press): the surface takes its pane's size in every frame
+    /// (``TerminalHostView/surfaceFollowsArea``) and holds nothing, not even for a low prompt (cmux-ad m14). Its reflow
+    /// preview draws each frame's grid and keeps the cursor row in view, which the bottom hold at the final size did by
+    /// making the surface taller than its pane and cutting its top rows (F2). A hold an earlier press or a join set (the
+    /// final size a terminal took before its area handed it the follow) goes now, not at the landing (review of #35470 at
+    /// 447f784c3cf, G1: grid1, grid2, grid1, grid2 for two presses after a join).
+    ///
+    /// When it holds (a split, a close, any spring with the switch off), a pane that grows down with the prompt in its
+    /// lower half (`motionAnchor` answers `.bottom`) keeps the surface on the moving bottom edge, so the prompt on the
+    /// final grid's last row stays in view.
     private func restAt(_ size: NSSize, growing: Bool) -> PaneMotionAnchor {
         guard let surface else { return .top }
         let pixels = convertToBacking(size)
@@ -67,17 +72,13 @@ extension TerminalSurfaceView: PaneMotionTargeting {
               ghostty_surface_fit_grid(surface, UInt32(pixels.width), UInt32(pixels.height), &columns, &rows)
         else { return .top }
         reportFinalGrid(TerminalGridSize(columns: Int(columns), rows: Int(rows)))
-        let anchor = motionAnchor(growing: growing)
-        if anchor == .top, let host = superview as? TerminalHostView, host.followedHold != nil,
-           TerminalDragTunables.framesOwnedByCommit.value {
-            // The newest press's anchor wins: a hold an earlier press or a join set (a low prompt's bottom hold, or the
-            // final size a terminal took before its area handed it the follow) goes now, not at the landing (review of
-            // #35470 at 447f784c3cf, G1: a stale bottom hold through a reverse press, and grid1, grid2, grid1, grid2 for
-            // two presses after a join).
+        let host = superview as? TerminalHostView
+        if let host, host.surfaceFollowsArea {
             host.releaseSurfaceHold()
             return .top
         }
-        (superview as? TerminalHostView)?.holdSurface(size: size, anchor: anchor)
+        let anchor = motionAnchor(growing: growing)
+        host?.holdSurface(size: size, anchor: anchor)
         return anchor
     }
 
