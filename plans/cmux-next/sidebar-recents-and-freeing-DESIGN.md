@@ -88,9 +88,9 @@ Plus the screen and scrollback snapshot, trimmed as it ages (`terminal.persisten
 | 7 to 30 days | 100 lines (about the screen) |
 | over 30 days | none: the record only (worst case the ask names) |
 
-- Budget: `terminal.persistence.parkedMaxTotalMB` (default **256**). Over it, the oldest snapshots step down a tier
+- Budget: `terminal.persistence.parkedMaxTotalBytes` (default **256 MiB**). Over it, the oldest snapshots step down a tier
   first, then lose their scrollback.
-- Disk health: under `terminal.persistence.minFreeDiskGB` (default **5**) or 5% free, a freed terminal keeps the
+- Disk health: under `terminal.persistence.minFreeDiskBytes` (default **5 GiB**) or 5% free, a freed terminal keeps the
   record only, and no trim rewrites a file.
 - SSD writes: a freed terminal writes its snapshot once when it frees (it makes no output after). A trim rewrites
   a file only when it changes tier: at most three rewrites in a terminal's life, done in the daemon's idle pass
@@ -112,8 +112,8 @@ terminal shows the marker line alone.
 | `workspaces.freeing.agents` | true |
 | `workspaces.freeing.runningCommands` | `never` |
 | `terminal.persistence.parkedTiers` | the table above |
-| `terminal.persistence.parkedMaxTotalMB` | 256 |
-| `terminal.persistence.minFreeDiskGB` | 5 |
+| `terminal.persistence.parkedMaxTotalBytes` | 256 MiB |
+| `terminal.persistence.minFreeDiskBytes` | 5 GiB |
 
 Off by default at first: freeing ends shell processes, which is user-visible high-tier behavior (risk tiers say a
 default-off setting first). Flip it on once a week of dogfood shows no lost state.
@@ -126,7 +126,8 @@ default-off setting first). Flip it on once a week of dogfood shows no lost stat
    remote) and parks through `park-tabs`; `workspaces.freeing.enabled` / `idleMinutes` rows. Agent TUIs stay
    running in this slice (an agent record keeps a terminal); they free in slice 4 with their resume.
    Tests: `WorkspaceFreeingTests` (eligibility table, settings, coordinator with a fake host).
-3. Daemon: parked snapshots trim by tier, budget, free-space guard (`output_store`), Rust tests with a fake clock
-   and a fake statvfs.
+3. Daemon: parked snapshots trim by tier, budget, free-space guard (`output_store/parked_trim.rs`), run with the
+   store's prune and once a day from the writer; only a terminal whose shell ended (its tab stays) trims. Byte keys
+   match the other `terminal.persistence.*Bytes` keys. Rust tests with a fixed clock and a given free-disk state.
 4. Last-command record, the restored marker line, Run Last Command Again, `runningCommands: relaunch`.
 5. Hover card "Freed 2d ago · restores on open", `debug.surfaces` counts, docs.
