@@ -56,6 +56,18 @@ public final class WebUpdates {
         start(bundle: bundle, settings: settings)
     }
 
+    /// Names where each bundled web folder outside the pages folder sits inside an update
+    /// (``WebUpdateTree/outputs``), so its requests read the active update: the agent pane and the
+    /// viewers (`appResources`: the app's resources folder).
+    static func registerBundledFolders(_ overlay: WebBundleOverlay, appResources: URL?) {
+        if let agentPane = AgentPaneView.bundledPage?.deletingLastPathComponent() {
+            overlay.register(bundled: agentPane, output: WebUpdateTree.outputs[0])
+        }
+        if let appResources {
+            overlay.register(bundled: PageDescriptor.diffRoot(inAppResources: appResources), output: WebUpdateTree.outputs[4])
+        }
+    }
+
     /// Starts once. Before the first page loads, pages wait for the kept update's check; after,
     /// the kept update waits for a safe point.
     private func start(bundle: Bundle, settings: UpdatesSettings? = nil) {
@@ -67,12 +79,7 @@ public final class WebUpdates {
               let store = WebUpdateStore.standard(bundleIdentifier: bundle.bundleIdentifier)
         else { return }
         let overlay = WebBundleOverlay.shared
-        if let agentPane = AgentPaneView.bundledPage?.deletingLastPathComponent() {
-            overlay.register(bundled: agentPane, output: WebUpdateTree.outputs[0])
-        }
-        if let resources = bundle.resourceURL {
-            overlay.register(bundled: PageDescriptor.diffRoot(inAppResources: resources), output: WebUpdateTree.outputs[4])
-        }
+        Self.registerBundledFolders(overlay, appResources: bundle.resourceURL)
         let updater = WebUpdater(store: store, app: app)
         updater.onReady = { [weak self] tree, pointer in
             self?.handedOver = true
