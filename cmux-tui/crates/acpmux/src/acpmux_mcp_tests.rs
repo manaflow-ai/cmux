@@ -1059,7 +1059,8 @@ fn who_else_is_listed_with_its_instruction_and_names_the_chat() {
 /// read as no one working there.
 #[test]
 fn who_else_text_names_the_peers_it_could_not_ask() {
-    let answer = json!({"sessions": [], "unreached": [{"host": "big-red", "error": "no answer in 5 s"}]});
+    let answer =
+        json!({"sessions": [], "unreached": [{"host": "big-red", "error": "no answer in 5 s"}]});
     assert_eq!(
         who_else::text(&answer),
         "No other session works on these.\n(not asked: big-red: no answer in 5 s)"
