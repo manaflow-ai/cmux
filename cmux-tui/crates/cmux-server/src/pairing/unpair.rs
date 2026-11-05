@@ -44,36 +44,39 @@ impl Cloud {
     }
 }
 
+fn cloud_error(error: Error) -> Error {
+    if error.kind == crate::ExitKind::Unreachable {
+        Error::unreachable(UNREACHABLE)
+    } else if error.kind == crate::ExitKind::Rejected {
+        Error::rejected(REFUSED)
+    } else {
+        error
+    }
+}
+
 /// Sign the paired install out with its own key.
 fn sign_out(record: &identity::Identity, transport: &dyn Transport) -> Result<Cloud> {
     let paired =
         record.paired.as_ref().ok_or_else(|| Error::internal("server.unpair.not_paired"))?;
-    let bearer = match confirmation::token(record, transport) {
-        Ok(bearer) => bearer,
-        // A 4xx on the challenge or token: the backend no longer accepts this install.
+    // The challenge refuses only an unknown or revoked install (one answer for both): that alone
+    // means "already revoked". A refused token mint (an old client, an SSO or team policy gate)
+    // leaves the install active, so it keeps the local record.
+    let ids = json!({"user": paired.user, "install": paired.install});
+    match transport.backend_post(&record.api, "/v1/auth/challenge", &ids, None) {
+        Ok(_) => {}
         Err(error) if error.kind == crate::ExitKind::Rejected => return Ok(Cloud::AlreadyRevoked),
-        Err(error) if error.kind == crate::ExitKind::Unreachable => {
-            return Err(Error::unreachable(UNREACHABLE));
-        }
-        Err(error) => return Err(error),
-    };
+        Err(error) => return Err(cloud_error(error)),
+    }
+    let bearer = confirmation::token(record, transport).map_err(cloud_error)?;
     let key = format!("server-unpair:{}", paired.install);
-    let answer = match transport.backend_post(
-        &record.api,
-        "/v1/ops",
-        &json!({"op": "install.sign_out", "idempotency_key": key, "origin": "cli", "params": {}}),
-        Some(bearer.as_str()),
-    ) {
-        Ok(answer) => answer,
-        // A token minted a moment ago was accepted: a refusal now is not "already revoked".
-        Err(error) if error.kind == crate::ExitKind::Rejected => {
-            return Err(Error::rejected(REFUSED));
-        }
-        Err(error) if error.kind == crate::ExitKind::Unreachable => {
-            return Err(Error::unreachable(UNREACHABLE));
-        }
-        Err(error) => return Err(error),
-    };
+    let answer = transport
+        .backend_post(
+            &record.api,
+            "/v1/ops",
+            &json!({"op": "install.sign_out", "idempotency_key": key, "origin": "cli", "params": {}}),
+            Some(bearer.as_str()),
+        )
+        .map_err(cloud_error)?;
     if answer["ok"] == true
         && answer["op"] == "install.sign_out"
         && answer["value"]["id"] == paired.install

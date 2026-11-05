@@ -138,6 +138,21 @@ describe("server.revoke of a server paired through an invite", { timeout: 60_000
 })
 
 describe("the box unpairs itself (install.sign_out from the server's install)", { timeout: 60_000 }, () => {
+  it("a sign-out UserDO refuses (a reused key) leaves the host, the code and the invite as they were", async () => {
+    const p = await pairedThroughInvite("stack-invite-self-unpair-refused")
+    const token = await installToken(p.key, p.result.user, p.result.install)
+    const key = crypto.randomUUID()
+    expect((await call("/v1/ops", token, { op: "install.rename", params: { install: p.result.install, name: "Renamed" }, idempotency_key: key, origin: "cli" })).json.ok).toBe(true)
+    const refused = await call("/v1/ops", token, { op: "install.sign_out", params: {}, idempotency_key: key, origin: "cli" })
+    expect(refused.json.ok).toBe(false)
+    const hosts = (await read(p.owner.token, "team.directory", {})).json.value.hosts as Array<{ id: string }>
+    expect(hosts.some((h) => h.id === p.result.host)).toBe(true)
+    expect((await read(token, "install.list", {})).status).toBe(200)
+    const box = await waitFor(p.code, p.collect)
+    await box.until(() => box.closes.length > 0)
+    expect(box.frames.at(-1)).toMatchObject({ t: "paired", host: p.result.host })
+  })
+
   it("removes its host from the directory, voids the invite revoked and spends the code; the install token stops working", async () => {
     const p = await pairedThroughInvite("stack-invite-self-unpair")
     const token = await installToken(p.key, p.result.user, p.result.install)

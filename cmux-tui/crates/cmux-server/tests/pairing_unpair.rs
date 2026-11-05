@@ -6,7 +6,7 @@ use std::collections::VecDeque;
 use std::sync::Mutex;
 
 use base64::Engine as _;
-use cmux_server::pairing::unpair::UNREACHABLE;
+use cmux_server::pairing::unpair::{REFUSED, UNREACHABLE};
 use cmux_server::pairing::{self, Transport};
 use cmux_server::{Error, ExitKind, Result};
 use cmux_server_core::pairing::enrollment::{Begun, Paired, Waited};
@@ -35,6 +35,8 @@ enum Cloud {
     Accepts,
     /// The challenge is refused 4xx: the install was revoked in the app.
     AlreadyRevoked,
+    /// The challenge passes but the token mint is refused (an old client, an SSO gate): still active.
+    TokenRefused,
     Down,
 }
 
@@ -99,6 +101,9 @@ impl Transport for Api {
             }
             ("/v1/auth/challenge", _) => Ok(json!({"install":INSTALL,"nonce":NONCE,
                 "message_prefix":format!("cmux-auth-v1\nstaging\n{INSTALL}\n"),"expires_at":NOW+60_000})),
+            ("/v1/auth/token", Cloud::TokenRefused) => {
+                Err(Error::rejected("server.pair.api_refused"))
+            }
             ("/v1/auth/token", _) => {
                 assert!(body["signature"].as_str().is_some_and(|s| !s.is_empty()));
                 Ok(json!({"token_type":"Bearer","access_token":"tok-1","user":paired().user,
@@ -138,9 +143,12 @@ fn server_unpair_signs_the_install_out_with_its_own_key_then_removes_the_local_r
         json!({"state":"unpaired","cloud":"signed_out","removed":true,
             "host":"host_00000000000000000001","install":INSTALL})
     );
-    assert_eq!(api.paths(), ["/v1/auth/challenge", "/v1/auth/token", "/v1/ops"]);
+    assert_eq!(
+        api.paths(),
+        ["/v1/auth/challenge", "/v1/auth/challenge", "/v1/auth/token", "/v1/ops"]
+    );
     let posts = api.posts.lock().unwrap();
-    let (_, op, bearer) = &posts[2];
+    let (_, op, bearer) = &posts[3];
     assert_eq!(op["op"], "install.sign_out");
     assert_eq!(op["idempotency_key"], format!("server-unpair:{INSTALL}"));
     assert_eq!(bearer.as_deref(), Some("tok-1"));
@@ -150,7 +158,7 @@ fn server_unpair_signs_the_install_out_with_its_own_key_then_removes_the_local_r
     assert_eq!(pairing::status(&path).unwrap(), json!({"state":"unpaired"}));
     let again = pairing::unpair(&path, &api, false).unwrap();
     assert_eq!(again, json!({"state":"unpaired","cloud":"none","removed":false}));
-    assert_eq!(api.paths().len(), 3, "nothing paired: no backend call");
+    assert_eq!(api.paths().len(), 4, "nothing paired: no backend call");
     // A fresh pairing makes a new key.
     api.waits.lock().unwrap().push_back(Waited::Paired(paired()));
     pair(&path, &api);
@@ -179,6 +187,20 @@ fn server_unpair_keeps_the_record_when_cmux_cloud_cannot_be_reached() {
     let down = Api::new(Cloud::Down);
     let error = pairing::unpair(&path, &down, false).unwrap_err();
     assert_eq!((error.kind, error.message.as_str()), (ExitKind::Unreachable, UNREACHABLE));
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    assert_eq!(pairing::status(&path).unwrap()["state"], "paired");
+}
+
+#[test]
+fn server_unpair_keeps_the_record_when_the_token_mint_is_refused_for_an_active_install() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("pairing/identity.json");
+    pair(&path, &Api::new(Cloud::Accepts));
+    let before = std::fs::read(&path).unwrap();
+    let gated = Api::new(Cloud::TokenRefused);
+    let error = pairing::unpair(&path, &gated, false).unwrap_err();
+    assert_eq!((error.kind, error.message.as_str()), (ExitKind::Rejected, REFUSED));
+    assert_eq!(gated.paths(), ["/v1/auth/challenge", "/v1/auth/challenge", "/v1/auth/token"]);
     assert_eq!(std::fs::read(&path).unwrap(), before);
     assert_eq!(pairing::status(&path).unwrap()["state"], "paired");
 }

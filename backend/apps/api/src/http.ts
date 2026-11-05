@@ -376,19 +376,12 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           })
           return toResponse(payload.op, home.frames)
         }
-        // A paired server's own install signs itself out (`cmux server unpair`): its host leaves the team
-        // directory first and the pairing code and invite that made it are spent, then UserDO revokes the
-        // install. In this order a failure leaves the install's token working, so the box's retry (the
-        // same steps, all idempotent) finishes the job; the other order would strand the host.
+        // A paired server's own install signs itself out (`cmux server unpair`). Its install kind is read
+        // now, while its grant is live (UserDO's principal carries none); the host leaves after the revoke.
+        let signingOutDaemon = false
         if (payload.op === "install.sign_out" && principal.kind === "install" && principal.install && principal.team) {
-          // UserDO's principal carries no install kind: ask once (a live grant only). Any other install's sign-out goes on unchanged.
           const enriched = yield* Effect.tryPromise({ try: () => principalForOwner(env, "cloud:TeamDO", principal), catch: unreachable })
-          if (enriched && !("refused" in enriched) && enriched.install_kind === "daemon") {
-            const team = principal.team
-            const install = principal.install
-            const out = yield* Effect.tryPromise({ try: () => rpc<{ host: string | null; pairing?: ServerPairingRef }>(env.TEAM_DO.get(env.TEAM_DO.idFromName(team)).serverSignedOut(team, install)), catch: unreachable })
-            if (out.pairing) yield* Effect.tryPromise({ try: () => revokeServerPairing(env, out.pairing!), catch: unreachable })
-          }
+          signingOutDaemon = Boolean(enriched && !("refused" in enriched) && enriched.install_kind === "daemon")
         }
         const { frames } = yield* submitTo(def.owner, payload.op === "user.ensure" ? personalPrincipal(submitter) : submitter, frame)
         const response = toResponse(payload.op, frames)
@@ -399,6 +392,16 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           const scopes = scopesToRequest(env, impl, c.scopes_requested)
           const authorizeUrl = yield* Effect.promise(() => Promise.resolve(impl.authorizeUrl(env, state, scopes, callbackUrl(), c.id)))
           return { ...response, value: { connection: c, authorize_url: authorizeUrl } }
+        }
+        // The install is revoked (UserDO committed it first, so a refused sign-out changes nothing else): its
+        // host leaves the team directory and the pairing code and invite that made it are spent. If this
+        // fails the reply is retryable; the box's retry then finds its key refused and forgets itself, and
+        // the host stays listed until someone revokes it (server.revoke on a revoked install just ends).
+        if (signingOutDaemon && response.ok) {
+          const team = principal.team!
+          const install = principal.install!
+          const out = yield* Effect.tryPromise({ try: () => rpc<{ host: string | null; pairing?: ServerPairingRef }>(env.TEAM_DO.get(env.TEAM_DO.idFromName(team)).serverSignedOut(team, install)), catch: unreachable })
+          if (out.pairing) yield* Effect.tryPromise({ try: () => revokeServerPairing(env, out.pairing!), catch: unreachable })
         }
         // A revoked server also loses its install key: TeamDO pushes the revocation to the owner's UserDO now and retries until it lands.
         if ((payload.op === "server.revoke" || payload.op === "host.remove") && response.ok && typeof (response.value as { install?: unknown }).install === "string") {
