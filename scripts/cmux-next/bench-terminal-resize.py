@@ -490,7 +490,7 @@ def hitches_summary(trace, env_x, summary, label):
     summary["schemas"] = schemas
     tables = {}
     for schema in schemas:
-        if not re.search(r"hitch|commit|render|frame-lifetime|display", schema):
+        if not re.search(r"hitch|commit|render|frame-lifetime|display|os-signpost|runloop-events", schema):
             continue
         xml = f"{trace}.{schema}.xml"
         done = subprocess.run(["xcrun", "xctrace", "export", "--input", trace, "--xpath",
@@ -514,7 +514,44 @@ def hitches_summary(trace, env_x, summary, label):
                 node = byid.get(ref, child) if ref else child
                 values.append(node.get("fmt") or (node.text or ""))
             rows.append(values)
-        tables[schema] = {"cols": cols, "rows": len(rows), "sample": rows[:400]}
+        entry = {"cols": cols, "rows": len(rows)}
+        if schema in ("os-signpost", "runloop-events"):
+            # Group by every text column except times, ids and the process, per process: count and duration (ms)
+            # percentiles, so a reader sees Core Animation's commit intervals and the main run loop's phases.
+            def col(name):
+                return cols.index(name) if name in cols else None
+            dur, proc = col("duration"), col("process")
+            keys = [i for i, c in enumerate(cols) if c not in ("start", "duration", "timestamp", "process", "thread",
+                                                              "identifier", "signpost-id", "backtrace", "message")
+                    and not c.endswith("-id")]
+            groups = {}
+            for r in rows:
+                pr = r[proc] if proc is not None and proc < len(r) else "?"
+                if "cmux" not in pr and "WindowServer" not in pr:
+                    continue
+                key = (pr,) + tuple(r[i] for i in keys if i < len(r))
+                g = groups.setdefault(key, [])
+                if dur is not None and dur < len(r):
+                    m = re.match(r"([\d.]+)\s*(ms|µs|us|ns|s)", r[dur] or "")
+                    if m:
+                        v = float(m.group(1)) * {"ms": 1, "µs": 1e-3, "us": 1e-3, "ns": 1e-6, "s": 1e3}[m.group(2)]
+                        g.append(v)
+                    else:
+                        g.append(None)
+                else:
+                    g.append(None)
+            out = []
+            for key, vals in groups.items():
+                d = sorted(v for v in vals if v is not None)
+                out.append({"key": [k[:80] for k in key], "count": len(vals),
+                            "p50": d[len(d) // 2] if d else None, "p95": d[min(len(d) - 1, int(len(d) * 0.95))] if d else None,
+                            "max": d[-1] if d else None, "total_ms": round(sum(d), 2) if d else None})
+            out.sort(key=lambda g: -((g["total_ms"] or 0) + g["count"] / 1000))
+            entry["groups"] = out[:60]
+            entry["key_cols"] = [cols[i] for i in keys]
+        else:
+            entry["sample"] = rows[:200]
+        tables[schema] = entry
     summary["tables"] = tables
     print(f"XCTRACE {label} {json.dumps(summary)[:120000]}", flush=True)
     return {k: v for k, v in summary.items() if k != "tables"}
