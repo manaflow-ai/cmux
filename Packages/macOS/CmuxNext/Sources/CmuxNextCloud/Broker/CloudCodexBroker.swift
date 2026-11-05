@@ -133,7 +133,7 @@ public actor CloudCodexBroker {
         guard !pendingRevocations.contains(target.machineID), targetGenerations[target.machineID, default: 0] == generation else { throw CloudCodexBrokerError.cancelled }
         targets[target.machineID] = target
         targetGenerations[target.machineID] = generation
-        if !forceRefresh, let cached, cached.expiresAt > Date().addingTimeInterval(120) {
+        if !forceRefresh, await cachedStillAllowed(), let cached, cached.expiresAt > Date().addingTimeInterval(120) {
             try await deliver(cached, target: target, expectedGeneration: generation)
             return cached
         }
@@ -157,6 +157,16 @@ public actor CloudCodexBroker {
 
     /// Sets where the Mac's own Codex access is read (``CloudCodexBrokerAdapter/localSignIn``).
     func setLocalSignIn(_ source: (@Sendable () async -> CloudCodexAccessGrant?)?) { localSignIn = source }
+    /// Whether ``cached`` may still be delivered: a grant from the Mac's own Codex only while the person's
+    /// yes stands (``localSignIn`` answers nil once it is taken back or managed). Else it is dropped, so
+    /// nothing read from the Mac reaches another machine after the off switch.
+    private func cachedStillAllowed() async -> Bool {
+        guard cachedIsLocal else { return true }
+        if let localSignIn, await localSignIn() != nil { return true }
+        cached = nil; cachedIsLocal = false
+        return false
+    }
+
     /// When the scheduled renewal runs (tests).
     var scheduledRenewal: Date? { nextRenewalAt }
 
@@ -530,7 +540,7 @@ public actor CloudCodexBroker {
     /// current, else a fresh one.
     private func catchUp(_ target: CloudCodexBrokerTarget, generation: Int) async throws {
         let grant: CloudCodexAccessGrant
-        if let cached, cached.expiresAt > Date().addingTimeInterval(120) { grant = cached }
+        if await cachedStillAllowed(), let cached, cached.expiresAt > Date().addingTimeInterval(120) { grant = cached }
         else { grant = try await refreshAccess(schedule: true) }
         try await deliver(grant, target: target, expectedGeneration: generation)
     }

@@ -176,6 +176,30 @@ done
         await adapter.shutdown()
     }
 
+    /// Taking the yes back stops the Mac's token at once: a later machine never gets the cached one.
+    @Test func aTakenBackYesNeverDeliversTheCachedMacToken() async throws {
+        let (root, launch) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = Files()
+        let scope = CloudCodexBrokerScope(userID: "user", teamID: nil)
+        let adapter = CloudCodexBrokerAdapter(root: root, registry: .init(), currentScope: { scope }, launch: { launch }, target: { _, id in files.target(id) })
+        let allowed = Flag()
+        await allowed.set()
+        adapter.localSignIn = {
+            guard await allowed.value else { return nil }
+            return CloudCodexAccessGrant(accessToken: "mac-access", chatgptAccountID: "account", expiresAt: Date().addingTimeInterval(3600))
+        }
+        try await adapter.run(machineID: "vm", scope: scope, confirmed: true, askLocalSignIn: { true }, presentDeviceCode: { _ in false })
+        await allowed.clear()
+        var prompts = 0
+        try await adapter.run(machineID: "vm2", scope: scope, confirmed: true,
+                              askLocalSignIn: { false }, presentDeviceCode: { _ in prompts += 1; return true })
+        #expect(prompts == 1)
+        let delivered = try #require(await files.read("vm2", CloudCodexBroker.accessPath))
+        #expect(!String(decoding: delivered, as: UTF8.self).contains("mac-access"))
+        await adapter.shutdown()
+    }
+
     /// A no (or no Mac sign-in) keeps the device code exactly as before.
     @Test func aDeclinedMacSignInFallsBackToTheDeviceCode() async throws {
         let (root, launch) = try fixture()
@@ -196,6 +220,7 @@ done
     actor Flag {
         var value = false
         func set() { value = true }
+        func clear() { value = false }
     }
 
     @Test func reusesLoginAcrossVMsAndAppRestartAndCleansDeliveredFiles() async throws {
