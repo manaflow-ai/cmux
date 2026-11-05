@@ -1711,7 +1711,9 @@ def judge_m6(film, shown, measured, side_rest, strips, late_repeats=()):
                 # window's edge) the window's edge, and the bound is then the rings not shown.
                 cur = pane_at(f)[0]
                 grows = None
-                if kind != "page":
+                # Only a hi side: a grid is anchored top-left, so one program grid per press can only be cut at the
+                # view's far edge; a cut at the lo edge is content pushed past the pane's near edge: always a fail.
+                if kind != "page" and side == "hi":
                     # A terminal draws only inside its view. While its pane grows on this axis (the committed layout's
                     # motion into the shown sample: the pane's width in it against the sample before; a motion fact, as
                     # the motions of judge_track, never a judged edge), the press's final grid is wider than the view and
