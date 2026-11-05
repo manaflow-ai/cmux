@@ -49,7 +49,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  NIGHTLY_NEXT_FEED: https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml
+  NIGHTLY_NEXT_FEED: https://files-next.cmux.com/nightly-next/appcast-arm64.xml
   # The canary's runner picker (scripts/ci/nightly_build_runner.py) lives on feat-cmux-next, like the launch smoke's
   # placement tooling; a pull request into feat-cmux-next tests its own head.
   TOOLING_REF: ${{ github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next' && github.sha || 'feat-cmux-next' }}
@@ -111,9 +111,9 @@ jobs:
           build, url, length = max(items)
           # Since #25656 the feed's enclosures point at its own R2 origin; the GitHub
           # release copy follows later. Both are ours; Gatekeeper and the tickets below check the DMG.
-          if not url.startswith(("https://files-next.cmux.com/nightly-next/next/",
+          if not url.startswith(("https://files-next.cmux.com/nightly-next/",
                                  "https://github.com/manaflow-ai/cmux/releases/download/nightly-next/")):
-              sys.exit(f"{url} is neither the cmux NEXT feed's R2 origin nor a nightly-next release asset")
+              sys.exit(f"{url} is neither the nightly-next feed's R2 origin nor a nightly-next release asset")
           print(f"build={build}\nurl={url}\nlength={length}")
           PY
           cat "$GITHUB_OUTPUT"

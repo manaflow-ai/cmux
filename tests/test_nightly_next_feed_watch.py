@@ -332,11 +332,10 @@ class QueuedGateTests(unittest.TestCase):
 
 
 class FeedTests(unittest.TestCase):
-    def test_watches_the_cmux_next_feed(self):
-        # nightly-next ships as cmux NEXT with its own feed (cx-x7hwx); the old
-        # feed is cmux NIGHTLY's (com.cmuxterm.app.nightly reads it), written
-        # only by publish-nightly-identity-legacy, and watched too.
-        self.assertEqual(watch.FEED_URL, "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml")
+    def test_watches_the_cmux_nightly_feed(self):
+        # nightly-next ships once, as cmux NIGHTLY (com.cmuxterm.app.nightly), on
+        # the bare feed it polls (hq#7156); the `/next/` appcast is retired.
+        self.assertEqual(watch.FEED_URL, "https://files-next.cmux.com/nightly-next/appcast-arm64.xml")
         self.assertEqual(watch.LEGACY_FEED_URL, "https://files-next.cmux.com/nightly-next/appcast-arm64.xml")
 
 
@@ -492,12 +491,9 @@ class LegacyFeedTests(unittest.TestCase):
         workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/nightly-next-feed-watch.yml").read_text()
         self.assertIn("actions: write", workflow)
 
-    def test_watches_both_next_appcast_paths(self):
-        """The shipped app polls the bare path; `/next/` is the channel path."""
-        self.assertEqual(set(watch.NEXT_FEED_URLS), {
-            "https://files-next.cmux.com/nightly-next/appcast-arm64.xml",
-            "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml",
-        })
+    def test_watches_only_the_bare_appcast(self):
+        """The shipped app polls the bare path; the retired `/next/` appcast gets no builds."""
+        self.assertEqual(watch.NEXT_FEED_URLS, ("https://files-next.cmux.com/nightly-next/appcast-arm64.xml",))
 
     def test_freshness_is_the_older_of_the_two_feeds(self):
         """On 2026-10-26 the bare feed was two hours ahead of `/next/`; a build
