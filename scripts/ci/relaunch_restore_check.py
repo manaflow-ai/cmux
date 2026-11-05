@@ -370,11 +370,15 @@ def round_once(n: int, process, inst: Instance, app: Path, env: dict, before: di
     deadline = launched + args.settle
     ok, now, why = False, None, "never polled"
     done = launched
+    timeline = row.setdefault("timeline", [])  # [ms since the quit, what still stops it], one entry per change
     while time.monotonic() < deadline and process.poll() is None:
         # Usable counts to the end of the poll that found it so: a field may only have matched during the poll's
         # own reads, so its start would undercount. ready_ms keeps the start as the lower bound.
         polled = time.monotonic()
         ok, now, why = usable(inst, before, made["chat"])
+        reason = why.split(" (")[0] if not ok else "usable"
+        if not timeline or timeline[-1][1] != reason:
+            timeline.append([round((polled - asked) * 1000), reason])
         if ok:
             done = time.monotonic()
             row["ready_ms"] = round((polled - asked) * 1000)
