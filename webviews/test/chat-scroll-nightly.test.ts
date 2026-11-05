@@ -298,7 +298,25 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
       current = browsers.get(name)!;
       const page = await pane!.open({ width: 1100, height: 760 });
       await page.emulateMedia({ reducedMotion: "no-preference" });
-      expect(await page.locator("aside.acpmux-session-info").count()).toBe(1);
+      // Session Info open beside the chat, as Leo has it (the header state the app sends, then its
+      // toggle; session-info-overlay-toggle.test.ts), and done entering before the wheel starts.
+      await page.evaluate(() =>
+        (
+          window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
+        ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 }),
+      );
+      const toggle = page.locator("button.acpmux-session-info-toggle");
+      await toggle.waitFor({ timeout: 10_000 });
+      if ((await toggle.getAttribute("aria-pressed")) !== "true") await toggle.click({ force: true });
+      await page.locator('aside.acpmux-session-info[data-presence="shown"]').waitFor({ timeout: 10_000 });
+      await page.evaluate(() =>
+        Promise.all(
+          document
+            .getAnimations()
+            .filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity)
+            .map((animation) => animation.finished.catch(() => undefined)),
+        ),
+      );
       const pagesBefore = pane!.methods.filter((method) => method === "_acpmux/events").length;
       const view = (await page.locator(".acpmux-scroll").boundingBox())!;
       await page.mouse.move(view.x + view.width / 2, view.y + view.height / 2);
