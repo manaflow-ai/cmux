@@ -1658,8 +1658,11 @@ button.cv-subagent > :last-child {
    Leo, 2026-11-04: "what if you wanted to collapse that one line? ... at the top of the hat, there's
    some sort of little thing ... a special kind of chevron". The hat's chevron sits on its top edge
    (left, middle or right, agentPane.display.trayHandle) and shows while the pointer is over the hat
-   (or it has keyboard focus); tucked, the hat leaves only a faint grabber at the same place on the
-   composer's top edge, in the accent while something runs, which turns into an up chevron on hover. */
+   (or it has keyboard focus); tucked, the hat leaves only a faint up chevron at the same place on the
+   composer's top edge, in the accent while something runs, which brightens on hover. No bar and no
+   wide slab behind it (Leo, 2026-11-05: "the Tuck is a little bit ugly"): the buttons keep their wide
+   hit areas, and only a pill the chevron's size shows on hover, as Codex, ChatGPT and VS Code draw a
+   divider's collapse control. */
 .acpmux-running-tray[data-tucks] {
   position: relative;
 }
@@ -1673,17 +1676,22 @@ button.cv-subagent > :last-child {
   margin: 0;
   padding: 0;
   border: 0;
-  border-radius: var(--ds-radius-control, 6px);
   background: transparent;
   color: var(--agent-muted);
   cursor: default;
   transform: translateX(-50%);
 }
+.acpmux-running-tray__tuck > svg,
+.acpmux-tray-pull__tab > svg {
+  position: relative;
+  transition: color var(--cv-actions-in) var(--cv-actions-ease);
+}
 /* Only the hat's top 8px band takes the tuck's clicks: the button starts 12px above the hat, whose clip
    hides that part, and its chevron sits at its foot. A click on the header's middle (its row is 24px or
    more) still opens the hat, never tucks it, and at the left or right the band stays above the header's
    leading icon and fold chevron. The pull tab's width, so the handle stays put between tucked and
-   shown; it takes clicks only while it shows. */
+   shown; it takes clicks only while it shows. Its hover only brightens the chevron: a pill there
+   would be cut by the hat's clip. */
 .acpmux-running-tray__tuck {
   top: -12px;
   width: 96px;
@@ -1694,6 +1702,11 @@ button.cv-subagent > :last-child {
   /* The transcript's shared hover-reveal fade (transcript-hover-fade.test.ts). */
   transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
 }
+/* At the foot the glyph's stroke met the hat's top edge and was cut there; 2px down it sits whole
+   inside the hat, under the edge, and the click band stays the same. */
+.acpmux-running-tray__tuck > svg {
+  transform: translateY(2px);
+}
 .acpmux-running-tray:hover > .acpmux-running-tray__tuck,
 .acpmux-running-tray:has([data-popup-open]) > .acpmux-running-tray__tuck,
 .acpmux-running-tray__tuck:focus-visible {
@@ -1703,13 +1716,16 @@ button.cv-subagent > :last-child {
 }
 .acpmux-running-tray__tuck:hover,
 .acpmux-tray-pull__tab:hover {
-  background: color-mix(in srgb, var(--agent-text) 7%, transparent);
   color: var(--agent-text);
 }
 .acpmux-running-tray__tuck:focus-visible,
 .acpmux-tray-pull__tab:focus-visible {
+  outline: none;
+}
+.acpmux-running-tray__tuck:focus-visible > svg {
+  border-radius: var(--ds-radius-control, 6px);
   outline: 2px solid var(--agent-accent);
-  outline-offset: -2px;
+  outline-offset: 1px;
 }
 /* Tucked: no height in the bottom stack, so the composer keeps its place; the tab's hover strip
    straddles the composer's top edge, centred on the composer card's column. */
@@ -1719,26 +1735,33 @@ button.cv-subagent > :last-child {
   height: 0;
   margin: 0 var(--cv-inset-end, var(--cv-inset, 0px)) 0 var(--cv-inset, 0px);
 }
+/* Its chevron sits just above the composer's edge, so the hairline runs under it unbroken. */
 .acpmux-tray-pull__tab {
-  top: -8px;
+  top: -12px;
   width: 96px;
   height: 20px;
 }
-/* The grabber at rest. */
+/* The pill behind the chevron on hover or keyboard focus: the chevron's size, not the hit area's. */
 .acpmux-tray-pull__tab::before {
+  --acpmux-tray-pull-pill: 16px;
   content: "";
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 24px;
-  height: 0;
-  border-top: 3px solid currentColor;
-  opacity: 0.35;
+  width: calc(var(--acpmux-tray-pull-pill) + 8px);
+  height: var(--acpmux-tray-pull-pill);
+  border-radius: 999px;
+  background: transparent;
   transform: translate(-50%, -50%);
+  transition: background-color var(--cv-actions-in) var(--cv-actions-ease);
 }
-.acpmux-tray-pull[data-running] .acpmux-tray-pull__tab::before {
-  border-top-color: var(--agent-accent);
-  opacity: 0.6;
+.acpmux-tray-pull__tab:hover::before,
+.acpmux-tray-pull__tab:has([data-popup-open])::before {
+  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+}
+.acpmux-tray-pull__tab:focus-visible::before {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: -1px;
 }
 /* Left or right along the edge (agentPane.display.trayHandle; Leo, 2026-11-04: "maybe the left… or
    the right…"), 12px in from the card's corner, the hat's chevron with it. */
@@ -1755,7 +1778,7 @@ button.cv-subagent > :last-child {
 }
 
 /* Tucked, the tab still says what needs the person: a dot while something waits on them, else a
-   small count of what runs, at the grabber's end, at rest and on hover. */
+   small count of what runs, past the chevron's pill, at rest and on hover. */
 .acpmux-tray-pull__dot,
 .acpmux-tray-pull__count {
   position: absolute;
@@ -1776,15 +1799,16 @@ button.cv-subagent > :last-child {
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }
-/* The up chevron, on hover or keyboard focus, in the grabber's place. */
+/* The up chevron, faint at rest and in the accent while something runs, full on hover or focus. */
 .acpmux-tray-pull__tab > svg {
-  opacity: 0;
+  opacity: 0.45;
   transform: rotate(180deg);
 }
-.acpmux-tray-pull__tab:hover::before,
-.acpmux-tray-pull__tab:has([data-popup-open])::before,
-.acpmux-tray-pull__tab:focus-visible::before {
-  opacity: 0;
+.acpmux-tray-pull[data-running] .acpmux-tray-pull__tab {
+  color: var(--agent-accent);
+}
+.acpmux-tray-pull[data-running] .acpmux-tray-pull__tab > svg {
+  opacity: 0.7;
 }
 .acpmux-tray-pull__tab:hover > svg,
 .acpmux-tray-pull__tab:has([data-popup-open]) > svg,
