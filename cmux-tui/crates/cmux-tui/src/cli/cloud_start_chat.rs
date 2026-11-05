@@ -805,15 +805,23 @@ fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Value) -> Rel
                 .find(|row| at(row, "title").as_str() == Some(name.as_str()));
             match row.and_then(|row| at(row, "machine_id").as_str()) {
                 Some(id) => id.to_owned(),
-                // A name no machine has yet: made here under that name, so its first chat still goes the relay way.
-                None if name_is_free(listed, name) => {
-                    match new_machine(runner, request, Some(name)) {
-                        Ok(id) => id,
-                        Err(outcome) => return Relayed::Answered(outcome),
-                    }
+                // A create of this name is on its way (this command's own, run before): wait on it, never a
+                // second machine. The answer is the same pending start, and the same command again picks it up.
+                None if creating_named(listed, name) => {
+                    let pending = json!({"machine_name": name});
+                    return Relayed::Answered(start_pending(
+                        runner,
+                        request,
+                        &request.machine,
+                        &pending,
+                    ));
                 }
-                // The list is not loaded yet, or a create of that name is on its way: `cloud start-session --name`
-                // waits on it, where another create would make a second machine.
+                // A name no machine has yet: made here under that name, so its first chat still goes the relay way.
+                None if name_is_free(listed) => match new_machine(runner, request, Some(name)) {
+                    Ok(id) => id,
+                    Err(outcome) => return Relayed::Answered(outcome),
+                },
+                // The list is not loaded yet, or a nameless create is on its way: the link path, as before.
                 None => return Relayed::Fallback(None),
             }
         }
@@ -928,15 +936,24 @@ fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Value) -> Rel
     Relayed::Answered(failed(code, message, json!({"answer": answer}), exit))
 }
 
-/// Whether `cloud list-machines` says for certain that no machine has `name`: the list is loaded, and no create on
-/// its way names it (a nameless create may be any name's).
-fn name_is_free(listed: &Value, name: &str) -> bool {
+/// Whether `cloud list-machines` lists a create on its way under `name`.
+fn creating_named(listed: &Value, name: &str) -> bool {
+    at(listed, "creating")
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|row| at(row, "name").as_str() == Some(name))
+}
+
+/// Whether `cloud list-machines` says for certain that a name it does not list is free: the list is loaded, and no
+/// nameless create (which may become any name) is on its way.
+fn name_is_free(listed: &Value) -> bool {
     at(listed, "loaded").as_bool() != Some(false)
         && !at(listed, "creating")
             .as_array()
             .into_iter()
             .flatten()
-            .any(|row| at(row, "name").as_str().is_none_or(|creating| creating == name))
+            .any(|row| at(row, "name").as_str().is_none())
 }
 
 /// `cloud new-machine` for the relay chat, under the command's name when it gave one: the machine's id, or the

@@ -775,11 +775,27 @@ fn a_name_no_machine_has_is_made_and_its_first_chat_goes_the_relay_way() {
 }
 
 #[test]
-fn a_name_still_loading_or_being_made_is_never_made_twice() {
+fn a_name_whose_create_is_on_its_way_is_waited_on_never_made_again() {
+    let mut fake = Fake::new(vec![
+        ok(json!({"account": {"signed_in": true}, "loaded": true, "machines": [],
+                  "creating": [{"name": "probe-1", "status": "creating"}]})),
+        ok(json!({"machines": [], "creating": [{"name": "probe-1", "status": "creating"}]})),
+    ]);
+    let asked = request(&["--prompt", "x", "--name", "probe-1", "--wait"]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!((error["code"].as_str(), exit), (Some("cloud.start_pending"), 75));
+    assert_eq!(
+        error["details"]["again"],
+        "cmux cloud start-chat --name probe-1 --prompt x --wait --json"
+    );
+    // Only the machine list: no new-machine and no start-session, either of which would make a second machine.
+    assert!(fake.ran.iter().all(|step| step[1] == "list-machines"), "{:?}", fake.ran);
+}
+
+#[test]
+fn a_name_the_list_cannot_vouch_for_goes_the_link_way_as_before() {
     for listed in [
         json!({"account": {"signed_in": true}, "loaded": false, "machines": [], "creating": []}),
-        json!({"account": {"signed_in": true}, "loaded": true, "machines": [],
-               "creating": [{"name": "probe-1", "status": "creating"}]}),
         json!({"account": {"signed_in": true}, "loaded": true, "machines": [],
                "creating": [{"status": "creating"}]}),
     ] {
@@ -791,7 +807,6 @@ fn a_name_still_loading_or_being_made_is_never_made_twice() {
         let asked = request(&["--prompt", "x", "--name", "probe-1", "--wait"]);
         let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!("{listed}") };
         assert_eq!((error["code"].as_str(), exit), (Some("cloud.start_pending"), 75), "{listed}");
-        // No create of its own: `start-session --name` waits on the one on its way.
         assert!(!fake.ran.iter().any(|step| step[1] == "new-machine"), "{listed}: {:?}", fake.ran);
         assert_eq!(&fake.ran[1][..3], &strings(&["cloud", "start-session", "--name"]), "{listed}");
     }
