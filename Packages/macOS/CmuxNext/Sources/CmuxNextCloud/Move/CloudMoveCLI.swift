@@ -33,11 +33,13 @@ public nonisolated struct CloudMoveCLI: Sendable {
         public var seedFinishedAt: Double?
         /// `seed_refused`: the seed plan's code for why the machine can't clone the folder (`not_git`, ...).
         public var fallbackCode: String?
+        /// `seed_refused` for `seed.needs_github`: the cmux GitHub App's install page for the repository.
+        public var installURL: String?
 
         public init(ok: Bool, errorCode: String? = nil, error: String? = nil, sessionID: String? = nil, transferID: String? = nil,
                     conflicts: [String] = [], side: String? = nil, updated: Bool = false, build: String? = nil, notOlder: Bool = false,
                     seedState: String? = nil, seedPhase: String? = nil, seedStartedAt: Double? = nil, seedFinishedAt: Double? = nil,
-                    fallbackCode: String? = nil) {
+                    fallbackCode: String? = nil, installURL: String? = nil) {
             self.ok = ok
             self.errorCode = errorCode
             self.error = error
@@ -53,6 +55,7 @@ public nonisolated struct CloudMoveCLI: Sendable {
             self.seedStartedAt = seedStartedAt
             self.seedFinishedAt = seedFinishedAt
             self.fallbackCode = fallbackCode
+            self.installURL = installURL
         }
     }
 
@@ -289,7 +292,8 @@ public nonisolated struct CloudMoveCLI: Sendable {
                             seedPhase: object["seed_phase"] as? String,
                             seedStartedAt: object["seed_started_at"] as? Double,
                             seedFinishedAt: object["seed_finished_at"] as? Double,
-                            fallbackCode: object["fallback_code"] as? String)
+                            fallbackCode: object["fallback_code"] as? String,
+                            installURL: object["install_url"] as? String)
         return (answer, object, result.status)
     }
 }
