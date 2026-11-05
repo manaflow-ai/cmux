@@ -67,7 +67,7 @@ struct AgentPaneHarnessCardTests {
         model.transport.acpmuxSocket = old.path
         let reply = await Self.update(model)
         #expect(reply["error"] == nil, "\(reply)")
-        let value = reply["result"] as? [String: Any] ?? reply
+        let value = reply["value"] as? [String: Any] ?? [:]
         #expect(value["ok"] as? Bool == true, "\(reply)")
         #expect(value["version"] as? String == "2.0", "\(reply)")
         #expect(await host.restarts == 1)
@@ -82,7 +82,7 @@ struct AgentPaneHarnessCardTests {
         let reply = await Self.update(model)
         let error = reply["error"] as? [String: Any]
         #expect(error?["code"] as? String == "harness.failed", "\(reply)")
-        #expect(error?["message"] as? String == AgentPaneHarnessCard.oldServiceMessage, "\(reply)")
+        #expect(error?["userMessage"] as? String == AgentPaneHarnessCard.oldServiceMessage, "\(reply)")
         #expect(await host.restarts == 1)
     }
 
@@ -93,7 +93,7 @@ struct AgentPaneHarnessCardTests {
         let model = AgentPaneModel(host: host)
         model.transport.acpmuxSocket = old.path
         let reply = await Self.update(model)
-        #expect((reply["error"] as? [String: Any])?["message"] as? String == "the updater failed", "\(reply)")
+        #expect((reply["error"] as? [String: Any])?["userMessage"] as? String == "the updater failed", "\(reply)")
         #expect(await host.restarts == 0)
     }
 
