@@ -78,8 +78,9 @@ def sidebar_rows(report, count):
     out = {}
     frame_reply = (size.get("scroll") or {}).get("frames") or {}
     values = frame_reply.get("intervals_ms") or []
-    if not values:
-        values = _samples((size.get("scroll") or {}).get("event_rpc_ms"), "p95")
+    # Do not substitute RPC handling time for frame intervals: they measure different
+    # surfaces, so comparing one topology's frame time with another's RPC time would
+    # manufacture a scaling result.
     if values:
         out["sidebar_scroll"] = stats(values)
     switch = size.get("switch") or {}
@@ -146,11 +147,23 @@ def collect(reports):
     return rows
 
 
-def run_probe(script, args, out):
+def run_probe(script, args, out, timeout=900):
     path = out / (script.stem + ".log")
     with path.open("w") as log:
-        return subprocess.run([sys.executable, str(script), *args], stdout=log, stderr=subprocess.STDOUT,
-                              cwd=HERE.parent.parent, check=False).returncode
+        try:
+            return subprocess.run([sys.executable, str(script), *args], stdout=log, stderr=subprocess.STDOUT,
+                                  cwd=HERE.parent.parent, check=False, timeout=timeout).returncode
+        except subprocess.TimeoutExpired:
+            log.write(f"workspace-scaling: probe timed out after {timeout}s\n")
+            return 124
+
+
+def read_report(path):
+    """Load a probe report without turning a failed or truncated probe into a crash."""
+    try:
+        return json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
 
 
 def run_app(opts):
@@ -162,7 +175,7 @@ def run_app(opts):
         code = run_probe(HERE / "instant-new-surfaces-bench.py",
                          ["--tag", opts.tag, "--app", opts.app, "--commands", "new_workspace,split_right",
                           "--workspaces", str(count), "--empty-workspaces", "--arms", "warm", "--phases", "idle", "--runs", "6",
-                          "--out", str(instant), "--json", str(instant / "report.json")], root)
+                          "--out", str(instant), "--json", str(instant / "report.json")], root, opts.probe_timeout)
         if code != 0 or not (instant / "report.json").exists():
             failures.append({"workspaces": count, "probe": "instant", "exit": code,
                              "report": str(instant / "report.json")})
@@ -172,7 +185,8 @@ def run_app(opts):
         sidebar_count = max(0, count - 1)
         code = run_probe(HERE / "sidebar-stress-bench.py",
                          ["--tag", opts.tag, "--app", opts.app, "--sizes", str(sidebar_count), "--tickers", "15",
-                          "--scenarios", "scroll,scroll_ticking,switch", "--stop", "--no-trace", "--out", str(sidebar)], root)
+                          "--scenarios", "scroll,scroll_ticking,switch", "--stop", "--no-trace", "--out", str(sidebar)], root,
+                         opts.probe_timeout)
         if code != 0 or not (sidebar / "results.json").exists():
             failures.append({"workspaces": count, "probe": "sidebar", "exit": code,
                              "report": str(sidebar / "results.json")})
@@ -183,13 +197,14 @@ def run_app(opts):
         agents = 0
         code = run_probe(HERE / "automation-typing-bench.py",
                          ["--app", opts.app, "--agents", str(agents), "--workspace-count", str(count), "--layouts", "light", "--samples", "30",
-                          "--rounds", "1", "--no-browser", "--out", str(typing), "--json", str(typing / "report.json")], root)
+                          "--rounds", "1", "--no-browser", "--out", str(typing), "--json", str(typing / "report.json")], root,
+                         opts.probe_timeout)
         if code != 0 or not (typing / "report.json").exists():
             failures.append({"workspaces": count, "probe": "typing", "exit": code,
                              "report": str(typing / "report.json")})
-        reports[count] = {"instant": json.loads((instant / "report.json").read_text()) if (instant / "report.json").exists() else {},
-                          "sidebar": json.loads((sidebar / "results.json").read_text()) if (sidebar / "results.json").exists() else {},
-                          "typing": json.loads((typing / "report.json").read_text()) if (typing / "report.json").exists() else {},
+        reports[count] = {"instant": read_report(instant / "report.json"),
+                          "sidebar": read_report(sidebar / "results.json"),
+                          "typing": read_report(typing / "report.json"),
                           "sidebar_count": sidebar_count}
         # A successful probe can still contain missed display samples. Do not let a partial
         # percentile set become a valid scaling baseline; the instant probe is requested for six
@@ -231,6 +246,8 @@ def main():
     ap.add_argument("--tag", default="workspace-scaling")
     ap.add_argument("--out", required=True)
     ap.add_argument("--json", required=True)
+    ap.add_argument("--probe-timeout", type=int, default=900,
+                    help="maximum seconds for each GUI probe before recording it incomplete")
     ap.add_argument("--instant-report", action="append", default=[])
     ap.add_argument("--sidebar-report", action="append", default=[])
     ap.add_argument("--typing-report", action="append", default=[])
@@ -260,10 +277,14 @@ def main():
     warnings = scaling_warnings(rows)
     result = {"workspaces": list(COUNTS), "rows": rows, "warnings": warnings, "incomplete": failures,
               "budget": {"ratio": LIMIT, "advisory": True}}
-    pathlib.Path(opts.json).write_text(json.dumps(result, indent=2) + "\n")
+    output = pathlib.Path(opts.json)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps(result, indent=2))
     for warning in warnings:
         print("WORKSPACE-SCALING-WARNING " + json.dumps(warning), flush=True)
+    for failure in failures:
+        print("WORKSPACE-SCALING-INCOMPLETE " + json.dumps(failure), flush=True)
     return 0
 
 
