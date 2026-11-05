@@ -8725,8 +8725,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const carriedSessions = shownNewTabSessions(composerSnapshot, warmSessions);
   // Over that, the New Tab page lists the chats every page shares (newtab/chatStore.ts): the newest
   // list any page received, drawn on its first frame and updated in place when another page hears a
-  // change. Debug Settings `newTab.privateChatLists`, a page on another machine's daemon and a page
-  // whose daemon is down list this page's own (`sharesChatList`).
+  // change. A page on another machine's daemon and a page whose daemon is down list this page's own
+  // (`sharesChatList`).
   const newTabSessions = useSharedSessions(
     carriedSessions ?? composerSnapshot.sessions,
     sharesChatList(newTab, composerSnapshot),

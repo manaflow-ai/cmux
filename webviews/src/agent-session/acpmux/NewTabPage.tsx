@@ -146,8 +146,8 @@ export type NewTabHost = {
   /// keeps no room for the headline over the composer, which stays where it sat with the greeting
   /// off (newtab/screen.css .nt-headline-slot).
   headlineOff?: true;
-  /// The page lists only its own connection's chats, not the store every page shares (Debug
-  /// Settings `newTab.privateChatLists`, newtab/chatStore.ts).
+  /// The page lists only its own connection's chats, not the store every page shares (another
+  /// machine's page, newtab/chatStore.ts).
   privateChatLists?: boolean;
   /// false: Show All Chats on New Tab is off (`sidebar.showChats`): the page lists the recent chats
   /// only, never All chats. Unset lists All chats where the template does.
