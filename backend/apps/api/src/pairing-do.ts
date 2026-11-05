@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers"
 import type { Env } from "./env.ts"
 import { PAIRING_TTL_MS } from "./domains/pairing.ts"
+import { InviteStore, inviteSchema, type InviteArrival, type InvitePeek, type InviteRedeem, type InviteVoidReason } from "./pair-invite-store.ts"
 import { networkLocator, networkMatchesPairing, sameApproval, type PairingApproval, type ServerNetworkEnrollment } from "./server-pair-network.ts"
 
 export interface PairingRecord {
@@ -11,6 +12,17 @@ export interface PairingRecord {
   readonly info: { name: string; platform: string; os_version: string; arch: string; cmux_version: string; capabilities?: ReadonlyArray<string> }
   readonly country: string | null
   readonly expires_at: number
+  /** Set when the box began with an invite: only `invited_by` may approve, into `invited_team`. */
+  readonly invite?: string | null
+  readonly invited_by?: string | null
+  readonly invited_team?: string | null
+}
+
+/** The invite a begin redeemed, stored on its pairing record. */
+export interface PairingInvite {
+  readonly invite: string
+  readonly invited_by: string
+  readonly invited_team: string
 }
 
 export interface PairingResult {
@@ -34,6 +46,9 @@ type Row = {
   approver: string | null
   approval: string | null
   network_enrollment: string | null
+  invite: string | null
+  invited_by: string | null
+  invited_team: string | null
 }
 
 const equal = (a: string, b: string): boolean => {
@@ -60,8 +75,12 @@ export class PairingDO extends DurableObject<Env> {
     )
     // Additive, private state on old PairingDOs. No secret enters an owner ledger or projection.
     const columns = new Set(ctx.storage.sql.exec<{ name: string }>("PRAGMA table_info(pairing)").toArray().map((c) => c.name))
-    for (const column of ["approval", "network_enrollment"]) if (!columns.has(column)) ctx.storage.sql.exec(`ALTER TABLE pairing ADD COLUMN ${column} TEXT`)
+    for (const column of ["approval", "network_enrollment", "invite", "invited_by", "invited_team"]) if (!columns.has(column)) ctx.storage.sql.exec(`ALTER TABLE pairing ADD COLUMN ${column} TEXT`)
+    inviteSchema(ctx.storage.sql)
+    this.invites = new InviteStore(ctx)
   }
+
+  private readonly invites: InviteStore
 
   private row(now: number): Row | undefined {
     const r = this.ctx.storage.sql.exec<Row>(`SELECT * FROM pairing WHERE id = 1`).toArray()[0]
@@ -69,11 +88,14 @@ export class PairingDO extends DurableObject<Env> {
   }
 
   private record(r: Row): PairingRecord {
-    return { code: r.code, public_jwk: JSON.parse(r.public_jwk), thumbprint: r.thumbprint, wg_public_key: r.wg_public_key, info: JSON.parse(r.info), country: r.country, expires_at: r.expires_at }
+    return {
+      code: r.code, public_jwk: JSON.parse(r.public_jwk), thumbprint: r.thumbprint, wg_public_key: r.wg_public_key, info: JSON.parse(r.info), country: r.country, expires_at: r.expires_at,
+      ...(r.invite ? { invite: r.invite, invited_by: r.invited_by, invited_team: r.invited_team } : {})
+    }
   }
 
   /** Creates the pending pairing. Refuses when this code is already in use (the Worker picks another code). */
-  async begin(input: Omit<PairingRecord, "expires_at"> & { collect_hash: string; now: number }): Promise<{ ok: true; expires_at: number } | { ok: false; reason: "in_use" }> {
+  async begin(input: Omit<PairingRecord, "expires_at" | "invite" | "invited_by" | "invited_team"> & { collect_hash: string; now: number; invite?: PairingInvite }): Promise<{ ok: true; expires_at: number } | { ok: false; reason: "in_use" }> {
     if (this.row(input.now)) return { ok: false, reason: "in_use" }
     const expires = input.now + PAIRING_TTL_MS
     this.ctx.storage.sql.exec(`DELETE FROM pairing`)
@@ -88,8 +110,58 @@ export class PairingDO extends DurableObject<Env> {
       input.collect_hash,
       expires
     )
+    if (input.invite) {
+      this.ctx.storage.sql.exec(`UPDATE pairing SET invite = ?, invited_by = ?, invited_team = ? WHERE id = 1`, input.invite.invite, input.invite.invited_by, input.invite.invited_team)
+    }
     await this.ctx.storage.setAlarm(expires)
     return { ok: true, expires_at: expires }
+  }
+
+  /**
+   * A box retrying its invite begin (same key, proven again by the Worker) gets this code back with
+   * a fresh collect secret: the one it lost with the reply stops working.
+   */
+  async inviteRekey(code: string, invite: string, thumbprint: string, collectHash: string, now: number): Promise<{ ok: true; expires_at: number } | { ok: false }> {
+    const r = this.row(now)
+    if (!r || r.code !== code || r.invite !== invite || !equal(r.thumbprint, thumbprint)) return { ok: false }
+    this.ctx.storage.sql.exec(`UPDATE pairing SET collect_hash = ? WHERE id = 1`, collectHash)
+    return { ok: true, expires_at: r.expires_at }
+  }
+
+  /**
+   * The invite this record came from was voided (or this begin lost the redemption): forget the
+   * code and tell the waiting box. A record the inviter already claimed is left to finish: the
+   * inviter has compared the words, and stopping between install and host would strand a write.
+   */
+  async inviteAbort(code: string, invite: string, now: number): Promise<{ ok: boolean }> {
+    const r = this.row(now)
+    if (!r || r.code !== code || r.invite !== invite || r.approver !== null || r.result !== null) return { ok: false }
+    for (const ws of this.ctx.getWebSockets()) {
+      ws.send(JSON.stringify({ t: "refused" }))
+      ws.close(4403, "refused")
+    }
+    this.ctx.storage.sql.exec(`DELETE FROM pairing`)
+    return { ok: true }
+  }
+
+  // Invite instances (`invite:<code>`, `invite-user:<user>`): pair-invite-store.ts.
+  async inviteMint(input: { invite: string; approver: string; team: string; inviter: string | null; watch_hash: string; now: number }) {
+    return this.invites.mint(input)
+  }
+  async inviteReplaceOwned(invite: string, liveUntil: number, now: number): Promise<{ previous: string | null }> {
+    return this.invites.replaceOwned(invite, liveUntil, now)
+  }
+  async invitePeek(invite: string, now: number): Promise<InvitePeek> {
+    return this.invites.peek(invite, now)
+  }
+  async inviteRedeem(invite: string, arrival: InviteArrival, now: number): Promise<InviteRedeem> {
+    return this.invites.redeem(invite, arrival, now)
+  }
+  async inviteVoid(invite: string, reason: InviteVoidReason, now: number): Promise<{ ok: boolean; code: string | null }> {
+    return this.invites.void(invite, reason, now)
+  }
+  async invitePaired(invite: string, code: string, host: string, now: number): Promise<{ ok: boolean }> {
+    return this.invites.paired(invite, code, host, now)
   }
 
   /** The pending record for the approver's preview, or null when the code is unknown, expired or used. */
@@ -104,9 +176,11 @@ export class PairingDO extends DurableObject<Env> {
    * approval); every other approver is refused. Single-threaded per object, so
    * two concurrent approvals cannot both pass.
    */
-  async claim(code: string, approver: string, now: number, approval?: PairingApproval): Promise<{ ok: true; record: PairingRecord; result: PairingResult | null; network: ServerNetworkEnrollment | null } | { ok: false; reason: "unknown" | "claimed" }> {
+  async claim(code: string, approver: string, now: number, approval?: PairingApproval): Promise<{ ok: true; record: PairingRecord; result: PairingResult | null; network: ServerNetworkEnrollment | null } | { ok: false; reason: "unknown" | "claimed" | "not_inviter" }> {
     const r = this.row(now)
     if (!r || r.code !== code) return { ok: false, reason: "unknown" }
+    // A box that came in through an invite is approved by the person who made the invite, into its team.
+    if (r.invited_by !== null && (r.invited_by !== approver || (approval && approval.team !== r.invited_team))) return { ok: false, reason: "not_inviter" }
     if (r.approver !== null && r.approver !== approver) return { ok: false, reason: "claimed" }
     if (r.approval !== null && (!approval || !sameApproval(JSON.parse(r.approval), approval))) return { ok: false, reason: "claimed" }
     // An older build already claimed this row without a network intent. It cannot be upgraded mid-approval.
@@ -189,6 +263,7 @@ export class PairingDO extends DurableObject<Env> {
 
   /** `GET /v1/pair/wait` (WebSocket). The Worker passes the SHA-256 of the presented collect secret. */
   override async fetch(request: Request): Promise<Response> {
+    if (new URL(request.url).pathname === "/v1/pair/invite/wait") return this.invites.watch(request)
     const r = this.row(Date.now())
     const presented = request.headers.get("x-cmux-collect-hash") ?? ""
     if (!r || !equal(r.collect_hash, presented)) return new Response("not found", { status: 404 })
@@ -211,7 +286,10 @@ export class PairingDO extends DurableObject<Env> {
 
   /** One-shot expiry: forget the code and tell a waiting server. */
   override async alarm(): Promise<void> {
+    // Every writer moves the one alarm to the end of the object's life, so this run is that end
+    // (for an invite, the watcher stays until the bound pairing code expires).
     for (const ws of this.ctx.getWebSockets()) ws.close(4408, "expired")
     this.ctx.storage.sql.exec(`DELETE FROM pairing`)
+    this.invites.expire()
   }
 }

@@ -1416,14 +1416,14 @@ publish_job="$(legacy_job_text publish-nightly-identity-legacy)"
 legacy_job="$sign_job$verify_job$publish_job"
 target_job="$(awk '/^  legacy-identity-target:/{on=1} on && /^  [a-z0-9-]+:$/ && !/legacy-identity-target/{exit} on' "$WORKFLOW_FILE")"
 for expected in \
-  "needs: [decide, build-nightly-app, legacy-identity-target, pick-nightly-sign-runner, publish-nightly]" \
+  "needs: [decide, build-nightly-app, legacy-identity-target, pick-nightly-sign-runner, publish-nightly, build-sign-notarize-nightly]" \
   "needs.legacy-identity-target.outputs.build != ''" \
   "NIGHTLY_BUILD: \${{ needs.legacy-identity-target.outputs.build }}" \
   "LEGACY_ACTION: \${{ needs.legacy-identity-target.outputs.action }}" \
   "vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'" \
   "group: nightly-next-legacy-identity" \
   "- name: Skip a build the old feed already has" \
-  "CMUX_NOTARY_WAIT_TIMEOUT=20m" \
+  'CMUX_NOTARY_WAIT_TIMEOUT="${LEGACY_NOTARY_WAIT:-20m}"' \
   "CMUX_NOTARY_PENDING_ON_TIMEOUT=true" \
   "CMUX_NOTARY_CONTINUE_STATE=" \
   "- name: Keep the pending cmux NIGHTLY-identity submission" \
@@ -1489,7 +1489,7 @@ for expected in \
   grep -Fq -- "$expected" <<<"$publish_job$sign_job" || { echo "FAIL: parallel NEXT identity preparation must contain: $expected"; exit 1; }
 done
 for expected in \
-  "needs: [legacy-identity-target, sign-nightly-identity-legacy, pick-nightly-sign-runner]" \
+  "needs: [legacy-identity-target, sign-nightly-identity-legacy, pick-nightly-sign-runner, build-sign-notarize-nightly]" \
   "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}" \
   'stapled_flag=(--require-stapled-app)' \
   './scripts/ci/verify-dmg-artifact.sh "$dmg" nightly --expect-sha256 "$SIGNED_SHA256" "${stapled_flag[@]}"' \
@@ -1501,14 +1501,14 @@ if grep -Eq 'environment:|secrets\.' <<<"$verify_job" || grep -Ev '^[[:space:]]*
   exit 1
 fi
 for expected in \
-  "needs: [decide, publish-nightly, legacy-identity-target, sign-nightly-identity-legacy, verify-nightly-identity-legacy, pick-nightly-sign-runner]" \
+  "needs: [decide, publish-nightly, legacy-identity-target, sign-nightly-identity-legacy, verify-nightly-identity-legacy, pick-nightly-sign-runner, build-sign-notarize-nightly]" \
   "TESTED_SHA256: \${{ needs.verify-nightly-identity-legacy.outputs.tested_sha256 }}" \
   './scripts/ci/nightly-next-legacy-tested-digest.sh' \
   "LEASE_KEY: nightly-next/locks/legacy-identity-publish.json" \
   "needs.sign-nightly-identity-legacy.result != 'cancelled'" \
   "needs.publish-nightly.outputs.refused != 'true'" \
-  "needs.publish-nightly.outputs.build == needs.legacy-identity-target.outputs.build" \
-  "needs.publish-nightly.result == 'skipped' && needs.legacy-identity-target.outputs.action == 'continue'" \
+  "needs.publish-nightly.outputs.build == (needs.build-sign-notarize-nightly.outputs.legacy_ran == 'true' && needs.build-sign-notarize-nightly.outputs.legacy_target_build || needs.legacy-identity-target.outputs.build)" \
+  "needs.publish-nightly.result == 'skipped' && (needs.build-sign-notarize-nightly.outputs.legacy_ran == 'true' && needs.build-sign-notarize-nightly.outputs.legacy_target_action || needs.legacy-identity-target.outputs.action) == 'continue'" \
   "scripts/ci/nightly-next-legacy-attempt.py --sign-result"; do
   grep -Fq -- "$expected" <<<"$publish_job" || { echo "FAIL: publish-nightly-identity-legacy must contain: $expected"; exit 1; }
 done

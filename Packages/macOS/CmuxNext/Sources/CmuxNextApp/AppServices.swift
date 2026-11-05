@@ -19,6 +19,7 @@ import CmuxNextDesign
 import CmuxNextMobileHost
 import CmuxNextDaemon
 import CmuxNextDaemonService
+import CmuxNextMacScreen
 import CmuxNextDaemonRecovery
 public import CmuxNextDictation
 import CmuxNextFeed
@@ -299,6 +300,8 @@ final class AppServices {
     private(set) lazy var macScreenTabs = MacScreenPageService(services: self)
     /// The device hub (built in; `deviceHub.url` overrides it in DEV builds): the user's devices for Mac Screen and Settings > Devices.
     private(set) lazy var deviceHub = AppServices.makeDeviceHub(self)
+    /// cmux Remote: the daemon's signed host for Computer Use and Screen Sharing (docs/cmux-remote.md).
+    private(set) lazy var cmuxRemote = CmuxRemoteService(daemon: daemon)
     /// Bookmarks of every browser profile (plans/cmux-next/bookmarks.md).
     private(set) lazy var bookmarks = BookmarkService(services: self)
     /// The user's keybindings.json, owned by the home daemon, as the binding table's user layer.
@@ -755,7 +758,7 @@ final class AppServices {
         daemon.onPaneNotReady = { [weak registry] reason in registry?.refuse(reason) }
         _ = palette  // built here, as before
         terminalDelegate.services = self
-        _ = configActions  // built here, as before
+        _ = (configActions, uiInspector)  // built here; uiInspector alone hears the chat's Inspect Element row (no monitor until it picks)
         let updateSheet = self.updateSheet  // built here, as before
         updater.attach(sheet: updateSheet, services: self, simulating: { SidebarTunables.simulatePendingUpdate.value })
         serverUpdates.start(registry: registry)

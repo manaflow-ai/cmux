@@ -348,6 +348,18 @@
   and its trailing inset); the window's layout sets it and a narrower `width`, saved or dragged, clamps up.
   No glyph is removed; the options chevron still hides first. Regression: `SidebarMinimumWidthTitlebarTests`.
 
+## A group header's bands keep the drop where the pointer is (2026-11-05)
+
+Leo 2026-11-05: "in terms of just the proper, you know, dragging correctness kind of things, I feel like there's
+stuff we can do there." Two jumps while a workspace was dragged over an open group's header. Its bottom quarter
+meant "after the whole group", so the gap leapt below every member; it sits right over the first member, so it now
+drops before that member, first in the group (`SidebarDragGeometry.hit`, `firstMember`). A closed header's bottom
+quarter still drops after the group, also when it keeps its active member shown. And an into-group target closed the gap for one move, so the rows sprang up
+and the same still pointer read a row lower; a held drag over the header's middle now keeps the last gap, as over a
+row's middle (`displayLayout`). A drop into the group still settles into it. A group drawn as its one row has no
+header and keeps its no-gap drop fill (`drawsAsOneRow`, asked of the model with the dragged rows out). Regression:
+`SidebarDragGroupHeaderTargetTests`, `SidebarSingleMemberGroupKeysTests`.
+
 ## Link opener placement keeps pane-local relationships (2026-10-30)
 
 - [1cc205d8d16](https://github.com/manaflow-ai/cmux/commit/1cc205d8d16) (carry of #26582): behavior-only opener bookkeeping keeps a tab's opener relationship inside its source pane when placement moves it elsewhere. No sidebar drawing or layout changes; the existing `RightPanePlacementTests` cover placement behavior. Reviewed as `Sidebar-Look: no visual change`.
@@ -453,6 +465,16 @@ Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents 
 2. Do not take back a look another commit chose in the last week without naming that commit here.
 3. Failing test first, then the fix. Real-app captures from the Mac-mini fleet, before and after.
 4. Land on `feat-cmux-next` (rebase, plain push). Add the commit to the log at the end of this note.
+
+## A dropped card covers no leaving row (2026-11-05)
+
+Leo 2026-11-05: "When I click and drag a workspace on the sidebar, it, like, briefly flickers for a bit." His
+recording: claude-sr2-coord, the Coordinators group's one workspace, dropped where the header stood. The emptied
+header faded in place under the landing card, which draws no material in a translucent window (#32330), so
+"Coordinators" read through "claude-sr2-coord" for the fade. A row the drop or the model takes away now goes at
+once when a settling or flying card's path covers it, from where its flight began to its slot (`flightStart`,
+`isUnderCard`, `dropLeavingRows`); rows elsewhere still fade. The lift's see-through look (Leo 2026-10-23) and the held drag are unchanged. Regression:
+`SidebarDropUnderCardTests`.
 
 ## Rename field on a whole pixel (2026-11-02)
 
