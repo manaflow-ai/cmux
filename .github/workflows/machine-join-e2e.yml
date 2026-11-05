@@ -1,0 +1,30 @@
+name: Machine join E2E (development)
+
+# The implementation lives on feat-cmux-next. GitHub dispatches only a
+# workflow the default branch registers, so this inert copy lets lanes run:
+#
+#   gh workflow run machine-join-e2e.yml -R manaflow-ai/cmux --ref feat-cmux-next
+#
+# A dispatch runs the file at --ref, so feat-cmux-next's inputs and jobs win;
+# these inputs only mirror them for the Actions form.
+on:
+  workflow_dispatch:
+    inputs:
+      name:
+        description: Machine name for the join (default ci-join-<run id>)
+        required: false
+        default: ""
+        type: string
+      acpmux_ref:
+        description: The commit acpmux is built from; only the run's commit (the feat-cmux-next tip) is accepted
+        required: false
+        default: ""
+        type: string
+
+permissions: {}
+
+jobs:
+  registration:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    steps:
+      - run: echo "Machine join E2E is implemented on feat-cmux-next; dispatch it with --ref feat-cmux-next"

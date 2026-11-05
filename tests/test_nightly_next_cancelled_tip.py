@@ -226,9 +226,13 @@ class CancelledTip(unittest.TestCase):
         result, calls = self.run_script("")
         self.assertEqual((result.returncode, len(calls)), (0, 1))
 
-    def test_the_tick_runs_it_from_its_own_tooling_before_the_promotion(self):
-        steps = yaml.safe_load(TICK.read_text())["jobs"]["request"]["steps"]
+    def test_the_tick_runs_it_from_its_own_tooling_in_the_unstick_job(self):
+        # Its own job (cmuxterm-hq#6671): in the request job it waited behind that job's runner,
+        # a 150-commit checkout and the serialized tick group.
+        job = yaml.safe_load(TICK.read_text())["jobs"]["unstick"]
+        steps = job["steps"]
         tooling = next(step for step in steps if step.get("with", {}).get("path") == ".tick-tooling")
+        self.assertEqual(tooling["with"]["ref"], "${{ github.sha }}")
         sparse = tooling["with"]["sparse-checkout"].split()
         self.assertIn("scripts/ci/nightly_next_cancelled_tip.sh", sparse)
         # nightly_repick.py and every scripts/ci module it imports.
@@ -239,12 +243,38 @@ class CancelledTip(unittest.TestCase):
         check = steps[names.index("Re-run a cancelled nightly-next tip")]
         self.assertTrue(check["continue-on-error"])
         # Automatic/empty-SHA ticks recover the current nightly tip in every train mode.
-        # Explicit-SHA ticks must reach promotion without waiting for an older tip's API reads.
-        self.assertEqual(check["if"], "inputs.sha == ''")
-        self.assertEqual(check["run"], 'bash .tick-tooling/scripts/ci/nightly_next_cancelled_tip.sh "$GITHUB_REPOSITORY"')
+        # Explicit-SHA ticks skip the job and reach promotion without waiting for an older tip's API reads.
+        self.assertIn("inputs.sha == ''", job["if"])
+        # The script reads nightly-next through the checkout's `origin`.
+        self.assertEqual(check["working-directory"], ".tick-tooling")
+        self.assertEqual(check["run"], 'bash scripts/ci/nightly_next_cancelled_tip.sh "$GITHUB_REPOSITORY"')
         self.assertLess(names.index("Wait through GitHub API rate limits in this job's gh calls"),
                         names.index("Re-run a cancelled nightly-next tip"))
+        request = [step.get("name") for step in yaml.safe_load(TICK.read_text())["jobs"]["request"]["steps"]]
+        self.assertNotIn("Re-run a cancelled nightly-next tip", request)
 
+    def test_every_tick_sparse_checkout_imports_with_only_its_listed_files(self):
+        # cmux#34233: delivery_workflows.py was missing, so nightly_compile_red.py and nightly_repick.py
+        # failed at import in CI, and the script's `|| red=""` / `|| picker=""` hid it.
+        jobs = yaml.safe_load(TICK.read_text())["jobs"]
+        lists = [(name, step["with"]["sparse-checkout"].split()) for name, job in jobs.items()
+                 for step in job.get("steps", []) if "sparse-checkout" in step.get("with", {})]
+        self.assertTrue(lists)
+        for name, files in lists:
+            with self.subTest(job=name), tempfile.TemporaryDirectory() as tmp:
+                for path in files:
+                    target = Path(tmp) / path
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes((ROOT / path).read_bytes())
+                for path in files:
+                    if not path.endswith(".py"):
+                        continue
+                    module = Path(path).stem
+                    result = subprocess.run(
+                        [sys.executable, "-I", "-c",
+                         f"import sys; sys.path.insert(0, {str(Path(tmp) / 'scripts' / 'ci')!r}); import {module}"],
+                        capture_output=True, text=True, timeout=60, cwd=tmp)
+                    self.assertEqual(result.returncode, 0, f"{name}: {path}: {result.stderr[-400:]}")
 
 if __name__ == "__main__":
     unittest.main()

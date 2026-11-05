@@ -57,8 +57,11 @@ env:
 jobs:
   request:
     # A workflow_run counts only for this repository's own push runs: feat-cmux-next
-    # landings and nightly-next builds.
-    if: github.repository == 'manaflow-ai/cmux' && (github.event_name != 'workflow_run' || github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository)
+    # landings and nightly-next builds. cmux-next and cmux-tui artifacts runs on nightly-next
+    # (a promotion's push, about 7 an hour on 2026-11-04) make no feat-cmux-next commit
+    # buildable and are not a finished build, so they start no tick; the cron backstop and
+    # the landings still do.
+    if: github.repository == 'manaflow-ai/cmux' && (github.event_name != 'workflow_run' || github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository && (github.event.workflow_run.head_branch != 'nightly-next' || github.event.workflow_run.name == 'Nightly macOS build'))
     # CI_CONTROL_RUNNER, when set, takes this control job off Blacksmith Linux
     # (2026-10-28: every Blacksmith Linux size stopped starting jobs from ~20:00Z).
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CONTROL_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
@@ -100,6 +103,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/gh_budget_wait.sh
             scripts/ci/nightly_next_cancelled_tip.sh
+            scripts/ci/delivery_workflows.py
             scripts/ci/nightly_compile_red.py
             scripts/ci/nightly_next_feed_watch.py
             scripts/ci/nightly_next_rolling.py
@@ -120,8 +124,8 @@ jobs:
       # token's /rate_limit headers then, to name the limiter.
       - name: Wait through GitHub API rate limits in this job's gh calls
         run: bash .tick-tooling/scripts/ci/gh_budget_wait.sh --install
-      # Only the promotion request waits through a rate limit. The stuck-run rescue, the
-      # cancelled-tip re-run and the rolling rule set GH_BUDGET_WAIT_ATTEMPTS=1, so a refused
+      # Only the promotion request waits through a rate limit. The rolling rule here, and the
+      # stuck-run rescue and cancelled-tip re-run (the unstick job), set GH_BUDGET_WAIT_ATTEMPTS=1, so a refused
       # read fails at once into each one's own fallback (no cancel, no re-run; the rolling rule
       # promotes or waits as its docstring says). Their reads are captured by Python, so the
       # wrapper's 60+120+240+300 s backoff was invisible, and it held the one serialized tick
@@ -147,54 +151,14 @@ jobs:
           gh workflow run nightly-next-train.yml -R "$GITHUB_REPOSITORY" --ref feat-cmux-next -f mode="$MODE" \
             || echo "::warning::could not start the nightly-next train ($MODE); is nightly-next-train.yml on feat-cmux-next and main?"
 
-      # nightly_repick.py (run by the re-run below) reads nightly.yml's `needs` graph with
-      # PyYAML. Best effort: without it the re-run takes the attempt's failed jobs, as before.
-      - name: Prepare the re-run's Python
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          python3 -c 'import yaml' 2>/dev/null && exit 0
-          python3 -m venv "$RUNNER_TEMP/tick-venv"
-          "$RUNNER_TEMP/tick-venv/bin/python" -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3
-          echo "$RUNNER_TEMP/tick-venv/bin" >> "$GITHUB_PATH"
-
-      # A nightly-next or promotion run with a job no runner took for 3 minutes (a label
-      # that stopped serving, run 40771197361) is cancelled here when an existing path builds
-      # it again: the step below re-runs the tip's push run, the tip builds over an older
-      # commit's, and the promotion request asks again. Gated and running runs are never
-      # cancelled; scripts/ci/nightly_next_stuck_run.py. Only in the shared, serialized tick
-      # group (no sha input), so two ticks never act on one run at once.
-      - name: Cancel a nightly-next run stuck without a runner
-        if: inputs.sha == ''
-        continue-on-error: true
-        # The rescue can read once, settle for FORCE_AFTER + 1 bounded waits,
-        # and read again before a force-cancel. Leave room for those API reads.
-        timeout-minutes: 15
-        env:
-          GH_TOKEN: ${{ github.token }}
-          NIGHTLY_NEXT_TRAIN: ${{ vars.NIGHTLY_NEXT_TRAIN }}
-          GH_BUDGET_WAIT_ATTEMPTS: "1"
-        run: python3 -u .tick-tooling/scripts/ci/nightly_next_stuck_run.py "$GITHUB_REPOSITORY"
-
-      # A tip on nightly-next whose newest run ended cancelled (a rescue that lost its
-      # re-run, run 40340830337) is never requested again below ("already on
-      # nightly-next"), so it is re-run here; scripts/ci/nightly_next_cancelled_tip.sh.
-      - name: Re-run a cancelled nightly-next tip
-        # An explicit SHA asks for a newer tip without waiting on recovery of the
-        # current nightly tip (whose API reads may wait out an hour of rate limits).
-        # Automatic ticks retain recovery in their shared, serialized group.
-        if: inputs.sha == ''
-        # The promotion below must run even when this check cannot.
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_BUDGET_WAIT_ATTEMPTS: "1"
-        run: bash .tick-tooling/scripts/ci/nightly_next_cancelled_tip.sh "$GITHUB_REPOSITORY"
-
       # The rolling rule (scripts/ci/nightly_next_rolling.py): promote at once when nothing is
       # building nightly-next, else once the oldest landing the running build does not carry
-      # has waited 10 minutes. A dispatch for one commit skips it. It reads through the API only;
-      # its failure modes are in the script's docstring.
+      # has waited 10 minutes. A dispatch for one commit skips it. It reads nightly-next with
+      # git ls-remote (no API budget; ticks 41791114042 and 41791169626 lost their promotion to
+      # an exhausted budget on the refs API) and the gap to the tip from this checkout (the compare
+      # API only when nightly-next's head is not in it); a tip already on nightly-next reads nothing
+      # more and requests nothing. The running builds come through the API. Its failure modes are
+      # in the script's docstring.
       - name: Apply the rolling rule
         id: rolling
         if: vars.NIGHTLY_NEXT_TRAIN != 'on' && inputs.sha == ''
@@ -296,3 +260,121 @@ jobs:
               | awk '{n=$1; $1=""; printf "%s%dx%s", (NR>1 ? "; " : ""), n, $0}')"
             echo "::warning title=nightly-next tick::no newer feat-cmux-next commit is promotable ($(wc -l < "$refusals" | tr -d ' ') refused): $tally"
           fi
+
+  # The stuck-run rescue and the cancelled-tip re-run, in their own job so their 3-minute
+  # failover fires about 3 minutes after a nightly job stalls. In the request job they ran only
+  # after it got a runner and a 150-commit checkout of feat-cmux-next, behind one serialized
+  # group whose ticks spend minutes on the promotion: on 2026-11-03 nightly run 41706574247's
+  # `decide` sat unassigned on hosted ubuntu-24.04 from 19:47:44Z, tick 41706409972's request job
+  # waited on CI_CONTROL_RUNNER (hosted ubuntu-24.04) from 19:46:40Z to 19:54:22Z and its checkout
+  # took until 19:57:08Z, so the cancel came at 19:57:53Z, 10 minutes in (cmuxterm-hq#6671).
+  # This job reads the reconciled 2 vCPU Linux pool (RUNNER_POOLS.linux_2, Blacksmith 2 vCPU when
+  # the variable is unset), not the hosted pool its targets wait on, checks out only its scripts, and has its own fixed group: one runs,
+  # the newest waits, and a dispatch for one commit (a sha input) skips it as before. It holds
+  # the job's GITHUB_TOKEN for its writes and the cmux-bot App token for its reads; it never cancels a
+  # nightly (nightly_next_stuck_run.py).
+  unstick:
+    if: github.repository == 'manaflow-ai/cmux' && inputs.sha == '' && (github.event_name != 'workflow_run' || github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository && (github.event.workflow_run.head_branch != 'nightly-next' || github.event.workflow_run.name == 'Nightly macOS build'))
+    # The linux_2 pool's members (.github/runners.json), named here, because this job holds an App key:
+    # no variable may put it on a machine this line does not name (tests/test_ci_fork_runner_routing.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_2) && fromJSON(vars.RUNNER_POOLS || '{}').linux_2 || 'blacksmith-2vcpu-ubuntu-2404' }}
+    # Two bounded steps of reads and at most one cancel and one re-run.
+    timeout-minutes: 25
+    concurrency:
+      group: nightly-next-tick-unstick
+      cancel-in-progress: false
+    permissions:
+      # actions: write cancels a stuck run and re-runs a cancelled tip.
+      actions: write
+      contents: read
+    steps:
+      # This workflow's own copy of the scripts; nightly_next_cancelled_tip.sh needs a git
+      # checkout with an `origin` (it reads nightly-next with ls-remote).
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .tick-tooling
+          sparse-checkout: |
+            scripts/ci/gh_app_token.sh
+            scripts/ci/gh_budget_wait.sh
+            scripts/ci/nightly_next_cancelled_tip.sh
+            scripts/ci/delivery_workflows.py
+            scripts/ci/nightly_compile_red.py
+            scripts/ci/nightly_next_stuck_run.py
+            scripts/ci/nightly_repick.py
+            scripts/ci/owned_pool_rescue.py
+            scripts/ci/owned_pool_sources.py
+            scripts/ci/pr_runner_pool.py
+            scripts/ci/simple_pool_picker.py
+            scripts/ci/ui_tests_dispatch.py
+          sparse-checkout-cone-mode: false
+
+      # This job's reads spend the cmux-bot App's budget, not the repository's GITHUB_TOKEN pool
+      # (5,000 an hour for every workflow, which ran dry hourly on 2026-11-04 with this tick its
+      # biggest spender: about 1,100 calls an hour, about 575 of them this job's).
+      # scripts/ci/gh_app_token.sh --reads-only sends a gh call made with github.token that only
+      # reads (a GET, a GraphQL query, a list or view) as the App, and github.token again when the
+      # App is refused; the cancels and re-runs go out once as github.token, unchanged. With no App
+      # token (a failed mint, or no CMUX_BOT_APP_ID) nothing is installed and every call is
+      # github.token's. Only this job holds the App key: the request job runs where
+      # CI_CONTROL_RUNNER puts it, which may be a reused machine, so it keeps only its job-scoped
+      # GITHUB_TOKEN (tests/test_ci_cloud_overflow_switch.py) and spends fewer reads instead.
+      - name: Mint the cmux-bot token for this job's reads
+        id: read-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: read
+          permission-contents: read
+
+      # Before the rate-limit wait below, which then wraps it (its waits count once per job).
+      - name: Send this job's gh reads as the cmux-bot App, github.token as the fallback
+        env:
+          GH_APP_TOKEN: ${{ steps.read-token.outputs.token }}
+          GH_FALLBACK_TOKEN: ${{ github.token }}
+        run: bash .tick-tooling/scripts/ci/gh_app_token.sh --install --reads-only
+
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        run: bash .tick-tooling/scripts/ci/gh_budget_wait.sh --install
+
+      # nightly_repick.py (run by the re-run below) reads nightly.yml's `needs` graph with
+      # PyYAML. Best effort: without it the re-run takes the attempt's failed jobs, as before.
+      - name: Prepare the re-run's Python
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python3 -c 'import yaml' 2>/dev/null && exit 0
+          python3 -m venv "$RUNNER_TEMP/tick-venv"
+          "$RUNNER_TEMP/tick-venv/bin/python" -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3
+          echo "$RUNNER_TEMP/tick-venv/bin" >> "$GITHUB_PATH"
+
+      # A nightly-next or promotion run with a job no runner took for 3 minutes (a label
+      # that stopped serving, run 40771197361) is reported here and never cancelled: nobody
+      # cancels a nightly. Once the tip's push run has ended, the jobs that never got a runner
+      # are re-run; scripts/ci/nightly_next_stuck_run.py. Only in this job's one fixed group,
+      # so two ticks never act on one run at once.
+      - name: Report a stuck nightly-next run and re-run its lost jobs once it ends
+        continue-on-error: true
+        timeout-minutes: 15
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_BUDGET_WAIT_ATTEMPTS: "1"
+          GH_APP_TOKEN_ATTEMPTS: "1"
+        run: python3 -u .tick-tooling/scripts/ci/nightly_next_stuck_run.py "$GITHUB_REPOSITORY"
+
+      # A tip on nightly-next whose newest run ended cancelled (a rescue that lost its
+      # re-run, run 40340830337) is never requested again by the request job ("already on
+      # nightly-next"), so it is re-run here; scripts/ci/nightly_next_cancelled_tip.sh.
+      - name: Re-run a cancelled nightly-next tip
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_BUDGET_WAIT_ATTEMPTS: "1"
+          GH_APP_TOKEN_ATTEMPTS: "1"
+        working-directory: .tick-tooling
+        run: bash scripts/ci/nightly_next_cancelled_tip.sh "$GITHUB_REPOSITORY"

@@ -557,10 +557,10 @@ extension TerminalController {
                 focus: focus
             )?.id
         } else if panelType == .chief {
-            newPanelId = ws.newChiefSurface(
+            newPanelId = ChiefSettings.isEnabled ? ws.newChiefSurface(
                 inPane: paneId,
                 focus: focus
-            )?.id
+            )?.id : nil
         } else if panelType == .agentSession {
             newPanelId = ws.newAgentSessionSurface(
                 inPane: paneId,

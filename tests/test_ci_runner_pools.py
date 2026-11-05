@@ -57,6 +57,16 @@ class Declared(unittest.TestCase):
         self.assertEqual(runner_pools.load_pools()["linux"]["members"],
                          ["blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"])
 
+    def test_every_blacksmith_linux_size_has_its_own_pool(self) -> None:
+        # Leo, 2026-10-28: "Where the f***ing are the generalized solution to all these problems that these
+        # incessant pins?" A job measured at one size reads that size's pool, so a stalled size moves by declaration.
+        pools = runner_pools.load_pools()
+        for size, name in ((2, "linux_2"), (4, "linux_4"), (8, "linux_8"), (16, "linux_16"), (32, "linux_32")):
+            with self.subTest(pool=name):
+                listed = runner_pools.members(pools[name])
+                self.assertEqual(listed[0], f"blacksmith-{size}vcpu-ubuntu-2404")
+                self.assertGreater(len(listed), 1, f"{name} needs a member to fail over to")
+
     def test_every_bounded_selector_accepts_every_linux_member(self) -> None:
         # Review of #30340: a member a bounded selector refuses (contains([...], vars.LINUX_RUNNER) && ... || '<4 vCPU>')
         # sends its readers back to the stalled size when the pool steps onto it.
@@ -103,6 +113,19 @@ class Declared(unittest.TestCase):
         names = [s.get("name") for s in steps]
         self.assertLess(names.index(step["name"]), names.index("End this run's stuck probe"))
 
+    def test_the_reconciler_reads_as_cmux_bot_not_the_shared_workflow_token(self) -> None:
+        # Its GH_TOKEN only reads (queue sample, pool snapshot artifact): cmux-bot's read-only token, minted
+        # earlier in the same job, keeps those reads off the repository GITHUB_TOKEN pool every workflow shares.
+        workflow = yaml.safe_load((ROOT / ".github/workflows/ci-cloud-overflow-probe.yml").read_text())
+        steps = workflow["jobs"]["watch"]["steps"]
+        [step] = [s for s in steps if "runner_pools.py" in str(s.get("run", ""))]
+        [mint] = [s for s in steps if s.get("id") == "cmux-bot-token"]
+        self.assertEqual(mint["with"]["permission-actions"], "read")
+        self.assertEqual(step["env"]["GH_TOKEN"], "${{ steps.cmux-bot-token.outputs.token || github.token }}")
+        self.assertNotIn("GLAEDA_ROUTE", step["env"]["GH_TOKEN"])
+        names = [s.get("name") for s in steps]
+        self.assertLess(names.index(mint["name"]), names.index(step["name"]))
+
     def test_the_watch_runs_the_pinned_linux_pool_spill_with_main_as_fallback(self) -> None:
         # cmux#31884: the queue-aware spill runs from a reviewed feat-cmux-next commit beside main's policy.
         workflow = yaml.safe_load((ROOT / ".github/workflows/ci-cloud-overflow-probe.yml").read_text())
@@ -121,26 +144,58 @@ class Declared(unittest.TestCase):
         self.assertLess(names.index(checkout["name"]), names.index(step["name"]))
 
 
-    def test_the_watch_runs_the_pinned_hosted_light_rescue_without_failing(self) -> None:
-        # cmux#32023, #32120: a hosted light job GitHub never assigns fails over to its re-run route.
-        workflow = yaml.safe_load((ROOT / ".github/workflows/ci-cloud-overflow-probe.yml").read_text())
-        steps = workflow["jobs"]["watch"]["steps"]
-        [checkout] = [s for s in steps if s.get("id") == "hosted-light-tooling"]
-        self.assertRegex(checkout["with"]["ref"], r"^[0-9a-f]{40}$")
-        self.assertEqual(checkout["with"]["persist-credentials"], False)
-        self.assertEqual(set(checkout["with"]["sparse-checkout"].split()),
-                         {"scripts/ci/hosted_light_rescue.py", ".github/runners.json"})
-        self.assertTrue(checkout.get("continue-on-error"))
+    def test_hosted_light_rescue_runs_without_the_overflow_probe(self) -> None:
+        # A queued probe must not hold the recovery that moves other queued light jobs.
+        path = ROOT / ".github/workflows/ci-hosted-light-rescue.yml"
+        self.assertTrue(path.is_file(), "hosted light rescue needs an independent scheduler")
+        workflow = yaml.safe_load(path.read_text())
+        events = workflow.get("on", workflow.get(True))
+        self.assertEqual(events["schedule"], [{"cron": "*/5 * * * *"}])
+        self.assertNotEqual(workflow["concurrency"]["group"], "ci-cloud-overflow-probe")
+        self.assertFalse(workflow["concurrency"]["cancel-in-progress"])
+        rescue = workflow["jobs"]["rescue"]
+        self.assertNotIn("needs", rescue)
+        self.assertEqual(rescue["permissions"], {"actions": "write", "contents": "read"})
+        self.assertNotIn("secrets.", path.read_text())
+        self.assertNotIn("CI_LIGHT_LANE_RUNNER", rescue["runs-on"])
+        self.assertNotIn("CI_SIDE_LANE_RUNNER", rescue["runs-on"])
+        self.assertIn("vars.CI_TRUSTED_RUNNER", rescue["runs-on"])
+        self.assertIn("ephemeral-required", path.read_text())
+        self.assertEqual(rescue["steps"][0]["with"]["ref"], "main")
+        self.assertTrue((ROOT / "scripts/ci/hosted_light_rescue.py").is_file())
+        old = yaml.safe_load((ROOT / ".github/workflows/ci-cloud-overflow-probe.yml").read_text())
+        self.assertNotIn("hosted_light_rescue.py", str(old["jobs"]))
+
+    def test_the_independent_schedule_only_wakes_the_single_sweeper(self) -> None:
+        workflow = yaml.safe_load((ROOT / ".github/workflows/ci-hosted-light-rescue.yml").read_text())
+        steps = workflow["jobs"]["rescue"]["steps"]
         [step] = [s for s in steps if "hosted_light_rescue.py" in str(s.get("run", ""))]
-        self.assertTrue(step.get("continue-on-error"))
-        self.assertIn("steps.hosted-light-tooling.outcome == 'success'", str(step.get("if")))
-        self.assertIn("--runners .hosted-light-tooling/.github/runners.json", step["run"])
+        self.assertIn("python3 scripts/ci/hosted_light_rescue.py", step["run"])
         self.assertEqual(step["env"]["GH_TOKEN"], "${{ github.token }}")
-        self.assertIn("inputs.dry_run", step["env"]["DRY_RUN"])
-        self.assertEqual(workflow["jobs"]["watch"]["permissions"].get("actions"), "write")
-        names = [s.get("name") for s in steps]
-        self.assertLess(names.index(checkout["name"]), names.index(step["name"]))
-        self.assertLess(names.index(step["name"]), names.index("End this run's stuck probe"))
+        self.assertIn("--wake-sweeper", step["run"])
+        self.assertNotIn("--runners", step["run"])
+        self.assertNotIn(".rescue-workflows", str(steps))
+
+    def test_a_failed_optional_policy_checkout_does_not_stop_the_primary_sweep(self) -> None:
+        doc = yaml.safe_load((ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text())
+        steps = doc["jobs"]["rescue"]["steps"]
+        [policy] = [s for s in steps if s.get("with", {}).get("path") == ".rescue-workflows"]
+        # Actions skips subsequent ordinary steps after a fatal action failure. This optional
+        # checkout must clear that failure so the existing owned-pool sweeper can still start.
+        self.assertTrue(policy.get("continue-on-error"))
+        self.assertLessEqual(policy.get("timeout-minutes", 360), 2)
+        [watch] = [s for s in steps if "owned_pool_rescue.py" in str(s.get("run", ""))]
+        self.assertLess(steps.index(policy), steps.index(watch))
+
+    def test_the_minute_sweeper_isolates_light_rescue_from_the_routing_app(self) -> None:
+        doc = yaml.safe_load((ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text())
+        [step] = [s for s in doc["jobs"]["rescue"]["steps"] if "owned_pool_rescue.py" in str(s.get("run", ""))]
+        # cmux-bot first (its own installation pool), the workflow token as fallback; never the routing App.
+        self.assertEqual(step["env"]["HOSTED_LIGHT_TOKEN"], "${{ steps.cmux-bot-token.outputs.token || github.token }}")
+        self.assertEqual(step["env"]["HOSTED_LIGHT_FALLBACK_TOKEN"], "${{ github.token }}")
+        self.assertNotIn("GLAEDA_ROUTE", str(step["env"]["HOSTED_LIGHT_TOKEN"]))
+        self.assertEqual(step["env"]["HOSTED_LIGHT_DISABLED"], "${{ vars.CI_HOSTED_LIGHT_RESCUE_DISABLED }}")
+        self.assertEqual(step["env"]["HOSTED_LIGHT_POLICY"], ".rescue-workflows/.github")
 
 
 class Evidence(unittest.TestCase):
@@ -373,7 +428,8 @@ class Main(unittest.TestCase):
         marked = runner_pools.iso(NOW - runner_pools.DEAD_TTL - dt.timedelta(minutes=10))
         pools = runner_pools.load_pools()
         first, second = runner_pools.members(pools["linux"])[:2]
-        held = {name: runner_pools.members(spec)[0] for name, spec in pools.items()}
+        # Every pool on its first member that is not the dead one (linux_4 lists the same 4 vCPU size first).
+        held = {name: next(m for m in runner_pools.members(spec) if m != first) for name, spec in pools.items()}
         held["linux"] = second
         held["_dead"] = {first: marked}
         held["_updated"] = marked
