@@ -169,10 +169,16 @@ agent, this build key), not the whole grant (lens review). The card never
 takes focus and has no default button.
 
 **The person or an agent** (lens review: the confused deputy). `cmux machine
-NAME run|send|move` can be called by an agent on the caller. Every request
-carries its origin as the caller's app knows it: `person` (a click, a palette
-row, a command typed in a terminal the person is at) or `agent` (an agent's
-tool call or socket request). The target never trusts the claim upward: an
+NAME run|send|move` can be called by an agent on the caller, and an agent
+can type anything a person can into a terminal, so a claim is not a proof.
+A request is `person` only when the caller's app made it from a gesture in
+its own UI (a click, a palette row, the sidebar menu) and sends it over its
+own control line to hostd, which no other process can write. Everything
+else is `agent`: every `cmux` CLI call, every socket or MCP request, and
+every request on hostd's local link socket, whatever origin it names (hostd
+overwrites it). A terminal command that needs `person` (a `send`) prints a
+link that opens the same action in the app, where the person confirms it.
+The target never trusts the claim upward: an
 `agent` request never uses `install` or `screen` Control, and `run` and
 `move` from an agent always ask, whatever "Always" says. Grants are set only
 on the machine they protect, never by the peer, the hub or the registry. A
@@ -194,8 +200,14 @@ MacBook**, or the sidebar row's menu.
    deterministic tar (`--zstd`), and a manifest: bundle id, version, tag,
    arch, sha256 and size of the archive.
 2. Signed by either:
-   - **the cmux release key**: an Ed25519 key that signs every release's
-     manifest (the same manifest the updater's appcast already signs), and
+   - **the cmux release key**: an Ed25519 key that signs a new per-build
+     manifest, `cmux-<version>-<arch>.manifest.json` (bundle id, version,
+     channel, arch, the installed-tree hash below), published beside the
+     DMG by the release and nightly jobs and signed by the same signing step
+     that writes the appcast's `sparkle:edSignature` (today that signs the
+     DMG only, so this is a new step). The key's public half ships in the
+     app, as Sparkle's does; a rotation ships the new public key in a build
+     signed by the old one first. And
      the build's codesign must satisfy the exact designated requirement of
      its channel: Developer ID Manaflow, Inc. (7WLXT3NR37), notarized, *and*
      bundle id `com.cmuxterm.app` (release) or the nightly's id, nothing
@@ -205,23 +217,28 @@ MacBook**, or the sidebar row's menu.
      other app signed by the team (a helper, a lab app) is refused; or
    - **a build key the person enrolled here**: an Ed25519 key the sender
      made for its own tagged builds (`~/.config/cmux/build-key`, 0600). The
-     receiver checks the signature over the manifest and the archive's
-     sha256. A build key is enrolled only through an approval card on the
+     receiver checks the signature over the manifest, the archive's sha256
+     and, after unpacking, the installed-tree hash. A build key is enrolled only through an approval card on the
      receiving machine ("Studio wants to install its own builds here"),
      never by the peer.
 3. The receiver streams it to a staging folder on the bulk lane (resumable by
    offset), verifies size and sha256, then the signature, then unpacks with
-   its own extractor, not `tar`: regular files and directories only, every
-   path relative and inside one top-level `<name>.app/`, no `..`, no
-   absolute path, no symlink that resolves outside the bundle, no hard
-   link, device, FIFO or setuid bit, and a cap on file count and total
-   size. Anything else refuses the whole archive. It unpacks into a fresh
+   its own extractor, not `tar`: regular files, directories and relative
+   symlinks only (cmux bundles carry some, such as `bin/cmux-tui` and
+   `bin/acpmux`), every path inside one top-level `<name>.app/`, no `..`
+   component, no absolute path, every symlink's target resolving inside the
+   bundle after all links are made (checked once all entries are written,
+   before the rename), no hard link, device, FIFO or setuid bit, and a cap
+   on file count and total size. Anything else refuses the whole archive. It unpacks into a fresh
    folder in staging, which is moved into place with one rename.
 4. **It never replaces anything it did not install.** The receiver keeps an
    install ledger (0600, beside Activity): each install's path, bundle id,
-   archive sha256 and the peer that sent it. It replaces an app only if the
-   ledger says this machine link put it there and the app on disk still
-   matches the ledger's hash; anything else at that path is left alone and
+   archive sha256, installed-tree hash and the peer that sent it. The
+   installed-tree hash is SHA-256 over the sorted list of (relative path,
+   type, mode, size, content SHA-256 or symlink target) of every entry in
+   the bundle, so it is the same for the same tree whatever archive carried
+   it. It replaces an app only if the ledger says this machine link put it
+   there and the tree on disk still has the ledger's tree hash; anything else at that path is left alone and
    the send is refused with its reason. A build-key build
    installs only as a tagged DEV app: bundle id `com.cmuxterm.app.debug.<tag>`,
    into `~/Applications/cmux DEV <tag>.app`. A release build installs beside
@@ -286,7 +303,12 @@ transport is not built.
 ## Audit and revoke
 
 One format on every machine: `~/Library/Application Support/cmux/machine-activity.jsonl`
-(Linux: `~/.local/state/cmux/`), 0600, append only, one line per request:
+(Linux: `~/.local/state/cmux/`), 0600, append only, one line per request,
+bounded: at 4 MiB it rotates to `machine-activity.1.jsonl` (one previous
+file kept, 8 MiB in all), and repeated identical refusals from one peer
+(same service and code) are logged once a minute with a count. A write that
+fails (disk full) never blocks or changes the decision; it is counted and
+shown in Activity. One line per request:
 time, peer device id and name, origin (person or agent), direction (in or
 out), service, event (the device hub's names: `requested`, `approved`,
 `denied`, `started`, `ended` with its reason), target
