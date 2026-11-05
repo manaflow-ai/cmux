@@ -1,5 +1,12 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-05: Update in One Click (`updates.oneClickInstall`, off by default; #35951). Leo, verbatim, on the Codex app's
+  Update available pill: "codex having this update available and then me clicking it enabling it to auto install and
+  restart is... interesting". On, the footer's Update Available button (tooltip "…: Click to Update and Restart") and
+  the found update card's Update download with their progress, then install and relaunch once staged. No look changes:
+  the footer's Update Available button (`SidebarIconButton.ignorePointer`) and a notice card's newly built buttons
+  ignore pointer presses for 1 s after they show (`SidebarUpdateButton.appearGuard`, as the Restart card since #34612);
+  keys and VoiceOver still press them. Regression: `UpdateOneClickInstallTests`.
 - 2026-11-03: a machine's name drawn in its colour reads in every theme. The user, verbatim: "we need to make sure
   every single theme, all the UI elements are colored properly". A priority row's place tag and a workspace hover
   card's host drew the raw machine colour as text: a person's `#FFFF00` read 1.1:1 on a light theme, `#000080` 1.6:1

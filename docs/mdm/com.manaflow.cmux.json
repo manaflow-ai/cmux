@@ -157,6 +157,23 @@
       "title" : "Transcript View",
       "type" : "string"
     },
+    "agentPane.display.trayHandle" : {
+      "default" : "middle",
+      "description" : "Where the handle that tucks the running tray away and brings it back sits along the top of the composer.",
+      "enum" : [
+        "left",
+        "middle",
+        "right"
+      ],
+      "title" : "Running Tray Handle",
+      "type" : "string"
+    },
+    "agentPane.display.trayTucked" : {
+      "default" : false,
+      "description" : "Hides the bar of running work over the composer. Hover the top middle of the composer and click its chevron to bring it back.",
+      "title" : "Tuck Away Running Tray",
+      "type" : "boolean"
+    },
     "agentPane.display.vscodeMinimap" : {
       "default" : false,
       "description" : "A small picture of the whole chat at its right edge, as in VS Code. Click or drag it to scroll.",
@@ -5208,6 +5225,12 @@
       ],
       "title" : "When an Update Is Ready",
       "type" : "string"
+    },
+    "updates.oneClickInstall" : {
+      "default" : false,
+      "description" : "Off: Update downloads the update, then cmux asks before it restarts into it. On: one click on Update downloads it, shows its progress, then installs it and restarts cmux. Terminals and agents keep running across the restart.",
+      "title" : "Update in One Click",
+      "type" : "boolean"
     },
     "updates.showFeatureTips" : {
       "default" : true,

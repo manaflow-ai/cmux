@@ -15,6 +15,9 @@ extension UpdatesSettings {
     /// `updates.downloadAutomatically`.
     public nonisolated static let downloadAutomaticallyPath = ["updates", "downloadAutomatically"]
     public nonisolated static let downloadAutomaticallyDefault = false
+    /// `updates.oneClickInstall`: One click on a found update's Update downloads it with its progress, then installs and restarts (Leo 2026-11-04, after the Codex app's Update available button). Off: the Update Ready card asks before the restart.
+    public nonisolated static let oneClickInstallPath = ["updates", "oneClickInstall"]
+    public nonisolated static let oneClickInstallDefault = false
     /// `updates.meteredNetwork`: What automatic downloads do on a metered link.
     public nonisolated static let meteredNetworkPath = ["updates", "meteredNetwork"]
     public nonisolated static let meteredNetworkDefault: UpdatesMeteredSetting = .deferLowData
@@ -104,6 +107,16 @@ nonisolated enum UpdateSettingsSchema {
                 kind: .toggle,
                 default: .bool(UpdatesSettings.downloadAutomaticallyDefault),
                 keywords: ["update", "download", "background", "metered"]
+            ),
+            SettingDescriptor(
+                UpdatesSettings.oneClickInstallPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.updates.oneClickInstall", "Update in One Click"),
+                help: SettingsText.keyed("settings.updates.oneClickInstall.help", "Off: Update downloads the update, then cmux asks before it restarts into it. On: one click on Update downloads it, shows its progress, then installs it and restarts cmux. Terminals and agents keep running across the restart."),
+                kind: .toggle,
+                default: .bool(UpdatesSettings.oneClickInstallDefault),
+                keywords: ["update", "install", "restart", "relaunch", "one click"]
             ),
             SettingDescriptor(
                 UpdatesSettings.meteredNetworkPath,

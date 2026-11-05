@@ -3,7 +3,7 @@ import CmuxNextDesign
 
 /// FRAME OWNER REFACTOR S2B, rule D: a drag that starts while its edge springs holds the edge where it is drawn.
 extension DividerDrag {
-    /// The press of a drag that latched `motion.frameOwner.sharedEdges`, while the screen moves: the drag's value (a
+    /// The press of a drag that moves edges (`DividerDragState.sharedEdges`), while the screen moves: the drag's value (a
     /// split's ratio, a column's width) goes to the value that rests its line on the pixel it is drawn on, in the drag's
     /// own transaction, and the window lays that out now in a pass that moves nothing on screen (every frame keeps where
     /// it shows and its velocity). Each edge then gets its share of the change of speed and place that stops the line on

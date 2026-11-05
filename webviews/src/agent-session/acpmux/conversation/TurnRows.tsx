@@ -411,6 +411,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
       ? () => retry(row.retryRowId!, prompt)
       : undefined;
   const footerRetry = failedRetry ?? lastRetry;
+  const retryTitle = row.changedFiles ? t("turn.retryChangedFiles") : t("turn.retryLabel");
   const retryModels =
     (failed || lastRetry) && retry && prompt && retryWith && retryWith.models.length > 1 ? retryWith : undefined;
   // The card's lead (errorRecovery.ts): Continue when the turn had done work, Retry when nothing
@@ -477,8 +478,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
                     type="button"
                     className="cv-iconbtn cv-iconbtn--compact"
                     aria-label={t("turn.retry")}
-                    title={t("turn.retry")}
-                    data-tooltip-detail={t("turn.retryLabel")}
+                    title={retryTitle}
                     disabled={retrying}
                     onClick={footerRetry}
                   >

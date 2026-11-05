@@ -490,6 +490,9 @@ export type AcpmuxRow = {
   /// A turn summary whose footer offers Retry with `prompt` (turns.ts retryTargetAt): the chat's last
   /// turn, or the last one a prompt opened when only notices and reminders came after it.
   retryTarget?: true;
+  /// The turn's completed edit diff proves it changed files. Retry keeps this hint in its tooltip;
+  /// missing or incomplete checkpoint data stays neutral (conversation/turns.ts).
+  changedFiles?: true;
   /// A turn footer's answer row (turns.ts), whose right-click menu the footer's More opens.
   answerId?: string;
   /// A turn footer's whole turn for its Copy (conversation/turnCopy.ts): the agent's replies and each

@@ -17,6 +17,8 @@ mod lifecycle;
 #[cfg(unix)]
 mod local_resize_order;
 mod lock_order;
+#[cfg(unix)]
+mod output_publications;
 mod render_geometry;
 #[cfg(unix)]
 mod resize_audit;

@@ -1,5 +1,5 @@
 // The static gallery (src/gallery): `bun run gallery:build` writes a plain HTML folder
-// (index.html, frame.html, app.html, chunks/, assets/) that any static server or file host can serve, with
+// (index.html, frame.html, app.html, mock-app.html, chunks/, assets/) that any static server or file host can serve, with
 // the shipped build settings (React Compiler, production React, the same chunking and the diff
 // worker). `CMUX_GALLERY_OUT_DIR` names the output (default dist/gallery).
 import type { Plugin } from "vite-plus";
@@ -37,6 +37,7 @@ export default {
         gallery: "src/gallery/index.html",
         "gallery-frame": "src/gallery/frame.html",
         "gallery-app": "src/gallery/app.html",
+        "gallery-mock-app": "src/gallery/mock-app.html",
         "diff-worker": "src/diff-worker.ts",
       },
     },

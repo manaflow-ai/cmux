@@ -90,9 +90,9 @@ nonisolated struct SidebarSnapshot: Codable, Hashable, Sendable {
         switch node {
         case let .workspace(ws):
             guard !ws.rowState.isPending else { return nil }
-            return Node(workspace: workspace(ws), group: nil)
+            return Node(workspace: Workspace(row: ws), group: nil)
         case let .group(group):
-            let rows = group.workspaces.filter { !$0.rowState.isPending }.map(workspace)
+            let rows = group.workspaces.filter { !$0.rowState.isPending }.map(Workspace.init(row:))
             return Node(workspace: nil, group: Group(id: group.id.rawValue, name: group.name, color: group.color.rawValue,
                                                      isCollapsed: group.isCollapsed, isPinned: group.isPinned, workspaces: rows))
         case .item:
@@ -101,48 +101,11 @@ nonisolated struct SidebarSnapshot: Codable, Hashable, Sendable {
     }
 
     private static func sidebarNode(_ node: Node) -> SidebarNode? {
-        if let ws = node.workspace { return .workspace(sidebarWorkspace(ws)) }
+        if let ws = node.workspace { return .workspace(ws.restoredRow) }
         guard let group = node.group else { return nil }
         return .group(SidebarGroup(id: GroupID(group.id), name: group.name, color: GroupColor(rawValue: group.color) ?? .grey,
                                    isCollapsed: group.isCollapsed, isPinned: group.isPinned,
-                                   workspaces: group.workspaces.map(sidebarWorkspace)))
-    }
-
-    private static func workspace(_ ws: SidebarWorkspace) -> Workspace {
-        var icon: String?
-        var tint: String?
-        switch ws.icon {
-        case let .symbol(name, color)?:
-            icon = "symbol:" + name
-            tint = color?.rawValue
-        case let .swatch(color)?: icon = "swatch:" + color.rawValue
-        case let .emoji(text, chip)?:
-            icon = "emoji:" + text
-            tint = chip?.rawValue
-        // A favicon (or its placeholder) is not saved: the live row brings it back.
-        case .favicon?, .pagePlaceholder?, nil: break
-        }
-        return Workspace(id: ws.id.rawValue, machineID: ws.machineID.rawValue, title: ws.title,
-                         kind: ws.kind.rawValue, kindBrand: ws.kindBrand, icon: icon, iconTint: tint, color: ws.color?.rawValue)
-    }
-
-    private static func sidebarWorkspace(_ ws: Workspace) -> SidebarWorkspace {
-        SidebarWorkspace(id: WorkspaceID(ws.id), machineID: MachineID(ws.machineID), title: ws.title,
-                         icon: ws.icon.flatMap { icon($0, tint: ws.iconTint) }, color: ws.color.flatMap(GroupColor.init(rawValue:)),
-                         kind: SidebarWorkspaceKind(rawValue: ws.kind ?? "terminal") ?? .terminal,
-                         kindBrand: ws.kindBrand, rowState: .stale)
-    }
-
-    private static func icon(_ value: String, tint: String?) -> WorkspaceIcon? {
-        guard let colon = value.firstIndex(of: ":") else { return nil }
-        let kind = value[..<colon]
-        let rest = String(value[value.index(after: colon)...])
-        switch kind {
-        case "symbol": return .symbol(rest, tint: tint.flatMap(GroupColor.init(rawValue:)))
-        case "swatch": return GroupColor(rawValue: rest).map(WorkspaceIcon.swatch)
-        case "emoji": return .emoji(rest, chip: tint.flatMap(GroupColor.init(rawValue:)))
-        default: return nil
-        }
+                                   workspaces: group.workspaces.map(\.restoredRow)))
     }
 
     private static func kindName(_ kind: SidebarMachine.Kind) -> String {
