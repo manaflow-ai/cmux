@@ -42,6 +42,8 @@ public nonisolated struct CEFTrackerStats: Equatable, Sendable {
     /// (``CEFLayerHosting/resizeMotion(active:)``).
     public var detaches = 0
     public var attaches = 0
+    /// NEVER MERGE probe (STATUS 14261 slice 1): per-frame composite samples and WindowServer bounds facts.
+    public var probe: [String: Double] = [:]
 
     public init() {}
 
@@ -51,7 +53,7 @@ public nonisolated struct CEFTrackerStats: Equatable, Sendable {
         ["clip_reads": Double(clipReads), "occlusion_reads": Double(occlusionReads), "clip_builds": Double(clipBuilds),
          "clip_hits": Double(clipHits), "clip_ms": clipSeconds * 1_000, "geometry_posts": Double(geometryPosts),
          "hosted_pages": Double(hostedPages), "hosting_refused": Double(hostingRefused), "geometry_skips": Double(geometrySkips),
-         "detaches": Double(detaches), "attaches": Double(attaches)]
+         "detaches": Double(detaches), "attaches": Double(attaches)].merging(probe) { $1 }
     }
 
     /// Monotonic seconds for timing a read.

@@ -321,12 +321,47 @@ final class CEFLayerHosting {
     private func setDetached(_ on: Bool) -> Bool {
         guard on != isDetached else { return true }
         guard page != nil, let browser, let call = fork?.setDetachedHosting else { return false }
+        #if DEBUG
+        if let view { blankProbe.sample("steady_" + (on ? "before_detach" : "before_attach"), view: view) }
+        if !on, let spell = detachedSpell {
+            CEFHostView.trackerStats.probe["spells", default: 0] += 1
+            if spell.host != hostScreenRect() { CEFHostView.trackerStats.probe["spell_host_moved", default: 0] += 1 }
+            let bounds = Self.windowServerBounds(spell.window)
+            if spell.windowBounds != bounds { CEFHostView.trackerStats.probe["spell_ws_bounds_changed", default: 0] += 1 }
+            if bounds == nil { CEFHostView.trackerStats.probe["spell_ws_window_gone", default: 0] += 1 }
+            detachedSpell = nil
+        }
+        if on, let window = pageWindowNumber() { detachedSpell = (window, hostScreenRect(), Self.windowServerBounds(window)) }
+        #endif
         forkCalls += 1
         guard call(browser, on) else { return false }
         isDetached = on
         if on { CEFHostView.trackerStats.detaches += 1 } else { CEFHostView.trackerStats.attaches += 1 }
+        #if DEBUG
+        if let view { blankProbe.start(on ? "detach" : "attach", view: view) }
+        #endif
         return true
     }
+
+    #if DEBUG
+    private let blankProbe = CEFBlankFrameProbe()
+    private var detachedSpell: (window: Int, host: CGRect?, windowBounds: NSDictionary?)?
+
+    private func hostScreenRect() -> CGRect? {
+        guard let view, let window = view.window else { return nil }
+        return window.convertToScreen(view.convert(view.bounds, to: nil))
+    }
+
+    private func pageWindowNumber() -> Int? {
+        guard let rect = hostScreenRect(), let owner = view?.window else { return nil }
+        return owner.childWindows?.first { !($0 is NSPanel) && CEFTab.frame($0.frame, isPlacedAt: rect) }?.windowNumber
+    }
+
+    private static func windowServerBounds(_ number: Int) -> NSDictionary? {
+        let list = CGWindowListCopyWindowInfo([.optionIncludingWindow], CGWindowID(number)) as? [[String: Any]]
+        return list?.first?[kCGWindowBounds as String] as? NSDictionary
+    }
+    #endif
 
     /// The page window over `view` is the app's key window.
     static func pageWindowIsKey(over view: NSView?) -> Bool {
