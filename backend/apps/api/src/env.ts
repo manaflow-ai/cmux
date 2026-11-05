@@ -114,8 +114,11 @@ export interface Env {
   readonly TEAM_VM_API_SERVICE_KEY?: string
   readonly TEAM_VM_API_IMAGE?: string
   readonly TEAM_VM_API_IMAGE_REVISION?: string
-  /** One CloudDO per team, served by cmux-platform (script_name in wrangler.jsonc); its typed client is platform-cloud.ts. */
-  readonly CLOUD_DO: DurableObjectNamespace
+  /**
+   * One CloudDO per team, served by cmux-platform (script_name in wrangler.jsonc); its typed client is platform-cloud.ts.
+   * Absent in the local env: every Cloud call then answers a retryable owner.unreachable (platformCloud).
+   */
+  readonly CLOUD_DO?: DurableObjectNamespace
   /**
    * Secret: the cmux-next Cloud Freestyle key (state-placement.md 5.3), never FREESTYLE_API_KEY (the team VM lane's).
    * Never logged. Without it, or without CLOUD_FREESTYLE_SNAPSHOT, create and delete answer cloud.provider.unavailable.
