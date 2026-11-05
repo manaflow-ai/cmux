@@ -14,10 +14,10 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ### The embedder presents a new host size with its bounds (ghostty-next)
 
-- Fork release branch `release/cmux-9ce9b7d0-e2` at the merge commit `6cc749a8a` (fork PR #75, on `bd7ff2687` = fork
-  PRs #72 and #73 on `7d43bb68b`, fork PR #71 on `635c6c12a` = fork PR #70 on `dfd07de4a`, the earlier pin
-  `34e73ba8b` plus fork PR #69). GhosttyNextKit `xcframework-6cc749a8a53b1d62465e0faf848e430a82f690aa-apple-v6` (zip sha256
-  `018d2bdb...f4a40`, run 41922548637).
+- Fork release branch `release/cmux-9ce9b7d0-e2` at the merge commit `12ec155e1` (fork PR #79, on `ae7c1f741` = fork
+  PR #77 on `6cc749a8a` = fork PR #75 on `bd7ff2687` = fork PRs #72 and #73 on `7d43bb68b`, fork PR #71 on
+  `635c6c12a` = fork PR #70 on `dfd07de4a`, the earlier pin `34e73ba8b` plus fork PR #69). GhosttyNextKit
+  `xcframework-12ec155e1e67f8f33a1cee5fd2e129f59277465c-apple-v6` (zip sha256 `5defd8f8...30aa7`, run 41955494921).
 - What: opt-in on macOS host-sized surfaces, `ghostty_surface_set_host_present(surface, GHOSTTY_HOST_PRESENT_EMBEDDER)`.
   The renderer still draws each new host size at once with cells rebuilt for it, but never shows a frame of another
   size than the shown one itself. A new size asks for no display pass, and a display pass never waits.
@@ -28,7 +28,9 @@ When we change the fork, update this document and the parent submodule SHA.
   CA lock (fork PR #71: #70 committed under the lock and deadlocked against main's commit). A frame kept for the
   embedder's present that the layer cannot show in its bounds goes to no main-queue block (fork PR #75: it was
   dropped on main, one main wake per moving terminal and frame); the skip is decided under the CA lock and then
-  the fresh-frame mutex, only while the kept frame is still that frame.
+  the fresh-frame mutex, only while the kept frame is still that frame. An off-main present begins a CA
+  transaction only for a frame it shows (fork PR #79: each frame that went through main, or that a newer frame
+  superseded, committed an empty transaction on the GPU completion thread).
 - Why: cmux FRAME OWNER REFACTOR stage S4 (ready-or-keep). In every commit a terminal's bounds and pixels change
   together, or both keep their last size. Before, a new-size frame landed in the old bounds 2-4 refreshes after the
   geometry. The waiting present (G1) cost main 4-9 ms per drag frame.
