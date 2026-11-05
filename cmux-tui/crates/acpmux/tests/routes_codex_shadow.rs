@@ -24,6 +24,9 @@ use tokio::sync::mpsc;
 
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 
+/// A Codex login as `codex login` leaves it: tokens (an empty `auth.json` is not one).
+const SIGNED_IN: &str = r#"{"tokens": {"access_token": "x"}}"#;
+
 fn scratch() -> PathBuf {
     let root = std::env::temp_dir().join(format!("acpmux-codex-shadow-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
@@ -115,7 +118,7 @@ fn hub(root: &Path) -> Arc<Hub> {
 async fn a_codex_chat_moves_between_its_signed_in_logins_and_keeps_its_conversation() {
     let root = scratch();
     let (base, work) = (root.join("base"), root.join("work"));
-    std::fs::write(base.join("auth.json"), "{}").unwrap();
+    std::fs::write(base.join("auth.json"), SIGNED_IN).unwrap();
     std::fs::write(base.join("config.toml"), "model = 'x'").unwrap();
     // SAFETY: the only test in this binary; nothing else reads the env now.
     unsafe {
@@ -142,12 +145,13 @@ async fn a_codex_chat_moves_between_its_signed_in_logins_and_keeps_its_conversat
         local.ok("_acpmux/info", json!({"sessionId": id})).await["agentSessionId"].clone();
     let limit = json!({"sessionId": id, "prompt": [{"type": "text", "text": "limit: now"}]});
 
-    // The shadow is not signed in yet: nothing to move onto.
+    // The shadow is not signed in yet (an empty login file is not a login): nothing to move onto.
+    std::fs::write(work.join("auth.json"), "{}").unwrap();
     let (failed, _) = local.call_text("session/prompt", limit.clone()).await;
     assert!(failed["error"]["data"].get("fallback").is_none(), "{failed}");
 
     // Signed in: the limit moves the chat onto it, in the same conversation.
-    std::fs::write(work.join("auth.json"), "{}").unwrap();
+    std::fs::write(work.join("auth.json"), SIGNED_IN).unwrap();
     let (failed, _) = local.call_text("session/prompt", limit.clone()).await;
     assert_eq!(failed["error"]["data"]["fallback"]["routeId"], "work", "{failed}");
     assert_eq!(failed["error"]["data"]["fallback"]["applied"], true, "{failed}");

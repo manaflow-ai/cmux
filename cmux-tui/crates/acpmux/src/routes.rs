@@ -67,7 +67,8 @@ pub const CMUX_ROUTE_ID: &str = "cmux";
 /// resolves it, `load` does not list it (the Account menu already shows the CLI login).
 pub const CODEX_LOGIN_ROUTE_ID: &str = "codex-login";
 
-/// Whether the Codex CLI is signed in in `home` (its `CODEX_HOME`), else in `~/.codex`.
+/// Whether the Codex CLI is signed in in `home` (its `CODEX_HOME`), else in `~/.codex`: an
+/// `auth.json` with tokens or an API key, never an empty or broken one.
 pub fn codex_signed_in(home: Option<&Path>) -> bool {
     let dir = match home {
         Some(home) => home.to_path_buf(),
@@ -76,7 +77,7 @@ pub fn codex_signed_in(home: Option<&Path>) -> bool {
             None => return false,
         },
     };
-    dir.join("auth.json").is_file()
+    crate::agent_login::signed_in_at(crate::agent_login::Agent::Codex, &dir)
 }
 
 fn builtin_routes() -> Vec<Route> {

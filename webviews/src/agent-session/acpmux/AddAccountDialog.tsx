@@ -96,6 +96,8 @@ export function AddAccountDialog({
       name: name.trim() || defaultName,
     };
     if (way === "new") account.accountHome = folder;
+    // A second ChatGPT login shares the CLI's conversations, so routing can move a chat onto it.
+    if (way === "new" && family === "codex") account.shadow = true;
     if (way === "key") account.secret = secret.trim();
     sending.current = true;
     setPending(true);
@@ -210,6 +212,7 @@ export function AddAccountDialog({
             className="ui-button ui-btn"
             data-variant="subtle"
             data-size="md"
+            data-disabled={pending ? "" : undefined}
             disabled={pending}
             onClick={onClose}
           >
@@ -221,6 +224,7 @@ export function AddAccountDialog({
             className="ui-button ui-btn"
             data-variant="solid"
             data-size="md"
+            data-disabled={pending || !ready ? "" : undefined}
             disabled={pending || !ready}
           >
             {t("picker.addAccount")}

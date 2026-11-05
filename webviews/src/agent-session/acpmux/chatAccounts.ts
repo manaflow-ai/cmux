@@ -12,6 +12,9 @@ export type NewChatAccount = {
   family: string;
   name?: string;
   accountHome?: string;
+  /// A Codex login in a shadow home: its own auth.json, the CLI's other files shared, so a chat
+  /// moves between it and the CLI's own login in the same conversation.
+  shadow?: boolean;
   secret?: string;
 };
 

@@ -190,23 +190,27 @@ fn codex_login(folder: &Path) -> Login {
         v.pointer(pointer).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned)
     };
     Login {
-        signed_in: true,
+        signed_in: crate::agent_login::signed_in_at(crate::agent_login::Agent::Codex, folder),
         plan: text_at(&claims, "/https:~1~1api.openai.com~1auth/chatgpt_plan_type"),
         email: text_at(&claims, "/email"),
     }
 }
 
-/// A Claude Code login: `.claude.json`'s OAuth account in `folder`
-/// (`CLAUDE_CONFIG_DIR`), else in the home folder.
+/// A Claude Code login in `folder` (`CLAUDE_CONFIG_DIR`), else the default
+/// one: its `.credentials.json` OAuth login where the CLI keeps one in a file,
+/// or the OAuth account `.claude.json` names (macOS keeps the token in the
+/// Keychain, so the file is all there is to read). The email comes from
+/// `.claude.json`.
 fn claude_login(folder: Option<&Path>) -> Login {
-    let file = match folder {
-        Some(folder) => folder.join(".claude.json"),
-        None => match dirs::home_dir() {
-            Some(home) => home.join(".claude.json"),
-            None => return Login::default(),
-        },
+    let Some(home) = dirs::home_dir() else { return Login::default() };
+    let (store, file) = match folder {
+        Some(folder) => (folder.to_path_buf(), folder.join(".claude.json")),
+        None => (home.join(".claude"), home.join(".claude.json")),
     };
-    let Ok(text) = std::fs::read_to_string(file) else { return Login::default() };
+    let credentials = crate::agent_login::signed_in_at(crate::agent_login::Agent::Claude, &store);
+    let Ok(text) = std::fs::read_to_string(file) else {
+        return Login { signed_in: credentials, ..Login::default() };
+    };
     let v: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
     let account = v.get("oauthAccount");
     let text_at = |key: &str| {
@@ -216,7 +220,11 @@ fn claude_login(folder: Option<&Path>) -> Login {
             .filter(|s| !s.is_empty())
             .map(str::to_owned)
     };
-    Login { signed_in: account.is_some(), plan: None, email: text_at("emailAddress") }
+    Login {
+        signed_in: credentials || account.is_some_and(|a| !a.is_null()),
+        plan: None,
+        email: text_at("emailAddress"),
+    }
 }
 
 #[cfg(test)]
@@ -236,6 +244,8 @@ mod tests {
         assert!(login.signed_in);
         assert_eq!(login.plan.as_deref(), Some("pro"));
         assert_eq!(login.email.as_deref(), Some("alex@example.com"));
+        std::fs::write(dir.join("auth.json"), "{}").unwrap();
+        assert!(!codex_login(&dir).signed_in, "an empty login file is not a login");
         std::fs::remove_file(dir.join("auth.json")).unwrap();
         assert!(!codex_login(&dir).signed_in);
         let _ = std::fs::remove_dir_all(&dir);
