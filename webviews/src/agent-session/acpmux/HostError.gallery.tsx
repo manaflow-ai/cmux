@@ -76,7 +76,9 @@ const retry: Play = async (ctx) => {
 
 const restart: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Restart agent service" });
-  await ctx.waitFor(() => ctx.find({ role: "button", name: "Restarting agent service…" }).getAttribute("disabled") !== null);
+  await ctx.waitFor(
+    () => ctx.find({ role: "button", name: "Restarting agent service…" }).getAttribute("disabled") !== null,
+  );
 };
 
 const details: Play = async (ctx) => {
