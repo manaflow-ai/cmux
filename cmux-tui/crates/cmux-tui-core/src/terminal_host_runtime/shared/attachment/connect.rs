@@ -283,6 +283,8 @@ pub(crate) fn connect_record_at_version(
         launch_activation_pending,
         pty_custody: None,
         input_order: None,
+        #[cfg(unix)]
+        input_room: Default::default(),
     };
     attachment.release_viewer_size()?;
     Ok(attachment)

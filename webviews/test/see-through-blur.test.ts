@@ -326,6 +326,34 @@ await requireBrowserLane("see-through-blur.test.ts", async () => {
       await page.close();
     });
 
+    test("in an opaque page a hover card blurs only its own hole, never another surface's kept one", async () => {
+      // The Summary keeps its holes while Find hides it (summary.css's hide rule covers only a
+      // see-through page); a hover card over the same blocks must not switch them back on.
+      const page = await open(browser);
+      await page.evaluate(() => document.documentElement.removeAttribute("data-cmux-see-through"));
+      await attach(page, { owner: "summary" });
+      await page.evaluate(() => {
+        const target = window as unknown as {
+          attachSeeThroughBlur(
+            e: HTMLElement,
+            candidates?: (e: HTMLElement) => Iterable<Element>,
+            options?: { owner?: string },
+          ): () => void;
+        };
+        const card = document.createElement("aside");
+        card.style.cssText = "position:absolute;left:24px;top:40px;width:160px;height:100px;border-radius:12px";
+        document.querySelector(".stage")!.append(card);
+        target.attachSeeThroughBlur(card, () => document.querySelectorAll(".chat"), { owner: "hover-card" });
+      });
+      await settle(page);
+      expect(await page.evaluate(() => document.querySelector(".chat")!.getAttribute("data-glass-under"))).toBe(
+        "summary hover-card",
+      );
+      expect(await barContrast(page, MIDDLE, 48, 160)).toBeLessThan(5);
+      expect(await barContrast(page, MIDDLE, ...INSIDE)).toBeGreaterThan(40);
+      await page.close();
+    });
+
     test("over the composer (which takes no filter) the surface keeps its underlay", async () => {
       const page = await open(browser);
       const underlay = () =>

@@ -72,7 +72,7 @@ private struct SessionCard: View {
             }
         }
         .padding(12)
-        .background(RoundedRectangle(cornerRadius: 9).fill(colors.hover.opacity(0.5)))
+        .background(RoundedRectangle(cornerRadius: Metrics.insetCornerRadius).fill(colors.hover.opacity(0.5)))
     }
 
     private var statusColor: Color {

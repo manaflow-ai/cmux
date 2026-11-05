@@ -26,7 +26,7 @@ typealias AgentTabOpen = (PaneID, DaemonService, SplitDirection?) throws -> Agen
 final class AgentTabStore {
     let host: any AgentPaneHostProviding
     /// The app-wide objects every agent pane view shares (``AgentPaneShared``: the made-ahead open panel, the posting-process table).
-    private let paneShared: AgentPaneShared
+    let paneShared: AgentPaneShared
     private let attentionTabs: AgentPaneAttentionTabs?
     /// The page every agent tab loads: the bundled file, or in Debug builds
     /// the dev server `CMUX_NEXT_AGENT_PANE_DEV_URL` names (nil only when the
@@ -108,6 +108,8 @@ final class AgentTabStore {
     }
     /// Reads this Mac's `install:<id>` (AppServices: the Cloud device id), on need.
     var resolveLocalHost: @MainActor () -> String? = { nil }
+    /// This Mac's other `install:<id>` hosts (its other Cloud backends' ids, #35284), read on need.
+    var resolveFormerLocalHosts: @MainActor () -> Set<String> = { [] }
     private var resolvedLocalHost: String?
     /// `install:<id>` of this Mac. Only that host attaches a tab to its acpmux; nil refuses new
     /// tabs. Read again while it is nil (the id file could not be read yet).
@@ -277,9 +279,9 @@ final class AgentTabStore {
     /// A background task's terminal beside chat tab `chat` (``AgentProcessTerminal``); false when none opened.
     var openProcess: (@MainActor (_ chat: String, _ viewer: AgentPaneProcessViewer) -> Bool)?
     var cloudCredentialTransfer: (@MainActor (_ chat: String, _ request: AgentPaneCloudCredentialTransferRequest) async -> Bool)?
-    /// Session `session` on chat tab `chat`'s right as a link opens (``LinkOpener``, `layout.linkPlacement`):
-    /// a tab in the pane there, else a new split, focused; false when nothing opened.
-    var openRight: (@MainActor (_ chat: String, _ session: String) -> Bool)?
+    /// Session `session` (of acpmux `host`, nil: this Mac's) on tab `chat`'s right as a link opens (``LinkOpener``,
+    /// `layout.linkPlacement`): a tab in the pane there, else a new split, focused; false when nothing opened.
+    var openRight: (@MainActor (_ chat: String, _ session: String, _ host: String?) -> Bool)?
     /// The header's Terminal or Browser on chat tab `chat`'s right (``AgentChatTabActions/openTool``).
     var openTool: (@MainActor (_ chat: String, _ kind: RightColumnPlacement.Kind, _ cwd: String?) -> Bool)?
     var gitLink: (@MainActor (String) -> AgentPaneGitLink?)?, openFiles: (@MainActor (_ chat: String, _ folder: String, _ target: String?) -> Void)?, moveToFloatingChat: (@MainActor (String) -> Bool)?
@@ -402,14 +404,14 @@ final class AgentTabStore {
         let key = resolve(key)
         if let view = views[key] { return view }
         guard let (record, store) = lookup(key) else { return nil }
-        let kind = AgentPaneHostKind(record, localHost: localHost, chiefHost: chiefHost, listedHere: daemonForTab(key)?.isLocal != false)
+        let kind = hostKind(record, listedHere: daemonForTab(key)?.isLocal != false)
         // A Chief subagent runs on this Mac too, in the Chief home's acpmux.
         let local = kind != .remote
         // A tab recorded for this Mac in another machine's tree with no chat yet (saved before
         // cx-k21v): this Mac's New Tab page or chat there would start in this Mac's acpmux.
         if kind == .local, (sessions[key] ?? record.session) == nil, daemonForTab(key)?.isLocal == false {
-            let machine = daemonForTab(key).flatMap { remoteMachineName($0) } ?? ""
-            let refused = AgentTabRefusedHost(refusal: AgentRemoteStartRefusal(code: AgentRemoteStartRefusal.hostMismatchCode, machine: machine))
+            let machine = daemonForTab(key).map { remoteMachineName($0) ?? $0.machineID } ?? ""
+            let refused = AgentTabRefusedHost(refusal: AgentRemoteStartRefusal(code: AgentRemoteStartRefusal.listedElsewhereCode, machine: machine))
             let model = AgentPaneModel(host: refused, attentionTabs: attentionTabs, allowsTabConversion: false)
             // Its folder tools never act on this Mac either (cx-k21v).
             (model.remoteChat, model.neverPooled) = (true, true)
