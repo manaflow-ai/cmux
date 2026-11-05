@@ -75,7 +75,7 @@ extension HomeChiefProfileView {
         let ratio = gateBox.heightAnchor.constraint(equalTo: gateBox.widthAnchor, multiplier: 10.0 / 16.0)
         ratio.priority = .defaultHigh
         ratio.isActive = true
-        // A pane narrower than the panel clips the card's trailing edge rather than break its rows.
+        // A pane narrower than the panel clips the card's edges (it stays centered) rather than break its rows.
         let fits = column.widthAnchor.constraint(lessThanOrEqualTo: document.widthAnchor, constant: settings == nil ? -32 : 0)
         fits.priority = settings == nil ? .required : .defaultHigh
         fits.isActive = true

@@ -91,7 +91,7 @@ public final class HomeChiefProfilePanel {
         let key = [agent, machine]
         guard key != controlKey else { return }
         let source = agent == nil && machine == nil ? nil : make(agent, machine)
-        view.control = source
+        if source != nil || view.control != nil { view.control = source }
         controlKey = source == nil ? nil : key
     }
 }

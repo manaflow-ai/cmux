@@ -117,9 +117,10 @@ final class HomeChiefComputerScreenView: NSView {
     }
 
     /// A Command or Control chord while the person drives goes to the computer (Command-L to its
-    /// browser), not to cmux's menus, when no cmux shortcut took it first.
+    /// browser), not to cmux's menus, when no cmux shortcut took it first. Quit, Hide and Minimize stay the Mac's.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        guard input != nil, window?.firstResponder === self else { return super.performKeyEquivalent(with: event) }
+        let mac = event.modifierFlags.contains(.command) && ["q", "h", "m"].contains(event.charactersIgnoringModifiers?.lowercased() ?? "")
+        guard input != nil, !mac, window?.firstResponder === self else { return super.performKeyEquivalent(with: event) }
         keyDown(with: event)
         return true
     }
