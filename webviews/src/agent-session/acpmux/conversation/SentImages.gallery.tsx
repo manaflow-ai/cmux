@@ -75,9 +75,9 @@ function GalleryPrimedLate({ images }: Props) {
   return named ? <GallerySentImages images={named} pending /> : null;
 }
 
-function GallerySentImages({ images, pending = false, primedLate = false }: Props) {
+function GallerySentImages({ images, pending = false, primedLate = false, inline = false }: Props) {
   if (primedLate) return <GalleryPrimedLate images={images} />;
-  return <GalleryShownImages images={images} pending={pending} />;
+  return <GalleryShownImages images={images} pending={pending} inline={inline} />;
 }
 
 function GalleryShownImages({ images, pending = false, inline = false }: Props) {
