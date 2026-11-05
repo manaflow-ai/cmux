@@ -4,7 +4,7 @@
 // row stays, and Copy copies the whole prompt. The choice is kept by the row's id (the transcript
 // disclosure store), so a prompt scrolled out and back, or drawn again from history, stays as the
 // reader left it. A block the composer marked as pasted (`user_message.pasted`, UTF-16 ranges into
-// its text) is a chip, "<first words> · N lines", that opens in place. Find opens a collapsed
+// its text) is a card of its first lines over its size, that opens in place. Find opens a collapsed
 // prompt or chip that holds the current match.
 //
 // The browser test (agent-pane-long-prompt.test.ts) measures the drawn height; this one checks the
@@ -316,7 +316,7 @@ try {
     expect(repainted).toBeGreaterThan(0);
   });
 
-  test("a pasted block is a chip, its first words and line count, that opens in place", async () => {
+  test("a pasted block is a card, its first lines over its size, that opens in place", async () => {
     resetTranscriptDisclosure();
     const typed = "Why does this fail?";
     const paste = lines(2300, "error at frame");
@@ -327,15 +327,17 @@ try {
     remount(row);
     const chip = host.querySelector<HTMLButtonElement>(".cv-user__paste")!;
     expect(chip).not.toBeNull();
-    // The composer's attachment chip look (#23100), without its remove button.
-    expect(chip.classList.contains("acpmux-attachment")).toBe(true);
-    expect(chip.querySelector(".cv-user__paste-name")?.textContent).toBe("error at frame 1");
+    // The composer's label, without its remove button.
+    expect(chip.querySelector(".cv-user__paste-name")?.textContent).toBe(translate("composer.pastedText"));
     expect(chip.querySelector(".cv-user__paste-lines")?.textContent).toBe(
-      translate("transcript.pastedLines", { n: 2300, count: "2,300" }),
+      `${translate("transcript.pastedLines", { n: 2300, count: "2,300" })} · ${translate("composer.pastedChars", {
+        count: new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(paste.length),
+      })}`,
     );
+    expect(host.querySelector(".cv-user__paste-text")?.textContent?.split("\n")[0]).toBe("error at frame 1");
     expect(chip.getAttribute("aria-expanded")).toBe("false");
     expect(host.querySelector(".acpmux-attachment-remove, [aria-label='Remove']")).toBeNull();
-    // Closed, the paste's text is not drawn; the typed words are.
+    // Closed, only the paste's head is drawn; the typed words are.
     expect(body().textContent).toContain(typed);
     expect(body().textContent).not.toContain("error at frame 2300");
     click(chip);

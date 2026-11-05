@@ -55,7 +55,7 @@ import {
 import type { ComposerAttachment } from "./attachments";
 import { STARTED_SESSIONS, type StartedSession, hasStatusLine } from "./started/startedSessions";
 import {
-  PASTE_CHIP_HEIGHT,
+  pasteChipHeight,
   type PasteRange,
   HUGE_PROMPT_HEAD_CHARS,
   collapsedPromptHeight,
@@ -2410,7 +2410,7 @@ function measuredRowHeight(
       for (const part of promptParts(row.text, row.pasted!))
         contentHeight +=
           part.kind === "paste"
-            ? PASTE_CHIP_HEIGHT
+            ? pasteChipHeight(lineHeight)
             : Math.max(
                 lineHeight,
                 // A huge typed part draws collapsed to its head (conversation/PromptText.tsx), so its

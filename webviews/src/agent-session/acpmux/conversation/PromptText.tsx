@@ -1,7 +1,7 @@
 // A sent prompt's text in its bubble (UserBubble.tsx). A prompt taller than ten lines opens on
 // them, the last ones fading out under a mask, with Show more under them and Show less once open,
-// as Claude's does (Leo 2026-10-21). A block the composer sent as a paste is a chip, the composer's
-// attachment chip without its ×: "<first words> · N lines", which opens the paste in place. Each
+// as Claude's does (Leo 2026-10-21). A block the composer sent as a paste is a card of its first
+// lines over the composer's label ("Pasted text · N lines · NK characters"), which opens in place. Each
 // choice is kept by the row's id (transcriptDisclosure.tsx), so a prompt scrolled out and back, or
 // drawn again from history, stays as the reader left it. Find opens a collapsed prompt, or a closed
 // chip, that holds its current match. The bubble keeps the whole text; Copy copies all of it.
@@ -15,13 +15,12 @@ import {
   hasHugeTypedPart,
   isHugePrompt,
   looksLongPrompt,
-  pasteLines,
-  pasteName,
+  pastePreview,
   headParts,
   promptParts,
 } from "./promptCollapse";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
-import { foldMotion, foldMs, markHeightFold } from "./fold";
+import { cancelResize, foldMotion, foldMs, markHeightFold, playResize } from "./fold";
 import { holdHeader } from "./useAnchoredCollapse";
 import { Markdown } from "./Markdown";
 import { SoftBroken, softBreaks } from "./softBreaks";
@@ -30,6 +29,8 @@ import { githubRefLabel, UrlChip } from "../chips/LinkChips";
 import { textLinks } from "../chips/paths";
 import { SkillWordsContext } from "./skillWords";
 import { withSkillWords } from "./SkillWord";
+import { ChevronDown } from "./icons";
+import { pastedSize } from "../composer/TextAttachmentCard";
 
 export function PromptText({
   rowId,
@@ -280,8 +281,14 @@ function LiteralText({ text }: { text: string }) {
   return <>{out}</>;
 }
 
-/// One pasted block: the chip, and the paste under it once opened. A sent prompt's inline parts
-/// draw theirs with it too (InlinePromptContent.tsx).
+/// One pasted block: a card of the paste's own first lines, wrapped in the prompt's font and the
+/// last fading out, over the composer's label ("Pasted text · 2,300 lines · 92K characters",
+/// composer/TextAttachmentCard.tsx). The label, or a click on the lines, opens the same text in
+/// place to the whole paste, the card sliding to its new height; the label under it closes it
+/// again. Closed, the card draws only the paste's head (`pastePreview`), outside Find. Leo,
+/// 2026-11-05, on the chip it replaces, a box of the paste's first words over the whole text:
+/// "I think this is almost kind of interesting, but it's, like, really awkward". A sent prompt's
+/// inline parts draw theirs with it too (InlinePromptContent.tsx).
 export function PasteChip({
   rowId,
   index,
@@ -308,33 +315,65 @@ export function PasteChip({
     reveal?.repaint();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new match opens, not a new callback
   }, [hit, reveal]);
-  const lines = pasteLines(text);
-  const count = new Intl.NumberFormat(language).format(lines);
+  const card = useRef<HTMLSpanElement>(null);
+  const label = useRef<HTMLButtonElement>(null);
+  // The card's height before the reader's toggle, which it slides from (fold.ts playResize).
+  const resized = useRef<number | undefined>(undefined);
+  const toggle = () => {
+    const node = card.current;
+    if (node) {
+      // Opening holds the card's top, the text growing below it; closing holds the label, where
+      // the reader clicked it, as Show more and Show less do.
+      holdHeader(open ? (label.current ?? node) : node);
+      resized.current = node.getBoundingClientRect().height;
+    }
+    if (!open) onOpen();
+    setOpen(!open);
+  };
+  useLayoutEffect(() => {
+    const from = resized.current;
+    resized.current = undefined;
+    if (from !== undefined && card.current) playResize(card.current, from);
+  }, [open]);
+  useEffect(() => {
+    const node = card.current;
+    return () => {
+      if (node) cancelResize(node);
+    };
+  }, []);
+  const preview = useMemo(() => (open ? text : pastePreview(text)), [open, text]);
   return (
     <span className="cv-user__paste-block">
-      <button
-        type="button"
-        className="acpmux-attachment acpmux-attachment-file acpmux-attachment-link cv-user__paste"
-        // Its name and count are labels, not the prompt's text: Find counts matches in `text`
-        // (chatFind.ts findMatches), so it paints none here.
-        data-find-skip=""
-        aria-expanded={open}
-        aria-controls={id}
-        onClick={() => {
-          if (!open) onOpen();
-          setOpen(!open);
-        }}
-      >
-        <span className="cv-user__paste-name">{pasteName(text)}</span>
-        <span className="acpmux-attachment-link-note cv-user__paste-lines">
-          {t("transcript.pastedLines", { n: lines, count })}
+      <span ref={card} className="cv-user__paste-card" data-open={open ? "" : undefined}>
+        {/* Closed, its lines are a wider mouse target for the label's toggle; the label is the
+            keyboard and screen reader control. */}
+        {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+        <span
+          id={id}
+          className="cv-user__paste-text"
+          dir="auto"
+          // Closed, its lines are a preview: Find counts matches in `text` and opens the card.
+          data-find-skip={open ? undefined : ""}
+          aria-hidden={open ? undefined : true}
+          onClick={open ? undefined : toggle}
+        >
+          {preview}
         </span>
-      </button>
-      {open && (
-        <span id={id} className="cv-user__paste-text">
-          {text}
-        </span>
-      )}
+        <button
+          ref={label}
+          type="button"
+          className="cv-user__paste"
+          // Its name and size are labels, not the prompt's text: Find paints none here.
+          data-find-skip=""
+          aria-expanded={open}
+          aria-controls={id}
+          onClick={toggle}
+        >
+          <span className="cv-user__paste-name">{t("composer.pastedText")}</span>
+          <span className="cv-user__paste-lines">{pastedSize(t, language, text)}</span>
+          <ChevronDown size={12} className="cv-user__paste-chevron" />
+        </button>
+      </span>
     </span>
   );
 }
