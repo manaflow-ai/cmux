@@ -49,12 +49,12 @@ use windows_sys::Win32::System::Threading::{
 
 #[cfg(test)]
 mod claude_worktree_tests;
-mod message_hooks;
+pub mod message_hooks;
 mod status_conflict;
 use message_hooks::{delivers_messages, hook_command, journal_hook_command};
 use status_conflict::{conflict_row, ensure_replaceable_target};
 
-pub const COMMAND_MARKER: &str = "cmux-tui-journal-hook";
+const COMMAND_MARKER: &str = "cmux-tui-journal-hook";
 const PLUGIN_MARKER: &str = "cmux-tui-journal-plugin";
 const ACTIVATION_NOTE: &str = "Providers load hooks at process start; launch or restart agents inside a cmux-tui terminal so CMUX_TUI_SOCKET and CMUX_TUI_HOOK are inherited.";
 const MAX_CONFIG_BYTES: u64 = 16 * 1024 * 1024;
@@ -2008,7 +2008,7 @@ pub fn claude_session_hook_settings(
     let mut root = Map::new();
     rewrite_json_hooks(&mut root, provider, true, timeout, true)?;
     let Some(binary) = emit_binary else {
-        return message_hooks::with_claude_wake(root, None);
+        return Ok(root);
     };
     let binary = shell_quote(binary.to_str().context("the cmux-tui path is not UTF-8")?);
     let hooks = root.get_mut("hooks").and_then(Value::as_object_mut).context("hooks missing")?;
@@ -2025,7 +2025,7 @@ pub fn claude_session_hook_settings(
             }
         }
     }
-    message_hooks::with_claude_wake(root, Some(binary.as_str()))
+    Ok(root)
 }
 
 fn sync_barrier_event(event: &str) -> bool {

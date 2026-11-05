@@ -46,27 +46,7 @@ const HOOKS_DISABLED_ENV: &str = "CMUX_TUI_CLAUDE_HOOKS_DISABLED";
 /// Read by the hook helper (cmux-tui-hook inbox.rs): the wrapped Claude's
 /// process id, and `1` for a headless (`-p`) run.
 const CLAUDE_PID_ENV: &str = "CMUX_TUI_CLAUDE_PID";
-/// The program (canonical path) the wrapper started as that Claude.
-const CLAUDE_PROGRAM_ENV: &str = "CMUX_TUI_CLAUDE_PROGRAM";
 const HEADLESS_ENV: &str = "CMUX_TUI_CLAUDE_HEADLESS";
-
-/// Whether a re-entry (a wrapped launch whose program started `claude` again
-/// through the shim) makes the Claude it now starts the terminal's agent,
-/// instead of keeping the identity of the process the first wrapper started.
-///
-/// When that first program is not the one this launch runs, it was a
-/// launcher (a script that resolves `claude` again): the Claude it starts now
-/// is the agent, and its hooks must name it. When it is the same program,
-/// this `claude` was started inside that Claude (a tool call, a nested
-/// session): it keeps the outer identity, so its hooks, whose shells are its
-/// own children, never take the outer session's messages (cmux-tui-hook
-/// inbox.rs `run_by`). Without an inherited identity there is nothing to
-/// decide, and an identity with no program (an older wrapper) is kept.
-fn reentry_takes_over(getenv: impl Fn(&str) -> Option<OsString>, program: &Path) -> bool {
-    getenv(WRAPPER_ACTIVE_ENV).is_some_and(|value| value == "1")
-        && getenv(CLAUDE_PID_ENV).is_some()
-        && getenv(CLAUDE_PROGRAM_ENV).is_some_and(|first| Path::new(&first) != program)
-}
 
 /// Whether `args` run Claude headless (`-p`/`--print`), before any `--`.
 fn is_headless(args: &[OsString]) -> bool {
@@ -100,8 +80,6 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
     };
     let mut command = Command::new(&claude);
     command.env("PATH", path_without_shims(&path, shim_dir.as_deref()));
-    // The program this launch runs, to tell a re-entry below it apart.
-    let program = claude.canonicalize().unwrap_or_else(|_| claude.clone());
     // The arguments as given, before the hooks are folded in: what a respawn
     // after a reboot starts Claude with again (relaunch_store::agent_launch).
     command.env(AGENT_ARGS_ENV, agent_args_json(args));
@@ -121,17 +99,12 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
                 // exec keeps this process id, so it is Claude's: its hooks
                 // check that they run under it, and its wake hook ends with it.
                 command.env(CLAUDE_PID_ENV, std::process::id().to_string());
-                command.env(CLAUDE_PROGRAM_ENV, &program);
                 if let Some(helper) = helper {
                     command.env("CMUX_TUI_HOOK", helper);
                 }
             }
             Err(_) => eprintln!("{}", messages.hooks_unavailable),
         }
-    }
-    if reentry_takes_over(|name| std::env::var_os(name), &program) {
-        command.env(CLAUDE_PID_ENV, std::process::id().to_string());
-        command.env(CLAUDE_PROGRAM_ENV, &program);
     }
     let _error = command.args(&launch_args).exec();
     eprintln!("{}", messages.agent_start_failed);
@@ -216,6 +189,20 @@ fn hook_helper(executable: &Path) -> Option<PathBuf> {
 /// The hook settings fragment merged into every wrapped launch.
 fn session_hook_settings(emit_binary: Option<&Path>) -> anyhow::Result<Map<String, Value>> {
     let mut settings = agent_hook_install::claude_session_hook_settings(emit_binary)?;
+    // The hooks that hand this launch's Claude its agent messages name this
+    // process (exported as CMUX_TUI_CLAUDE_PID), so a Claude started inside
+    // it, which runs other settings, never takes them (message_hooks.rs).
+    let quoted = emit_binary
+        .map(|binary| binary.to_str().map(agent_hook_install::shell_quote))
+        .map(|quoted| quoted.context("the cmux-tui path is not UTF-8"))
+        .transpose()?;
+    let hooks =
+        settings.get_mut("hooks").and_then(Value::as_object_mut).context("hooks missing")?;
+    agent_hook_install::message_hooks::add_claude_launch_hooks(
+        hooks,
+        std::process::id(),
+        quoted.as_deref(),
+    )?;
     // The hooks drive cmux notifications; Claude's own would duplicate them.
     settings.insert("preferredNotifChannel".into(), Value::from("notifications_disabled"));
     Ok(settings)
@@ -818,18 +805,27 @@ mod tests {
     /// stays synchronous (it never exits 2, which would erase the person's prompt).
     #[test]
     fn claude_wrapper_adds_the_idle_wake_after_start_and_each_stop_only() {
+        let launch = format!("CMUX_TUI_HOOK_LAUNCH={} ", std::process::id());
         for emit in [None, Some(Path::new("/opt/cmux tui/cmux-tui"))] {
             let settings = session_hook_settings(emit).unwrap();
             for (event, groups) in settings["hooks"].as_object().unwrap() {
-                let wakes: Vec<&Value> = groups
+                let hooks: Vec<&Value> = groups
                     .as_array()
                     .unwrap()
                     .iter()
                     .flat_map(|group| group["hooks"].as_array().unwrap())
-                    .filter(|hook| hook["command"].as_str().unwrap().contains("inbox-wait"))
                     .collect();
+                let mode = |mode: &str| -> Vec<&Value> {
+                    hooks
+                        .iter()
+                        .copied()
+                        .filter(|hook| hook["command"].as_str().unwrap().contains(mode))
+                        .collect()
+                };
+                let (wakes, drains) = (mode("inbox-wait"), mode("inbox-drain"));
                 let expected = matches!(event.as_str(), "SessionStart" | "Stop" | "StopFailure");
                 assert_eq!(wakes.len(), usize::from(expected), "{event}: {groups}");
+                assert_eq!(drains.len(), usize::from(event == "UserPromptSubmit"), "{event}");
                 for wake in wakes {
                     assert_eq!(wake["asyncRewake"], true, "{wake}");
                     assert_eq!(wake["async"], true, "{wake}");
@@ -837,61 +833,34 @@ mod tests {
                     // Its stderr is what Claude shows the model; nothing may drop it.
                     assert!(!command.contains("2>"), "{command}");
                     assert!(!command.contains("echo"), "{command}");
+                    assert!(command.contains(&launch), "names this launch: {command}");
                     if emit.is_some() {
-                        assert!(
-                            command.starts_with(
-                                "'/opt/cmux tui/cmux-tui' __agent-hook claude inbox-wait;"
-                            ),
-                            "{command}"
+                        let expected = format!(
+                            "{launch}'/opt/cmux tui/cmux-tui' __agent-hook claude inbox-wait;"
                         );
+                        assert!(command.starts_with(&expected), "{command}");
                     }
+                }
+                for drain in drains {
+                    // Synchronous, so Claude Code reads its context; never exits 2.
+                    assert_eq!(drain.get("async"), None, "{drain}");
+                    assert_eq!(drain.get("asyncRewake"), None, "{drain}");
+                    let command = drain["command"].as_str().unwrap();
+                    assert!(command.contains(&launch), "names this launch: {command}");
+                    assert!(command.contains("||echo {}"), "{command}");
+                }
+                // Every other hook is shared with the installed settings: no launch.
+                let shared = hooks.iter().filter(|hook| {
+                    let command = hook["command"].as_str().unwrap();
+                    !command.contains("inbox-wait") && !command.contains("inbox-drain")
+                });
+                for hook in shared {
+                    assert!(!hook["command"].as_str().unwrap().contains("CMUX_TUI_HOOK_LAUNCH"));
                 }
             }
             let prompt = &settings["hooks"]["UserPromptSubmit"][0]["hooks"][0];
             assert_ne!(prompt["asyncRewake"], true, "{prompt}");
         }
-    }
-
-    /// Review P2 (nested launch): a Claude started inside a wrapped Claude (the
-    /// same program) keeps the outer identity, so its hooks never pass as the
-    /// outer session's; a Claude a wrapped launcher starts takes it over.
-    #[test]
-    fn a_reentry_takes_over_only_below_a_launcher() {
-        let claude = Path::new("/opt/claude/bin/claude");
-        let env = |pairs: &'static [(&'static str, &'static str)]| {
-            move |name: &str| {
-                pairs.iter().find(|(key, _)| *key == name).map(|(_, value)| OsString::from(value))
-            }
-        };
-        // A first launch: nothing inherited.
-        assert!(!reentry_takes_over(env(&[]), claude));
-        // Inside the wrapped Claude itself: nested, the outer identity stays.
-        assert!(!reentry_takes_over(
-            env(&[
-                (WRAPPER_ACTIVE_ENV, "1"),
-                (CLAUDE_PID_ENV, "100"),
-                (CLAUDE_PROGRAM_ENV, "/opt/claude/bin/claude"),
-            ]),
-            claude
-        ));
-        // Below a launcher the first wrapper started: this Claude is the agent.
-        assert!(reentry_takes_over(
-            env(&[
-                (WRAPPER_ACTIVE_ENV, "1"),
-                (CLAUDE_PID_ENV, "100"),
-                (CLAUDE_PROGRAM_ENV, "/home/me/bin/claude-launcher"),
-            ]),
-            claude
-        ));
-        // An older wrapper's identity (no program) and no identity: kept.
-        assert!(!reentry_takes_over(
-            env(&[(WRAPPER_ACTIVE_ENV, "1"), (CLAUDE_PID_ENV, "100")]),
-            claude
-        ));
-        assert!(!reentry_takes_over(
-            env(&[(WRAPPER_ACTIVE_ENV, "1"), (CLAUDE_PROGRAM_ENV, "/x")]),
-            claude
-        ));
     }
 
     /// `claude -p` shares the terminal with the interactive session; the wrapper
