@@ -37,7 +37,11 @@ test("events go out in one batch with their time, and mounts count", () => {
 
 test("a held burst keeps the newest and counts the dropped", () => {
   const sent: FlickerEvent[][] = [];
-  const log = new FlickerLog((events) => sent.push(events), () => 0, () => 0 as unknown as ReturnType<typeof setTimeout>);
+  const log = new FlickerLog(
+    (events) => sent.push(events),
+    () => 0,
+    () => 0 as unknown as ReturnType<typeof setTimeout>,
+  );
   for (let index = 0; index < 70; index += 1) log.record("long-frame", { ms: index });
   log.flush();
   expect(sent[0]).toHaveLength(64);

@@ -91,7 +91,8 @@ export class FrameWatch {
 
   private tick(time: number): void {
     const visible = this.visible();
-    if (visible && this.last !== undefined && time - this.last > LONG_FRAME_MS) this.report(Math.round(time - this.last));
+    if (visible && this.last !== undefined && time - this.last > LONG_FRAME_MS)
+      this.report(Math.round(time - this.last));
     this.last = visible ? time : undefined;
     if (this.now() >= this.until) {
       this.running = false;
@@ -119,8 +120,7 @@ function observeLongFrames(
   try {
     new PerformanceObserver((list) => {
       if (doc.visibilityState !== "visible") return;
-      for (const entry of list.getEntries())
-        if (entry.duration > LONG_FRAME_MS) longFrame(Math.round(entry.duration));
+      for (const entry of list.getEntries()) if (entry.duration > LONG_FRAME_MS) longFrame(Math.round(entry.duration));
     }).observe({ type: "long-animation-frame", buffered: false });
     return true;
   } catch {
