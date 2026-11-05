@@ -23,8 +23,14 @@ case "$mode" in
     ;;
 esac
 [[ "$tag" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "switch: invalid tag: $tag" >&2; exit 2; }
+# Absolute, from the caller's folder: reload.sh refuses a relative CMUX_DERIVED_DATA.
+builds="${CMUX_LIVE_CODE_BUILDS:-$HOME/Library/Caches/cmux-next/live-code-builds}"
+[[ "$builds" == /* ]] || builds="$PWD/$builds"
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
-out="${CMUX_LIVE_CODE_BUILDS:-$HOME/Library/Caches/cmux-next/live-code-builds}/$tag"
+# shellcheck source=scripts/lib/mobile-attach.sh
+source scripts/lib/mobile-attach.sh
+# Named for the tag as reload.sh names its app: Foo.Bar and foo-bar are one tag.
+out="$builds/$(cmux_attach__slug_raw "$tag")"
 live_dir="$HOME/Library/Caches/cmux-next/live-code"
 
 # The tag's CLI from either build: each talks to the tag's one socket. The regular build's comes

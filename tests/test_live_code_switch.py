@@ -29,6 +29,8 @@ class LiveCodeSwitchTests(unittest.TestCase):
         self.repo = self.tmp / "repo"
         (self.repo / "scripts/live-code").mkdir(parents=True)
         shutil.copy(ROOT / "scripts/live-code/switch.sh", self.repo / "scripts/live-code/switch.sh")
+        (self.repo / "scripts/lib").mkdir()
+        shutil.copy(ROOT / "scripts/lib/mobile-attach.sh", self.repo / "scripts/lib/mobile-attach.sh")
         for name in ["scripts/live-code/build.sh", "scripts/reload.sh", "scripts/cmux-debug-cli.sh"]:
             path = self.repo / name
             path.write_text(RECORD)
@@ -38,11 +40,23 @@ class LiveCodeSwitchTests(unittest.TestCase):
         self.calls = self.tmp / "calls"
         self.builds = self.tmp / "builds"
 
-    def run_switch(self, *args):
-        env = dict(os.environ, CALLS=str(self.calls), HOME=str(self.tmp), CMUX_LIVE_CODE_BUILDS=str(self.builds),
-                   CMUX_DERIVED_DATA="/caller/dd")
+    def run_switch(self, *args, builds=None):
+        env = dict(os.environ, CALLS=str(self.calls), HOME=str(self.tmp),
+                   CMUX_LIVE_CODE_BUILDS=builds or str(self.builds), CMUX_DERIVED_DATA="/caller/dd")
         return subprocess.run(["bash", str(self.repo / "scripts/live-code/switch.sh"), *args], env=env,
-                              capture_output=True, text=True)
+                              capture_output=True, text=True, cwd=self.tmp)
+
+    def test_tag_aliases_share_one_live_build(self):
+        # reload.sh names Foo.Bar's app foo-bar; the live build must be the same one.
+        self.assertEqual(self.run_switch("on", "Foo.Bar").returncode, 0)
+        out = self.builds / "foo-bar"
+        self.assertEqual(self.recorded()[1].split(" | ")[0].split(" ")[1], str(out))
+
+    def test_relative_builds_folder_is_made_absolute(self):
+        result = self.run_switch("on", "t1", builds="rel")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        out = self.tmp / "rel/t1"  # the caller's folder, not the checkout
+        self.assertIn(f"DD={out}/DerivedData", self.recorded()[2])
 
     def recorded(self):
         return self.calls.read_text().splitlines()
