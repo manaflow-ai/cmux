@@ -510,9 +510,10 @@ export type AcpmuxRow = {
   permission?: AcpmuxPermission;
   /// A `questionRecord` row's question, answered or cancelled (question/record.ts).
   question?: AgentQuestion;
-  /// A `nextStep` row's tagged ask and, once a prompt answered it, the answer
-  /// (conversation/nextStepAsk.ts, NextStepCard.tsx).
-  nextStep?: { ask: NextStepAsk; answer?: string };
+  /// A `nextStep` row's tagged ask and, once a later prompt picked one of its answers, that answer
+  /// (conversation/nextStepAsk.ts, NextStepCard.tsx). `superseded`: a later turn ended on a card of
+  /// its own, so this one folds; `answer` then holds what the person said after it, if anything.
+  nextStep?: { ask: NextStepAsk; answer?: string; superseded?: boolean };
   /// A `permissionRecord` row's answer, its ask in `permission` (permissions/record.ts).
   decision?: PermissionDecision;
   /// A turn summary whose turn draws a "Worked for" line (conversation/turns.ts), so its
@@ -1945,13 +1946,14 @@ function fallbackRowHeight(
   // reader clicks Load preview, the transcript's ResizeObserver measures the head over its frame.
   if (row.kind === PREVIEW) return finish(previewCardHeight(row.text, false));
   // A tagged ask's card (conversation/NextStepCard.tsx): waiting, 12px padding over the question
-  // and its muted line, then a 36px row of answers; answered, the question over the answer in 8px.
+  // and its muted line, then a 36px row of answers; answered or superseded, the question over the
+  // answer in 8px.
   if (row.kind === NEXT_STEP && row.nextStep) {
-    const { ask, answer } = row.nextStep;
+    const { ask, answer, superseded } = row.nextStep;
     const perLine = Math.max(120, width - 32) / 7.5;
     const lines = (text: string | undefined) => (text ? Math.max(1, Math.ceil(text.length / perLine)) : 0);
     return finish(
-      answer === undefined
+      answer === undefined && !superseded
         ? 24 + 2 + (lines(ask.question) + lines(ask.detail)) * 20 + 8 + 36
         : 16 + 2 + (lines(ask.question) + lines(answer)) * 20 + 4,
     );
