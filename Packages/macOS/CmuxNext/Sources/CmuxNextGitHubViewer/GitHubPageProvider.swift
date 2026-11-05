@@ -3,14 +3,6 @@ public import CmuxNextAgentPane
 public import CmuxNextPages
 public import CmuxNextSettings
 
-public extension PageDescriptor {
-    /// The GitHub page (webviews/src/pages/github): a pull request drawn from the app's pull request
-    /// cache, with no github.com page load. One tab per window, which every pull request link of a
-    /// chat moves to its own route (`#/pull?url=`), so a second link is a route change in a page
-    /// already running, never a new tab or a new web page.
-    static let github = PageDescriptor(id: "cmux.github", resource: "github", namespaces: [GitHubPageProvider.namespace])
-}
-
 /// The owner side of the GitHub page (`cmux.github.*`).
 /// - `pr.inspect {url, cached?}`, `browser.list {}`, `browser.openIn {url, browserId}`: the agent page's
 ///   link card methods (``AgentPaneReplyLinks/cardMethods``), answered the same way: the pull request
