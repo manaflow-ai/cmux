@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Point a running Debug, NIGHTLY or NEXT DEV cmux-next at live web code, without an app build or relaunch
-# (plans/cmux-next/web-live-reload.md). It edits web-dev.json next to cmux-next.json, which the
-# app watches (WebDevOverride.swift); every open page and agent pane reloads on a change.
+# Point a running cmux at live web code, without an app build or relaunch (docs/cmux-next/hot-reload.md,
+# plans/cmux-next/web-live-reload.md). It edits web-dev.json next to cmux-next.json, which every
+# build watches while Settings > General > Live Web Reload (updates.liveWebReload) is on, the
+# default (WebDevOverride.swift); every open page and agent pane, WebKit or Chromium, reloads on a change.
 #
 #   web-overlay.sh server --local [--worktree DIR] [--port N]
 #                        # the default: run the webviews Vite server from a checkout on this Mac
@@ -434,6 +435,10 @@ case "$cmd" in
     cat "$web_dev" 2>/dev/null || echo "(none: the app serves its bundled pages)"
     echo "overlay: $overlay"
     cat "$overlay/manifest.json" 2>/dev/null || echo "(no overlay installed)"
+    # The app's switch for all of this: off means the file above is ignored.
+    if command -v cmux >/dev/null 2>&1; then
+      echo "Live Web Reload (updates.liveWebReload): $(cmux settings get updates.liveWebReload 2>/dev/null || echo unknown)"
+    fi
     ;;
   -h|--help) usage ;;
   *) echo "unknown command: $cmd" >&2; usage 1 ;;

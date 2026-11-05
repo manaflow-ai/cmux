@@ -146,6 +146,30 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         }
     }
 
+    /// A Chromium page's file while the live web loop runs: ``reply(to:range:webView:)`` for a
+    /// handler of `page` at `root`, as Chromium takes it, with that reply's CSP. A 404 when there is
+    /// no root or no reply.
+    static func liveChromiumResponse(to url: URL, range: String?, page: PageDescriptor, root: URL?,
+                                     dynamicSource: (any PageDynamicResourceSource)?) async -> PageChromiumResponse {
+        guard let root else { return .notFound }
+        let handler = PageSchemeHandler(page: page, root: root, dynamicSource: dynamicSource)
+        guard let reply = await handler.reply(to: url, range: range) else { return .notFound }
+        return chromiumResponse(reply)
+    }
+
+    /// `reply` as Chromium takes it: status, type, body, the byte-range headers and the CSP.
+    nonisolated static func chromiumResponse(_ reply: Reply) -> PageChromiumResponse {
+        let response = reply.response
+        var range: [String: String] = [:]
+        for name in ["Content-Range", "Accept-Ranges"] {
+            if let value = response.value(forHTTPHeaderField: name) { range[name] = value }
+        }
+        let type = response.value(forHTTPHeaderField: "Content-Type").flatMap(validMIMEType)
+            ?? response.mimeType ?? "application/octet-stream"
+        return PageChromiumResponse(status: response.statusCode, mimeType: type, body: reply.body, rangeHeaders: range,
+                                    csp: response.value(forHTTPHeaderField: "Content-Security-Policy"))
+    }
+
     /// The answer to a request under a dynamic prefix, in either engine: the source's resource with
     /// its type (a malformed or missing type falls back to the name's extension), else a 404.
     static func dynamicResponse(to request: PageResourceRequest,

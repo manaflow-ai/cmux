@@ -29,6 +29,11 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
         "cmux.icon-picker", "cmux.import-history", "cmux.keybindings", "cmux.markdown", "cmux.mobile-pairing", "cmux.passwords", "cmux.settings", "cmux.stats",
     ]
 
+    /// The agent chat's page host (`cmux.agent`), which the server serves at `/agent-pane/` (the
+    /// agent pane's dev entry, `AgentPaneSchemeHandler.devServerURL` for the legacy host). Not in
+    /// ``pageIDs``, which lists `webviews/src/pages`; the live web loop serves it in either engine.
+    static let agentPageID = "cmux.agent"
+
     /// The server's root URL (`http://127.0.0.1:4190/`).
     public let root: URL
 
@@ -63,7 +68,8 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
     /// The server URL for a request of `page`; nil when the page or the path is not the server's
     /// (another origin, a page outside ``pageIDs``, a dynamic prefix, `.` or `..`).
     func url(for request: URL, page: PageDescriptor) -> URL? {
-        guard Self.pageIDs.contains(page.id.lowercased()), page.owns(request) else { return nil }
+        let id = page.id.lowercased()
+        guard Self.pageIDs.contains(id) || id == Self.agentPageID, page.owns(request) else { return nil }
         let components = request.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
         guard !components.contains(where: { $0 == "." || $0 == ".." }) else { return nil }
         if let first = components.first, page.dynamicPrefixes.contains(first) { return nil }
@@ -84,7 +90,9 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
         // Vite injects React Refresh as an inline module into entry HTML. This server is available
         // only from an explicit loopback URL in Debug; bundled page responses keep their policy.
         csp.inlineScript = true
-        csp.connect += ["ws://" + authority, "http://" + authority]
+        // 'none' stands alone in a source list: a page that opens no connection (the agent chat)
+        // gets only the server's.
+        csp.connect = csp.connect.filter { $0 != "'none'" } + ["ws://" + authority, "http://" + authority]
         return csp
     }
 

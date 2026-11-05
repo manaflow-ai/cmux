@@ -1,10 +1,25 @@
-# Hot reload for the web UI
+# Change cmux live
 
-cmux NEXT's pages (Settings, History, Cloud, the viewers) and the agent pane are React webviews.
-Running apps can pick up edits to them without a Swift build or a relaunch, two ways:
+cmux's pages (Settings, History, Cloud, the viewers) and the agent chat are React. Edit them in a
+cmux checkout and the app you're using right now changes as you save: no build, no relaunch, your
+windows, chats and terminals stay where they are. It works in every cmux build, in WebKit and in
+Chromium, and it's on by default.
 
-- **From your own checkout:** edits show up live in your app in about a second.
-- **From `feat-cmux-next`:** a NIGHTLY follows each merge's web UI.
+## Start in 30 seconds
+
+```sh
+git clone https://github.com/manaflow-ai/cmux && cd cmux      # or any checkout you already have
+scripts/cmux-next/web-overlay.sh server --local
+```
+
+Now edit anything under `webviews/src/` and save. Open pages and chats reload once onto your
+code, then every save shows up in about a second, keeping each page's state (React Fast Refresh).
+
+Done for now?
+
+```sh
+scripts/cmux-next/web-overlay.sh off      # the web UI the app shipped with; your files stay
+```
 
 | You want | Do this |
 |---|---|
@@ -16,19 +31,37 @@ Running apps can pick up edits to them without a Swift build or a relaunch, two 
 | Stop your dev server | `scripts/cmux-next/web-overlay.sh server off` (an installed overlay, if any, still serves) |
 | The shipped pages back | `scripts/cmux-next/web-overlay.sh off` (ignores the file; run `server off` first to stop the server) |
 | What's running | `scripts/cmux-next/web-overlay.sh status` |
+| Turn the feature off | Settings > General > **Live Web Reload**, or `cmux settings set updates.liveWebReload false` |
 
-## Which apps read it
+## On and off
 
-| App | Bundle id | Dev server and overlay (`web-dev.json`) | Every Merge web updates |
-|---|---|---|---|
-| Debug builds (tagged `cmux DEV <tag>`) | `com.cmuxterm.app.debug.*` | yes | no |
-| cmux NIGHTLY, cmux NEXT nightly | `com.cmuxterm.app.nightly`, `….nightly.cmux-next` | yes, from #22664 on | yes, from #22777 on |
-| cmux NEXT DEV (daily) | `com.cmuxterm.app.debug.next` | yes, from #24046 on | no |
-| Release, RC | `com.cmuxterm.app`, `….rc` | never | never |
+**Live Web Reload** (`updates.liveWebReload` in `~/.config/cmux/cmux-next.json`) is on by default.
+On, cmux reads `~/.config/cmux/web-dev.json` and serves what it names; with no such file nothing
+changes. Off, cmux ignores the file without touching it. Flip it from Settings > General, or from
+any terminal:
+
+```sh
+cmux settings get updates.liveWebReload
+cmux settings set updates.liveWebReload false     # true to turn it back on
+```
+
+Every open page and chat reloads when it changes. There is nothing to enable in Debug Settings.
+
+## What survives an update
+
+Your files live outside the app, so an app update keeps them:
+
+- `~/.config/cmux/web-dev.json`: where pages load from (`server`, `overlay`, `"enabled": false`);
+- `~/Library/Application Support/cmux-next/web-overlay`: built bundles you installed, with the
+  commit they came from in `manifest.json`;
+- `updates.liveWebReload` in `cmux-next.json`.
+
+After an update, the app keeps loading your server or overlay. Build or serve from a tree close to
+the app's commit (below): web code much newer than the app can call host ops the app doesn't have yet.
 
 Check which commit your app was built from with
-`/usr/libexec/PlistBuddy -c "Print CMUXCommit" "/Applications/cmux NIGHTLY.app/Contents/Info.plist"`.
-The live loop needs that commit to include `abe5a602` (#22664).
+`/usr/libexec/PlistBuddy -c "Print CMUXCommit" "/Applications/cmux NIGHTLY.app/Contents/Info.plist"`
+(or your app's path).
 
 ## Your checkout, live
 
@@ -49,10 +82,11 @@ Open pages and agent panes reload once from the server. After that, saving a fil
 in about a second, with no reload of the page and no relaunch. Run it again from another worktree
 (`--worktree <path>`) and it restarts the server there.
 
-While the file points at a server or an overlay, cmux's pages open in WebKit even when
-`browser.defaultEngine` is Chromium (#23986). Chromium serves the bundled pages it was given when
-it started, so it would never show your edit. A page that is already open in Chromium moves to
-WebKit the next time it opens.
+Pages and chats in Chromium get your files too: while the file points at a server or an overlay,
+Chromium hands every page file to cmux, which answers it the way the WebKit pages are answered
+(server, then overlay, then web update, then the bundle) with the server's policy, so the HMR
+socket connects. Chromium pages that are already open reload onto your code; nothing moves to
+WebKit. (An app older than this change still opens such pages in WebKit, #23986.)
 
 The server listens on loopback only, and the app accepts only a loopback URL in `web-dev.json`. The
 scheme handler fetches each file from the server and answers it under the page's own
@@ -150,11 +184,11 @@ Only NIGHTLY bundles take web updates; Debug builds keep the developer's own pag
 | Symptom | Check |
 |---|---|
 | Nothing changes after `server --local` | `web-overlay.sh status` lists the dev server. `curl -sI http://127.0.0.1:4200/agent-pane/index.html` answers 200. The app's commit includes #22664 (above). |
-| Settings doesn't change, the agent pane does | The app predates #23986, so Settings is still in Chromium. Set `browser.defaultEngine` to `webkit` in `~/.config/cmux/cmux-next.json`, or update the app. |
 | A page loads, then stops updating | The dev server stopped. The page falls back to the overlay, then the bundle. Run `server --local` again. |
 | `the dev server did not start` | Another process holds the port (the server won't move to another one). Use `--port N`; the app follows `web-dev.json`. |
 | You see another tree's edits | A dev server that `web-overlay.sh` didn't start already answers on the port, and `server --local` reuses it. Stop it where it was started, or use `--port N` for a free port. |
-| You want the shipped pages without deleting anything | Set `"enabled": false` in `web-dev.json`. In Debug and NIGHTLY builds, Debug Settings > Pages > **Live web reload (web-dev.json)** off also ignores the file; cmux NEXT DEV has no Debug Settings. |
+| You want the shipped pages without deleting anything | Set `"enabled": false` in `web-dev.json`, or turn **Live Web Reload** off (`cmux settings set updates.liveWebReload false`). |
+| Nothing changes, and `status` says the server runs | `cmux settings get updates.liveWebReload` says `true`. The app's commit includes this change (older NIGHTLYs also needed Debug Settings > Pages > Live web reload on). |
 | Unstyled pages with no override running | Not the live loop. With no `web-dev.json`, the app serves its bundled files unchanged. Report it with the app's commit. |
 
 The design and its edge cases are in [web-live-reload.md](../../plans/cmux-next/web-live-reload.md).

@@ -47,6 +47,8 @@ final class ChromiumPageHost: PageChromiumHosting {
 
     func serves(_ page: PageDescriptor) -> Bool { CEFPageSchemes.firstParty[page.id] != nil }
 
+    func setLivePages(_ live: Bool) -> Bool { isAvailable && cef.setLivePages(live) }
+
     func makePage(_ page: PageDescriptor) async throws -> any PageChromiumPage {
         #if DEBUG || CMUX_BENCH_HOOKS
         // Taken before any suspension: set by the traced chat's own page in this turn (``ChatOpenTrace``).

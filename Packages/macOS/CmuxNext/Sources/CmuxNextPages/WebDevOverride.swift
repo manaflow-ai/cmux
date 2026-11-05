@@ -22,8 +22,10 @@ import CmuxNextCompat
 ///
 /// A server wins over an overlay for the files it serves. `"enabled": false`, an empty object or
 /// a deleted file restores the bundled pages. ``WebDevOverrideWatcher`` keeps ``current`` and
-/// reloads every page and agent pane on a change. Release and RC builds never read the file:
-/// ``isEnabled`` follows ``isAvailable`` (a Debug compile, a nightly bundle or cmux NEXT DEV).
+/// reloads every page and agent pane on a change, in WebKit and in Chromium. Every build reads the
+/// file (Leo, 2026-11-05: "you should be able to just change your app without going through all
+/// this hoopla"); Settings > General > Live Web Reload (`updates.liveWebReload`, on by default,
+/// ``setAllowed(_:)``) turns it off without editing it.
 public nonisolated struct WebDevOverride: Sendable, Equatable {
     /// The Vite server pages load from, nil for none.
     public var server: PageDevServer?
@@ -52,39 +54,36 @@ public nonisolated struct WebDevOverride: Sendable, Equatable {
     /// The file an overlay install writes last.
     public static let manifestName = "manifest.json"
 
-    /// Whether `web-dev.json` is read at all: a Debug compile, a nightly bundle (tagged or not), or
-    /// cmux NEXT DEV, the daily dogfood build (a Release compile with its own id). The rule of
-    /// `DevTools.isAvailable` (CmuxNextActions, which this module does not use), plus that build.
-    public static func isAvailable(bundleID: String?, isDebugBuild: Bool) -> Bool {
-        if isDebugBuild { return true }
-        guard let bundle = bundleID?.trimmingCharacters(in: .whitespaces) else { return false }
-        let nightly = "com.cmuxterm.app.nightly"
-        return bundle == nightly || bundle.hasPrefix(nightly + ".") || bundle == nextDevBundleID
-    }
-
-    /// cmux NEXT DEV's bundle id (docs/cmux-next/dev-daily.md).
-    static let nextDevBundleID = "com.cmuxterm.app.debug.next"
-
-    /// This process: decided once from its own bundle.
-    public static let isEnabled: Bool = {
-        #if DEBUG
-        isAvailable(bundleID: Bundle.main.bundleIdentifier, isDebugBuild: true)
-        #else
-        isAvailable(bundleID: Bundle.main.bundleIdentifier, isDebugBuild: false)
-        #endif
-    }()
+    /// Whether this build reads `web-dev.json`: every build does. Kept as the one switch the watch,
+    /// the projection window and Gallery Stage ask.
+    public static let isEnabled = true
 
     private static let state = Mutex(WebDevOverride())
+    /// `updates.liveWebReload` (``setAllowed(_:)``): on until the settings say otherwise.
+    private static let allowed = Mutex(true)
 
-    /// The override in force: empty unless ``isEnabled``, the watcher read a file and the Debug
-    /// Settings toggle (``PageTunables/webDevOverride``) is on.
+    /// The override in force: what the watcher read from `web-dev.json`, or empty while
+    /// Live Web Reload is off.
     public static var current: WebDevOverride {
-        guard PageTunables.webDevOverride.value else { return WebDevOverride() }
+        guard allowed.withLock({ $0 }) else { return WebDevOverride() }
         return state.withLock { $0 }
     }
 
+    /// Follows the Live Web Reload setting (`updates.liveWebReload`): off ignores `web-dev.json`
+    /// without editing it. A change reloads every page and agent pane from where it now loads.
+    @MainActor public static func setAllowed(_ on: Bool) {
+        let changed = allowed.withLock { held in
+            guard held != on else { return false }
+            held = on
+            return true
+        }
+        guard changed else { return }
+        let active = state.withLock { $0.isActive }
+        if active { WebDevOverrideWatcher.reloadPages() }
+    }
+
     /// The live gallery's server for Gallery Stage: web-dev.json's `gallery`, else ``defaultGallery``.
-    /// Read whatever the Debug Settings toggle says, since no page loads from it.
+    /// Read whatever Live Web Reload says, since no page loads from it.
     public static var galleryServer: URL? { state.withLock { $0.gallery } ?? defaultGallery }
 
     /// Replaces ``current``; returns whether it changed. Ignored unless ``isEnabled``.
