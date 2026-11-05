@@ -341,6 +341,17 @@
   and its trailing inset); the window's layout sets it and a narrower `width`, saved or dragged, clamps up.
   No glyph is removed; the options chevron still hides first. Regression: `SidebarMinimumWidthTitlebarTests`.
 
+## A group header's bands keep the drop where the pointer is (2026-11-05)
+
+Leo 2026-11-05: "in terms of just the proper, you know, dragging correctness kind of things, I feel like there's
+stuff we can do there." Two jumps while a workspace was dragged over an open group's header. Its bottom quarter
+meant "after the whole group", so the gap leapt below every member; it sits right over the first member, so it now
+drops before that member, first in the group (`SidebarDragGeometry.hit`, `firstMember`). A closed header's bottom
+quarter still drops after the group. And an into-group target closed the gap for one move, so the rows sprang up
+and the same still pointer read a row lower; a held drag over the header's middle now keeps the last gap, as over a
+row's middle (`displayLayout`). A drop into the group still settles into it. Regression:
+`SidebarDragGroupHeaderTargetTests`.
+
 ## Link opener placement keeps pane-local relationships (2026-10-30)
 
 - [1cc205d8d16](https://github.com/manaflow-ai/cmux/commit/1cc205d8d16) (carry of #26582): behavior-only opener bookkeeping keeps a tab's opener relationship inside its source pane when placement moves it elsewhere. No sidebar drawing or layout changes; the existing `RightPanePlacementTests` cover placement behavior. Reviewed as `Sidebar-Look: no visual change`.

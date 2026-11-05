@@ -71,6 +71,8 @@ public nonisolated struct SidebarDragGeometry: Sendable {
     private var groupSlot: [String: Slot] = [:]
     /// The bottom of each group item's whole subtree (its rows and its subgroups' rows).
     private var subtreeBottom: [String: CGFloat] = [:]
+    /// Each open group's first member slot (the top one whose parent is the group), by the group's key.
+    private var firstMember: [String: Slot] = [:]
     /// The outliner rule's indent (nested-groups prototype): at the bottom edge of a nested block the
     /// pointer's x picks the level the drop goes to. Nil keeps the y-only rule.
     var outline: (indent: SidebarIndent, leading: CGFloat, width: CGFloat)?
@@ -104,6 +106,9 @@ public nonisolated struct SidebarDragGeometry: Sendable {
         }
         groupHeaders = headers
         groupBlocks = blocks
+        for slot in sorted where slot.kind == .row || slot.kind == .group {
+            if let parent = slot.parent, firstMember[parent] == nil { firstMember[parent] = slot }
+        }
         for slot in slots where slot.kind == .group {
             guard let item = slot.item else { continue }
             groupParent[item] = slot.parent
@@ -174,6 +179,12 @@ public nonisolated struct SidebarDragGeometry: Sendable {
         let slot = Self.slot(in: line, x: point.x)
         if slot.kind == .group, !allows(slot, .into), let around = around(group: slot.key, point) { return around }
         let zone = Self.zone(slot, point)
+        // An open header's bottom quarter sits right over its first member: a drop there goes before that member, first
+        // in the group. "After the group" would put the gap below every member and spring them all up a slot (Leo
+        // 2026-11-05, "the proper, you know, dragging correctness kind of things").
+        if slot.kind == .group, zone == .after, let first = firstMember[slot.key], allows(first, .before) {
+            return Hit(slot: first, zone: .before, target: Self.target(first, .before), refusal: nil)
+        }
         if allows(slot, zone) { return outlined(Hit(slot: slot, zone: zone, target: Self.target(slot, zone), refusal: nil), x: point.x) }
         if let parent = slot.parent, let around = around(group: parent, point) { return around }
         let accepted = acceptance[slot.key] ?? slot.item.flatMap { acceptance[$0] }

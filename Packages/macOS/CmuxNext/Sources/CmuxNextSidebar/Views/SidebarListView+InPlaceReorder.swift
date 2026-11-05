@@ -9,13 +9,16 @@ extension SidebarListViewComponents {
     /// The layout the list shows: the model's, or during an internal drag
     /// over a slot, the model with the dragged rows moved to that slot.
     func displayLayout() -> SidebarLayout {
-        // Over a row's middle the list keeps the last slot (the row highlights instead).
+        // Over a row's middle the list keeps the last slot (the row highlights instead), and so does a held drag over
+        // a group header's: closing the gap there sprang the rows up, and the same still pointer then read a row lower
+        // (Leo 2026-11-05). A drop into the group settles into it.
         let drag = shownDrag // the running drag, or a dropped one still settling
         // A group drag draws one function of its frozen base and its slot (`SidebarGroupDragPlan.layout`).
         if let group = drag?.group { return group.layout }
         let shownPosition: DropPosition? = switch drag?.target {
         case let .position(position)?: position
         case .ontoWorkspace?: drag?.lastPosition
+        case .intoGroup?: self.drag === drag ? drag?.lastPosition : nil
         default: nil
         }
         // Held over the band: the list without the dragged rows (the pin drop's outcome, cx-odqn).
