@@ -464,6 +464,35 @@ mod tests {
 
     use super::*;
 
+    /// A Claude session is launched under its acpmux name (`--name`), so Claude
+    /// Code's peer list says what `acpmux ls` says; with cmux's tools off too.
+    #[test]
+    fn a_claude_session_is_launched_under_its_acpmux_name() {
+        let mut profile: HarnessProfile = serde_json::from_value(serde_json::json!({
+            "argv": ["claude"]
+        }))
+        .unwrap();
+        profile.kind = crate::config::HarnessKind::ClaudeStdio;
+        profile.env.insert(crate::agent_tools::SWITCH_ENV.into(), "0".into());
+        let args = |line: Vec<&str>, name: &str| -> Vec<String> {
+            let line = Some(("claude".to_owned(), line.into_iter().map(str::to_owned).collect()));
+            let id = "01a15d7d-b692-76b3-b8de-a9a71809de2a";
+            let cmd =
+                harness_command("local", &profile, &std::env::temp_dir(), line, Some((id, name)))
+                    .unwrap();
+            cmd.as_std().get_args().map(|a| a.to_string_lossy().into_owned()).collect()
+        };
+        let named = args(vec!["-p"], "reviewer");
+        assert!(named.windows(2).any(|w| w == ["--name", "reviewer"]), "{named:?}");
+        // A command line that names the session keeps its own name.
+        let own = args(vec!["-p", "--name", "pinned"], "reviewer");
+        assert!(!own.iter().any(|a| a == "reviewer"), "{own:?}");
+        // No name, no flag; a remote chain's sandboxed plan gets none either.
+        assert!(!args(vec!["-p"], " ").iter().any(|a| a == "--name"));
+        let sandboxed = args(vec!["-p", "--strict-mcp-config"], "reviewer");
+        assert!(!sandboxed.iter().any(|a| a == "--name"), "{sandboxed:?}");
+    }
+
     #[test]
     fn hosted_remote_environment_cannot_be_reopened_by_a_profile_key_collision() {
         let mut profile: HarnessProfile = serde_json::from_value(serde_json::json!({
