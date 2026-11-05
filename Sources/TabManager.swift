@@ -3077,7 +3077,7 @@ class TabManager: ObservableObject {
             let windowWarns = windowSettingWarns || hasActiveProcess
             showsBatchConfirmation = windowWarns || alwaysConfirm
             dontAskAgain = Self.workspaceCloseDontAskAgain(
-                ordinary: Self.closeWarningKinds(
+                ordinary: CloseWarningKinds.offered(
                     .window,
                     settingWarns: windowSettingWarns,
                     hasActiveProcess: hasActiveProcess
@@ -3090,7 +3090,7 @@ class TabManager: ObservableObject {
             let workspaceWarns = workspaceSettingWarns || hasActiveProcess
             showsBatchConfirmation = workspaceWarns || alwaysConfirm
             dontAskAgain = Self.workspaceCloseDontAskAgain(
-                ordinary: Self.closeWarningKinds(
+                ordinary: CloseWarningKinds.offered(
                     .workspace,
                     settingWarns: workspaceSettingWarns,
                     hasActiveProcess: hasActiveProcess
@@ -3397,7 +3397,7 @@ class TabManager: ObservableObject {
         let showsCloseConfirmation = requiresConfirmation
             && (warnsWithoutAlwaysConfirm || alwaysConfirm)
         let dontAskAgain = Self.workspaceCloseDontAskAgain(
-            ordinary: Self.closeWarningKinds(
+            ordinary: CloseWarningKinds.offered(
                 .workspace,
                 settingWarns: workspaceSettingWarns,
                 hasActiveProcess: needsCloseConfirmation
@@ -3457,20 +3457,6 @@ class TabManager: ObservableObject {
     private func shouldConfirmWorkspaceClose(requiresConfirmation: Bool, source: CloseConfirmationSource) -> Bool {
         AppCatalogSection().warnBeforeClosingWorkspace.value(in: closeTabWarningDefaults)
             && shouldConfirmConfiguredClose(requiresConfirmation: requiresConfirmation, source: source)
-    }
-
-    /// The warnings behind a close prompt: `setting` only while it is on and
-    /// asks for this close, plus `.safety` for a running process. Offering a
-    /// setting that is already off would show a checkbox that changes nothing,
-    /// since the running process asks anyway.
-    static func closeWarningKinds(
-        _ setting: CloseWarningKinds,
-        settingWarns: Bool,
-        hasActiveProcess: Bool
-    ) -> CloseWarningKinds {
-        var kinds: CloseWarningKinds = settingWarns ? setting : []
-        if hasActiveProcess { kinds.insert(.safety) }
-        return kinds
     }
 
     /// What "Don't ask again" turns off on a workspace close prompt. When the
