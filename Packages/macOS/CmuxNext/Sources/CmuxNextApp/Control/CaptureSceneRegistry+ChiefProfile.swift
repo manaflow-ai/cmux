@@ -29,7 +29,8 @@ extension CaptureSceneRegistry {
             return opened && host.panel.view.debugSettled(tab, fixtureComputer: fixture)
         }, start: ContinuousClock.now, window: 100, deadline: 10_000)
         let frameStats = frames.stop()
-        defer { page?.host?.closeProfile() }
+        // The panel stays open: the capture takes its own light and dark stills after this returns. The next scene
+        // in this app reopens it at its own tab.
         guard settled != nil else {
             return .object(["error": .string(page == nil ? "Home page did not open" : "the Chief's profile panel did not settle"), "scene": .string(name), "opened": .bool(opened), "frames": frameStats])
         }
