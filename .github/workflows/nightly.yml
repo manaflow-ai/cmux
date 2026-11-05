@@ -129,7 +129,7 @@ jobs:
     # authorize paid overflow.
     # There is no preceding picker; bounded overflow needs controller admission.
     # The nightly slot refuses RC/dogfood refs; keep their existing route.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.ref == 'refs/heads/main' && (startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6') || github.ref == 'refs/heads/nightly-next' && github.event_name == 'push' && github.run_attempt == 1 && (startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6') || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && github.event_name != 'workflow_dispatch' && vars.CI_CLASSIC_NIGHTLY_MINI || github.ref == 'refs/heads/main' && (startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6') || github.ref == 'refs/heads/nightly-next' && github.event_name == 'push' && github.run_attempt == 1 && (startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6') || 'blacksmith-2vcpu-ubuntu-2404' }}
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
       head_sha: ${{ steps.decide.outputs.head_sha }}
@@ -1130,7 +1130,7 @@ jobs:
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
     # Zig 0.15.2 cannot link the real helper on macOS 26. Match the stable
     # release workflow by building and verifying it on macOS 15 instead.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && github.event_name != 'workflow_dispatch' && vars.CI_CLASSIC_NIGHTLY_MINI || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 20
     env:
       NIGHTLY_FAST_BUILD: ${{ needs.decide.outputs.fast_build }}
@@ -1289,7 +1289,7 @@ jobs:
     # branch dogfood always uses the dedicated Blacksmith image. A
     # repository-wide runner override may point at a slower shared builder,
     # which defeats the purpose of the one-architecture path.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.decide.outputs.fast_build != 'true' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && needs.pick-nightly-app-runner.outputs.trusted != 'false' && fromJSON(format('["{0}", "{1}"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || needs.pick-nightly-app-runner.outputs.cloud || 'blacksmith-12vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && github.event_name != 'workflow_dispatch' && vars.CI_CLASSIC_NIGHTLY_MINI_BUILDER || needs.decide.outputs.fast_build != 'true' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && needs.pick-nightly-app-runner.outputs.trusted != 'false' && fromJSON(format('["{0}", "{1}"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || needs.pick-nightly-app-runner.outputs.cloud || 'blacksmith-12vcpu-macos-26' }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     # The Blacksmith cache is scoped per branch and also drops main's own
     # entry (runs 35179030871 and 35182663752 restored nothing and were
@@ -1658,7 +1658,7 @@ jobs:
   resolve-nightly-cmux-tui-client:
     needs: decide
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && github.event_name != 'workflow_dispatch' && vars.CI_CLASSIC_NIGHTLY_MINI || 'blacksmith-2vcpu-ubuntu-2404' }}
     permissions:
       contents: read
     timeout-minutes: 30
@@ -1694,7 +1694,7 @@ jobs:
   pick-classic-sign-runner:
     needs: [decide, build-nightly-app]
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && github.event_name != 'workflow_dispatch' && vars.CI_CLASSIC_NIGHTLY_MINI || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 6
     permissions:
       # The queue janitor's pool snapshot (an artifact).
@@ -1802,7 +1802,7 @@ jobs:
       actions: read
     # The pinned trusted mini while pick-classic-prepare-runner saw it idle (attempt 1 of main's push or
     # schedule only); a re-run takes the Blacksmith pick below.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && needs.pick-classic-prepare-runner.outputs.trusted == 'true' && fromJSON(format('["{0}", "{1}"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || github.run_attempt > 1 && needs.pick-classic-sign-runner.outputs.attempt != github.run_attempt && needs.pick-classic-sign-runner.outputs.alternate || needs.pick-classic-sign-runner.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && github.event_name != 'workflow_dispatch' && vars.CI_CLASSIC_NIGHTLY_MINI || github.run_attempt == 1 && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && needs.pick-classic-prepare-runner.outputs.trusted == 'true' && fromJSON(format('["{0}", "{1}"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || github.run_attempt > 1 && needs.pick-classic-sign-runner.outputs.attempt != github.run_attempt && needs.pick-classic-sign-runner.outputs.alternate || needs.pick-classic-sign-runner.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -3513,7 +3513,7 @@ jobs:
   report-nightly-failure:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, build-sign-notarize-nightly, verify-signed-nightly, publish-nightly, generate-nightly-deltas, republish-nightly-deltas]
     if: always() && needs.decide.outputs.should_publish == 'true' && (contains(needs.*.result, 'failure') || needs.publish-nightly.outputs.tag_status == 'stale')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && github.event_name != 'workflow_dispatch' && vars.CI_CLASSIC_NIGHTLY_MINI || 'blacksmith-2vcpu-ubuntu-2404' }}
     permissions:
       contents: read
       issues: write
@@ -3563,7 +3563,7 @@ jobs:
   close-nightly-failure-issue:
     needs: [decide, publish-nightly, generate-nightly-deltas, republish-nightly-deltas]
     if: needs.decide.outputs.should_publish == 'true' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.tag_status == 'updated' && (needs.generate-nightly-deltas.result == 'success' || needs.generate-nightly-deltas.result == 'skipped') && (needs.republish-nightly-deltas.result == 'success' || needs.republish-nightly-deltas.result == 'skipped')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && github.event_name != 'workflow_dispatch' && vars.CI_CLASSIC_NIGHTLY_MINI || 'blacksmith-2vcpu-ubuntu-2404' }}
     permissions:
       contents: read
       issues: write

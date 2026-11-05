@@ -244,6 +244,14 @@ def forbidden_reason(label: str) -> str | None:
     return None
 
 
+# The classic nightly's one-mini switch (Lawrence, 2026-11-04: nightlies build on a single Mac mini): each may
+# name only its cmux15 label, which no other runner carries (cmuxterm-hq build-fleet/nightly_mini_policy_test.py).
+CLASSIC_NIGHTLY_MINI_VARIABLES = {
+    "CI_CLASSIC_NIGHTLY_MINI": "glaeda-nightly-mini",
+    "CI_CLASSIC_NIGHTLY_MINI_BUILDER": "glaeda-nightly-mini-builder",
+}
+
+
 def drifted_runner_variables(
     variables: dict[str, str],
 ) -> list[tuple[str, str, str]]:
@@ -258,6 +266,11 @@ def drifted_runner_variables(
             continue
         if name == POOL_ORDER_VARIABLE:
             reason = pool_order_reason(value.strip())
+        elif name in CLASSIC_NIGHTLY_MINI_VARIABLES:
+            # The classic one-mini nightly (tests/test_classic_nightly_one_mini.py): only cmux15's own label.
+            label = CLASSIC_NIGHTLY_MINI_VARIABLES[name]
+            reason = (None if value.strip() in ("", label) else
+                      f"must name the one nightly mini's label ({label}) or be unset")
         elif name in SIDE_LANE_VARIABLES:
             reason = side_lane_reason(value.strip())
         elif name in (TRUSTED_POOL_VARIABLE, "CI_NIGHTLY_NEXT_TRUSTED_POOL"):

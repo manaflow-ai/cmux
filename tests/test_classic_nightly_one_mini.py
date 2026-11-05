@@ -8,10 +8,13 @@ cmux7s's trusted-main runner and decided on cmux12s.
 With vars.CI_CLASSIC_NIGHTLY_MINI set (to cmux15's light nightly-only label, `glaeda-nightly-mini`), every job of
 main's nightly.yml on a main push or schedule, on every attempt and picker output, takes a label only cmux15 carries
 (cmuxterm-hq build-fleet/nightly_mini_policy_test.py):
-  - glaeda's signing jobs (the hook's SIGNING_JOBS: the whole-Mac claim): vars.CI_NIGHTLY_SIGN_RUNNER
-    (`glaeda-trusted-next-signing`, cmux15's trusted-main pool runners);
   - build-nightly-app: vars.CI_CLASSIC_NIGHTLY_MINI_BUILDER (`glaeda-nightly-mini-builder`, the warm builders);
   - every other job: vars.CI_CLASSIC_NIGHTLY_MINI.
+Except KEPT: every job that holds a secret (tests/test_ci_fork_runner_routing.py: no variable may move it; rule 7
+of tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py for signing material) and verify-signed-nightly,
+which runs the signed bundle (rule 6). Main has no owned-Mac path for them yet (feat-cmux-next's claim gate, Blacksmith
+twin and test_ci_signing_owned_mac.py), so they keep their ephemeral route until that is ported. build-nightly-app
+holds the cache-writer keys too, but its owned route is a documented exception already (SECRET_RUNNER_EXCEPTIONS).
 The variable is separate from NEXT's vars.CI_NIGHTLY_MINI, so classic switches on its own. A workflow_dispatch and
 an rc/** push keep their earlier routes: cmux15's trusted runners take only main's push and schedule jobs
 (glaeda trusted_refusal), and its nightly-only runners only nightly-next and main.
@@ -44,8 +47,13 @@ REF = re.compile(r"\b(?:needs\.[\w-]+\.(?:outputs\.\w+|result)|inputs\.\w+|vars\
 BLACKSMITH = "blacksmith-6vcpu-macos-26"
 
 
+KEPT = SIGNING | {"verify-signed-nightly", "promote-nightly-next-acked", "await-release-surface-ack",
+                  "refresh-compilation-cache", "refresh-test-compilation-cache", "pick-nightly-app-runner",
+                  "pick-classic-prepare-runner", "republish-nightly-deltas"}
+
+
 def want(name: str) -> str:
-    return SIGN if name in SIGNING else BUILDER if name == "build-nightly-app" else MINI
+    return BUILDER if name == "build-nightly-app" else MINI
 
 
 def evaluate(node, context):
@@ -135,7 +143,11 @@ class ClassicNightlyOneMini(unittest.TestCase):
                 for _ in range(200):
                     event = rng.choice(("push", "schedule"))
                     value, context = resolve(source, rng, "refs/heads/main", event, MODE)
-                    if value != want(name):
+                    if name in KEPT:
+                        if value in (MINI, BUILDER, SIGN):
+                            failures[name] = (value, {k: v for k, v in context.items() if v})
+                            break
+                    elif value != want(name):
                         failures[name] = (value, {k: v for k, v in context.items() if v})
                         break
         self.assertEqual(sorted(failures), [], "\n".join(f"{k}: {v}" for k, v in sorted(failures.items())))
@@ -144,7 +156,7 @@ class ClassicNightlyOneMini(unittest.TestCase):
         rng = random.Random(7)
         off = {**MODE, "vars.CI_CLASSIC_NIGHTLY_MINI": "", "vars.CI_CLASSIC_NIGHTLY_MINI_BUILDER": ""}
         for name, job in JOBS.items():
-            if job.get("uses") or name in SIGNING:
+            if job.get("uses") or name in KEPT:
                 continue
             for source in sources(job):
                 for _ in range(50):
