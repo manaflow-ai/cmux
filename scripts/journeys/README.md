@@ -352,6 +352,14 @@ press) and `video-cases/judge_scan.py` (repeated pictures in motion). They run o
 (`/work/tmp/bv-venv/bin/python -I`, numpy and imageio_ffmpeg), never on a mini. This folder holds the one copy;
 the kit branches' copies are older (REWRITE R-HARNESS, handoff/rewrites/R-HARNESS/DESIGN.md).
 
+`video-cases/judge_pixel.py` judges the pixel fixture films (the FRAME OWNER's kit, `cp/pixel-perfect-kit`
+`ext_pixel.py` `px_record_start`: terminals that run `pixel/tui_border.py` and pages that show `pixel/page.html`):
+each pane side's content edge on each scan line against the pane edge that cmux's own layer shows in the same film
+frame (the tab strip), on the film's own clock. Its JSON has the m6 rows (`m6`) and the cmux-ad m14 rows (`m14`);
+`video-cases/judge_m14.py BASE ...` gives the m14 verdict per film (exit 0 every film passes, 1 a film fails, 2 a film
+is not judged). Each rule in `video-cases/test_judge_pixel.py` came as a red-then-green pair that the FRAME OWNER
+reviewed; a change to a rule does the same.
+
 Every change to a judge reproduces the judge goldens. They have two tiers:
 
 - BASELINE: every gallery film, frozen read-only in `/work/goldens/judge-films` (sha256-pinned by
