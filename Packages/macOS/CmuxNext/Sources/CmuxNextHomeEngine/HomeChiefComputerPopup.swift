@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextHome
 import CmuxNextDesign
 
 /// The live view that pops up in the chat while the Chief is using its computer, over the transcript
@@ -99,5 +100,21 @@ public final class HomeChiefComputerPopup: NSView {
     @objc private func dismiss() {
         dismissed = true
         update()
+    }
+}
+
+extension HomeChiefComputerPopup {
+    /// Puts the Chief's computer in a chat (cmux issue 31488): `source` feeds both the Computer section of
+    /// `settings`' card and this popup, which floats over `transcript`, stays away while the card shows
+    /// the computer, comes back as soon as the card closes, and runs `open` (the card) on a click.
+    public func install(in transcript: HomeNativeTranscriptView, settings: HomeChiefSettingsPopover,
+                        source: HomeChiefComputerSection.Source, open: @escaping () -> Void) {
+        settings.content.computer.source = source
+        section.source = source
+        isSuppressed = { [weak settings] in settings?.isShown == true }
+        onOpen = open
+        settings.onClose = { [weak self] in self?.update() }
+        onVisibility = { [weak transcript] in transcript?.needsLayout = true }
+        transcript.setFloatingAccessory(self)
     }
 }

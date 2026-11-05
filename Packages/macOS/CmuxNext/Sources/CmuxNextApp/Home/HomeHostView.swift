@@ -57,8 +57,7 @@ final class HomeHostView: NSView {
     private var showsCloud = false
     private var showsHosted = false
     private var isWorking = false
-    /// The chat's live view of the Chief's computer, while the Chief uses it.
-    let computerPopup = HomeChiefComputerPopup()
+    let computerPopup = HomeChiefComputerPopup()  // the Chief's computer while it acts (cmux issue 31488)
     lazy var turnActions = HomeChiefTurnActions(transcript: transcript)
     /// Where this Chief runs and its other host, for the settings card (no floating switch over the chat).
     private var hostWatch: Task<Void, Never>?
@@ -109,20 +108,9 @@ final class HomeHostView: NSView {
         petRows.onRefusal = { [settingsView] in settingsView.showNote($0) }  // why an upload was refused
         petRows.install(in: self, addRow: { [settingsView] in settingsView.addAppearanceRow($0, control: $1) },
                         open: { [weak self] in self?.toggleChiefSettings(openOnly: true) ?? false })
-        // The Chief's computer (cmux issue 31488): its section in the settings card, and the live view
-        // that pops up in the chat while this Chief uses it. The popup's click opens the card.
-        let computerSource = HomeChiefComputerSection.Source(
-            paid: { [weak services] in services?.machines.cloudLimits?.paysForCloud == true },
-            chief: { [weak service] in service?.chiefName(of: id) ?? HomeStrings.chiefName },
-            route: HomeChiefComputerRoute(agent: { [weak services] in services?.home.cloudChiefs.chief(for: conversation)?.id },
-                                          send: service.hostedChief.brainRoute))
-        settingsView.computer.source = computerSource
-        computerPopup.section.source = computerSource
-        computerPopup.isSuppressed = { [weak self] in self?.settings.isShown == true }
-        computerPopup.onOpen = { [weak self] in _ = self?.toggleChiefSettings(openOnly: true) }
-        settings.onClose = { [weak self] in self?.computerPopup.update() }  // back at once, not at the next read
-        computerPopup.onVisibility = { [weak self] in self?.transcript.needsLayout = true }
-        transcript.setFloatingAccessory(computerPopup)
+        computerPopup.install(in: transcript, settings: settings, source: .init(
+            paid: { [weak services] in services?.machines.cloudLimits?.paysForCloud == true }, chief: { [weak service] in service?.chiefName(of: id) ?? HomeStrings.chiefName },
+            route: .init(agent: { [weak services] in services?.home.cloudChiefs.chief(for: conversation)?.id }, send: service.hostedChief.brainRoute))) { [weak self] in _ = self?.toggleChiefSettings(openOnly: true) }
         settingsView.onAvatar = { [weak self, weak service] in
             self?.loadAvatar()
             // Each Chief's tile reads its own brain home: this re-reads them, so only the
