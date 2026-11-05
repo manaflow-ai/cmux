@@ -235,8 +235,10 @@ impl Inner {
     /// `flush_session`, a chat's `session.json` from the overlay, the folder syncer), so that a
     /// checkpoint never writes an LSN past its failure: the sync is under way until its failure,
     /// if any, froze the store, and a checkpoint waits for the syncs under way before it writes
-    /// (`checkpoint_once`). Only the sync itself is counted, never a wait before it (a settle's
-    /// wait for its record): the checkpoint's wait is bounded by syncs alone.
+    /// (`checkpoint_once`). Counted: the sync, then the freeze's first step (`frozen` set and the
+    /// `frozen` record appended, which never blocks). Not counted: a wait before them (a settle's
+    /// wait for its record) or after them (the record's retry when the journal's queue was full,
+    /// which waits for the writer). So a checkpoint's wait is bounded by syncs.
     pub(super) fn counted_sync<T>(
         &self,
         what: &str,
@@ -246,15 +248,23 @@ impl Inner {
         #[cfg(test)]
         super::hold_in_sync();
         let result = sync();
-        if let Err(error) = &result
-            && error.chain().any(|cause| cause.is::<SyncFailed>())
-        {
+        let why = match &result {
+            Err(error) if error.chain().any(|cause| cause.is::<SyncFailed>()) => {
+                Some(format!("{what}: {error:#}"))
+            }
+            _ => None,
+        };
+        let behind = why.as_deref().is_some_and(|why| {
             #[cfg(test)]
             super::hold_before_freeze();
-            self.freeze(format!("{what}: {error:#}"));
-        }
-        // Ended only now: a checkpoint that waited for it then reads the store frozen.
+            self.freeze_now(why)
+        });
+        // Ended once the store is frozen: a checkpoint that waited for it reads `frozen`, and does
+        // not wait for the record's retry below (lead's review of #35866).
         drop(under_way);
+        if let Some(why) = why {
+            self.freeze_later(behind, why);
+        }
         result
     }
 
@@ -268,35 +278,56 @@ impl Inner {
     /// The group commit makes it durable as any acknowledged record, and the shutdown that
     /// follows seals the journal.
     pub(super) fn freeze(&self, why: String) {
+        let behind = self.freeze_now(&why);
+        self.freeze_later(behind, why);
+    }
+
+    /// A freeze's first step, under the appends' lock: `frozen` set, and the `frozen` record
+    /// appended (an append never blocks: the journal only copies it). True when the record found
+    /// the journal's queue full, so [`Inner::freeze_later`] must wait for the writer and append it
+    /// again. Only the first freeze of the store journals a record.
+    fn freeze_now(&self, why: &str) -> bool {
         let mut order = self.order.lock_or_recover();
-        if !order.frozen {
-            order.frozen = true;
+        if order.frozen {
+            return false;
+        }
+        order.frozen = true;
+        #[cfg(test)]
+        let forced = super::FORCE_FROZEN_BACKLOG.with(|force| force.replace(false));
+        #[cfg(not(test))]
+        let forced = false;
+        let appended = if forced {
+            Err(AppendError::Backlog)
+        } else {
+            self.journal.append(KIND_FROZEN, Class::Ack, why.as_bytes())
+        };
+        match appended {
+            Ok(lsn) => order.applied = order.applied.max(lsn),
+            Err(AppendError::Backlog) => return true,
+            Err(error) => tracing::error!(
+                "journal the freeze: {error}: the next start may trust pages the failed sync dropped"
+            ),
+        }
+        false
+    }
+
+    /// A freeze's second step, off any sync's count: when the record found the queue full
+    /// (`behind`), a wait for the journal's writer (up to `SEAL_WAIT`) off the appends' lock, then
+    /// the record appended again; then the daemon asked to stop. The stop comes after the record,
+    /// so the shutdown's seal never closes the journal before it.
+    fn freeze_later(&self, behind: bool, why: String) {
+        if behind {
             #[cfg(test)]
-            let forced = super::FORCE_FROZEN_BACKLOG.with(|force| force.replace(false));
-            #[cfg(not(test))]
-            let forced = false;
-            let mut appended = if forced {
-                Err(AppendError::Backlog)
-            } else {
-                self.journal.append(KIND_FROZEN, Class::Ack, why.as_bytes())
-            };
-            if appended == Err(AppendError::Backlog) {
-                // The writer is behind: wait for it off the appends' lock, then append again.
-                drop(order);
-                #[cfg(test)]
-                super::hold_before_frozen_record();
-                let _ = self.journal.wait_durable(self.journal.last_lsn(), SEAL_WAIT);
-                order = self.order.lock_or_recover();
-                appended = self.journal.append(KIND_FROZEN, Class::Ack, why.as_bytes());
-            }
-            match appended {
+            super::hold_before_frozen_record();
+            let _ = self.journal.wait_durable(self.journal.last_lsn(), SEAL_WAIT);
+            let mut order = self.order.lock_or_recover();
+            match self.journal.append(KIND_FROZEN, Class::Ack, why.as_bytes()) {
                 Ok(lsn) => order.applied = order.applied.max(lsn),
                 Err(error) => tracing::error!(
                     "journal the freeze: {error}: the next start may trust pages the failed sync dropped"
                 ),
             }
         }
-        drop(order);
         self.ask_to_stop(why);
     }
 
@@ -442,7 +473,8 @@ struct Tickets {
 
 /// One sync under way ([`Inner::counted_sync`]). It ends when this drops, in a panic too, so a
 /// checkpoint never waits for it for ever; a panic first freezes the store, since what the sync
-/// did is then not known (review of #35895, P3).
+/// did is then not known (review of #35895, P3): the freeze's first step before the ticket ends,
+/// its retry after.
 struct UnderWay<'a> {
     inner: &'a Inner,
     ticket: u64,
@@ -478,9 +510,13 @@ impl SyncsUnderWay {
 
 impl Drop for UnderWay<'_> {
     fn drop(&mut self) {
-        if std::thread::panicking() {
-            self.inner.freeze("a sync of the store's files panicked".into());
-        }
+        // As a failed sync: the freeze's first step before the ticket ends, its retry after.
+        const WHY: &str = "a sync of the store's files panicked";
+        let panicked = std::thread::panicking();
+        let behind = panicked && self.inner.freeze_now(WHY);
         self.inner.syncs.end(self.ticket);
+        if panicked {
+            self.inner.freeze_later(behind, WHY.into());
+        }
     }
 }
