@@ -179,6 +179,18 @@ for name in shipping:
     tooling = tooling_checkout(body)
     if tooling and body.count("actions/checkout@") == 1:
         continue
+    if name == "published-in":
+        # It runs in its own dispatched run (nightly_next_post_publish), which has no resolver: the push run's
+        # dispatch-published-in hands it the resolver's build_sha as head_sha, the commit it checks out.
+        dispatch = blocks.get("dispatch-published-in", "")
+        dispatch_needs = re.search(r"^    needs: (.*)$", dispatch, re.MULTILINE)
+        check(bool(dispatch_needs) and RESOLVE in dispatch_needs.group(1), f"dispatch-published-in must need {RESOLVE}")
+        check('"head_sha":"{2}"' in dispatch and BUILD_SHA.removeprefix("${{ ").removesuffix(" }}") in dispatch,
+              "dispatch-published-in must pass the resolved build commit as head_sha")
+        for ref in re.findall(r"^\s+ref: (.*)$", body, re.MULTILINE):
+            check(ref.strip() == "${{ fromJSON(inputs.nightly_next_post_publish).head_sha }}",
+                  f"published-in checks out {ref.strip()}, not the dispatched build commit")
+        continue
     needs = re.search(r"^    needs: (.*)$", body, re.MULTILINE)
     check(bool(needs) and RESOLVE in needs.group(1), f"{name} must need {RESOLVE}")
     allowed = ({BUILD_SHA, SELECTED_SHA} if name == "publish-nightly"
