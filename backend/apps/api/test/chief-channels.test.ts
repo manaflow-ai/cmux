@@ -55,7 +55,7 @@ describe("chief channels", { timeout: 60_000 }, () => {
     expect(head.value).toMatchObject({ agent: chief.id, owner_user: user, brain: "cloud", channel: chief.channel.conversation })
 
     // The owner talks in the channel; chief.list names the channel.
-    expect((await op(t, "message.send", { conversation: conv.id, client_msg_id: "hi", parts: [{ type: "text", text: "hi" }] }, "channel-hi")).json.ok).toBe(true)
+    expect((await op(t, "message.send", { conversation: conv.id, client_msg_id: "channel-hi", parts: [{ type: "text", text: "hi" }] }, "channel-hi")).json.ok).toBe(true)
     const list = (await call("/v1/read", t, { op: "chief.list", params: {} })).json.value.chiefs
     expect(list.find((c: { id: string }) => c.id === chief.id)).toMatchObject({ channel: { conversation: conv.id, title: "Launch" } })
   })
