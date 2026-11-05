@@ -1,0 +1,125 @@
+{
+  "version": 1,
+  "build": "4191131679101",
+  "notes": "notes/4191131679101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 35851,
+      "title": "base red: the message-row chevron test measures the gap after the preview, not the sender",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35853,
+      "title": "cmux-next: pin CCmuxAppFFI to cmux-app-ffi-b24aac2c507d072ac3b5cf35fb3c3b93bd039acf",
+      "author": "manaflow-cmux-ffi-release[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33280,
+      "title": "agent pane: a subagent's own pane has a composer, not \"Read only\"",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35861,
+      "title": "view shell live code: say when a symbol pointer stays on old code; live_apply finds @main among other attributes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35670,
+      "title": "Theme files: rice cmux from ~/.config/cmux/themes, live on save",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34348,
+      "title": "fix(ci): guard empty acpmux array on Bash 3.2",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35705,
+      "title": "view shell live code: a patch carries new Swift files",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34930,
+      "title": "Density: every density draws icons on the 12/14/16/20 scale",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35856,
+      "title": "fix(nightly): unsigned resume reads only cmux-tui.version, so framework symlinks no longer refuse it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35414,
+      "title": "Agent pane: the tucked hat's pull tab shows a dot or a count, and sits left, middle or right",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35839,
+      "title": "ci(webviews): compile the agent pane once per test run, not once per file",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35763,
+      "title": "Cloud login copy: wait for a new machine's bind before the owner-machine check",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35843,
+      "title": "test(acpmux): dispatch_durable's stand-in scopes a cancel to the prompt it runs, as harnesses do",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35842,
+      "title": "base red: the apps sidebar's start-up receipts take no resource revision (from #33016)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35642,
+      "title": "cloud journey: fall back for VM API exec",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35850,
+      "title": "view shell live code: repoint the executable's bound symbol pointers, so a patch changes what draws",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35845,
+      "title": "base red: rustfmt the 4 cmux-tui files left unformatted by #34604, #35799 and #35341",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35847,
+      "title": "test(signing): an unlisted newest glaeda hook warns for two hours before the guard fails",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35275,
+      "title": "Creation hold: a daemon reply keeps the window's keys at most 10 s (its own bound), and no hold end drops a key (cmux-ad m12)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
