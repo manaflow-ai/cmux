@@ -24,7 +24,7 @@ import Testing
 
     @Test func theBytesLineKeepsItsWidthWhileItCounts() throws {
         var widths: Set<Int> = [], ofOffsets: Set<Int> = []
-        for received in stride(from: UInt64(0), through: Self.expected, by: 3_700_000) + [Self.expected] {
+        for received in Array(stride(from: UInt64(0), through: Self.expected, by: 3_700_000)) + [Self.expected] {
             let text = try #require(UpdateTransfer.downloading(received: received, expected: Self.expected).bytesText)
             widths.insert(Int((Self.width(text) * 4).rounded()))
             let of = try #require(text.range(of: " of "), "no \" of \" in \(text)")
