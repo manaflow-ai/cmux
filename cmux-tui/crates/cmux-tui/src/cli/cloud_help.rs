@@ -166,6 +166,12 @@ const GROUPS: &[Group] = &[
                 "マシンのデスクトップをブラウザタブに表示",
             ),
             verb(
+                "computer-control",
+                "--machine MACHINE_ID --action status|take_over|hand_back|request_human [--reason TEXT]",
+                "Read or change who drives the machine's desktop: the Chief or you",
+                "マシンのデスクトップを操作するのが Chief かあなたかを確認または変更",
+            ),
+            verb(
                 "setup-github",
                 "{target} [--focus]",
                 "Set up git and GitHub on the machine",
