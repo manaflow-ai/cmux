@@ -98,6 +98,8 @@ test("Codex's own settings that fail to load name what to fix", () => {
   expect(failureCopy(t, bare, codex)).toBe("turn.failure.codexConfig");
   const at = "failed to load workspace requirements: invalid configuration at /Users/l/.codex/config.toml:3:1";
   expect(failureCopy(t, at, codex)).toBe("turn.failure.codexConfigAt /Users/l/.codex/config.toml");
+  const spaced = "failed to load workspace requirements: invalid configuration at /Users/l/My Project/.codex/config.toml:3:1";
+  expect(failureCopy(t, spaced, codex)).toBe("turn.failure.codexConfigAt /Users/l/My Project/.codex/config.toml");
   expect(failureRecovery("codex-config")).toBe("retry");
   expect(failureKind("failed to load workspace requirements: cloud config: request timed out")).toBe("unreachable");
   expect(failureKind("failed to load workspace requirements: cloud config: authentication failed (HTTP 401)")).toBe(

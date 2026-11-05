@@ -119,7 +119,8 @@ const TYPED: readonly [RegExp, FailureKind][] = [
 /// which cmux-codex-acp sent for every thread until it set one) or "invalid configuration at PATH:LINE:COL".
 /// Another model or a sign-in does not help; the file does.
 const CODEX_CONFIG = /failed to (?:re)?load workspace requirements/i;
-const CODEX_CONFIG_AT = /invalid configuration at (\S+?):\d+:\d+/i;
+/// The path may hold spaces; it ends at the first `:LINE:COLUMN` that ends a word.
+const CODEX_CONFIG_AT = /invalid configuration at (.+?):\d+:\d+(?!\S)/i;
 const URL_HOST = /https?:\/\/([^\s/'")\]]+)/i;
 const STATUS = /\b([45]\d\d)\b/;
 /// Harness profiles that reach their provider through a proxy acpmux knows by name.

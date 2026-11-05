@@ -91,7 +91,10 @@ export default agentPaneEntry({
     },
     "codex-config": {
       note: 'Lucas\'s fresh Codex chat: "failed to load workspace requirements" names the settings to check, with the raw words under Details.',
-      snapshot: failed("failed to load workspace requirements: invalid input parameter"),
+      snapshot: failed("failed to load workspace requirements: invalid input parameter", undefined, {
+        harness: "codex",
+        model: "gpt-6-astra",
+      }),
     },
     tailscale: {
       note: "A chat on another machine that the tailnet no longer reaches.",
