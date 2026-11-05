@@ -5,7 +5,8 @@
 # live-code-app.sh makes) in a side instance with try-pr.sh --live-code. The PR comes from a scratch
 # clone whose origin serves it as refs/pull/1/head, so no GitHub. The side instance is made and opened
 # first and captured, then try-pr.sh is timed from its start to the copy's "applied" line, captured
-# again, and both captures' red pixels counted; then the side instance is removed.
+# again, and both captures' red pixels counted. A second PR, whose patch needs Swift only its newer base
+# has, must take the dev build. Then the side instances are removed.
 #   scripts/measure/try-pr-live-code.sh OUT     (OUT: logs, before.png, after.png, result.json)
 set -euo pipefail
 out="$(mkdir -p "${1:?usage: try-pr-live-code.sh OUT}" && cd "$1" && pwd)"
@@ -26,8 +27,12 @@ build_s=$((SECONDS - build_start))
 log="$out/build/xcodebuild.log"
 [[ -d "$app" && -f "$log" ]] || { echo "try-pr-live-code: no live code build" >&2; exit 1; }
 
-# The fixture: an origin that borrows this repo's objects, serving HEAD as feat-cmux-next and the
-# red edit as pull request 1; try-pr.sh runs from a clone of it.
+# The fixture: an origin that borrows this repo's objects and serves two pull requests whose base is
+# newer than the build (the case try-pr.sh sorts again from the build's own commit):
+#   PR 1 on HEAD+1 (a docs edit): Home's background red, a function body; it applies and shows.
+#   PR 2 on HEAD+2 (HEAD+1 plus a new HomeHostView method): the same line calls that method, which the
+#        build lacks, so its patch cannot compile against the build and it takes the dev build.
+# try-pr.sh runs from a clone of it.
 view="Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeHostView.swift"
 original="layer?.backgroundColor = nil"
 red="layer?.backgroundColor = NSColor.systemRed.cgColor"
@@ -35,14 +40,24 @@ grep -qF "$original" "$view" || { echo "try-pr-live-code: $view no longer has $o
 fx="$out/fixture"; rm -rf "$fx"; mkdir -p "$fx"
 git init -q --bare "$fx/origin.git"
 echo "$(cd "$(git rev-parse --git-common-dir)" && pwd)/objects" >"$fx/origin.git/objects/info/alternates"
-base="$(git rev-parse HEAD)"
-blob="$(sed "s/$original/$red/" "$view" | git hash-object -w --stdin)"
-index="$fx/index"
-GIT_INDEX_FILE="$index" git read-tree HEAD
-GIT_INDEX_FILE="$index" git update-index --cacheinfo "100644,$blob,$view"
-tree="$(GIT_INDEX_FILE="$index" git write-tree)"
-pr_commit="$(git -c user.name=try-pr-live-code -c user.email=try-pr@localhost commit-tree "$tree" -p "$base" -m "fixture: Home red")"
-git push -q "$fx/origin.git" "$base:refs/heads/feat-cmux-next" "$pr_commit:refs/pull/1/head"
+# PARENT PATH MESSAGE (the file's new text on stdin): a commit of PARENT with PATH replaced; no checkout.
+commit_with() {
+  local parent="$1" path="$2" message="$3" blob index="$fx/index"
+  blob="$(git hash-object -w --stdin)"
+  rm -f "$index"
+  GIT_INDEX_FILE="$index" git read-tree "$parent"
+  GIT_INDEX_FILE="$index" git update-index --cacheinfo "100644,$blob,$path"
+  git -c user.name=try-pr-live-code -c user.email=try-pr@localhost commit-tree \
+    "$(GIT_INDEX_FILE="$index" git write-tree)" -p "$parent" -m "$message"
+}
+build_commit="$(git rev-parse HEAD)"
+docs="docs/cmux-next/live-code.md"
+newer="$( (cat "$docs"; echo; echo "<!-- try-pr-live-code fixture -->") | commit_with "$build_commit" "$docs" "fixture: a newer base")"
+pr1="$(sed "s/$original/$red/" "$view" | commit_with "$newer" "$view" "fixture: Home red")"
+helper='extension HomeHostView {\n    func tryPrLiveTint() -> CGColor { NSColor.systemRed.cgColor }\n}'
+newest="$( (cat "$view"; printf '\n%b\n' "$helper") | commit_with "$newer" "$view" "fixture: a base with a new method")"
+pr2="$(git show "$newest:$view" | sed "s/$original/layer?.backgroundColor = tryPrLiveTint()/" | commit_with "$newest" "$view" "fixture: Home tint from the new method")"
+git push -q "$fx/origin.git" "$newest:refs/heads/feat-cmux-next" "$pr1:refs/pull/1/head" "$pr2:refs/pull/2/head"
 git clone -q --shared -b feat-cmux-next "$fx/origin.git" "$fx/checkout"
 
 export CMUX_SIDE_ROOT="$out/side"
@@ -67,9 +82,18 @@ set -e
 end="$(python3 -c 'import time; print(time.time())')"
 sleep 2
 capture after
-python3 - "$out" "$build_s" "$code" "$start" "$end" "$base" <<'PY'
+# PR 2: its patch needs the newer base's method, so it must not apply.
+start2="$(python3 -c 'import time; print(time.time())')"
+set +e
+"$try" 2 --from "$app" --live-code "$log" --no-build >"$out/try-pr-2.log" 2>&1
+code2=$?
+set -e
+end2="$(python3 -c 'import time; print(time.time())')"
+"$try" 2 --stop >"$out/stop-2.log" 2>&1 || true
+python3 - "$out" "$build_s" "$code" "$start" "$end" "$build_commit" "$code2" "$start2" "$end2" <<'PY'
 import json, os, re, sys
 out, build_s, code, start, end, base = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), float(sys.argv[4]), float(sys.argv[5]), sys.argv[6]
+code2, start2, end2 = int(sys.argv[7]), float(sys.argv[8]), float(sys.argv[9])
 sys.path.insert(0, os.path.join(os.getcwd(), "scripts", "measure"))
 from importlib import util
 spec = util.spec_from_file_location("lca", os.path.join(os.getcwd(), "scripts", "measure", "live-code-app.py"))
@@ -86,7 +110,11 @@ result = {
     "functions": int(applied.group(2)) if applied else None, "load_ms": int(applied.group(3)) if applied else None,
     "red_px_before": before[0], "red_px_after": after[0],
 }
-result["pass"] = bool(code == 0 and applied and after[0] > before[0] + 1000)
+text2 = open(os.path.join(out, "try-pr-2.log")).read()
+result["pr2"] = {"exit": code2, "s": round(end2 - start2, 2), "applied": "live code: applied" in text2,
+                 "fell_back": "so a dev build" in text2, "compile_refused": "did not compile against the build" in text2}
+result["pass"] = bool(code == 0 and applied and after[0] > before[0] + 1000
+                      and code2 == 0 and not result["pr2"]["applied"] and result["pr2"]["compile_refused"])
 json.dump(result, open(os.path.join(out, "result.json"), "w"), indent=2)
 print(json.dumps(result))
 sys.exit(0 if result["pass"] else 1)
