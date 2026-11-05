@@ -7197,5 +7197,13 @@
     "identityLocales": {
       "de": "Host is the usual German term for the computer that shares its screen."
     }
+  },
+  "home.engine.section.computer": {
+    "source": "Computer",
+    "identityLocales": {
+      "da": "Computer is the standard Danish word for a computer.",
+      "de": "Computer is the standard German word for a computer.",
+      "it": "Computer is the standard Italian word for a computer."
+    }
   }
 }

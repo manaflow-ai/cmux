@@ -23,13 +23,22 @@
 //   chief-vm fork ID [SIZE] [SETTINGS]              (a snapshot, then a new sandbox from it)
 //   chief-vm create --snapshot SNAP                 (start from one of your snapshots)
 //   chief-vm delete ID
+//   chief-vm computer setup ID                      (gives the sandbox a desktop: your computer, which the person
+//                                                    watches live in your profile; one at a time)
+//   chief-vm computer screenshot ID                 (saves the screen as a JPEG and prints its path: Read it)
+//   chief-vm computer click ID X Y [--right|--middle] [--double]
+//   chief-vm computer move ID X Y | drag ID X Y TO_X TO_Y | scroll ID X Y up|down|left|right [N]
+//   chief-vm computer type ID TEXT | key ID KEYS... (xdotool names: ctrl+l Return shift+Tab)
+//   chief-vm computer open ID URL                   (opens the page in Chrome on the desktop)
+//                                                   (every action prints the path of the screen after it; the
+//                                                    screen is 1280x800, X and Y are pixels from its top left)
 //
 //   SIZE: --cpu N --memory-gb N --disk-gb N (grow only; the disk starts at the image's size)
 //   SETTINGS: --name TEXT --meta K=V (repeatable) --idle-seconds N --ttl-seconds N
 import { createHash } from "node:crypto"
-import { closeSync, openSync, readFileSync, readSync, statSync, writeSync } from "node:fs"
+import { closeSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync, writeSync } from "node:fs"
 
-const USAGE = `usage: chief-vm list | get ID | cap | create [SIZE] [SETTINGS] [--image ubuntu|chief] [--snapshot freestyle/NAME] | update ID SETTINGS | resize ID SIZE | pause ID | start ID | stop ID | exec ID [--timeout S] [--user root|chief] [--env K=V]... [--stdin FILE|-] -- COMMAND... | fs ls|stat|exists|mkdir|rm|cat ID PATH | fs put ID LOCAL REMOTE | fs get ID REMOTE LOCAL | snapshot ID [--name T] [--ttl-seconds N] | snapshots | snapshot-get SNAP | snapshot-rename SNAP NAME | snapshot-delete SNAP | fork ID [SIZE] [SETTINGS] | delete ID
+const USAGE = `usage: chief-vm list | get ID | cap | create [SIZE] [SETTINGS] [--image ubuntu|chief] [--snapshot freestyle/NAME] | update ID SETTINGS | resize ID SIZE | pause ID | start ID | stop ID | exec ID [--timeout S] [--user root|chief] [--env K=V]... [--stdin FILE|-] -- COMMAND... | fs ls|stat|exists|mkdir|rm|cat ID PATH | fs put ID LOCAL REMOTE | fs get ID REMOTE LOCAL | snapshot ID [--name T] [--ttl-seconds N] | snapshots | snapshot-get SNAP | snapshot-rename SNAP NAME | snapshot-delete SNAP | fork ID [SIZE] [SETTINGS] | delete ID | computer setup|screenshot ID | computer click ID X Y [--right|--middle] [--double] | computer move ID X Y | computer drag ID X Y TO_X TO_Y | computer scroll ID X Y up|down|left|right [N] | computer type ID TEXT | computer key ID KEYS... | computer open ID URL
   SIZE: --cpu N --memory-gb N --disk-gb N    SETTINGS: --name TEXT --meta K=V --idle-seconds N --ttl-seconds N`
 const fail = (msg, code = 1) => [console.error(`chief-vm: ${msg}`), process.exit(code)]
 const call = async (body) => {
@@ -171,6 +180,33 @@ if (verb === "list" || verb === undefined) {
     await fsc("upload_commit", { upload_id })
     console.log(`${a} -> ${b2} (${size} bytes, sha256 ${sha256.slice(0, 12)})`)
   } else fail(USAGE, 2)
+} else if (verb === "computer") {
+  const [op, id, ...args] = rest
+  if (!op || !id) fail(USAGE, 2)
+  const n = (v) => (/^[0-9]+$/.test(v ?? "") ? Number(v) : fail(USAGE, 2))
+  const req = { action: "computer", id, op }
+  if (op === "click") {
+    const pos = args.filter((a) => !a.startsWith("--"))
+    ;[req.x, req.y] = [n(pos[0]), n(pos[1])]
+    if (args.includes("--right")) req.button = "right"
+    if (args.includes("--middle")) req.button = "middle"
+    if (args.includes("--double")) req.count = 2
+  } else if (op === "move") [req.x, req.y] = [n(args[0]), n(args[1])]
+  else if (op === "drag") [req.x, req.y, req.to_x, req.to_y] = args.slice(0, 4).map(n)
+  else if (op === "scroll") [req.x, req.y, req.direction, req.amount] = [n(args[0]), n(args[1]), args[2] ?? "down", args[3] === undefined ? 3 : n(args[3])]
+  else if (op === "type") req.text = args.join(" ") || fail(USAGE, 2)
+  else if (op === "key") req.keys = args.join(" ") || fail(USAGE, 2)
+  else if (op === "open") req.url = args[0] ?? fail(USAGE, 2)
+  else if (op !== "setup" && op !== "screenshot") fail(USAGE, 2)
+  const j = await call(req)
+  if (op === "setup") console.log(`${j.computer} is your computer now (${j.screen.width}x${j.screen.height}); the person sees its screen in your profile`)
+  if (j.image) {
+    const dir = `${process.env.HOME ?? "/tmp"}/work/.computer`
+    mkdirSync(dir, { recursive: true })
+    const file = `${dir}/screen-${Date.now()}.jpg`
+    writeFileSync(file, Buffer.from(j.image, "base64"))
+    console.log(`screen ${j.screen.width}x${j.screen.height}: ${file}`)
+  } else if (j.done) console.log(`${j.done} done`)
 } else if (verb === "snapshot") {
   const want = flags(rest.slice(1), { settings: true })
   const j = await call({ action: "snapshot", id: idOf(rest), ...(want.name ? { name: want.name } : {}), ...(want.ttl_seconds ? { ttl_seconds: want.ttl_seconds } : {}) })

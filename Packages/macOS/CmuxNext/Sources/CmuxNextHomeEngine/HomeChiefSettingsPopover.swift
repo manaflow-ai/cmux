@@ -15,6 +15,8 @@ public final class HomeChiefSettingsPopover {
     private let popup = NativePopupHost(panel: NativePopupPanel(identifier: "cmux.home.chiefSettings"))
     private let card: OverlaySurfaceView
     private weak var anchor: NSView?
+    /// The card closed (a click outside, Escape, the pill, or ``close()``).
+    public var onClose: () -> Void = {}
 
     public init(content: HomeChiefSettingsView) {
         self.content = content
@@ -29,6 +31,7 @@ public final class HomeChiefSettingsPopover {
         popup.onDismiss = { [weak self] in
             self?.content.commitEditing()
             self?.content.cardClosed()
+            self?.onClose()
         }
         content.onResize = { [weak self] in self?.resize() }
         // The open panel takes the keys from the popover, which closes; it runs over the window.
@@ -78,7 +81,12 @@ public final class HomeChiefSettingsPopover {
             }
         }
         let rect = window.convertToScreen(anchor.convert(CmuxPopoverAnchor.rect(in: anchor), to: nil))
-        guard popup.show(size: size(), anchor: rect, in: window, preferred: .below, centered: true, makeKey: true) != nil else { return false }
+        // The Computer section takes its first state before the card is measured.
+        content.computer.open()
+        guard popup.show(size: size(), anchor: rect, in: window, preferred: .below, centered: true, makeKey: true) != nil else {
+            content.computer.close()
+            return false
+        }
         // Like an NSPopover opened by a click: keys reach the card (Tab enters it, Escape closes
         // it), but no control shows a focus ring until the keyboard moves there. A ring on the
         // picture drew while open and vanished on the close's first frame (recording 2026-10-20).
@@ -91,6 +99,7 @@ public final class HomeChiefSettingsPopover {
         content.commitEditing()
         content.cardClosed()
         popup.hide()
+        onClose()
     }
 
     /// The content's height changed: the card follows it while shown.

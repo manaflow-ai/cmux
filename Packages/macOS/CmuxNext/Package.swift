@@ -628,7 +628,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextHomeEngineTests",
             dependencies: [
-                "CmuxNextHomeEngine", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextHome",
+                "CmuxNextHomeEngine", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextHome", "CmuxNextWakeupsTestSupport",
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
             ],
             swiftSettings: daemonSwiftSettings

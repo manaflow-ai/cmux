@@ -28,6 +28,17 @@
       "status": "build"
     },
     {
+      "id": "chief-vm-source",
+      "generator": "backend/apps/api/scripts/gen-chief-vm-source.ts",
+      "outputs": [
+        "backend/apps/api/src/chief-brain-cc/chief-vm-source.ts"
+      ],
+      "inputs": [
+        "backend/chief-cc/image/chief-vm.mjs"
+      ],
+      "status": "build"
+    },
+    {
       "id": "feature-tips",
       "generator": "webviews/scripts/pages/gen-feature-tips.mjs",
       "outputs": ["webviews/src/ui/featureTips/tips.generated.json"],

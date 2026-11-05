@@ -31,7 +31,7 @@ export const fakeCloud = (answer: (prompt: string, n: number) => Answer, during?
   const tags: Array<Array<string>> = []
   const other: Array<string> = []
   // Execs outside the turn machine's own steps (the Chief's sandboxes).
-  const execs: Array<{ vm: string; command: string; stdin: Uint8Array }> = []
+  const execs: Array<{ vm: string; command: string; stdin: Uint8Array; env?: Record<string, string>; user?: string | null }> = []
   // Each VM's size (Freestyle's default 4 vCPU / 8 GiB / 32 GB), and every resize asked for.
   const sizes = new Map<string, { cpu: number; memory: number; storage: number }>()
   const resizes: Array<{ vm: string; body: any }> = []
@@ -79,8 +79,11 @@ export const fakeCloud = (answer: (prompt: string, n: number) => Answer, during?
       const allowed = identities.get(t.identity)!.grants.get(ex[1]!)
       if (allowed === undefined || (allowed !== null && !allowed.includes(body.linuxUser ?? ""))) return Response.json({ code: "FORBIDDEN", message: "no access to this VM as that user" }, { status: 403 })
       execAuth.push({ vm: ex[1]!, by: `identity:${t.identity}`, user: body.linuxUser ?? null })
-      execs.push({ vm: ex[1]!, command: body.command, stdin: body.stdin ? Uint8Array.from(atob(body.stdin), (c) => c.charCodeAt(0)) : new Uint8Array() })
+      execs.push({ vm: ex[1]!, command: body.command, stdin: body.stdin ? Uint8Array.from(atob(body.stdin), (c) => c.charCodeAt(0)) : new Uint8Array(), ...(body.env ? { env: body.env } : {}), user: body.linuxUser ?? null })
       if (/(^|[;( ])poweroff/.test(body.command)) states.set(ex[1]!, "stopped")
+      // The Chief's computer (sandbox-computer.ts): the desktop setup, and a screenshot (a JPEG's base64; FAKE_SCREEN).
+      if (body.command.includes("| base64 -d | bash")) return Response.json({ statusCode: 0, stdout: "ready\n", stderr: "" })
+      if (body.command.includes("jpg:- | base64 -w0")) return Response.json({ statusCode: 0, stdout: FAKE_SCREEN, stderr: "" })
       if (body.command.includes("resize2fs")) return Response.json({ statusCode: 0, stdout: "/dev/vda 63G 1.2G 62G 2% /\n", stderr: "" })
       if (body.command === "printenv GREETING; cat") return Response.json({ statusCode: 0, stdout: `${body.env?.GREETING ?? ""}\n${body.stdin ? atob(body.stdin) : ""}`, stderr: "" })
       if (body.command === "whoami") return Response.json({ statusCode: 0, stdout: `${body.linuxUser}\n`, stderr: "" })
@@ -249,6 +252,8 @@ export const fakeCloud = (answer: (prompt: string, n: number) => Answer, during?
   return { events, made, deleted, boots, started, nets, steps, keys, tags, other, execs, sizes, resizes, identities, tokens, execAuth, states, patches, files, uploads, snapshots, lifecycle }
 }
 
+/** The fake computer's screen: a JPEG's start marker and enough bytes to pass as a screenshot. */
+export const FAKE_SCREEN = btoa(String.fromCharCode(0xff, 0xd8, 0xff, 0xe0, ...Array.from({ length: 120 }, (_, i) => i)))
 export const notes = (s: Started, body: unknown, token = s.input.token) => worker.fetch(s.input.notes_url, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) })
 export const machine = async (s: Started, reply: string) => {
   const half = Math.floor(reply.length / 2)

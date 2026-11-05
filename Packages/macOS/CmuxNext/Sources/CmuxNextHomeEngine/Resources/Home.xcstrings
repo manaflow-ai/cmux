@@ -3558,6 +3558,270 @@
         }
       }
     },
+    "home.engine.close": {
+      "comment": "VoiceOver name and tooltip of the close button on the Chief's profile card.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إغلاق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zatvori"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Luk"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schließen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerrar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fermer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiudi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閉じる"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "닫기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lukk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zamknij"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fechar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закрыть"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закрити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đóng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉"
+          }
+        }
+      }
+    },
+    "home.engine.computer.caption": {
+      "comment": "Caption under the Chief's computer's screen. %@ is the Chief's name.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شاشة %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekran: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@s skærm"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildschirm von %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@’s screen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pantalla de %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Écran de %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schermo di %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の画面"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អេក្រង់របស់ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 화면"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjermen til %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekran: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tela de %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Экран: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หน้าจอของ %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ekranı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Екран: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Màn hình của %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 的屏幕"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 的螢幕"
+          }
+        }
+      }
+    },
     "home.engine.primary": {
       "extractionState": "manual",
       "localizations": {
@@ -5259,6 +5523,138 @@
           "stringUnit": {
             "state": "translated",
             "value": "Không đổi được tên Chief (%@)."
+          }
+        }
+      }
+    },
+    "home.engine.section.computer": {
+      "comment": "Tab on the Chief's profile card that shows its computer.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الكمبيوتر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Računar"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordenador"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordinateur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កុំព្យូទ័រ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컴퓨터"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Datamaskin"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komputer"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computador"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Компьютер"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คอมพิวเตอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bilgisayar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Комп’ютер"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy tính"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "电脑"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "電腦"
           }
         }
       }
@@ -17906,138 +18302,6 @@
         }
       }
     },
-    "home.chief.stillStarting": {
-      "comment": "Home system notice in the Chief conversation while a Chief turn's session has taken long to start because the machine is loaded. The number is seconds waited so far.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The machine is busy. The Chief is still starting (%lld s)."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الجهاز مشغول. لا يزال Chief قيد البدء (%lld ث)."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Računar je zauzet. Chief se još pokreće (%lld s)."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Maskinen er optaget. Chief starter stadig (%lld s)."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Der Computer ist ausgelastet. Der Chief startet noch (%lld s)."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "El equipo está ocupado. Chief aún se está iniciando (%lld s)."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La machine est occupée. Chief est encore en cours de démarrage (%lld s)."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Il computer è occupato. Chief si sta ancora avviando (%lld s)."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "マシンがビジー状態です。Chief はまだ起動中です（%lld 秒）。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ម៉ាស៊ីនកំពុងរវល់។ Chief នៅតែកំពុងចាប់ផ្តើម (%lld វិនាទី)។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "컴퓨터가 사용 중입니다. Chief가 아직 시작하는 중입니다(%lld초)."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Maskinen er opptatt. Chief starter fortsatt (%lld s)."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Komputer jest zajęty. Chief nadal się uruchamia (%lld s)."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "A máquina está ocupada. O Chief ainda está iniciando (%lld s)."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Компьютер занят. Chief всё ещё запускается (%lld с)."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เครื่องไม่ว่าง Chief ยังคงเริ่มทำงานอยู่ (%lld วินาที)"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Makine meşgul. Chief hâlâ başlatılıyor (%lld sn)."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Комп'ютер зайнятий. Chief усе ще запускається (%lld с)."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Máy đang bận. Chief vẫn đang khởi động (%lld giây)."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "机器正忙。Chief 仍在启动（%lld 秒）。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "機器忙碌中。Chief 仍在啟動（%lld 秒）。"
-          }
-        }
-      }
-    },
     "home.chief.welcome.ask": {
       "comment": "Chief's welcome message: its last line, what the user can ask the Chief about.",
       "extractionState": "manual",
@@ -18298,6 +18562,534 @@
           "stringUnit": {
             "state": "translated",
             "value": "移動和縮放"
+          }
+        }
+      }
+    },
+    "home.engine.computer.asleep": {
+      "comment": "Shown on the Chief's Cloud machine screen while the machine is paused.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الكمبيوتر في وضع السكون"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Računar spava"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computeren sover"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer schläft"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer is asleep"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El ordenador está en reposo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’ordinateur est en veille"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il computer è in stop"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータはスリープ中です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កុំព្យូទ័រកំពុងដេក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컴퓨터가 잠자기 상태입니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Datamaskinen sover"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Komputer jest uśpiony"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O computador está em repouso"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Компьютер в режиме сна"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คอมพิวเตอร์กำลังพักเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bilgisayar uykuda"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Комп’ютер у режимі сну"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy tính đang ngủ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "电脑正在休眠"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "電腦正在睡眠"
+          }
+        }
+      }
+    },
+    "home.engine.computer.connecting": {
+      "comment": "Shown on the Chief's Cloud machine screen before its first frame arrives.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ الاتصال…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Povezivanje…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opretter forbindelse…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinden …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecting…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectando…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connexion…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Connessione…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続中…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងភ្ជាប់…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kobler til …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Łączenie…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conectando…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Подключение…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังเชื่อมต่อ…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bağlanıyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Підключення…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang kết nối…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在连接…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在連線…"
+          }
+        }
+      }
+    },
+    "home.engine.computer.unavailable": {
+      "comment": "Shown on the Chief's Cloud machine screen when it cannot be shown.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الكمبيوتر غير متاح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Računar nije dostupan"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computeren er ikke tilgængelig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer ist nicht verfügbar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer isn’t available"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El ordenador no está disponible"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’ordinateur n’est pas disponible"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il computer non è disponibile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータを利用できません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កុំព្យូទ័រមិនអាចប្រើបានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컴퓨터를 사용할 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Datamaskinen er ikke tilgjengelig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Komputer jest niedostępny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O computador não está disponível"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Компьютер недоступен"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คอมพิวเตอร์ไม่พร้อมใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bilgisayar kullanılamıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Комп’ютер недоступний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy tính không khả dụng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "电脑不可用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "電腦無法使用"
+          }
+        }
+      }
+    },
+    "home.engine.computer.waking": {
+      "comment": "Shown on the Chief's Cloud machine screen while the machine starts.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ الاستيقاظ…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Budi se…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vågner…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird aktiviert …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waking up…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Despertando…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réveil en cours…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Riattivazione…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "起動中…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងភ្ញាក់…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "깨우는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Våkner …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wybudzanie…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Despertando…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пробуждение…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังปลุก…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uyanıyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пробудження…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang khởi động…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在唤醒…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在喚醒…"
           }
         }
       }
@@ -18698,266 +19490,266 @@
         }
       }
     },
-    "home.chief.welcomeAbout" : {
-      "comment" : "Chief's second message on a fresh install, right after its greeting: what Chief can do. Keep the line break.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "يمكنني إنشاء مساحات عمل جديدة، وتشغيل الوكلاء لك، وإعداد cmux أو تخصيصه كما تحب.\nأخبرني فقط بما تريد إنجازه."
+    "home.chief.welcomeAbout": {
+      "comment": "Chief's second message on a fresh install, right after its greeting: what Chief can do. Keep the line break.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكنني إنشاء مساحات عمل جديدة، وتشغيل الوكلاء لك، وإعداد cmux أو تخصيصه كما تحب.\nأخبرني فقط بما تريد إنجازه."
           }
         },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mogu napraviti nove radne prostore, pokrenuti agente za vas i podesiti ili prilagoditi cmux kako želite.\nSamo mi recite šta želite uraditi."
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mogu napraviti nove radne prostore, pokrenuti agente za vas i podesiti ili prilagoditi cmux kako želite.\nSamo mi recite šta želite uraditi."
           }
         },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Jeg kan oprette nye arbejdsområder, starte agenter for dig og sætte cmux op eller tilpasse det, som du vil.\nSig bare, hvad du vil have gjort."
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jeg kan oprette nye arbejdsområder, starte agenter for dig og sætte cmux op eller tilpasse det, som du vil.\nSig bare, hvad du vil have gjort."
           }
         },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ich kann neue Arbeitsbereiche anlegen, Agenten für dich starten und cmux ganz nach deinem Geschmack einrichten und anpassen.\nSag mir einfach, was erledigt werden soll."
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ich kann neue Arbeitsbereiche anlegen, Agenten für dich starten und cmux ganz nach deinem Geschmack einrichten und anpassen.\nSag mir einfach, was erledigt werden soll."
           }
         },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "I can make new workspaces, start agents for you, and set up or customize cmux however you like.\nJust tell me what you want done."
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I can make new workspaces, start agents for you, and set up or customize cmux however you like.\nJust tell me what you want done."
           }
         },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Puedo crear espacios de trabajo, iniciar agentes por ti y configurar o personalizar cmux a tu gusto.\nSolo dime qué quieres hacer."
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Puedo crear espacios de trabajo, iniciar agentes por ti y configurar o personalizar cmux a tu gusto.\nSolo dime qué quieres hacer."
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Je peux créer des espaces de travail, lancer des agents pour vous et configurer ou personnaliser cmux comme vous le souhaitez.\nDites-moi simplement ce que vous voulez faire."
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Je peux créer des espaces de travail, lancer des agents pour vous et configurer ou personnaliser cmux comme vous le souhaitez.\nDites-moi simplement ce que vous voulez faire."
           }
         },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Posso creare nuovi spazi di lavoro, avviare agenti per te e configurare o personalizzare cmux come preferisci.\nDimmi solo cosa vuoi fare."
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posso creare nuovi spazi di lavoro, avviare agenti per te e configurare o personalizzare cmux come preferisci.\nDimmi solo cosa vuoi fare."
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "新しいワークスペースを作ったり、エージェントを起動したり、cmux を好きなように設定・カスタマイズしたりできます。\nやりたいことを気軽に話しかけてください。"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいワークスペースを作ったり、エージェントを起動したり、cmux を好きなように設定・カスタマイズしたりできます。\nやりたいことを気軽に話しかけてください。"
           }
         },
-        "km" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ខ្ញុំអាចបង្កើតកន្លែងធ្វើការថ្មី ចាប់ផ្តើមភ្នាក់ងារឱ្យអ្នក និងរៀបចំ ឬប្ដូរ cmux តាមចិត្តអ្នក។\nគ្រាន់តែប្រាប់ខ្ញុំពីអ្វីដែលអ្នកចង់ធ្វើ។"
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ខ្ញុំអាចបង្កើតកន្លែងធ្វើការថ្មី ចាប់ផ្តើមភ្នាក់ងារឱ្យអ្នក និងរៀបចំ ឬប្ដូរ cmux តាមចិត្តអ្នក។\nគ្រាន់តែប្រាប់ខ្ញុំពីអ្វីដែលអ្នកចង់ធ្វើ។"
           }
         },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "새 워크스페이스를 만들고, 에이전트를 시작하고, cmux를 원하는 대로 설정하거나 꾸며 드릴 수 있어요.\n하고 싶은 일을 말씀만 해 주세요."
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 워크스페이스를 만들고, 에이전트를 시작하고, cmux를 원하는 대로 설정하거나 꾸며 드릴 수 있어요.\n하고 싶은 일을 말씀만 해 주세요."
           }
         },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Jeg kan lage nye arbeidsområder, starte agenter for deg og sette opp eller tilpasse cmux slik du vil.\nBare si hva du vil ha gjort."
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jeg kan lage nye arbeidsområder, starte agenter for deg og sette opp eller tilpasse cmux slik du vil.\nBare si hva du vil ha gjort."
           }
         },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mogę tworzyć nowe obszary robocze, uruchamiać dla Ciebie agentów oraz konfigurować i dostosowywać cmux tak, jak lubisz.\nPo prostu powiedz, co chcesz zrobić."
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mogę tworzyć nowe obszary robocze, uruchamiać dla Ciebie agentów oraz konfigurować i dostosowywać cmux tak, jak lubisz.\nPo prostu powiedz, co chcesz zrobić."
           }
         },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Posso criar novos espaços de trabalho, iniciar agentes para você e configurar ou personalizar o cmux do seu jeito.\nÉ só me dizer o que você quer fazer."
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posso criar novos espaços de trabalho, iniciar agentes para você e configurar ou personalizar o cmux do seu jeito.\nÉ só me dizer o que você quer fazer."
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Я могу создавать новые рабочие пространства, запускать агентов и настраивать cmux так, как вам нравится.\nПросто скажите, что нужно сделать."
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Я могу создавать новые рабочие пространства, запускать агентов и настраивать cmux так, как вам нравится.\nПросто скажите, что нужно сделать."
           }
         },
-        "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ฉันสร้างเวิร์กสเปซใหม่ เริ่มเอเจนต์ให้คุณ และตั้งค่าหรือปรับแต่ง cmux ได้ตามที่คุณชอบ\nแค่บอกฉันว่าคุณอยากทำอะไร"
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ฉันสร้างเวิร์กสเปซใหม่ เริ่มเอเจนต์ให้คุณ และตั้งค่าหรือปรับแต่ง cmux ได้ตามที่คุณชอบ\nแค่บอกฉันว่าคุณอยากทำอะไร"
           }
         },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Yeni çalışma alanları oluşturabilir, sizin için ajanlar başlatabilir ve cmux'u istediğiniz gibi ayarlayıp özelleştirebilirim.\nNe yapmak istediğinizi söylemeniz yeterli."
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni çalışma alanları oluşturabilir, sizin için ajanlar başlatabilir ve cmux'u istediğiniz gibi ayarlayıp özelleştirebilirim.\nNe yapmak istediğinizi söylemeniz yeterli."
           }
         },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Я можу створювати нові робочі простори, запускати агентів і налаштовувати cmux так, як вам подобається.\nПросто скажіть, що потрібно зробити."
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Я можу створювати нові робочі простори, запускати агентів і налаштовувати cmux так, як вам подобається.\nПросто скажіть, що потрібно зробити."
           }
         },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mình có thể tạo không gian làm việc mới, khởi chạy agent cho bạn và thiết lập hoặc tùy biến cmux theo ý bạn.\nCứ nói mình biết bạn muốn làm gì."
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mình có thể tạo không gian làm việc mới, khởi chạy agent cho bạn và thiết lập hoặc tùy biến cmux theo ý bạn.\nCứ nói mình biết bạn muốn làm gì."
           }
         },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "我可以新建工作区、为你启动智能体，还能按你的喜好设置和自定义 cmux。\n告诉我你想做什么就好。"
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我可以新建工作区、为你启动智能体，还能按你的喜好设置和自定义 cmux。\n告诉我你想做什么就好。"
           }
         },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "我可以建立新的工作區、幫你啟動代理，還能依你的喜好設定和自訂 cmux。\n告訴我你想做什麼就好。"
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我可以建立新的工作區、幫你啟動代理，還能依你的喜好設定和自訂 cmux。\n告訴我你想做什麼就好。"
           }
         }
       }
     },
-    "home.chief.welcomeHello" : {
-      "comment" : "Chief's first message on a fresh install: a short greeting. Chief's next message says what it can do.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "مرحبًا بك في cmux! 👋 أنا Chief."
+    "home.chief.welcomeHello": {
+      "comment": "Chief's first message on a fresh install: a short greeting. Chief's next message says what it can do.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مرحبًا بك في cmux! 👋 أنا Chief."
           }
         },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dobro došli u cmux! 👋 Ja sam Chief."
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dobro došli u cmux! 👋 Ja sam Chief."
           }
         },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Velkommen til cmux! 👋 Jeg er Chief."
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Velkommen til cmux! 👋 Jeg er Chief."
           }
         },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Willkommen bei cmux! 👋 Ich bin Chief."
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Willkommen bei cmux! 👋 Ich bin Chief."
           }
         },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Welcome to cmux! 👋 I'm Chief."
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Welcome to cmux! 👋 I'm Chief."
           }
         },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "¡Te damos la bienvenida a cmux! 👋 Soy Chief."
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¡Te damos la bienvenida a cmux! 👋 Soy Chief."
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bienvenue dans cmux ! 👋 Je suis Chief."
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bienvenue dans cmux ! 👋 Je suis Chief."
           }
         },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Benvenuto in cmux! 👋 Sono Chief."
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Benvenuto in cmux! 👋 Sono Chief."
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux へようこそ！👋 Chief です。"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux へようこそ！👋 Chief です。"
           }
         },
-        "km" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "សូមស្វាគមន៍មកកាន់ cmux! 👋 ខ្ញុំគឺ Chief។"
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សូមស្វាគមន៍មកកាន់ cmux! 👋 ខ្ញុំគឺ Chief។"
           }
         },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux에 오신 것을 환영합니다! 👋 저는 Chief예요."
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux에 오신 것을 환영합니다! 👋 저는 Chief예요."
           }
         },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Velkommen til cmux! 👋 Jeg er Chief."
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Velkommen til cmux! 👋 Jeg er Chief."
           }
         },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Witaj w cmux! 👋 Jestem Chief."
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Witaj w cmux! 👋 Jestem Chief."
           }
         },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Boas-vindas ao cmux! 👋 Eu sou o Chief."
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boas-vindas ao cmux! 👋 Eu sou o Chief."
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Добро пожаловать в cmux! 👋 Я Chief."
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добро пожаловать в cmux! 👋 Я Chief."
           }
         },
-        "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ยินดีต้อนรับสู่ cmux! 👋 ฉันคือ Chief"
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยินดีต้อนรับสู่ cmux! 👋 ฉันคือ Chief"
           }
         },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux'a hoş geldiniz! 👋 Ben Chief."
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux'a hoş geldiniz! 👋 Ben Chief."
           }
         },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ласкаво просимо до cmux! 👋 Я Chief."
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ласкаво просимо до cmux! 👋 Я Chief."
           }
         },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Chào mừng bạn đến với cmux! 👋 Mình là Chief."
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chào mừng bạn đến với cmux! 👋 Mình là Chief."
           }
         },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "欢迎使用 cmux！👋 我是 Chief。"
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "欢迎使用 cmux！👋 我是 Chief。"
           }
         },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "歡迎使用 cmux！👋 我是 Chief。"
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "歡迎使用 cmux！👋 我是 Chief。"
           }
         }
       }
@@ -19090,6 +19882,138 @@
           "stringUnit": {
             "state": "translated",
             "value": "想換成你喜歡的樣子嗎？可以從內建藝術作品或你自己的圖片中[選擇背景](%@)。也可以略過，直接跟我打聲招呼。"
+          }
+        }
+      }
+    },
+    "home.chief.stillStarting": {
+      "comment": "Home system notice in the Chief conversation while a Chief turn's session has taken long to start because the machine is loaded. The number is seconds waited so far.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The machine is busy. The Chief is still starting (%lld s)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الجهاز مشغول. لا يزال Chief قيد البدء (%lld ث)."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Računar je zauzet. Chief se još pokreće (%lld s)."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maskinen er optaget. Chief starter stadig (%lld s)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Computer ist ausgelastet. Der Chief startet noch (%lld s)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El equipo está ocupado. Chief aún se está iniciando (%lld s)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La machine est occupée. Chief est encore en cours de démarrage (%lld s)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il computer è occupato. Chief si sta ancora avviando (%lld s)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンがビジー状態です。Chief はまだ起動中です（%lld 秒）。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនកំពុងរវល់។ Chief នៅតែកំពុងចាប់ផ្តើម (%lld វិនាទី)។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컴퓨터가 사용 중입니다. Chief가 아직 시작하는 중입니다(%lld초)."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maskinen er opptatt. Chief starter fortsatt (%lld s)."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Komputer jest zajęty. Chief nadal się uruchamia (%lld s)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A máquina está ocupada. O Chief ainda está iniciando (%lld s)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Компьютер занят. Chief всё ещё запускается (%lld с)."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครื่องไม่ว่าง Chief ยังคงเริ่มทำงานอยู่ (%lld วินาที)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Makine meşgul. Chief hâlâ başlatılıyor (%lld sn)."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Комп'ютер зайнятий. Chief усе ще запускається (%lld с)."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy đang bận. Chief vẫn đang khởi động (%lld giây)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "机器正忙。Chief 仍在启动（%lld 秒）。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "機器忙碌中。Chief 仍在啟動（%lld 秒）。"
           }
         }
       }

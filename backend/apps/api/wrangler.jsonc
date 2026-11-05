@@ -6,6 +6,8 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "cmux-api-local",
   "main": "src/index.ts",
+  // Writes src/chief-brain-cc/chief-vm-source.ts (build output, gitignored) before every deploy and dev run.
+  "build": { "command": "bun scripts/gen-chief-vm-source.ts" },
   "compatibility_date": "2026-08-20",
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },

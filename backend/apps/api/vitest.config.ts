@@ -3,6 +3,10 @@ import { exportJWK, exportPKCS8, generateKeyPair } from "jose"
 import { createHash } from "node:crypto"
 import { defineConfig } from "vitest/config"
 import { cloudAllowedTeams } from "./test/setup/cloud-teams.ts"
+import { writeChiefVmSource } from "./scripts/gen-chief-vm-source.ts"
+
+// The turn machine's chief-vm, as the Worker embeds it (build output, not in git).
+writeChiefVmSource()
 
 // Test-only keys: a fake Stack signing key (its JWKS replaces Stack's published
 // keys only when ENVIRONMENT=test) and the API's token signing key.

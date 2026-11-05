@@ -15,6 +15,7 @@ import UniformTypeIdentifiers
 /// "Default", and the trace stats in the body. Now it is one settings card:
 ///
 /// - Identity: the avatar, a menu to change it, and the name beside it.
+/// - Computer: the Chief's own Cloud computer's screen, live while it runs (``HomeChiefComputerSection``).
 /// - Agent: Harness, Model, Effort and (where the harness has a fast tier) Speed rows; "Default"
 ///   names what it runs. The Model menu groups by family (``HomeChiefModelMenu``) and Effort offers
 ///   only the levels the shown model takes.
@@ -55,6 +56,12 @@ public final class HomeChiefSettingsView: NSView {
     let speed = ThemedPopUpButton(frame: .zero, pullsDown: false)
     /// The models picked per harness, the Model menu's Recent section; the app passes its defaults.
     public var recents = HomeChiefModelRecents()
+    /// The Chief's own Cloud computer and its screen, where Messages shows Find My (cmux issue 31488);
+    /// the app sets its ``HomeChiefComputerSection/source``. Hidden without a paid plan and until the
+    /// Chief has set up a computer.
+    public let computer = HomeChiefComputerSection()
+    /// "Computer", over ``computer``; hidden with it.
+    let computerHeader = HomeChiefSettingsView.sectionHeader(HomeEngineStrings.computerSection)
     /// UniiChat's one-line sign-in note under the Harness row (``ChiefBackend/hint``);
     /// hidden for every other harness.
     let harnessHint = ThemedLabel(wrappingLabelWithString: "")
@@ -179,6 +186,16 @@ public final class HomeChiefSettingsView: NSView {
         addFullWidth(failure)
         addPrimaryRow()
         addTeleportRow()
+        // Computer, under who the Chief is, as Messages shows Find My under a contact (cmux issue 31488).
+        computerHeader.isHidden = true
+        computer.onResize = { [weak self] in
+            guard let self else { return }
+            computerHeader.isHidden = computer.isHidden
+            onResize()
+        }
+        addFullWidth(computerHeader)
+        addFullWidth(computer)
+        stack.setCustomSpacing(Metrics.space4, after: computer)
         addFullWidth(Self.sectionHeader(HomeEngineStrings.agentSection))
         for (button, label) in [(harness, HomeEngineStrings.harness), (model, HomeEngineStrings.model), (effort, HomeEngineStrings.effort),
                                 (speed, HomeEngineStrings.speed)] {

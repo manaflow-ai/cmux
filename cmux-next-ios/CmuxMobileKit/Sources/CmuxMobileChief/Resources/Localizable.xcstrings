@@ -1,216 +1,6 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "mobile.chief.menu.chatColors": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Chat Colors…"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Chatfarben …"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Couleurs de la discussion…"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "ألوان الدردشة…"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Colores del chat…"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "聊天顏色⋯"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "聊天颜色…"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "채팅 색상…"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "チャットの色…"}}
-      }
-    },
-    "mobile.chief.colors.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Chat Colors"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Chatfarben"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Couleurs de la discussion"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "ألوان الدردشة"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Colores del chat"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "聊天顏色"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "聊天颜色"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "채팅 색상"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "チャットの色"}}
-      }
-    },
-    "mobile.chief.colors.mine": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "My Messages"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Meine Nachrichten"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Mes messages"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "رسائلي"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Mis mensajes"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "我的訊息"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "我的信息"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "내 메시지"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "自分のメッセージ"}}
-      }
-    },
-    "mobile.chief.colors.theirs": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Their Messages"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Ihre Nachrichten"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Leurs messages"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "رسائلهم"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Sus mensajes"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "對方的訊息"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "对方的信息"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "상대방 메시지"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "相手のメッセージ"}}
-      }
-    },
-    "mobile.chief.colors.bubble": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Bubble"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Blase"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Bulle"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "الفقاعة"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Burbuja"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "泡泡"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "气泡"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "말풍선"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "吹き出し"}}
-      }
-    },
-    "mobile.chief.colors.text": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Text"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Text"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Texte"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "النص"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Texto"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "文字"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "文字"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "텍스트"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "テキスト"}}
-      }
-    },
-    "mobile.chief.colors.automatic": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Automatic"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Automatisch"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Automatique"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "تلقائي"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Automático"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "自動"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "自动"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "자동"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "自動"}}
-      }
-    },
-    "mobile.chief.colors.default": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Default"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Standard"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Par défaut"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "الافتراضي"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Predeterminado"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "預設"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "默认"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "기본값"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "デフォルト"}}
-      }
-    },
-    "mobile.chief.colors.reset": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Reset"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Zurücksetzen"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Réinitialiser"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "إعادة تعيين"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Restablecer"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "重置"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "还原"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "재설정"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "リセット"}}
-      }
-    },
-    "mobile.chief.colors.footer": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Only this chat changes, on this iPhone."}},
-        "de": {"stringUnit": {"state": "translated", "value": "Nur dieser Chat ändert sich, auf diesem iPhone."}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Seule cette discussion change, sur cet iPhone."}},
-        "ar": {"stringUnit": {"state": "translated", "value": "تتغير هذه الدردشة فقط، على هذا الـiPhone."}},
-        "es": {"stringUnit": {"state": "translated", "value": "Solo cambia este chat, en este iPhone."}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "只有此聊天會改變，僅在此 iPhone 上。"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "只有此聊天会改变，仅在此 iPhone 上。"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "이 iPhone에서 이 채팅만 바뀝니다."}},
-        "ja": {"stringUnit": {"state": "translated", "value": "このiPhoneのこのチャットだけが変わります。"}}
-      }
-    },
-    "mobile.chief.menu.more": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "More"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Mehr"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Plus"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "المزيد"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Más"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "更多"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "更多"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "더 보기"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "その他"}}
-      }
-    },
-    "mobile.chief.zoom.in": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Zoom In"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Vergrößern"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Agrandir"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "تكبير"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Ampliar"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "放大"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "放大"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "확대"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "拡大"}}
-      }
-    },
-    "mobile.chief.zoom.out": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Zoom Out"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Verkleinern"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Réduire"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "تصغير"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Reducir"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "縮小"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "缩小"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "축소"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "縮小"}}
-      }
-    },
-    "mobile.chief.zoom.actual": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Actual Size"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Originalgröße"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Taille réelle"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "الحجم الفعلي"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Tamaño real"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "實際大小"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "实际大小"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "실제 크기"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "実際のサイズ"}}
-      }
-    },
-    "mobile.chief.zoom.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Text Size: %@"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Textgröße: %@"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Taille du texte : %@"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "حجم النص: %@"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Tamaño del texto: %@"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "文字大小：%@"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "文字大小：%@"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "텍스트 크기: %@"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "テキストサイズ：%@"}}
-      }
-    },
     "mobile.chief.serviceSubtitle": {
       "extractionState": "manual",
       "localizations": {
@@ -531,6 +321,342 @@
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "诊断"}},
         "ko": {"stringUnit": {"state": "translated", "value": "진단"}},
         "ja": {"stringUnit": {"state": "translated", "value": "診断"}}
+      }
+    },
+    "mobile.chief.computer.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "%@’s Computer"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Computer von %@"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Ordinateur de %@"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "كمبيوتر %@"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Ordenador de %@"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "%@的電腦"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "%@的电脑"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "%@의 컴퓨터"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "%@のコンピュータ"}}
+      }
+    },
+    "mobile.chief.computer.screen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Screen of %@"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Bildschirm von %@"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Écran de %@"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "شاشة %@"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Pantalla de %@"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "%@ 的螢幕"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "%@ 的屏幕"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "%@의 화면"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "%@の画面"}}
+      }
+    },
+    "mobile.chief.computer.state.live": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Running"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Aktiv"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "En marche"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "قيد التشغيل"}},
+        "es": {"stringUnit": {"state": "translated", "value": "En ejecución"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "執行中"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "运行中"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "실행 중"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "実行中"}}
+      }
+    },
+    "mobile.chief.computer.state.asleep": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Asleep"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Schläft"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "En veille"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "في وضع السكون"}},
+        "es": {"stringUnit": {"state": "translated", "value": "En reposo"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "睡眠"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "休眠"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "잠자기"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "スリープ"}}
+      }
+    },
+    "mobile.chief.computer.state.waking": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Starting"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Startet"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Démarrage"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "جارٍ البدء"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Iniciando"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "正在啟動"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "正在启动"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "시작 중"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "起動中"}}
+      }
+    },
+    "mobile.chief.computer.state.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Unavailable"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Nicht verfügbar"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Indisponible"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "غير متاح"}},
+        "es": {"stringUnit": {"state": "translated", "value": "No disponible"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無法使用"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "不可用"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "사용할 수 없음"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "利用不可"}}
+      }
+    },
+    "mobile.chief.computer.asleep": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Computer is asleep"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Computer schläft"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "L’ordinateur est en veille"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "الكمبيوتر في وضع السكون"}},
+        "es": {"stringUnit": {"state": "translated", "value": "El ordenador está en reposo"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "電腦正在睡眠"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "电脑正在休眠"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "컴퓨터가 잠자기 상태입니다"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "コンピュータはスリープ中です"}}
+      }
+    },
+    "mobile.chief.computer.waking": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Waking up…"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Wird aktiviert …"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Réveil en cours…"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "جارٍ الاستيقاظ…"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Despertando…"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "正在喚醒…"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "正在唤醒…"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "깨우는 중…"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "起動中…"}}
+      }
+    },
+    "mobile.chief.computer.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Computer isn’t available"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Computer ist nicht verfügbar"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "L’ordinateur n’est pas disponible"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "الكمبيوتر غير متاح"}},
+        "es": {"stringUnit": {"state": "translated", "value": "El ordenador no está disponible"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "電腦無法使用"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "电脑不可用"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "컴퓨터를 사용할 수 없습니다"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "コンピュータを利用できません"}}
+      }
+    },
+    "mobile.chief.menu.chatColors": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Chat Colors…"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Chatfarben …"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Couleurs de la discussion…"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "ألوان الدردشة…"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Colores del chat…"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "聊天顏色⋯"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "聊天颜色…"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "채팅 색상…"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "チャットの色…"}}
+      }
+    },
+    "mobile.chief.colors.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Chat Colors"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Chatfarben"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Couleurs de la discussion"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "ألوان الدردشة"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Colores del chat"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "聊天顏色"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "聊天颜色"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "채팅 색상"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "チャットの色"}}
+      }
+    },
+    "mobile.chief.colors.mine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "My Messages"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Meine Nachrichten"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Mes messages"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "رسائلي"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Mis mensajes"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "我的訊息"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "我的信息"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "내 메시지"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "自分のメッセージ"}}
+      }
+    },
+    "mobile.chief.colors.theirs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Their Messages"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Ihre Nachrichten"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Leurs messages"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "رسائلهم"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Sus mensajes"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "對方的訊息"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "对方的信息"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "상대방 메시지"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "相手のメッセージ"}}
+      }
+    },
+    "mobile.chief.colors.bubble": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Bubble"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Blase"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Bulle"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "الفقاعة"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Burbuja"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "泡泡"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "气泡"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "말풍선"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "吹き出し"}}
+      }
+    },
+    "mobile.chief.colors.text": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Text"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Text"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Texte"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "النص"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Texto"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "文字"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "文字"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "텍스트"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "テキスト"}}
+      }
+    },
+    "mobile.chief.colors.automatic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Automatic"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Automatisch"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Automatique"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تلقائي"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Automático"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "自動"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "自动"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "자동"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "自動"}}
+      }
+    },
+    "mobile.chief.colors.default": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Default"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Standard"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Par défaut"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "الافتراضي"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Predeterminado"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "預設"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "默认"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "기본값"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "デフォルト"}}
+      }
+    },
+    "mobile.chief.colors.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Reset"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Zurücksetzen"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Réinitialiser"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "إعادة تعيين"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Restablecer"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "重置"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "还原"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "재설정"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "リセット"}}
+      }
+    },
+    "mobile.chief.colors.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Only this chat changes, on this iPhone."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Nur dieser Chat ändert sich, auf diesem iPhone."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Seule cette discussion change, sur cet iPhone."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تتغير هذه الدردشة فقط، على هذا الـiPhone."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Solo cambia este chat, en este iPhone."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "只有此聊天會改變，僅在此 iPhone 上。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "只有此聊天会改变，仅在此 iPhone 上。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "이 iPhone에서 이 채팅만 바뀝니다."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "このiPhoneのこのチャットだけが変わります。"}}
+      }
+    },
+    "mobile.chief.menu.more": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "More"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Mehr"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Plus"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "المزيد"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Más"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "更多"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "更多"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "더 보기"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "その他"}}
+      }
+    },
+    "mobile.chief.zoom.in": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Zoom In"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Vergrößern"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Agrandir"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تكبير"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Ampliar"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "放大"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "放大"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "확대"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "拡大"}}
+      }
+    },
+    "mobile.chief.zoom.out": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Zoom Out"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Verkleinern"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Réduire"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تصغير"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Reducir"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "縮小"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "缩小"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "축소"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "縮小"}}
+      }
+    },
+    "mobile.chief.zoom.actual": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Actual Size"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Originalgröße"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Taille réelle"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "الحجم الفعلي"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Tamaño real"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "實際大小"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "实际大小"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "실제 크기"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "実際のサイズ"}}
+      }
+    },
+    "mobile.chief.zoom.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Text Size: %@"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Textgröße: %@"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Taille du texte : %@"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "حجم النص: %@"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Tamaño del texto: %@"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "文字大小：%@"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "文字大小：%@"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "텍스트 크기: %@"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "テキストサイズ：%@"}}
       }
     }
   },

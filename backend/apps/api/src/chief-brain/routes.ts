@@ -4,6 +4,7 @@ import { chiefOwnedBy } from "./brain-io.ts"
 import { brainName, type ConfigPatch } from "./brain-do.ts"
 import { childObject } from "./brain-spawn.ts"
 import { githubOf } from "../chief-brain-cc/github.ts"
+import { sandboxesOf } from "../chief-brain-cc/sandbox.ts"
 import { chiefMainConversation } from "../domains/user-chief.ts"
 import { PEER_NAME, PEER_TEXT_MAX } from "./brain-turn.ts"
 import type { MemoryExport } from "../chief-durable/durable-do.ts"
@@ -29,6 +30,10 @@ import { type AppendBody, type AppendResult, type ImportBody, type ImportFail, t
  *   GET  /v1/chiefs/<agent>/runs/<run>?conversation=<id>&after_seq=<n>   a member: {run, steps, has_more}
  *        (a subagent's run `sub_<n>` is read from its own object, brain-spawn.ts)
  *   GET  /v1/chiefs/<agent>/machine-login/<run>?conversation=<id>   the owner's human session: pending provider sign-in status
+ *   GET  /v1/chiefs/<agent>/computer        the owner: {used, acting?, computer: {id, state, name} | null, screen: {width, height}}, the
+ *        Chief's computer (chief-brain-cc/sandbox-computer.ts) for its profile's Computer section; never wakes it
+ *   GET  /v1/chiefs/<agent>/computer/screen the owner: the computer's screen as image/jpeg while it runs; 409 while it
+ *        sleeps (not woken for a look), 404 with no computer
  *   POST /v1/chiefs/<agent>/machine-login/<run>?conversation=<id>   the owner's human session: {action: start | finish | cancel, loginId?, code?}
  *
  * Run and Step are the trajectory wire's JSON (brain-runs.ts); members also get each change live as
@@ -37,7 +42,7 @@ import { type AppendBody, type AppendResult, type ImportBody, type ImportFail, t
  * "The owner" is the chief's owner_user (MuxDO head) with a session, or an install whose grant
  * covers mutate-own; a chief's own token never changes its brain.
  */
-export const CHIEF_BRAIN_PATH = /^\/v1\/chiefs\/(agent_[0-9A-HJKMNP-TV-Z]{26})\/(brain|github|memory|peer|(?:runs|machine-login)(?:\/((?:run|sub)_[0-9]{1,15}))?)$/
+export const CHIEF_BRAIN_PATH = /^\/v1\/chiefs\/(agent_[0-9A-HJKMNP-TV-Z]{26})\/(brain|github|memory|peer|computer(?:\/screen)?|(?:runs|machine-login)(?:\/((?:run|sub)_[0-9]{1,15}))?)$/
 
 const NO_STORE = { "cache-control": "no-store" }
 const fail = (f: Fail) => Response.json({ ok: false, error: { code: f.code, message: f.message, ...f.extra } }, { status: f.status, headers: NO_STORE })
@@ -52,6 +57,7 @@ export const handleChiefBrain = async (request: Request, env: Env, agent: string
   if (path === "memory") return handleMemoryImport(request, env, agent, brain)
   if (path === "peer") return handlePeer(request, env, agent)
   if (path === "github") return handleGithub(request, env, agent)
+  if (path === "computer" || path === "computer/screen") return handleComputer(request, env, agent, path)
   if (path === "brain") {
     if (request.method !== "GET" && request.method !== "PUT") return fail({ status: 405, code: "method_not_allowed", message: "GET or PUT" })
     const caller = await callerOf(request, env, "read")
@@ -267,4 +273,25 @@ const handleGithub = async (request: Request, env: Env, agent: string): Promise<
   if (r.status === 200) return ok(r.json)
   const message = String((r.json as { error?: unknown } | null)?.error ?? "the GitHub call failed")
   return fail({ status: r.status, code: r.status === 503 ? "unavailable" : r.status === 400 ? "validation.invalid" : "upstream", message })
+}
+
+/**
+ * The Chief's computer for its owner only (cmux issue 31488): a session of the chief's owner, or an install whose
+ * grant covers mutate-own; never a member, never the Chief's own token. Read only: nothing here starts, wakes or
+ * drives the VM, and no Freestyle key or token leaves the Worker.
+ */
+const handleComputer = async (request: Request, env: Env, agent: string, path: "computer" | "computer/screen"): Promise<Response> => {
+  if (request.method !== "GET") return fail({ status: 405, code: "method_not_allowed", message: "GET" })
+  const caller = await callerOf(request, env, "read")
+  if ("status" in caller) return fail(caller)
+  const p = caller.principal
+  if (p.kind !== "session" && !(p.grant_classes ?? []).includes("mutate-own")) return fail({ status: 403, code: "auth.forbidden", message: "grant does not cover mutate-own" })
+  // One answer for a Chief that does not exist and one the caller does not own: no existence probe.
+  if (!(await chiefOwnedBy(env, agent, p))) return fail({ status: 404, code: "not_found", message: "no such chief" })
+  const sandboxes = sandboxesOf(env, agent)
+  if (path === "computer") return ok(await sandboxes.ccComputerStatus(agent))
+  const shot = await sandboxes.ccComputerScreen(agent)
+  if (shot.status !== 200) return fail({ status: shot.status, code: shot.status === 409 ? "computer.asleep" : shot.status === 404 ? "not_found" : "computer.unreachable", message: shot.error, ...(shot.state ? { extra: { state: shot.state } } : {}) })
+  const bytes = Uint8Array.from(atob(shot.image), (c) => c.charCodeAt(0))
+  return new Response(bytes, { headers: { "content-type": "image/jpeg", ...NO_STORE } })
 }

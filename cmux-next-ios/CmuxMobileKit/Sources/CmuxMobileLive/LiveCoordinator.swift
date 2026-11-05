@@ -594,7 +594,6 @@ public final class LiveCoordinator {
         if let macID { lastShown[macID] = ContinuousClock.now }
         pairingState = focused.pairingState
         chiefFollowsFocus()
-        ChiefComputer.shared.macChanged()
         phaseChanged(focused)
     }
 

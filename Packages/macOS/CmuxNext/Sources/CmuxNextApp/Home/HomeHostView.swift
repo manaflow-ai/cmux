@@ -57,6 +57,7 @@ final class HomeHostView: NSView {
     private var showsCloud = false
     private var showsHosted = false
     private var isWorking = false
+    let computerPopup = HomeChiefComputerPopup()  // the Chief's computer while it acts (cmux issue 31488)
     lazy var turnActions = HomeChiefTurnActions(transcript: transcript)
     /// Where this Chief runs and its other host, for the settings card (no floating switch over the chat).
     private var hostWatch: Task<Void, Never>?
@@ -107,6 +108,9 @@ final class HomeHostView: NSView {
         petRows.onRefusal = { [settingsView] in settingsView.showNote($0) }  // why an upload was refused
         petRows.install(in: self, addRow: { [settingsView] in settingsView.addAppearanceRow($0, control: $1) },
                         open: { [weak self] in self?.toggleChiefSettings(openOnly: true) ?? false })
+        computerPopup.install(in: transcript, settings: settings, source: .init(
+            paid: { [weak services] in services?.machines.cloudLimits?.paysForCloud == true }, chief: { [weak service] in service?.chiefName(of: id) ?? HomeStrings.chiefName },
+            route: .init(agent: { [weak services] in services?.home.cloudChiefs.chief(for: conversation)?.id }, send: service.hostedChief.brainRoute))) { [weak self] in _ = self?.toggleChiefSettings(openOnly: true) }
         settingsView.onAvatar = { [weak self, weak service] in
             self?.loadAvatar()
             // Each Chief's tile reads its own brain home: this re-reads them, so only the
@@ -215,6 +219,7 @@ final class HomeHostView: NSView {
                 self.isChief = isChief
                 openPendingSettings()
                 isWorking = isChief && typing
+                computerPopup.follow(working: isWorking && cloud)
                 transcript.isWorking = isWorking
                 turnActions.update(control: control.turnControl, isChief: isChief, working: isWorking, sequence: lastSeq)
                 if cloud != showsCloud || (cloud && hosted != showsHosted) {
