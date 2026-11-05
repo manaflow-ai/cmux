@@ -1603,7 +1603,8 @@ export default componentEntry<Props>({
       props: {
         ...full,
         made: {
-          ...full.made,
+          ...made,
+          pullRequests,
           sources: [
             pasted("1"),
             pasted("2"),
