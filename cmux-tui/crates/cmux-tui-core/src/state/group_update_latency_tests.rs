@@ -452,9 +452,11 @@ fn diag_tab_cost_growth() {
             open_chat_tab(&mux, one, format!("probe-{round}-{i}"));
             costs.push(started.elapsed().as_secs_f64() * 1000.0);
             let started = Instant::now();
+            crate::debug_spans::install(crate::debug_spans::Trace::start("probe-off", started));
             crate::mux::resource_content::scoped_projection::without_crosscheck(|| {
                 open_chat_tab(&mux, one, format!("probe-off-{round}-{i}"));
             });
+            crate::debug_spans::finish(crate::debug_spans::take());
             off.push(started.elapsed().as_secs_f64() * 1000.0);
         }
         costs.sort_by(f64::total_cmp);
@@ -466,5 +468,15 @@ fn diag_tab_cost_growth() {
         ));
     }
     mux.shutdown();
-    panic!("DIAG end:\n{}", lines.join("\n"));
+    let spans = std::env::var_os("CMUX_TUI_DEBUG_SPANS")
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .unwrap_or_default();
+    let spans: Vec<&str> = spans.lines().collect();
+    let pick: Vec<&str> = spans
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| *i < 3 || *i + 3 >= spans.len())
+        .map(|(_, l)| *l)
+        .collect();
+    panic!("DIAG end:\n{}\nSPANS\n{}", lines.join("\n"), pick.join("\n"));
 }
