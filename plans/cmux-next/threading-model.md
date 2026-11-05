@@ -43,6 +43,9 @@ How it is enforced:
   and queues" does not list; a label that is a variable is not judged). A `.wait(` with `await` before it in its
   statement is an async wait and is not refused. Escape: `// blocking-allow: <why>` (to be counted by the arch
   ratchet's `blocking_allow_escapes` row: to come, PL-arch).
+- **The count (the debt left to pay down).** `scripts/cmux-next/guardrails.py --sites main-blocking` judges the
+  whole tree (base debt included) and prints every main-blocking site and their count: 75 at 01facc1b131
+  (feat-cmux-next). Any rule id works.
 
 ## Threads and queues
 

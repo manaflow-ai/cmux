@@ -6,6 +6,7 @@ Each test commits into a throwaway repository and runs `guardrails.check` on wha
 python3 tests/test_cmux_next_guardrails_blocking.py
 """
 import collections
+import dataclasses
 import importlib.util
 import os
 from pathlib import Path
@@ -15,6 +16,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 
 SOURCE = Path(__file__).resolve().parents[1]
 PKG = "Packages/macOS/CmuxNext"
@@ -252,6 +254,34 @@ class BlockingRuleTests(unittest.TestCase):
         self.write(f"{PKG}/Sources/CmuxNextCompat/Mutex.swift", "func lock() {\n    queue.sync { }\n}\n")
         self.commit("edits elsewhere and adds seams")
         self.assertEqual(self.refused_ids(), [])
+
+    def test_sites_counts_the_whole_tree_base_debt_included(self):
+        # #25852: `guardrails.py --sites main-blocking` is the debt count a slice of work pays down.
+        self.write(f"{UI}/Added.swift", "func save() {\n    try? data.write(to: url)\n}\n")
+        self.write(f"{SERVICE}/Fine.swift", "func save() {\n    try? data.blockingWrite(to: url)\n}\n")
+        self.commit("adds one more")
+        saved = {k: os.environ.pop(k) for k in list(os.environ) if k.startswith("GIT_")}
+        try:
+            sites = guardrails.tree_sites(self.repo, "HEAD", "main-blocking")
+            at_base = guardrails.tree_sites(self.repo, self.base, "main-blocking")
+        finally:
+            os.environ.update(saved)
+        self.assertEqual(sites, [f"{UI}/Added.swift:2: try? data.write(to: url)",
+                                 f"{UI}/Old.swift:2: try? Data(contentsOf: url)"])
+        self.assertEqual(at_base, [f"{UI}/Old.swift:2: try? Data(contentsOf: url)"])
+
+    def test_sites_fails_closed_when_the_rule_does_not_run(self):
+        # A count that silently left a crashed rule out would read as debt paid down (REVIEW.md "Fail closed").
+        def crash(files, moved):
+            raise RuntimeError("matcher bug")
+        rules = [dataclasses.replace(r, find=crash) if r.id == "main-blocking" else r for r in guardrails.RULES]
+        saved = {k: os.environ.pop(k) for k in list(os.environ) if k.startswith("GIT_")}
+        try:
+            with mock.patch.object(guardrails, "RULES", rules), self.assertRaises(SystemExit) as raised:
+                guardrails.tree_sites(self.repo, "HEAD", "main-blocking")
+        finally:
+            os.environ.update(saved)
+        self.assertIn("rule main-blocking failed", str(raised.exception))
 
     def test_a_missing_doc_fails_thread_doc_open_and_keeps_the_others(self):
         self.git("rm", "--quiet", "plans/cmux-next/threading-model.md")
