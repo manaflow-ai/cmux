@@ -44,8 +44,12 @@ await requireBrowserLane("hover-card-blur-browser.test.ts", async () => {
         const base = `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}`;
         await page.goto(base + galleryFrame(ENTRY, { variant: VARIANT, colorScheme, width: 760, height: 720 }));
         await page.waitForFunction(() => ["1", "error"].includes(document.documentElement.dataset.galleryReady ?? ""));
-        // The blur follows the card for a few frames after it is placed.
-        await page.waitForTimeout(400);
+        // The blur attaches once the card is placed; the play only waits for the card.
+        await page
+          .waitForFunction(() => document.querySelector('[data-glass-under~="hover-card"]'), undefined, {
+            timeout: 5_000,
+          })
+          .catch(() => {});
         const seen = await page.evaluate(() => {
           const card = document.querySelector<HTMLElement>(".cv-link-preview.acpmux-pr-card");
           const under = [...document.querySelectorAll<HTMLElement>('[data-glass-under~="hover-card"]')];
