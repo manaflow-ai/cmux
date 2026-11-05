@@ -695,12 +695,12 @@ final class AgentTabStore {
         }
         model.onCheckpointAvailability = { [weak self] _ in self?.publishCheckpointAvailability() }
         model.onGit = { [weak self] request in
-            guard let link = self?.gitLink?(self?.resolve(provisional) ?? provisional) else { throw AgentPaneGitFailure.notConnected }
+            guard let self, let link = self.gitLinkScoped?(self.resolvedKey(scoped)) else { throw AgentPaneGitFailure.notConnected }
             return try await link.read(request)
         }
         // Commits and pushes run on the session's machine; the model refuses a session whose folder is not local.
         model.onGitWrite = { [weak self] request, cwd in
-            guard let link = self?.gitLink?(self?.resolve(provisional) ?? provisional) else { throw AgentPaneGitFailure.notConnected }
+            guard let self, let link = self.gitLinkScoped?(self.resolvedKey(scoped)) else { throw AgentPaneGitFailure.notConnected }
             return try await link.write(request, in: cwd)
         }
         wireAgentFolder(model, key: provisional)

@@ -41,19 +41,20 @@ extension AgentTabStore {
         let tabKey = provisional.id
         let snapshot = provisional.conversation(ConversationTabRef(agentSession: record))
         let transaction = ClientTransactionID.generate()
+        let scoped = AgentTabKey(machine: daemon.machineID, key: tabKey)
         store.onTabCreated = { [weak self] provisional, tab in
-            self?.tabCreated(provisional, as: AgentTabCreated(key: tab.id, surface: tab.surface))
+            self?.tabCreated(provisional, as: AgentTabCreated(key: tab.id, surface: tab.surface), machine: daemon.machineID)
         }
         BenchSpans.measure("cmdN.intend") {
             store.intend(.createWorkspace(provisional: ProvisionalWorkspace(key: key, name: name, tab: snapshot), index: index),
                          transaction: transaction)
         }
-        sessions[tabKey] = session?.id
+        sessions[scoped] = session?.id
         if session?.linked == true { linkedSessions.insert(tabKey) }
-        if session == nil { seeds[tabKey] = AgentPaneSeedSource(chat.map { var chat = $0; chat.cwd = chat.cwd ?? cwd; return chat } ?? AgentPaneSeed(cwd: cwd)) }
-        if session == nil, chat == nil { newTabPages[tabKey] = firstPage(cwd: cwd, token: token) }
-        track(tabKey, in: store)
-        if let page = newTabPages[tabKey]?.page, let spare = takeSpare?() { adoptSpare(spare, key: tabKey, page: page) }
+        if session == nil { seeds[scoped] = AgentPaneSeedSource(chat.map { var chat = $0; chat.cwd = chat.cwd ?? cwd; return chat } ?? AgentPaneSeed(cwd: cwd)) }
+        if session == nil, chat == nil { newTabPages[scoped] = firstPage(cwd: cwd, token: token) }
+        track(tabKey, in: store, machine: daemon.machineID)
+        if let page = newTabPages[scoped]?.page, let spare = takeSpare?() { adoptSpare(spare, key: scoped, page: page) }
         let fail: @MainActor () -> Void = { [weak self] in
             store.rejectIntent(transaction)
             self?.release(tabKey)
@@ -75,10 +76,10 @@ extension AgentTabStore {
                                               surface: response.surface)
                     return (tab, await connection.eventSequence())
                 }
-                self?.tabCreated(tabKey, as: created.0)
+                self?.tabCreated(tabKey, as: created.0, machine: daemon.machineID)
                 ProvisionalTab.created(transaction, surface: created.0.surface, in: store)
                 if let sequence = created.1 { store.noteSettled(transaction, at: sequence) } else { store.noteSettledAtNextSnapshot(transaction) }
-                if let started = self?.sessions[created.0.key] { self?.sendSession(started, for: created.0.key) } // a chat its page started first binds now (as `open`)
+                if let started = self?.sessions[AgentTabKey(machine: daemon.machineID, key: created.0.key)] { self?.sendSession(started, for: created.0.key, machine: daemon.machineID) } // a chat its page started first binds now (as `open`)
                 return key.rawValue
             } catch {
                 fail()
