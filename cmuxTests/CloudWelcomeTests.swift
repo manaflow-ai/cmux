@@ -817,7 +817,7 @@ struct CloudWelcomeRenderedRailDiagnostics {
         }
 
         let advancing = clipTimes.values.contains { times in
-            zip(times, times.dropFirst()).contains { $1 > $0 + 0.1 }
+            zip(times, times.dropFirst()).contains { pair in pair.1 > pair.0 + 0.1 }
         }
         let summary = "CLOUD-WELCOME-DIAG samples=\(samples) nonfinite=\(nonfinite) positions=\(positions.count) minX=[\(minXs.min() ?? .nan), \(minXs.max() ?? .nan)] clips=\(clipsSeen.sorted()) clipsBeforeReopen=\(clipsBeforeReopen) advancing=\(advancing) os=\(ProcessInfo.processInfo.operatingSystemVersionString)"
         print(summary)
