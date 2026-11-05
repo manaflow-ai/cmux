@@ -430,3 +430,34 @@ fn ordinary_registry_writers_progress_while_personal_writes_stay_queued() {
     eprintln!("{line}");
     assert!(p95 < P95_ORDINARY_BUDGET_MS, "an ordinary writer waited too long: {line}");
 }
+
+/// DIAG (not for merge): idle cost of one chat tab as the session grows.
+#[test]
+fn diag_tab_cost_growth() {
+    let session = Session::new("diag-tab-growth");
+    let mux = session.open();
+    let sidebar = sidebar(&mux);
+    let one = workspace_slot(&mux, &sidebar.loose[0]);
+    let others: Vec<_> = sidebar.loose[1..9].iter().map(|w| workspace_slot(&mux, w)).collect();
+    let mut lines = Vec::new();
+    for round in 0..12 {
+        // Grow the session elsewhere: 30 tabs spread over other workspaces.
+        for i in 0..30 {
+            open_chat_tab(&mux, others[i % others.len()], format!("grow-{round}-{i}"));
+        }
+        let mut costs = Vec::new();
+        for i in 0..5 {
+            let started = Instant::now();
+            open_chat_tab(&mux, one, format!("probe-{round}-{i}"));
+            costs.push(started.elapsed().as_secs_f64() * 1000.0);
+        }
+        costs.sort_by(f64::total_cmp);
+        let surfaces = mux.with_state(|state| state.surfaces.len());
+        lines.push(format!(
+            "DIAGGROW round={round} surfaces={surfaces} median={:.2}ms max={:.2}ms",
+            costs[2], costs[4]
+        ));
+    }
+    mux.shutdown();
+    panic!("DIAG end:\n{}", lines.join("\n"));
+}
