@@ -37,7 +37,7 @@ struct NativeNewTabViewTests {
         return (host, model, box, window)
     }
 
-    private static func type(_ text: String, into host: NativeNewTabHostingView) throws {
+    private static func enter(_ text: String, into host: NativeNewTabHostingView) throws {
         let field = try #require(host.fieldView as? NSTextField)
         field.stringValue = text
         host.page.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
@@ -70,7 +70,7 @@ struct NativeNewTabViewTests {
         defer { window.close() }
         host.layoutSubtreeIfNeeded()
         #expect(host.page.rows.count == model.rows.count)
-        try Self.type("vite", into: host)
+        try Self.enter("vite", into: host)
         #expect(model.text == "vite")
         #expect(host.page.rows.map(\.content?.title) == model.rows.map { NativeNewTabRowContent($0, strings: NativeNewTabStrings()).title })
         #expect(host.page.rows.first?.selected == true)
@@ -85,7 +85,7 @@ struct NativeNewTabViewTests {
     @Test func downUpAndReturnRunTheHighlightedRow() throws {
         let (host, model, box, window) = Self.make()
         defer { window.close() }
-        try Self.type("vite", into: host)
+        try Self.enter("vite", into: host)
         #expect(Self.command(#selector(NSResponder.moveDown(_:)), in: host))
         #expect(model.selectedIndex == 1)
         #expect(host.page.rows.map(\.selected) == [false, true])
@@ -100,7 +100,7 @@ struct NativeNewTabViewTests {
     @Test func aClickRunsItsRow() throws {
         let (host, _, box, window) = Self.make()
         defer { window.close() }
-        try Self.type("vite", into: host)
+        try Self.enter("vite", into: host)
         host.layoutSubtreeIfNeeded()
         let ask = try #require(host.page.rows.first)
         #expect(ask.accessibilityPerformPress())
@@ -117,7 +117,7 @@ struct NativeNewTabViewTests {
         kinds.selectedSegment = terminal
         _ = kinds.sendAction(kinds.action, to: kinds.target)
         #expect(model.kind == .terminal)
-        try Self.type("ls", into: host)
+        try Self.enter("ls", into: host)
         #expect(host.page.rows.first?.content?.title == NativeNewTabStrings().run("ls"))
         #expect(Self.command(#selector(NSResponder.insertNewline(_:)), in: host))
         #expect(box.calls.submits.map(\.0) == ["ls"])
@@ -127,7 +127,7 @@ struct NativeNewTabViewTests {
     @Test func anAdoptedPageShowsTheNewContext() throws {
         let (host, model, _, window) = Self.make()
         defer { window.close() }
-        try Self.type("vite", into: host)
+        try Self.enter("vite", into: host)
         var next = Self.page()
         next.kind = .browser
         model.adopt(page: next, actions: NativeNewTabActions(), paletteActions: nil)
