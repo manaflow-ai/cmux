@@ -19,7 +19,7 @@ vertical divider left and right, one `debug.mouse` move per display frame:
   stress   the STRESS session (perf-stress-session.py: 60 workspaces, 4x3 panes + nested splits, 6
            tabs each, 10 busy terminals); the divider between its first two columns. Every terminal
            in those columns must change size with its pane in each frame. A build that holds terminals
-           through a drag (`terminalDrag.holdSurface`, on by default since #32006) fails: they keep their
+           through a drag (`terminalDrag.holdSurface`, on by default from #32006 until cmux-ad m19, 2026-11-05) fails: they keep their
            size through the drag (each round reports `holds_terminals` as it ran, as data). Before its timed
            rounds each drag layout runs a probe (one drag that ends --probe-pt away, then one back) and prints
            it as its own TERMINAL-RESIZE-PROBE line: the divider moved, a terminal fits a new grid, and its
@@ -47,7 +47,8 @@ with a held frame fails, and the message names the terminal, its held frames and
 data only: the frame owner (`motion.frameOwner.terminals`) keeps a frame for 1-4 refreshes by design.
 
 Per layout it records display-frame intervals and main-thread busy time per frame (`debug.frames`,
-missed = an interval over 1.5 refresh periods), main-thread time in Ghostty's display passes
+missed = an interval over 1.5 refresh periods, each split by cause into main late, commit late or presented late),
+main-thread time in Ghostty's display passes
 (`debug.terminal_display`: before G1 each pass drew on main with the previous size's cells and waited
 for the GPU), and the render counters of every resized terminal (`debug.surfaces`): frames drawn by
 the main thread, fresh frames presented in the commit of their size, late passes (GhosttyNextKit with
@@ -207,8 +208,12 @@ def column_divider(dividers, middle):
     return columns[len(columns) // 2 - 1] if len(columns) >= 2 else columns[0]
 
 
+# `missed_split`: each missed refresh's cause from cmux's own stamps (debug.frames, FrameMissSplit): main_late (the main
+# work ran past the frame's target time), commit_late (the Core Animation commit did), presented_late (neither: the main
+# thread was idle at the target and the frame still missed); `missed_frames`: the first misses with their stamps.
 FRAME_KEYS = ("frames", "refresh_ms", "p50_ms", "p95_ms", "p99_ms", "max_ms", "missed", "main_p50_ms", "main_p95_ms",
-              "main_max_ms", "main_total_ms", "main_over_8_3_ms", "view_layouts", "view_layouts_max")
+              "main_max_ms", "main_total_ms", "main_over_8_3_ms", "view_layouts", "view_layouts_max", "missed_split",
+              "missed_frames")
 
 
 def pane_check(display):

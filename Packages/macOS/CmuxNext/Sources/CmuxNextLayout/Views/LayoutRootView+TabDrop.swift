@@ -84,7 +84,7 @@ extension LayoutRootView {
         tabDragRefusedTarget = nil
         let height = min(20, slot.height)
         let caret = CGRect(x: slot.minX - 2, y: slot.midY - height / 2, width: 2, height: height)
-        if highlight.show(caret, region: caret, zone: .center, text: "", inset: 0, cornerRadius: 1,
+        if highlight.show(caret, region: caret, zone: .center, text: "", inset: 0, cornerRadius: Metrics.capsuleRadius(caret.size),
                           pointer: CGPoint(x: caret.midX, y: caret.midY), animated: canAnimate, fills: false) { driver.start() }
     }
 

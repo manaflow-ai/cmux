@@ -144,7 +144,7 @@ fn hub_error() -> anyhow::Error {
 }
 
 enum Probe {
-    Live(MachineCredential),
+    Live(Box<MachineCredential>),
     Unknown,
     Revoked,
 }
@@ -196,7 +196,7 @@ async fn probe(p: &Pending) -> Result<Probe> {
     {
         return Err(hub_error());
     }
-    Ok(Probe::Live(MachineCredential {
+    Ok(Probe::Live(Box::new(MachineCredential {
         credential: p.credential.clone(),
         machine_id,
         team_id,
@@ -206,7 +206,10 @@ async fn probe(p: &Pending) -> Result<Probe> {
         revoked: false,
         wg_public_key: p.wg_public_key.clone(),
         credential_generation: generation,
-    }))
+        // Optional until every hub names it: a missing or malformed one only means no
+        // automatic same-person control, never a failed join.
+        user_id: body.user_id.as_ref().and_then(|user| safe_id(&user.to_string())),
+    })))
 }
 
 fn complete(p: &Pending, record: &MachineCredential, json_out: bool) -> Result<()> {

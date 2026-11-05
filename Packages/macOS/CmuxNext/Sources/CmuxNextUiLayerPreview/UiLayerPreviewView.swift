@@ -73,7 +73,7 @@ public struct UiLayerPreviewView: View {
             .padding(.horizontal, Metrics.space2)
             .padding(.vertical, Metrics.space2)
             .background(.quaternary)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .clipShape(RoundedRectangle(cornerRadius: Metrics.controlCornerRadius))
             Spacer()
             Text("REAL CMUX NEXT VIEW")
                 .font(.caption2)
