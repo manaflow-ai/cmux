@@ -185,10 +185,10 @@ html:has(.acpmux-shell[data-tab-row]){background:transparent !important}
 .acpmux-worktree-apply>output{font-variant-numeric:tabular-nums}
 /* Contextual header icons (headerRelevance.ts, Debug `agentChat.headerIcons.contextual`). Peek: the icons not relevant now hold their place at the row's leading end, so nothing at rest moves, and fade in while the pointer or focus is in the tools. The fades run on the page's motion tokens (the web Motion gate sets them to 0 when motion is off), and Reduce Motion drops them. */
 .acpmux-header-tools[data-header-icons=contextualPeek] [data-header-dormant]{opacity:0;pointer-events:none}
-.acpmux-header-tools[data-header-icons=contextualPeek]:is(:hover,:focus-within) [data-header-dormant]{opacity:1;pointer-events:auto}
+.acpmux-header-tools[data-header-icons=contextualPeek]:is(:hover,:focus-within) [data-header-dormant],.acpmux-header-tools[data-header-icons=contextualPeek]:is(:has([data-popup-open]),:focus-within) [data-header-dormant],.acpmux-header-tools[data-header-icons=contextualPeek]:has([data-header-dormant] [aria-expanded=true]) [data-header-dormant]{opacity:1;pointer-events:auto}
 @media (prefers-reduced-motion:no-preference){
 .acpmux-header-tools[data-header-icons=contextualPeek] [data-header-dormant]{transition:opacity var(--agent-motion-out,120ms) var(--acpmux-motion-ease,ease-out)}
-.acpmux-header-tools[data-header-icons=contextualPeek]:is(:hover,:focus-within) [data-header-dormant]{transition-duration:var(--agent-motion-in,120ms)}
+.acpmux-header-tools[data-header-icons=contextualPeek]:is(:hover,:focus-within) [data-header-dormant],.acpmux-header-tools[data-header-icons=contextualPeek]:is(:has([data-popup-open]),:focus-within) [data-header-dormant],.acpmux-header-tools[data-header-icons=contextualPeek]:has([data-header-dormant] [aria-expanded=true]) [data-header-dormant]{transition-duration:var(--agent-motion-in,120ms)}
 /* An icon that turns relevant (Changes after an edit, the globe once the chat names a page) is in its place from its first frame and fades in there. */
 .acpmux-header-tools[data-header-icons] .acpmux-header-tool-group-actions .acpmux-header-tool{transition:opacity var(--agent-motion-in,120ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 @starting-style{.acpmux-header-tools[data-header-icons] .acpmux-header-tool-group-actions .acpmux-header-tool{opacity:0}}
