@@ -140,6 +140,36 @@ fn timed(latencies: &mut BTreeMap<&'static str, Vec<f64>>, name: &'static str, r
     latencies.entry(name).or_default().push(started.elapsed().as_secs_f64() * 1000.0);
 }
 
+/// A chat tab's create journals the rows it changed, not every other chat tab of its pane. The public fold
+/// holds what the journal states, decorated (a chat tab's `content_kind` is `conversation`, its `extra`
+/// names the agent session and browser profile), and the projection restates a pane's browser tabs raw: a
+/// raw tab never equalled its decorated fold value, so every chat tab in the pane was journaled again on
+/// each create. With 30 tabs open the person's 31st took the journal 30 rows more, and a busy session's
+/// writers queued behind that ("a person's request waited behind the busy sessions", this file's first
+/// test, red 9 of 31 full runs).
+#[test]
+fn a_chat_tab_create_restates_no_other_chat_tab_of_its_pane() {
+    let session = Session::new("chat-tab-restates");
+    let mux = session.open();
+    let sidebar = sidebar(&mux);
+    let workspace = workspace_slot(&mux, &sidebar.loose[0]);
+    for index in 0..30 {
+        open_chat_tab(&mux, workspace, format!("before-{index}"));
+    }
+    let revision = mux.with_state(|state| state.resource_revision);
+    open_chat_tab(&mux, workspace, "the-person".into());
+    let page = mux.workspace_registry.lock().unwrap().resource_events_after(revision).unwrap();
+    let tabs: Vec<String> = page
+        .batches
+        .iter()
+        .flat_map(|batch| batch.changes.as_array().cloned().unwrap_or_default())
+        .filter(|change| change["kind"] == "upsert" && change["resource"] == "tab")
+        .filter_map(|change| change["id"].as_str().map(str::to_owned))
+        .collect();
+    mux.shutdown();
+    assert!(tabs.len() <= 2, "one chat tab create restated {} tabs: {tabs:?}", tabs.len());
+}
+
 #[test]
 fn a_persons_requests_answer_while_busy_sessions_saturate_the_registry() {
     let session = Session::new("person-request-latency");
