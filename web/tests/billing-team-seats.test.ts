@@ -257,6 +257,43 @@ describe("team seat reconciler", () => {
     expect(queue.rows.get(TEAM_ID)!.dirtyAt).not.toBeNull();
   });
 
+  test("an unsubscribed team is cleared without asking Stack", async () => {
+    const { stack, queue, stripe, deps } = harness({ subscribed: false });
+    await queue.markDirty(TEAM_ID);
+    expect(await reconcileTeamSeats({}, deps)).toMatchObject({ skipped: 1, failed: 0 });
+    expect(stack.calls).toEqual([]);
+    expect(stripe.updates).toEqual([]);
+    expect(queue.rows.get(TEAM_ID)!.dirtyAt).toBeNull();
+  });
+
+  test("records each outcome after releasing the team lock", async () => {
+    const { stack, queue, deps } = harness();
+    stack.addMember(TEAM_ID, OUTSIDER_ID, MEMBER_GRANTS);
+    await queue.markDirty(TEAM_ID);
+    await reconcileTeamSeats({}, deps);
+    const events = queue.events.filter((event) => !event.startsWith("dirty:"));
+    expect(events).toEqual([`lock:${TEAM_ID}`, `unlock:${TEAM_ID}`, `outcome:${TEAM_ID}:3:3:null`]);
+  });
+
+  test("stops starting teams once its time budget is spent and leaves the rest dirty", async () => {
+    const { queue, deps } = harness();
+    await queue.markDirty(TEAM_ID);
+    queue.now = new Date(queue.now.getTime() + 1);
+    await queue.markDirty(OTHER_TEAM_ID);
+    let clock = 0;
+    const result = await reconcileTeamSeats({ budgetMs: 1_000 }, {
+      ...deps,
+      now: () => clock,
+      activeSubscription: async (teamId) => {
+        clock += 1_500;
+        return deps.activeSubscription!(teamId);
+      },
+    });
+    expect(result).toMatchObject({ checked: 1, deferred: 1, failed: 0 });
+    expect(queue.rows.get(TEAM_ID)!.dirtyAt).toBeNull();
+    expect(queue.rows.get(OTHER_TEAM_ID)!.dirtyAt).not.toBeNull();
+  });
+
   test("scopes an inline run to the named team", async () => {
     const { queue, deps } = harness();
     await queue.markDirty(TEAM_ID);

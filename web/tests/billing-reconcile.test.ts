@@ -238,4 +238,53 @@ describe("Stripe subscription reconciliation", () => {
     expect(listCalls).toBe(2);
     expect(peakLeases).toBe(1);
   });
+
+  test("claims each row as it starts and stops starting rows once its time budget is spent", async () => {
+    let clock = 0;
+    const claimed: string[] = [];
+    const result = await reconcileStripeSubscriptions({}, {
+      withLease: withoutLease,
+      markChecked: async () => {},
+      list: async () => ["sub_a", "sub_b", "sub_c"].map(snapshot),
+      concurrency: 1,
+      budgetMs: 1_000,
+      now: () => clock,
+      claim: async (row: { readonly id: string }) => {
+        claimed.push(row.id);
+        return true;
+      },
+      retrieve: async (id: string) => {
+        clock += 600;
+        return subscription(id);
+      },
+    });
+    expect(claimed).toEqual(["sub_a", "sub_b"]);
+    expect(result).toMatchObject({ checked: 2, deferred: 1, truncated: true, failed: 0 });
+  });
+
+  test("skips a row another run claimed first", async () => {
+    const retrieved: string[] = [];
+    const result = await reconcileStripeSubscriptions({}, {
+      withLease: withoutLease,
+      markChecked: async () => {},
+      list: async () => [snapshot("sub_mine"), snapshot("sub_theirs")],
+      claim: async (row: { readonly id: string }) => row.id === "sub_mine",
+      retrieve: async (id: string) => {
+        retrieved.push(id);
+        return subscription(id);
+      },
+    });
+    expect(retrieved).toEqual(["sub_mine"]);
+    expect(result.checked).toBe(1);
+  });
 });
+
+function snapshot(id: string) {
+  return {
+    id,
+    status: "active",
+    cancelAtPeriodEnd: false,
+    currentPeriodEnd: new Date(1_800_000_000_000),
+    claimToken: null,
+  };
+}
