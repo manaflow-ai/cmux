@@ -19,8 +19,9 @@ import "./updateDoodle.css";
 /** How long the doodle waits for its face before it draws in the fallback one. */
 const FONT_WAIT_MS = 400;
 
-/** `waiting`: laid out, not yet drawn; `drawing`: the draw-on runs (or, without motion, is done). */
-type Phase = "waiting" | "drawing";
+/** `waiting`: laid out, not yet drawn; `drawing`: the draw-on runs; `drawn`: all there, no motion
+ *  (Reduce Motion, a still). */
+type Phase = "waiting" | "drawing" | "drawn";
 
 function motionIsReduced(): boolean {
   const motion = globalThis.document?.documentElement.getAttribute("data-cmux-motion");
@@ -31,13 +32,14 @@ function motionIsReduced(): boolean {
 /** Draws once the page shows and the face loaded (or `FONT_WAIT_MS` passed); at once without motion.
  *  `animate` false (gallery stills) shows the drawn doodle from the start. */
 function useDrawPhase(animate: boolean): Phase {
-  const [phase, setPhase] = useState<Phase>(() => (!animate || motionIsReduced() ? "drawing" : "waiting"));
+  const [phase, setPhase] = useState<Phase>(() => (!animate || motionIsReduced() ? "drawn" : "waiting"));
   useEffect(() => {
-    if (phase === "drawing") {
+    if (phase === "drawn") {
       // Drawn from the start (a still, Reduce Motion): the face replaces the fallback when it loads.
       void import("./doodleFont").then(({ loadDoodleFont }) => loadDoodleFont());
       return undefined;
     }
+    if (phase === "drawing") return undefined;
     let cancelled = false;
     let fontReady = false;
     const start = () => {

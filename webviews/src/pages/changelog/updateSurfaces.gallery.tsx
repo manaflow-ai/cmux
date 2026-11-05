@@ -327,6 +327,11 @@ export default componentEntry<Props>({
     },
     "card-doodle-draw": {
       note: "The doodle drawing on, as it does when the card first shows (about a second and a quarter; under Reduce Motion it is simply there).",
+      play: async (ctx) => {
+        // The still is the drawn end state: every stroke and word has finished drawing on.
+        await ctx.waitFor(() => ctx.document.querySelector('.wn-doodle[data-phase="drawing"]'));
+        await ctx.waitFor(() => ctx.document.getAnimations().length === 0, { capMs: 4000 });
+      },
       props: { surface: "card", data: base, decoration: "doodle", theme: "light", animate: true },
     },
     "card-background": {
