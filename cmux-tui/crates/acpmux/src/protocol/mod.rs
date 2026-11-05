@@ -245,6 +245,9 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_BG_LIST, Request),
         untyped(method::MUX_BG_OUTPUT, Request),
         untyped(method::MUX_BG_STOP, Request),
+        untyped(method::MUX_GOAL_SET, Request),
+        untyped(method::MUX_GOAL_UPDATE, Request),
+        untyped(method::MUX_GOAL_GET, Request),
         request::<ProcessBackgroundParams, ProcessBackgroundResult>(method::MUX_PROCESS_BACKGROUND),
         untyped(method::MUX_WORKTREE_REPORT, Request),
         untyped(method::MUX_WORKTREE_CLEAN, Request),
@@ -410,6 +413,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_ROUTE_TEST, Request),
         untyped(method::MUX_ROUTE_DEFAULT_SET, Request),
         untyped(method::MUX_CHAT_ROUTE_SET, Request),
+        untyped(method::MUX_ACCOUNTS, Request),
+        untyped(method::MUX_ACCOUNT_SET, Request),
         // Daemon.
         untyped(method::MUX_WEB_MODES, Request),
         untyped(method::MUX_WEB_TOKEN_ROTATE, Request),

@@ -76,6 +76,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `labs.machineJoin`: the one-line machine join surfaces (Add Device's way, joined Machines rows, This Mac's
     /// consent switches); off when unset.
     public var machineJoin = CmuxConfigSnapshot.machineJoinDefault
+    /// `labs.liveCode`: a live code build applies Swift patches from ~/Library/Caches/cmux-next/live-code (read at launch); off when unset.
+    public var liveCode = CmuxConfigSnapshot.liveCodeDefault
     /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`, `browser.freezeHiddenTabs`.
     public var browserHibernation: BrowserHibernationSetting = .fallback
     /// `browser.links.*`: what modified link clicks do; Chrome's when unset.
@@ -294,6 +296,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var mobile = MobileSettings()
     /// `macScreen.*`: Mac Screen tabs (system shortcuts to the remote Mac).
     public var macScreen = MacScreenSettings()
+    /// `remote.*`: cmux Remote (sharing this Mac while cmux is quit).
+    public var remote = RemoteSettings()
     /// `macScreen.debug.*`: the Development section's Mac Screen switches (DEV builds read them).
     public var macScreenDebug = MacScreenDebugSettings()
     /// `deviceHub.*`: the Development section's device hub address (DEV builds read it).
@@ -347,6 +351,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(Self.parseLabsToggle(root, path: voiceRoomPath, fallback: voiceRoomDefault), \.voiceRoom)
         snapshot.take(Self.parseLabsText(root, path: voiceRoomURLPath, fallback: voiceRoomURLDefault), \.voiceRoomURL)
         snapshot.take(Self.parseLabsToggle(root, path: machineJoinPath, fallback: machineJoinDefault), \.machineJoin)
+        snapshot.take(Self.parseLabsToggle(root, path: liveCodePath, fallback: liveCodeDefault), \.liveCode)
         snapshot.take(BrowserHibernationSetting.parse(root), \.browserHibernation)
         snapshot.take(BrowserLinkClickSetting.parse(root), \.browserLinkClicks)
         snapshot.take(LinkRouting.parse(root), \.linkRouting)
@@ -473,6 +478,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.trust = TrustSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.mobile = MobileSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.macScreen = MacScreenSettings.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.remote = RemoteSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.macScreenDebug = MacScreenDebugSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.deviceHub = DeviceHubSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.take(AppThemeSetting().parse(root), \.appTheme)

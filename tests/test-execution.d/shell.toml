@@ -1,0 +1,62 @@
+# Python test execution registry: tests/test_shell_*.py. Keep entries sorted by path;
+# scripts/ci/test_execution_registry.py says how the registry is split and read.
+
+[[test]]
+path = "tests/test_shell_claude_rereports_pwd.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_shell_cli_shim_private_dir.py"
+lane = "macos-shell"
+
+[[test]]
+path = "tests/test_shell_first_prompt_spawns.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_shell_git_branch_stale_cwd.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_shell_git_config_remote_url_parsing.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_shell_histfile_ghostty_zdotdir_regression.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_shell_no_git_watch.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_shell_pr_watch_private_state.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_shell_scrollback_restore_color_replay.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_shell_scrollback_restore_replay_path_regression.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_shell_surface_scoped_keys.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_shell_welcome_banner_startup.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_shell_zdotdir_user_override.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_shell_zdotdir_wrapper.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_shell_zsh_prefers_bundled_ghostty_integration.py"
+lane = "legacy"

@@ -94,8 +94,8 @@ extension AgentPaneView {
 
     /// A trusted DevTools left click at `x`,`y` (CSS pixels) on a chat shown in Chromium; false
     /// otherwise (``PageWebView/debugPress(x:y:)``).
-    public func debugPress(x: Double, y: Double) async -> Bool {
-        await page?.debugPress(x: x, y: y) ?? false
+    public func debugPress(x: Double, y: Double, beforeRelease: (() -> Void)? = nil) async -> Bool {
+        await page?.debugPress(x: x, y: y, beforeRelease: beforeRelease) ?? false
     }
 
     /// The chat's file input `selector` takes the files at `paths`, as a pick in Chromium's open panel

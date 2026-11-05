@@ -1794,3 +1794,6 @@ fn a_folder_turned_into_a_symlink_mid_push_is_not_written_through() {
         .collect();
     assert!(named.contains(&"sub/b.txt"), "{summary}");
 }
+
+#[path = "link_sync/git_index.rs"]
+mod git_index;

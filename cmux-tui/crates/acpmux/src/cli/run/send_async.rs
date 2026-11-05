@@ -119,14 +119,32 @@ async fn queue_once(
             json!({"deliveryId": id, "waitMs": QUICK_WAIT_MS, "firstAttempt": true}),
         )
         .await
-        .unwrap_or(queued);
+        .unwrap_or_else(|_| queued.clone());
     let state = status.get("status").and_then(Value::as_str).unwrap_or("queued");
     // A refusal the target gave at once (its folder's trust, a bad prompt, a paused or full agent
     // pair) is this send's error, as it was before the outbox.
     if matches!(state, "failed" | "held") {
         let error = status.get("error").and_then(Value::as_str).unwrap_or("delivery failed");
+        // The target's machine has no such session: exit 4, with its close names. Its own
+        // detail: a delivery's failure is never handed to `sendRelay` (`send_relay.rs`).
+        if let Some(text) = error.strip_prefix(crate::hub::no_session::NO_SESSION_PREFIX) {
+            return Err(errors::AppError::new(
+                errors::Code::NoSession,
+                "delivery_no_session",
+                text,
+            )
+            .with_session(&key)
+            .into());
+        }
         return Err(anyhow!("{error}"));
     }
+    // Queued because the target's machine is down: said, so a sender knows it waits for it.
+    let unreachable = queued.get("hostUnreachable") == Some(&json!(true))
+        || (state == "queued"
+            && status
+                .get("error")
+                .and_then(Value::as_str)
+                .is_some_and(|e| e.contains("peer_unreachable")));
     let steered = status.pointer("/accepted/steer") == Some(&json!(true));
     if !json_out {
         warn_host_pressure(&status["accepted"]);
@@ -143,6 +161,7 @@ async fn queue_once(
             "queued": !steered,
             "steered": steered,
             "accepted": accepted,
+            "hostUnreachable": unreachable,
         });
         if superseding {
             // null until delivered, or when the target's daemon predates the key.
@@ -158,6 +177,8 @@ async fn queue_once(
         for line in lines {
             println!("{line}");
         }
+    } else if unreachable {
+        println!("queued; host unreachable, will retry (delivery {id}; acpmux send --status {id})");
     } else {
         println!("queued for delivery {id} (acpmux send --status {id})");
     }
@@ -226,7 +247,7 @@ pub(super) async fn status(
     }
     let field = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or_default();
     let attempts = v.get("attempts").and_then(Value::as_u64).unwrap_or(0);
-    let mut line = format!("{}  {}  attempt {attempts}", field("status"), field("target"));
+    let mut line = format!("{}  {}  attempt {attempts}", state_label(&v), field("target"));
     if let Some(turn) = v.pointer("/accepted/turnId").and_then(Value::as_str) {
         line.push_str(&format!("  turn {turn}"));
     }
@@ -263,6 +284,16 @@ pub(crate) async fn list(
     Ok(())
 }
 
+/// A delivery's state as `--status` prints it: `failed: no_session` for one whose target's
+/// machine has no such session, else its state.
+fn state_label(d: &Value) -> String {
+    let state = d.get("status").and_then(Value::as_str).unwrap_or_default();
+    match d.get("reason").and_then(Value::as_str) {
+        Some(reason) if state == "failed" => format!("failed: {reason}"),
+        _ => state.to_owned(),
+    }
+}
+
 /// What [`list`] prints for a `send_status {list: true}` answer, as of `now` (ms).
 pub(crate) fn list_lines(v: &Value, now: u64) -> Vec<String> {
     let deliveries = v.get("deliveries").and_then(Value::as_array).cloned().unwrap_or_default();
@@ -285,7 +316,7 @@ pub(crate) fn list_lines(v: &Value, now: u64) -> Vec<String> {
         let attempts = d.get("attempts").and_then(Value::as_u64).unwrap_or(0);
         let mut line = format!(
             "{:<10}  {}  {} ago  attempt {attempts}  {}",
-            field("status"),
+            state_label(d),
             field("target"),
             age,
             field("deliveryId")
@@ -303,6 +334,20 @@ pub(crate) fn list_lines(v: &Value, now: u64) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_delivery_with_no_such_session_reads_failed_no_session() {
+        let v = json!({"pending": 0, "deliveries": [
+            {"deliveryId": "d3", "target": "host/proc-title", "status": "failed", "attempts": 1,
+             "createdAt": 10_000, "reason": "no_session",
+             "error": "no_session: no session proc-title on host; did you mean: feed-lane"},
+        ]});
+        assert_eq!(
+            list_lines(&v, 70_000)[1],
+            "failed: no_session  host/proc-title  60s ago  attempt 1  d3  last error: no_session: no session proc-title on host; did you mean: feed-lane"
+        );
+        assert_eq!(state_label(&json!({"status": "queued", "reason": null})), "queued");
+    }
 
     #[test]
     fn list_lines_show_state_target_age_and_the_waiting_ones_error() {

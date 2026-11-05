@@ -12,6 +12,8 @@ public struct AgentTurn: Identifiable, Hashable, Sendable {
     public var prompt: String
     public var attachments: [AgentAttachment]
     public var promptAt: Date
+    /// Another agent's message, when the prompt is one (AgentIncoming): drawn as its card.
+    public var incoming: AgentIncoming?
     public var items: [TurnItem] = []
     public var status: Status = .running
     public var startedAt: Date?
@@ -225,7 +227,7 @@ public final class AgentChatStore {
     public private(set) var subagents: [AgentSubagent] = []
     /// The newest refused intent, shown over the composer until the next send.
     public var clientError: String?
-    /// The allow option waiting for Face ID (nil otherwise).
+    /// The allow option on its way (nil otherwise).
     public private(set) var approvingOptionID: String?
     /// A prompt that was not sent, for the composer to put back (then cleared).
     public var returnedDraft: ReturnedDraft?
@@ -272,6 +274,8 @@ public final class AgentChatStore {
     private var currentMessageID: String?
     /// Retained output belongs to the failed attempt, even when chunks carry no message ID.
     private var startsNewAttempt = false
+    /// The turn the latest `userMessage` opened (nil for a steer into a running turn): the one a `promptFrom` may mark.
+    @ObservationIgnored private var promptedTurnID: String?
     private var task: Task<Void, Never>?
     /// The chat's edit diffs, computed once each off the main thread (the transcript, its
     /// grid card and the subagent screens share them).
@@ -482,8 +486,8 @@ public final class AgentChatStore {
         // A refusal is about the previous answer ("Approve this on your Mac"):
         // a new answer, such as the decline that follows, replaces it.
         clientError = nil
-        // An allow is signed after Face ID: the bar shows "Waiting for Face ID…" until the
-        // decision lands or the signature fails (cancelled Face ID comes back as an error).
+        // An allow is signed with the approval key: the bar shows "Sending…" until the
+        // decision lands or the signature fails.
         approvingOptionID = option?.isAllow == true ? option?.id : nil
         sentPermissionAnswer = (request.id, option?.id)
         permissionAnswerUncertain = false
@@ -762,7 +766,10 @@ public final class AgentChatStore {
             retryRequested = false
             currentMessageID = nil
             reached(promptId)
+            // A steer into a running turn shares its id: only the message that opened the turn is its prompt.
+            promptedTurnID = nil
             if !turns.contains(where: { $0.id == turnId }) {
+                promptedTurnID = turnId
                 startsNewAttempt = false
                 turns.append(AgentTurn(id: turnId, prompt: text, attachments: Self.sentAttachments(sentAttachments[promptId], recorded: attachments),
                                        promptAt: at))
@@ -790,6 +797,9 @@ public final class AgentChatStore {
             turns[index].retry = AgentTurn.Retry(attempt: attempt, maxAttempts: maxAttempts, status: status)
         case .turnSeq(let turnId, let seq):
             turnSeqs[turnId] = seq
+        case .promptFrom(let turnId, let incoming):
+            guard promptedTurnID == turnId else { return }
+            mutateTurn(turnId) { $0.incoming = incoming }
         case .promptSeq(let turnId, let seq):
             promptSeqs[turnId] = seq
         case .bookmarks(let seqs):

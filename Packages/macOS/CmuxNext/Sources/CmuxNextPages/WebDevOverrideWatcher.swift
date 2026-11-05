@@ -15,6 +15,8 @@ public final class WebDevOverrideWatcher {
     private let home = FileManager.default.homeDirectoryForCurrentUser
     private var readTask: Task<Void, Never>?
     private var readRequested = false
+    /// Whether Chromium pages were serving the live loop after the last ``reloadPages()``.
+    private var chromiumServedLive = false
 
     /// A page or agent pane scheme handler is serving `webView`, from any of its paths (bundled
     /// file, dev server, overlay): it joins ``WebBundleServedViews`` so a change reloads it, and the
@@ -67,8 +69,24 @@ public final class WebDevOverrideWatcher {
     private func apply(_ value: WebDevOverride) {
         watchManifest(of: value.overlay)
         guard WebDevOverride.update(value) else { return }
-        // The same URL again: the scheme handler answers it from where the override now says.
+        Self.reloadPages()
+    }
+
+    /// Reloads every page and agent pane from where the override now says, in both engines: the
+    /// same URL again, which the WebKit scheme handlers and (with ``PageChromiumHosting/setLivePages(_:)``)
+    /// Chromium's page host answer from the dev server, the overlay, a web update or the bundle.
+    /// Also run when the Live Web Reload setting changes (``WebDevOverride/setAllowed(_:)``).
+    static func reloadPages() {
+        let live = WebDevOverride.current.isActive
+        let chromiumLive = live && (PageWebView.chromiumHosting?.setLivePages(true) ?? false)
+        if !live { _ = PageWebView.chromiumHosting?.setLivePages(false) }
         WebBundleServedViews.shared.reloadServed()
+        // Chromium pages reload when they serve the loop now or did until now. One whose Chromium
+        // cannot serve it keeps its bundled files until it next opens, in WebKit (PageEnginePolicy).
+        let watcher = shared
+        defer { watcher.chromiumServedLive = chromiumLive }
+        guard chromiumLive || watcher.chromiumServedLive else { return }
+        for page in PageRegistry.pages() where page.chromiumPage != nil { page.reload() }
     }
 
     /// Follows the overlay's `manifest.json`, which an install writes after its files.

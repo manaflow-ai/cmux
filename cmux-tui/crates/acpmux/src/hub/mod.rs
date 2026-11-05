@@ -109,6 +109,8 @@ mod hosts;
 mod lifecycle;
 mod log_deferral;
 mod log_load;
+#[cfg(test)]
+pub(crate) use log_load::{NOTE_BEFORE_CATCH_UP_LOCK, NOTE_BEFORE_REPLAY_SCAN, NOTE_IN_CATCH_UP};
 mod repo_sync;
 mod retention;
 pub use retention::RetentionRequest;
@@ -141,6 +143,7 @@ pub(crate) mod reply_fit;
 pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender};
 pub(crate) use queue::approved_prompts_error;
 pub use queue::{Approver, QueuedPrompt, Withdrawn, supersede::key as supersede_key};
+mod live_name;
 mod profile_respawn;
 mod resolve;
 mod route_switch;
@@ -188,6 +191,7 @@ mod tailnet_controller;
 mod tap;
 mod titles;
 mod tool_paths;
+mod tool_read_images;
 mod tool_shell;
 mod tools;
 pub(crate) mod turn_cap;
@@ -201,6 +205,7 @@ pub use spawn::expand_env_value;
 pub mod approvers;
 pub(crate) mod key_route;
 pub mod mac_approvers;
+pub mod no_session;
 mod own_host;
 mod peer_cache;
 #[cfg(all(test, target_os = "linux"))]
@@ -225,6 +230,7 @@ mod processes;
 mod pull_requests;
 pub(crate) mod purge_tombstones;
 pub(crate) mod questions;
+mod remote_cwd;
 mod remote_floor;
 pub(crate) mod remote_sandbox;
 pub mod vm_boundary;
@@ -261,6 +267,7 @@ mod usage_view;
 pub(crate) use usage_view::READ_WAIT as USAGE_READ_WAIT;
 mod background_cause;
 pub mod background_turn;
+mod goal_tools;
 #[cfg(feature = "sim")]
 mod sim_startup;
 #[cfg(all(test, unix))]
@@ -409,10 +416,6 @@ pub struct TurnInfo {
     /// Whether the person's own prompt started it (`inbox.rs` [`inbox::persons_prompt`]): no
     /// inbox notice and no other agent's steer goes into it.
     pub persons: bool,
-    /// Whether another agent's message, or acpmux's notice or digest of them, started it: the
-    /// person's own prompt queues behind it as a turn of its own instead of steering into it,
-    /// where the turn's reply would answer only the agent (`turns.rs`).
-    pub from_agents: bool,
 }
 
 /// Options for `Hub::prompt_with`.
@@ -763,6 +766,8 @@ pub struct Hub {
     pub presence: presence::Presence,
     /// How long a move may go without its client (`transfer_watch.rs`).
     pub(super) transfer_lease: StdMutex<std::time::Duration>,
+    /// The moves one watch ends, or whose begin still makes them (`transfer_watch.rs`).
+    pub(super) watched_moves: StdMutex<HashSet<String>>,
     /// How long Ctrl-B waits for Claude Code's answer (`processes.rs`).
     pub(super) background_timeout: StdMutex<std::time::Duration>,
     /// How long a foreground shell runs before it goes to the background, None: never
@@ -1006,6 +1011,7 @@ impl Hub {
             presence: Default::default(),
             workflow_index: Default::default(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
+            watched_moves: Default::default(),
             background_timeout: StdMutex::new(processes::STOP_TIMEOUT),
             auto_background_after: StdMutex::new(auto_background::auto_background_from_env()),
             auto_background_armed: Default::default(),
@@ -1211,14 +1217,20 @@ impl Hub {
     /// ahead of it. Counts the tail past `lastSeq` once, so no sequence is
     /// handed out twice; only that tail is read.
     pub(super) fn catch_up(&self, session: &Session) {
+        #[cfg(test)]
+        log_load::catch_up_note(&log_load::NOTE_BEFORE_CATCH_UP_LOCK, "takes the append lock");
         let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         self.catch_up_locked(session);
     }
 
     fn catch_up_locked(&self, session: &Session) {
-        if session.caught_up.swap(true, Ordering::SeqCst) {
+        // Once: every caller holds `append_lock`. Marked only once the tail is counted, since
+        // `scan_events` reads the mark without that lock (review of #36022, finding 1).
+        if session.caught_up.load(Ordering::SeqCst) {
             return;
         }
+        #[cfg(test)]
+        log_load::catch_up_note(&log_load::NOTE_IN_CATCH_UP, "counts the tail");
         let after =
             session.meta.lock().unwrap_or_else(|e| e.into_inner()).harness_failures.through_seq;
         let mut results = Vec::new();
@@ -1257,6 +1269,7 @@ impl Hub {
             meta.available_commands = None;
             session.seq.fetch_max(last, Ordering::SeqCst);
         }
+        session.caught_up.store(true, Ordering::SeqCst);
         // Kept, so the next start scans only past what this one read.
         if rebuilt {
             self.save_meta(session);
@@ -1364,6 +1377,7 @@ impl Hub {
             steering: AtomicBool::new(steering),
             backgrounds_work: AtomicBool::new(backgrounds_work),
             person: AtomicBool::new(false),
+            wait_start: AtomicBool::new(false),
             steer_now: Default::default(),
             steer_end: tokio::sync::watch::channel(None).0,
             fork_from: StdMutex::new(None),
@@ -2066,9 +2080,9 @@ impl Hub {
         rules: Option<Value>,
     ) -> Result<(), RpcError> {
         self.permission_policy_changed(session, |m| m.permission_rules = rules.clone());
-        let saved = self.save_meta_answered(session);
+        // The line first, then the metadata (R-DURABILITY S3b, as `set_tags_answered`).
         self.append(session, "mux", "rules", json!({"rules": rules}));
-        saved
+        self.save_meta_answered(session)
     }
 
     /// Store the unsent composer text without adding it to the transcript.
@@ -2236,8 +2250,9 @@ impl Hub {
             .map(|m| m.id.as_str())
             .collect();
         // A session whose record did not list still has its folder.
-        let stored =
-            |id: &str| known.contains(id) || self.store.session_dir(id).is_some_and(|d| d.exists());
+        let stored = |id: &str| {
+            known.contains(id) || self.store.session_path(id).is_some_and(|d| d.exists())
+        };
         let stale = crate::agent::session_tmp::stale_for_daemon(&stored, &|id| closed.contains(id));
         if stale.is_empty() {
             return;
@@ -2340,9 +2355,19 @@ impl Hub {
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
         let live = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
-        let Some(last) = live.map(|session| session.meta().last_seq) else {
+        let Some(session) = live else {
             return self.store.scan(id, after, visit);
         };
+        // After a hard stop the log can be ahead of the saved `lastSeq`, until the chat's log is
+        // loaded (`load_logs`, after the daemon's ready line) or its first append: its tail is
+        // counted first, so the cap below leaves out only a line whose record is not appended
+        // yet. A caught-up chat takes no lock here (a replay never waits for an append).
+        if !session.caught_up.load(Ordering::SeqCst) {
+            self.catch_up(&session);
+        }
+        let last = session.meta().last_seq;
+        #[cfg(test)]
+        log_load::catch_up_note(&log_load::NOTE_BEFORE_REPLAY_SCAN, "scans the log");
         self.store.scan(id, after, &mut |record| record.seq <= last && visit(record))
     }
 

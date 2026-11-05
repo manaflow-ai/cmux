@@ -3,8 +3,8 @@
 // middle ... some sort of little thing that's like ... a special kind of chevron ... if you hover
 // around that range, when it's completely almost like, yeah, hidden, then you can hover around that,
 // the top of the composer, and then you can click that to like unleash the hat"). It takes no height
-// in the bottom stack: a strip on the composer's top edge shows an up chevron, a drawer's pull tab, on
-// hover or keyboard focus, and a click brings the hat back (`agentPane.display.trayTucked`,
+// in the bottom stack: a strip on the composer's top edge shows a faint up chevron, a drawer's pull
+// tab, that brightens on hover or keyboard focus, and a click brings the hat back (`agentPane.display.trayTucked`,
 // chatDisplay.ts). The hat's own chevron, the palette, the CLI and MCP tuck it away again.
 //
 // Tucked, the tab still flags what needs the person, so tucking hides the noise and never a question
@@ -19,13 +19,15 @@ import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { subagentStatus } from "../summary/SubagentStatusList";
 import type { TrayItem } from "./runningTray";
+import { asksPerson } from "./trayAttention";
 import { rememberTrayOpen } from "./trayFoldMemory";
 
 /// The hat's own chevron (SubagentTray.tsx `onTuck`): one function, so the memoized tray keeps its props.
 export const tuckTray = () => setTrayTucked(true);
 
 /// What the tucked tab flags: the lines that wait on the person (counted as the hat's header counts
-/// them, trayHeadKinds.ts) and the ones that run.
+/// them, trayHeadKinds.ts) and the ones that run. A chat queued for a run slot waits on cmux, not on
+/// the person: it counts with what runs, never as a dot (trayAttention.ts asksPerson).
 export function pullTabCounts(
   items: readonly TrayItem[],
   waiting: ReadonlySet<string>,
@@ -35,7 +37,7 @@ export function pullTabCounts(
     if (
       item.kind === "agent"
         ? subagentStatus(item.agent, waiting) === "waiting"
-        : item.kind === "session" && item.session.state === "waiting"
+        : item.kind === "session" && asksPerson(item.session)
     )
       waits += 1;
   return { waiting: waits, running: items.length - waits };
@@ -54,7 +56,7 @@ export function TrayPullTab({
   waiting: number;
   /// Lines that run: with none waiting, the tab shows their count.
   running: number;
-  /// Something runs that the tab does not count (the turn's task list): the grabber takes the accent.
+  /// Something runs that the tab does not count (the turn's task list): the chevron takes the accent.
   working: boolean;
   side: TrayHandleSide;
 }) {

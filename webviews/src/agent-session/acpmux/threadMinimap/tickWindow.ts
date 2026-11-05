@@ -28,16 +28,17 @@ export function tickRanges(
   listTop: number,
   height: number,
   keep: ReadonlyArray<number | undefined> = [],
+  pitch = ROW_PITCH,
 ): Array<[number, number]> {
   if (count <= 0) return [];
   // An offset past the list's end (it had more rows: another chat, before its scroll catches up)
   // reads as the end, so the rows draw.
-  const top = Math.max(0, Math.min(listTop, count * ROW_PITCH - Math.max(0, height)));
+  const top = Math.max(0, Math.min(listTop, count * pitch - Math.max(0, height)));
   const view = Math.max(0, height);
-  const overscan = tickOverscan(Math.ceil(view / ROW_PITCH));
+  const overscan = tickOverscan(Math.ceil(view / pitch));
   const step = Math.max(1, Math.ceil(overscan / 2));
-  const first = Math.max(0, Math.floor((Math.floor(top / ROW_PITCH) - overscan) / step) * step);
-  const last = Math.min(count, Math.ceil((Math.ceil((top + view) / ROW_PITCH) + overscan) / step) * step);
+  const first = Math.max(0, Math.floor((Math.floor(top / pitch) - overscan) / step) * step);
+  const last = Math.min(count, Math.ceil((Math.ceil((top + view) / pitch) + overscan) / step) * step);
   const ranges: Array<[number, number]> = [[first, Math.max(first, last)]];
   for (const index of keep)
     if (index !== undefined && index >= 0 && index < count && (index < first || index >= last))

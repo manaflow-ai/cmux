@@ -7148,5 +7148,157 @@
       "es": "Manual is the Spanish adjective for a hand-set order (as sidebar.groupSort.manual).",
       "pt-BR": "Manual is the Portuguese adjective for a hand-set order, spelled as in English."
     }
+  },
+  "github.tab.title": {
+    "class": "brand",
+    "source": "GitHub"
+  },
+  "github.page.title": {
+    "class": "brand",
+    "source": "GitHub"
+  },
+  "remote.status.title": {
+    "class": "brand",
+    "source": "cmux Remote"
+  },
+  "settings.group.cmuxRemote": {
+    "class": "brand",
+    "source": "cmux Remote"
+  },
+  "remote.status.computerUse": {
+    "source": "Computer Use: %@",
+    "identityLocales": {
+      "de": {
+        "reason": "Computer Use is the cmux feature name (a brand, as settings.section.computerUse); %@ is the worker state.",
+        "values": [
+          "Computer Use: %@"
+        ]
+      },
+      "ar": {
+        "reason": "Computer Use is the cmux feature name (a brand, as settings.section.computerUse); %@ is the worker state.",
+        "values": [
+          "Computer Use: %@"
+        ]
+      },
+      "es": {
+        "reason": "Computer Use is the cmux feature name (a brand, as settings.section.computerUse); %@ is the worker state.",
+        "values": [
+          "Computer Use: %@"
+        ]
+      },
+      "ko": {
+        "reason": "Computer Use is the cmux feature name (a brand, as settings.section.computerUse); %@ is the worker state.",
+        "values": [
+          "Computer Use: %@"
+        ]
+      },
+      "ja": {
+        "reason": "Computer Use is the cmux feature name (a brand, as settings.section.computerUse); %@ is the worker state.",
+        "values": [
+          "Computer Use: %@"
+        ]
+      }
+    }
+  },
+  "remote.status.host": {
+    "source": "Host: %@",
+    "identityLocales": {
+      "de": "Host is the usual German term for the computer that shares its screen."
+    }
+  },
+  "chatDisplay.uiFontInter": {
+    "class": "brand",
+    "source": "Inter"
+  },
+  "settings.choice.agentChatUiFontInter": {
+    "class": "brand",
+    "source": "Inter"
+  },
+  "chatDisplay.uiFontVerdana": {
+    "class": "brand",
+    "source": "Verdana"
+  },
+  "settings.choice.agentChatUiFontVerdana": {
+    "class": "brand",
+    "source": "Verdana"
+  },
+  "chatDisplay.uiFontRoboto": {
+    "class": "brand",
+    "source": "Roboto"
+  },
+  "settings.choice.agentChatUiFontRoboto": {
+    "class": "brand",
+    "source": "Roboto"
+  },
+  "chatDisplay.uiFontPlex": {
+    "class": "brand",
+    "source": "IBM Plex Sans"
+  },
+  "settings.choice.agentChatUiFontPlex": {
+    "class": "brand",
+    "source": "IBM Plex Sans"
+  },
+  "chatDisplay.uiFontSourceSans": {
+    "class": "brand",
+    "source": "Source Sans 3"
+  },
+  "settings.choice.agentChatUiFontSourceSans": {
+    "class": "brand",
+    "source": "Source Sans 3"
+  },
+  "chatDisplay.uiFontGeist": {
+    "class": "brand",
+    "source": "Geist"
+  },
+  "chatDisplay.uiFontHanken": {
+    "class": "brand",
+    "source": "Hanken Grotesk"
+  },
+  "chatDisplay.uiFontAtkinson": {
+    "class": "brand",
+    "source": "Atkinson Hyperlegible Next"
+  },
+  "chatDisplay.uiFontCmuxSans": {
+    "class": "brand",
+    "source": "cmux Sans"
+  },
+  "settings.choice.agentChatUiFontGeist": {
+    "class": "brand",
+    "source": "Geist"
+  },
+  "settings.choice.agentChatUiFontHanken": {
+    "class": "brand",
+    "source": "Hanken Grotesk"
+  },
+  "settings.choice.agentChatUiFontAtkinson": {
+    "class": "brand",
+    "source": "Atkinson Hyperlegible Next"
+  },
+  "settings.choice.agentChatUiFontCmuxSans": {
+    "class": "brand",
+    "source": "cmux Sans"
+  },
+  "chatDisplay.uiFontSystemUi": {
+    "source": "System",
+    "identityLocales": {
+      "da": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "nb": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "settings.choice.agentChatUiFontSystemUi": {
+    "source": "System",
+    "identityLocales": {
+      "da": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "nb": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "chatDisplay.uiFont": {
+    "source": "Interface",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "pt-BR": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
   }
 }

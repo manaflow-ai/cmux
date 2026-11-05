@@ -301,7 +301,7 @@ export const gridScenes: GridScene[] = [
   menu("menu.context", "ui.context-menu", "open", ".ui-context-menu", false),
   menu("menu.mode", "agent-pane.composer-pickers", "permission-menu", ".acpmux-access-menu", true),
   menu("menu.mode", "ui.menu", "open", ".menu-gallery-popup", true),
-  scene("menu.plus", "agent-pane.composer", "add-menu", ".acpmux-composer-plus .acpmux-menu", [
+  scene("menu.plus", "agent-pane.composer", "add-menu", ".acpmux-composer-plus.acpmux-menu", [
     left("edge: highlight", ".acpmux-menu-item", "left", menuToken("highlight-inset")),
     left("lead", ".acpmux-menu-item > svg", "left", menuToken("icon-x")),
     left("text", ".acpmux-menu-label", "text", menuToken("text-x")),
@@ -419,40 +419,51 @@ export const gridScenes: GridScene[] = [
     ]),
     level: "fail",
   },
-  // The notice and error card over the composer (`.acpmux-host-error-card`: HostError.tsx's
-  // folder harness card, HarnessHealthNotice.tsx, RulesNotice.tsx). It is a card (grid.md 5.6):
-  // padding 12, radius 12, its action row 8 under the text with an 8 gap between buttons. It has
-  // no header icon and no trailing control, so it has no lead, text column or trail line.
-  ...[
-    ["agent-pane.host-error", "enable", noticeCard],
-    ["agent-pane.harness-health-notice", "signed-out", `.acpmux-harness-notice ${noticeCard}`],
-  ].map(([entry, variant, root]) => ({
-    ...scene("cards.notice", entry!, variant!, root!, [
+  // HostError.tsx's folder harness card is the shared inline notice (ui/Notice.tsx), on the same
+  // card grid (grid.md 5.6): padding 12, radius 12, its action row 8 under the text.
+  {
+    ...scene("cards.notice", "agent-pane.host-error", "enable", ".acpmux-host-error .ui-notice", [
       value("edge: padding", ":scope", "padding", token("cards-padding")),
       value("edge: padding top", ":scope", "padding-top", token("cards-padding")),
       value("edge: padding bottom", ":scope", "padding-bottom", token("cards-padding")),
-      from(
-        "action row",
-        ".acpmux-host-error-actions > button:first-child",
-        "top",
-        point(":scope > p:last-of-type", "bottom"),
-        token("gap"),
-      ),
-      ...(variant === "signed-out"
-        ? [
-            from(
-              "actions: gap",
-              ".acpmux-host-error-actions > button:nth-child(2)",
-              "left",
-              point(".acpmux-host-error-actions > button:first-child", "right"),
-              token("gap"),
-            ),
-          ]
-        : []),
+      from("action row", ".ui-notice-actions > :first-child", "top", point(".ui-notice-text", "bottom"), token("gap")),
       value("radius", ":scope", "radius", token("cards-radius")),
     ]),
     level: "fail" as const,
-  })),
+  },
+  // The notice and error card over the composer (`.acpmux-host-error-card`: HarnessHealthNotice.tsx,
+  // RulesNotice.tsx). It is a card (grid.md 5.6): padding 12, radius 12, its action row 8 under the
+  // text with an 8 gap between buttons. It has no header icon and no trailing control, so it has no
+  // lead, text column or trail line.
+  ...[["agent-pane.harness-health-notice", "signed-out", `.acpmux-harness-notice ${noticeCard}`]].map(
+    ([entry, variant, root]) => ({
+      ...scene("cards.notice", entry!, variant!, root!, [
+        value("edge: padding", ":scope", "padding", token("cards-padding")),
+        value("edge: padding top", ":scope", "padding-top", token("cards-padding")),
+        value("edge: padding bottom", ":scope", "padding-bottom", token("cards-padding")),
+        from(
+          "action row",
+          ".acpmux-host-error-actions > button:first-child",
+          "top",
+          point(":scope > p:last-of-type", "bottom"),
+          token("gap"),
+        ),
+        ...(variant === "signed-out"
+          ? [
+              from(
+                "actions: gap",
+                ".acpmux-host-error-actions > button:nth-child(2)",
+                "left",
+                point(".acpmux-host-error-actions > button:first-child", "right"),
+                token("gap"),
+              ),
+            ]
+          : []),
+        value("radius", ":scope", "radius", token("cards-radius")),
+      ]),
+      level: "fail" as const,
+    }),
+  ),
   {
     ...scene("cards.notice", "agent-pane.rules-notice", "collapsed", `.acpmux-rules-notice ${noticeCard}`, [
       value("edge: padding", ":scope", "padding", token("cards-padding")),

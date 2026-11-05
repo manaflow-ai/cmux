@@ -1110,12 +1110,15 @@ unchanged, for each rustc that built one of its binaries:
   `bin/cmux-diff-sidecar`
 
 The app (GhosttyNextKit), `bin/cmux` and `bin/cmux-tui-ssh/*` (libghostty-vt)
-and `bin/ghostty` link the Zig 0.16.0 standard library and compiler_rt:
+link the Zig 0.17.0 standard library and compiler_rt, and `bin/ghostty` links
+the Zig 0.16.0 standard library and compiler_rt:
 
 - **License:** MIT License (Expat)
 - **Copyright:** Copyright (c) Zig contributors
-- **Source:** https://ziglang.org/download/0.16.0/zig-0.16.0.tar.xz
-- **License text:** `Contents/Resources/toolchain-licenses/zig-0.16.0/LICENSE`
+- **Source:** https://ziglang.org/download/0.17.0/zig-0.17.0.tar.xz and
+  https://ziglang.org/download/0.16.0/zig-0.16.0.tar.xz
+- **License text:** `Contents/Resources/toolchain-licenses/zig-0.17.0/LICENSE`
+  and `Contents/Resources/toolchain-licenses/zig-0.16.0/LICENSE` (the same text)
 
 The MIT License (Expat)
 
@@ -1143,7 +1146,7 @@ THE SOFTWARE.
 
 ## musl (in the Zig standard library)
 
-GhosttyNextKit (Ghostty's terminal library in this app) contains code from the Zig standard library that Zig ported from musl: std.math.cbrt (musl src/math/cbrtf.c and src/math/cbrt.c), which Ghostty's terminal I/O uses to generate its 256-color palette. musl is licensed under the MIT license. The text below is the COPYRIGHT file of musl 1.2.5 (https://musl.libc.org/releases/musl-1.2.5.tar.gz), the musl release that Zig 0.16.0 bundles.
+GhosttyNextKit (Ghostty's terminal library in this app) contains code from the Zig standard library that Zig ported from musl: std.math.cbrt (musl src/math/cbrtf.c and src/math/cbrt.c), which Ghostty's terminal I/O uses to generate its 256-color palette. musl is licensed under the MIT license. The text below is the COPYRIGHT file of musl 1.2.5 (https://musl.libc.org/releases/musl-1.2.5.tar.gz), the musl release that Zig 0.17.0 bundles.
 
 ```text
 musl as a whole is licensed under the following standard MIT license:

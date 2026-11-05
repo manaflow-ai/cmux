@@ -45,7 +45,7 @@ export const handleFault = async (request: Request, env: Env, agent: string): Pr
   if ("refused" in (await readConversation(env, conversation, chiefPrincipal(agent, owned.owner), 1))) return fail({ status: 404, code: "not_found", message: "no such conversation" })
   const at = Date.now()
   if (body?.target === "brain") {
-    const brain = env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(brainName(agent, conversation))) as unknown as { fault(): Promise<void> }
+    const brain = env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(brainName(agent, conversation)))
     // The object aborts itself: the RPC that asked fails with that abort, which is the expected answer.
     const err = await brain.fault().then(() => null, (e: unknown) => String(e))
     if (err !== null && !err.includes("chief fault hook")) return fail({ status: 500, code: "fault_failed", message: err.slice(0, 200) })
@@ -53,7 +53,7 @@ export const handleFault = async (request: Request, env: Env, agent: string): Pr
   }
   if (body?.target === "container") {
     if (!env.OPENCODE_BRAIN_DO) return fail({ status: 409, code: "no_container", message: "this deployment has no opencode brain" })
-    const o = env.OPENCODE_BRAIN_DO.get(env.OPENCODE_BRAIN_DO.idFromName(agent)) as unknown as { fault(): Promise<{ stopped: boolean }> }
+    const o = env.OPENCODE_BRAIN_DO.get(env.OPENCODE_BRAIN_DO.idFromName(agent))
     const r = await o.fault()
     return r.stopped ? Response.json({ ok: true, value: { target: "container", at } }, { headers: NO_STORE }) : fail({ status: 409, code: "no_container", message: "no container is running for this chief" })
   }

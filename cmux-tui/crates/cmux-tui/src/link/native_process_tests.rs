@@ -1,6 +1,8 @@
 use std::time::Duration;
 
-use super::renewal_delay;
+use std::time::Instant;
+
+use super::{ReadFailure, RenewalLog, admission_line, keeps_policy, renewal_delay};
 
 const S: Duration = Duration::from_secs(1);
 
@@ -28,4 +30,56 @@ fn a_slow_read_starts_early_enough_to_land_before_the_lease_ends() {
 fn a_read_slower_than_what_is_left_starts_at_once() {
     assert_eq!(renewal_delay(8 * S, 12 * S), Duration::from_millis(250));
     assert_eq!(renewal_delay(Duration::ZERO, S), Duration::ZERO);
+}
+
+#[test]
+fn local_admission_keeps_the_policy_through_a_read_with_no_answer() {
+    let now = Instant::now();
+    let end = now + 600 * S;
+    assert_eq!(keeps_policy(ReadFailure::Unanswered, Some(end), now), Some(600 * S));
+}
+
+#[test]
+fn a_refused_read_closes_even_under_local_admission() {
+    let now = Instant::now();
+    assert_eq!(keeps_policy(ReadFailure::Refused, Some(now + 600 * S), now), None);
+}
+
+#[test]
+fn without_admit_until_every_failed_read_closes_as_before() {
+    // The kill switch: a policy with no admit_until gives no admission end.
+    let now = Instant::now();
+    assert_eq!(keeps_policy(ReadFailure::Unanswered, None, now), None);
+}
+
+#[test]
+fn an_admission_that_has_ended_keeps_nothing() {
+    let now = Instant::now() + 10 * S;
+    assert_eq!(keeps_policy(ReadFailure::Unanswered, Some(now - S), now), None);
+    assert_eq!(keeps_policy(ReadFailure::Unanswered, Some(now), now), None);
+}
+
+#[test]
+fn an_answered_read_says_whether_admit_until_is_present_and_how_long_it_took() {
+    let ms = Duration::from_millis;
+    assert_eq!(
+        admission_line(ms(6970), Some(Duration::from_secs(600))),
+        "cmux link: receiver policy read took 6970 ms; admit_until present (600 s of local admission)"
+    );
+    assert_eq!(
+        admission_line(ms(212), None),
+        "cmux link: receiver policy read took 212 ms; admit_until absent (no local admission)"
+    );
+}
+
+#[test]
+fn the_admission_line_is_written_on_the_first_read_and_on_each_change_only() {
+    let mut log = RenewalLog { last_slow: None, last_admits: None };
+    let ms = Duration::from_millis;
+    let admitted = Some(Duration::from_secs(60));
+    assert!(log.admission_change(ms(10), None).is_some(), "the first read is logged");
+    assert_eq!(log.admission_change(ms(10), None), None, "the same admission again is not");
+    assert!(log.admission_change(ms(10), admitted).is_some(), "admission appearing is logged");
+    assert_eq!(log.admission_change(ms(10), admitted), None);
+    assert!(log.admission_change(ms(10), None).is_some(), "admission ending is logged");
 }

@@ -49,6 +49,8 @@ public final class MacScreenSession {
     public var preferences: ScreenPreferences
     /// The viewer display's refresh rate; the next session asks for up to it.
     @ObservationIgnored public var displayMaximumFrameRate: Int?
+    /// The pane's screen area in pixels, for Auto's stream width (read when a session offers).
+    @ObservationIgnored public var paneWidthPixels: Int?
     @ObservationIgnored public var relayOnly = false
     @ObservationIgnored public var reconnectLimit = 0
     /// Relay errors for the failed card (relays are a link carrier, not reported apart).
@@ -203,7 +205,7 @@ public final class MacScreenSession {
             if let key = line.key, !offered {
                 offered = true
                 var offer = MacScreenRdDocument(key: key)
-                let wish = MacScreenRdDocument.wish(preferences.quality, refresh: displayMaximumFrameRate ?? 60)
+                let wish = MacScreenRdDocument.wish(preferences.quality, refresh: displayMaximumFrameRate ?? 60, paneWidth: paneWidthPixels)
                 offer.maxWidth = wish.maxWidth
                 offer.maxFps = wish.maxFps
                 offer.display = wantedDisplay

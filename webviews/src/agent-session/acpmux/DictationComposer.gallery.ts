@@ -2,11 +2,13 @@
 // Dictation in the chat's real composer (Leo's Claude Code reference, 2026-10-20): the whole pane,
 // driven through the host's own bridge (`cmuxAcpmuxBridge.dictation`, AgentPaneDictation's
 // updates). Listening keeps the composer one row: "Listening…" in italic while no words came,
-// the words streaming into the prompt as they arrive, then a waveform, the finish key (⏎) and the
-// lit mic before Send.
+// the words streaming into the prompt as they arrive, then the waveform, the composer's one Send (↵)
+// and the lit mic. The strip has no send of its own (Leo 2026-11-05: "The dictate button has its own
+// send button. We don't need that."). Codex's look draws ChatGPT's row: ✕, the waveform, Stop, Send.
 import { agentPaneEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import { assistant, chat, summary, user } from "../../gallery/fixtures/acpmux";
+import { setComposerLook } from "./composerLook";
 import type { DictationUpdate } from "./dictationText";
 
 const finished = [
@@ -63,6 +65,15 @@ const finalizing: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer .acpmux-mic[data-state='finalizing']"));
 };
 
+/// The same play in Codex's look, shown and not remembered.
+const inCodex =
+  (play: Play): Play =>
+  async (ctx) => {
+    setComposerLook("codex", { remember: false });
+    await ctx.waitFor(() => ctx.document.querySelector('[data-composer-look="codex"]'));
+    await play(ctx);
+  };
+
 export default agentPaneEntry({
   id: "agent-pane.composer-dictation",
   title: "Composer dictation (chat)",
@@ -73,7 +84,8 @@ export default agentPaneEntry({
   covers: [
     "agent-session/acpmux/DictationMic.tsx#DictationMic",
     "agent-session/acpmux/DictationListening.tsx#DictationWave",
-    "agent-session/acpmux/DictationListening.tsx#DictationFinishButton",
+    "agent-session/acpmux/DictationListening.tsx#DictationStrip",
+    "agent-session/acpmux/DictationListening.tsx#DictationCancelButton",
   ],
   variants: {
     idle: {
@@ -81,7 +93,7 @@ export default agentPaneEntry({
       snapshot: chat(finished),
     },
     "listening-empty": {
-      note: "Play: listening before any words: “Listening…” in italic, the waveform, the finish key and the lit mic.",
+      note: "Play: listening before any words: “Listening…” in italic, the waveform, the one Send (↵) and the lit mic, as Claude's composer draws it.",
       snapshot: chat(finished),
       play: listeningEmpty,
     },
@@ -91,9 +103,19 @@ export default agentPaneEntry({
       play: listeningWords,
     },
     finalizing: {
-      note: "Play: finalizing: the last words land, the wave dims and the finish key waits.",
+      note: "Play: finalizing: the last words land and the wave dims.",
       snapshot: chat(finished),
       play: finalizing,
+    },
+    "codex-listening-empty": {
+      note: "Play, Codex's look: ChatGPT's row: ✕ (drops the words, as Esc), the waveform, Stop (the lit mic, keeps the words) and Send.",
+      snapshot: chat(finished),
+      play: inCodex(listeningEmpty),
+    },
+    "codex-listening-words": {
+      note: "Play, Codex's look: the words stream in; Send ends the session and sends them once they land.",
+      snapshot: chat(finished),
+      play: inCodex(listeningWords),
     },
   },
 });

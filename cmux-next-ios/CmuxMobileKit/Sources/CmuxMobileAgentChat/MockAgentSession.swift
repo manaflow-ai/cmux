@@ -84,9 +84,9 @@ public final class MockAgentSession: AgentSessionSource {
             questionWaiter = nil
         case .respondPermission(let id, let optionID):
             guard id == pendingPermissionID else { return }
-            // DEBUG: an allow waits for mock "Face ID" (Settings → Developer), so the
+            // DEBUG: an allow waits for a slow mock approval (Settings → Developer), so the
             // waiting state shows. A deny never waits.
-            let delay = DeveloperOptions.mockFaceIDDelay
+            let delay = DeveloperOptions.mockApprovalDelay
             if delay > .zero, let optionID, !optionID.lowercased().contains("deny"), !optionID.lowercased().contains("reject") {
                 Task { [weak self] in
                     try? await Task.sleep(for: delay)
@@ -196,6 +196,7 @@ public final class MockAgentSession: AgentSessionSource {
         ))))
         emit(.update(.agentMessageChunk(text: MockScript.historyAnswer, messageId: "h-m1")))
         emit(.turnResult(turnId: turnID, status: .completed, errorText: nil, at: start.addingTimeInterval(41)))
+        replayAgentMessageTurns(at: Date().addingTimeInterval(-2700))
         let second = Date().addingTimeInterval(-1800)
         replaySubagentTurn(at: second)
         replayStressTurns(ListStressSettings.shared.historyTurns)

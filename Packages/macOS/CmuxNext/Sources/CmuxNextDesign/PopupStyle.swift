@@ -3,19 +3,21 @@ public import CmuxNextDesignTokens
 
 /// One look for every native popover and menu (hover cards, group editors,
 /// the icon picker, page info, the palette's actions menu): the web's popup
-/// surface (webviews/src/ui/popupSurface.css, #18729) in AppKit. Small-radius
-/// rects, compact rows and one subtle shadow (`elevation`); each surface keeps its own
-/// material and theme colors. `PopupStyleTests` holds the two in step. Hover cards
-/// keep the shadow and rows but take the floating glass panels' larger radius
-/// (`HoverCardPanel.cornerRadius`).
+/// surface (webviews/src/ui/popupSurface.css, #18729) in AppKit. Rounded rects,
+/// compact rows and one subtle shadow (`elevation`); each surface keeps its own
+/// material and theme colors. A popover is a top-level surface, so its corner is the
+/// one corner radius (`Metrics.surfaceCornerRadius`) and a row's corner is concentric
+/// with it: the card's radius less the row's inset (`padding`).
 public struct PopupStyle: Sendable {
     /// The style every native popover uses.
     public static let standard = PopupStyle()
 
-    public let cornerRadius: CGFloat = DesignTokens.radiusPopup
+    /// The card's corner: the one corner radius.
+    public var cornerRadius: CGFloat { Metrics.surfaceCornerRadius }
     public let padding: CGFloat = DesignTokens.space1
     public let rowHeight: CGFloat = DesignTokens.controlRow
-    public let rowCornerRadius: CGFloat = 5
+    /// A row's highlight, `padding` inside the card: concentric with the card's corner.
+    public var rowCornerRadius: CGFloat { Metrics.cornerRadius(nestedIn: cornerRadius, inset: padding) }
     public let openDuration: TimeInterval = 0.12
 
     /// The one popover shadow: the raised step of the elevation scale.

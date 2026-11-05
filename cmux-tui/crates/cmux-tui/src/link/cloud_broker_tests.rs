@@ -144,3 +144,30 @@ async fn cloud_broker_unsolicited_or_oversized_input_ends_the_driver() {
     server.await.unwrap();
     assert!(driven.await.unwrap().is_err());
 }
+
+#[tokio::test]
+async fn cloud_broker_keeps_a_backend_refusal_code_but_never_its_text() {
+    for (code, want) in [
+        (
+            "cloud.native.no_ready_attempt",
+            "the Cloud broker refused: cloud.native.no_ready_attempt",
+        ),
+        ("a code with spaces: and text", "the Cloud broker refused"),
+    ] {
+        let (link, mut parent) = UnixStream::pair().unwrap();
+        let (source, driver) = channel(link);
+        let driven = tokio::spawn(driver.run());
+        let server = tokio::spawn(async move {
+            request(&mut parent).await;
+            reply(&mut parent, serde_json::json!({"version": 1, "id": 1, "error": {"code": code}}))
+                .await;
+            parent
+        });
+        match source.fetch(HOST).await {
+            Err(ConnectInfoError::Unavailable(why)) => assert_eq!(why, want),
+            other => panic!("{code}: {other:?}"),
+        }
+        drop(server.await.unwrap());
+        assert!(driven.await.unwrap().is_ok());
+    }
+}
