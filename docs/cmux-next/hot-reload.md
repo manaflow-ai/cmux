@@ -168,7 +168,8 @@ To share one dev server, declare `"slot": {"host": "<ssh host>", "port": N}` in 
 The host must be a shared build host, never someone's personal machine. `server --slot` tunnels the same port, so HMR still connects, and falls back
 to `--local` when the slot doesn't answer. It copies the token from the slot's own
 `~/.config/cmux/web-dev.json` over ssh; a slot without one warns, and its server then needs
-`CMUX_WEB_DEV_TOKEN`.
+`CMUX_WEB_DEV_TOKEN`. If the slot's server restarts with a new token, run `server --slot` again;
+until then pages fall back to the bundle.
 
 ## Every merge, no checkout
 

@@ -156,6 +156,6 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
     }
 }
 
-private extension Data {
+private nonisolated extension Data {
     var hexString: String { map { String(format: "%02x", $0) }.joined() }
 }

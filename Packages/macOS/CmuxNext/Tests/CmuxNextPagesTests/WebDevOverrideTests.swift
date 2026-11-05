@@ -175,7 +175,7 @@ struct WebDevOverrideTests {
 
     /// The real server's answer to `request`: the proof of `token` for the request's nonce, which
     /// the request carries while the token itself does not.
-    private static func proven(_ request: URLRequest, token: String, body: String, status: Int = 200) -> (Data, HTTPURLResponse)? {
+    private nonisolated static func proven(_ request: URLRequest, token: String, body: String, status: Int = 200) -> (Data, HTTPURLResponse)? {
         guard let url = request.url, let nonce = request.value(forHTTPHeaderField: PageDevServer.nonceHeader),
               nonce.count == 64, !(request.allHTTPHeaderFields ?? [:]).values.contains(token) else { return nil }
         return HTTPURLResponse(url: url, statusCode: status, httpVersion: nil,
