@@ -58,6 +58,12 @@ final class TerminalFramePresenter {
     /// What this window's presenter did, cumulative.
     private(set) var stats = Stats()
 
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// RED CONTROL test hook (never merge), as on the PR head: called in the pass right after a request's frame became the
+    /// layer's contents.
+    var presentedHook: ((TerminalSurfaceView) -> Void)?
+    #endif
+
     private struct Request {
         weak var view: TerminalSurfaceView?
         /// The refresh it was made in: its group.
@@ -246,6 +252,9 @@ final class TerminalFramePresenter {
             CATransaction.unlock()
             if presented {
                 stats.presented += 1
+                #if DEBUG || CMUX_BENCH_HOOKS
+                presentedHook?(view)
+                #endif
                 landed(view, id: id, watch: false, followUp: followUp)
                 continue
             }
