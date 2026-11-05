@@ -107,11 +107,13 @@ struct TerminalKeyResizeFrameTests {
     }
 
     /// Review of #35470 (F1): a terminal whose frames wait at the landing (a busy program, or one that holds its frames
-    /// with synchronized output, mode 2026, as agent TUIs do) still gets one grid for the press. The size in flight at the
-    /// landing is an earlier spring size; the landing's release sized the surface from it and reported its grid (the
-    /// spring was over), and the newest size reported the final grid again when it went to Ghostty: final, stale, final.
-    /// The grids are locked as the daemon locks them (an announced grid: a pixel resize keeps mode 2026 set).
-    @Test func aTerminalWhoseFrameWaitsAtTheLandingGetsOneGridForThePress() async throws {
+    /// with synchronized output, mode 2026, as agent TUIs do). The landing's release once sized the surface from a stale
+    /// size and reported its grid, then the final grid again: final, stale, final. cmux-ad m18 replaces "one grid per
+    /// press" with the coalescer's rule: its PTY gets at most one grid per 25 ms window of the press (plus the landing's
+    /// flush), and the last grid is its view's grid at rest. With no keep (m18), a frame held by mode 2026 lands late (its
+    /// new bounds with the last frame) instead of waiting with old bounds. The grids are locked as the daemon locks them
+    /// (an announced grid: a pixel resize keeps mode 2026 set).
+    @Test func aTerminalWhoseFrameIsLateAtTheLandingEndsAtTheLandingsGrid() async throws {
         let screen = try await PaneScreen()
         defer { screen.close() }
         _ = PaneResize.press("p2", .left, model: screen.model, view: screen.root)
@@ -136,14 +138,15 @@ struct TerminalKeyResizeFrameTests {
             screen.ios[0].send(.output(hold))
             moving = screen.root.advanceFrame(1.0 / 120)
             screen.root.layoutSubtreeIfNeeded() // sync-layout: the stepped frame's own layout pass, as the frame tick runs it
-            if presenter.isWaiting(screen.sessions[0].surfaceView) { waitedInSpring += 1 }
-            if !moving { waitingAtLanding = presenter.isWaiting(screen.sessions[0].surfaceView) }
-            await Self.commit()
+            let p1 = screen.sessions[0].surfaceView
+            await Self.commit() // the frame's pass and commit: a held frame lands late there
+            if presenter.isWaiting(p1) || presenter.isLate(p1) { waitedInSpring += 1 }
+            if !moving { waitingAtLanding = presenter.isWaiting(p1) || presenter.isLate(p1) }
             steps += 1
         }
         try #require(steps >= 4, "the press's spring ran \(steps) frames: no spring ran")
-        try #require(waitedInSpring > 1, "p1's sizes waited in \(waitedInSpring) of \(steps) frames: p1 did not hold its frames")
-        try #require(waitingAtLanding, "p1 had no size in flight at the landing: the case under test did not happen")
+        try #require(waitedInSpring > 1, "p1's frames were late in \(waitedInSpring) of \(steps) frames: p1 did not hold its frames")
+        try #require(waitingAtLanding, "p1's frame was not late at the landing: the case under test did not happen")
         screen.ios[0].send(.output(Data("\u{1b}[?2026l".utf8)))
         await Self.settle(screen)
         let resizes = zip(screen.ios.map { $0.resizes.count }, resizesBefore).map { $0 - $1 }

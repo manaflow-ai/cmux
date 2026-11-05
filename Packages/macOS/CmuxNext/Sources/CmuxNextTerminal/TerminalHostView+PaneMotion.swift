@@ -30,6 +30,10 @@ extension TerminalHostView: PaneMotionHoldFollowing {
     /// stays on, so each frame draws the grid its size fits with the cursor row in view.
     var surfaceFollowsArea: Bool { followedHold != nil }
 
+    /// Whether the host is in a content area that holds for a key resize and will hand it the follow in the area's next
+    /// layout pass (a parked tab shown mid-hold: its surface is shown, and joins, a pass before that).
+    var joinsAreaKeyHold: Bool { followedHold == nil && (superview as? PaneContentAreaView)?.hold != nil }
+
     /// The surface's frame while the host follows its pane: the area it shows in (less a legacy scroller's strip),
     /// whatever hold it has. Each frame draws the grid its size fits (the reflow preview), and the reflow keeps a low
     /// prompt's cursor row in view, so no hold keeps it there (F2: a bottom hold at the final size made the surface taller

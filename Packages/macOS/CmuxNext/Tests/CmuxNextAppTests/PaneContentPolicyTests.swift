@@ -462,10 +462,11 @@ struct PaneContentPolicyTests {
     /// Review of #35470 at 447f784c3cf (G1 b): a parked terminal tab shown again during a key hold is unhidden before its
     /// area hands it the follow (in the area's next layout pass), so its surface joined the spring with the OFF path's hold
     /// at the press's final size; a second press before the landing left that hold, and the landing's release sized the
-    /// surface from it: grid1, grid2, grid1, grid2 for two presses. cmux-ad m18 (the view's grid coalesced, 25 ms): each
-    /// read of the grids gets at most one (it ends the window), the last is the final grid, and none goes after it. (A tab
-    /// added new mid-hold hears the follow in `didAddSubview`, before its surface joins: no hold.) Both states of
-    /// `motion.frameOwner.terminals` (review of #35470, T5).
+    /// surface from it: grid1, grid2, grid1, grid2 for two presses. cmux-ad m18 replaces "one grid per press" with the
+    /// coalescer's rule: the PTY gets at most one grid per 25 ms window from the press to the landing (plus the landing's
+    /// flush), the last is the final grid, and none goes after it. The join sends no final grid of its own outside the
+    /// coalescer: it joins its area's key hold and follows it (`restAt`). (A tab added new mid-hold hears the follow in
+    /// `didAddSubview`, before its surface joins: no hold.) Both states of `motion.frameOwner.terminals` (T5).
     @Test(arguments: [false, true])
     func aTerminalThatJoinsAKeyHoldGetsOneGridPerPressThroughASecondPress(switchOn: Bool) async throws {
         let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
@@ -479,8 +480,8 @@ struct PaneContentPolicyTests {
             parked.close()
             io.finish()
         }
+        // No flush here: a grid in the coalescer's window goes when the window ends (or at the landing).
         func marker() async -> [TerminalGridSize] {
-            parked.surfaceView.flushGridReport()
             parked.surfaceView.bridge.takeUnretainedValue().input.focusGained()
             return await io.gridsUntilMarker()
         }
@@ -492,6 +493,7 @@ struct PaneContentPolicyTests {
         try #require(parked.view.isHidden && parked.view.superview != nil, "the second tab was not parked in the pane")
         _ = await marker()
         PaneGroundCoversPaneTests.ownFrames(switchOn)
+        let pressed = ContinuousClock.now
         #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
         rig.root.layoutSubtreeIfNeeded()
@@ -513,8 +515,9 @@ struct PaneContentPolicyTests {
         let final = try #require(parked.surfaceView.fittedGrid)
         #expect(frames > 3, "the second press did not spring (\(frames) frames)")
         let sent = atJoin + atSecond + afterLanding
-        #expect(atJoin.count <= 1 && atSecond.count <= 1 && afterLanding.count <= 1,
-                "a read got more than one grid (join \(atJoin), second press \(atSecond), landing \(afterLanding))")
+        let windows = TerminalKeyResizeFrameTests.coalescingWindows(since: pressed)
+        #expect(sent.count <= windows,
+                "the PTY got \(sent.count) grids, more than one per 25 ms window (\(windows)): join \(atJoin), second press \(atSecond), landing \(afterLanding)")
         #expect(sent.last == final, "the PTY got \(sent), not ending at the final grid \(final)")
         let afterFinal = sent.drop(while: { $0 != final }).dropFirst()
         #expect(afterFinal.isEmpty, "the PTY got \(Array(afterFinal)) after the final grid \(final): \(sent)")

@@ -60,7 +60,9 @@ extension TerminalSurfaceView: PaneMotionTargeting {
     private func restAt(_ size: NSSize, growing: Bool) -> PaneMotionAnchor {
         guard let surface else { return .top }
         let host = superview as? TerminalHostView
-        if let host, host.surfaceFollowsArea {
+        // A tab shown mid-hold joins before its area hands it the follow: it follows from its first frame too, so its
+        // grid goes through the coalescer, never as a final grid beside the coalesced ones.
+        if let host, host.surfaceFollowsArea || host.joinsAreaKeyHold {
             host.releaseSurfaceHold()
             updateReflowPreview()
             return .top
