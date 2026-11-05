@@ -9,5 +9,11 @@ out="${1:?usage: rust-live-swap.sh OUT [rust-live.py measure flags]}"
 shift
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 mkdir -p "$out"
+code=0
 python3 "$root/scripts/cmux-next/rust-live.py" measure --worktree "$root" --out "$out" "$@" \
-  2> >(tee "$out/measure.log" >&2)
+  2> >(tee "$out/measure.log" >&2) || code=$?
+# A fleet step (cmux-ci run --artifact) brings back what is in $FAST_CHECKS_OUT.
+if [[ -n "${FAST_CHECKS_OUT:-}" && "$out" != "$FAST_CHECKS_OUT" ]]; then
+  mkdir -p "$FAST_CHECKS_OUT" && cp -R "$out/." "$FAST_CHECKS_OUT/"
+fi
+exit "$code"
