@@ -2,9 +2,12 @@
 //! the self-update (see the module docs of [`super`]). Linux, root, the
 //! image's system layout only.
 
+use std::cell::Cell;
 use std::fs;
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -52,6 +55,20 @@ enum Msg {
     Stop,
 }
 
+/// Bumped by every stop: a worker whose generation it no longer is has been
+/// told to stop, also one that outlived its role's deadline, and touches
+/// nothing more ([`stopped`]). The `cmux host update` verbs run outside any
+/// worker and never stop.
+static GENERATION: AtomicU64 = AtomicU64::new(0);
+
+thread_local! {
+    static WORKER_GENERATION: Cell<Option<u64>> = const { Cell::new(None) };
+}
+
+fn stopped() -> bool {
+    WORKER_GENERATION.with(Cell::get).is_some_and(|mine| mine != GENERATION.load(Ordering::SeqCst))
+}
+
 struct Worker {
     tx: Sender<Msg>,
     thread: JoinHandle<()>,
@@ -71,10 +88,12 @@ impl UpdaterRole {
 
     fn halt(&mut self, deadline: Instant) -> Result<(), RoleError> {
         let Some(worker) = self.worker.take() else { return Ok(()) };
+        GENERATION.fetch_add(1, Ordering::SeqCst);
         let _ = worker.tx.send(Msg::Stop);
         match worker.done.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
             Err(RecvTimeoutError::Timeout) => {
-                // A download or a restart command is bounded; it ends on its own.
+                // The worker kills its download and stops before it changes
+                // anything more; a restart command is bounded and ends on its own.
                 Err(RoleError("updater did not stop by the deadline".to_owned()))
             }
             _ => {
@@ -101,10 +120,12 @@ impl Role for UpdaterRole {
         let (tx, rx) = mpsc::channel();
         let (done_tx, done) = mpsc::channel::<()>();
         let paths = self.paths.clone();
+        let generation = GENERATION.load(Ordering::SeqCst);
         let thread = std::thread::Builder::new()
             .name("cmux-host-updater".to_owned())
             .spawn(move || {
                 let _done = done_tx;
+                WORKER_GENERATION.with(|g| g.set(Some(generation)));
                 run(&paths, &rx);
             })
             .map_err(|e| RoleError(e.to_string()))?;
@@ -273,6 +294,9 @@ fn check_inner(paths: &Paths) -> Outcome {
     if let Err(e) = stage(paths, &plan) {
         return Outcome::Failed(e);
     }
+    if stopped() {
+        return Outcome::Failed("the updater stopped".to_owned());
+    }
     if let Err(e) = store::build_profile(paths, plan.from, plan.to, &plan.replacements()) {
         return Outcome::Failed(format!("building profile {}: {e}", plan.to));
     }
@@ -297,6 +321,8 @@ fn check_inner(paths: &Paths) -> Outcome {
             Err(e) => Some(Outcome::Busy(vec![e])),
         },
     };
+    let last =
+        last.or_else(|| stopped().then(|| Outcome::Failed("the updater stopped".to_owned())));
     if let Some(outcome) = last {
         disarm_guard();
         clear_pending(paths);
@@ -376,18 +402,52 @@ fn fetch(url: &str, max: u64, out: Option<&Path>) -> Result<Vec<u8>, String> {
     if let Some(out) = out {
         cmd.arg("--output").arg(out);
     }
-    let output = cmd.arg(url).stdin(Stdio::null()).output().map_err(|e| format!("curl: {e}"))?;
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());
+    let mut child = cmd
+        .arg(url)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("curl: {e}"))?;
+    // Read both pipes on their own threads so curl never blocks on a full
+    // one while this thread watches for a stop.
+    let drain = |pipe: Option<Box<dyn std::io::Read + Send>>, limit: u64| {
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            if let Some(pipe) = pipe {
+                let _ = pipe.take(limit + 1).read_to_end(&mut buf);
+            }
+            buf
+        })
+    };
+    let stdout = drain(child.stdout.take().map(|p| Box::new(p) as _), max);
+    let stderr = drain(child.stderr.take().map(|p| Box::new(p) as _), 64 << 10);
+    let status = loop {
+        if stopped() {
+            // Our own child: kill and reap it.
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("the updater stopped".to_owned());
+        }
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => std::thread::sleep(Duration::from_millis(200)),
+            Err(e) => return Err(format!("curl: {e}")),
+        }
+    };
+    let body = stdout.join().unwrap_or_default();
+    if !status.success() {
+        let err = stderr.join().unwrap_or_default();
+        return Err(String::from_utf8_lossy(&err).trim().to_owned());
     }
-    if output.stdout.len() as u64 > max {
+    if body.len() as u64 > max {
         return Err("the body is over its limit".to_owned());
     }
-    Ok(output.stdout)
+    Ok(body)
 }
 
-/// `acpmux …` as the work user, at most 20 s; its stdout.
-fn acpmux(args: &[&str]) -> Option<String> {
+/// `acpmux …` as the work user, at most 20 s: whether it exited 0, and its stdout.
+fn acpmux(args: &[&str]) -> Option<(bool, String)> {
     let user = crate::linux::spawn::lookup_user(WORK_USER)?;
     let output = Command::new("timeout")
         .args(["20", "runuser", "-u", WORK_USER, "--", "env"])
@@ -399,25 +459,54 @@ fn acpmux(args: &[&str]) -> Option<String> {
         .stderr(Stdio::null())
         .output()
         .ok()?;
-    Some(String::from_utf8_lossy(&output.stdout).into_owned())
+    Some((output.status.success(), String::from_utf8_lossy(&output.stdout).into_owned()))
 }
 
 /// The acpmux sessions that run a turn or wait on a permission, by name
-/// (as `acpmux host update --if-idle` reads them). Empty when no daemon runs.
+/// (as `acpmux host update --if-idle` reads them). Fails closed: an error,
+/// which the caller counts as busy, unless acpmux answered. Empty only when
+/// it answered that no daemon runs and its unit is down (or absent).
 fn busy_sessions() -> Result<Vec<String>, String> {
-    let status = acpmux(&["--json", "daemon", "status"]).ok_or("acpmux did not run")?;
-    if daemon_build(&status).is_none() {
-        return Ok(Vec::new());
+    let (_, status) = acpmux(&["--json", "daemon", "status"]).ok_or("acpmux did not run")?;
+    match daemon_running(&status) {
+        None => return Err("acpmux daemon status is unreadable".to_owned()),
+        Some(false) => {
+            return match user_unit_state(ACPMUX_UNIT).as_deref() {
+                Some("inactive" | "failed") => Ok(Vec::new()),
+                _ if !Path::new(ACPMUX_UNIT_FILE).exists() => Ok(Vec::new()),
+                state => Err(format!("no acpmux daemon answered, its unit is {state:?}")),
+            };
+        }
+        Some(true) => {}
     }
-    let ls = acpmux(&["--json", "ls"]).ok_or("acpmux ls did not run")?;
+    let (ok, ls) = acpmux(&["--json", "ls"]).ok_or("acpmux ls did not run")?;
+    if !ok {
+        return Err("acpmux ls failed".to_owned());
+    }
     super::busy_sessions_in(&ls).ok_or_else(|| "acpmux ls is unreadable".to_owned())
 }
 
-/// The build of the acpmux daemon that answered (`"91d3ea019 2026-11-05"`), if one did.
-fn daemon_build(status: &str) -> Option<String> {
+/// Whether `acpmux --json daemon status` names a running daemon; None when
+/// it is not that answer.
+fn daemon_running(status: &str) -> Option<bool> {
     let v: Value = serde_json::from_str(status.trim()).ok()?;
-    v.get("pid").filter(|p| !p.is_null())?;
-    Some(v.get("build").and_then(Value::as_str).unwrap_or_default().to_owned())
+    let pid = v.as_object()?.get("pid")?;
+    Some(!pid.is_null())
+}
+
+/// `systemctl --user is-active UNIT` in the work user's manager: its word.
+fn user_unit_state(unit: &str) -> Option<String> {
+    let user = crate::linux::spawn::lookup_user(WORK_USER)?;
+    let output = Command::new("timeout")
+        .args(["20", "runuser", "-u", WORK_USER, "--", "env"])
+        .arg(format!("XDG_RUNTIME_DIR=/run/user/{}", user.uid))
+        .args(["systemctl", "--user", "is-active", unit])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    let word = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    (!word.is_empty()).then_some(word)
 }
 
 /// Whether the new build serves: the session host answers `identify` and
@@ -446,7 +535,7 @@ fn healthy(paths: &Paths, pending: &Pending) -> bool {
         return true;
     }
     acpmux(&["--json", "daemon", "status"])
-        .and_then(|status| serde_json::from_str::<Value>(status.trim()).ok())
+        .and_then(|(_, status)| serde_json::from_str::<Value>(status.trim()).ok())
         .and_then(|v| v.get("pid").and_then(Value::as_u64))
         .is_some_and(|pid| runs_new(&pid.to_string()))
 }
