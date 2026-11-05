@@ -597,6 +597,11 @@ impl Hub {
             match notice {
                 PeerNotice::Connected => {
                     tracing::info!(peer = %peer, "peer ready");
+                    // Its list came before this notice and is applied: a name it lacks is no
+                    // session there (`hub/no_session.rs`).
+                    if let Some(p) = self.peer(&peer).filter(|p| p.generation == generation) {
+                        p.rows_ready.store(true, std::sync::atomic::Ordering::SeqCst);
+                    }
                     // The link takes requests again: messages waiting for a peer go now, not
                     // after the rest of their retry delay (`server/outbox.rs` `deliver`).
                     self.outbox.peer_ready.notify_waiters();
@@ -622,6 +627,9 @@ impl Hub {
                     tracing::info!(peer = %peer, "peer restarting");
                 }
                 PeerNotice::Disconnected(e) => {
+                    if let Some(p) = self.peer(&peer).filter(|p| p.generation == generation) {
+                        p.rows_ready.store(false, std::sync::atomic::Ordering::SeqCst);
+                    }
                     // Called directly, with no grace: this drop is its outage's first
                     // when the link counts one failed attempt.
                     self.note_peer_drop(&peer, generation, &e);
@@ -1346,7 +1354,7 @@ impl Hub {
 }
 
 /// Whether peer session `r` is closed (its row's `status`).
-fn remote_closed(r: &RemoteSession) -> bool {
+pub(super) fn remote_closed(r: &RemoteSession) -> bool {
     r.summary.get("status").and_then(Value::as_str) == Some("closed")
 }
 

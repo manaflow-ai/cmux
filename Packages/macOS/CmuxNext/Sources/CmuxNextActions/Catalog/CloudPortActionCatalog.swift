@@ -1,6 +1,7 @@
 // A Cloud machine's ports for the CLI, MCP and the palette (audit group H):
-// `cmux cloud open-browser`, `port-list`, `port-forward`, `port-close` and
-// `machine-link`. Titles live in CloudPortActions.xcstrings; the handlers are
+// `cmux cloud open-browser`, `port-list`, `port-forward`, `port-close`,
+// `preview-share`, `preview-revoke` and `machine-link`. Titles live in
+// CloudPortActions.xcstrings; the handlers are
 // CloudHandlers+Browser.swift. Each row declares its own surfaces: the CLI
 // verb, and (but for machine-link) a row in the machine menu's Connection folder.
 
@@ -38,6 +39,22 @@ nonisolated enum CloudPortActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.portInt], targets: [.machine],
                 cliName: "cloud port-close", surfacePlan: plan(rank: 214)
             ),
+            ActionDescriptor(
+                id: "cloudPreviewShare",
+                title: String(localized: "action.cloudPreviewShare", defaultValue: "Share Machine Preview…", table: "CloudPortActions", bundle: .module),
+                description: "Creates a one-day anonymous link for --port N of the machine (--target machine:<id>), copies it to the clipboard and returns the URL and linkId. Revoke it with `cmux cloud preview-revoke --target machine:<id> --port <port> --linkId <id>`. Cloud app server link only.",
+                keywords: ["vm", "cloud", "preview", "port", "share", "link"], category: .cloud, symbol: "square.and.arrow.up",
+                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.portInt], targets: [.machine],
+                cliName: "cloud preview-share", surfacePlan: plan(rank: 215)
+            ),
+            ActionDescriptor(
+                id: "cloudPreviewRevoke",
+                title: String(localized: "action.cloudPreviewRevoke", defaultValue: "Revoke Machine Preview Link…", table: "CloudPortActions", bundle: .module),
+                description: "Revokes --linkId for --port N of the machine (--target machine:<id>) and returns revoked: true. Cloud app server link only.",
+                keywords: ["vm", "cloud", "preview", "port", "share", "link", "revoke"], category: .cloud, symbol: "link.badge.plus",
+                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.portInt, linkID], targets: [.machine],
+                cliName: "cloud preview-revoke", surfacePlan: plan(rank: 216)
+            ),
             // Copy Machine Link's value for a caller with no clipboard: it answers the URL.
             ActionDescriptor(
                 id: "cloudMachineLink",
@@ -63,5 +80,9 @@ nonisolated enum CloudPortActionCatalog: ActionCatalogGroup {
     static var optionalPort: ActionArgument {
         ActionArgument(name: "port", title: String(localized: "argument.port", defaultValue: "Port", bundle: .module), kind: .int(1...65535),
                        isRequired: false)
+    }
+
+    static var linkID: ActionArgument {
+        ActionArgument(name: "linkId", title: String(localized: "argument.linkID", defaultValue: "Link ID", table: "CloudPortActions", bundle: .module), kind: .string)
     }
 }

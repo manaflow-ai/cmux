@@ -25,6 +25,11 @@ export type SessionInfoProcess = {
   /// this process (`backgroundCommands`), and its terminal opens by it (processTerminal.ts).
   toolCallId?: string;
   command: string;
+  /// What the call that started it says it does (Claude's Bash `description`), as acpmux kept it:
+  /// a client that never loaded the call still names the command by it. None from Codex.
+  description?: string;
+  /// The subagent whose call started it (acpmux's `subagentSessionId`), when a subagent's did.
+  subagent?: string;
   /// Unix ms.
   startedAt: number;
   endedAt?: number;
@@ -42,6 +47,8 @@ function processOf(value: unknown, sessionId: string): SessionInfoProcess | unde
     id: raw.id,
     ...(typeof raw.toolCallId === "string" && raw.toolCallId ? { toolCallId: raw.toolCallId } : {}),
     command: raw.command,
+    ...(typeof raw.description === "string" && raw.description.trim() ? { description: raw.description.trim() } : {}),
+    ...(typeof raw.subagentSessionId === "string" && raw.subagentSessionId ? { subagent: raw.subagentSessionId } : {}),
     startedAt: raw.startedAt,
     ...(typeof raw.endedAt === "number" ? { endedAt: raw.endedAt } : {}),
     state: raw.state,
@@ -163,6 +170,8 @@ export type BackgroundCommand = {
   /// What the call that started it says it does (Claude's Bash `description`): the tray names the
   /// command by it (`commandLabel`).
   description?: string;
+  /// The subagent whose call started it, from the registry: the tray names it on the line.
+  subagent?: string;
   /// A registry process acpmux lost track of (its daemon restarted) is `lost`; the transcript
   /// never says so.
   state: SummaryBackgroundTask["state"] | "lost";
@@ -204,7 +213,10 @@ export function backgroundCommands(
     command: process.command,
     ...(process.toolCallId && described.has(process.toolCallId)
       ? { description: described.get(process.toolCallId) }
-      : {}),
+      : process.description
+        ? { description: process.description }
+        : {}),
+    ...(process.subagent ? { subagent: process.subagent } : {}),
     state: PROCESS_STATE[process.state] ?? "stopped",
     processId: process.id,
     startedAt: process.startedAt,
@@ -332,6 +344,11 @@ const PORTS = [
   /\b(?:http\.server|runserver)\s+(?:[\w.]+:)?(\d{2,5})\b/g,
 ];
 const SHORT_PORT = /(?:^|\s)-p\s+(\d{2,5})\b/g;
+
+/// Whether `command` serves something, as `serverOf` tells a server: a server command, or one that
+/// names a port.
+export const servesCommand = (command: string): boolean =>
+  SERVER_COMMAND.test(command) || PORTS.some((pattern) => command.match(pattern) !== null);
 
 export type SessionInfoServer = SessionInfoProcess & {
   /// The ports the command names, in the order named; empty when it names none (the default port

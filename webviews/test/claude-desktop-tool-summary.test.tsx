@@ -98,6 +98,9 @@ test("while a background command runs, an opened run says how its background com
   const group = renderToStaticMarkup(<ToolGroupRow kind="commands" items={items} disclosureKey="bg-open" />);
   expect(group).toMatch(/class="cv-tool__failed">1 failed</);
   expect(group.replace(/<[^>]+>/g, "")).toContain("1 background command completed, 1 failed, 1 running");
+  // Its words are one line box inside the flex row: as flex items, the separators' spaces collapse
+  // ("completed,1 failed,1 running", seen in a DEV build).
+  expect(group).toMatch(/<output class="cv-bgstatus"[^>]*><span class="cv-bgstatus__text"><span>1 background/);
   // It is no step: the opened run still lists one step per call.
   expect(group.match(/class="cv-step"/g)).toHaveLength(3);
 });

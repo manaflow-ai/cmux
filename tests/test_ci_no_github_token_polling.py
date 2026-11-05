@@ -104,7 +104,7 @@ ALLOWED: dict[str, str] = {
     'ci-macos.yml: Try parallel GitHub artifact transport':
         'retry only: an artifact download is retried after a failure, at most 4 tries, 1-8 s apart',
     'ci-owned-pool-rescue.yml: Watch runs on persistent pools':
-        'watches owned-pool runs (up to 5 h for a sweeper): reads on the glaeda-route App token (READ_TOKEN); GITHUB_TOKEN takes cancels, re-runs and a read the App may not make',
+        'watches owned-pool runs (up to 5 h for a sweeper): reads and mutations use the existing cmux-bot token, with github.token fallback; the routing App is never used',
     'cmux-next-batch.yml: Run the batch':
         'a batch, only when CMUX_NEXT_BATCH_ENABLED=1: the flagged loop pages GraphQL with one 10 s retry on a timeout; the batch also waits for its dispatched runs, one read every 15 s to find a run (10 min) and every 90 s for it to finish',
     'cmux-next-batch.yml: Wait for quiet, then dispatch a batch':

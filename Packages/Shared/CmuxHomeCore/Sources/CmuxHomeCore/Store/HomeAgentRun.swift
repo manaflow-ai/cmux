@@ -11,8 +11,11 @@ public struct HomeAgentRun: Hashable, Sendable {
         public var outgoing: Bool
         public var text: String
         public var date: Date
+        /// The prompt's `_meta.cmux.sender` (`human:<participant>`, `chief:<id>`); nil when it has none.
+        public var sender: String?
 
-        public init(id: String, sequence: UInt64, revision: UInt64, peer: String, outgoing: Bool, text: String, date: Date) {
+        public init(id: String, sequence: UInt64, revision: UInt64, peer: String, outgoing: Bool, text: String, date: Date,
+                    sender: String? = nil) {
             self.id = id
             self.sequence = sequence
             self.revision = revision
@@ -20,6 +23,7 @@ public struct HomeAgentRun: Hashable, Sendable {
             self.outgoing = outgoing
             self.text = text
             self.date = date
+            self.sender = sender
         }
     }
 

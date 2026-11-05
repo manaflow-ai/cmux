@@ -144,12 +144,16 @@ struct CloudAskDialogsTests {
         #expect(again["session_id"] == .string("s-1"), "the same ask again waits for the answer")
     }
 
-    /// Only the person delegates: an agent's settings write of the key is refused, and it is off by default.
-    @Test func theDelegationIsThePersonsAndOffByDefault() {
+    /// Only the person changes the delegation (an agent's settings write of the key is refused), and
+    /// it is on by default: an agent's start in a chat asks nobody unless the person turned it off
+    /// (Leo, 2026-11-03, on the Start card: "shouldn't have needed to ask me").
+    @Test func theDelegationIsThePersonsAndOnByDefault() {
         #expect(SettingsSchema.agentRefusedKeys[CloudAgentStartSetting.key] == .userOnly)
         #expect(!SettingsSchema.agentSettableKeys.contains(CloudAgentStartSetting.key))
-        #expect(!CloudAgentStartSetting().delegated(in: .object([:])))
+        #expect(CloudAgentStartSetting().delegated(in: .object([:])))
         #expect(CloudAgentStartSetting().delegated(in: ["cloud": ["agentsStartWithoutAsking": true]]))
-        #expect(!CloudAgentStartSetting().delegated(in: ["cloud": ["agentsStartWithoutAsking": "yes"]]))
+        #expect(!CloudAgentStartSetting().delegated(in: ["cloud": ["agentsStartWithoutAsking": false]]))
+        #expect(CloudAgentStartSetting().delegated(in: ["cloud": ["agentsStartWithoutAsking": "yes"]]))
+        #expect(SettingsSchema.all.first { $0.path == CloudAgentStartSetting.path }?.defaultValue == .bool(true))
     }
 }

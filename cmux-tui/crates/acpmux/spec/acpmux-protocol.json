@@ -185,6 +185,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/context",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/context_override",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "agent-session-turn-prepare",
       "params": true,
       "result": true
@@ -370,6 +382,12 @@
     {
       "kind": "request",
       "name": "_acpmux/set_tools",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/set_directories",
       "params": true,
       "result": true
     },
@@ -1520,6 +1538,18 @@
     {
       "kind": "request",
       "name": "_acpmux/chat/route.set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/accounts",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/account/set",
       "params": true,
       "result": true
     },

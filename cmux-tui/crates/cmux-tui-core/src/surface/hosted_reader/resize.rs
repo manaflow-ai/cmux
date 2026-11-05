@@ -125,8 +125,7 @@ impl HostedReader {
             pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
         });
         drop(geometry);
-        surface.publish_pending_directory();
-        surface.publish_pending_progress();
+        surface.queue_pending_publications();
         pty.stream_progress.notify();
         pty.request_frame(generation);
         if let Some(mux) = mux.upgrade() {

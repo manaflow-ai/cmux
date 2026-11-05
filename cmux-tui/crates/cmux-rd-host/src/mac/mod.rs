@@ -3,9 +3,10 @@
 //! plans/cmux-next/remote-desktop-mac-host.md. Needs Screen Recording and Accessibility for
 //! the host process or the app that launched it.
 
-mod capture;
+pub(crate) mod capture;
 mod input;
 mod keys;
+mod sys;
 
 use crate::desktop::Desktop;
 use crate::stream::SessionCfg;
@@ -35,7 +36,7 @@ fn encoder_fps(width: u32, height: u32, fps: u32) -> u32 {
 pub struct MacDesktop {
     capture: Capture,
     /// The frame [`Desktop::capture`] picked and its damage, for the next encode.
-    picked: Option<(screencapturekit::CVPixelBuffer, Rect)>,
+    picked: Option<(capture::PixelBuffer, Rect)>,
     encoder: VideoToolbox,
     injector: Injector,
     name: String,
@@ -95,7 +96,7 @@ impl Desktop for MacDesktop {
         // SAFETY: `frame` holds the pixel buffer and with it the IOSurface until this
         // function returns, which is after encode_surface returns.
         let picture = unsafe {
-            SurfaceFrame::new(surface.as_ptr(), SurfaceFormat::Nv12, width, height, ColorTag::Srgb)
+            SurfaceFrame::new(surface, SurfaceFormat::Nv12, width, height, ColorTag::Srgb)
         };
         let hint =
             SurfaceRect { x: damage.x, y: damage.y, width: damage.width, height: damage.height };

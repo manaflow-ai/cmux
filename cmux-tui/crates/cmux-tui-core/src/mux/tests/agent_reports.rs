@@ -55,10 +55,10 @@ fn agent_reports_apply_hook_authority() {
     assert_eq!(ignored_socket.state, AgentState::Blocked);
     assert_eq!(ignored_socket.source, AgentSource::Hook);
 
-    let filtered = mux.list_agents(Some(surface.id), Some(AgentState::Blocked));
+    let filtered = settled(&mux).list_agents(Some(surface.id), Some(AgentState::Blocked));
     assert_eq!(filtered.len(), 1);
     assert_eq!(filtered[0].session.as_deref(), Some("hook-session"));
-    assert!(mux.list_agents(Some(surface.id), Some(AgentState::Done)).is_empty());
+    assert!(settled(&mux).list_agents(Some(surface.id), Some(AgentState::Done)).is_empty());
     // The late socket report is a replay-equivalent no-op because the
     // hook projection already owns this terminal.
     assert_eq!(mux.with_state(|state| state.resource_revision), initial_revision + 2);
@@ -187,7 +187,7 @@ fn raw_and_resource_agent_reports_share_durable_order_across_restart() {
     .unwrap();
     assert_eq!(reopened.resource_agent_projection_count_for_test().unwrap(), 1);
     assert!(
-        reopened.list_agents(None, None).is_empty(),
+        settled(&reopened).list_agents(None, None).is_empty(),
         "the legacy live-surface cache must not retain a detached terminal"
     );
     assert_eq!(
@@ -277,7 +277,7 @@ fn concurrent_raw_socket_and_resource_hook_reports_serialize_to_hook_state() {
         matches!(hook_commit.revision, value if value == revision + 1 || value == revision + 2)
     );
 
-    let records = mux.list_agents(Some(surface_id), None);
+    let records = settled(&mux).list_agents(Some(surface_id), None);
     assert_eq!(records.len(), 1);
     assert_eq!(records[0].state, AgentState::Blocked);
     assert_eq!(records[0].source, AgentSource::Hook);
@@ -330,33 +330,33 @@ fn committed_agent_hook_events_drive_the_terminal_agent_record() {
     };
 
     append("SessionStart", "hook-1", "native-1");
-    let records = mux.list_agents(Some(surface_id), None);
+    let records = settled(&mux).list_agents(Some(surface_id), None);
     assert_eq!(records.len(), 1);
     assert_eq!(records[0].state, AgentState::Idle);
     assert_eq!(records[0].source, AgentSource::Hook);
 
     append("UserPromptSubmit", "hook-2", "native-1");
-    assert_eq!(mux.list_agents(Some(surface_id), None)[0].state, AgentState::Working);
+    assert_eq!(settled(&mux).list_agents(Some(surface_id), None)[0].state, AgentState::Working);
 
     append("PermissionRequest", "hook-3", "native-1");
-    assert_eq!(mux.list_agents(Some(surface_id), None)[0].state, AgentState::Blocked);
+    assert_eq!(settled(&mux).list_agents(Some(surface_id), None)[0].state, AgentState::Blocked);
 
     append("Stop", "hook-4", "native-1");
-    assert_eq!(mux.list_agents(Some(surface_id), None)[0].state, AgentState::Idle);
+    assert_eq!(settled(&mux).list_agents(Some(surface_id), None)[0].state, AgentState::Idle);
 
     // Child-agent events carry no top-level lifecycle transition.
     append("SubagentStart", "hook-5", "native-1");
-    assert_eq!(mux.list_agents(Some(surface_id), None)[0].state, AgentState::Idle);
+    assert_eq!(settled(&mux).list_agents(Some(surface_id), None)[0].state, AgentState::Idle);
 
     // A socket report cannot downgrade a hook-owned record.
     mux.report_agent(surface_id, AgentState::Working, AgentSource::Socket, None).unwrap();
-    assert_eq!(mux.list_agents(Some(surface_id), None)[0].state, AgentState::Idle);
+    assert_eq!(settled(&mux).list_agents(Some(surface_id), None)[0].state, AgentState::Idle);
 
     // An exited agent leaves the roster; a fresh one starts clean.
     append("SessionEnd", "hook-6", "native-1");
-    assert!(mux.list_agents(Some(surface_id), None).is_empty());
+    assert!(settled(&mux).list_agents(Some(surface_id), None).is_empty());
     append("SessionStart", "hook-7", "native-2");
-    let records = mux.list_agents(Some(surface_id), None);
+    let records = settled(&mux).list_agents(Some(surface_id), None);
     assert_eq!(records.len(), 1);
     assert_eq!(records[0].state, AgentState::Idle);
 }

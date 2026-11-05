@@ -35,6 +35,8 @@ type Surface = { name: string; entry: string; variant: string; kind: "open" | "p
 const SURFACES: readonly Surface[] = [
   { name: "transcript", entry: "agent-pane.transcript", variant: "conversation", kind: "open" },
   { name: "composer", entry: "agent-pane.composer", variant: "new-chat", kind: "open" },
+  { name: "thread_rail", entry: "agent-pane.thread-minimap", variant: "first-paint", kind: "open" },
+  { name: "thread_rail_preview", entry: "agent-pane.thread-minimap", variant: "card-metadata", kind: "play" },
   { name: "chat_rail", entry: "agent-pane.chat-minimap", variant: "at-rest", kind: "open" },
   { name: "new_tab", entry: "agent-pane.new-tab-page", variant: "idle", kind: "open" },
   { name: "home", entry: "pages.home-channels", variant: "normal", kind: "open" },

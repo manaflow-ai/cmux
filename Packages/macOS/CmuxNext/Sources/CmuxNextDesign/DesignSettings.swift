@@ -156,6 +156,8 @@ public final class DesignSettings {
     public var verticalTabs = false
     /// `tabs.verticalTabsExpandOnHover`: a collapsed vertical tab list widens while the pointer is over it.
     public var verticalTabsExpandOnHover = true
+    /// `tabs.hideLoneChatTab`: a chat alone in its pane hides its one tab, so the page takes the tab row (off by default).
+    public var hideLoneChatTab = false
     /// `layout.stripScrollbar`: the column strip's scrollbar.
     public var stripScrollbar: StripScrollbarMode = .system
     /// `sidebar.*`: section look and pinned band caps.
@@ -276,8 +278,8 @@ public final class DesignSettings {
     public var effectiveFocusIndicator: FocusIndicator { FocusIndicatorTunables.indicator.override ?? focusIndicator }
     /// `inactiveTabStyle` unless Debug Settings overrides it.
     public var effectiveInactiveTabStyle: InactiveTabStyle { FocusIndicatorTunables.inactiveTabStyle.override ?? inactiveTabStyle }
-    /// `window.titlebar`: standard (the default titlebar strip) or minimal.
-    public var titlebar: TitlebarStyle = .standard
+    /// `window.titlebar`: minimal (no titlebar strip) or standard.
+    public var titlebar: TitlebarStyle = .minimal
     /// `window.titlebarButtons`.
     public var titlebarButtons: TitlebarButtonsMode = .hover
     /// `tabs.plusButton`.

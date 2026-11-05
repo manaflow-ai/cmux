@@ -107,3 +107,54 @@ fn lock_detail_reports_per_site_hold_and_wait_percentiles() {
     assert!(long.hold_p99_us >= 10_000 && long.hold_p99_us <= long.hold_max_us, "{long:?}");
     assert!(long.hold_max_us >= 20_000, "{long:?}");
 }
+
+/// A writer that panics in the middle of a change leaves half-made routing tables. They are never published (the
+/// guard drops during the unwind, then the mutex is poisoned), so the input lane keeps routing by the last finished
+/// change (R-DAEMON-STATE stage S1).
+#[test]
+fn routes_of_a_change_cut_short_by_a_panic_are_never_published() {
+    let state = test_mux().with_state(State::clone);
+    let mutex = super::super::signaled_mutex::StateMutex::new(state, true);
+    let before = arc_swap::Guard::into_inner(mutex.routes());
+    let terminal = TerminalPublicId::parse("term_00000000000000000000000000000077").unwrap();
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut state = mutex.lock().unwrap_or_else(PoisonError::into_inner);
+        state.terminal_catalog_by_runtime.insert(9_999_999, terminal);
+        panic!("a writer panics in the middle of a change");
+    }));
+    let after = arc_swap::Guard::into_inner(mutex.routes());
+    assert!(Arc::ptr_eq(&before, &after), "the routes of the half-made change were published");
+}
+
+/// On a poisoned session state the creating-input checks answer from the state, as the old path did, never from the
+/// published routes: a create whose commit panicked after it put its terminal in the state publishes no routes, so
+/// the routes would call that terminal unknown (#34174 review: the poison check of 3b2e29f1389 had no test).
+#[cfg(unix)]
+#[test]
+fn a_poisoned_session_state_answers_the_creating_input_checks_from_the_state() {
+    let mux = test_mux();
+    mux.set_input_lane_for_test(true);
+    let identity = TerminalHostIdentity {
+        terminal_id: TerminalId::random().unwrap().to_hex(),
+        incarnation: crate::terminal_host::HostIncarnation::random().unwrap().to_hex(),
+    };
+    let terminal = Surface::exited_terminal_placeholder(
+        9_999_998,
+        SurfaceOptions::default(),
+        Arc::downgrade(&mux),
+        identity.clone(),
+    )
+    .unwrap();
+    assert!(!mux.knows_terminal_input_target(&identity.terminal_id), "known before its commit");
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut state = mux.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.surfaces.insert(terminal.id, terminal.clone());
+        // crash-allow: test-only panic to poison the session state in the middle of a change.
+        panic!("a create's commit panics after it put its terminal in the state");
+    }));
+    assert!(mux.state.is_poisoned(), "the session state is poisoned");
+    assert!(
+        mux.knows_terminal_input_target(&identity.terminal_id),
+        "a poisoned state answered from the published routes, which lack the terminal its state holds"
+    );
+}

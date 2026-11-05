@@ -1,0 +1,43 @@
+# Live code: change your own app's Swift while it runs
+
+Labs > **Live Code** (`labs.liveCode`) is an opt-in, temporary switch. Turn it on in a live code build
+and the Swift you edit in your own checkout applies to the running app in seconds, with no new build
+and no relaunch. Turn it off and the next launch is the app as built. Nobody who leaves it off pays
+anything: the shipped app is never built for live code, and only Debug and bench builds watch at all
+until a patch's signer is checked (cmux#13742).
+
+| You want | Do this |
+|---|---|
+| A live code build of your checkout (once) | `CMUX_LIVE_CODE_BUILD=1 scripts/reload.sh --tag mine --config bench` (or the Debug default) |
+| Turn it on | Settings > Advanced > Labs > Live Code, or `cmux settings set labs.liveCode true`, then relaunch |
+| Apply your edits | `scripts/live-code/patch.py --log <the reload's log> --module CmuxNextApp --live ~/Library/Caches/cmux-next/live-code FILE.swift` |
+| See what applied | `~/Library/Caches/cmux-next/live-code/live-code.log` |
+| Back to normal | Turn Live Code off and relaunch, or install a regular build |
+
+`CMUX_LIVE_CODE_DIR=DIR` starts the same watcher on another folder with no switch (the fleet's
+measurement, `scripts/measure/live-code-app.sh`, does this).
+
+## How it works
+
+- **The build.** `CMUX_LIVE_CODE_BUILD=1` compiles `CmuxNextApp` unoptimized and testable and links
+  the app `-interposable` with classic binds and its symbols exported, so the app's calls to its own
+  functions go through pointers dyld can repoint. That costs some speed and size, which is why only
+  this build has it.
+- **The patch.** `patch.py` compiles the edited files with the frontend command the build logged for
+  their module, links their objects into a dylib, signs it ad hoc and moves it into the live folder.
+- **The app** (`CmuxNextLiveCode`). It loads each new patch once and refuses it when a type changed
+  size (a stored property added or removed). It repoints every function the patch defines, then
+  invalidates and draws every window. Each line it applies or refuses goes to `live-code.log` in the
+  folder.
+
+## What applies, and what needs a rebuild
+
+Applies: changes inside functions and computed properties of `CmuxNextApp`, and AppKit drawing and
+layout code, which runs again at once. Needs a rebuild: stored properties, enum cases, protocols,
+resources, strings and `Package.swift`. leo-workspace `research/2026-11-04-hot-swap-architecture.md`
+has the numbers and what would make more of them live.
+
+## Not yet
+
+- The installed nightly. The switch can't yet turn an installed nightly into a live code build: that
+  needs a variant of the running commit, swapped in and back, and the signer check (cmux#13742).

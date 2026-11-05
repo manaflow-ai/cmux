@@ -40,6 +40,15 @@ extension AgentPaneView {
             if model.transport.peerApprover?.enroll != nil { enroll = { [weak self] notice in self?.enrollThisMac(notice) } }
             showApprovalsNotice(title: Self.peerApprovalsOffTitle(peer), detail: Self.peerApprovalsOffDetail,
                                 button: enroll == nil ? nil : Self.peerApprovalsEnroll, action: enroll)
+        case .enrolling(let peer):
+            // The person's click enrolls this Mac and then answers: a status, no button.
+            showApprovalsNotice(title: Self.peerApprovalsEnrollingTitle(peer), detail: Self.peerApprovalsEnrollingDetail,
+                                button: nil, action: nil)
+        case .enrollFailed(let peer, let failure):
+            var enroll: (@MainActor (AgentPaneNotice) -> Void)?
+            if model.transport.peerApprover?.enroll != nil { enroll = { [weak self] notice in self?.enrollThisMac(notice) } }
+            showApprovalsNotice(title: Self.peerApprovalsOffTitle(peer), detail: Self.peerApprovalsEnrollFailed(peer, failure),
+                                button: enroll == nil ? nil : Self.peerApprovalsEnroll, action: enroll)
         case .onceOnly:
             showApprovalsNotice(title: Self.peerApprovalsOnceOnly, detail: nil, button: nil, action: nil)
         case .notes:
@@ -84,7 +93,11 @@ extension AgentPaneView {
     private func enrollThisMac(_ notice: AgentPaneNotice) {
         // The daemon this pane talks to now, which named the peer: a reconnect while the command
         // runs does not change where it enrolls, and a pane with no daemon enrolls nowhere.
-        guard case .notEnrolled(let peer) = peerApprovalsReason, let approver = model.transport.peerApprover, let enroll = approver.enroll,
+        let named: String? = switch peerApprovalsReason {
+        case .notEnrolled(let peer), .enrollFailed(let peer, _): peer
+        default: nil
+        }
+        guard let peer = named, let approver = model.transport.peerApprover, let enroll = approver.enroll,
               remoteApprovalsNotice === notice, let socket = model.transport.acpmuxSocket else { return }
         let daemon = approver.daemon(socket: socket)
         notice.buttonEnabled = false

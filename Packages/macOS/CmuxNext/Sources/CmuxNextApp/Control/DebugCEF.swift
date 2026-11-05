@@ -26,6 +26,8 @@ enum DebugCEF {
             "likely": services.chromiumWarmup.reason.map { .string($0.rawValue) } ?? .null,
             "trigger": report.trigger.map { .string($0) } ?? .null,
             "spare_window": .string(services.cache.cef.spareWindowState),
+            "spare_page": .string(services.cache.cef.sparePageState),
+            "spare_pages_taken": .number(Double(services.cache.cef.sparePagesTaken)),
             "engine_start_main_ms": .number(milliseconds(services.cache.cef.engineStartMainThreadTime)),
             "start_steps": .array(services.cache.cef.startMarks.map {
                 .object(["name": .string($0.name), "start_uptime_ns": .number(Double($0.startUptimeNanos)), "ms": .number($0.milliseconds)])
@@ -47,7 +49,7 @@ enum DebugCEF {
         object["runtime"] = runtime(services.chromiumRuntime)
         object["devtools"] = .array(devTools(services))
         if let pump = services.cache.cef.pumpStats { object["pump"] = pumpReport(pump) }
-        object["tracker"] = trackerReport(services.cache.cef.trackerStats)
+        object["tracker"] = .object(services.cache.cef.trackerStats.reportFields.mapValues { .number($0) })
         object["windows"] = windows(services.cache.cef.windowReport)
         if let duration = report.loadDuration { object["load_ms"] = .number(milliseconds(duration)) }
         if let duration = report.initializeDuration { object["initialize_ms"] = .number(milliseconds(duration)) }
@@ -143,21 +145,6 @@ enum DebugCEF {
             "kept_cross_thread_requests": .number(Double(stats.keptCrossThreadRequests)),
             "work_ms": .number(stats.workSeconds * 1_000),
             "fallback_ms": .number(stats.fallbackInterval * 1_000),
-        ])
-    }
-
-    /// Per action = the change of each counter over it (scripts/cmux-next/pane-perf-terminal.py --browser).
-    private static func trackerReport(_ stats: CEFTrackerStats) -> JSONValue {
-        .object([
-            "clip_reads": .number(Double(stats.clipReads)),
-            "occlusion_reads": .number(Double(stats.occlusionReads)),
-            "clip_builds": .number(Double(stats.clipBuilds)),
-            "clip_hits": .number(Double(stats.clipHits)),
-            "clip_ms": .number(stats.clipSeconds * 1_000),
-            "geometry_posts": .number(Double(stats.geometryPosts)),
-            "hosted_pages": .number(Double(stats.hostedPages)),
-            "hosting_refused": .number(Double(stats.hostingRefused)),
-            "geometry_skips": .number(Double(stats.geometrySkips)),
         ])
     }
 

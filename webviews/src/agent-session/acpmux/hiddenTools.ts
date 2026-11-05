@@ -15,6 +15,14 @@ export function isPlumbingCall(update: any): boolean {
   return typeof tool === "string" && PLUMBING_TOOLS.has(tool);
 }
 
+/// Whether an ACP tool call or update is Muse Code's own todo tool, whose list the cmux-muse-acp
+/// adapter also sends as an ACP `plan` (`session/todoListChanged`, its src/acp.rs `send_plan`), so
+/// the checklist stands for the call. Only the adapter's top-level `name` counts, which carries
+/// Muse's tool name verbatim (its src/fold.rs `tool_line`); a title alone could be any tool's.
+export function isMuseTodoCall(update: any): boolean {
+  return update?.name === "write_todos";
+}
+
 /// Tracks which call ids in `hidden` are plumbing and says whether this update's call is one. A
 /// plumbing call marks its id; any other call that starts under that id clears the mark, since an
 /// adapter that numbers calls per process reuses an id in a later prompt (cx-jzhka). A result

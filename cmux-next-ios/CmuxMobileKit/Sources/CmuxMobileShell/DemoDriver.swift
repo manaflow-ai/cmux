@@ -26,7 +26,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-feed", "retry-terminal", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-armed", "large-preview", "large-preview-low-space"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-feed", "retry-terminal", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -164,6 +164,30 @@ struct DemoDriver {
             }
         case "kbd-feed":
             shell.tab = .feed
+        // Voice mode (with CMUX_MOBILE_VOICE_MODE_DEMO=1, the scripted Realtime link): an idle
+        // chat with history, or a terminal with its composer open, for VoiceModeUITests to tap
+        // the composer's voice button; its scripted prompt goes to the agent for real.
+        case "voice-chat":
+            AgentSessionDirectory.shared.makeSource = { summary in
+                var summary = summary
+                summary.status = .idle
+                return MockAgentSession(summary: summary, richFirstTurn: false, history: true)
+            }
+            shell.tab = .home
+            shell.homePath.append(AgentChatDestination(workspaceID: "ws-cmux", tabID: "t-claude"))
+        case "voice-terminal":
+            // Codex running in the zsh tab: voice mode is offered only while an agent runs there.
+            if let w = shell.store.workspaces.firstIndex(where: { $0.id == "ws-cmux" }),
+               let t = shell.store.workspaces[w].tabs.firstIndex(where: { $0.id == "t-zsh" }) {
+                shell.store.workspaces[w].tabs[t].harness = "codex"
+            }
+            shell.store.noteOpened(tabID: "t-zsh", in: "ws-cmux")
+            shell.tab = .workspaces
+            await pause(1.0)
+            guard let ws = shell.store.workspace(id: "ws-cmux") else { return }
+            shell.workspacesPath = [ws]
+            await pause(1.2)
+            shell.terminalTabs.model(forTabID: "t-zsh")?.toggleKeyboard()
         default: break
         }
     }
@@ -465,8 +489,8 @@ struct DemoDriver {
     /// Phone approvals end to end (verify/phone-approvals.md): waits for the link and
     /// the Mac's pairing, then works through the plan in the `cmuxMobile.demo.approve` default
     /// (comma separated; default `allow,allow,allow`). Each `allow` or `deny` answers the
-    /// next ask that reaches the Feed through the card's own path: Allow (Face ID signs
-    /// it) or the reject option for a permission, the first option (signed) or Decline
+    /// next ask that reaches the Feed through the card's own path: Allow (signed
+    /// with the approval key) or the reject option for a permission, the first option (signed) or Decline
     /// for a question. `signout` signs out as Settings does (the phone asks the Mac to
     /// forget it).
     private func approve() async {

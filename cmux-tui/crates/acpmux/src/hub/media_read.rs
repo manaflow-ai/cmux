@@ -465,7 +465,7 @@ fn expand_reply_path(path: &str, cwd: &Path, home: Option<&Path>) -> String {
 /// card.
 pub fn peer_unsupported(peer: &crate::peer::Peer, m: &str) -> RpcError {
     RpcError::method_not_found(&format!(
-        "{m} (peer {} runs acpmux build {}; run `acpmux host update {}`)",
+        "{m} (peer {} runs acpmux build {}; run `acpmux machine update {}`)",
         peer.name,
         peer.remote_build().unwrap_or_else(|| "unknown".into()),
         peer.name

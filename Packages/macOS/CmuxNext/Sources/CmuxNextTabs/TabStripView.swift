@@ -89,6 +89,8 @@ public final class TabStripView: NSView {
     /// frame origin) and clips them to after the fixed pinned band, so a tab scrolled under the pinned tabs
     /// never draws over them (`TabScrollMapping`, cx-kp9b4). Pinned tabs sit in `tabsClip` itself.
     let scrollingLayer = CALayer()
+    /// The line that ends the pinned group (Lawrence msg 20243): `TabStripView+PinnedDivider.swift`.
+    let pinnedDivider = TabStripView.makePinnedDivider()
     private(set) lazy var edgeFade = TabEdgeFade(strip: self)
     let newTabButton = NewTabButtonView()
     let newTabMenuButton = PaneTypeMenuButton()
@@ -127,6 +129,8 @@ public final class TabStripView: NSView {
     public internal(set) var isCrowded = false
     /// ``isCrowded`` changed; the pane's "…" (``PaneToolbarView/strip``) follows it.
     public var onCrowdedChange: ((Bool) -> Void)?
+    /// ``TabStripModel/holdsOneTab`` at the last sync: its change lays the pane out again (`syncFromModel`).
+    var laidOutOneTab: Bool?
     /// `result` indexed by tab (`slotIndex`), built on first use after each layout.
     var slotIndexCache: TabSlotIndex?
     /// The strip moves whose Core Animation transaction has not completed (`applyFrames`, `moveEnded`).
@@ -254,6 +258,7 @@ public final class TabStripView: NSView {
         scrollingLayer.masksToBounds = true
         scrollingLayer.actions = ["bounds": NSNull(), "position": NSNull(), "sublayers": NSNull()]
         tabsClip.layer?.addSublayer(scrollingLayer)
+        tabsClip.layer?.addSublayer(pinnedDivider)
         contentView.addSubview(tabsClip)
         contentView.addSubview(newTabButton)
         contentView.addSubview(newTabMenuButton)
@@ -423,6 +428,7 @@ public final class TabStripView: NSView {
         // What changed while out of sight lands at once in its final place: nobody saw it move.
         if modelChangedWhileHidden {
             modelChangedWhileHidden = false
+            layOutPaneIfOneTabChanged()
             sync(fromModel: true, animating: false)
         }
         hoverCards.register(hoverCard)
@@ -466,6 +472,7 @@ public final class TabStripView: NSView {
             chip.scale = scale
         }
         for band in groups.bands.values { band.themeScope = scope }
+        applyPinnedDividerColor()
     }
 
     func applyTokens(animated: Bool) {

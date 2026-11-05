@@ -124,6 +124,53 @@
   pointer-events: none;
 }
 
+/* The person's pointer (cursorArt.tsx PersonPointerArt), a second telepointer at the frame's
+   fractions (--cu-person-x/-y): a plain 12px arrow in the page's text tone, rimmed in the opaque page
+   colour so it reads over a light or a dark window, with a "You" label on a small-radius rect at its
+   lower right. Fixed size, under the agent's cursor. Outside the window it fades out where it was
+   (the host clamps the point to the edge); still for a while, it dims. */
+.acpmux-cu-preview__person {
+  position: absolute;
+  left: calc(var(--cu-person-x) * 100%);
+  top: calc(var(--cu-person-y) * 100%);
+  display: flex;
+  align-items: flex-start;
+  pointer-events: none;
+  /* The arrow's tip is at (5, 3) of its 24-point box: drawn 12px wide, that is 2.5px, 1.5px in. */
+  transform: translate(-2.5px, -1.5px);
+}
+.acpmux-cu-preview__person[data-outside] {
+  opacity: 0;
+}
+.acpmux-cu-preview__person[data-idle]:not([data-outside]) {
+  opacity: 0.55;
+}
+.acpmux-cu-preview__person-arrow {
+  flex: none;
+  width: 12px;
+  aspect-ratio: 1;
+  overflow: visible;
+}
+.acpmux-cu-preview__person-arrow > path {
+  fill: var(--agent-text);
+  stroke: var(--acpmux-base, var(--agent-accent-text, Canvas));
+  stroke-width: 2px;
+  stroke-linejoin: round;
+  paint-order: stroke;
+}
+.acpmux-cu-preview__person-label {
+  margin-top: 8px;
+  padding: 0 var(--ds-space-1, 4px);
+  border-radius: var(--ds-radius-sm, 4px);
+  background: var(--agent-text);
+  /* The opaque page colour, never the page background (clear in a see-through window). */
+  color: var(--acpmux-base, var(--agent-accent-text, Canvas));
+  font: inherit;
+  font-size: var(--text-caption);
+  line-height: 14px;
+  white-space: nowrap;
+}
+
 /* Done: the app's icon (40px) centered over the dimmed window, a 16px green check on the icon's lower
    right corner with a ring in the page's color (the Codex app's done preview). With no icon, the
    check alone, a little larger. */
@@ -151,7 +198,8 @@
   aspect-ratio: 1;
   border-radius: 50%;
   background: var(--agent-status-success);
-  color: white;
+  /* The opaque page colour, never a fixed white: a dark theme's success green is light. */
+  color: var(--acpmux-base, var(--agent-accent-text, Canvas));
   box-shadow: 0 0 0 2px var(--agent-page-bg);
 }
 .acpmux-cu-preview__mark[data-icon] > .acpmux-cu-preview__check {
@@ -235,6 +283,14 @@
     transition: /* motion-allow: mirrors the helper's own cursor glide (cmux-cua --glide-ms 150) */
       left 150ms var(--agent-ease-out, ease-out),
       top 150ms var(--agent-ease-out, ease-out);
+  }
+  /* The person's pointer comes about 6 times a second (the live tick): it glides between reads, and
+     fades as it leaves, comes back or turns idle. */
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-cu-preview__person {
+    transition:
+      left var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out),
+      top var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out),
+      opacity var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out);
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-cu-preview__ripple {
     animation: acpmux-cu-preview-click var(--cmux-motion-large, 240ms) var(--agent-ease-out, ease-out) 150ms both;

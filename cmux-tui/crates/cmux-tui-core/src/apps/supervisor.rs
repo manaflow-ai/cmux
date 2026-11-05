@@ -154,6 +154,9 @@ impl MountKey {
 
 pub(super) struct Mount {
     pub host: HostKey,
+    /// The interface it renders (`cmux.section/1`), to find its export again
+    /// when the package is saved.
+    pub interface: String,
     pub export: String,
     pub context: Value,
     /// The next scene batch starts a fresh tree (after a host restart).
@@ -233,6 +236,12 @@ pub(super) struct Inner {
     pub kept_servers_told: usize,
     /// Run callers and the ops they wait for (`cancel.rs`).
     pub calls: super::cancel::Calls,
+    /// The customize app's read scopes offered so far (granted by a save that
+    /// first declared them), seeded on the first reload from the catalog
+    /// read at start. Only grows (except scopes whose grant failed to save),
+    /// so within a daemon run a read the person turned off is never granted
+    /// again by a broken save or one that drops and re-adds it.
+    pub customize_reads_offered: Option<BTreeSet<String>>,
 }
 
 /// Work to do after the lock is released. Messages to hosts are not in this
@@ -368,6 +377,7 @@ impl Supervisor {
                 server_crashes: HashMap::new(),
                 kept_servers_told: 0,
                 calls: Default::default(),
+                customize_reads_offered: None,
             }),
             config,
             router,

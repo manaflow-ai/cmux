@@ -94,7 +94,7 @@ struct WorkspacesScreen: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .navigationDestination(for: Workspace.self) { ws in
                     WorkspaceScreen(store: shell.store, workspaceID: ws.id, terminal: shell.terminalTabs, creator: shell.creator,
-                                    openWorkspace: { shell.show(workspace: $0) })
+                                    openWorkspace: { shell.show(workspace: $0) }, screenSharing: shell.screenSharing)
                 }
                 .toolbar {
                     // WorkspacesList owns the title and the Mac chip row.

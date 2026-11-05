@@ -20,7 +20,15 @@ use sha2::{Digest as _, Sha256};
 /// Serves `fs.*` lines on `socket` with the real owner over `home`, one
 /// thread per connection, until the test process ends.
 fn serve_fs(socket: &Path, home: &Path) -> &'static Mutex<Vec<Planted>> {
-    serve_hostile_fs(socket, home)
+    serve_hostile_fs(socket, home, &[])
+}
+
+/// [`serve_fs`] whose `identify` lists `capabilities`, as a Cloud daemon's
+/// does (`cmux_tui_core::fs_ops::advertised`). Its listings stand in for
+/// one read before the machine made its symlinks: a link to a folder is
+/// listed as that folder, and any other link is left out.
+fn serve_fs_advertising(socket: &Path, home: &Path, capabilities: &'static [&'static str]) {
+    serve_hostile_fs(socket, home, capabilities);
 }
 
 /// A file a malicious machine plants in a listing: the folder's path as the
@@ -31,7 +39,11 @@ type Planted = (String, String, Vec<u8>);
 /// [`serve_fs`] that can turn malicious: the listings of the folders in the
 /// returned list also name its files, and `fs.stat` and `fs.read` of their
 /// paths answer with their bytes.
-fn serve_hostile_fs(socket: &Path, home: &Path) -> &'static Mutex<Vec<Planted>> {
+fn serve_hostile_fs(
+    socket: &Path,
+    home: &Path,
+    capabilities: &'static [&'static str],
+) -> &'static Mutex<Vec<Planted>> {
     let listener = UnixListener::bind(socket).unwrap();
     let service: &'static FsService =
         Box::leak(Box::new(FsService::new(Roots::new([home.to_path_buf()]))));
@@ -48,13 +60,27 @@ fn serve_hostile_fs(socket: &Path, home: &Path) -> &'static Mutex<Vec<Planted>> 
                     let cmd = request["cmd"].as_str().unwrap_or_default().to_string();
                     let path = request["path"].as_str().unwrap_or_default().to_string();
                     let planted = planted.lock().unwrap().clone();
-                    let reply = match hostile_answer(&planted, &cmd, &path) {
+                    let advertised = (cmd == "identify" && !capabilities.is_empty())
+                        .then(|| json!({ "capabilities": capabilities }));
+                    let reply = match advertised.or_else(|| hostile_answer(&planted, &cmd, &path)) {
                         Some(data) => json!({"id": id, "ok": true, "data": data}),
                         None => {
                             let mut reply =
                                 stream::answer(&id, service.call("local", &cmd, request));
                             if cmd == "fs.list" {
                                 plant_entries(&planted, &path, &mut reply);
+                                if !capabilities.is_empty()
+                                    && let Some(entries) = reply["data"]["entries"].as_array_mut()
+                                {
+                                    entries.retain(|entry| {
+                                        entry["kind"] != "symlink" || entry["target_kind"] == "dir"
+                                    });
+                                    for entry in entries.iter_mut() {
+                                        if entry["kind"] == "symlink" {
+                                            entry["kind"] = json!("dir");
+                                        }
+                                    }
+                                }
                             }
                             reply
                         }
@@ -468,7 +494,7 @@ fn hostile_pushed_repo()
     std::fs::create_dir_all(home.join("work")).unwrap();
     let sockets = tempfile::Builder::new().prefix("cs").tempdir_in("/tmp").unwrap();
     let socket = sockets.path().join("fs.sock");
-    let planted = serve_hostile_fs(&socket, &home);
+    let planted = serve_hostile_fs(&socket, &home, &[]);
     let remote = home.join("work/app");
     push(&socket, &repo, &remote);
     (root, sockets, repo, remote, socket, planted)
@@ -1283,6 +1309,56 @@ fn a_file_is_never_written_through_a_link_the_machine_changed() {
     assert_eq!(std::fs::read_link(remote.join("link")).unwrap(), Path::new("secret.txt"));
 }
 
+/// With no-follow writes (`fs-write-nofollow-v1`) a push asks each folder's
+/// listing what is in the way instead of an `fs.stat` a file, and a link the
+/// machine made after that listing still stops the file: the machine refuses
+/// it at its path (`fs.symlink_in_path`), and a folder on the way is a link.
+#[test]
+fn a_no_follow_push_never_writes_through_a_link_the_machine_changed() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let folder = root.join("site");
+    std::fs::create_dir_all(folder.join("sub")).unwrap();
+    std::fs::write(folder.join("a.txt"), "a\n").unwrap();
+    std::fs::write(folder.join("sub/b.txt"), "b\n").unwrap();
+    let (_sockets, socket, home) = machine_home(&root);
+    serve_fs_advertising(
+        &socket,
+        &home,
+        &["fs-v1", "fs-symlink-v1", "fs-write-deflate-v1", "fs-write-nofollow-v1"],
+    );
+    let remote = home.join("work/site");
+    let (ok, summary, _) = push_output(&socket, &folder, &remote);
+    assert!(ok, "{summary}");
+    assert_eq!(std::fs::read_to_string(remote.join("sub/b.txt")).unwrap(), "b\n");
+
+    std::fs::write(remote.join("secret.txt"), "secret\n").unwrap();
+    std::fs::remove_file(remote.join("a.txt")).unwrap();
+    std::os::unix::fs::symlink("secret.txt", remote.join("a.txt")).unwrap();
+    std::fs::remove_dir_all(remote.join("sub")).unwrap();
+    std::fs::create_dir_all(remote.join("elsewhere")).unwrap();
+    std::os::unix::fs::symlink("elsewhere", remote.join("sub")).unwrap();
+    std::fs::write(folder.join("a.txt"), "mine\n").unwrap();
+    std::fs::write(folder.join("sub/b.txt"), "mine\n").unwrap();
+    std::fs::write(folder.join("new.txt"), "new\n").unwrap();
+    // A link to an empty folder, listed as a folder: it is asked again and
+    // stays, never deleted as an empty folder in the way.
+    std::fs::create_dir_all(remote.join("hollow")).unwrap();
+    std::os::unix::fs::symlink("hollow", remote.join("c.txt")).unwrap();
+    std::fs::write(folder.join("c.txt"), "c\n").unwrap();
+
+    let (ok, pushed, _) = push_output(&socket, &folder, &remote);
+    assert!(ok, "{pushed}");
+    assert_eq!(std::fs::read_to_string(remote.join("secret.txt")).unwrap(), "secret\n");
+    assert_eq!(std::fs::read_link(remote.join("a.txt")).unwrap(), Path::new("secret.txt"));
+    assert!(!remote.join("elsewhere/b.txt").exists(), "{pushed}");
+    let skipped = skipped_by_path(&pushed);
+    assert!(skipped.contains_key("a.txt") && skipped.contains_key("sub/b.txt"), "{pushed}");
+    assert_eq!(std::fs::read_link(remote.join("c.txt")).unwrap(), Path::new("hollow"));
+    assert!(skipped.contains_key("c.txt"), "{pushed}");
+    assert_eq!(std::fs::read_to_string(remote.join("new.txt")).unwrap(), "new\n");
+}
+
 /// A machine link at or above the hooks folder never comes back: through it
 /// git would run hooks the machine chose.
 #[test]
@@ -1559,3 +1635,165 @@ fn a_pack_of_private_objects_is_private() {
         assert_eq!(mode, 0o600, "{} is {mode:o}", path.display());
     }
 }
+
+/// Serves `fs.*` like [`serve_fs`] and counts the connections that wrote a
+/// file (not the sync record).
+fn serve_fs_counting_writers(
+    socket: &Path,
+    home: &Path,
+) -> &'static std::sync::atomic::AtomicUsize {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let listener = UnixListener::bind(socket).unwrap();
+    let service: &'static FsService =
+        Box::leak(Box::new(FsService::new(Roots::new([home.to_path_buf()]))));
+    let writers: &'static AtomicUsize = Box::leak(Box::default());
+    std::thread::spawn(move || {
+        for connection in listener.incoming() {
+            let Ok(connection) = connection else { return };
+            std::thread::spawn(move || {
+                let mut writer = connection.try_clone().unwrap();
+                let mut wrote = false;
+                for line in BufReader::new(connection).lines() {
+                    let Ok(line) = line else { return };
+                    let request: Value = serde_json::from_str(&line).unwrap();
+                    let path = request["path"].as_str().unwrap_or_default();
+                    if request["cmd"] == "fs.write" && !path.ends_with("cmux-sync.json") && !wrote {
+                        wrote = true;
+                        writers.fetch_add(1, Ordering::SeqCst);
+                    }
+                    let id = request["id"].clone();
+                    let cmd = request["cmd"].as_str().unwrap_or_default().to_string();
+                    let mut text =
+                        stream::answer(&id, service.call("local", &cmd, request)).to_string();
+                    text.push('\n');
+                    if writer.write_all(text.as_bytes()).is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    writers
+}
+
+/// Small files go on several connections at once (one with
+/// `CMUX_SYNC_PUSH_CONNECTIONS=1`), a big one too, and every file lands as
+/// it is here; a second push writes nothing.
+#[test]
+fn small_files_go_on_several_connections_and_all_land() {
+    use std::sync::atomic::Ordering;
+    for (connections, least, most) in [("8", 3, 8), ("1", 1, 1)] {
+        let root = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(root.path()).unwrap();
+        let folder = root.join("many");
+        std::fs::create_dir_all(folder.join("deep/er")).unwrap();
+        for index in 0..300 {
+            let at = if index % 3 == 0 { "deep/er" } else { "." };
+            std::fs::write(folder.join(at).join(format!("f{index:03}.txt")), format!("{index}\n"))
+                .unwrap();
+        }
+        let big: Vec<u8> = (0..6 * 1024 * 1024u32).map(|i| (i % 251) as u8).collect();
+        std::fs::write(folder.join("big.bin"), &big).unwrap();
+        let (_sockets, socket, home) = machine_home(&root);
+        let writers = serve_fs_counting_writers(&socket, &home);
+        let remote = home.join("work/many");
+        let run = || {
+            let output = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+                .env("CMUX_TUI_STATE_DIR", state_of(&socket))
+                .env("CMUX_SYNC_PUSH_CONNECTIONS", connections)
+                .args(["link", "sync", "push", "--socket"])
+                .arg(&socket)
+                .arg(&folder)
+                .arg(&remote)
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stdout));
+            serde_json::from_slice::<Value>(&output.stdout).unwrap()
+        };
+        let summary = run();
+        assert_eq!(summary["written"], json!(301), "{summary}");
+        // The big file goes on the push's own connection, the small ones on
+        // up to `connections` more.
+        let used = writers.load(Ordering::SeqCst);
+        assert!(used <= most + 1, "{used} writing connections");
+        assert!(used >= least, "{used} writing connections");
+        for (path, bytes) in files_below(&folder) {
+            let relative = path.strip_prefix(&folder).unwrap();
+            assert_eq!(std::fs::read(remote.join(relative)).unwrap(), bytes, "{relative:?}");
+        }
+        assert_eq!(run()["written"], json!(0));
+    }
+}
+
+/// A folder the machine turns into a symlink after the push planned it
+/// (here: when the first file lands) is never written through: the write
+/// into it is skipped and named, and nothing lands where the link points.
+#[test]
+fn a_folder_turned_into_a_symlink_mid_push_is_not_written_through() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let folder = root.join("site");
+    std::fs::create_dir_all(folder.join("sub")).unwrap();
+    std::fs::write(folder.join("a.txt"), "a\n").unwrap();
+    std::fs::write(folder.join("sub/b.txt"), "b\n").unwrap();
+    let (_sockets, socket, home) = machine_home(&root);
+    let remote = home.join("work/site");
+    let elsewhere = home.join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+
+    let listener = UnixListener::bind(&socket).unwrap();
+    let service: &'static FsService = Box::leak(Box::new(FsService::new(Roots::new([home]))));
+    let swapped: &'static std::sync::atomic::AtomicBool = Box::leak(Box::default());
+    let (sub, target) = (remote.join("sub"), elsewhere.clone());
+    std::thread::spawn(move || {
+        for connection in listener.incoming() {
+            let Ok(connection) = connection else { return };
+            let (sub, target) = (sub.clone(), target.clone());
+            std::thread::spawn(move || {
+                let mut writer = connection.try_clone().unwrap();
+                for line in BufReader::new(connection).lines() {
+                    let Ok(line) = line else { return };
+                    let request: Value = serde_json::from_str(&line).unwrap();
+                    let id = request["id"].clone();
+                    let cmd = request["cmd"].as_str().unwrap_or_default().to_string();
+                    let first_write = cmd == "fs.write"
+                        && !swapped.swap(true, std::sync::atomic::Ordering::SeqCst);
+                    let reply = stream::answer(&id, service.call("local", &cmd, request));
+                    if first_write {
+                        std::fs::remove_dir(&sub).unwrap();
+                        std::os::unix::fs::symlink(&target, &sub).unwrap();
+                    }
+                    let mut text = reply.to_string();
+                    text.push('\n');
+                    if writer.write_all(text.as_bytes()).is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+        .env("CMUX_TUI_STATE_DIR", state_of(&socket))
+        .env("CMUX_SYNC_PUSH_CONNECTIONS", "1")
+        .args(["link", "sync", "push", "--socket"])
+        .arg(&socket)
+        .arg(&folder)
+        .arg(&remote)
+        .output()
+        .unwrap();
+    let summary: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(output.status.success(), "{summary}");
+    assert_eq!(std::fs::read_to_string(remote.join("a.txt")).unwrap(), "a\n");
+    assert!(!elsewhere.join("b.txt").exists(), "a write went through the symlink: {summary}");
+    let named: Vec<&str> = summary["skipped_files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|entry| entry["path"].as_str())
+        .collect();
+    assert!(named.contains(&"sub/b.txt"), "{summary}");
+}
+
+#[path = "link_sync/git_index.rs"]
+mod git_index;

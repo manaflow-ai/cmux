@@ -12,6 +12,9 @@
 # a sha256 mismatch fails the build. CMUX_NEXT_SKIP_CUA_HELPER=1 embeds nothing.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# cmux Remote (docs/cmux-remote.md) is embedded by the same phase, first: the
+# helper's own early exits below must not skip it.
+"$SCRIPT_DIR/embed-cmux-remote-dev.sh"
 app="${TARGET_BUILD_DIR:?}/${WRAPPER_NAME:?}"
 name="cmux Computer Use (dev).app"
 dest="$app/Contents/Library/$name"

@@ -98,7 +98,12 @@ test("a notification followed by a real reply keeps that reply in sight", () => 
     line("b"),
   ];
   const view = turnView(rows, new Set());
-  expect(ids(view).slice(3)).toEqual([backgroundTurnRowId("a"), "said", backgroundTurnRowId("b")]);
+  expect(ids(view).slice(3)).toEqual([
+    backgroundTurnRowId("a"),
+    "said",
+    "backgroundEnd-loud",
+    backgroundTurnRowId("b"),
+  ]);
 });
 
 test("a failed shell and a running line end a run; one line alone stays as it was", () => {

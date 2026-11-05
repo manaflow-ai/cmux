@@ -12,6 +12,16 @@
       "title" : "Attachment View",
       "type" : "string"
     },
+    "agentPane.composerRing" : {
+      "default" : "context",
+      "description" : "What the ring at the end of the composer shows: the chat's context usage, or your plan's usage limits (5-hour and weekly) when the harness reports them.",
+      "enum" : [
+        "context",
+        "planUsage"
+      ],
+      "title" : "Composer Ring",
+      "type" : "string"
+    },
     "agentPane.display.code.family" : {
       "description" : "The font of code in the chat. Empty uses the Markdown viewer's code font, then the terminal font.",
       "title" : "Chat Code Font",
@@ -23,6 +33,14 @@
       "minimum" : 0.6,
       "title" : "Chat Code Size",
       "type" : "number"
+    },
+    "agentPane.display.commandLabels" : {
+      "default" : [
+
+      ],
+      "description" : "How the chat names background commands: preset names such as cmux-fleet, and rules with a program or pattern and a label.",
+      "title" : "Command Labels",
+      "type" : "string"
     },
     "agentPane.display.environment.placement" : {
       "default" : "left",
@@ -92,6 +110,12 @@
       "title" : "Chat Minimap",
       "type" : "string"
     },
+    "agentPane.display.pinnedPlan" : {
+      "default" : false,
+      "description" : "While the agent works, its task list stays under the latest message instead of in the bar over the composer.",
+      "title" : "Pin Task List in Chat",
+      "type" : "boolean"
+    },
     "agentPane.display.presentation" : {
       "default" : "transcript",
       "description" : "agentPane.display.presentation",
@@ -122,6 +146,22 @@
       "title" : "Session Info",
       "type" : "string"
     },
+    "agentPane.display.statusVerbs.custom" : {
+      "description" : "Comma-separated -ing verbs for the live status line.",
+      "title" : "Custom Working Verbs",
+      "type" : "string"
+    },
+    "agentPane.display.statusVerbs.mode" : {
+      "default" : "thinking",
+      "description" : "Choose whether the live status line rotates through verbs or stays on Thinking.",
+      "enum" : [
+        "thinking",
+        "rotate",
+        "custom"
+      ],
+      "title" : "Working Status Verbs",
+      "type" : "string"
+    },
     "agentPane.display.transcriptView" : {
       "default" : "normal",
       "description" : "How much of each turn a chat shows. Normal folds thinking and tool output; Thinking opens thinking; Verbose also opens tool output. A chat's ··· menu changes its own view.",
@@ -132,6 +172,23 @@
       ],
       "title" : "Transcript View",
       "type" : "string"
+    },
+    "agentPane.display.trayHandle" : {
+      "default" : "middle",
+      "description" : "Where the handle that tucks the running tray away and brings it back sits along the top of the composer.",
+      "enum" : [
+        "left",
+        "middle",
+        "right"
+      ],
+      "title" : "Running Tray Handle",
+      "type" : "string"
+    },
+    "agentPane.display.trayTucked" : {
+      "default" : false,
+      "description" : "Hides the bar of running work over the composer. Hover the top middle of the composer and click its chevron to bring it back.",
+      "title" : "Tuck Away Running Tray",
+      "type" : "boolean"
     },
     "agentPane.display.vscodeMinimap" : {
       "default" : false,
@@ -1455,6 +1512,11 @@
       "title" : "Theme Edits",
       "type" : "object"
     },
+    "appearance.themeFile" : {
+      "description" : "A look from a file in ~/.config/cmux/themes, such as \"tokyo\" for tokyo.json. Its values apply over these settings, live as you save it. Unset, no file applies.",
+      "title" : "Theme File",
+      "type" : "string"
+    },
     "appearance.wallpaperTint" : {
       "default" : true,
       "description" : "The glass takes the colors of your desktop picture and follows it when the picture or Space changes.",
@@ -1929,9 +1991,9 @@
       "type" : "boolean"
     },
     "cloud.agentsStartWithoutAsking" : {
-      "default" : false,
-      "description" : "An agent's `cmux cloud start-session` creates or resumes the Cloud machine and starts its session with no Start card in the chat. Only you can turn this on.",
-      "title" : "Let Agents Start Cloud Sessions Without Asking",
+      "default" : true,
+      "description" : "Agents, `cmux cloud` in a terminal and scripts create Cloud machines, move chats to Cloud and start sessions there with no card asking you first. Your plan's limits still apply. Only you can change this.",
+      "title" : "Let Agents Use Cloud Without Asking",
       "type" : "boolean"
     },
     "cloud.newWorkspaceFolder" : {
@@ -1954,6 +2016,12 @@
       "default" : false,
       "description" : "Copies your own Claude login from this Mac to Cloud machines you own, so their chats start signed in. Never to team or shared machines, and cmux never stores it. Off: each machine offers Sign in to Claude instead.",
       "title" : "Use My Claude Login on My Own Cloud Machines",
+      "type" : "boolean"
+    },
+    "cloud.useMyCodexLoginOnMyCloudMachines" : {
+      "default" : false,
+      "description" : "Gives Cloud machines you own short-lived access from the Codex sign-in on this Mac, so their chats start signed in. The machine never gets your refresh token, and cmux never stores it. Off: a machine asks for a Codex sign-in instead.",
+      "title" : "Use My Codex Login on My Own Cloud Machines",
       "type" : "boolean"
     },
     "computerUse.driver" : {
@@ -2744,6 +2812,12 @@
       "title" : "Classic Home",
       "type" : "boolean"
     },
+    "labs.liveCode" : {
+      "default" : false,
+      "description" : "In a live code build of cmux, Swift changes you compile from your own checkout apply to the running app without waiting for a new build. Turn it off to go back to normal. Takes effect after cmux restarts.",
+      "title" : "Live Code",
+      "type" : "boolean"
+    },
     "labs.machineJoin" : {
       "default" : false,
       "description" : "Add Device shows a line to paste on any Mac or Linux computer; it joins your team's machines. Screen sharing and control stay off until that machine allows them.",
@@ -2788,6 +2862,13 @@
       ],
       "title" : "Focus After Closing a Pane",
       "type" : "string"
+    },
+    "layout.cornerPadding" : {
+      "description" : "Space between a pane's edge and its tabs. Inner corners use the corner radius minus this.",
+      "maximum" : 12,
+      "minimum" : 0,
+      "title" : "Corner Padding",
+      "type" : "number"
     },
     "layout.defaultColumnWidth" : {
       "default" : 0.6666666666666666,
@@ -2923,7 +3004,7 @@
       "type" : "number"
     },
     "layout.paneCornerRadius" : {
-      "description" : "layout.paneCornerRadius",
+      "description" : "One radius for panes and tabs. Shapes inside a pane use this radius minus the corner padding.",
       "maximum" : 20,
       "minimum" : 0,
       "title" : "Corner Radius",
@@ -3718,6 +3799,18 @@
       },
       "title" : "Pinned Folders",
       "type" : "array"
+    },
+    "remote.enabled" : {
+      "default" : false,
+      "description" : "cmux Remote holds Accessibility and Screen Recording for Computer Use (Upstream driver) and Screen Sharing, so a grant never needs a relaunch. Applies when cmux restarts.",
+      "title" : "Use cmux Remote",
+      "type" : "boolean"
+    },
+    "remote.endSharingOnQuit" : {
+      "default" : false,
+      "description" : "Off, cmux Remote keeps this Mac available to your devices and shows their requests while cmux is quit.",
+      "title" : "End Sharing When cmux Quits",
+      "type" : "boolean"
     },
     "RestrictToManagedTeam" : {
       "description" : "Refuse sign-in to any team other than ManagedTeam on this device.",
@@ -4735,6 +4828,12 @@
       "title" : "Command-1 to 9 Select",
       "type" : "string"
     },
+    "tabs.hideLoneChatTab" : {
+      "default" : false,
+      "description" : "When a pane holds only one chat, hide its tab so the chat fills the tab bar. A second tab brings the tab bar back.",
+      "title" : "Hide the Tab of a Chat Alone in Its Pane",
+      "type" : "boolean"
+    },
     "tabs.nativeNewTabPage" : {
       "default" : false,
       "description" : "Cmd-T and the + button open the native New Tab page instead of the web one. It opens faster and lists every command palette action as you type. Recent chats and widgets are only on the web page for now.",
@@ -5174,6 +5273,12 @@
       "title" : "When an Update Is Ready",
       "type" : "string"
     },
+    "updates.oneClickInstall" : {
+      "default" : false,
+      "description" : "Off: Update downloads the update, then cmux asks before it restarts into it. On: one click on Update downloads it, shows its progress, then installs it and restarts cmux. Terminals and agents keep running across the restart.",
+      "title" : "Update in One Click",
+      "type" : "boolean"
+    },
     "updates.showFeatureTips" : {
       "default" : true,
       "description" : "Now and then, a small tip points at a feature an update added. Close it or use the feature and it never comes back.",
@@ -5198,7 +5303,7 @@
       "type" : "string"
     },
     "window.titlebar" : {
-      "default" : "standard",
+      "default" : "minimal",
       "description" : "Minimal has no titlebar strip; the top row moves the window.",
       "enum" : [
         "minimal",

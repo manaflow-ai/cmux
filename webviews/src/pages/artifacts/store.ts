@@ -1,7 +1,7 @@
 // The Artifacts page's state owner: the synced tree and the chosen file. React reads it through
 // `useSyncExternalStore`; a reply for a file the person already left is dropped.
 import { isPageError, type PageClient } from "../shared/pageClient";
-import { ArtifactsOps, type ArtifactFile, type ArtifactsTree } from "./types";
+import { ACTION_RUN, ArtifactsActions, ArtifactsOps, SIGNED_OUT, type ArtifactFile, type ArtifactsTree } from "./types";
 
 /** Folders read for one tree: the platform lists one level per read. */
 export const MAX_FOLDERS = 200;
@@ -74,7 +74,7 @@ export class ArtifactsStore {
       const failure = failureOf(error);
       // A refresh that fails keeps the tree it had on screen; the next one tries again. Signed out
       // (or nothing saved any more) drops it, so another account's tree never stays up.
-      const keep = !["cmux.artifacts.not_found", "cmux.artifacts.signed_out"].includes(failure.code);
+      const keep = !["cmux.artifacts.not_found", SIGNED_OUT].includes(failure.code);
       if (this.snapshot.status === "ready" && keep) return;
       this.fileRequest += 1;
       this.fileHead = undefined;
@@ -89,6 +89,15 @@ export class ArtifactsStore {
         fileLoading: false,
         fileFailure: undefined,
       });
+    }
+  }
+
+  /** Runs the app's Sign In. The auth watch reads the tree again once the person is signed in. */
+  async signIn(): Promise<void> {
+    try {
+      await this.client?.call(ACTION_RUN, { action: ArtifactsActions.signIn });
+    } catch {
+      // The app shows its own error for a sign-in that did not start; the page stays as it is.
     }
   }
 

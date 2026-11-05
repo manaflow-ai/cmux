@@ -169,7 +169,7 @@ fn relative_from(parent: &str, target: &str) -> String {
     let to: Vec<&str> = target.split('/').filter(|part| !part.is_empty()).collect();
     let common = from.iter().zip(&to).take_while(|(a, b)| a == b).count();
     let mut parts: Vec<&str> = vec![".."; from.len() - common];
-    parts.extend(&to[common..]);
+    parts.extend(to.get(common..).unwrap_or_default());
     if parts.is_empty() { ".".to_string() } else { parts.join("/") }
 }
 

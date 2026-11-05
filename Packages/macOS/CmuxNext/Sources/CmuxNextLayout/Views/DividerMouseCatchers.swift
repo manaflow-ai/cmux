@@ -281,3 +281,10 @@ final class DividerMouseCatcherView: NSView {
         parent.sendEvent(forwarded)
     }
 }
+
+#if DEBUG || CMUX_BENCH_HOOKS
+extension DividerMousePanel: LayoutPassRoleNaming {
+    /// The divider it takes the mouse for (a parked spare keeps its last one).
+    var layoutPassRole: String { "divider catcher \(areaID)" }
+}
+#endif

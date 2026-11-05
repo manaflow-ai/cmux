@@ -70,8 +70,28 @@ struct AgentPageMediaResourceTests {
         let reply = try #require(await Self.handler(root: folder).reply(to: url, range: "bytes=0-"))
         #expect(reply.response.statusCode == 404)
         #expect(reply.body.isEmpty)
-        // Chromium asks for whole bodies, which this route never reads: a 404, not the file.
+        // A whole-body request (no ranged source path) is never answered with the file.
         let request = try #require(PageSchemeHandler.dynamicRequest(for: url, page: .agent))
         #expect(await PageSchemeHandler.dynamicResponse(to: request, source: AgentPageMediaResource.shared).status == 404)
+    }
+
+    @Test func theChromiumChatGetsTheSameRangesWithOnlyTheRangeHeaders() async throws {
+        // Chromium asks with the request's Range header and adds the page's own headers itself, so
+        // the answer carries the bytes, the type and only Content-Range and Accept-Ranges.
+        let (folder, file, data) = try Self.clip(100)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let src = AgentPaneMediaGrants.src(AgentPaneMediaGrants.shared.grant(file), on: AgentPaneMediaGrants.pageOrigin)
+        let srcURL = try #require(URL(string: src))
+        let request = try #require(PageSchemeHandler.dynamicRequest(for: srcURL, page: .agent))
+        let ranged = await PageSchemeHandler.rangedResponse(to: request, range: "bytes=10-19", source: AgentPageMediaResource.shared)
+        #expect(ranged.status == 206)
+        #expect(ranged.mimeType == "video/quicktime")
+        #expect(ranged.body == data.subdata(in: 10 ..< 20))
+        #expect(ranged.rangeHeaders == ["Content-Range": "bytes 10-19/100", "Accept-Ranges": "bytes"])
+        let past = await PageSchemeHandler.rangedResponse(to: request, range: "bytes=500-", source: AgentPageMediaResource.shared)
+        #expect(past.status == 416 && past.rangeHeaders["Content-Range"] == "bytes */100")
+        let unknownURL = try #require(URL(string: "cmux-page://cmux.agent/__media/ffffffffffffffffffffffffffffffff.mov"))
+        let unknown = try #require(PageSchemeHandler.dynamicRequest(for: unknownURL, page: .agent))
+        #expect(await PageSchemeHandler.rangedResponse(to: unknown, range: "bytes=0-", source: AgentPageMediaResource.shared).status == 404)
     }
 }

@@ -45,10 +45,10 @@ extension AgentTabStore {
     func showComputerUsePreview(_ card: ComputerUsePreviewCard?, in chat: String,
                                 respond: @escaping @MainActor (String, ComputerUsePreviewClick) -> Void) {
         guard let view = views[chat] else { return }
-        let preview = card.map {
-            AgentPaneComputerUsePreview(session: $0.session, app: $0.app, done: $0.done, frame: $0.frame, icon: $0.icon,
-                                        pointer: $0.pointer.map { .init(x: $0.x, y: $0.y, click: $0.click, windowWidth: $0.windowWidth) })
-        }
+        let pane = { (t: ComputerUsePreviewTelepointer) in AgentPaneComputerUsePreview.Telepointer(x: t.x, y: t.y, visible: t.visible, movedAt: t.movedAt, idle: t.idle) }
+        let preview = card.map { AgentPaneComputerUsePreview(session: $0.session, app: $0.app, done: $0.done, frame: $0.frame, icon: $0.icon,
+                                                             pointer: $0.pointer.map { .init(x: $0.x, y: $0.y, click: $0.click, windowWidth: $0.windowWidth) },
+                                                             telepointers: $0.telepointers.map { .init(agent: $0.agent.map(pane), person: $0.person.map(pane)) }) }
         AgentPaneComputerUsePreview.show(preview, on: view) { session, action in
             if let click = ComputerUsePreviewClick(rawValue: action.rawValue) { respond(session, click) }
         }

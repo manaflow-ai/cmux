@@ -57,7 +57,7 @@ public nonisolated struct AppScopeTable: Sendable, Hashable {
         }
         let needed: String
         switch entry.scope {
-        case "storage:local":
+        case "storage:local", "none":
             return nil
         case "net:<host>":
             guard let host = params["url"]?.stringValue.flatMap(URL.init(string:))?.host?.lowercased(),
@@ -89,7 +89,7 @@ public nonisolated struct AppScopeTable: Sendable, Hashable {
         ops.filter { op, entry in
             if never.contains(op) { return false }
             switch entry.scope {
-            case "storage:local": return true
+            case "storage:local", "none": return true
             case "net:<host>": return !Self.netScopes(granted).isEmpty
             case "integration:<provider>": return granted.contains { $0.hasPrefix("integration:") }
             default: return granted.contains(entry.scope)

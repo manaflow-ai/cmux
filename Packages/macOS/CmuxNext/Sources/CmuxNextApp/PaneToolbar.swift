@@ -98,14 +98,14 @@ final class PaneToolbar {
             }
         }
         refreshCurrent = { [weak self, weak pane] in
-            guard let self, let pane else { return }
-            self.apply(Self.state(pane), owner: pane.view.nativeToolOwner)
+            if let self, let pane { self.apply(Self.state(pane), owner: pane.view.nativeToolOwner) }
         }
+        let (first, later) = ObservationStream.current({ [weak pane] in pane.map(Self.state) })
+        if let first { apply(first, owner: pane.view.nativeToolOwner) } // now: a relaunched pane's first frame had a 0 pt toolbar
         // task-owner: lives as long as the pane's view; event-driven (Observation)
         observation = Task { [weak self, weak pane] in
-            for await state in ObservationStream({ [weak pane] in pane.map(Self.state) }) {
-                guard let self, let state else { return }
-                guard let pane else { return }
+            for await state in later {
+                guard let self, let state, let pane else { return }
                 apply(state, owner: pane.view.nativeToolOwner)
             }
         }

@@ -63,7 +63,7 @@ extension PageWebView {
         WebDevOverrideWatcher.shared.start()
         return PageEnginePolicy(preference: hosting.preference, chromiumAvailable: hosting.isAvailable,
                                 chromiumServes: hosting.serves(descriptor),
-                                liveWebOverride: WebDevOverride.current.isActive).decide(for: descriptor, options: options)
+                                liveWebOverride: WebDevOverride.current.isActive || WebProjection.shared.isActive).decide(for: descriptor, options: options)
     }
 
     /// The view that takes the keyboard when the page is focused: Chromium's view or the WebKit view.
@@ -143,7 +143,7 @@ extension PageWebView {
         let bridge = ChromiumPageHostBridge(page: page, fireAndForget: handlers)
         let session = PageChromiumSession(page: page, bridge: bridge, clock: chromiumClock)
         page.onEvent = { [weak self] event in self?.chromiumEvent(event) }
-        page.resources = { [weak self] url in await self?.chromiumResource(url) ?? .notFound }
+        page.resources = { [weak self] url, range in await self?.chromiumResource(url, range: range) ?? .notFound }
         do {
             for (method, params) in ChromiumPageHostBridge.setupCalls(handlers: handlers,
                                                                        documentScripts: scripts.sources) {
@@ -387,10 +387,14 @@ extension PageWebView {
     }
 
     /// Chromium's request for `url`, one of the page's dynamic paths: what the WebKit scheme handler
-    /// answers (``PageSchemeHandler/dynamicResponse(to:source:)``). A URL of another origin or
-    /// outside the page's dynamic prefixes is a 404 that never reaches ``dynamicResources``.
-    func chromiumResource(_ url: URL) async -> PageChromiumResponse {
+    /// answers (``PageSchemeHandler/dynamicResponse(to:source:)``, or a ranged source's byte range
+    /// for `range`, ``PageSchemeHandler/rangedResponse(to:range:source:)``). A URL of another
+    /// origin or outside the page's dynamic prefixes is a 404 that never reaches ``dynamicResources``.
+    func chromiumResource(_ url: URL, range: String? = nil) async -> PageChromiumResponse {
         guard let request = PageSchemeHandler.dynamicRequest(for: url, page: descriptor) else { return .notFound }
+        if let ranged = dynamicResources as? any PageRangedResourceSource {
+            return await PageSchemeHandler.rangedResponse(to: request, range: range, source: ranged)
+        }
         return await PageSchemeHandler.dynamicResponse(to: request, source: dynamicResources)
     }
 
