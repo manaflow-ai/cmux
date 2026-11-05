@@ -47,14 +47,24 @@ public final class CloudAuth {
         var autoLogin: Bool
         /// Whether resolved credentials replace a session already stored.
         var replacesSession: Bool
+        /// Whether the session lives in memory only: never read from or written to the Keychain, the
+        /// credentials file or the defaults, so it ends with the process.
+        var memoryOnly = false
     }
 
     /// ``LaunchSignIn`` for `configuration` launched with `environment`. The signed NEXT DEV build (a Release
     /// compile) signs in only from an explicit `CMUX_AUTH_CREDENTIALS_FILE` (the proof passes it), never the
     /// ambient files, keeps a session already signed in unless told to replace it, and gets no debug sign-in
-    /// surface. Every other Release build never signs in from the launch.
+    /// surface. Signed cmux NIGHTLY signs in from an explicit file the same way, for end-to-end checks on a CI
+    /// Mac, with that launch's session in memory only (``LaunchSignIn/memoryOnly``): it never reads, writes or
+    /// replaces the session in its Keychain, and the next launch without the file is back on that session.
+    /// Every other Release build never signs in from the launch.
     nonisolated static func launchSignIn(configuration: CloudConfiguration, environment: [String: String]) -> LaunchSignIn {
         let explicitCredentialsFile = environment["CMUX_AUTH_CREDENTIALS_FILE"].map { !$0.isEmpty } ?? false
+        if !configuration.isDebugBuild, configuration.bundleID == nightlyBundleID, configuration.isProductionAuth,
+           explicitCredentialsFile {
+            return LaunchSignIn(devAuth: false, autoLogin: true, replacesSession: false, memoryOnly: true)
+        }
         if !configuration.isDebugBuild, configuration.bundleID == "com.cmuxterm.app.debug.next", explicitCredentialsFile {
             return LaunchSignIn(devAuth: false, autoLogin: explicitCredentialsFile,
                                 replacesSession: explicitCredentialsFile && environment["CMUX_DEV_AUTH_REPLACE_SESSION"] == "1")
@@ -64,6 +74,9 @@ public final class CloudAuth {
             || environment["CMUX_DEV_AUTH_PROFILE"] != nil || environment["CMUX_AUTH_CREDENTIALS_FILE"] != nil
         return LaunchSignIn(devAuth: devAuth, autoLogin: devAuth, replacesSession: devAuth && replaces)
     }
+
+    /// Signed cmux NIGHTLY, the one shipped build that signs in from an explicit credentials file.
+    nonisolated static let nightlyBundleID = "com.cmuxterm.app.nightly"
 
     /// The variables that choose a debug build's sign-in account. main strips
     /// inherited CMUX_* variables before anything reads them (LaunchIdentity),
@@ -107,6 +120,8 @@ public final class CloudAuth {
         let environment = useCaptureFixture ? [:] : (explicitEnvironment
             ?? Self.authEnvironment(process: ProcessInfo.processInfo.environment, launch: Self.launchEnvironment))
         self.configuration = configuration
+        let signIn = useCaptureFixture ? LaunchSignIn(devAuth: false, autoLogin: false, replacesSession: false)
+            : Self.launchSignIn(configuration: configuration, environment: environment)
         let tokenStore: any StackAuthTokenStoreProtocol
         let client: any AuthClient
         let authDefaults: any CMUXAuthKeyValueStore
@@ -118,15 +133,19 @@ public final class CloudAuth {
             // A capture must not inherit or persist this machine's auth state.
             authDefaults = CaptureFixtureKeyValueStore()
         } else {
-            let productionStore = Self.tokenStore(configuration: configuration, nightlySession: nightlySession)
+            let productionStore = Self.tokenStore(configuration: configuration, nightlySession: nightlySession,
+                                                  memoryOnly: signIn.memoryOnly)
             tokenStore = productionStore
-            authDefaults = defaults
+            authDefaults = signIn.memoryOnly ? MemoryAuthKeyValueStore() : defaults
             client = Self.stackClient(configuration: configuration, tokenStore: productionStore)
         }
         #else
-        let productionStore = Self.tokenStore(configuration: configuration, nightlySession: nightlySession)
+        let productionStore = Self.tokenStore(configuration: configuration, nightlySession: nightlySession,
+                                              memoryOnly: signIn.memoryOnly)
         tokenStore = productionStore
-        authDefaults = defaults
+        // A memory-only launch keeps its cached user and team off the defaults too, so the next launch
+        // never shows the file's account over the session in the Keychain.
+        authDefaults = signIn.memoryOnly ? MemoryAuthKeyValueStore() : defaults
         client = Self.stackClient(configuration: configuration, tokenStore: productionStore)
         #endif
         let sessionStore = tokenStore
@@ -149,14 +168,17 @@ public final class CloudAuth {
         // build, which reads an explicit file (``launchSignIn``).
         // The variable is read from the process environment, so pass it per launch with
         // `open --env`; an exported one would replace a production session signed in by browser.
-        let signIn = useCaptureFixture ? LaunchSignIn(devAuth: false, autoLogin: false, replacesSession: false)
-            : Self.launchSignIn(configuration: configuration, environment: environment)
         let devAuth = signIn.devAuth
         var launchEnvironment = environment
         var replaceSession = false
         let decision: (credentials: DogfoodCredentials?, refusal: DogfoodCredentials.Refusal?) =
-            signIn.autoLogin ? DogfoodCredentials.decide(environment: environment, home: NSHomeDirectory()) : (nil, nil)
+            signIn.autoLogin ? DogfoodCredentials.decide(environment: environment, home: NSHomeDirectory(),
+                                                         requireOwnedDirectories: signIn.memoryOnly) : (nil, nil)
         if let refusal = decision.refusal { Self.logRefusal(refusal) }
+        if signIn.memoryOnly, let credentials = decision.credentials {
+            Logger(subsystem: "com.cmuxterm.app.next", category: "auth").notice(
+                "launch sign-in: \(Self.mask(credentials.email), privacy: .public) from CMUX_AUTH_CREDENTIALS_FILE, session in memory only")
+        }
         if let credentials = decision.credentials {
             launchEnvironment["CMUX_UITEST_STACK_EMAIL"] = credentials.email
             launchEnvironment["CMUX_UITEST_STACK_PASSWORD"] = credentials.password
@@ -214,7 +236,11 @@ public final class CloudAuth {
     /// is only read, never changed or cleared, and a sign-out here leaves it alive on the server
     /// (``stackClient(configuration:tokenStore:)``). Without `nightlySession` (no NIGHTLY to ask) that
     /// build starts signed out.
-    static func tokenStore(configuration: CloudConfiguration, nightlySession: NightlySession?) -> any StackAuthTokenStoreProtocol {
+    /// `memoryOnly` (a launch that signs in from an explicit file, ``LaunchSignIn/memoryOnly``) keeps the session
+    /// in memory and never opens the Keychain or the file fallback.
+    static func tokenStore(configuration: CloudConfiguration, nightlySession: NightlySession?,
+                           memoryOnly: Bool = false) -> any StackAuthTokenStoreProtocol {
+        if memoryOnly { return MemoryStackTokenStore() }
         guard configuration.adoptsNightlySession else {
             return FallbackTokenStore(
                 primary: KeychainStackTokenStore(service: configuration.keychainService),
@@ -312,6 +338,8 @@ extension CloudAuth {
             logger.notice("dev auto sign-in off: no declared account (~/.config/cmux/dev-account or CMUX_DEV_AUTH_ACCOUNT)")
         case .accountMismatch(let found, let declared):
             logger.notice("dev auto sign-in off: \(mask(found), privacy: .public) is not the declared \(mask(declared), privacy: .public)")
+        case .unsafeCredentialsFile:
+            logger.notice("launch sign-in off: CMUX_AUTH_CREDENTIALS_FILE must be a regular 0600 file of this user, in directories only this user (or root) can write")
         }
     }
 
