@@ -51,6 +51,9 @@ public nonisolated struct SidebarNeedsYou: Hashable, Sendable {
             }
         }
         return changes.contains { change in
+            // The unread mark can arrive before a lane settles from running to idle. Keep the
+            // projection in sync with that edge even though the row is not yet a finished item.
+            guard change.before.unread.isUnread == change.after.unread.isUnread else { return true }
             let before = trayState(SidebarAgentState.of(change.before, lane: tree.states[change.before.id]))
             let after = trayState(SidebarAgentState.of(change.after, lane: tree.states[change.after.id]))
             guard before == after else { return true }
