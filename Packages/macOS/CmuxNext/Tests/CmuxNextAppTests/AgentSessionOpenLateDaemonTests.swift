@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDaemon
+import CmuxNextTabs
 import Darwin
 import Foundation
 import Testing
