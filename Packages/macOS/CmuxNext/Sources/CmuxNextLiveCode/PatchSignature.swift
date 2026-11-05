@@ -72,14 +72,13 @@ nonisolated enum PatchSignature {
         var running: SecCode?
         var code: SecStaticCode?
         var info: CFDictionary?
-        var dynamic: CFDictionary?
         guard SecCodeCopySelf([], &running) == errSecSuccess, let running else { return .unreadable("SecCodeCopySelf failed") }
         guard SecCodeCopyStaticCode(running, [], &code) == errSecSuccess, let code else { return .unreadable("no static code") }
         let wanted = SecCSFlags(rawValue: kSecCSSigningInformation | kSecCSRequirementInformation)
         guard SecCodeCopySigningInformation(code, wanted, &info) == errSecSuccess,
               let values = info as? [String: Any] else { return .unreadable("no signing information") }
-        let status: UInt32? = SecCodeCopySigningInformation(running, SecCSFlags(rawValue: kSecCSDynamicInformation), &dynamic) == errSecSuccess
-            ? ((dynamic as? [String: Any])?[kSecCodeInfoStatus as String] as? NSNumber)?.uint32Value : nil
+        var flags = SecCodeStatus()
+        let status: UInt32? = SecCodeGetStatus(running, [], &flags) == errSecSuccess ? flags.rawValue : nil
         return signer(team: values[kSecCodeInfoTeamIdentifier as String] as? String, status: status,
                       entitlements: values[kSecCodeInfoEntitlementsDict as String] as? [String: Any] ?? [:])
     }
