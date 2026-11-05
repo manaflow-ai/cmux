@@ -34,6 +34,7 @@ below are for slots, pull requests and built bundles. Agents in cmux learn all o
 | Your edits live in your app | `cmux live start`, or Cmd-Shift-P > **Edit cmux Live…** |
 | Another worktree's edits live | `cmux live start --worktree <path>` |
 | A worktree's web UI in one window of your app, the others untouched | `scripts/cmux-next/projection.sh open <worktree> [--test CMD]` ([below](#a-projection-window)) |
+| Several versions of one change live side by side, keep the best | `scripts/cmux-next/live-copies.sh start 3 [--from <PR\|branch>]...` ([below](#live-copies-side-by-side)) |
 | A pull request's web UI, live | `scripts/cmux-next/web-overlay.sh follow <PR>` (again after each push) |
 | Try any pull request the cheapest way | `scripts/cmux-next/try-pr.sh <PR>`: live when it can be, else it names the dev build |
 | The web UI of every merge, no checkout | Settings > Updates > Web UI Updates > **Every Merge** |
@@ -133,6 +134,32 @@ keybinding edits in `cmux-next.json` apply to every window live, the projection 
 **Debug > Run Projection Test** (`debug.projection.runTest`, or `projection.sh test [CMD]`) runs the
 `--test` command in a new workspace of the projection window, in the worktree, and keeps its output.
 `projection.sh stop <worktree>` stops the server; closing the window ends the projection.
+`projection.sh serve <worktree>` starts only the server and prints its URL.
+
+### Live copies, side by side
+
+Try several versions of one web change at once (one per agent, say) and keep the best:
+
+```sh
+scripts/cmux-next/live-copies.sh start 3                     # 3 copies of origin/feat-cmux-next
+scripts/cmux-next/live-copies.sh start 3 --from my-branch    # 3 copies of one branch
+scripts/cmux-next/live-copies.sh start --from 36378 --from 36340 --from lane/x --open
+```
+
+Each copy is a worktree of its own on a branch of its own (`live-copy/<set>/<n>`), with its own
+webviews dev server (`projection.sh serve`, ports 4290-4389) and its own state folder, so the agent
+pane's git and file reads see that copy. `start` prints each worktree: point one agent at each.
+Saving a web file in a copy hot-reloads only that copy. node_modules is a copy-on-write clone of
+this checkout's, so a copy starts in seconds.
+
+The compare page (`--open` puts it in a cmux browser tab; `live-copies.sh compare` rewrites it with
+each copy's changed files) shows every copy side by side, live, on one path (`--page`, default
+`/agent-pane/?mock`; edit the path box to switch them all). `--windows` also opens each copy as a
+projection window of your running app, with your glass and settings. **Keep this one** opens the
+copy's pull request, or the form that opens one; `live-copies.sh keep [SET] N [--push]
+[--stop-others]` does the same from a terminal and pushes the copy's branch. A copy made from a
+PR is on a branch of its own, so keeping it never pushes onto that PR. `stop` ends the servers,
+`rm` the worktrees (it refuses unsaved or unpushed work without `--force`).
 
 ### A pull request
 
@@ -175,8 +202,25 @@ chat with no folder runs in, so its Home chats see your Home chats' files) and `
 `--here` patches your running app instead (web-only PRs) and, for a rebuild, only says where the
 build is. The rules are in `scripts/cmux-next/live_apply.py`. Over the last 3,895 NEXT-era PRs,
 about half of the ones that touch the app changed only web code or nothing in the app, so they
-need no new binary. A Swift change confined to function bodies and new files could be injected live once the
-app takes live code (the view shell does today); until then it takes the dev build.
+need no new binary.
+
+A Swift change confined to function bodies can also skip the build when `--from` names a live code build
+([live-code.md](live-code.md)) and `--live-code` its reload log:
+
+```sh
+scripts/cmux-next/try-pr.sh <PR> --from "<your live code build>.app" --live-code /tmp/cmux-reload-<tag>.log
+```
+
+The script puts the PR's diff onto the build's own commit (`CMUXCommit`) in a scratch worktree and sorts it
+again there. When every change is an edit to an existing `CmuxNextApp` Swift file, `scripts/live-code/patch.py
+--tree` compiles those files against the build into the side instance's `live-code/` folder, and the running
+copy loads them. With `--here`, the files go to your own app's live folder (Labs > Live Code). A new or deleted
+file, a change outside `CmuxNextApp`, a commit this checkout lacks, a failed compile or a patch the app refuses
+all take the dev build instead, and the script says which one it was. A reload or DEV build records no commit (`CMUXCommit`), so the script uses the HEAD of the checkout
+the build's log compiled, as long as that checkout has no uncommitted CmuxNextApp changes and has not moved since the build.
+`scripts/measure/try-pr-live-code.sh` runs the whole path on a fleet Mac: a live code bench build, a fixture PR that
+turns Home red, and captures before and after. Only Debug and bench builds load patches
+today, so the installed nightly still takes the dev build.
 `scripts/measure/try-pr-side-instance.sh` times a set of PRs from the command to the PR's page
 loading in the side instance.
 

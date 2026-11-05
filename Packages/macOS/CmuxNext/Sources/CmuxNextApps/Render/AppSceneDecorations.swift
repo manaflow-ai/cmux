@@ -93,7 +93,7 @@ struct AppScenePanel<Content: View>: View {
     @ViewBuilder let content: () -> Content
 
     var body: some View {
-        let radius = Metrics.space3
+        let radius = Metrics.surfaceCornerRadius
         VStack(alignment: .leading, spacing: node.number("spacing").map { CGFloat($0) } ?? Metrics.space2) {
             if let title = node.string("title"), !title.isEmpty {
                 Text(title)

@@ -31,6 +31,9 @@ final class CEFHostedPageView: NSView {
         root.actions = Self.noActions
         layer = root
         wantsLayer = true
+        // m18: a page's pixels never pass its pane's edge, also while its last frame is larger than the shrunk pane.
+        // AppKit keeps the layer's masksToBounds in step with clipsToBounds (macOS 14), so the view must clip too.
+        clipsToBounds = true
         autoresizingMask = [.width, .height]
     }
 
