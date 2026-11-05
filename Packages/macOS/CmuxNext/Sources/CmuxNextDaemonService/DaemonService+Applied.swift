@@ -20,4 +20,12 @@ extension DaemonService {
             store.whenApplied(transaction, reaching: barrier, body)
         }
     }
+
+    /// The check that the store has applied every event the daemon routed before now (a create's reply): a write
+    /// barrier taken without waiting for it (`WorkspaceLanes`' settle).
+    public func settledCheck() async -> @MainActor () -> Bool {
+        guard let barrier = await connection?.eventSequence() else { return { false } }
+        let store = store
+        return { store.appliedSequence >= barrier }
+    }
 }

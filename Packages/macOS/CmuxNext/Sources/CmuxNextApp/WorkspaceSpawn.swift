@@ -76,7 +76,7 @@ struct WorkspaceSpawner {
                     _ = await daemon.failure("close-workspace") { connection in
                         try await WorkspaceClose.close(WorkspaceKey(rawValue: id), terminals: terminals, on: connection)
                     }
-                }, settle: { await Self.settled(on: daemon) }) { try await named.create(key, rule: rule) }
+                }, settle: { await daemon.settledCheck() }) { try await named.create(key, rule: rule) }
             } catch {
                 windows.forgetCreate(key.rawValue)
                 throw windows.createFailed(key.rawValue, error)
@@ -104,6 +104,8 @@ struct WorkspaceSpawner {
         NewWorkspacePlacements.expect(key.rawValue, in: windowID, slot: spawn.slot, byDefault: rule, then: spawn.onListed, windows: windows)
         guard let shown = services.agentTabs.showWorkspace(key, name: name, index: nil, cwd: cwd, token: spawn.inputToken, chat: spawn.firstChat,
                                                            session: spawn.firstSession.map { ($0, nil, false) }, on: daemon, repair: repair) else { return nil }
+        // Its window shows it in this turn too, as a sidebar pick does (I6), not 8-16 ms later on its observation hop (CmdNShowsInTheKeysTurnTests).
+        if let controller = windows.controller(for: windowID), controller.state.workspaceID == key.rawValue { controller.showWorkspace(requested: key.rawValue) }
         // The keys held since the press may go to its page's field once that reports ready.
         services.keyRouter.newTabInputCoordinator.flushAll()
         let windows = windows
@@ -113,7 +115,7 @@ struct WorkspaceSpawner {
                     _ = await daemon.failure("close-workspace") { connection in
                         try await WorkspaceClose.close(WorkspaceKey(rawValue: id), terminals: [], on: connection)
                     }
-                }, settle: { await Self.settled(on: daemon) }) {
+                }, settle: { await daemon.settledCheck() }) {
                     // One late-reply budget for the pin, the create and the first tab.
                     let giveUp = DaemonConnection.lateReplyDeadline()
                     if let room, let session = daemon.store.registryID, let home = services.machines.local.connection {
@@ -130,14 +132,6 @@ struct WorkspaceSpawner {
                 throw windows.createFailed(key.rawValue, error)
             }
         }
-    }
-
-    /// The check that `daemon`'s store has applied every event before now (a
-    /// create's reply): a write barrier taken without waiting for it.
-    private static func settled(on daemon: DaemonService) async -> @MainActor () -> Bool {
-        guard let barrier = await daemon.connection?.eventSequence() else { return { false } }
-        let store = daemon.store
-        return { store.appliedSequence >= barrier }
     }
 
     /// The profile the workspace is born in: its window's, else the active
