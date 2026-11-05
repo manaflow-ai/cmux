@@ -1222,6 +1222,36 @@ export function NewTabScreen(props: Props) {
     askChat(harness, prompt, project, chipModel);
   };
   submitNow.current = submit;
+  /// Cmd-Return: the typed text goes to the agent, whatever row leads (an address, a tab's name, a
+  /// command). The one key back to Ask when the page guessed wrong ("reddit", an exact tab name).
+  const askNow = useRef(() => {});
+  const askTyped = () => {
+    if (listening && props.dictation && !dictationEnded.current) {
+      props.dictation.finish(() => {
+        dictationEnded.current = true;
+        try {
+          askNow.current();
+        } finally {
+          dictationEnded.current = false;
+        }
+      });
+      return;
+    }
+    // Shell mode's field is a command: Cmd-Return runs it, as Return does.
+    if (shell) return send();
+    const prompt = typed.trim();
+    if (!prompt && attachments.length === 0) return;
+    if (command.intercept(prompt, harness, attachments.length, true)) return;
+    if (pairingLinkRefused(typed)) return props.onOpen(prompt);
+    if (holdForAttachments(() => askNow.current())) return;
+    if (command.intercept(prompt, harness, attachments.length)) return;
+    if (!harness) {
+      openSetup();
+      return;
+    }
+    askChat(harness, prompt, project, chipModel);
+  };
+  askNow.current = askTyped;
   // One create per page: a double click, or a click while the terminal spawns, opens one tab.
   const created = useRef(false);
   const create = (kind: "terminal" | "browser") => {
@@ -1442,6 +1472,9 @@ export function NewTabScreen(props: Props) {
       setDismissed(undefined);
     } else if (event.key === "Enter" && event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey) {
       // Shift-Return adds a line, as in the chat composer: the field keeps its own newline.
+    } else if (event.key === "Enter" && event.metaKey && !event.shiftKey && !event.ctrlKey && !event.altKey) {
+      event.preventDefault();
+      askTyped();
     } else if (event.key === "Enter") {
       event.preventDefault();
       submit();
@@ -2311,7 +2344,7 @@ export function NewTabScreen(props: Props) {
                     {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
                     <span className="nt-row-action" data-popup-skip>
                       {rowAction(t, nt, row)}
-                      {index === current && <kbd>↵</kbd>}
+                      {index === current ? <kbd>↵</kbd> : row.type === "ask" && <kbd>⌘↵</kbd>}
                     </span>
                   </div>
                 ),

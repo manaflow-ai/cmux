@@ -14,7 +14,24 @@ export type OmnibarContext = {
   /// Every Commands palette (Cmd-Shift-P) action the host can run here (`app.action`), in the
   /// palette's order: `detail` is its palette section, `keycaps` its shortcut.
   actions?: OmnibarAction[];
+  /// The Commands palette's pick history (its FrecencyStore) by usage key (`tab:ID`, `workspace:ID`,
+  /// `action:ID`): each key's decayed use count. The bar orders matches of one kind by it, as the
+  /// palette does (cmuxterm-hq lenses slack-firefox-frecency.md).
+  uses?: Record<string, number>;
 };
+
+/// The most pick-history keys accepted from the host (AgentPaneOmnibar.maximumUses).
+export const MAX_NEW_TAB_USES = 200;
+
+/// Reads the host's pick history, keeping finite positive counts only.
+export function omnibarUses(value: unknown): Record<string, number> | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter((entry): entry is [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1]) && entry[1] > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, MAX_NEW_TAB_USES);
+  return entries.length ? Object.fromEntries(entries) : undefined;
+}
 
 /// One Commands palette action the host offers the bar (CmuxNextPalette PaletteCommandEntry).
 export type OmnibarAction = { id: string; title: string; detail?: string; keywords: string[]; keycaps?: string[] };
@@ -96,6 +113,7 @@ export function omnibarContext(value: unknown): OmnibarContext | undefined {
       })
       .slice(0, MAX_NEW_TAB_ENTRIES),
     actions: omnibarActions(object.actions),
+    ...(omnibarUses(object.uses) ? { uses: omnibarUses(object.uses) } : {}),
   };
 }
 

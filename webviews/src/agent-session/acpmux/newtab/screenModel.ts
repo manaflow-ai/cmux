@@ -141,7 +141,7 @@ function navigationRows(
   const rest = found.filter((row) => row !== top);
   const cap = order === "minimal" ? MINIMAL_MATCH_ROWS : MAX_MATCH_ROWS;
   const fit = (lead: ScreenRow[]) =>
-    ranked(rest).slice(0, Math.min(cap, MAX_SUGGESTIONS - lead.length - search.length));
+    ranked(rest, context.omnibar.uses).slice(0, Math.min(cap, MAX_SUGGESTIONS - lead.length - search.length));
   // No agent to ask: a question or a word is searched, an address still opens first.
   if (!ask.length) {
     if (!top) return [...search, ...fit(search), ...actionRows(query, context.omnibar)];
@@ -156,10 +156,17 @@ function navigationRows(
 export function actionRows(query: string, omnibar: OmnibarContext, limit = MAX_ACTION_ROWS): ScreenRow[] {
   const actions = omnibar.actions ?? [];
   if (!actions.length || !query) return [];
+  const uses = omnibar.uses ?? {};
   return actions
-    .map((action, index) => ({ action, index, score: matchScore(query, action.title, ...action.keywords) }))
+    .map((action, index) => ({
+      action,
+      index,
+      score: matchScore(query, action.title, ...action.keywords),
+      used: uses[`action:${action.id}`] ?? 0,
+    }))
     .filter((entry) => entry.score >= 2 || (entry.score > 0 && query.length >= SUBSTRING_MATCH_LENGTH))
-    .sort((a, b) => b.score - a.score || a.index - b.index)
+    // Within a match tier, the palette's pick history: what the person runs often and lately first.
+    .sort((a, b) => b.score - a.score || b.used - a.used || a.index - b.index)
     .slice(0, limit)
     .map(({ action }): ScreenRow => ({
       type: "action",
@@ -373,12 +380,16 @@ function rowKeys(row: ScreenRow): string[] {
   }
 }
 
-/// Open tabs, then workspaces, then pages to open; the order inside each kind stays.
-function ranked(rows: ScreenRow[]): ScreenRow[] {
+/// Open tabs, then workspaces, then pages to open. Inside each kind, the palette's pick history
+/// (`uses`, the Commands palette's FrecencyStore): what the person picks often and lately first, then
+/// the order the rows came in.
+function ranked(rows: ScreenRow[], uses: Record<string, number> = {}): ScreenRow[] {
   const rank = (row: ScreenRow) => (row.type === "tab" ? 0 : row.type === "workspace" ? 1 : 2);
+  const used = (row: ScreenRow) =>
+    row.type === "tab" ? (uses[`tab:${row.id}`] ?? 0) : row.type === "workspace" ? (uses[`workspace:${row.id}`] ?? 0) : 0;
   return rows
-    .map((row, index) => ({ row, index }))
-    .sort((a, b) => rank(a.row) - rank(b.row) || a.index - b.index)
+    .map((row, index) => ({ row, index, used: used(row) }))
+    .sort((a, b) => rank(a.row) - rank(b.row) || b.used - a.used || a.index - b.index)
     .map((entry) => entry.row);
 }
 
