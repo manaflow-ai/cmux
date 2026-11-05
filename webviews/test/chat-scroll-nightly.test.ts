@@ -149,6 +149,11 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
       };
       const frames: Frame[] = [];
       const infoChanges: string[] = [];
+      // Row ids end in their record's seq: the running turn's rows come after its prompt, the last
+      // prompt on the page when the watch starts (older pages only add rows before it).
+      const rowSeq = (id: string) => Number(/(\d+)$/.exec(id)?.[1] ?? Number.NaN);
+      const prompts = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row.acpmux-user")];
+      const runningPrompt = rowSeq(prompts.at(-1)?.dataset.rowId ?? "");
       const clock = (node: Node) =>
         !!(node instanceof Element ? node : node.parentElement)?.closest(
           ".acpmux-summary-meta, .acpmux-session-info-task__time, .acpmux-session-info-server__time, [data-clock]",
@@ -189,14 +194,16 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
               if (!effect || effect.getComputedTiming().iterations === Infinity) return false;
               return effect.getKeyframes().some((frame) => "opacity" in frame || "transform" in frame);
             });
-          // A live row's entrance (the streaming reply arriving at the bottom) is not scroll-up
-          // loading: reported apart, not held here.
+          // A live row's entrance (the running turn's rows, after its prompt, arriving as the reply
+          // streams) is not scroll-up loading: reported apart, not held here. Any other row on
+          // screen playing an entrance is.
           const LIVE = new Set(["cv-enter", "cv-enter-fade", "cv-message-enter"]);
+          const liveRow = rowSeq(id) > runningPrompt;
           // A row's hover controls (a prompt's actions, a turn's time and actions) fade with the
           // pointer, which rests over the chat as the rows pass under it: reported apart (`hover`),
           // pending Leo's call on holding them still while the wheel moves.
           const HOVER =
-            ".cv-user__actions, .cv-received-actions, .cv-received__hover, .cv-reply-actions, .cv-turn-actions, .cv-turn-time";
+            ".cv-user__actions, .cv-received-actions, .cv-received__hover, .cv-reply-actions, .cv-turn-actions, .cv-turn-time, .cv-command__ok, .cv-command__time";
           const named = (animation: Animation) => {
             const css = (animation as CSSAnimation).animationName;
             if (css) return css;
@@ -210,11 +217,11 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
             return !!(animation as CSSTransition).transitionProperty && !!target?.matches(HOVER);
           };
           const loading = visual.filter(
-            (animation) => !LIVE.has((animation as CSSAnimation).animationName) && !isHover(animation),
+            (animation) => !(liveRow && LIVE.has((animation as CSSAnimation).animationName)) && !isHover(animation),
           );
           if (loading.length) animating.push(`${id}:${loading.map(named).join("+")}`);
           if (visual.some(isHover)) hover.push(id);
-          if (visual.length > loading.length) live.push(id);
+          if (liveRow && visual.some((animation) => LIVE.has((animation as CSSAnimation).animationName))) live.push(id);
           else if (Number(getComputedStyle(row).opacity) < 0.999) faded.push(id);
         }
         frames.push({
@@ -281,6 +288,7 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
     let thumbDown = 0;
     let thumbDownMax = 0;
     const thumbLog: string[] = [];
+    let thumbUpMax = 0;
     for (let index = 1; index < frames.length; index++) {
       const [a, b] = [frames[index - 1]!, frames[index]!];
       if (!a.info !== !b.info) infoMoves++;
@@ -289,6 +297,9 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
         if (Math.abs(a.info.w - b.info.w) > 0.5 || Math.abs(a.info.h - b.info.h) > 0.5) infoMoves++;
         if (b.info.opacity < 0.999) infoFaded++;
       }
+      // A wheel step moves the thumb about a pixel; a larger jump up is the room above the rows
+      // given back at once (reported, so a fix for the drop cannot hide a jump the other way).
+      thumbUpMax = Math.max(thumbUpMax, a.thumb - b.thumb);
       // The reader only goes up: the thumb may only go up (or hold).
       if (b.thumb - a.thumb > 1) {
         thumbDown++;
@@ -312,6 +323,7 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
       thumbDown,
       thumbDownMax: Math.round(thumbDownMax),
       thumbLog,
+      thumbUpMax: Math.round(thumbUpMax),
       heightChanges: frames.filter(
         (frame, index) => index > 0 && frame.scrollHeight !== frames[index - 1]!.scrollHeight,
       ).length,
