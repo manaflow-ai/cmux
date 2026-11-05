@@ -54,7 +54,8 @@ enum PersonalSidebar {
                                  newRowsFirst: newRowsFirst(daemon, machines, doc))
                 .flatMap(\.workspaces).map(\.id)
         }
-        return order(daemon.store.workspaces, rows: rows(of: session, personal)).map(\.id)
+        return order(daemon.store.workspaces, rows: rows(of: session, personal),
+                     orderedRows: personal.workspacesInOrder).map(\.id)
     }
 
     /// The daemon's mixed order (`sidebar_workspace_ids` in cmux-tui
