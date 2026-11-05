@@ -45,12 +45,15 @@ import Foundation
     /// (Leo, 2026-11-04: "we literally said we were gonna do is such that you literally dont need to
     /// log in"). Claude only; a Codex login is per machine and never kept. Nil when none holds one.
     static func loadAny(provider: Provider, teamID: String?, otherTeams: [String?], userID: String) async throws -> Data? {
-        if let own = try await load(provider: provider, teamID: teamID, userID: userID) { return own }
-        guard provider == .claude else { return nil }
+        let own: Result<Data?, Error>
+        do { own = .success(try await load(provider: provider, teamID: teamID, userID: userID)) } catch { own = .failure(error) }
+        if case .success(let data?) = own { return data }
+        guard provider == .claude else { return try own.get() }
+        // An unreadable or invalid entry under the selected team never hides a good one elsewhere.
         for team in otherTeams where team != teamID {
             if let found = (try? await load(provider: provider, teamID: team, userID: userID)) ?? nil { return found }
         }
-        return nil
+        return try own.get()
     }
 
     /// The Keychain service `cmux cloud secret set` stores under.
