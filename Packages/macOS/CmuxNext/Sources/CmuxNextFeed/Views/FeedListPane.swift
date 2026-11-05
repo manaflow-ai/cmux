@@ -28,7 +28,7 @@ final class FeedListPane: NSView {
         rows = FeedRowsView(model: model, mode: .list)
         super.init(frame: .zero)
         badgeGround.wantsLayer = true
-        badgeGround.layer?.cornerRadius = 8
+        badgeGround.layer?.cornerRadius = Metrics.capsuleRadius(CGSize(width: 16, height: 16))
         badge.alignment = .center
         markAll.image = NSImage.icon(.actionConfirm, size: 13)
         markAll.image?.isTemplate = true

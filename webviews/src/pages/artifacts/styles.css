@@ -1,5 +1,6 @@
-/* The Artifacts page: the tree on the left (as the Files page draws it) and the chosen file's
-   preview on the right, on the shared page backdrop (pageBase.css). Spacing is the --ds scale. */
+/* The Artifacts page: the tree on the left (as the Files page draws it), the chosen file's preview
+   and its history on the right, on the shared page backdrop (pageBase.css). Spacing is the --ds
+   scale; added and removed lines take the agent pane's status greens and reds. */
 html[data-cmux-page="artifacts"] body { overflow: hidden; }
 
 .artifacts {
@@ -101,8 +102,14 @@ html[data-cmux-page="artifacts"] body { overflow: hidden; }
 }
 
 .artifacts-preview {
-  flex: 1;
+  flex: 1 1 60%;
   min-height: 0;
+}
+
+.artifacts-frame {
+  width: 100%;
+  border: 0;
+  background: white; /* theme-fixed: a saved HTML document draws on the white a browser gives it */
 }
 
 .artifacts-text {
@@ -114,6 +121,99 @@ html[data-cmux-page="artifacts"] body { overflow: hidden; }
   line-height: var(--text-detail--line-height);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.artifacts-history {
+  flex: 0 1 40%;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--ds-space-2) var(--ds-space-3) var(--ds-space-3);
+  border-top: var(--cmux-hairline) solid var(--page-separator);
+}
+
+.artifacts-history-title {
+  margin: 0 0 var(--ds-space-1);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+  font-weight: 600;
+  color: var(--page-text-2);
+}
+
+.artifacts-commits {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.artifacts-commit-button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0 var(--ds-space-3);
+  width: 100%;
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  text-align: start;
+  cursor: default;
+}
+
+.artifacts-commit-button:hover { background: var(--page-hover); }
+.artifacts-commit.is-active .artifacts-commit-button { background: var(--page-selection); }
+
+.artifacts-commit-message {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artifacts-trailers {
+  grid-column: 1 / -1;
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.artifacts-diff {
+  margin: var(--ds-space-1) 0 var(--ds-space-2);
+  overflow-x: auto;
+  border-radius: var(--ds-radius-control);
+  border: var(--cmux-hairline) solid var(--page-separator);
+  font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
+
+.artifacts-hunk + .artifacts-hunk { border-top: var(--cmux-hairline) dashed var(--page-separator); }
+
+.artifacts-line {
+  padding-inline: var(--ds-space-2);
+  white-space: pre;
+}
+
+.artifacts-diff {
+  /* Added and removed lines: the agent pane's status greens and reds, as page tokens. */
+  --artifacts-line-added: color-mix(in srgb, light-dark(#1a7f37, #3fb950) 16%, transparent);
+  --artifacts-line-removed: color-mix(in srgb, light-dark(#b42318, #ff7b72) 16%, transparent);
+}
+
+.artifacts-line.is-add { background: var(--artifacts-line-added); }
+.artifacts-line.is-del { background: var(--artifacts-line-removed); }
+
+.artifacts-no-newline {
+  margin-inline-start: var(--ds-space-2);
+  color: var(--page-text-3);
+  font-style: italic;
+}
+
+.artifacts-sign {
+  display: inline-block;
+  width: 1.5ch;
+  color: var(--page-text-3);
 }
 
 .artifacts-message {

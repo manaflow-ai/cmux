@@ -28,7 +28,7 @@ struct ChiefMemoryLineRow: View {
             }
             .padding(.vertical, 4)
             .padding(.horizontal, 8)
-            .background(RoundedRectangle(cornerRadius: 6).fill(selected ? Color(nsColor: Palette.selectionFill) : .clear))
+            .background(RoundedRectangle(cornerRadius: Metrics.insetCornerRadius).fill(selected ? Color(nsColor: Palette.selectionFill) : .clear))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

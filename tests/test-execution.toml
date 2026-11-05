@@ -16,6 +16,11 @@ lane = "manual"
 reason = "Run by the lane that changes web-overlay.sh (no new CI tests): python3 tests/test_web_overlay_manifest_commit.py; needs only bash, git and python3."
 
 [[test]]
+path = "tests/test_try_pr_live_code.py"
+lane = "manual"
+reason = "Run by the lane that changes try-pr.sh or scripts/live-code/patch.py (no new CI tests): python3 tests/test_try_pr_live_code.py; needs only bash, git and python3."
+
+[[test]]
 path = "tests/test_side_instance_remake_clears_old_identity.py"
 lane = "manual"
 reason = "Run by the lane that changes side-instance.sh (no new CI tests): python3 tests/test_side_instance_remake_clears_old_identity.py; needs only bash and python3."
@@ -638,6 +643,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_feature_flag_review_lead_time.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_report_debug_labs_keys.py"
+lane = "manual"
+reason = "Run by the lane that changes the Debug and Labs key report or its case ledger (no new CI tests): python3 tests/test_report_debug_labs_keys.py; needs only git and python3."
 
 [[test]]
 path = "tests/test_feature_flag_review_drift_issue.py"

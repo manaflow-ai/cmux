@@ -1442,6 +1442,58 @@ class JoblessStatusChecks(unittest.TestCase):
             self.judge()
         self.assertFalse(any("commits?sha=" in route for route in self.gh.routes))
 
+    IGNORED = "Canceled by Ignored Build Step"
+
+    def pr_files(self, *paths, number=7192, changed=None):
+        """The one GraphQL read pr_paths makes: the PR into feat-cmux-next whose head is HEAD and its files."""
+        self.graphql: list[list[str]] = []
+        pr = {"number": number, "baseRefName": "feat-cmux-next", "headRefOid": HEAD,
+              "changedFiles": len(paths) if changed is None else changed,
+              "files": {"nodes": [{"path": path} for path in paths], "pageInfo": {"hasNextPage": False}}}
+
+        def run(args):
+            self.graphql.append(args)
+            assert args[:2] == ["api", "graphql"] and f"oid={HEAD}" in args, args
+            return json.dumps({"data": {"repository": {"object": {"associatedPullRequests": {"nodes": [pr]}}}}})
+
+        self.gh.run = run
+
+    def test_rate_limited_vercel_is_no_result_when_the_base_skipped_its_build_and_web_is_untouched(self):
+        self.base[self.TIP] = [dict(self.head, state="success", description=self.IGNORED)]
+        self.pr_files("tools/fleet-reconcilers/probes.py")
+        self.assertEqual(self.judge(), [
+            f"excused 'Vercel': no result: \"{self.LIMITED}\" (Vercel built nothing), base status success "
+            f"\"{self.IGNORED}\" (a skipped build), and #7192 changes no web/ files"])
+        self.assertEqual(len(self.graphql), 1)
+        self.assertFalse(any("/compare/" in route for route in self.gh.routes))  # no REST diff read
+
+    def test_rate_limited_vercel_on_a_pr_that_touches_web_is_refused(self):
+        self.base[self.TIP] = [dict(self.head, state="success", description=self.IGNORED)]
+        self.pr_files("tools/x.py", "web/app/page.tsx")
+        with self.assertRaisesRegex(excuse.Refused, r"#7192 changes web/ \(web/app/page.tsx\)"):
+            self.judge()
+
+    def test_rate_limited_vercel_is_refused_when_the_base_really_built(self):
+        self.base[self.TIP] = [dict(self.head, state="success", description="Deployment has completed")]
+        self.pr_files("tools/x.py")
+        with self.assertRaisesRegex(excuse.Refused, "has it success: Deployment has completed"):
+            self.judge()
+        self.assertEqual(self.graphql, [])
+
+    def test_another_vercel_failure_is_refused_even_when_the_base_skipped_its_build(self):
+        self.head["description"] = "Deployment has failed"
+        self.base[self.TIP] = [dict(self.head, state="success", description=self.IGNORED)]
+        self.pr_files("tools/x.py")
+        with self.assertRaisesRegex(excuse.Refused, f"has it success: {self.IGNORED}"):
+            self.judge()
+        self.assertEqual(self.graphql, [])
+
+    def test_rate_limited_vercel_is_refused_when_github_lists_too_few_files(self):
+        self.base[self.TIP] = [dict(self.head, state="success", description=self.IGNORED)]
+        self.pr_files("tools/x.py", changed=150)
+        with self.assertRaisesRegex(excuse.Refused, "listed 1 of its 150 changed files"):
+            self.judge()
+
     def test_another_red_still_needs_its_own_excuse(self):
         self.gh.jobs[1]["name"] = "brand new red"
         self.gh.logs[1] = log("brand new red", TEST_STEP, "##[error]something new")
