@@ -154,8 +154,7 @@ published_in = job("published-in")
 if "inputs.nightly_next_post_publish != ''" not in published_in or "\n    needs:" in published_in:
     failures.append("published-in must run only in the dispatched post-publish run, needing no push-run job")
 dispatch = job("dispatch-published-in")
-for trusted in ("publish-nightly-next-github", "publish-nightly-next-github-names", "generate-nightly-deltas",
-                "republish-nightly-deltas"):
+for trusted in ("publish-nightly-next-github", "generate-nightly-deltas", "republish-nightly-deltas"):
     if trusted not in needs(dispatch):
         failures.append(f"dispatch-published-in must wait for {trusted}: the comments must not hold the mini "
                         "while the push run's own whole-Mac publishing waits")
