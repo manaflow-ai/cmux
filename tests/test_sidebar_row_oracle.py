@@ -188,6 +188,16 @@ class FailingFilms(unittest.TestCase):
         expected = [STILL + i for i in range(10, MOTION) if (1 - ease(i)) * ROW_H * SCALE > TOL]
         self.assertEqual(motion["height_error_frames"], expected)
 
+    def test_rows_that_jump_to_their_place_in_one_frame_fail(self):
+        # Every row on one "curve" that is a step: the new row shows at full height and the rows below are at their
+        # final place in the first frame (feat film e7bd36d8, light-50 insert #0). Nothing grows; that is not a motion.
+        jump = lambda i: 0.0 if i <= 0 else 1.0
+        result = judge(film("insert", new_height=lambda i: ROW_H, row_progress={r: jump for r in range(12)}))
+        self.assertEqual(result["verdict"], "FAIL")
+        motion, = result["motions"]
+        self.assertEqual(frames_of(motion["progress_jumps"]), [FIRST])
+        self.assertLess(result["max_row_error_px"], 1e-6)
+
     def test_dropped_refresh_in_motion_fails(self):
         frames = film("insert")
         del frames[STILL + 6]
