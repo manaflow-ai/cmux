@@ -7,7 +7,8 @@
 // It takes over only a selection inside one message's Markdown (`.cv-md`). A selection with math is
 // mathCopy.ts's (the TeX as written), one that holds highlighted code (drawn in a shadow root the
 // copy cannot read) or reaches across messages copies as the page would copy it.
-import { htmlMarkdown } from "../richClipboard";
+import { copyHref, htmlMarkdown } from "../richClipboard";
+import { safeHref } from "../replyHref";
 
 const MATH = "[data-tex]";
 /// Attributes the copy keeps; every other one (classes, styles, data, aria) is the transcript's own.
@@ -46,6 +47,17 @@ export function selectionHtml(range: Range): string | null {
   for (const button of holder.querySelectorAll("button")) button.replaceWith(...button.childNodes);
   for (const element of holder.querySelectorAll("*"))
     for (const name of element.getAttributeNames()) if (!KEEP.has(name)) element.removeAttribute(name);
+  // A target goes into another app only where it is safe there (a web or mail link, a web picture).
+  for (const link of holder.querySelectorAll("[href]")) {
+    const href = copyHref(link.getAttribute("href") ?? "");
+    if (href) link.setAttribute("href", href);
+    else link.removeAttribute("href");
+  }
+  for (const image of holder.querySelectorAll("[src]")) {
+    const src = safeHref(image.getAttribute("src") ?? "");
+    if (src) image.setAttribute("src", src);
+    else image.remove();
+  }
   return holder.innerHTML;
 }
 

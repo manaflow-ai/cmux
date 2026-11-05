@@ -78,3 +78,15 @@ test("what reads as Markdown on paste: lists and fences, not a lone heading or p
   expect(htmlHasBlocks("<p>one</p><p><br></p><p>two</p>")).toBe(false);
   expect(htmlHasBlocks("<meta charset='utf-8'><ul><li>x</li></ul>")).toBe(true);
 });
+
+test("only web and mail links and web pictures carry their targets into another app", () => {
+  const html = markdownHtml(
+    "[run](javascript:alert(1)) [file](file:///etc/passwd) [ok](https://example.com) [mail](mailto:a@b.co) ![x](data:image/png;base64,AA) ![y](https://example.com/y.png)",
+  );
+  expect(html).not.toMatch(/javascript:|file:|data:/);
+  expect(html).toContain("run");
+  expect(html).toContain('<a href="https://example.com/">ok</a>');
+  expect(html).toContain('<a href="mailto:a@b.co">mail</a>');
+  expect(html).toContain('<img src="https://example.com/y.png" alt="y">');
+  expect(htmlMarkdown('<ul><li><a href="javascript:alert(1)">run</a></li></ul>')).toBe("- run");
+});

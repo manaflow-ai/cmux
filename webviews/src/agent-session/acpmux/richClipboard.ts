@@ -10,16 +10,34 @@
 // (MarkdownField.tsx `richPaste`). Any other paste stays its plain lines, as before.
 import { Marked } from "marked";
 import { copyTextResult } from "./conversation/clipboard";
+import { safeHref } from "./replyHref";
 
 const ESCAPES: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" };
 const escapeHtml = (text: string) => text.replace(/[&<>"]/g, (c) => ESCAPES[c]!);
 
+/// A link target the copy may carry into another app: a web link (`safeHref`) or a mail address.
+/// Anything else (`javascript:`, `file:`, `data:`, a relative path) copies as the link's words.
+export function copyHref(href: string): string | undefined {
+  const web = safeHref(href);
+  if (web) return web;
+  return /^mailto:[^\s]+$/i.test(href.trim()) ? href.trim() : undefined;
+}
+
 // A reply's raw HTML is shown as text in the transcript, so it copies as text too, never as markup
-// another app would run or draw.
+// another app would run or draw; a link or picture keeps its target only where `copyHref` allows.
 const toHtml = new Marked({
   gfm: true,
   renderer: {
     html: ({ text }) => escapeHtml(text),
+    link(token) {
+      const words = this.parser.parseInline(token.tokens);
+      const href = copyHref(token.href);
+      return href ? `<a href="${escapeHtml(href)}">${words}</a>` : words;
+    },
+    image({ href, text }) {
+      const src = safeHref(href);
+      return src ? `<img src="${escapeHtml(src)}" alt="${escapeHtml(text)}">` : escapeHtml(text);
+    },
   },
 });
 
@@ -85,9 +103,9 @@ export function htmlMarkdown(html: string, { escape = false } = {}): string {
       return code ? `${fence}${code}${fence}` : "";
     }
     if (tag === "A") {
-      const href = element.getAttribute("href") ?? "";
+      const href = copyHref(element.getAttribute("href") ?? "");
       const body = inner();
-      if (!/^(https?:|mailto:)/i.test(href) || !body.trim()) return body;
+      if (!href || !body.trim()) return body;
       return body === href ? href : `[${body}](${href.replace(/[()\s]/g, encodeURIComponent)})`;
     }
     return inner();
