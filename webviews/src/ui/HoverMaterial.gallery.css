@@ -1,0 +1,97 @@
+.hm-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: var(--ds-space-4);
+  padding: var(--ds-space-4);
+  color: var(--cmux-text, CanvasText);
+  font-family: var(--font-ui);
+}
+.hm-name {
+  margin: 0 0 var(--ds-space-2);
+  font-size: var(--text-body);
+  font-weight: var(--weight-emphasis);
+}
+.hm-stage {
+  position: relative;
+  height: 280px;
+  overflow: hidden;
+  border-radius: var(--cv-media-radius, 8px);
+  background: var(--cmux-surface-solid, Canvas);
+}
+.hm-backdrop {
+  padding: var(--ds-space-3);
+  font-size: var(--text-body);
+  line-height: 1.5;
+}
+.hm-backdrop p {
+  margin: 0 0 var(--ds-space-2);
+}
+.hm-shot {
+  height: 72px;
+  margin-bottom: var(--ds-space-2);
+  border-radius: 6px;
+  background: linear-gradient(90deg, #ff5f57, #febc2e 30%, #28c840 55%, #3b82f6 80%, #a855f7);
+}
+/* Static copies of the portaled surfaces, placed over the chat. */
+.hm-stage .hm-tooltip,
+.hm-stage .hm-card {
+  position: absolute;
+  opacity: 1;
+  transform: none;
+}
+.hm-stage .hm-tooltip {
+  top: 64px;
+  left: 24px;
+}
+.hm-stage .hm-card {
+  top: 140px;
+  left: 40px;
+  width: 260px;
+}
+.hm-card-body {
+  padding: 0 var(--ds-space-3) var(--ds-space-3);
+  font-size: var(--text-detail);
+}
+
+/* Material: a thin tint, a strong blur that keeps the colour under it (vibrancy), a hairline rim
+   with a lit top edge and a soft, wide shadow. */
+.hm-look--material .hm-stage .ui-tooltip.ui-glass {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--surface-popup) 50%, transparent);
+  -webkit-backdrop-filter: blur(36px) saturate(1.9);
+  backdrop-filter: blur(36px) saturate(1.9);
+  box-shadow:
+    inset 0 0 0 0.5px rgb(255 255 255 / 14%),
+    inset 0 0.5px 0 rgb(255 255 255 / 18%),
+    0 0 0 0.5px rgb(0 0 0 / 40%),
+    0 10px 28px -6px rgb(0 0 0 / 40%),
+    0 2px 6px rgb(0 0 0 / 18%);
+}
+/* Solid: the elevated surface, opaque, with a 1px border and the same soft shadow; no blur. */
+.hm-look--solid .hm-stage .ui-tooltip.ui-glass {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--cmux-text, CanvasText) 7%, var(--cmux-surface-solid, Canvas));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--cmux-text, CanvasText) 12%, transparent),
+    0 10px 28px -6px rgb(0 0 0 / 40%),
+    0 2px 6px rgb(0 0 0 / 18%);
+}
+@media (prefers-color-scheme: light) {
+  .hm-look--material .hm-stage .ui-tooltip.ui-glass {
+    background: color-mix(in srgb, var(--surface-popup) 62%, transparent);
+    box-shadow:
+      inset 0 0 0 0.5px rgb(0 0 0 / 10%),
+      inset 0 0.5px 0 rgb(255 255 255 / 70%),
+      0 10px 28px -6px rgb(0 0 0 / 18%),
+      0 2px 6px rgb(0 0 0 / 8%);
+  }
+  .hm-look--solid .hm-stage .ui-tooltip.ui-glass {
+    background: var(--cmux-surface-solid, Canvas);
+    box-shadow:
+      inset 0 0 0 1px rgb(0 0 0 / 10%),
+      0 10px 28px -6px rgb(0 0 0 / 18%),
+      0 2px 6px rgb(0 0 0 / 8%);
+  }
+}
