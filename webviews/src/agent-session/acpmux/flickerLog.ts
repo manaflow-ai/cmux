@@ -108,8 +108,37 @@ export function noteTranscriptMount(): void {
   log?.transcriptMounted();
 }
 
-/// Starts the detector once, in the app's own WebKit pane.
+/// Long frames from the engine's `long-animation-frame` entries; false when it has none or refuses
+/// the observer (the frame watch takes over).
+function observeLongFrames(
+  types: readonly string[] | undefined,
+  doc: Document,
+  longFrame: (ms: number) => void,
+): boolean {
+  if (!types?.includes("long-animation-frame")) return false;
+  try {
+    new PerformanceObserver((list) => {
+      if (doc.visibilityState !== "visible") return;
+      for (const entry of list.getEntries())
+        if (entry.duration > LONG_FRAME_MS) longFrame(Math.round(entry.duration));
+    }).observe({ type: "long-animation-frame", buffered: false });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/// Starts the detector once, in the app's own WebKit pane. A detector that cannot start never
+/// stops the pane from mounting.
 export function startFlickerLog(win: Window = window): void {
+  try {
+    install(win);
+  } catch {
+    // The pane matters more than its flicker record.
+  }
+}
+
+function install(win: Window): void {
   const handler = win.webkit?.messageHandlers?.agentSession;
   if (log || !handler) return;
   const send: Send = (events) => {
@@ -131,13 +160,7 @@ export function startFlickerLog(win: Window = window): void {
   const types = (globalThis as { PerformanceObserver?: typeof PerformanceObserver }).PerformanceObserver
     ?.supportedEntryTypes;
   let watch: FrameWatch | undefined;
-  if (types?.includes("long-animation-frame")) {
-    new PerformanceObserver((list) => {
-      if (doc.visibilityState !== "visible") return;
-      for (const entry of list.getEntries())
-        if (entry.duration > LONG_FRAME_MS) longFrame(Math.round(entry.duration));
-    }).observe({ type: "long-animation-frame", buffered: false });
-  } else {
+  if (!observeLongFrames(types, doc, longFrame)) {
     watch = new FrameWatch(
       longFrame,
       () => doc.visibilityState === "visible",
