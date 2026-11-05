@@ -26,6 +26,23 @@ import Testing
         try #require(cache.phase(of: key) == .mountedHidden)
     }
 
+    /// The ordinary path: a Chromium page whose tab leaves the screen is hidden, and shows again
+    /// when its tab does.
+    @Test func aPageWhoseTabIsDeselectedIsHidden() throws {
+        let rig = try HiddenPageHibernationTests.Rig()
+        defer { rig.close() }
+        let key = "deselected"
+        let shown = page()
+        rig.services.cache.install(shown, for: key)
+        rig.services.cache.present(key, by: rig.pane, presence: .visible)
+        try #require(rig.services.cache.phase(of: key) == .mountedVisible)
+        #expect(!shown.isContentHidden)
+        rig.services.cache.withdraw(key, by: rig.pane)
+        #expect(shown.isContentHidden, "a deselected tab's page draws under the tab on screen")
+        rig.services.cache.present(key, by: rig.pane, presence: .visible)
+        #expect(!shown.isContentHidden)
+    }
+
     @Test func aPageAdoptedIntoAHiddenTabIsHidden() throws {
         let rig = try HiddenPageHibernationTests.Rig()
         defer { rig.close() }
