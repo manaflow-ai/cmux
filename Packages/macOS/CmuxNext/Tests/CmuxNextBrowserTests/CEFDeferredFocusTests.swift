@@ -272,6 +272,8 @@ import Testing
     private static func readyTab(_ runtime: CEFRuntime, browser: Int32, restored: String? = "https://example.com/") throws -> (CEFTab, () -> Int) {
         let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
         let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        // A pane host has an area: the fork orders an empty host's page window out, and an empty host takes no focus.
+        tab.contentView.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
         host.add(tab)
         if let restored, let url = URL(string: restored) { tab.load(url) } // as the app asks for it before Chromium made the page
         final class Count { var value = 0 }
@@ -480,6 +482,30 @@ import Testing
             #expect(keys.key === key, "the page took the keys from \(key.map { String(describing: $0) } ?? "an inactive app")")
         }
         #expect(keys.made.isEmpty)
+    }
+
+    /// Cmd-N's New Tab page (INSTANT OWNER, PR #36474): its pane host is still empty when the focus applier asks, so the
+    /// page keeps the ask and takes no focus (the fork has ordered its window out). The host then gets its area in a
+    /// layout pass, and the page takes focus once, after that pass's commit, never inside the layout pass. If this grant
+    /// never came, the page would keep focus with no keys and typing would go nowhere.
+    @Test func focusAskedWhileTheHostIsEmptyIsGrantedOnceAfterTheCommitThatGivesItAnArea() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (tab, _) = try createdTab(runtime, browser: 15)
+        tab.contentView.frame = .zero
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
+        try #require(window.contentView).addSubview(tab.contentView)
+
+        tab.setFocused(true)
+        #expect(FocusSpyShim.granted.isEmpty, "a page whose host is empty was given focus")
+
+        tab.contentView.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+        #expect(FocusSpyShim.granted.isEmpty, "the grant ran inside the layout pass, before its commit")
+        let deadline = Date().addingTimeInterval(2)
+        while FocusSpyShim.granted.isEmpty, Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        #expect(FocusSpyShim.granted == [15], "the kept ask was granted \(FocusSpyShim.granted) after the host got its area (want [15] once)")
     }
 
     /// A Chromium page window over `tab`'s view, a child of `window`, as the fork places it.

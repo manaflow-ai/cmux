@@ -34,6 +34,8 @@ public final class ChildPageFocus {
     private let canTakeKeys: (AnyObject) -> Bool
     /// The page keeps its ask, granted once it can take the keys again.
     private let keepAsk: (AnyObject) -> Void
+    /// A page that is no longer the focused one drops a kept ask (``replace(with:)``).
+    private let dropAsk: (AnyObject) -> Void
 
     /// A tracker with no focused page.
     ///
@@ -41,12 +43,15 @@ public final class ChildPageFocus {
     ///   - keys: The key window: ``AppKitKeyWindows`` in the app, a recorder in tests.
     ///   - canTakeKeys: Whether a page's window can hold the keys now (default: always).
     ///   - keepAsk: The page keeps its focus ask, to be granted when it can take the keys again (default: nothing).
+    ///   - dropAsk: The page drops a kept ask: it is no longer the focused page (default: nothing).
     ///   - setFocus: Gives (`true`) or takes (`false`) a page's focus.
     public init(keys: any KeyWindowSwitching, canTakeKeys: @escaping (AnyObject) -> Bool = { _ in true },
-                keepAsk: @escaping (AnyObject) -> Void = { _ in }, setFocus: @escaping (AnyObject, Bool) -> Void) {
+                keepAsk: @escaping (AnyObject) -> Void = { _ in }, dropAsk: @escaping (AnyObject) -> Void = { _ in },
+                setFocus: @escaping (AnyObject, Bool) -> Void) {
         self.keys = keys
         self.canTakeKeys = canTakeKeys
         self.keepAsk = keepAsk
+        self.dropAsk = dropAsk
         self.setFocus = setFocus
     }
 
@@ -85,7 +90,7 @@ public final class ChildPageFocus {
         let clicks: [NSEvent.EventType] = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
         guard !granting, let page, keys.isKey(window), !clicks.contains(where: { $0 == event?.type }) else { return false }
         // The page's window was ordered out (its host hidden or empty): a grant now would order it in and take the keys
-        // again, and the next layout pass would order it out again (47 key changes per Cmd-N, INSTANT OWNER STATUS 14067).
+        // again, and the next layout pass would order it out again (31 key changes per Cmd-N, INSTANT OWNER #36474).
         // It keeps focus and its ask; it is granted once it can take the keys.
         guard canTakeKeys(page) else {
             keepAsk(page)
@@ -93,6 +98,13 @@ public final class ChildPageFocus {
         }
         blurPage()
         return true
+    }
+
+    /// The page this window gave focus to becomes `next` with no blur and no key change (the keyboard moved to DevTools, a
+    /// click chose a page). The old page drops a kept ask, so it cannot take the keys later.
+    public func replace(with next: AnyObject?) {
+        if let old = page, old !== next { dropAsk(old) }
+        page = next
     }
 
     /// The focused page loses focus. The key window does not change.

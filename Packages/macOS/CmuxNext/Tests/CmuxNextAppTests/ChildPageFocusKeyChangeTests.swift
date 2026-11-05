@@ -160,7 +160,7 @@ struct ChildPageFocusKeyChangeTests {
         #expect(world.focusCalls.map { "\($0.0)\($0.1)" } == ["atrue", "afalse", "atrue"])
     }
 
-    /// INSTANT OWNER (STATUS 14067): a light Cmd-N made 47 key-window changes. Each frame change of the pane host of the
+    /// INSTANT OWNER (#36474): a Cmd-N made 31 key-window changes. Each frame change of the pane host of the
     /// focused Chromium page that left it hidden or empty made the fork order the page window out (AppKit gave the keys
     /// to the cmux window), and this tracker then blurred the page and the model granted it again at once, to a window
     /// that could not show. A page that cannot take the keys keeps its ask, with no blur and no grant: the fork's own
