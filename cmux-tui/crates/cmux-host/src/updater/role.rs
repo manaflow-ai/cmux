@@ -198,8 +198,33 @@ impl Outcome {
     }
 }
 
+/// The updater's lock (`<state>/lock`, flock): one check, commit, rollback
+/// or guard at a time, in this process or another (`cmux host update
+/// check`). Released when the holder exits, also when the restart ends it.
+struct Lock(fs::File);
+
+impl Lock {
+    fn take(paths: &Paths, wait: bool) -> Option<Lock> {
+        use std::os::unix::io::AsRawFd as _;
+        let dir = paths.at(super::STATE_DIR);
+        fs::create_dir_all(&dir).ok()?;
+        let file = fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(dir.join("lock"))
+            .ok()?;
+        let flags = if wait { libc::LOCK_EX } else { libc::LOCK_EX | libc::LOCK_NB };
+        // SAFETY: flock on a descriptor this function owns.
+        (unsafe { libc::flock(file.as_raw_fd(), flags) } == 0).then_some(Lock(file))
+    }
+}
+
 /// One check; on an update this ends with `cmux-host.service` restarting.
 pub fn check(paths: &Paths) -> Outcome {
+    let Some(_lock) = Lock::take(paths, false) else {
+        return Outcome::Failed("another update check runs".to_owned());
+    };
     let outcome = check_inner(paths);
     let mut state = load_state(paths);
     let line = outcome.line();
@@ -246,15 +271,6 @@ fn check_inner(paths: &Paths) -> Outcome {
     if let Err(e) = stage(paths, &plan) {
         return Outcome::Failed(e);
     }
-    // The download took a while: look again right before anything moves.
-    if let Some(why) = off_reason(paths) {
-        return Outcome::Off(why);
-    }
-    match busy_sessions() {
-        Ok(busy) if busy.is_empty() => {}
-        Ok(busy) => return Outcome::Busy(busy),
-        Err(e) => return Outcome::Busy(vec![e]),
-    }
     if let Err(e) = store::build_profile(paths, plan.from, plan.to, &plan.replacements()) {
         return Outcome::Failed(format!("building profile {}: {e}", plan.to));
     }
@@ -267,6 +283,22 @@ fn check_inner(paths: &Paths) -> Outcome {
     if let Err(e) = arm_guard(&pending) {
         clear_pending(paths);
         return Outcome::Failed(format!("arming the guard: {e}"));
+    }
+    // Everything is staged: the last look is right before the flip and the
+    // restarts, so a turn can only start in the milliseconds between them,
+    // and acpmux's restart keeps and adopts even that one's agent.
+    let last = match off_reason(paths) {
+        Some(why) => Some(Outcome::Off(why)),
+        None => match busy_sessions() {
+            Ok(busy) if busy.is_empty() => None,
+            Ok(busy) => Some(Outcome::Busy(busy)),
+            Err(e) => Some(Outcome::Busy(vec![e])),
+        },
+    };
+    if let Some(outcome) = last {
+        disarm_guard();
+        clear_pending(paths);
+        return outcome;
     }
     if let Err(e) = store::flip(paths, plan.to) {
         disarm_guard();
@@ -448,6 +480,10 @@ fn resolve(paths: &Paths, pending: &Pending, rx: &Receiver<Msg>) -> bool {
 }
 
 fn commit(paths: &Paths, pending: &Pending) {
+    let _lock = Lock::take(paths, true);
+    if load_pending(paths).as_ref() != Some(pending) {
+        return;
+    }
     let mut state = load_state(paths);
     state.applied_commit = Some(pending.commit.clone());
     state.applied_committed_at = pending.committed_at;
@@ -467,6 +503,10 @@ fn commit(paths: &Paths, pending: &Pending) {
 
 /// Flips back to the previous profile and restarts what runs the new build.
 fn rollback(paths: &Paths, pending: &Pending, why: &str, in_host: bool) {
+    let _lock = Lock::take(paths, true);
+    if load_pending(paths).as_ref() != Some(pending) {
+        return;
+    }
     log(&format!("rolling {} back to profile {}: {why}", pending.commit, pending.from));
     if let Err(e) = store::flip(paths, pending.from) {
         log(&format!("flipping back to profile {}: {e}", pending.from));
@@ -515,12 +555,20 @@ fn user_systemctl(args: &[&str]) -> bool {
 /// timer [`GUARD_AFTER_SECS`] from now.
 fn arm_guard(pending: &Pending) -> Result<(), String> {
     disarm_guard();
-    let _ = systemctl(&["reset-failed", &format!("{GUARD_UNIT}.service")]);
+    let _ = systemctl(&["stop", &format!("{GUARD_UNIT}.service")]);
+    let _ = systemctl(&[
+        "reset-failed",
+        &format!("{GUARD_UNIT}.service"),
+        &format!("{GUARD_UNIT}.timer"),
+    ]);
     let program = store::profile_dir(&Paths::new("/"), pending.from).join("bin/cmux");
     let status = Command::new("systemd-run")
         .arg(format!("--unit={GUARD_UNIT}"))
         .arg(format!("--on-active={GUARD_AFTER_SECS}"))
-        .args(["--timer-property=AccuracySec=10s", "--property=Type=oneshot", "--quiet"])
+        // --collect: the units go once they ran or stopped, failed or not, so
+        // the next update can create them again.
+        .args(["--collect", "--timer-property=AccuracySec=10s", "--property=Type=oneshot"])
+        .arg("--quiet")
         .arg(program)
         .args(["host", "update", "guard", "--to", &pending.to.to_string()])
         .stdin(Stdio::null())
@@ -529,8 +577,11 @@ fn arm_guard(pending: &Pending) -> Result<(), String> {
     if status.success() { Ok(()) } else { Err(format!("systemd-run exited {status}")) }
 }
 
+/// Stops the guard's timer (its service, a oneshot, has not started; the
+/// guard itself never calls this).
 fn disarm_guard() {
     let _ = systemctl(&["stop", &format!("{GUARD_UNIT}.timer")]);
+    let _ = systemctl(&["reset-failed", &format!("{GUARD_UNIT}.timer")]);
 }
 
 /// Restarts what runs `old` (the binary just replaced): the work user's
