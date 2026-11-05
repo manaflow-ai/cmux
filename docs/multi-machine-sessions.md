@@ -104,13 +104,23 @@ cmux has:
 
 **Machines already paired keep working when the hub is down** (lens review).
 Each side caches the peer's identity key and last endpoints (LAN address,
-STUN-reflexive address, Tailscale address when it has one). A dial tries
-those directly first, in parallel with hub signaling; the WireGuard handshake
-and `auth` against the pinned key are the proof, so a direct dial needs no
-hub. A hub outage stops first contacts, and also a reconnect after either
-side changes networks when no cached address still works (a new address or
-TURN credentials need signaling). Within one network, or over Tailscale, it
-keeps working.
+STUN-reflexive address, Tailscale address when it has one). Today the
+session's WireGuard key is fresh and its UDP port ephemeral, and `wg-init`
+and `wg-resp` travel only through signaling, so this needs one addition
+(review: hub-down reconnect): hostd keeps a direct listener, one UDP port on
+LAN and Tailscale interfaces only, that accepts the same `wg-init` message
+signaling carries, signed by a pinned identity key, and answers `wg-resp`
+signed by its own. Unsigned or unknown-key messages get no answer. The
+cached endpoints record that port. A dial tries it first, in parallel with
+hub signaling; the signed exchange, the WireGuard handshake and `auth`
+against the pinned key are the proof, so a direct dial needs no hub. The
+listener lands with the machines-on-the-link PR, behind the same switch. What a hub outage stops, exactly: every first contact; every TURN path
+(TURN credentials come from signaling); and a reconnect when neither side
+can reach the other's direct listener at a cached address, as after both
+sides change networks off Tailscale. What keeps working: two paired
+machines on one LAN, or both on Tailscale, whose cached listener address
+still answers. The doc promises no more than that; My Machines shows
+"Hub unreachable: direct only" so the person sees which case they are in.
 
 What this replaces as the way between the person's machines: SSH as the
 default route, the `cmux link` overlay's "direct paths only, no relay" slice,
@@ -134,7 +144,9 @@ demo shows it bound).
   authorizes anything.
 - **The hub is never the authority** (lens review). The hub stamps who sent
   a signal; that only routes. Admission is the target's own `DeviceTrust`
-  record, checked at every channel open. First contact shows the caller's
+  record, checked at every channel open and again at every request on a
+  request service (`run`, `install`, `move`); a change to it reaches open
+  channels too (see Grant changes reach open channels). First contact shows the caller's
   key fingerprint on the card (here and on the phone, whose signed approval
   covers the same key), so a hub that swapped keys is visible.
 - **My Machines** is one list (drawn from a local cache first, no spinner): the hub's `GET /v1/me/devices` (every Mac and
@@ -166,6 +178,16 @@ link's. A relayed signature then names the wrong link and fails. This lands
 before any grant beyond pairing (the next machine PR), so no grant ever rides
 an unbound link.
 Machines use the same `auth`, with `kind: "mac"` and the grants it asks for.
+
+**The grants are signed too** (review: grant scope). The signed `auth`
+message carries the requested grants as a canonical list (sorted grant
+names, each with its scope: folders for `run`, build key fingerprints for
+`install`), so a hub that relays the request cannot widen or swap it. The
+card shows exactly that list. An approval from the phone signs the caller's
+key fingerprint, the link binding and the canonical list of the grants the
+person ticked; hostd verifies that signature, and that the ticked list is a
+subset of what the caller signed, before it writes `DeviceTrust`. A grant
+that is not in both signed lists is never written.
 Linux machines come later: today the device registry and the hub know only
 `mac` and `phone` (`backend/src/index.ts`, `schema.ts`, `team-hub.ts`), so a
 Linux kind needs that change in the same PR that lets one pair.
@@ -194,6 +216,15 @@ Ask means each request shows the approval card (here and on the phone);
 **Always** on the card allows the same request again (this folder, this
 agent, this build key), not the whole grant (lens review). The card never
 takes focus and has no default button.
+
+**Grant changes reach open channels** (review: revocation of live
+channels). Each peer record has a trust epoch, and every open channel and
+every live `control` or `screen` session carries the epoch it opened under.
+Taking a grant away, Remove, and Stop bump the epoch; before the change is
+acknowledged in Settings, hostd closes every channel and session of that
+peer whose service needs a grant the peer no longer holds, and drops any
+queued input for it (the same fence Stop uses). Adding a grant opens
+nothing; the peer's next request uses it.
 
 **The person or an agent** (lens review: the confused deputy). `cmux machine
 NAME run|send|move` can be called by an agent on the caller, and an agent
@@ -260,10 +291,17 @@ MacBook**, or the sidebar row's menu.
    its own extractor, not `tar`: regular files, directories and relative
    symlinks only (cmux bundles carry some, such as `bin/cmux-tui` and
    `bin/acpmux`), every path inside one top-level `<name>.app/`, no `..`
-   component, no absolute path, every symlink's target resolving inside the
-   bundle after all links are made (checked once all entries are written,
-   before the rename), no hard link, device, FIFO or setuid bit, and a cap
-   on file count and total size. Anything else refuses the whole archive. It unpacks into a fresh
+   component, no absolute path, no hard link, device, FIFO or setuid bit,
+   and a cap on file count and total size. Symlinks never let a write
+   escape (review: symlink order): the extractor writes every file and
+   directory first, each opened relative to the staging folder's descriptor
+   one component at a time with `O_NOFOLLOW` (`openat`), so no path it writes
+   through can be a link; it creates the symlinks last, and checks each
+   target lexically (resolved against the link's own folder inside the
+   bundle, never through the file system) before it creates the link. A
+   target that leaves the bundle, or a symlink at a path already written,
+   refuses the whole archive. The whole tree is then checked once more
+   against the manifest before the rename. Anything else refuses the whole archive. It unpacks into a fresh
    folder in staging, which is moved into place with one rename.
 4. **It never replaces anything it did not install.** The receiver keeps an
    install ledger (0600, beside Activity): each install's path, bundle id,
@@ -276,13 +314,18 @@ MacBook**, or the sidebar row's menu.
    the send is refused with its reason. A build-key build
    installs only as a tagged DEV app: bundle id `com.cmuxterm.app.debug.<tag>`,
    into `~/Applications/cmux DEV <tag>.app`. The tag must match
-   `^[a-z0-9][a-z0-9-]{0,39}$` (as `scripts/reload.sh` tags already do); any
+   `^[a-z0-9][a-z0-9-]{0,39}$`, which is stricter than `scripts/reload.sh`
+   (it accepts `^[A-Za-z0-9_-]+$` and then sanitizes); the sender lowercases
+   a reload tag and turns `_` into `-` before it sends, and any
    other tag refuses the send, so neither the path nor the bundle id is ever
    built from a slash, a dot component or a control character. The final
    path is checked to be a direct child of `~/Applications` after
    resolving. A release build installs beside
    the others under its own name. The running app and the person's nightly are never
-   quit or replaced (the nightly has its own updater).
+   quit or replaced (the nightly has its own updater). With `--open`, the
+   receiver hashes the installed tree again and launches only when it still
+   has the ledger's tree hash, so nothing written between install and launch
+   runs; a release build still passes Gatekeeper on launch.
 5. If a person is logged in at the desktop, it opens the build when asked
    (`--open`); if not, it says "MacBook has no one logged in; the build is
    installed and opens at the next login" and stops. Privacy permissions the
@@ -325,9 +368,13 @@ Cloud host today, and `agent-transfer-v1` refuses remote and stamped
 clients, both on purpose. A Mac serves them on the link only behind a new
 gate. On the **source**, a move out happens only from the source's own UI
 or its own CLI (the person picks the workspace there), never on a peer's
-request: the source mints a one-use move ticket (random, 5 minutes) scoped
-to that one workspace id, its chats and its folder, and sends it with the
-move. The pumps serve only what the ticket names and refuse every other id.
+request: the source mints a one-use move ticket (random, scoped to that one
+workspace id, its chats and its folder) and sends it with the move. The
+ticket must be presented within 5 minutes; once the receiver accepts it, it
+is the move's lease, renewed by every committed step and by a heartbeat
+while a step runs, and it lapses only after 5 minutes with no progress or
+when the person cancels on the source. A large folder therefore never runs
+out of ticket mid-copy, and a retry inside the lease resumes. The pumps serve only what the ticket names and refuse every other id.
 A peer that only holds `move` can therefore bring nothing out. On the
 **receiver**, the peer holds `move` here, the request names one workspace,
 and the folder it writes is the workspace's own (a new folder under the person's
@@ -373,8 +420,19 @@ text, file contents or tokens. It extends the formats of acpmux
 `cross-host-audit.jsonl` and remote hosting `audit.jsonl`.
 
 **Remove** in Activity or My Machines (either end) drops the peer's record,
-closes its live links at once, and tells the other end over the link so it
-forgets too; a removed peer's next dial is a first contact again.
+bumps its trust epoch and closes its live links at once (see Grant changes
+reach open channels). The remover keeps a tombstone (the peer's identity
+key and the removal time) and refuses every `auth` from that key until the
+person pairs it again by card; the tombstone, not the other end's
+cooperation, is what makes Remove hold. It then tells the other end so it
+forgets too: over the live link when there is one, and otherwise as a
+removal notice signed with the remover's identity key, left in the hub's
+per-user mailbox and also sent at the next direct contact. The other end
+verifies the notice against the key it pinned and drops its record of the
+remover; the hub can delay or drop a notice, never forge one. Until the
+other end confirms, Activity on the remover shows "Removal not yet
+delivered to MacBook", so the person knows that machine still lists this
+one (it can no longer get in here either way).
 
 ## Security analysis
 
@@ -450,10 +508,14 @@ cmux machine NAME remove
 1. **This design** and the #13742 recommendation.
 2. **Machines on the link.** hostd: a `dial` control request (dial a peer
    through the warm signaling socket), `auth` for `kind: mac` with
-   grants, the per-peer record, `machine.describe`, Activity log. CLI `cmux
-   machine NAME show|doctor|activity|remove`. Tests: a Mac dialing a Mac over
-   loopback with the fake backend, refused without `auth`, refused for
-   another user, grant checks.
+   link-bound, signed grants, the per-peer record with its trust epoch,
+   removal tombstones and signed removal notices, the direct listener,
+   `machine.describe`, Activity log. CLI `cmux machine NAME
+   show|doctor|activity|remove`. Tests: a Mac dialing a Mac over loopback
+   with the fake backend, refused without `auth`, refused for another user,
+   grant checks, a relayed grant list that was widened is refused, a grant
+   taken away closes the open channel, a removed key is refused while the
+   other end was offline.
 3. **Send a build.** `install` service with release-key and build-key
    verification, tagged install path, `--open`, "needs a person" answers. CLI
    `send`, palette **Send This Build to…**, sidebar row menu. Tests: tampered
@@ -475,3 +537,4 @@ cmux machine NAME remove
 | PR | State |
 | --- | --- |
 | 1 | this PR |
+| 2 | next; owner of PRs 2 to 8 in this order: the paired-mac-docs agent session ([session](https://cmux.com/deeplink/agent?id=aid-7b9fdc33059f6db52b75)), which starts PR 2 when this one merges |
