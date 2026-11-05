@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import QuartzCore
 
 /// Renders tab or chip layers into the drag image the App's drag session shows.
