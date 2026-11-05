@@ -10,7 +10,9 @@ import Foundation
 import Testing
 
 /// Settings > Window Background with Material "Ghostty" (unset): opacity and blur come from the
-/// Ghostty config. Moving Opacity through the Settings page repaints the window at once (the
+/// Ghostty config, and with that config at Ghostty's own opaque defaults the window is Glass at
+/// ``WindowBackgroundOverride/defaultTranslucentOpacity`` (Leo, 2026-11-05: "new install should
+/// default to glass"). Moving Opacity through the Settings page repaints the window at once (the
 /// slider's preview and its write) and turns Material into the explicit choice that matches
 /// Ghostty's blur; resetting Opacity returns both rows to Ghostty.
 @MainActor @Suite(.serialized, .closesItsWindows) struct WindowBackgroundOpacityTests {
@@ -98,35 +100,60 @@ import Testing
         _ = try await harness.page.call("cmux.settings.reset", params: ["key": .string(key)], context: Self.gesture)
     }
 
+    /// Nothing set in either config: the window is Glass at the default opacity.
+    @Test func aNewInstallsWindowIsGlass() async throws {
+        let harness = try await make()
+        defer { harness.tearDown() }
+        #expect(harness.settings.snapshot.windowBackground == WindowBackgroundOverride())
+        #expect(!harness.window.isOpaque)
+        #expect(abs(harness.tintOpacity - WindowBackgroundOverride.defaultTranslucentOpacity) < 0.001)
+        #expect(harness.surface.backdrop(in: harness.window).material == .glass(.regular))
+    }
+
+    /// Material None at full opacity in cmux.json is the opaque window.
+    @Test func noneAtFullOpacityKeepsTheWindowOpaque() async throws {
+        let harness = try await make(#"{"appearance": {"backgroundBlur": "none", "backgroundOpacity": 1}}"#)
+        defer { harness.tearDown() }
+        #expect(harness.window.isOpaque)
+        #expect(harness.alpha == 1)
+    }
+
+    /// A Ghostty config that asks for its own translucency keeps it: the default is only for
+    /// Ghostty's opaque, unblurred defaults.
+    @Test func aGhosttyConfigsOwnBackgroundIsKept() async throws {
+        let harness = try await make(ghostty: Self.ghostty(opacity: 0.9, blur: 20))
+        defer { harness.tearDown() }
+        #expect(abs(harness.tintOpacity - 0.9) < 0.001)
+        #expect(harness.surface.backdrop(in: harness.window).material == .frosted)
+    }
+
     @Test func settingOpacityInGhosttyModeRepaintsTheWindowAndLeavesGhostty() async throws {
         let harness = try await make()
         defer { harness.tearDown() }
         #expect(harness.settings.snapshot.windowBackground.material == nil)
-        #expect(harness.window.isOpaque)
-        #expect(harness.alpha == 1)
 
         _ = try await harness.page.call("cmux.settings.set", params: ["key": .string(Self.opacityKey), "value": 0.35],
                                         context: Self.gesture)
-        await settle { !harness.window.isOpaque }
+        await settle { abs(harness.tintOpacity - 0.35) < 0.001 }
 
         #expect(!harness.window.isOpaque)
         #expect(harness.alpha < 1)
         #expect(abs(harness.tintOpacity - 0.35) < 0.001)
-        // Material is no longer Ghostty: it names the choice Ghostty's blur gave (none here).
+        // Material is no longer Ghostty: it names the window's own material, Glass (the default's).
         #expect(harness.settings.snapshot.windowBackground.opacity == 0.35)
-        #expect(harness.settings.snapshot.windowBackground.material == .unblurred)
+        #expect(harness.settings.snapshot.windowBackground.material == .glass)
     }
 
     /// The slider's preview repaints the window on every step, with no write and no Material
-    /// switch; ending it restores Ghostty's opaque window.
+    /// switch; ending it restores the default Glass window.
     @Test func theOpacitySlidersPreviewRepaintsTheWindowLive() async throws {
         let harness = try await make()
         defer { harness.tearDown() }
-        #expect(harness.window.isOpaque)
+        let resting = WindowBackgroundOverride.defaultTranslucentOpacity
 
         _ = try await harness.page.call("cmux.settings.preview", params: ["key": .string(Self.opacityKey), "value": 0.5],
                                         context: Self.gesture)
-        await settle { !harness.window.isOpaque }
+        await settle { abs(harness.tintOpacity - 0.5) < 0.001 }
         #expect(!harness.window.isOpaque)
         #expect(abs(harness.tintOpacity - 0.5) < 0.001)
 
@@ -137,28 +164,27 @@ import Testing
         #expect(!harness.file.contains("backgroundOpacity"))
 
         _ = try await harness.page.call("cmux.settings.preview.end", params: [:], context: Self.gesture)
-        await settle { harness.window.isOpaque }
-        #expect(harness.window.isOpaque)
-        #expect(harness.alpha == 1)
+        await settle { abs(harness.tintOpacity - resting) < 0.001 }
+        #expect(abs(harness.tintOpacity - resting) < 0.001)
     }
 
-    /// Reset (the row's ↺) returns Material to Ghostty and the window to Ghostty's values.
+    /// Reset (the row's ↺) returns Material to Ghostty and the window to the default Glass.
     @Test func resettingOpacityReturnsMaterialToGhostty() async throws {
         let harness = try await make()
         defer { harness.tearDown() }
         _ = try await harness.page.call("cmux.settings.set", params: ["key": .string(Self.opacityKey), "value": 0.35],
                                         context: Self.gesture)
-        await settle { !harness.window.isOpaque }
-        #expect(!harness.window.isOpaque)
+        await settle { abs(harness.tintOpacity - 0.35) < 0.001 }
+        #expect(abs(harness.tintOpacity - 0.35) < 0.001)
 
+        let resting = WindowBackgroundOverride.defaultTranslucentOpacity
         _ = try await harness.page.call("cmux.settings.reset", params: ["key": .string(Self.opacityKey)], context: Self.gesture)
-        await settle { harness.window.isOpaque }
+        await settle { abs(harness.tintOpacity - resting) < 0.001 }
 
         #expect(harness.settings.snapshot.windowBackground == WindowBackgroundOverride())
         #expect(!harness.file.contains("backgroundBlur"))
         #expect(!harness.file.contains("backgroundOpacity"))
-        #expect(harness.window.isOpaque)
-        #expect(harness.alpha == 1)
+        #expect(abs(harness.tintOpacity - resting) < 0.001)
     }
 
     /// In Ghostty mode the Opacity row reads Ghostty's own value, and a write keeps Ghostty's
@@ -179,16 +205,17 @@ import Testing
     }
 
     /// A Material the user chose survives Opacity's reset: only Opacity goes back to Ghostty's.
+    /// (Glass, the default window's own material, goes back with it: unset is Glass already.)
     @Test func resettingOpacityKeepsAChosenMaterial() async throws {
         let harness = try await make()
         defer { harness.tearDown() }
-        try await set(harness, "appearance.backgroundBlur", "glass")
+        try await set(harness, "appearance.backgroundBlur", "frosted")
         try await set(harness, Self.opacityKey, 0.5)
-        #expect(harness.settings.snapshot.windowBackground == WindowBackgroundOverride(opacity: 0.5, material: .glass))
+        #expect(harness.settings.snapshot.windowBackground == WindowBackgroundOverride(opacity: 0.5, material: .frosted))
 
         try await reset(harness, Self.opacityKey)
-        #expect(harness.settings.snapshot.windowBackground == WindowBackgroundOverride(material: .glass))
-        #expect(harness.file.contains("glass"))
+        #expect(harness.settings.snapshot.windowBackground == WindowBackgroundOverride(material: .frosted))
+        #expect(harness.file.contains("frosted"))
     }
 
     /// Material's reset (back to "Ghostty") takes Opacity back to Ghostty's too.
@@ -236,8 +263,8 @@ import Testing
 
         _ = try await harness.page.call("cmux.settings.preview", params: ["key": .string(Self.opacityKey), "value": 0.5],
                                         context: Self.gesture)
-        await settle { !harness.window.isOpaque }
-        #expect(!harness.window.isOpaque)
+        await settle { abs(harness.tintOpacity - 0.5) < 0.001 }
+        #expect(abs(harness.tintOpacity - 0.5) < 0.001)
         let afterFirst = reloads
         for step in [0.45, 0.4, 0.35] {
             _ = try await harness.page.call("cmux.settings.preview", params: ["key": .string(Self.opacityKey), "value": .number(step)],
@@ -250,9 +277,10 @@ import Testing
         try await wait { reloads > afterFirst }
         #expect(reloads == afterFirst + 1)
         #expect(abs(harness.tintOpacity - 0.35) < 0.001)
+        let resting = WindowBackgroundOverride.defaultTranslucentOpacity
         _ = try await harness.page.call("cmux.settings.preview.end", params: [:], context: Self.gesture)
-        await settle { harness.window.isOpaque }
-        #expect(harness.window.isOpaque)
+        await settle { abs(harness.tintOpacity - resting) < 0.001 }
+        #expect(abs(harness.tintOpacity - resting) < 0.001)
     }
 
     /// Leo's report: dragging Opacity "reverts to Ghostty". Neither the slider's preview steps nor
