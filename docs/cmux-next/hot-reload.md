@@ -147,9 +147,10 @@ Measured on `feat-cmux-next` (2026-11-05, fleet Linux runner, Chromium):
 
 A component reloads the page when React Fast Refresh can't swap its module: the file also exports
 something that is not a component (a context, a constant, a helper), so Vite passes the update up
-to the files that import it. `ComposerFoot.tsx` exports the `InQuietRow` context; its importers
-`NewTabPage.tsx` (constants and helpers) and `App.tsx` (`applyPaneTheme`, `saveSnapshot` and
-others) can't take it either, and the update reaches the page root, which reloads. Vite logs
+to the files that import it. `ComposerFoot.tsx` exports the `InQuietRow` context; its importer
+`NewTabPage.tsx` (constants and helpers) can't take the update either, nor can `App.tsx`, which
+imports that (`applyPaneTheme`, `saveSnapshot` and others), and the update reaches the page root,
+which reloads. Vite logs
 `Could not Fast Refresh ("NAME" export is incompatible)` for each. Moving those exports into
 sibling `.ts` files makes the component edits swap in place.
 
