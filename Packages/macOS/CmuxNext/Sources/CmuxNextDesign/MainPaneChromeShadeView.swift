@@ -14,6 +14,9 @@ public final class MainPaneChromeShadeView: NSView {
     private var card: CGRect = .zero
     private var radius: CGFloat = 0
     private var alpha: CGFloat = 0
+    /// More rounded holes in the shade beside the main pane's card (a sidebar card under the
+    /// `matched-sidebar` corner geometry), in this view's coordinates.
+    private var cutouts: [PaneCard] = []
     private var cardsObservation: AnyObject?
     /// The shown workspace's pane cards; a sync of theirs reshapes the shade.
     public weak var paneCards: (any PaneCardSource)? {
@@ -48,11 +51,13 @@ public final class MainPaneChromeShadeView: NSView {
 
     /// Shades everything but `card` (this view's coordinates); no shade when
     /// `alpha` is 0.
-    public func update(card: CGRect, radius: CGFloat, alpha: CGFloat) {
-        guard card != self.card || radius != self.radius || alpha != self.alpha || shade.frame != bounds || Metrics.floatingPanes else { return }
+    public func update(card: CGRect, radius: CGFloat, alpha: CGFloat, cutouts: [PaneCard] = []) {
+        guard card != self.card || radius != self.radius || alpha != self.alpha || cutouts != self.cutouts || shade.frame != bounds
+            || Metrics.floatingPanes else { return }
         self.card = card
         self.radius = radius
         self.alpha = alpha
+        self.cutouts = cutouts
         rebuild()
     }
 
@@ -84,6 +89,10 @@ public final class MainPaneChromeShadeView: NSView {
             path.addRect(bounds)
             let corner = min(radius, card.width / 2, card.height / 2)
             path.addRoundedRect(in: card, cornerWidth: corner, cornerHeight: corner)
+            for cutout in cutouts where !cutout.rect.isEmpty {
+                let cut = min(cutout.radius, cutout.rect.width / 2, cutout.rect.height / 2)
+                path.addRoundedRect(in: cutout.rect, cornerWidth: cut, cornerHeight: cut)
+            }
             shade.path = path
         }
         shade.fillColor = NSColor.black.withAlphaComponent(alpha).cgColor

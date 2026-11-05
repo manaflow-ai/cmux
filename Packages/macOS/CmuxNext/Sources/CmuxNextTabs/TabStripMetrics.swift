@@ -1,5 +1,6 @@
 public import CoreGraphics
 public import CmuxNextDesign
+public import QuartzCore
 
 /// Every size the strip uses, derived from the CmuxNextDesign density tokens
 /// (`Metrics`, 2 pt grid). Plain data so layout math is testable with fixed
@@ -60,6 +61,9 @@ public struct TabStripMetrics: Equatable, Sendable {
     /// Every pill's corner radius (`Metrics.tabCornerRadius`): concentric with the card
     /// corner the strip sits in; the strip's + and a tab's hover card share it.
     public var cornerRadius: CGFloat
+    /// The pill corners that take ``cornerRadius``: all four, or only the trailing ones under
+    /// the `tabs-square-leading` corner geometry (`CornerGeometry`).
+    public var roundedCorners: CACornerMask
     /// The radius of a fill (the close button's hover and pressed fill, a badge's
     /// fill, a group chip) at `rect` inside a tab pill at `pill`: concentric with the
     /// pill (``cornerRadius`` less the fill's inset from the pill's nearer top or bottom
@@ -181,6 +185,7 @@ public struct TabStripMetrics: Equatable, Sendable {
         tabBackgroundInset = Metrics.tabBackgroundInset
         tearOffDistance = TabTunables.tearOffDistance.value
         cornerRadius = Metrics.tabCornerRadius
+        roundedCorners = CornerGeometry.current.tabRoundedCorners
         groupChipOuterInset = Metrics.space1
         groupChipPadding = TabTunables.groupChipPadding.value
         groupChipHeight = max(Metrics.space6, Metrics.tabHeight - 2 * Metrics.space2)
