@@ -5708,12 +5708,26 @@ a.cv-sha:focus-visible {
 }
 /* The step at work draws the shared Spinner inside the mark (PlanList.tsx), so the mark has no ring of
    its own while the turn runs. */
-.cv-plan:not([data-ended]) .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
+.cv-plan:not([data-ended], [data-earlier]) .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
   border-width: 0;
 }
 /* Left in progress when its turn ended: a plain ring, not a spinner frozen mid-turn. */
-.cv-plan[data-ended] .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
+.cv-plan[data-ended] .cv-plan__item[data-status="in_progress"] .cv-plan__mark,
+.cv-plan[data-earlier] .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
   border-color: var(--cv-text-muted);
+}
+
+/* An earlier turn's list under the running turn (PlanList.tsx `earlier`): its one muted line says it
+   is from before the person's last message, and its steps read muted, as Claude desktop's do. */
+.cv-plan__earlier {
+  min-height: 24px;
+  padding-block: 4px;
+  box-sizing: border-box;
+  color: var(--cv-text-muted);
+  line-height: 16px;
+}
+.cv-plan[data-earlier] .cv-plan__item {
+  color: var(--cv-text-muted);
 }
 
 /* A step's change fades in place (Leo, 2026-11-03: the pinned list "animates in place with no layout

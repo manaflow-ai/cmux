@@ -1387,6 +1387,34 @@ export function liveTurnPlan(rows: readonly AcpmuxRow[]): AcpmuxRow | undefined 
   return undefined;
 }
 
+/// The todo list from before the person's last message, while the turn that message started has
+/// none of its own yet: as Claude desktop keeps its task list pinned, marked "from before your last
+/// message", until the agent writes a new one (Leo, 2026-11-05: "i like these plans too... i want us
+/// to be able to render it in ours"). Only a list with steps left carries over: a finished one is
+/// done work, folded in its own turn. A newer list, even an empty one that cleared it, ends it.
+export function earlierTurnPlan(rows: readonly AcpmuxRow[]): AcpmuxRow | undefined {
+  let prompted = false;
+  for (let at = rows.length - 1; at >= 0; at -= 1) {
+    const row = rows[at]!;
+    if (row.kind === "user" && !row.incoming) prompted = true;
+    if (row.kind !== "plan") continue;
+    if (!row.turnEnded || !prompted || !row.plan?.length) return undefined;
+    return row.plan.some((entry) => entry.status !== "completed") ? row : undefined;
+  }
+  return undefined;
+}
+
+/// The id suffix of the earlier list's copy that pins under the running turn (App.tsx).
+export const EARLIER_PLAN = ":earlier";
+
+/// `rows` with the earlier list's copy pinned under the running turn's latest message: over the live
+/// line where one is drawn (it is the turn's last row, `below`), else last. Without one, `rows` as is.
+export function withEarlierPlan(rows: AcpmuxRow[], plan: AcpmuxRow | undefined): AcpmuxRow[] {
+  if (!plan) return rows;
+  const at = rows.length > 0 && rows.at(-1)!.below ? rows.length - 1 : rows.length;
+  return [...rows.slice(0, at), plan, ...rows.slice(at)];
+}
+
 /// Whether two todo lists read the same (each step's words and state).
 export function samePlanEntries(
   a: readonly AcpmuxPlanEntry[] | undefined,

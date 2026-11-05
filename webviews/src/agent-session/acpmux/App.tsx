@@ -516,6 +516,9 @@ import {
   trayWaitAgents,
   turnViewFrom,
   liveTurnPlan,
+  earlierTurnPlan,
+  EARLIER_PLAN,
+  withEarlierPlan,
   samePlanEntries as sameEntries,
   retryTargetIn,
 } from "./conversation/turns";
@@ -1761,7 +1764,7 @@ const SummaryRow = memo(
 const PlanRow = memo(
   function PlanRow({ row }: RowProps) {
     return row.plan ? (
-      <PlanList entries={row.plan} ended={row.turnEnded} id={row.id} />
+      <PlanList entries={row.plan} ended={row.turnEnded} earlier={row.planEarlier} id={row.id} />
     ) : (
       <div className="acpmux-muted">{row.text}</div>
     );
@@ -7838,11 +7841,31 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Debug Settings agent.sessionStatus draws its activity line under the pinned list, so it pins it.
   const planInHat = subagentTray && !pinnedPlan && !sessionStatus && !quick && !childRows && snapshot.isWorking;
   const hatPlanRow = useMemo(() => (planInHat ? liveTurnPlan(turnRowsShown) : undefined), [planInHat, turnRowsShown]);
+  // A running turn with no list of its own yet keeps the agent's earlier list with steps left in
+  // sight, marked as from before the person's last message (turns.ts earlierTurnPlan; Claude desktop's
+  // pinned task list). It stays folded in its own turn too; the copy goes once the agent writes a list.
+  const earlierPlanRow = useMemo(
+    () =>
+      snapshot.isWorking && !quick && !childRows && !liveTurnPlan(turnRowsShown)
+        ? earlierTurnPlan(turnRowsShown)
+        : undefined,
+    [snapshot.isWorking, quick, childRows, turnRowsShown],
+  );
+  const hatEarlier = planInHat && !hatPlanRow && earlierPlanRow !== undefined;
+  const hatPlanSource = hatPlanRow?.plan ?? (hatEarlier ? earlierPlanRow.plan : undefined);
   // The list's entries hold while a step's state does not change, so streamed text never redraws the hat.
   const hatPlanKept = useRef<readonly AcpmuxPlanEntry[] | undefined>(undefined);
-  const hatPlan = sameEntries(hatPlanKept.current, hatPlanRow?.plan)
+  const hatPlan = sameEntries(hatPlanKept.current, hatPlanSource)
     ? hatPlanKept.current
-    : (hatPlanKept.current = hatPlanRow?.plan);
+    : (hatPlanKept.current = hatPlanSource);
+  // Without the hat, the earlier list's copy pins under the running turn, over its live line.
+  const pinnedEarlier = useMemo<AcpmuxRow | undefined>(
+    () =>
+      !planInHat && earlierPlanRow
+        ? { ...earlierPlanRow, id: `${earlierPlanRow.id}${EARLIER_PLAN}`, turnEnded: false, planEarlier: true }
+        : undefined,
+    [planInHat, earlierPlanRow],
+  );
   const transcriptRows = useMemo(() => {
     const steers =
       childRows || chatPresentation === "messages" ? NO_ROWS : (lastTurns.current?.turns.pending ?? NO_ROWS);
@@ -7853,10 +7876,22 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const agents = people.length ? queuedRows.filter((row) => !isPersonQueuedRow(row)) : queuedRows;
     const group = pendingMessagesRow(steers, agents, lastPending.current);
     lastPending.current = group;
-    const merged = mergeInboxNotices(hatPlanRow ? turnRowsShown.filter((row) => row !== hatPlanRow) : turnRowsShown);
+    const merged = mergeInboxNotices(
+      withEarlierPlan(hatPlanRow ? turnRowsShown.filter((row) => row !== hatPlanRow) : turnRowsShown, pinnedEarlier),
+    );
     const rows = withWaitingRows(merged, group ? [...people, group] : people);
     return childRows ? rows : btwNotes.rows(rows, snapshot.sessionId, btwSnapshot);
-  }, [chatPresentation, childRows, turnRowsShown, hatPlanRow, queuedRows, btwNotes, btwSnapshot, snapshot.sessionId]);
+  }, [
+    chatPresentation,
+    childRows,
+    turnRowsShown,
+    hatPlanRow,
+    pinnedEarlier,
+    queuedRows,
+    btwNotes,
+    btwSnapshot,
+    snapshot.sessionId,
+  ]);
   // Failed prompts in a row with one cause share one card (sendFailure.ts); a trust failure's card
   // offers Trust folder while the folder is not trusted, and its Retry waits while the folder's
   // question is open, which acpmux would refuse again.
@@ -10078,6 +10113,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             shown={trayChat}
             enters={trayEnters}
             plan={hatPlan}
+            planEarlier={hatEarlier}
             onTuck={trayPlacement === "tray" ? tuckTray : undefined}
             tuckSide={trayHandle}
           />

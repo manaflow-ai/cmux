@@ -392,6 +392,9 @@ export type AcpmuxRow = {
   items?: AcpmuxActivity[];
   /// A plan row's todo list (cx-ncc.80): the agent's latest `plan` update in its turn.
   plan?: AcpmuxPlanEntry[];
+  /// A plan row that stands for an earlier turn's list under the running turn (turns.ts
+  /// `earlierTurnPlan`): it reads as from before the person's last message, and nothing spins.
+  planEarlier?: boolean;
   /// A background task row's shell, which ended where the row sits (cx-ncc.84).
   backgroundTask?: AcpmuxBackgroundTask;
   /// A compaction row's compaction, noted where it happened.
@@ -1991,6 +1994,8 @@ function fallbackRowHeight(
   // Ended, it folds to its one 24px progress line unless the reader opened it, which adds the items.
   if (row.kind === "plan" && row.plan) {
     const items = row.plan.length * 24;
+    // An earlier turn's list adds its one "from before your last message" line.
+    if (row.planEarlier) return finish(40 + 24 + items);
     return finish(40 + (row.turnEnded ? 24 + (planOpen(row.id) ? items : 0) : items));
   }
   // A turn's footer: its line of buttons (the stack gives the gaps). An empty footer (only hover
