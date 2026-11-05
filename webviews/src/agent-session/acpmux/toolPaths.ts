@@ -98,7 +98,9 @@ export function toolLabel(
     title &&
     tool.status === "pending" &&
     (canonical?.tool === "write" || canonical?.tool === "edit") &&
-    !OWN_VERBS.has(firstWord(title))
+    !OWN_VERBS.has(firstWord(title)) &&
+    // A bare tool name ("write", "patch") says less than its file: it reads as the edit's verb and path.
+    toolForName(title) === undefined
   )
     return title;
   const named = canonical && canonicalLabel(canonical, title, paths, cwd);

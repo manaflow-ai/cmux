@@ -38,6 +38,7 @@ const call = (title: string, kind: string, fields: Partial<Tool> = {}): Tool => 
   status: "completed",
   ...fields,
 });
+const input = (value: Record<string, unknown>) => ({ inputSummary: JSON.stringify(value) });
 const at = (path: string) => ({ locations: [{ path }] });
 const label = (tool: Tool) => toolLabel(tool, tool.title, (command) => `Ran ${command}`, CWD);
 
@@ -115,6 +116,15 @@ test("a raw tool name takes the canonical verb; a pending Gemini write keeps its
   );
   expect(label(call("NotebookRead", "read", at(`${CWD}/a.ipynb`)))).toBe("Read a.ipynb");
   expect(label(call(`Writing to ${CWD}/notes.md`, "edit", { status: "pending" }))).toBe(`Writing to ${CWD}/notes.md`);
+  // opencode's and pi's bare names waiting on a permission still name their file.
+  expect(label(call("write", "edit", { status: "pending", ...input({ filePath: `${CWD}/notes.md` }) }))).toBe(
+    "Write notes.md",
+  );
+  expect(label(call("write", "edit", { status: "pending", ...input({ path: `${CWD}/notes.md` }) }))).toBe(
+    "Write notes.md",
+  );
+  const patch = "*** Begin Patch\n*** Update File: a.ts\n@@\n-a\n+b\n*** End Patch";
+  expect(label(call("patch", "edit", { status: "pending", ...input({ patchText: patch }) }))).toBe("Edit a.ts");
 });
 
 test("opencode's task reads as the same subagent card as Claude Code's Agent", () => {
