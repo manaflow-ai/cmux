@@ -102,6 +102,14 @@ def pid_alive(pid: int) -> bool:
     return True
 
 
+def kill(pid: int) -> None:
+    """SIGKILL a process this check started; it may have exited already."""
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
 def stop(proc: subprocess.Popen) -> float:
     """SIGTERM a daemon this script started; returns the time it took to exit."""
     start = now()
@@ -243,8 +251,7 @@ class Daemon:
             stop(self.proc)
         # Only the hosts this check started (their pids are recorded above).
         for pid in hosts.values():
-            if pid_alive(pid):
-                os.kill(pid, signal.SIGKILL)
+            kill(pid)
 
 
 def host_pids(state: Path) -> dict[str, int]:
@@ -442,7 +449,7 @@ def agent_phase(old: Path, new: Path, work: Path) -> dict:
     pids: list[int] = []
     try:
         old_status = wait_until("acpmux daemon", now() + 30, lambda: (s := mux.status(old)).get("build") and s)
-        mux.run(old, "new", "-m", "swapfake", "-n", "swap", "-d", "--no-parent", "--cwd", str(mux.root), "hello")
+        mux.run(old, "new", "-m", "swapfake", "-n", "swap", "-d", "--cwd", str(mux.root), "hello")
         first = wait_until("first reply", now() + 30,
                            lambda: (r := mux.run(old, "last", "swap")) and "turn=1" in r and r)
         before_pid = _agent_pid(first)
@@ -482,8 +489,7 @@ def agent_phase(old: Path, new: Path, work: Path) -> dict:
         # read again here, so a failure before the swap leaves none).
         pids += [p for r in mux.host_records() for p in (r.get("host_pid"), r.get("harness_pid")) if p]
         for pid in set(pids):
-            if pid_alive(pid):
-                os.kill(pid, signal.SIGKILL)
+            kill(pid)
     same_conversation = "turn=2" in second
     return {
         "phase": "agents",
