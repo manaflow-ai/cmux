@@ -3,6 +3,7 @@
 // frame makes the formerly blank ticks observable without a wall-clock timing assertion.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { chromium, type Browser } from "playwright";
+import { ROW_PITCH } from "../src/agent-session/acpmux/threadMinimap/model";
 import { papercutPane } from "./support/papercutChat";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
@@ -26,7 +27,7 @@ await requireBrowserLane("thread-rail-scroll-entrance.test.ts", async () => {
           (node, index) =>
             new Promise<{ opacity: number; width: number }>((resolve, reject) => {
               const start = performance.now();
-              node.scrollTop = index * 10 - node.clientHeight / 2;
+              node.scrollTop = index * ROW_PITCH - node.clientHeight / 2;
               window.cmuxAfterPaint(() => {
                 const bar = node.querySelector<HTMLElement>(`[data-tick="${index}"] .acpmux-minimap__bar`);
                 if (performance.now() - start > 10_000) {
