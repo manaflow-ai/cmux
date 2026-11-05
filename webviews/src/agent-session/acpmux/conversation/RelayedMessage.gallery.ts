@@ -94,7 +94,7 @@ function inbox(minutes: number) {
     : user(text, minutes);
 }
 
-const RECEIVED_LINE = ".cv-received__line";
+const RECEIVED_LINE = ".cv-received .cv-disclosure__toggle";
 
 /// Opens the line, then its Details: the prompt as the agent got it, label and all.
 const openDetails: Play = async (ctx) => {
@@ -128,7 +128,7 @@ export default agentPaneEntry({
   id: "agent-pane.relayed-message",
   title: "A message the lane-gh broker relayed",
   area: "Agent pane",
-  height: 460,
+  height: 720,
   covers: [
     "agent-session/acpmux/conversation/relayEnvelope.ts",
     "agent-session/acpmux/conversation/incomingMessage.ts",
