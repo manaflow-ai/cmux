@@ -65,7 +65,7 @@ struct CoreAnimationFenceSpikeTests {
             for _ in 0..<iterations {
                 await scene.reset()
                 guard let fence = scene.fence else { break }
-                let t0 = Clock.now
+                let t0 = Ticks.now
                 CATransaction.flush()
                 CATransaction.begin()
                 CATransaction.setDisableActions(true)
@@ -73,12 +73,12 @@ struct CoreAnimationFenceSpikeTests {
                 scene.box.bounds = Scene.newBounds
                 scene.box.backgroundColor = Scene.red
                 CATransaction.commit()
-                commitMs.append(Clock.ms(t0, Clock.now))
+                commitMs.append(Ticks.ms(t0, Ticks.now))
                 let released = Box<UInt64>(0)
                 let wait = name == "deadline_hold_2s" ? 2.0 : scene.refresh
                 DispatchQueue.main.asyncAfter(deadline: .now() + wait) {
                     if name == "deadline_invalidate_1_refresh" { fence.invalidateFences() } else if let port { CoreAnimationFence.release(port) }
-                    released.value = Clock.now
+                    released.value = Ticks.now
                 }
                 try await Task.sleep(for: .milliseconds(2))
                 let tu = scene.typeUnjoined()
@@ -86,10 +86,10 @@ struct CoreAnimationFenceSpikeTests {
                 if name == "deadline_invalidate_1_refresh", let port { CoreAnimationFence.release(port) }
                 let frames = recorder.frames(after: t0)
                 if let shown = frames.first(where: { $0.outside != .white }) {
-                    visibleAfterCommit.append(Clock.ms(t0, shown.time))
-                    visibleAfterRelease.append(Clock.ms(released.value, shown.time))
+                    visibleAfterCommit.append(Ticks.ms(t0, shown.time))
+                    visibleAfterRelease.append(Ticks.ms(released.value, shown.time))
                 }
-                if let typed = frames.first(where: { $0.unjoined == .yellow }) { unjoined.append(Clock.ms(tu, typed.time)) }
+                if let typed = frames.first(where: { $0.unjoined == .yellow }) { unjoined.append(Ticks.ms(tu, typed.time)) }
             }
             Self.report([
                 "case": name, "iterations": iterations, "fence": scene.fence != nil, "refresh_ms": scene.refresh * 1000,
@@ -265,13 +265,13 @@ private final class Scene {
         CATransaction.setDisableActions(true)
         unjoined.backgroundColor = CGColor(srgbRed: 1, green: 1, blue: 0, alpha: 1)
         CATransaction.commit()
-        return Clock.now
+        return Ticks.now
     }
 
     /// Main: the new bounds (and red) with the fence; off main (a plain thread) after `delay`: blue at the new size,
     /// joined to the fence, then the port released. 2 ms after the main commit, the unjoined change.
     func iteration(fenced: Bool, delay: Double, recorder: FrameRecorder) async throws -> Iteration {
-        let t0 = Clock.now
+        let t0 = Ticks.now
         CATransaction.flush()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -279,7 +279,7 @@ private final class Scene {
         box.bounds = Self.newBounds
         box.backgroundColor = Self.red
         CATransaction.commit()
-        let mainCommitMs = Clock.ms(t0, Clock.now)
+        let mainCommitMs = Ticks.ms(t0, Ticks.now)
         let released = Box<UInt64>(0)
         let offMain = Box<(box: CALayer, blue: IOSurfaceRef, fence: CoreAnimationFence?)>((box, blue, fence))
         let thread = Thread {
@@ -290,7 +290,7 @@ private final class Scene {
             offMain.value.box.contents = offMain.value.blue
             CATransaction.commit()
             if let port { CoreAnimationFence.release(port) }
-            released.value = Clock.now
+            released.value = Ticks.now
         }
         thread.qos = .userInteractive
         thread.start()
@@ -360,9 +360,9 @@ private nonisolated struct CaseResult {
         badFrames += bad
         if bad > 0 { badIterations += 1 }
         let firstNew = it.frames.first { $0.inside == .blue && $0.outside == .blue }
-        if let firstNew { firstNewMs.append(Clock.ms(it.t0, firstNew.time)) } else { noNewFrame += 1 }
+        if let firstNew { firstNewMs.append(Ticks.ms(it.t0, firstNew.time)) } else { noNewFrame += 1 }
         if let typed = it.frames.first(where: { $0.unjoined == .yellow }) {
-            let delay = Clock.ms(it.typedAt, typed.time)
+            let delay = Ticks.ms(it.typedAt, typed.time)
             unjoinedMs.append(delay)
             // Held: it showed only with or after the fenced frame, though the port went more than a refresh after it.
             if it.fenced, let firstNew, typed.time >= firstNew.time, it.releasedAt > it.typedAt {
@@ -400,7 +400,7 @@ private nonisolated final class Box<Value>: @unchecked Sendable {
     init(_ value: Value) { self.value = value }
 }
 
-private nonisolated enum Clock {
+private nonisolated enum Ticks {
     static let ticksPerMs: Double = {
         var info = mach_timebase_info_data_t()
         mach_timebase_info(&info)
@@ -416,7 +416,7 @@ private final class MainGapMeter {
     private var timer: (any DispatchSourceTimer)?
     private var last: UInt64 = 0
     private(set) var maxGap: UInt64 = 0
-    var maxGapMs: Double { (Double(maxGap) / Clock.ticksPerMs * 100).rounded() / 100 }
+    var maxGapMs: Double { (Double(maxGap) / Ticks.ticksPerMs * 100).rounded() / 100 }
 
     func start() {
         let timer = DispatchSource.makeTimerSource(queue: .main)
@@ -424,7 +424,7 @@ private final class MainGapMeter {
         timer.setEventHandler { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                let now = Clock.now
+                let now = Ticks.now
                 if self.last != 0 { self.maxGap = max(self.maxGap, now - self.last) }
                 self.last = now
             }
@@ -524,7 +524,7 @@ private nonisolated final class FrameRecorder: NSObject, SCStreamOutput, @unchec
               let info = attachments.first,
               let statusRaw = info[.status] as? Int, SCFrameStatus(rawValue: statusRaw) == .complete,
               let pixels = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-        let time = (info[.displayTime] as? UInt64) ?? Clock.now
+        let time = (info[.displayTime] as? NSNumber)?.uint64Value ?? Ticks.now
         CVPixelBufferLockBaseAddress(pixels, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(pixels, .readOnly) }
         guard let base = CVPixelBufferGetBaseAddress(pixels)?.assumingMemoryBound(to: UInt8.self) else { return }

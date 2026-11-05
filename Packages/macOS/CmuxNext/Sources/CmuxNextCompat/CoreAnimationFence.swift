@@ -146,14 +146,14 @@ public nonisolated final class CoreAnimationHostedContext: @unchecked Sendable {
         let remote = CoreAnimationFence.selector("remoteContextWithOptions:")
         if let method = class_getClassMethod(contextClass, remote) {
             let function = unsafeBitCast(method_getImplementation(method), to: RemoteFunction.self)
-            made = function(contextClass, remote, NSDictionary())?.takeUnretainedValue()
+            made = function(contextClass as AnyObject, remote, NSDictionary())?.takeUnretainedValue()
         }
         let cgs = CoreAnimationFence.selector("contextWithCGSConnection:options:")
         if made == nil, let method = class_getClassMethod(contextClass, cgs),
            let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGSMainConnectionID") {
             let connection = unsafeBitCast(symbol, to: MainConnection.self)()
             let function = unsafeBitCast(method_getImplementation(method), to: CGSFunction.self)
-            made = function(contextClass, cgs, connection, NSDictionary())?.takeUnretainedValue()
+            made = function(contextClass as AnyObject, cgs, connection, NSDictionary())?.takeUnretainedValue()
         }
         guard let context = made,
               let fence = CoreAnimationFence(context: context),
@@ -164,7 +164,7 @@ public nonisolated final class CoreAnimationHostedContext: @unchecked Sendable {
         context.perform(setLayer, with: root)
         let host = hostClass.init()
         let setContextId = CoreAnimationFence.selector("setContextId:")
-        guard let setId = CoreAnimationFence.instanceFunction(host, setContextId, as: SetContextIdFunction.self) else { return nil }
+        guard let setId = CoreAnimationFence.instanceFunction(host, "setContextId:", as: SetContextIdFunction.self) else { return nil }
         setId(host, setContextId, contextId(context, CoreAnimationFence.selector("contextId")))
         self.context = context
         self.fence = fence
