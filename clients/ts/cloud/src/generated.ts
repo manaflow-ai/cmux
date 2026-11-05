@@ -958,6 +958,16 @@ export type PairingInfo = {
   readonly capabilities?: ReadonlyArray<ServerCapability>
 }
 
+export type PairingInvite = {
+  readonly invite: PairingInviteCode
+  readonly display: string
+  readonly expires_at: number
+  readonly watch_secret: string
+}
+
+/** A normalized invite code: 10 Crockford base32 symbols, no hyphen. */
+export type PairingInviteCode = string
+
 export type PairingPreview = {
   readonly code: PairingCode
   readonly info: PairingInfo
@@ -3394,6 +3404,13 @@ export interface CloudOps {
       readonly network?: ServerNetworkReservation
     }
   }
+  /** Make a 10-minute, single-use invite code that a new machine types (`cmux pair CODE`) to ask to join the team. Only the person who made it can approve that machine, after comparing its four words; making another invite voids this one. Origin user only. */
+  readonly "server.pair.invite": {
+    readonly params: {
+      readonly team: TeamId
+    }
+    readonly result: PairingInvite
+  }
   /** Show what a pending pairing code would add: the server's name, platform, key thumbprint and location. */
   readonly "server.pair.preview": {
     readonly params: {
@@ -4196,6 +4213,7 @@ export const cloudOpMeta = {
   "run.list": { class: "read", idempotency: "forbidden", owner: "cloud:SchedulerDO", risk: "read" },
   "server.network.confirm": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-own" },
   "server.pair.approve": { class: "mutation", idempotency: "required", owner: "cloud:PairingDO", risk: "mutate-shared" },
+  "server.pair.invite": { class: "mutation", idempotency: "required", owner: "cloud:PairingDO", risk: "mutate-shared" },
   "server.pair.preview": { class: "read", idempotency: "forbidden", owner: "cloud:PairingDO", risk: "read" },
   "server.revoke": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "destructive" },
   "slack.post_as_bot": { class: "mutation", idempotency: "required", owner: "cloud:ConnectionDO", risk: "send-external" },

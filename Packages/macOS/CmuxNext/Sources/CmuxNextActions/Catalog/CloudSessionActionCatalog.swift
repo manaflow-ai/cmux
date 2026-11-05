@@ -38,7 +38,7 @@ nonisolated enum CloudSessionActionCatalog: ActionCatalogGroup {
 
     /// `--prompt-id`: the caller's id for the prompt; acpmux runs one id once.
     static var promptID: ActionArgument {
-        ActionArgument(name: "prompt-id", title: String(localized: "argument.cloudRelayChat.promptID", defaultValue: "Prompt ID", table: "CloudSessionActions", bundle: .module),
+        ActionArgument(name: "promptId", title: String(localized: "argument.cloudRelayChat.promptID", defaultValue: "Prompt ID", table: "CloudSessionActions", bundle: .module),
                        kind: .string, isRequired: false)
     }
 

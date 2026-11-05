@@ -34,13 +34,22 @@ export default agentPaneEntry({
   },
   variants: {
     "eighteen-prompts": {
-      note: "Eighteen prompts. The fixed arms (200, 240 shipped, 280) keep one height with quiet rail under the last tick; the older initial-* arms are here for comparison.",
+      note: "Eighteen prompts. The fixed arms (200, 240 before, 280, 360, 480 shipped) keep one height with quiet rail under the last tick; the older initial-* arms are here for comparison.",
       snapshot: chat(medium, { title: "Thread minimap height: initial rail" }),
       play: async (ctx) => {
         if (!ctx.document.querySelector('[data-tick="8"]')) return;
         await ctx.scroll({ selector: ".acpmux-scroll" }, 700);
         await ctx.waitFor(() => ctx.document.querySelector('[data-tick="4"][aria-current="true"]'));
         await ctx.hover({ selector: '[data-tick="8"]' });
+      },
+    },
+    "long-rest": {
+      note: "Seventy prompts at rest: compare fixed-240 (before), fixed-360 and fixed-480 (chosen). Equal tick lengths; on-screen prompts brighter. The height and pitch scale together.",
+      snapshot: chat(long, { title: "Thread minimap height: long chat" }),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__list"));
+        await ctx.scroll({ selector: ".acpmux-scroll" }, 3600);
+        await ctx.waitFor(() => ctx.document.querySelector('[data-tone="current"]'));
       },
     },
     "seventy-prompts": {
