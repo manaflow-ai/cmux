@@ -1740,9 +1740,9 @@ jobs:
   pick-nightly-build-runner:
     # Beside resolve-nightly-cmux-tui-client, not after it: the pick reads only decide's outputs, and build-nightly-app
     # still needs both. One runner pickup off the path to the app build (nightly-30min; run 41941610932 waited 5.9 min
-    # here after resolve).
+    # here after resolve). It keeps resolve's gate, so it runs only when resolve does.
     needs: [decide]
-    if: ${{ !cancelled() && needs.decide.result == 'success' }}
+    if: ${{ !cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') }}
     continue-on-error: true
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && contains(needs.decide.outputs.early_mini_jobs, ' pick-nightly-build-runner ') && needs.decide.outputs.early_mini_runner || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     environment: ci-routing-agent
