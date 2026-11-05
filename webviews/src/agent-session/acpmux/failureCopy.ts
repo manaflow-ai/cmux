@@ -279,9 +279,7 @@ export function failureCopy(t: Translate, message: string | undefined, route?: F
       return t("turn.failure.contextFull", { harness });
     case "codex-config": {
       const path = message ? CODEX_CONFIG_AT.exec(message)?.[1] : undefined;
-      return path
-        ? t("turn.failure.codexConfigAt", { harness, path })
-        : t("turn.failure.codexConfig", { harness });
+      return path ? t("turn.failure.codexConfigAt", { harness, path }) : t("turn.failure.codexConfig", { harness });
     }
     case "tailscale":
       return t("turn.failure.tailscale", { harness });
