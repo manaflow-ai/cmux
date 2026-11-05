@@ -575,12 +575,9 @@ export function Thinking({
     : silentFor !== undefined && own === undefined
       ? silentFor
       : (own ?? turnTime);
-  // Background-work counts remain available when the running tray is off.
+  // What follows the time (the page a background command serves); the tray counts the running work.
   const counts = useContext(WorkingCountsContext);
-  // The label already names the subagents it waits on: no second count of them.
-  const parts = (counts && !waiting ? workingParts(t, counts) : []).filter(
-    (part) => !(liveState === "subagents" && part.key === "agents"),
-  );
+  const parts = counts && !waiting ? workingParts(counts) : [];
   // What follows the words, as text: their time, the turn's clock and counts, for the old line's copy
   // to roll out with them (`useRoll`).
   const tail = [

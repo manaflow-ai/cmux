@@ -287,15 +287,12 @@ test("a running call reads the turn's clock as its total, never a clock that sta
   expect(html).toContain('<span class="cv-worked__time">13s</span>');
 });
 
-test("waiting on subagents, the line does not count them a second time", () => {
+test("waiting on subagents, the line names them once, with no count after its time", () => {
   const start = 1_000_000;
-  const counts = { agents: 2, commands: 1, sessions: 0, openAgents() {}, openCommands() {}, openSessions() {} };
   const html = renderToStaticMarkup(
-    <WorkingCountsContext.Provider value={counts}>
-      <Thinking since={start} liveState="subagents" liveAgents={2} turnTotal now={() => start + 60_000} />
-    </WorkingCountsContext.Provider>,
+    <Thinking since={start} liveState="subagents" liveAgents={2} turnTotal now={() => start + 60_000} />,
   );
-  expect(words(html)).toBe("Waiting on 2 subagents 1m · 1 command");
+  expect(words(html)).toBe("Waiting on 2 subagents 1m");
 });
 
 test("Thinking past the first step times only this stretch of thinking, the waits go to the total", () => {
