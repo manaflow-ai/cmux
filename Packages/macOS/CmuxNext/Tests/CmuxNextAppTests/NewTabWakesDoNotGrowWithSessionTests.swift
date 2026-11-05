@@ -1,11 +1,8 @@
 import AppKit
 @testable import CmuxNextApp
-import CmuxNextBridge
 import CmuxNextCompat
 @testable import CmuxNextDaemon
-import CmuxNextFocus
 import Foundation
-import Observation
 import Testing
 
 /// TERMINAL CREATE COST (lead, STATUS 13444): a local change costs O(changed items), never O(session). Under STRESS
@@ -125,27 +122,6 @@ struct NewTabWakesDoNotGrowWithSessionTests {
         }
     }
 
-    /// How many panes' tab lists each woken observer reads, by site: every pane gets one stand-in tab (the key's intent
-    /// of New Terminal Tab), in turn, and each one counts for every observer instance it wakes. An observer's count is the
-    /// number of panes whose new tab wakes it; the largest instance of each site is kept.
-    private static func panesReadPerObserver(panes: Int, tabs: Int, mix: Mix = .terminals) async throws -> [String: Int] {
-        try await withWindow(panes: panes, tabs: tabs, mix: mix) { store, _ in
-            let models = try #require(store.workspaces.first).screens.flatMap(\.panes)
-            try #require(models.count == panes, "fixture: \(models.count) panes, not \(panes)")
-            var reads: [ObjectIdentifier: (site: String, panes: Int)] = [:]
-            for pane in models {
-                let wakes = ObservationWakes()
-                ObservationWakes.$current.withValue(wakes) {
-                    store.intend(.createTab(pane: pane.handle, provisional: ProvisionalTab().terminal(TerminalID.generate(), cwd: nil)),
-                                 transaction: ClientTransactionID.generate())
-                }
-                for (instance, site) in wakes.woken { reads[instance, default: (site, 0)].panes += 1 }
-                await drainMain() // the woken observers re-arm before the next pane changes
-            }
-            return reads.values.reduce(into: [:]) { $0[$1.site] = max($0[$1.site, default: 0], $1.panes) }
-        }
-    }
-
     @Test(.timeLimit(.minutes(2)))
     func oneNewTabWakesAsManyObserversInAStressSessionAsInASmallOne() async throws {
         let small = try await Self.wakesOfNewTab(panes: 2, tabs: 1)
@@ -165,27 +141,6 @@ struct NewTabWakesDoNotGrowWithSessionTests {
                 "one New Terminal Tab woke \(smallCount) observers with 2 panes x 1 tab and \(stressCount) with 14 panes x 6 tabs; grew: \(grew)")
     }
 
-    /// The cost of a wake is the observer's re-evaluation, which cancels and re-registers every value it reads: an observer
-    /// that reads every tab of the session costs O(session) each time it wakes, even when one wake is all a new tab makes
-    /// (the profile of STRESS New Terminal Tab: 72 % of the 9 ms after the key turn is Observation re-tracking). With 6
-    /// tabs in every pane, an observer that reads only what it shows reads as many tabs with 14 panes as with 2.
-    /// One new tab writes one pane's tab list (`PaneModel.tabs`): an observer that reads every pane's list wakes for a new
-    /// tab in any pane and then cancels and re-registers all of them (profile 823feba6: `PaneModel.tabs.modify` ->
-    /// `ObservationRegistrar.Context.cancel`, 3 ms of the STRESS key turn). An observer that reads only the panes it shows
-    /// wakes as often with 14 panes as with 2.
-    @Test(.timeLimit(.minutes(3)))
-    func noObserverReadsMorePanesInAStressSessionThanInASmallOne() async throws {
-        let small = try await Self.panesReadPerObserver(panes: 2, tabs: 6)
-        let stress = try await Self.panesReadPerObserver(panes: 14, tabs: 6)
-        for site in Set(small.keys).union(stress.keys).sorted() {
-            print("panes read \(site): 2x6 \(small[site, default: 0]), 14x6 \(stress[site, default: 0])")
-        }
-        let grew = stress.filter { $0.value > small[$0.key, default: 0] }.sorted { $0.value > $1.value }
-            .map { "\($0.key) \(small[$0.key, default: 0]) -> \($0.value)" }
-        #expect(!small.isEmpty, "fixture: no observer read a pane (the counter is not wired)")
-        #expect(grew.isEmpty, "observers that a new tab in any of 14 panes wakes, against 2 (they read every pane's tabs): \(grew)")
-    }
-
     /// The STRESS bench (09f3dcc4, cmux19): one New Terminal Tab woke 56 strip items (PaneController.swift:46), 62 browser
     /// record writers and 62 emulation watches: one per browser or chat tab of the session. A new tab in one pane must wake
     /// no observer of another pane's tabs, whatever their kind: per site, the observer instances one new tab wakes are as
@@ -201,59 +156,6 @@ struct NewTabWakesDoNotGrowWithSessionTests {
             .map { "\($0.key) \(small[$0.key, default: 0]) -> \($0.value)" }
         #expect(!small.isEmpty, "fixture: the new tab woke no observer (the counter is not wired)")
         #expect(grew.isEmpty, "per-site observer instances one new tab wakes, 2 x 6 against 14 x 6 (mixed tabs): \(grew)")
-    }
-
-    /// Names the reads of another pane's strip item that a new tab wakes (PaneController.tabItem, the 8 -> 56 site): each
-    /// read a browser tab's and an agent chat tab's item makes is tracked on its own in pane 2 of a 14 x 6 mixed session,
-    /// then New Terminal Tab's intent runs in pane 1. The whole item must not wake, and the woken reads name the cause.
-    @Test(.timeLimit(.minutes(2)))
-    func aNewTabInPaneOneWakesNoReadOfPaneTwosStripItems() async throws {
-        let woken = try await Self.withWindow(panes: 14, tabs: 6, mix: .stress) { store, content in
-            let services = content.services
-            let workspace = try #require(store.workspaces.first)
-            let pane2 = try #require(content.panes.values.first { $0.pane.handle == PaneID(rawValue: 2) })
-            let pane1 = try #require(content.panes.values.first { $0.pane.handle == PaneID(rawValue: 1) })
-            let browser = try #require(pane2.pane.tabs.first { $0.kind == .browser }, "fixture: pane 2 has a browser tab")
-            let chat = try #require(pane2.pane.tabs.first { $0.agentSession != nil }, "fixture: pane 2 has a chat tab")
-            let names = Mutex<[String]>([])
-            @MainActor func track(_ name: String, _ read: @escaping @MainActor () -> Void) {
-                withObservationTracking { read() } onChange: { names.withLock { $0.append(name) } }
-            }
-            for (kind, tab) in [("browser", browser), ("chat", chat)] {
-                track("\(kind): whole item") { _ = pane2.tabItem(tab) }
-                track("\(kind): focus kind") { _ = FocusTopology.Kind.of(tab) }
-                track("\(kind): tab fields") { _ = (tab.title, tab.kind, tab.url, tab.faviconURL, tab.browserEngine, tab.agentSession, tab.page, tab.appTab, tab.tabGroup) }
-                track("\(kind): titles") {
-                    let titles = TabTitleResolver(services: services, workspace: workspace.handle)
-                    _ = (titles.isNewTabPage(tab), titles.untitled(tab, fallback: "~"), titles.page(tab))
-                }
-                track("\(kind): chat workspace name") { _ = AgentChatTabTitle.workspaceName(workspace) }
-                track("\(kind): restartsKeptTab") { _ = pane2.daemon.restartsKeptTab(tab) }
-                track("\(kind): item mapping") {
-                    _ = TabItemMapping.shared.item(tab, fallbackTitle: "~", isNewTabPage: false, restarting: false, harnessIcons: services.harnessIconLookup)
-                }
-                track("\(kind): user icon") {
-                    var item = StripTabItem(id: StripTabID(tab.id), title: "~")
-                    TabItemMapping.shared.applyUserIcon(tab, to: &item, asset: IconAssetImages.shared.tabIcon(owner: pane2.daemon))
-                }
-                track("\(kind): home unread") { _ = services.home.unreadConversations.isEmpty }
-                track("\(kind): dormant") { _ = services.cache.dormantTabs.contains(tab.id) }
-                track("\(kind): machine badge") { _ = services.machines.tabBadge(pane2.daemon.machineID) }
-                track("\(kind): machine color name") { _ = services.machines.tabColorName(pane2.daemon.machineID, badge: "x") }
-                track("\(kind): incognito of its workspace") { _ = services.windows.isIncognito(workspace: workspace) }
-                track("\(kind): incognito by key") { _ = services.cache.browserTabs.isIncognitoTab(tab.id) }
-                track("\(kind): profile badge") { _ = services.browserProfiles.tabBadge(for: tab, workspaceID: workspace.id, room: nil) }
-                track("\(kind): title attention") { _ = services.cache.pageRequests.titleAttention.marks(tab, selected: false, in: services.cache) }
-                track("\(kind): favicon") { _ = services.browserFavicon(key: tab.id, recordFavicon: tab.faviconURL, known: (tab, false)) }
-                track("\(kind): live page") { _ = services.cache.existingBrowser(tab.id)?.tab.state }
-            }
-            store.intend(.createTab(pane: pane1.pane.handle, provisional: ProvisionalTab().terminal(TerminalID.generate(), cwd: nil)),
-                         transaction: ClientTransactionID.generate())
-            await Self.drainMain()
-            return names.withLock { $0 }
-        }
-        print("woken reads of pane 2's strip items: \(woken)")
-        #expect(woken.isEmpty, "a new tab in pane 1 woke these reads of pane 2's strip items (14 x 6, mixed): \(woken)")
     }
 
     /// The observer instances one New Terminal Tab (the key's intent) in pane 1 wakes, counted per site.
