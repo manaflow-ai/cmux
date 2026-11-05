@@ -113,7 +113,7 @@ public struct NextStepAsk: Equatable, Sendable {
         }
         var rest = (Array(lines[..<ask.at]) + tail).joined(separator: "\n")
         while let scalar = rest.unicodeScalars.last, CharacterSet.whitespacesAndNewlines.contains(scalar) { rest.removeLast() }
-        return NextStepAsk(tag: ask.tag, question: question, detail: after.isEmpty ? nil : after, options: options, rest: rest)
+        return NextStepAsk(tag: ask.tag, recap: nil, question: question, detail: after.isEmpty ? nil : after, options: options, rest: rest)
     }
 
     /// The answer the person gave: the option their next prompt chose (case and outer space
