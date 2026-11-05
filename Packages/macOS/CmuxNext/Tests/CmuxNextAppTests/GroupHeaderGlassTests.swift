@@ -56,6 +56,22 @@ import Testing
                 "no color is untinted glass")
     }
 
+    @Test func vividIsTheDefault() {
+        #expect(SidebarGroupGlass.tunable.defaultValue == .vivid)
+    }
+
+    /// The rail beside a glass header is the pane's vivid tint, so rail and pane read as one group.
+    @Test func theRailIsThePanesTint() throws {
+        try Self.withGlass(.vivid) {
+            let (sidebar, _) = try GroupPaletteDefaultTests.sidebar([.purple])
+            sidebar.layoutSubtreeIfNeeded()
+            let line = try #require(GroupPaletteDefaultTests.views(GroupLineView.self, in: sidebar).first { !$0.isBlock })
+            line.updateLayer()
+            let want = GroupTint.palette(.purple).glassRGB(themed: false)
+            #expect(GroupPaletteDefaultTests.same(try GroupPaletteDefaultTests.rgb(line.railShape.fillColor), want))
+        }
+    }
+
     @Test func theSolidBarStaysAChoice() throws {
         try Self.withGlass(.solid) {
             let (sidebar, ids) = try GroupPaletteDefaultTests.sidebar([.red])

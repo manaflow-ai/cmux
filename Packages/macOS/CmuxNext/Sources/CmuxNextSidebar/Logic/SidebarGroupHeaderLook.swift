@@ -119,7 +119,8 @@ public nonisolated enum SidebarNoColorGroupLook: String, Sendable, CaseIterable,
 public nonisolated enum SidebarGroupGlass: String, Sendable, CaseIterable, Hashable, TunableChoice {
     /// A clear tint of the color.
     case glass
-    /// More of the color, for a louder group.
+    /// More of the color: the default, the one whose colors still read over a busy wallpaper in the gallery
+    /// (`AANoColorGroupGalleryTests`; `glass` washed out on dark, `frost` read as no color).
     case vivid
     /// A light tint: mostly the role's frost.
     case frost
@@ -148,5 +149,5 @@ public nonisolated enum SidebarGroupGlass: String, Sendable, CaseIterable, Hasha
     public static let tunable = Tunable<SidebarGroupGlass>.choice(
         "sidebar.groupGlass", .sidebar, "Group header glass",
         help: "How strongly a group header's glass takes its color: tinted, vivid or frosted glass with a rim, or the solid bar.",
-        default: .glass, code: "SidebarGroupGlass.tunable")
+        default: .vivid, code: "SidebarGroupGlass.tunable")
 }
