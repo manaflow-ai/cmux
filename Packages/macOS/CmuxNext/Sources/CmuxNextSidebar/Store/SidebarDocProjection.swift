@@ -106,8 +106,15 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
     public var archived: Set<String> = []
     /// Each group's sort other than manual, by group item (the group editor's Sort).
     public var groupSorts: [String: SidebarGroupSort] = [:]
-    /// The group members pinned inside their group: a sorted group keeps them first.
+    /// The group members pinned inside their group (`extra.pinned`, pinning-DESIGN.md): a sorted group keeps
+    /// them first, and their rows draw `sidebar.groupPinMark`.
     public var pinnedInGroup: Set<String> = []
+
+    /// What `arrange` marks on rows beyond their order: a change here redraws rows that did not move.
+    public struct RowMarks: Hashable, Sendable {
+        public var archived: Set<String>, pinnedInGroup: Set<String>
+    }
+    public var rowMarks: RowMarks { RowMarks(archived: archived, pinnedInGroup: pinnedInGroup) }
 
     /// The layout item kind of a group placed in Pinned or a custom section.
     public static let groupKind = "group"

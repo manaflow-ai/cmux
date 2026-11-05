@@ -78,13 +78,14 @@ extension WorkspaceRowView {
             tabCount.setColor(Palette.textTertiary)
             mutedMark.setTint(Palette.textTertiary)
             usageWarningMark.setTint(Palette.attention)
+            tintGroupPin()
             prBadge.setColor(Palette.textSecondary)
             tintSessionTree()
             let waits = if case .waiting = activityState { true } else { false }
             agentMark.setTint(waits ? Palette.attention : agentMarkFallbackColor.map(SidebarStyle.color) ?? Palette.textSecondary)
             // Fills, no borders but the focus ring below: drop target, selection, multi-selection or on screen, hover.
             let fill = isDropTarget || isSelected ? Palette.selectionFill : isSecondarySelected || isOnScreen ? Palette.secondarySelectionFill
-                : isHovered && !isPlaceholderRow && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil
+                : isHovered && !isPlaceholderRow && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : groupPinShelfFill
             let painted = colorFill() ?? fill // `workspaceColors.indicatorStyle` (#25653): fill or rail
             paintFill(painted)
             // The one border: the focus ring of the group this row stands for, as its header draws it.
@@ -232,6 +233,7 @@ extension WorkspaceRowView {
             mutedMark.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: ind, height: ind))
             trailing = columns.trailingEdge(before: mutedMark.frame)
         }
+        trailing = layoutTrailingGroupPin(trailing: trailing, cy: cy)
         if !usageWarningMark.isHidden {
             // The triangle takes a status mark's box (the spinner's, `statusGlyphFrame`); with no spinner it is the
             // column's mark (`layoutColumnMark`), centered where every spinner above it centers (Lawrence 2026-10-30:
@@ -261,6 +263,7 @@ extension WorkspaceRowView {
             agentMark.frame = NSRect(x: textX + Self.labelInset, y: cy - ind / 2, width: ind, height: ind)
             textX = SidebarStyle.titleXAfterLeadingMark(textX)
         }
+        textX = layoutLeadingGroupPin(textX: textX, cy: cy)
         let textW = max(0, trailing - textX)
         let titleArrival = titleArrivalPending || titleArrivalActive
         title.isHidden = renaming || (isShowingPlaceholder && !titleArrival)
@@ -285,7 +288,7 @@ extension WorkspaceRowView {
         updateCalmTitleTip()
         subtitle.wantsLayer = true
         subtitle.setTrailingFade(occlusion: coverStart.map { max(0, subtitle.frame.maxX - ($0 - Metrics.space1)) } ?? 0, fade: fade, animated: fades)
-        for mark in ([activity, rowBadge, agentMark, mutedMark, usageWarningMark, audioSlot.made, presenceDots, timeLabel, tabCount, prBadge] as [NSView?]).compactMap(\.self) {
+        for mark in ([activity, rowBadge, agentMark, mutedMark, groupPin, usageWarningMark, audioSlot.made, presenceDots, timeLabel, tabCount, prBadge] as [NSView?]).compactMap(\.self) {
             // The column's mark gives way while the hover controls show; so does a status spinner left of it.
             let status = mark === activity || (mark === agentMark && markReplacesStatus)
             let covered = mark === usageWarningMark ? false : mark === columnMark?.view ? markGivesWay

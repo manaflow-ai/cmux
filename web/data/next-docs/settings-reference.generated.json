@@ -3412,6 +3412,20 @@
           "group": "Sidebar"
         },
         {
+          "key": "sidebar.groupPinMark",
+          "title": "Pinned in Group Mark",
+          "help": "How a workspace pinned inside its group shows it. A pin after the name, a pin before the name in the group's color, or a light wash of the group's color behind the pinned workspaces. Off, the pin shows only when you point at an expanded row.",
+          "kind": "choice",
+          "default": "leading",
+          "group": "Sidebar",
+          "values": [
+            "off",
+            "trailing",
+            "leading",
+            "shelf"
+          ]
+        },
+        {
           "key": "sidebar.hoverCards.delay",
           "title": "Hover Card Delay",
           "help": "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.",

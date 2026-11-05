@@ -232,6 +232,9 @@ public final class SidebarModel {
     public var colorIndicator: WorkspaceColorIndicatorStyle = .dot
     /// This Mac's rows carry its machine mark too (`sidebar.showLocalMachine`, off by default).
     public var showsLocalMachine = false
+    public var groupPinMark: SidebarGroupPinMark = .leading // what a workspace pinned in its group draws (`sidebar.groupPinMark`)
+    /// The sidebar document's row marks (archived, pinned inside a group) the rows last showed (`rowMarksMoved`).
+    @ObservationIgnored var shownRowMarks: SidebarDocProjection.RowMarks?
     /// What a collapsed group header shows beside its loading spinner (`sidebar.groupHeader.*`,
     /// all off by default; `sidebar.detailedStatusIcons` adds its members' other states).
     public var groupHeaderDetails = GroupHeaderDetails()
@@ -460,7 +463,7 @@ public final class SidebarModel {
             let old = SidebarRowIndex.workspace(at: path, in: storedSections)
             row.rowState = old.rowState
             row.machineID = old.machineID
-            row.isArchived = old.isArchived // the document's, set by `arrange`; the feed does not know it
+            (row.isArchived, row.isPinnedInGroup) = (old.isArchived, old.isPinnedInGroup) // the document's (`arrange`); not the feed's
             guard row != old else { continue }
             guard !movesRows(from: old, to: row) else { return false }
             // A rename into or out of the name of a group it is the one member of changes the group's rows: one row in
@@ -572,10 +575,10 @@ public final class SidebarModel {
         showsTimestamps = preferences.showTimestamps
         (showsColors, colorIndicator) = (preferences.showColors, preferences.workspaceColorIndicator)
         showsLocalMachine = preferences.showLocalMachine
+        groupPinMark = preferences.groupPinMark
         groupHeaderDetails = GroupHeaderDetails(memberCount: preferences.groupHeaderMemberCount,
                                                 unreadCount: preferences.groupHeaderUnreadCount)
-        hidesWorkspaces = !preferences.showProjects
-        grouping.by = preferences.groupBy
+        (hidesWorkspaces, grouping.by) = (!preferences.showProjects, preferences.groupBy)
         groupsByComputer = preferences.groupsByComputer
         if style != preferences.style { (style, isRailOpen) = (preferences.style, false) }
     }

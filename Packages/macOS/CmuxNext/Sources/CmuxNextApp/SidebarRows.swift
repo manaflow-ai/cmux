@@ -93,14 +93,14 @@ final class SidebarRows {
     /// are what the rows show already (patches included), so a structural pass that lists nothing new sets no sections
     /// (sidebar churn: at 400 workspaces each set arranged and compared every row). A changed `elsewhere` shows again.
     /// `shownAt`: the sidebar document's `shownChanges` `live` was built at; a newer one with creates in flight shows
-    /// again, since a create waiting for the current row may draw now.
+    /// again, since a create waiting for the current row may draw now; so does a moved row mark (`rowMarksMoved`).
     func show(_ live: [SidebarRowSection]? = nil, shownAt: UInt64? = nil, creating: (rows: [PendingWorkspaceRows.Row], home: String?)? = nil,
               unlessShown: Bool = false, elsewhere: Set<String>? = nil, showAppStore: Bool? = nil) {
         let sameVisibility = showAppStore == nil || showAppStore == self.showAppStore
         if let showAppStore { self.showAppStore = showAppStore }
         let sameElsewhere = elsewhere == nil || elsewhere == self.elsewhere
         if let elsewhere { self.elsewhere = elsewhere }
-        let reprojected = live != nil && shownAt != liveShownAt && !(creating ?? self.creating).rows.isEmpty
+        let reprojected = model.rowMarksMoved(document()?.shown?.rowMarks) || live != nil && shownAt != liveShownAt && !(creating ?? self.creating).rows.isEmpty
         if live != nil { liveShownAt = shownAt }
         if unlessShown, !reprojected, model.arrangedSortsAreCurrent, let live, let creating, live == self.live, creating == self.creating, sameElsewhere, sameVisibility { return }
         if let live { self.live = live }

@@ -34,6 +34,11 @@ final class WorkspaceRowView: SidebarRowView {
     /// cap, a huge context, a storm of subagents): a small warning triangle in the trailing
     /// cluster, apart from the working spinner; its tooltip says each rule and the number.
     let usageWarningMark = DecorativeImageView()
+    /// A workspace pinned inside its group, at rest (`sidebar.groupPinMark`, WorkspaceRowView+GroupPin): the
+    /// look, the group's tint it draws in, and the pin (before the name or among the trailing marks).
+    let groupPin = DecorativeImageView() // the row's label says it is pinned
+    var groupPinLook = SidebarGroupPinMark.off, groupPinTint: GroupTint?, isPinnedInGroup = false
+    var groupPinStyle: ((SidebarRow) -> (SidebarGroupPinMark, GroupTint?))? // the list's (`SidebarListView.groupPinStyle`)
     /// The workspace's tabs play sound (or are muted): a small speaker in the
     /// trailing cluster, always shown while they do, crossed out while they
     /// are muted. A click mutes or unmutes them (`onToggleAudio`). Made when it first shows
@@ -156,7 +161,7 @@ final class WorkspaceRowView: SidebarRowView {
         usageWarningMark.imageScaling = .scaleProportionallyDown
         usageWarningMark.isHidden = true
         usageWarningMark.setAccessibilityElement(false)
-        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, usageWarningMark, badge, rowBadge, presenceDots, tabCount, prBadge, placeholderBar, statusBlock,
+        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, usageWarningMark, groupPin, badge, rowBadge, presenceDots, tabCount, prBadge, placeholderBar, statusBlock,
          treeLine, pullRequests, keycap, rollUp].forEach(addSubview)
         setUpSessionTree()
         tabCount.isHidden = true
@@ -177,6 +182,7 @@ final class WorkspaceRowView: SidebarRowView {
         ([closeSlot.made, moreSlot.made, pinSlot.made, treeFoldSlot.made, audioSlot.made] as [NSView?]).compactMap(\.self)
     }
     override var debugArchived: Bool { isArchived }
+    override var debugGroupPin: String? { isPinnedInGroup ? groupPinLook.rawValue : nil }
     override var debugIcon: String? {
         switch iconKind {
         case nil: !agentMark.isHidden && agentMarkVariant == .besideTitle ? "agentMark" : nil
@@ -231,17 +237,19 @@ final class WorkspaceRowView: SidebarRowView {
         var agentMark: SidebarAgentMarkVariant, presenceDots: Bool, rowBadge: SidebarRowBadgeStyle, stackLimit: Int
         var rowTitle: SidebarRowTitleMode, rowTitleSingleChat: Bool
         var row: WorkspaceRowContent?
+        var groupPin: SidebarGroupPinMark, groupTint: GroupTint?
     }
 
     func configure(_ ws: SidebarWorkspace, row: SidebarRow, badgeStyle: SidebarRowBadgeStyle? = nil) {
         lastConfiguration = (ws, row, badgeStyle)
+        (groupPinLook, groupPinTint) = ws.isPinnedInGroup ? groupPinStyle?(row) ?? (.off, nil) : (.off, nil)
         let tunables = observedTunables()
         let content = Content(
             ws: ws, group: row.group,
             fontSize: SidebarStyle.titleFont.pointSize, iconSize: SidebarStyle.leadingGlyphSide,
             agentMark: tunables.agentMark, presenceDots: tunables.presenceDots, rowBadge: badgeStyle ?? tunables.rowBadge, stackLimit: tunables.stackCap.limit,
             rowTitle: tunables.rowTitle, rowTitleSingleChat: tunables.rowTitleSingleChat,
-            row: row.content
+            row: row.content, groupPin: groupPinLook, groupTint: groupPinTint
         )
         guard needsConfigure(content) else { return }
         // A placeholder with a title (a connecting SSH machine, cx-gaq9) draws its text, not the bar.
@@ -319,6 +327,8 @@ final class WorkspaceRowView: SidebarRowView {
             : NSImage.icon(symbol: "exclamationmark.triangle.fill", size: .iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1))
         usageWarningMark.isHidden = usageWarningMark.image == nil
         usageWarningMark.themedToolTip = usageWarningMark.isHidden ? nil : ws.usageWarnings.joined(separator: "\n")
+        // A sole member drawn as its group (`standsForGroup`) reads as the group itself: no in-group pin there.
+        configureGroupPin(pinned: ws.isPinnedInGroup && row.group != nil && !row.standsForGroup)
         audio = isShowingPlaceholder ? nil : ws.audio
         if audio != nil { _ = audioSlot.control(in: self) }
         audioSlot.made.map(applyAudio)
