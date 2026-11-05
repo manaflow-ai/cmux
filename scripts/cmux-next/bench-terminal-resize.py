@@ -81,6 +81,10 @@ parser.add_argument("--key-settle-s", type=float, default=0.6, help="after the l
 parser.add_argument("--set", action="append", default=[], help="KEY=true|false: a boolean tunable set after launch")
 parser.add_argument("--held-repeat", type=int, default=0, help="keys layouts: also measure a held key (this many presses)")
 parser.add_argument("--xctrace-rounds", type=int, default=0, help="Time Profiler (attached to the app pid) on this many rounds per layout")
+parser.add_argument("--pages-mix", action="store_true",
+                    help="SCRATCH (SMOOTH-PAGES-PROFILE): in STRESS, every other pane of each column shows a Chromium page")
+parser.add_argument("--devtools-docked", action="store_true",
+                    help="SCRATCH (SMOOTH-PAGES-PROFILE): with --pages-mix, one page in column 2 (moved by keys and drag) docks DevTools")
 parser.add_argument("--newtab-runs", type=int, default=0, help="keys layout: also Cmd-T this many times, each after a key resize of its pane")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
@@ -573,14 +577,71 @@ def stress_session():
         STRESS["summary"] = session.build()
         STRESS["session"] = session
         time.sleep(3.0)  # bench script: the session's pages and busy terminals start
+        if opts.pages_mix:
+            STRESS["summary"]["pages_mix"] = pages_mix(session)
+            print(f"SMOOTH-PAGES-MIX {json.dumps(STRESS['summary']['pages_mix'])}", flush=True)
     else:
         STRESS["session"].show(STRESS["session"].measured)
         time.sleep(1.0)  # bench script: the measured workspace shows again after another layout's
     return STRESS["session"], STRESS["summary"]
 
 
+def pages_mix(session):
+    """SCRATCH (SMOOTH-PAGES-PROFILE): every other pane of each column (rows 2, 4, ... from the top) shows its first
+    Chromium page (tab.focus, no focus move); the first pane of each column stays a terminal, so keys-stress still
+    starts from a terminal. With --devtools-docked, the first page pane of column 2 (moved by the keys, column 1|2, and
+    by the drag, column 2|3) docks DevTools at the bottom (devtools.openDocked). Raises when a page or DevTools does
+    not show: a mix that is not there is not measured."""
+    workspace = session.measured
+    frames = {}
+    for plane in session.shown_window().get("planes") or []:
+        for ring in plane.get("rings") or []:
+            if ring.get("pane") and ring.get("frame_in_window"):
+                frames[ring["pane"]] = ring["frame_in_window"]
+    columns = {}
+    for pane, (x, y, w, h) in frames.items():
+        columns.setdefault(round(x), []).append((y, pane))
+    # Rows by y: every other row shows a page, whichever way y runs (3 rows: the middle one; 4 rows: two of them).
+    picked, devtools_tab = [], None
+    for column_index, (_, cells) in enumerate(sorted(columns.items())):
+        panes = [pane for _, pane in sorted(cells)]
+        for row, pane in enumerate(panes):
+            if row % 2 == 0:
+                continue
+            # The builder's own record (asked kind, daemon id): the first tab asked as Chromium, not a WebKit one.
+            page = next((ident for kind, ident, _ in session.made.get(pane) or [] if kind == "chromium" and ident), None)
+            if not page:
+                raise RuntimeError(f"pages-mix: pane {pane} has no Chromium tab")
+            session.action("tab.focus", target=f"tab:{page}", focus=False)
+            picked.append({"pane": pane, "tab": page, "column": column_index + 1, "row": row + 1})
+            if opts.devtools_docked and column_index == 1 and devtools_tab is None:
+                devtools_tab = page
+    time.sleep(2.0)  # bench script: the shown pages load and draw
+    shown = wait(lambda: (lambda w: w if sum(1 for b in w.get("browsers") or [] if b.get("engine") == "cef")
+                          >= len(picked) else None)(session.shown_window()), 20)
+    engines = [b.get("engine") for b in (session.shown_window().get("browsers") or [])]
+    if not shown:
+        raise RuntimeError(f"pages-mix: {len(picked)} pages asked, shown browsers by engine {engines}")
+    result = {"page_panes": len(picked), "panes": picked, "shown_browsers": engines}
+    if devtools_tab:
+        session.action("devtools.openDocked", target=f"tab:{devtools_tab}", focus=False)
+        entry = wait(lambda: next((d for d in (rpc("debug.cef") or {}).get("devtools") or []
+                                   if d.get("open") and d.get("devtools_frame")), None), 20)
+        if not entry:
+            raise RuntimeError(f"pages-mix: docked DevTools did not open on {devtools_tab}: "
+                               f"{json.dumps((rpc('debug.cef') or {}).get('devtools'))[:300]}")
+        time.sleep(2.5)  # bench script: the DevTools front end loads and draws
+        result["devtools"] = {"tab": devtools_tab, "dock": entry.get("dock"), "page_frame": entry.get("page_frame"),
+                              "devtools_frame": entry.get("devtools_frame")}
+    first = Stress.panes(session.workspace(workspace))
+    if first:
+        session.focus_pane(first[0]["id"])
+    return result
+
+
 def session_fields(summary):
-    return {k: summary.get(k) for k in ("workspaces", "measured_panes", "measured_tabs", "busy_terminals", "build_s")} \
+    return {k: summary.get(k) for k in ("workspaces", "measured_panes", "measured_tabs", "busy_terminals", "build_s",
+                                         "pages_mix")} \
         if isinstance(summary, dict) else None
 
 
