@@ -178,7 +178,7 @@ const message = (id: string, at: number): AcpmuxRow => ({
   at,
   kind: "user",
   text: '<cross-session-message from-name="leoli-fb">Please review #123.</cross-session-message>',
-  incoming: { kind: "message", message: { text: "Please review #123." } as never },
+  incoming: { kind: "message", message: { name: "leoli-fb", text: "Please review #123.", raw: "Please review #123." } },
 });
 
 /// Where each drawn row shows a Retry button, as the transcript renders it: "footer:<id>" or
