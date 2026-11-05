@@ -215,8 +215,24 @@ final class SidebarIconButton: ClickableButton {
     override func otherMouseDown(with event: NSEvent) { nextResponder?.otherMouseDown(with: event) }
     override func otherMouseUp(with event: NSEvent) { nextResponder?.otherMouseUp(with: event) }
 
+    /// A pointer press before this moment (`NSEvent.timestamp`, seconds since boot) is ignored: the
+    /// button just showed under the pointer (``ignorePointer(for:now:)``). Keys and VoiceOver are
+    /// never ignored. A stored deadline, no timer, as ``SidebarUpdateButton`` keeps it.
+    private var ignoresPointerUntil: TimeInterval = 0
+
+    /// Ignores pointer presses for `duration` from now: the button just showed where the pointer
+    /// may already be clicking, so a click meant for what was there must not land on this.
+    func ignorePointer(for duration: TimeInterval = SidebarUpdateButton.appearGuard,
+                       now: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+        ignoresPointerUntil = now + duration
+    }
+
+    /// Whether a pointer press at `timestamp` (an `NSEvent.timestamp`) is ignored.
+    func ignoresPointer(at timestamp: TimeInterval) -> Bool { timestamp < ignoresPointerUntil }
+
     /// NSButton tracks the click inside `super.mouseDown` and returns on release.
     override func mouseDown(with event: NSEvent) {
+        if ignoresPointer(at: event.timestamp) { return }
         guard isEnabled else { return super.mouseDown(with: event) }
         changeHover { $0.pressed = true }
         super.mouseDown(with: event)

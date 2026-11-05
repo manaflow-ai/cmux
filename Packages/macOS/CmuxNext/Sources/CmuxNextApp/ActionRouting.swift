@@ -46,17 +46,17 @@ enum ActionRouting {
         case .window:
             return windowMachine(target.id)
         case .workspace:
-            return daemons.first { $0.store.workspaces.contains { $0.id == target.id } }
+            return daemons.first { $0.store.workspace(id: target.id) != nil }
         case .workspaceGroup:
             return daemons.first { $0.store.group(WorkspaceGroupID(rawValue: target.id)) != nil }
         case .pane:
             return daemons.uniquePane(target.id)?.daemon
         case .tab:
-            return daemons.first { panes($0).contains { $0.tabs.contains { $0.id == target.id } } }
+            return daemons.first { $0.store.tab(id: target.id) != nil }
         case .tabGroup:
             return GroupOwnership.daemon(holdingTabGroup: TabGroupID(rawValue: target.id), in: daemons)
         case .screen:
-            return daemons.first { $0.store.workspaces.flatMap(\.screens).contains { $0.id == target.id } }
+            return daemons.first { $0.store.screen(id: target.id) != nil }
         case .screenGroup:
             return GroupOwnership.daemon(holdingScreenGroup: ScreenGroupID(rawValue: target.id), in: daemons)
         case .column, .browserProfile, .bookmark, .sidebarItem, .sidebarSection, .agentChat:
@@ -66,9 +66,5 @@ enum ActionRouting {
         case .profile:
             return daemons.first { $0.store.profile(ProfileID(rawValue: target.id)) != nil }
         }
-    }
-
-    private static func panes(_ daemon: DaemonService) -> [PaneModel] {
-        daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes)
     }
 }

@@ -86,10 +86,11 @@ import Testing
 
     nonisolated static let variants: [(ChromeStyle, Density)] = ChromeStyle.allCases.flatMap { style in Density.allCases.map { (style, $0) } }
 
-    /// The first pill sits as far from the card's side as from its top (`PaneChromeEvenInsetTests`).
-    /// Under Floating Panes its corner is concentric with the pane's own small card (the card's radius
-    /// less the inset); in the curved main pane it is Helium's 8 pt (Lawrence 2026-10-31,
-    /// `HeliumTabCornerTests`).
+    /// The first pill sits as far from the card's side as from its top (`PaneChromeEvenInsetTests`),
+    /// and its corner is concentric with the card it sits in, in every window style: the card's radius
+    /// less the inset, at most half the tab (Lawrence 2026-11-04: "all nested radius everywhere ...
+    /// must be concentric, where inner radius is outer minus padding"). It was Helium's fixed 8 pt in
+    /// the curved main pane's 14 pt card 2 pt away, where concentric is 12.
     @Test(arguments: variants)
     func theFirstTabIsConcentricWithTheCardItSitsIn(style: ChromeStyle, density: Density) throws {
         defer { reset() }
@@ -102,7 +103,7 @@ import Testing
         #expect(abs(inset - leading) <= 0.01, "\(style) \(density): the pill is \(leading) pt from the side, \(inset) pt from the top")
         let cell = try #require(scene.firstCell)
         let radius = cell.backgroundLayer.cornerRadius
-        let concentric = Metrics.floatingPanes ? max(Metrics.space2, cardRadius - inset) : Metrics.heliumTabCornerRadius
+        let concentric = min(max(0, cardRadius - inset), Metrics.tabHeight / 2)
         #expect(abs(radius - concentric) <= 0.01,
                 "\(style) \(density): the tab's radius is \(radius) pt in a \(cardRadius) pt card \(inset) pt away; concentric is \(concentric) pt")
     }

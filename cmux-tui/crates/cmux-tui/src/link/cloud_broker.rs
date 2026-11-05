@@ -125,6 +125,21 @@ fn unavailable() -> ConnectInfoError {
     ConnectInfoError::Unavailable("the Cloud broker is unavailable".into())
 }
 
+/// The broker's refusal by its code alone (a backend code such as
+/// `cloud.native.no_ready_attempt`): at most 80 of `[A-Za-z0-9._-]` (the app sends
+/// only lowercase, digits, `.` and `_`, NativeCloudBrokerCall `safeCode`), else
+/// only that the broker refused.
+fn refused(code: &str) -> ConnectInfoError {
+    let shown = code.len() <= 80
+        && !code.is_empty()
+        && code.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'));
+    ConnectInfoError::Unavailable(if shown {
+        format!("the Cloud broker refused: {code}")
+    } else {
+        "the Cloud broker refused".into()
+    })
+}
+
 fn invalid() -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, "cloud.broker.invalid_reply")
 }
@@ -214,9 +229,9 @@ impl Driver {
                 (Some(value), None) => Ok(decode(&call.request, value)?),
                 (None, Some(refusal)) => {
                     Err(match ConnectInfoError::from_code(&refusal.code, "") {
-                        // Do not preserve arbitrary response text in an error
-                        // that could later be logged.
-                        ConnectInfoError::Unavailable(_) => unavailable(),
+                        // Keep only the broker's refusal code, never its
+                        // response text, in an error that is logged.
+                        ConnectInfoError::Unavailable(_) => refused(&refusal.code),
                         known => known,
                     })
                 }

@@ -895,7 +895,22 @@ async fn a_daemon_whose_home_is_removed_stops() {
         json!({"cwd": dir, "mcpServers": [], "_meta": {"acpmux": {"name": "gone"}}}),
     )
     .await;
-    std::fs::remove_dir_all(&home).unwrap();
+    // The chat's own writes (its log, the agent's start) may land in a folder while it is being
+    // removed (ENOTEMPTY), as a harness's `rmtree` would meet them too: remove again until the
+    // home is gone. A daemon that kept writing is still caught by the bound, and one that made
+    // the home again after it stopped by the check below.
+    let removing = Instant::now();
+    loop {
+        match std::fs::remove_dir_all(&home) {
+            Ok(()) => break,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => break,
+            Err(e) if removing.elapsed() < Duration::from_secs(5) => {
+                eprintln!("removing the home again: {e}");
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            Err(e) => panic!("the home could not be removed in 5 s: {e}"),
+        }
+    }
     let status = exit_within(&mut child, acpmux::daemon::EXIT_BUDGET).await;
     let status = status.expect("the daemon still ran after its home was removed");
     assert!(status.success(), "{status:?}");

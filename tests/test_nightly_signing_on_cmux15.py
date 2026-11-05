@@ -14,6 +14,8 @@ there (teamleaderleo/glaeda scripts/glaeda-cmux-runner-hook TRUSTED_NEXT_SIGNING
    lands before the glaeda hook reaches cmux15 and the variable is the switch and the rollback.
 2. Any other event or ref (a dispatch, main's schedule) keeps the job's earlier route: glaeda admits
    only the nightly-next push there, so the route never sends it a job it would refuse.
+3. One-mini mode (vars.CI_NIGHTLY_MINI set, tests/test_nightly_one_mini.py) overrides 2: Lawrence,
+   2026-11-04, the whole nightly builds on one Mac mini, so every event signs on CI_NIGHTLY_SIGN_RUNNER.
 """
 
 from __future__ import annotations
@@ -73,12 +75,17 @@ class SigningOnCmux15Test(unittest.TestCase):
                     context = never_blacksmith.sample(source, rng)
                     context.update({"github.event_name": event, "github.ref": ref,
                                     "github.ref_name": ref.removeprefix("refs/heads/"),
-                                    "vars.CI_NIGHTLY_SIGN_RUNNER": rng.choice(("", LABEL))})
+                                    "vars.CI_NIGHTLY_SIGN_RUNNER": rng.choice(("", LABEL)),
+                                    "vars.CI_NIGHTLY_MINI": ""})
                     expected = evaluate(parse_expression(
                         earlier.strip().removeprefix("${{").removesuffix("}}").strip()), context)
                     with self.subTest(job=name, event=event, ref=ref):
                         self.assertEqual(route(name, context), expected)
                         self.assertNotEqual(route(name, context), LABEL)
+                    # One-mini mode: every event signs on the one nightly mini.
+                    context.update({"vars.CI_NIGHTLY_SIGN_RUNNER": LABEL, "vars.CI_NIGHTLY_MINI": "glaeda-nightly-mini"})
+                    with self.subTest(job=name, event=event, ref=ref, mode="one-mini"):
+                        self.assertEqual(route(name, context), LABEL)
 
 
 if __name__ == "__main__":

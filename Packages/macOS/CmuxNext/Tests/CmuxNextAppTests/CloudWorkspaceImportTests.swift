@@ -64,31 +64,28 @@ import Testing
         return CloudTurnRewindClient(origin: URL(string: "https://\(host)")!, token: { "native-owner" }, transport: URLSession(configuration: config))
     }
 
-    @Test func turnOwnerUsesItsConfiguredEnvironment() {
-        var configuration = CloudConfiguration.resolve(bundleID: nil, bundled: ["CMUX_NEXT_CLOUD_LINK": "app"], process: [:], isDebugBuild: true)
-        let development = ["CMUX_NEXT_FEED_API_URL": "https://cmux-api-development.debussy.workers.dev"]
-        #expect(configuration.turnAPIBaseURL(environment: [:]).absoluteString == "https://cmux-platform-staging.debussy.workers.dev")
-        #expect(configuration.turnAPIBaseURL(environment: development).absoluteString == "https://cmux-platform-development.debussy.workers.dev")
-        configuration.isProductionAuth = true
-        #expect(configuration.turnAPIBaseURL(environment: [:]).absoluteString == "https://cmux-platform-production.debussy.workers.dev")
-        #expect(configuration.turnAPIBaseURL(environment: development).absoluteString == "https://cmux-platform-production.debussy.workers.dev")
+    @Test func turnOwnerUsesTheSelectedPlatform() {
+        let platform = ["CMUX_NEXT_PLATFORM_PREVIEW_API_URL": "https://platform.fixture.test"]
+        var configuration = CloudConfiguration.resolve(bundleID: nil, bundled: platform, process: [:], isDebugBuild: true)
+        #expect(configuration.turnAPIBaseURL(environment: [:]).absoluteString == "https://platform.fixture.test")
+        // The process environment never redirects the owner token.
+        #expect(configuration.turnAPIBaseURL(environment: ["CMUX_NEXT_FEED_API_URL": "https://other-owner.invalid"]).absoluteString == "https://platform.fixture.test")
+        configuration = CloudConfiguration.resolve(bundleID: nil, bundled: platform, process: [:], isDebugBuild: false)
+        #expect(configuration.turnAPIBaseURL(environment: [:]).absoluteString == "https://platform.fixture.test")
     }
 
-    @Test(arguments: ["https://other-owner.invalid", "http://cmux-api-development.debussy.workers.dev",
-                      "https://cmux-api-development.debussy.workers.dev:8443", "https://cmux-api-development.debussy.workers.dev/path"])
-    func unknownOwnerCannotMintOrSendATurnToken(origin: String) async {
-        let configuration = CloudConfiguration.resolve(bundleID: nil, bundled: ["CMUX_NEXT_CLOUD_LINK": "app"], process: [:], isDebugBuild: true)
-        let client = CloudTurnRewindClient(origin: configuration.turnAPIBaseURL(environment: ["CMUX_NEXT_FEED_API_URL": origin])) {
-            Issue.record("An unknown owner origin must fail before minting a token")
+    @Test(arguments: ["http://platform.fixture.test", "https://platform.fixture.test?next=1"])
+    func unsafeOwnerOriginCannotMintOrSendATurnToken(origin: String) async {
+        let configuration = CloudConfiguration.resolve(bundleID: nil, bundled: ["CMUX_NEXT_PLATFORM_PREVIEW_API_URL": origin], process: [:], isDebugBuild: true)
+        let client = CloudTurnRewindClient(origin: configuration.turnAPIBaseURL()) {
+            Issue.record("An unsafe owner origin must fail before minting a token")
             return "must-not-be-sent"
         }
         await #expect(throws: CloudTurnRewindClient.Failure.self) { try await client.state(workspace: "ws_one") }
     }
 
-    @Test func legacyAndReleaseBuildsCannotSelectADebugTurnOrigin() {
-        var configuration = CloudConfiguration.resolve(bundleID: nil, bundled: ["CMUX_NEXT_CLOUD_LINK": "app"], process: [:], isDebugBuild: true)
-        configuration.isDebugBuild = false
-        #expect(configuration.turnAPIBaseURL(environment: ["CMUX_NEXT_FEED_API_URL": "https://cmux-api-development.debussy.workers.dev"]).absoluteString == "https://cmux-platform-staging.debussy.workers.dev")
+    @Test func legacyLinkSelectsNoTurnOrigin() {
+        var configuration = CloudConfiguration.resolve(bundleID: nil, bundled: ["CMUX_NEXT_PLATFORM_PREVIEW_API_URL": "https://platform.fixture.test"], process: [:], isDebugBuild: true)
         configuration.linkSource = .legacy
         #expect(configuration.turnAPIBaseURL(environment: [:]).isFileURL)
     }

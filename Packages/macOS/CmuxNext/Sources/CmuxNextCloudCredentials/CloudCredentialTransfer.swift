@@ -67,9 +67,17 @@ public import Foundation
     /// `operation`, cancelled at `deadline`: nil once the deadline is reached, before or while it runs.
     nonisolated static func before<T: Sendable>(_ deadline: ContinuousClock.Instant,
                                                 _ operation: @escaping @Sendable () async throws -> T) async throws -> T? {
-        let left = deadline - .now
+        try await before(deadline, clock: ContinuousClock(), operation)
+    }
+
+    /// ``before(_:_:)`` with `deadline` and the cut-off read on `clock`, so a test proves the budget on a
+    /// clock it advances by hand instead of waiting for it in real time.
+    nonisolated static func before<T: Sendable, C: Clock & Sendable>(_ deadline: C.Instant, clock: C,
+                                                _ operation: @escaping @Sendable () async throws -> T) async throws -> T?
+        where C.Duration == Duration {
+        let left = clock.now.duration(to: deadline)
         guard left > .zero else { return nil }
-        do { return try await withDeadline(left, label: "cloud guest bind", operation) } catch is DeadlineExceeded { return nil }
+        do { return try await withDeadline(left, label: "cloud guest bind", clock: clock, operation) } catch is DeadlineExceeded { return nil }
     }
 
     /// The guest-kind line of the chat restart after this transfer (the app's credential recovery):

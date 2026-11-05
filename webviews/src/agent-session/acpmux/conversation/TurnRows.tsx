@@ -379,6 +379,23 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
       : retry && prompt && row.retryRowId
         ? () => retry(row.retryRowId!, prompt)
         : undefined;
+  // The last completed turn keeps its prompt and retry target on the footer as well as under the
+  // prompt bubble. ChatGPT leaves the action with the answer, which makes a finished reply
+  // recoverable without scrolling back to its prompt. `retryable` is only set on that last turn
+  // (turns.ts), so older successful replies never gain another action row.
+  const lastTurnRetry =
+    !failed && retry && row.retryable === true && prompt && row.retryRowId
+      ? { rowId: row.retryRowId, prompt, run: () => retry(row.retryRowId!, prompt) }
+      : undefined;
+  const retryAction = failedRetry ?? lastTurnRetry?.run;
+  const retryTitle = row.changedFiles ? t("turn.retryChangedFiles") : t("turn.retryLabel");
+  // The model picker follows the same rule as Retry: it is available for the last turn, whether
+  // that turn ended successfully or failed. A view-only turn has no retry callback, so it stays
+  // out of both controls.
+  const modelRetry =
+    retryWith && retryWith.models.length > 1 && retry && row.retryable === true && prompt && row.retryRowId
+      ? { retryWith, rowId: row.retryRowId, prompt }
+      : undefined;
   // The card's lead (errorRecovery.ts): Continue when the turn had done work, Retry when nothing
   // ran; it shares the footer Retry's one-at-a-time state and refusal note. A sign-in failure's comes
   // only after its Sign in again, so only the card offers it (signInRetry), never the native command.
@@ -434,22 +451,22 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
         <MessageFooterRow className="cv-turn-footer-row">
           <span className="cv-turn-action-group">
             {!messages && copy && <MessageCopy text={copy} />}
-            {failedRetry && (
+            {retryAction && (
               <button
                 type="button"
                 className="cv-iconbtn cv-iconbtn--compact"
                 aria-label={t("turn.retry")}
-                title={t("turn.retryLabel")}
+                title={retryTitle}
                 disabled={retrying}
-                onClick={failedRetry}
+                onClick={retryAction}
               >
                 <Retry size={ROW_ICON} />
               </button>
             )}
-            {failed && retry && prompt && retryWith && retryWith.models.length > 1 && (
+            {modelRetry && (
               <RetryModelMenu
-                retryWith={retryWith}
-                onPick={(model) => retryWith.retry(row.retryRowId ?? "", prompt, model)}
+                retryWith={modelRetry.retryWith}
+                onPick={(model) => modelRetry.retryWith.retry(modelRetry.rowId, modelRetry.prompt, model)}
               />
             )}
             {!messages && fork && seq !== undefined && (forkAny || seq === forkSeq) && (

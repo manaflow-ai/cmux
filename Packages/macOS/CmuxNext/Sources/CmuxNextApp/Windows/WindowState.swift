@@ -99,7 +99,7 @@ final class WindowState {
     /// keep `full_screen` while it is set.
     var restoresFullScreen = false
 
-    init(id: String = UUID().uuidString.lowercased(), workspaceID: String? = nil, machineID: String? = nil, focusInput: FocusInput = FocusInput()) {
+    init(id: String = UUID().uuidString.lowercased(), workspaceID: String? = nil, machineID: String? = nil, focusInput: FocusInput) {
         (self.id, focus) = (id, FocusCoordinator(machine: FocusMachine(input: focusInput)))
         self.workspaceID = workspaceID
         self.machineID = machineID ?? MachineRegistry.localID
@@ -115,7 +115,7 @@ extension WindowState {
     }
 
     /// The state saved for one window.
-    convenience init(record: WindowRecord, focusInput: FocusInput = FocusInput()) {
+    convenience init(record: WindowRecord, focusInput: FocusInput) {
         self.init(id: record.id, focusInput: focusInput)
         adopt(record)
     }
