@@ -195,7 +195,6 @@
     "nightly.yml:promote-nightly-next": {"class": "mac-sign", "warm": [], "exempt": "publication with the release credentials on an owned Mac it holds whole: consumes what earlier jobs built and signed, compiles nothing"},
     "nightly.yml:publish-nightly": {"class": "mac-sign", "warm": [], "exempt": "publication with the release credentials on an owned Mac it holds whole: consumes what earlier jobs built and signed, compiles nothing"},
     "nightly.yml:publish-nightly-next-github": {"class": "mac-sign", "warm": [], "exempt": "publication with the release credentials on an owned Mac it holds whole: consumes what earlier jobs built and signed, compiles nothing"},
-    "nightly.yml:publish-nightly-next-github-names": {"class": "mac-sign", "warm": [], "exempt": "publication with the release credentials on an owned Mac it holds whole: consumes what earlier jobs built and signed, compiles nothing"},
     "nightly.yml:published-in": {"class": "mac-sign", "warm": [], "exempt": "a nightly control on the dedicated nightly mini (#30249): comments the published build on its pull requests through the API; compiles nothing"},
     "nightly.yml:dispatch-published-in": {"class": "mac-sign", "warm": [], "exempt": "a nightly control on the dedicated nightly mini (#30249): dispatches the published-in run through the API; compiles nothing"},
     "nightly.yml:recover-nightly-next-notarization": {"class": "mac-sign", "warm": [], "exempt": "signing and notarization only: consumes the app or DMG an earlier job built, compiles nothing"},

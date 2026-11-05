@@ -375,6 +375,58 @@ class SpentRestQuotaTests(unittest.TestCase):
         self.assertTrue(any(self.issues_query(c) for c in calls), "GraphQL fallback never ran")
         self.assertIn("next page", err)
 
+    def test_a_broker_refusal_of_the_fallback_is_status_2_and_says_so(self):
+        import subprocess
+        refusal = ("gh: lane-gh call graphql x/y: refused: graphql: field issues is refused (the broker reads the call's repo "
+                   "with a few fields only: GRAPHQL_ROOT_FIELDS, GRAPHQL_FIELDS). Requests from this VM go through "
+                   "the lane-gh broker; it holds no GitHub token.")
+
+        def gh(*args):
+            if args[1].startswith("repos/x/y/issues?"):
+                return rate_limited(*args)
+            if self.issues_query(args):
+                raise subprocess.CalledProcessError(1, ["gh", *args], stderr=refusal)
+            self.fail(f"unexpected read: {args}")
+        status, out, err, _ = self.run_check(gh)
+        self.assertEqual(status, 2, "a refused read is unknown (fail closed), never a freeze (1) or clear (0)")
+        self.assertEqual(out, "", "no freeze is reported")
+        self.assertIn("lane-gh broker refused the GraphQL fallback", err)
+        self.assertIn("not a freeze", err)
+        self.assertIn("field issues is refused", err)
+
+    def test_a_spent_graphql_quota_through_the_broker_is_not_called_a_refusal(self):
+        import subprocess
+
+        def gh(*args):
+            if args[1].startswith("repos/x/y/issues?"):
+                return rate_limited(*args)
+            if self.issues_query(args):
+                raise subprocess.CalledProcessError(1, ["gh", *args], stderr=(
+                    "gh: lane-gh call graphql x/y: GitHub's GraphQL quota is spent (HTTP 403); REST is a separate "
+                    "5000/h quota and still answers"))
+            self.fail(f"unexpected read: {args}")
+        status, _, err, _ = self.run_check(gh)
+        self.assertEqual(status, 2)
+        self.assertNotIn("broker refused", err)
+
+    def test_a_broker_outage_or_github_error_is_not_called_a_refusal(self):
+        import subprocess
+        for stderr in ("gh: lane-gh call graphql x/y: the broker sent no answer. Requests from this VM go through the "
+                       "lane-gh broker; it holds no GitHub token.",
+                       "gh: lane-gh call graphql x/y: HTTP 502: Bad Gateway. Requests from this VM go through the "
+                       "lane-gh broker; it holds no GitHub token."):
+            def gh(*args, stderr=stderr):
+                if args[1].startswith("repos/x/y/issues?"):
+                    return rate_limited(*args)
+                if self.issues_query(args):
+                    raise subprocess.CalledProcessError(1, ["gh", *args], stderr=stderr)
+                self.fail(f"unexpected read: {args}")
+            with self.subTest(stderr=stderr[:50]):
+                status, _, err, _ = self.run_check(gh)
+                self.assertEqual(status, 2)
+                self.assertNotIn("broker refused", err)
+                self.assertIn("cannot read merge freezes", err)
+
     def test_a_failure_that_is_not_a_rate_limit_stays_status_2_without_graphql(self):
         import subprocess
 
