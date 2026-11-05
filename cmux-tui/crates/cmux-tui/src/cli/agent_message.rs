@@ -642,7 +642,11 @@ fn sent_summary(message: &Value) -> String {
         .map(|delivery| {
             let recipient = delivery["recipient"].as_str().unwrap_or_default();
             let state = delivery["state"].as_str().unwrap_or_default();
-            let how = message["delivery_capabilities"][recipient]["text"].as_str();
+            let how = message
+                .get("delivery_capabilities")
+                .and_then(|capabilities| capabilities.get(recipient))
+                .and_then(|capability| capability.get("text"))
+                .and_then(Value::as_str);
             match state {
                 "queued" if recipient.starts_with("term_") => match how {
                     Some(how) => format!("queued for {recipient} ({how})"),

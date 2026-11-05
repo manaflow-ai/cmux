@@ -243,12 +243,26 @@ enum Claim {
 fn claim_once(socket: &Path, terminal: &str, deadline: Instant) -> Claim {
     let params = json!({"recipient": terminal, "respect_hold": false});
     match exchange(socket, "agent.message.wait", params, false, deadline) {
-        Ok(Ok(answer)) => {
-            Claim::Claimed(answer["messages"].as_array().cloned().unwrap_or_default())
-        }
+        Ok(Ok(answer)) => match answer.get("status").and_then(Value::as_str) {
+            // A claim must carry its messages; one that does not holds a
+            // lease on nothing it named, so nothing is taken and they stay queued.
+            Some("claimed") => match claimed_messages(&answer) {
+                Some(messages) => Claim::Claimed(messages),
+                None => Claim::Failed,
+            },
+            // Nothing to hand over now (`timeout`, `stale`, ...).
+            Some(_) => Claim::Claimed(Vec::new()),
+            // No status: a malformed answer, not an empty queue.
+            None => Claim::Failed,
+        },
         Ok(Err(error)) if unknown_operation(&error) => Claim::Unsupported,
         _ => Claim::Failed,
     }
+}
+
+/// A `claimed` answer's messages; `None` when the answer does not carry them.
+fn claimed_messages(answer: &Value) -> Option<Vec<Value>> {
+    answer.get("messages").and_then(Value::as_array).cloned()
 }
 
 /// A daemon older than an operation refuses the whole request envelope
@@ -256,7 +270,9 @@ fn claim_once(socket: &Path, terminal: &str, deadline: Instant) -> Claim {
 /// "invalid request envelope". A request this helper builds is otherwise
 /// well formed, so that answer means the operation is unknown there.
 fn unknown_operation(error: &Value) -> bool {
-    error["code"] == "validation.invalid" && error["message"] == "invalid request envelope"
+    let field = |name: &str| error.get(name).and_then(Value::as_str);
+    field("code") == Some("validation.invalid")
+        && field("message") == Some("invalid request envelope")
 }
 
 /// How long one daemon wait blocks before the hook asks again (below the
@@ -302,7 +318,10 @@ fn wake_with(
         return NOTHING;
     };
     let Ok((poller, _)) = random_identifiers() else { return NOTHING };
-    let session = payload["session_id"].as_str().filter(|id| !id.is_empty() && id.len() <= 256);
+    let session = payload
+        .get("session_id")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty() && id.len() <= 256);
     // No acknowledgement at Stop: an earlier wake hook may still hand a
     // message over after this Stop and before any listing of delivered
     // messages, and nothing tells which turn saw it. A wake's messages stay
@@ -328,7 +347,7 @@ fn wake_with(
             Ok(Err(_)) => return NOTHING,
             Ok(Ok(answer)) => {
                 register = false;
-                match answer["status"].as_str() {
+                match answer.get("status").and_then(Value::as_str) {
                     Some("claimed") => return hand_over(&socket, &terminal, &answer, err),
                     Some("timeout") => {
                         unreachable_since = None;
@@ -363,8 +382,9 @@ fn wake_with(
 /// be shown twice; `delivered` says the hook handed them to Claude's
 /// process, not that the model read them.
 fn hand_over(socket: &Path, terminal: &str, answer: &Value, err: &mut dyn Write) -> u8 {
-    let messages = answer["messages"].as_array().cloned().unwrap_or_default();
-    let ids: Vec<&str> = messages.iter().filter_map(|message| message["id"].as_str()).collect();
+    let messages = claimed_messages(answer).unwrap_or_default();
+    let ids: Vec<&str> =
+        messages.iter().filter_map(|message| message.get("id").and_then(Value::as_str)).collect();
     if ids.is_empty() {
         return 0;
     }
@@ -434,8 +454,10 @@ fn request(
     mutation: bool,
     deadline: Instant,
 ) -> anyhow::Result<Value> {
-    exchange(socket, operation, params, mutation, deadline)?
-        .map_err(|error| anyhow!("{operation} failed: {}", error["message"]))
+    exchange(socket, operation, params, mutation, deadline)?.map_err(|error| {
+        let message = error.get("message").and_then(Value::as_str).unwrap_or("no message");
+        anyhow!("{operation} failed: {message}")
+    })
 }
 
 /// [`request`], with the daemon's refusal (its `error` object) apart from a
@@ -480,14 +502,32 @@ fn exchange(
     if let Some(busy) = journal_append::busy_line(&response) {
         bail!("{operation} was refused: {busy}");
     }
-    if response["id"].as_str() != Some(request_id.as_str()) {
+    if response.get("id").and_then(Value::as_str) != Some(request_id.as_str()) {
         bail!("{operation} returned a mismatched request id");
     }
-    if response["ok"] != true {
-        return Ok(Err(response["error"].clone()));
+    // A malformed response is a failure of the exchange, never a refusal or
+    // a result: a caller must not read a missing field as an empty answer.
+    match response.get("ok").and_then(Value::as_bool) {
+        Some(true) => {}
+        Some(false) => {
+            let error = response.get("error").filter(|error| error.is_object()).cloned();
+            return match error {
+                Some(error) => Ok(Err(error)),
+                None => bail!("{operation} was refused without an error object"),
+            };
+        }
+        None => bail!("{operation} answered without a boolean ok"),
     }
-    let result = response["result"].clone();
-    Ok(Ok(if mutation { result["value"].clone() } else { result }))
+    let Some(result) = response.get("result") else {
+        bail!("{operation} answered ok without a result");
+    };
+    if !mutation {
+        return Ok(Ok(result.clone()));
+    }
+    match result.get("value") {
+        Some(value) => Ok(Ok(value.clone())),
+        None => bail!("{operation} answered a mutation without its value"),
+    }
 }
 
 #[cfg(test)]

@@ -40,8 +40,13 @@ impl Capability {
             .and_then(Value::as_array)
             .into_iter()
             .flatten()
-            .filter(|agent| agent["terminal_id"] == recipient && agent["state"] != "done")
-            .filter_map(|agent| agent["extra"]["agent"].as_str())
+            .filter(|agent| {
+                agent.get("terminal_id").and_then(Value::as_str) == Some(recipient)
+                    && agent.get("state").and_then(Value::as_str) != Some("done")
+            })
+            // Optional metadata: an entry without a string adapter names no
+            // agent, so the terminal reads as unknown, never as supported.
+            .filter_map(|agent| agent.pointer("/extra/agent").and_then(Value::as_str))
             .next();
         match adapter {
             Some("claude") => Self::ClaudeWake,
@@ -129,5 +134,26 @@ mod tests {
         assert_eq!(Capability::of(TERMINAL, None), Capability::Unknown);
         let map = capabilities(&[TERMINAL.to_owned()], Some(&agents("muse", "idle")));
         assert_eq!(map[TERMINAL]["capability"], "unsupported");
+    }
+
+    /// The adapter is optional metadata a hook reported: an entry with no
+    /// `extra`, a non-object `extra`, a non-string adapter, or a non-string
+    /// terminal or state names no agent. The terminal reads as unknown,
+    /// never as a supported path, and nothing panics.
+    #[test]
+    fn malformed_agent_metadata_reports_unknown() {
+        for agents in [
+            json!([{"terminal_id": TERMINAL, "state": "idle"}]),
+            json!([{"terminal_id": TERMINAL, "state": "idle", "extra": "claude"}]),
+            json!([{"terminal_id": TERMINAL, "state": "idle", "extra": {"agent": 7}}]),
+            json!([{"terminal_id": 7, "state": "idle", "extra": {"agent": "claude"}}]),
+            json!(["claude", null, 3]),
+            json!({"terminal_id": TERMINAL}),
+        ] {
+            assert_eq!(Capability::of(TERMINAL, Some(&agents)), Capability::Unknown, "{agents}");
+        }
+        // A non-string state is not "done": the reported adapter still counts.
+        let odd_state = json!([{"terminal_id": TERMINAL, "state": 1, "extra": {"agent": "codex"}}]);
+        assert_eq!(Capability::of(TERMINAL, Some(&odd_state)), Capability::CodexAppServer);
     }
 }

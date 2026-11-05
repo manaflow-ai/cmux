@@ -203,6 +203,68 @@ fn the_prompt_hook_lists_the_queue_only_when_the_daemon_does_not_know_the_claim(
     }
 }
 
+/// A daemon whose answer to the claim is malformed: a claim without its
+/// messages, an ok without a result, a refusal without an error object, or
+/// no boolean ok. Claude's prompt hook takes nothing for any of them. It does
+/// not read a missing field as an empty claim, never falls back to listing
+/// the queue (only the unknown-operation refusal does that), marks nothing
+/// delivered, and answers the empty object; the messages stay queued.
+#[cfg(unix)]
+#[test]
+fn a_malformed_claim_answer_takes_nothing_and_never_lists_the_queue() {
+    let base = || json!({"protocol": "cmux.protocol/2", "type": "response"});
+    let with = |mut reply: Value, fields: Value| {
+        for (key, value) in fields.as_object().unwrap() {
+            reply[key] = value.clone();
+        }
+        Some(reply)
+    };
+    let replies = [
+        with(base(), json!({"ok": true, "result": {"status": "claimed", "lease_id": "lease_0"}})),
+        with(base(), json!({"ok": true, "result": {"status": "claimed", "messages": "msg_1"}})),
+        with(base(), json!({"ok": true, "result": {"messages": [queued_message()]}})),
+        with(base(), json!({"ok": true})),
+        with(base(), json!({"ok": false})),
+        with(base(), json!({"ok": false, "error": "invalid request envelope"})),
+        with(base(), json!({"ok": "true", "result": {"status": "claimed"}})),
+    ];
+    let claude = Delivery::for_event("claude", "UserPromptSubmit").unwrap();
+    for reply in replies {
+        let answer = reply.clone();
+        let daemon = FakeDaemon::start(move |request| match request["operation"].as_str() {
+            Some("agent.message.wait") => answer.clone(),
+            _ => ok(json!([queued_message()])),
+        });
+        let mut out = Vec::new();
+        deliver_to(&mut out, claude, &daemon.socket, Some(TERMINAL), true);
+        assert_eq!(daemon.operations(), ["agent.message.wait"], "{reply:?}");
+        assert_eq!(String::from_utf8(out).unwrap().trim(), "{}", "{reply:?}");
+    }
+}
+
+/// The wake hook given a malformed answer hands nothing to Claude and marks
+/// nothing: a `claimed` answer without messages, or one with no status.
+#[cfg(unix)]
+#[test]
+fn a_malformed_wait_answer_wakes_nothing() {
+    for result in [json!({"status": "claimed"}), json!({"lease_id": "lease_0"})] {
+        let daemon = FakeDaemon::start(move |_| ok(result.clone()));
+        let parent = std::os::unix::process::parent_id().to_string();
+        let socket = daemon.socket.to_str().unwrap().to_owned();
+        let getenv = env(&[
+            ("CMUX_TUI_SOCKET", socket.as_str()),
+            ("CMUX_TUI_TERMINAL_ID", TERMINAL),
+            (CLAUDE_PID_ENV, parent.as_str()),
+            (LAUNCH_ENV, parent.as_str()),
+        ]);
+        let payload = json!({"hook_event_name": "Stop", "session_id": "s1"});
+        let mut err = Vec::new();
+        assert_eq!(wake_with(&getenv, &payload, &mut err), 0);
+        assert!(err.is_empty());
+        assert_eq!(daemon.operations(), ["agent.message.wait"]);
+    }
+}
+
 struct FailingWriter;
 
 impl Write for FailingWriter {

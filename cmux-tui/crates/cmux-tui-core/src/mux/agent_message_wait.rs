@@ -426,10 +426,10 @@ impl Mux {
             };
             let now = Instant::now();
             if now >= deadline {
-                let mut answer = json!({"status":"timeout"});
-                if let Some(holdback) = holdback {
-                    answer["held"] = json!(holdback.as_str());
-                }
+                let answer = match holdback {
+                    Some(holdback) => json!({"status":"timeout", "held": holdback.as_str()}),
+                    None => json!({"status":"timeout"}),
+                };
                 return Ok(Some(answer));
             }
             // Only a claim still running can end later; one already over is
@@ -534,14 +534,14 @@ impl Mux {
         let leased = waits.leased(recipient, now);
         let free: Vec<Value> = queued
             .into_iter()
-            .filter(|message| message["id"].as_str().is_some_and(|id| !leased.contains(id)))
+            .filter(|message| message_id(message).is_some_and(|id| !leased.contains(id)))
             .collect();
         if free.is_empty() {
             return Ok(None);
         }
         let batch = crate::agent_message_prompt::batch(free);
         let ids: Vec<String> =
-            batch.iter().filter_map(|message| message["id"].as_str().map(str::to_owned)).collect();
+            batch.iter().filter_map(|message| message_id(message).map(str::to_owned)).collect();
         let lease = waits.lease(recipient, ids, now);
         Ok(Some(json!({
             "status": "claimed",
@@ -561,6 +561,11 @@ impl Mux {
             waits.notify(recipient);
         }
     }
+}
+
+/// A stored message snapshot's id; a snapshot without one is never leased.
+fn message_id(message: &Value) -> Option<&str> {
+    message.get("id").and_then(Value::as_str)
 }
 
 #[cfg(unix)]
