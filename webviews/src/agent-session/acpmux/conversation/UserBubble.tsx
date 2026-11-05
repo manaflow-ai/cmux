@@ -421,10 +421,13 @@ export const SentImage = memo(function SentImage({ image }: { image: PromptImage
   const from = useSourceLabel(image.source);
   if (shown.status === "missing") return null;
   const { width, height } = sentImageSize(shown);
+  // Its shape, at most `width` wide: in a narrow chat the bubble's width scales it down whole
+  // (conversation.css), never past the bubble's edge.
+  const shape = { width, aspectRatio: `${width} / ${height}` };
   // The failed slot keeps the image's known shape, so the row does not reflow when it fails.
   if (shown.src !== undefined && failed === shown.src)
     return (
-      <span className="cv-user__image-failed" style={{ width }}>
+      <span className="cv-user__image-failed" style={shape}>
         <ImageIcon size={16} />
         <span>{t("image.failed")}</span>
       </span>
@@ -433,9 +436,7 @@ export const SentImage = memo(function SentImage({ image }: { image: PromptImage
   // sent-image band appears after the transcript row has already been placed and pushes the
   // prompt and everything below it down by a frame.
   if (shown.src === undefined)
-    return (
-      <span className="cv-user__image-placeholder" aria-hidden="true" style={{ width, height, flexBasis: width }} />
-    );
+    return <span className="cv-user__image-placeholder" aria-hidden="true" style={{ ...shape, flexBasis: width }} />;
   const src = shown.src;
   // A pasted image's name is WebKit's "image.png": name it by its size instead (imageLabel.ts).
   const label = imageLabel(t, { name: image.name, width: shown.width, height: shown.height });
@@ -448,7 +449,7 @@ export const SentImage = memo(function SentImage({ image }: { image: PromptImage
       decoding={shown.decoded ? "sync" : "async"}
       width={shown.width}
       height={shown.height}
-      style={{ width, height }}
+      style={shape}
       onError={() => setFailed(src)}
       onLoad={(event) => {
         // An image that decodes to no pixels draws nothing: it failed too.

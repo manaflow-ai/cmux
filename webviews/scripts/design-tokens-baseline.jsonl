@@ -147,7 +147,7 @@
 {"file":"agent-session/acpmux/conversation/conversation.css","kind":"color","property":"background","values":{"rgb(0 0 0 / 0.55)":2}}
 {"file":"agent-session/acpmux/conversation/conversation.css","kind":"color","property":"color","values":{"#fff":2}}
 {"file":"agent-session/acpmux/conversation/conversation.css","kind":"easing","property":"animation","values":{"cmux-breathe var(--cmux-breath-period, 2.4s) ease-in-out infinite":1}}
-{"file":"agent-session/acpmux/conversation/conversation.css","kind":"height","property":"height","values":{"120px":3,"26px":2,"1px":5,"var(--cv-bullet-size, 5px)":1,"36px":1,"22px":1,"12px":1}}
+{"file":"agent-session/acpmux/conversation/conversation.css","kind":"height","property":"height","values":{"26px":2,"1px":5,"var(--cv-bullet-size, 5px)":1,"36px":1,"22px":1,"12px":1}}
 {"file":"agent-session/acpmux/conversation/conversation.css","kind":"height","property":"min-height","values":{"36px":1,"160px":1,"120px":1}}
 {"file":"agent-session/acpmux/conversation/conversation.css","kind":"radius","property":"border-radius","values":{"var(--cv-code-radius, 5px)":1,"2px":2}}
 {"file":"agent-session/acpmux/conversation/conversation.css","kind":"spacing","property":"bottom","values":{"6px":1,"2px":1}}

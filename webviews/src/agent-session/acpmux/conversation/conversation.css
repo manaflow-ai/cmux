@@ -280,6 +280,8 @@
 }
 .cv-user__images button,
 .cv-user__inline-image button {
+  max-width: 100%;
+  min-width: 0;
   padding: 0;
   border: 0;
   border-radius: var(--cv-media-radius);
@@ -289,12 +291,15 @@
 /* Each a rounded thumbnail of the whole image in its own shape, at most 120px tall and never larger
    than the image (UserBubble.tsx sentImageSize sets its size), so a wide screenshot is a whole strip,
    not a magnified crop of its middle. A neutral backing under it, so a transparent image still shows
-   its content. An image sent inline in the text (InlinePromptContent.tsx) is the same thumbnail. */
+   its content. An image sent inline in the text (InlinePromptContent.tsx) is the same thumbnail.
+   Its size is a width and an aspect ratio, so a narrow bubble scales it down whole. */
 .cv-user__images img,
 .cv-user__inline-image img {
   display: block;
   width: 120px;
-  height: 120px;
+  max-width: 100%;
+  height: auto;
+  aspect-ratio: 1;
   object-fit: cover;
   border-radius: var(--cv-media-radius);
   outline: 1px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
@@ -358,7 +363,8 @@
   display: block;
   flex: 0 0 120px;
   width: 120px;
-  height: 120px;
+  max-width: 100%;
+  aspect-ratio: 1;
   border-radius: var(--cv-media-radius);
   background: color-mix(in srgb, var(--agent-text) 6%, transparent);
 }
@@ -371,7 +377,9 @@
   justify-content: center;
   gap: var(--ds-space-1);
   width: 120px;
-  height: 120px;
+  max-width: 100%;
+  aspect-ratio: 1;
+  overflow: hidden;
   padding: 0 var(--ds-space-3);
   border-radius: var(--cv-media-radius);
   outline: 1px dashed color-mix(in srgb, var(--agent-text) 24%, transparent);
@@ -6191,6 +6199,7 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 }
 .cv-user__inline-image {
   display: inline-block;
+  max-width: calc(100% - 8px);
   margin: 2px 4px;
   vertical-align: middle;
 }

@@ -747,6 +747,7 @@ button.acpmux-attachment-pasted-open:hover {
      tall as an unsourced one. */
   display: flex;
   flex: none;
+  max-width: 100%;
 }
 .cv-user__sourced > .acpmux-source-badge {
   top: 6px;
