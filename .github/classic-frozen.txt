@@ -15,13 +15,18 @@
 # Not classic, and not frozen: NEXT code that calls classic (CloudAPIClient.swift's /api/vm routes,
 # CloudClassicPageOps.swift), cmux-api (backend/apps/api) and workers/cmux-vm.
 
+# Leo, 2026-11-05: "when it's on the Feet CMux next branch, you can delete code. Like the classic cloud code, you can
+# just delete it" and "it's, like, fine enough to just delete it for now on the branch". feat-cmux-next is to become
+# main by a rename, so classic Cloud deleted here never merges into production main. A rule whose files are gone from
+# feat-cmux-next is `main` here; main's copy of this file keeps its own scopes.
+
 # cmux.com's classic API, served by the Vercel project in web/ (web/vercel.json deploys every push to main).
 web/app/api/**                     all   classic cmux.com /api: /api/vm, /api/runs, account, billing, teams, cron
 web/app/v1/**                      all   classic public /v1 API
-web/app/vm/**                      all   classic VM pages customers open
+web/app/vm/**                      main  classic VM pages customers open (deleted on feat-cmux-next)
 web/app/handler/**                 all   classic sign-in handler (Stack)
 web/app/authorize/**               all   classic OAuth authorize flow
-web/services/runs/**               all   classic /api/runs backend
+web/services/runs/**               main  classic /api/runs backend (deleted on feat-cmux-next; model.ts stays, NEXT's web/services/vms reads it)
 web/services/billing/**            all   classic billing and Stripe webhooks
 web/services/vm-publications/**    all   classic VM publications backend
 web/db/**                          all   classic Postgres schema and migrations (customers' data)

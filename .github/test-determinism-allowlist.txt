@@ -179,8 +179,6 @@ tests/test_guard_hooks_from_base.py	assert-on-duration	feat-cmux-next debt while
 tests/test_nightly_helpers_beside_release_build.py	assert-on-duration	feat-cmux-next debt while the gate was red (added in 316f6c8c38c4); determinize, then remove
 tests/test_r2_upload_requests.py	assert-on-duration	feat-cmux-next debt while the gate was red (added in 3ded5ceec04b); determinize, then remove
 tests/test_remote_daemon_notices.py	assert-on-duration	feat-cmux-next debt while the gate was red (added in 3ded5ceec04b); determinize, then remove
-web/tests/run-route-db-behavior.test.ts	sleep-then-assert	feat-cmux-next debt while the gate was red (added in 802f9b7aa241); determinize, then remove
-web/tests/run-sandbox-launcher.test.ts	sleep-then-assert	feat-cmux-next debt while the gate was red (added in 29755d649fe4); determinize, then remove
 webviews/test/access-chip-pending-warning.test.tsx	sleep-then-assert	feat-cmux-next debt while the gate was red (added in 3a0e1b66a133); determinize, then remove
 webviews/test/agent-pane-needs-you.test.tsx	sleep-then-assert	feat-cmux-next debt while the gate was red (added in a8ee82acea31); determinize, then remove
 webviews/test/agent-pane-subsession-limits.test.ts	sleep-then-assert	feat-cmux-next debt while the gate was red (added in 462745eb50ba); determinize, then remove

@@ -28,9 +28,7 @@ mock.module("next-intl", () => ({
 }));
 
 const { coderouterOverviewQuery } = await import("../dashboard-app/queries/coderouter");
-const { cloudDevicesQuery, cloudMachinesQuery } = await import("../dashboard-app/queries/cloud");
 const { CoderouterScreen } = await import("../dashboard-app/screens/coderouter/coderouter-screen");
-const { CloudScreen } = await import("../dashboard-app/screens/cloud/cloud-screen");
 const { coderouterRoutes } = await import("../dashboard-app/routes/coderouter");
 type Overview = import("../dashboard-app/lib/coderouter-types").DashboardCoderouterResponse;
 
@@ -152,62 +150,5 @@ describe("coderouter screen", () => {
     }).then(() => null, (error: unknown) => error);
     expect(isRedirect(thrown)).toBe(true);
     expect((thrown as { options: { to: string } }).options.to).toBe("/dashboard");
-  });
-});
-
-describe("cloud screen", () => {
-  const device = {
-    id: "grant-1",
-    deviceId: "device-1234567890",
-    name: "Studio Mac",
-    reportedName: "Studio Mac",
-    displayName: null,
-    modelIdentifier: "Mac15,3",
-    osVersion: "26.1",
-    architecture: "arm64",
-    cmuxVersion: "0.70.0",
-    cmuxBuild: "123",
-    cmuxChannel: "nightly",
-    createdAt: 1_780_000_000_000,
-    lastControlPlaneAt: 1_780_000_100_000,
-    tunnelPurposes: ["browser", "terminal"] as ("browser" | "terminal")[],
-  };
-
-  const machine = { id: "vm-abc123", name: "Build box", status: "running" as const, teamId: "team-1" };
-
-  async function renderCloud(devices: readonly (typeof device)[], machines?: readonly (typeof machine)[]) {
-    const queryClient = createScreenQueryClient();
-    queryClient.setQueryData(cloudDevicesQuery.queryKey, { devices: [...devices] });
-    if (machines) queryClient.setQueryData(cloudMachinesQuery.queryKey, { machines: [...machines] });
-    return renderDashboardScreen({ url: "/dashboard/cloud", queryClient, render: () => <CloudScreen /> });
-  }
-
-  test("lists each machine with its owner, status, and network control", async () => {
-    const html = await renderCloud([device], [machine]);
-    expect(html).toContain("Build box");
-    expect(html).toContain("Team · Running · vm-abc123");
-    expect(html).toContain(">Network<");
-  });
-
-  test("explains an empty machine list", async () => {
-    const html = await renderCloud([device], []);
-    expect(html).toContain("You have no Cloud machines.");
-  });
-
-  test("lists each Mac with its build, access, and actions", async () => {
-    const html = await renderCloud([device]);
-    expect(html).toContain("Cloud machines and Mac access");
-    expect(html).toContain("Studio Mac");
-    expect(html).toContain("Mac15,3 · macOS 26.1 · arm64");
-    expect(html).toContain("nightly 0.70.0 (123)");
-    expect(html).toContain("browser VPN, terminal");
-    expect(html).toContain("…34567890");
-    expect(html).toContain(">Rename<");
-    expect(html).toContain(">Revoke<");
-  });
-
-  test("explains an empty list", async () => {
-    const html = await renderCloud([]);
-    expect(html).toContain("No Mac has enrolled for Cloud VM access.");
   });
 });
