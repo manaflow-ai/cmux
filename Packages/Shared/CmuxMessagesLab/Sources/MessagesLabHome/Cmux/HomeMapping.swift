@@ -265,6 +265,7 @@ enum HomeMapping {
                 pending += pending.isEmpty ? piece : "\n" + piece
             case .table(var table, let raw):
                 table.pictures = pictures(of: table, media: media)
+                table.loading = loadingPictures(of: table, media: media)
                 if let card = HomeTableRowProvider.part(table, raw: raw) {
                     flush()
                     out.append(card)
@@ -287,10 +288,24 @@ enum HomeMapping {
         var out: [String: String] = [:]
         for source in sources {
             let key = source.hasPrefix(tableAttachmentScheme) ? String(source.dropFirst(tableAttachmentScheme.count)) : source
-            guard source.hasPrefix(tableAttachmentScheme) || HomeTablePictures.handles(source), let asset = media(key) else { continue }
+            guard source.hasPrefix(tableAttachmentScheme) || HomeTablePictures.handles(source), let asset = media(key),
+                  !asset.hasPrefix(HomeTablePictures.loadingPrefix) else { continue }
             out.updateValue(localPath(asset), forKey: source)
         }
         return out
+    }
+
+    /// `table`'s pictures still loading (`media` gave ``HomeTablePictures/loadingMark(_:)``), with their pixel
+    /// sizes; nil when none is.
+    static func loadingPictures(of table: HomeTable, media: Media) -> [String: [Int]]? {
+        var out: [String: [Int]] = [:]
+        for source in ([table.header] + table.rows).flatMap({ $0 }).flatMap({ HomeTableCell(markdown: $0).images.map(\.source) })
+        where HomeTablePictures.handles(source) {
+            guard let mark = media(source), mark.hasPrefix(HomeTablePictures.loadingPrefix) else { continue }
+            let size = mark.dropFirst(HomeTablePictures.loadingPrefix.count).split(separator: "x").compactMap { Int($0, radix: 10) }
+            out.updateValue(size.count == 2 ? size : [0, 0], forKey: source)
+        }
+        return out.isEmpty ? nil : out
     }
 
     /// A picture asset as a path: ``HomeMedia`` hands out `file:` URL strings (MessagesLab's bubbles read
