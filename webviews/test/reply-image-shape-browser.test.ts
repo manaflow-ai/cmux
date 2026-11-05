@@ -50,10 +50,25 @@ await requireBrowserLane("reply-image-shape-browser.test.ts", async () => {
     { entry: "agent-pane.sent-images", variant: "wide-strip", image: "img.cv-user__image", frame: "button" },
     { entry: "agent-pane.sent-images", variant: "pasted", image: "img.cv-user__image", frame: "button" },
     // A tall phone shot a tool call returned (ToolRow.tsx ToolImages): its own column, no tall empty frame.
-    { entry: "agent-pane.read-image-result", variant: "returned-tall", image: ".cv-thumb__img", frame: ".cv-thumb" },
-    { entry: "agent-pane.read-image-result", variant: "returned-image", image: ".cv-thumb__img", frame: ".cv-thumb" },
+    {
+      entry: "agent-pane.read-image-result",
+      variant: "returned-tall",
+      image: ".cv-tool-images .cv-thumb__img",
+      frame: ".cv-thumb",
+    },
+    {
+      entry: "agent-pane.read-image-result",
+      variant: "returned-image",
+      image: ".cv-tool-images .cv-thumb__img",
+      frame: ".cv-thumb",
+    },
     // A desktop and a phone shot in one call's row: neither stretches to the other's height.
-    { entry: "agent-pane.read-image-result", variant: "returned-mixed", image: ".cv-thumb__img", frame: ".cv-thumb" },
+    {
+      entry: "agent-pane.read-image-result",
+      variant: "returned-mixed",
+      image: ".cv-tool-images .cv-thumb__img",
+      frame: ".cv-thumb",
+    },
     // A 400px chat: the strip above a prompt and inside one scale down to the bubble's width.
     { entry: "agent-pane.sent-images", variant: "narrow", image: "img.cv-user__image", frame: "button", width: 400 },
   ];
