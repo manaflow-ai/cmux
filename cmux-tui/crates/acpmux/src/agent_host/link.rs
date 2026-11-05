@@ -77,6 +77,11 @@ pub async fn spawn(launcher: &HostLauncher, spec: &SpawnSpec) -> Result<HostReco
     if let Some(ms) = std::env::var_os(super::host::POOLED_OWNER_WAIT_ENV) {
         cmd.env(super::host::POOLED_OWNER_WAIT_ENV, ms);
     }
+    // Debug builds only: the test process whose end ends the host (`daemon/owner_exit.rs`).
+    #[cfg(debug_assertions)]
+    if let Some(pid) = std::env::var_os(crate::daemon::owner_exit::TEST_OWNER_PID_ENV) {
+        cmd.env(crate::daemon::owner_exit::TEST_OWNER_PID_ENV, pid);
+    }
     // SAFETY: setsid is async-signal-safe and touches no Rust state. The host
     // leads its own session so it outlives the controller and its group.
     unsafe {

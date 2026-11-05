@@ -62,9 +62,13 @@ extension ControlRouter {
         default: throw ControlError.invalidParams(ControlStrings.text("control.error.argsShape", "args must be an object of name: value"))
         }
         let schema = Dictionary(action.arguments.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
+        let folded = Dictionary(action.arguments.map { (Self.foldedArgumentName($0.name), $0.name) }, uniquingKeysWith: { first, _ in first })
         for (given, raw) in rawArguments {
-            // Rooms became Spaces: `--room` still names the `space` argument.
-            let name = schema[given] == nil ? Self.renamedArguments[given].flatMap { schema[$0] == nil ? nil : $0 } ?? given : given
+            // Rooms became Spaces: `--room` still names the `space` argument. A spelling the schema does not use
+            // (`prompt-id`, `prompt_id` or `promptId` for one named another way) names the argument it folds to:
+            // the CLI sends `--prompt-id` as `promptId`, and one drifted name failed `cmux cloud start-chat`.
+            let name = schema[given] != nil ? given
+                : Self.renamedArguments[given].flatMap { schema[$0] == nil ? nil : $0 } ?? folded[Self.foldedArgumentName(given)] ?? given
             guard let argument = schema[name] else {
                 throw ControlError.invalidParams(
                     ControlStrings.format("control.error.noSuchArgument", "%1$@ has no argument '%2$@'", action.id, name),
@@ -86,6 +90,11 @@ extension ControlRouter {
 
     /// Old argument names and the ones that replaced them (data-model.md 3.4).
     static let renamedArguments = ["room": "space", "machine": "host"]
+
+    /// An argument name with case, `-` and `_` folded away: `prompt-id`, `prompt_id` and `promptId` are one name.
+    static func foldedArgumentName(_ name: String) -> String {
+        String(name.lowercased().filter { $0 != "-" && $0 != "_" })
+    }
 
     static func value(_ raw: JSONValue, for argument: ControlArgumentInfo, action: String, knownKinds: [String]) throws -> ControlValue {
         func fail(_ expected: String) -> ControlError {

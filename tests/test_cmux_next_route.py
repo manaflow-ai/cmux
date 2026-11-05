@@ -611,8 +611,8 @@ class LinuxLaneTests(unittest.TestCase):
                           and not route_module.consumed(path, cls.tree_inputs, cls.read))
 
     def test_the_allowlist_comes_from_the_registry(self):
-        from test_execution_registry import load_registry
-        entries = load_registry(ROOT / "tests/test-execution.toml")
+        from test_execution_registry import load_tree
+        entries = load_tree(ROOT)
         expected = {e["path"] for e in entries if e.get("lane") == "linux-guard" and str(e["path"]).startswith("tests/test_")}
         self.assertEqual(set(self.linux), expected)
         self.assertGreater(len(self.linux), 100)
@@ -621,19 +621,21 @@ class LinuxLaneTests(unittest.TestCase):
         result = tiers([self.sample])
         self.assertEqual(mac_tiers(result), [], self.sample)
         self.assertEqual(tiers([self.sample, "tests/test-execution.toml"])["native"], "false")
+        self.assertEqual(tiers([self.sample, "tests/test-execution.d/ci.toml"])["native"], "false")
 
     def test_a_test_moved_off_linux_guard_routes_to_mac_again(self):
-        from test_execution_registry import load_registry
+        from test_execution_registry import load_tree
         entries = [dict(e, lane="macos-shell") if e["path"] == self.sample else e
-                   for e in load_registry(ROOT / "tests/test-execution.toml")]
-        with mock.patch("test_execution_registry.load_registry", return_value=entries):
+                   for e in load_tree(ROOT)]
+        with mock.patch("test_execution_registry.load_tree", return_value=entries):
             self.assertIn("native", mac_tiers(tiers([self.sample])))
 
     def test_an_unreadable_registry_allowlists_nothing(self):
-        with mock.patch("test_execution_registry.load_registry", side_effect=ValueError("bad registry")):
+        with mock.patch("test_execution_registry.load_tree", side_effect=ValueError("bad registry")):
             self.assertEqual(self.route.linux_guard_tests(ROOT), frozenset())
             self.assertIn("native", mac_tiers(tiers([self.sample])))
             self.assertIn("native", mac_tiers(tiers(["tests/test-execution.toml"])))
+            self.assertIn("native", mac_tiers(tiers(["tests/test-execution.d/ci.toml"])))
 
     def test_a_linux_guard_test_a_mac_tier_reads_keeps_its_tier(self):
         with mock.patch.object(self.route, "SWIFT_JOB_INPUTS", self.route.SWIFT_JOB_INPUTS + (self.sample,)):

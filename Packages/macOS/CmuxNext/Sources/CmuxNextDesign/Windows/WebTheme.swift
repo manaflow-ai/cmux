@@ -42,6 +42,9 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// `lens`, `plain` or `spectrum` (``GlassLensMode/current``, already `plain` under Reduce
     /// Transparency and Low Power Mode): `data-glass` on `<html>`, which `.ui-glass` reads.
     public let glass: String
+    /// The filled personality slots (``ThemeDecorations/payload``): `data-cmux-decoration-<slot>` on
+    /// `<html>`, which the page draws. Empty sends no `decorations` key at all.
+    public let decorations: [String: String]
 
     /// The terminal colors a page highlights code with: the scope's opaque background and
     /// readable foreground, and its ANSI palette as the theme names it (the page lifts each
@@ -167,6 +170,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         workingLook = StatusWorkingLook.tunable.value.rawValue
         motion = Self.motionValue(Motion.web.policy)
         self.glass = (glass ?? .current).rawValue
+        decorations = ThemeDecorations.current.payload
     }
 
     /// `data-cmux-motion` for `policy`: `off` when the web category, the master switch or speed
@@ -177,16 +181,18 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         return policy.reduceMotion ? "reduced" : "full"
     }
 
-    /// The payload `window.cmuxTheme.apply` takes: `{variables, colorScheme, scrollers, terminal, statusIndicators, workingLook, motion, glass}`
+    /// The payload `window.cmuxTheme.apply` takes: `{variables, colorScheme, scrollers, terminal, statusIndicators, workingLook, motion, glass}`,
+    /// and `decorations` while a personality slot is filled
     /// (`terminal.fontFamily` is null when the terminal has no named face).
     /// How the page's color variables move to new values (`appearance.colorTransition`, the same
     /// duration, curve and blend space as native): `{duration, easing, space}`.
     public let transition: [String: String]
 
     public var payloadJSON: String {
-        let object: [String: Any] = ["variables": variables, "colorScheme": colorScheme, "scrollers": scrollers,
+        var object: [String: Any] = ["variables": variables, "colorScheme": colorScheme, "scrollers": scrollers,
                                      "terminal": terminal.json, "transition": transition, "statusIndicators": statusIndicators,
                                      "workingLook": workingLook, "motion": motion, "glass": glass]
+        if !decorations.isEmpty { object["decorations"] = decorations }
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8) else { return "{}" }
         return json
@@ -327,6 +333,12 @@ public nonisolated struct WebTheme: Equatable, Sendable {
           if (payload.workingLook) root.setAttribute('data-working-look', payload.workingLook);
           if (payload.motion) root.setAttribute('data-cmux-motion', payload.motion);
           if (payload.glass) root.setAttribute('data-glass', payload.glass);
+          // The filled personality slots (ThemeDecorations): one attribute per slot; a slot the
+          // last theme filled and this one leaves empty loses its attribute.
+          var decorations = payload.decorations || {};
+          var lastDecorations = (window.cmuxTheme.current && window.cmuxTheme.current.decorations) || {};
+          for (var slot in lastDecorations) if (!(slot in decorations)) root.removeAttribute('data-cmux-decoration-' + slot);
+          for (var filled in decorations) root.setAttribute('data-cmux-decoration-' + filled, decorations[filled]);
           window.cmuxTheme.current = payload;
           window.dispatchEvent(new CustomEvent('cmux-theme', { detail: payload }));
           if (!first) settled(payload);

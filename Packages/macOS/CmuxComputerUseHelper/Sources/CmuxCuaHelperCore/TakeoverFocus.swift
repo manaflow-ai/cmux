@@ -9,19 +9,13 @@ enum TakeoverFocusProbe {
     /// The person's apps and window: the frontmost app (it gets their keys),
     /// and the topmost window under their last pointer position with its app
     /// (it gets their clicks and scrolls). Windows of `ownPID` (the agent's
-    /// cursor overlay) are skipped. Nil when neither could be read, which the
-    /// gate treats as a collision.
+    /// cursor overlay) are skipped. Nil unless both were read, which the gate
+    /// treats as a collision: an app it could not see may be the person's.
     static func personFocus(ownPID: pid_t) -> TakeoverGate.FocusProvider {
         { pointer in
-            var focus = PersonFocus()
-            if let front = NSWorkspace.shared.frontmostApplication?.processIdentifier {
-                focus.pids.insert(front)
-            }
-            if let pointer, let hit = window(at: CGPoint(x: pointer.x, y: pointer.y), skipping: ownPID) {
-                focus.pids.insert(hit.pid)
-                focus.windowIDs.insert(hit.id)
-            }
-            return focus.pids.isEmpty ? nil : focus
+            guard let front = NSWorkspace.shared.frontmostApplication?.processIdentifier, let pointer,
+                  let hit = window(at: CGPoint(x: pointer.x, y: pointer.y), skipping: ownPID) else { return nil }
+            return PersonFocus(pids: [front, hit.pid], windowIDs: [hit.id])
         }
     }
 
