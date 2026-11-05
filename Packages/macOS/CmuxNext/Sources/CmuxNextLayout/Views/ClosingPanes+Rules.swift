@@ -3,7 +3,8 @@ import CoreGraphics
 
 // The rules of ``ClosingPanes`` run by cmux-layout-reducer (`closing_panes`) over the app FFI's typed
 // `cmux_closing_panes_*` calls: one handle per screen owns the closing panes, no JSON, and the per-frame `rects` call
-// allocates nothing on the Rust side once its buffers have grown. Nothing here decides: these map the values the
+// allocates nothing on either side once the buffers have grown: the live frames and row travels go into C arrays the
+// handle keeps from frame to frame (``load(frames:rows:)``), and the answer is read in place. Nothing here decides: these map the values the
 // wrapper read from the geometry and the live frames into the C structs and the answers back. The rules and their tests
 // are in the crate (`src/closing_panes.rs`, `tests/closing_panes_corpus.rs`); `ClosingPanesCorpusTests` checks these
 // calls against the same corpus the Swift rules recorded before they moved.
@@ -23,6 +24,8 @@ nonisolated struct ClosingPanesRules {
         }
 
         var c: CmuxClosingEdges { CmuxClosingEdges(min_x: Double(minX), max_x: Double(maxX), min_y: Double(minY), max_y: Double(maxY)) }
+
+        init(_ rect: CGRect) { self.init(minX: rect.minX, maxX: rect.maxX, minY: rect.minY, maxY: rect.maxY) }
     }
 
     /// One pane of the layout a close left, in ascending pane order. `area` and `rowColumn`: 0 for none.
@@ -64,6 +67,11 @@ nonisolated struct ClosingPanesRules {
         var vy: CGFloat
         var vw: CGFloat
         var vh: CGFloat
+
+        var c: CmuxClosingFrame {
+            CmuxClosingFrame(id: id, now: now.c, target: target.c, vx: Double(vx), vy: Double(vy), vw: Double(vw), vh: Double(vh),
+                             moving: moving ? 1 : 0, reserved: (0, 0, 0, 0, 0, 0, 0))
+        }
     }
 
     /// Where a row column's scroll is and where it rests.
@@ -92,6 +100,9 @@ nonisolated struct ClosingPanesRules {
     /// replaces this value whole (`ScreenContentView.releaseClosing`), never copying it.
     private final class Handle {
         let pointer: OpaquePointer
+        /// The live frames and row travels of the next call, kept from frame to frame so a frame allocates none.
+        var frames: [CmuxClosingFrame] = []
+        var rows: [CmuxClosingRow] = []
 
         init() { pointer = cmux_closing_panes_new() }
 
@@ -126,30 +137,65 @@ nonisolated struct ClosingPanesRules {
         return code == 1
     }
 
-    /// ``ClosingPanes/settle(frames:row:)``.
-    func settle(frames: [FrameFact], rows: [RowTravel]) -> Set<UInt64> {
-        let cFrames = Self.c(frames), cRows = Self.c(rows)
+    /// Sets the live frames and row travels that ``settle()``, ``rects(_:)`` and ``remove(_:)`` read: `frames` gives
+    /// each live frame, `rows` each row column's travel, into the buffers kept from the last call.
+    func load(frames: (_ add: (FrameFact) -> Void) -> Void, rows: (_ add: (RowTravel) -> Void) -> Void) { // perf-hot: 4ms motion-frame
+        let handle = handle
+        handle.frames.removeAll(keepingCapacity: true)
+        handle.rows.removeAll(keepingCapacity: true)
+        frames { handle.frames.append($0.c) }
+        rows { handle.rows.append(CmuxClosingRow(column: $0.column, now: Double($0.now), target: Double($0.target))) }
+    }
+
+    /// ``ClosingPanes/settle(frames:row:)``, over the loaded frames.
+    func settle() -> Set<UInt64> {
         var out = CmuxClosingIds()
-        let code = cFrames.withUnsafeBufferPointer { cFrames in
-            cRows.withUnsafeBufferPointer { cRows in
-                cmux_closing_panes_settle(handle.pointer, cFrames.baseAddress, cFrames.count, cRows.baseAddress, cRows.count, &out)
-            }
+        let code = withLoaded { frames, rows in
+            cmux_closing_panes_settle(handle.pointer, frames.baseAddress, frames.count, rows.baseAddress, rows.count, &out)
         }
         guard code == 0, let ids = out.ids else { return [] }
         return Set(UnsafeBufferPointer(start: ids, count: out.count))
     }
 
-    /// ``ClosingPanes/rects(frames:row:)``: each closing pane's frame, in the order they were placed.
-    func rects(frames: [FrameFact], rows: [RowTravel]) -> [(UInt64, Placed)] { // perf-hot: 4ms motion-frame
-        let cFrames = Self.c(frames), cRows = Self.c(rows)
+    /// ``ClosingPanes/rects(frames:row:)``, over the loaded frames: each closing pane's frame, in the order they were placed,
+    /// read in place from the handle's answer.
+    func rects(_ each: (UInt64, Placed) -> Void) { // perf-hot: 4ms motion-frame
         var out = CmuxClosingPlacedList()
-        let code = cFrames.withUnsafeBufferPointer { cFrames in
-            cRows.withUnsafeBufferPointer { cRows in
-                cmux_closing_panes_rects(handle.pointer, cFrames.baseAddress, cFrames.count, cRows.baseAddress, cRows.count, &out)
-            }
+        let code = withLoaded { frames, rows in
+            cmux_closing_panes_rects(handle.pointer, frames.baseAddress, frames.count, rows.baseAddress, rows.count, &out)
         }
-        guard code == 0, let placed = out.placed else { return [] }
-        return UnsafeBufferPointer(start: placed, count: out.count).map { ($0.pane, Self.placed($0.rect)) }
+        guard code == 0, let placed = out.placed else { return }
+        for item in UnsafeBufferPointer(start: placed, count: out.count) { each(item.pane, Self.placed(item.rect)) }
+    }
+
+    /// ``ClosingPanes/remove(_:frames:)``, over the loaded frames.
+    func remove(_ pane: UInt64) -> Taken? {
+        var out = CmuxClosingTaken()
+        let code = handle.frames.withUnsafeBufferPointer { frames in
+            cmux_closing_panes_remove(handle.pointer, pane, frames.baseAddress, frames.count, &out)
+        }
+        guard code == 1 else { return nil }
+        return Taken(rect: Self.placed(out.rect), vx: CGFloat(out.vx), vw: CGFloat(out.vw), vy: CGFloat(out.vy), vh: CGFloat(out.vh))
+    }
+
+    /// ``settle()`` with these frames and rows (the corpus replays its recorded calls through these).
+    func settle(frames: [FrameFact], rows: [RowTravel]) -> Set<UInt64> {
+        load(frames: { add in frames.forEach(add) }, rows: { add in rows.forEach(add) })
+        return settle()
+    }
+
+    /// ``rects(_:)`` with these frames and rows.
+    func rects(frames: [FrameFact], rows: [RowTravel]) -> [(UInt64, Placed)] {
+        load(frames: { add in frames.forEach(add) }, rows: { add in rows.forEach(add) })
+        var placed: [(UInt64, Placed)] = []
+        rects { placed.append(($0, $1)) }
+        return placed
+    }
+
+    /// ``remove(_:)`` with these frames.
+    func remove(_ pane: UInt64, frames: [FrameFact]) -> Taken? {
+        load(frames: { add in frames.forEach(add) }, rows: { _ in })
+        return remove(pane)
     }
 
     /// ``ClosingPanes/carry(drift:viewShift:)``.
@@ -163,17 +209,6 @@ nonisolated struct ClosingPanesRules {
     /// ``ClosingPanes/shiftY(inRowColumn:by:)``.
     func shiftY(inRowColumn column: UInt64, by delta: CGFloat) { _ = cmux_closing_panes_shift_y(handle.pointer, column, Double(delta)) }
 
-    /// ``ClosingPanes/remove(_:frames:)``.
-    func remove(_ pane: UInt64, frames: [FrameFact]) -> Taken? {
-        let cFrames = Self.c(frames)
-        var out = CmuxClosingTaken()
-        let code = cFrames.withUnsafeBufferPointer { cFrames in
-            cmux_closing_panes_remove(handle.pointer, pane, cFrames.baseAddress, cFrames.count, &out)
-        }
-        guard code == 1 else { return nil }
-        return Taken(rect: Self.placed(out.rect), vx: CGFloat(out.vx), vw: CGFloat(out.vw), vy: CGFloat(out.vy), vh: CGFloat(out.vh))
-    }
-
     /// ``ClosingPanes/drop(_:)``.
     func drop(_ pane: UInt64) { _ = cmux_closing_panes_drop(handle.pointer, pane) }
 
@@ -181,14 +216,7 @@ nonisolated struct ClosingPanesRules {
         Placed(x: CGFloat(rect.x), y: CGFloat(rect.y), width: CGFloat(rect.width), height: CGFloat(rect.height))
     }
 
-    private static func c(_ frames: [FrameFact]) -> [CmuxClosingFrame] {
-        frames.map {
-            CmuxClosingFrame(id: $0.id, now: $0.now.c, target: $0.target.c, vx: Double($0.vx), vy: Double($0.vy), vw: Double($0.vw),
-                             vh: Double($0.vh), moving: $0.moving ? 1 : 0, reserved: (0, 0, 0, 0, 0, 0, 0))
-        }
-    }
-
-    private static func c(_ rows: [RowTravel]) -> [CmuxClosingRow] {
-        rows.map { CmuxClosingRow(column: $0.column, now: Double($0.now), target: Double($0.target)) }
+    private func withLoaded<Result>(_ body: (UnsafeBufferPointer<CmuxClosingFrame>, UnsafeBufferPointer<CmuxClosingRow>) -> Result) -> Result {
+        handle.frames.withUnsafeBufferPointer { frames in handle.rows.withUnsafeBufferPointer { rows in body(frames, rows) } }
     }
 }

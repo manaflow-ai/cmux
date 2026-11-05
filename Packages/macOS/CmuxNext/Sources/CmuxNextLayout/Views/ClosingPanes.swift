@@ -109,19 +109,20 @@ struct ClosingPanes {
     /// neighbour that closes beside them and has one. They go at once, as before S3c (their place shows what the layout
     /// rests at from the first frame).
     mutating func settle(frames: [PaneID: AnimatedFrame], row: (ColumnID) -> Travel?) -> Set<PaneID> {
-        let facts = frameFacts(frames), rows = rowTravels(row)
-        let still = rules.settle(frames: facts, rows: rows)
-        return Set(still.compactMap { panesByNumber[$0] })
+        load(frames, row: row)
+        return Set(rules.settle().compactMap { panesByNumber[$0] })
     }
 
     /// Where every closing pane shows this frame, from the live panes' presented frames (`frames`, the screen's springs)
     /// and where the row columns' scrolls are and rest (`row`). A side whose neighbours are all gone (closed and landed, or
     /// taken out) keeps where they last were.
     mutating func rects(frames: [PaneID: AnimatedFrame], row: (ColumnID) -> Travel?) -> [PaneID: CGRect] { // perf-hot: 4ms motion-frame
-        let facts = frameFacts(frames), rows = rowTravels(row)
+        load(frames, row: row)
+        let byNumber = panesByNumber
         var shown: [PaneID: CGRect] = [:]
-        for (number, rect) in rules.rects(frames: facts, rows: rows) {
-            guard let pane = panesByNumber[number] else { continue }
+        shown.reserveCapacity(entries.count)
+        rules.rects { number, rect in
+            guard let pane = byNumber[number] else { return }
             shown[pane] = CGRect(x: rect.x, y: rect.y, width: rect.width, height: rect.height)
         }
         return shown
@@ -148,8 +149,8 @@ struct ClosingPanes {
     /// its sides' velocities (a side on a live neighbour moves at that neighbour's speed).
     mutating func remove(_ pane: PaneID, frames: [PaneID: AnimatedFrame]) -> AnimatedFrame? {
         entries[pane] = nil
-        let facts = frameFacts(frames)
-        guard let number = paneNumbers[pane], let taken = rules.remove(number, frames: facts) else { return nil }
+        load(frames, row: { _ in nil })
+        guard let number = paneNumbers[pane], let taken = rules.remove(number) else { return nil }
         var frame = AnimatedFrame(CGRect(x: taken.rect.x, y: taken.rect.y, width: taken.rect.width, height: taken.rect.height))
         frame.x.velocity = taken.vx
         frame.width.velocity = taken.vw
@@ -166,28 +167,29 @@ struct ClosingPanes {
 
     // MARK: The rules' inputs
 
-    private static func edges(_ rect: CGRect) -> ClosingPanesRules.Edges {
-        ClosingPanesRules.Edges(minX: rect.minX, maxX: rect.maxX, minY: rect.minY, maxY: rect.maxY)
-    }
+    private static func edges(_ rect: CGRect) -> ClosingPanesRules.Edges { ClosingPanesRules.Edges(rect) }
 
-    /// The live panes' frames the rules may read (the panes they have a number for).
-    private func frameFacts(_ frames: [PaneID: AnimatedFrame]) -> [ClosingPanesRules.FrameFact] {
-        frames.compactMap { pane, frame in
-            guard let number = paneNumbers[pane] else { return nil }
-            let moving = frame.rect != frame.targetRect || [frame.x, frame.y, frame.width, frame.height].contains { $0.velocity != 0 }
-            return ClosingPanesRules.FrameFact(id: number, now: Self.edges(frame.rect), target: Self.edges(frame.targetRect), moving: moving,
-                                               vx: frame.x.velocity, vy: frame.y.velocity, vw: frame.width.velocity, vh: frame.height.velocity)
-        }
-    }
-
-    /// Where the closing panes' row columns' scrolls are and rest.
-    private func rowTravels(_ row: (ColumnID) -> Travel?) -> [ClosingPanesRules.RowTravel] {
-        var travels: [ClosingPanesRules.RowTravel] = []
-        for column in Set(entries.values.compactMap(\.rowColumn)) {
-            guard let number = columnNumbers[column], let travel = row(column) else { continue }
-            travels.append(ClosingPanesRules.RowTravel(column: number, now: travel.now, target: travel.target))
-        }
-        return travels
+    /// Gives the rules the live panes' frames they may read (the panes they have a number for) and where the closing
+    /// panes' row columns' scrolls are and rest (each column once), with no array of its own: a close frame allocates
+    /// only the answer (`ClosingPanesFrameAllocationTests`).
+    private func load(_ frames: [PaneID: AnimatedFrame], row: (ColumnID) -> Travel?) { // perf-hot: 4ms motion-frame
+        let numbers = paneNumbers, entries = entries, columns = columnNumbers
+        rules.load(frames: { add in
+            for (pane, frame) in frames {
+                guard let number = numbers[pane] else { continue }
+                let moving = frame.rect != frame.targetRect || frame.x.velocity != 0 || frame.y.velocity != 0
+                    || frame.width.velocity != 0 || frame.height.velocity != 0
+                add(ClosingPanesRules.FrameFact(id: number, now: Self.edges(frame.rect), target: Self.edges(frame.targetRect), moving: moving,
+                                                vx: frame.x.velocity, vy: frame.y.velocity, vw: frame.width.velocity, vh: frame.height.velocity))
+            }
+        }, rows: { add in
+            for index in entries.indices {
+                guard let column = entries[index].value.rowColumn,
+                      !entries[entries.startIndex..<index].contains(where: { $0.value.rowColumn == column }),
+                      let number = columns[column], let travel = row(column) else { continue }
+                add(ClosingPanesRules.RowTravel(column: number, now: travel.now, target: travel.target))
+            }
+        })
     }
 
     private mutating func number(of pane: PaneID) -> UInt64 {
