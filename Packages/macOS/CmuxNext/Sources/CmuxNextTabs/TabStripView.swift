@@ -518,17 +518,23 @@ public final class TabStripView: NSView {
         }
     }
 
+    /// Its own tracking area only where no layout screen serves it (``PanePointerFollowing``, `TabStripView+Pointer`): in a
+    /// pane the screen's one area delivers its pointer, so a strip that moves with its pane costs AppKit no tracking-area
+    /// work (RESIZE MAIN BUDGET, PaneMotionPointerAreasTests).
     public override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let trackingArea { removeTrackingArea(trackingArea) }
-        let area = NSTrackingArea(
-            rect: .zero,
-            options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(area)
-        trackingArea = area
+        trackingArea = nil
+        if !isServedByPanePointerArea {
+            let area = NSTrackingArea(
+                rect: .zero,
+                options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
+                owner: self,
+                userInfo: nil
+            )
+            addTrackingArea(area)
+            trackingArea = area
+        }
         closingWatch.updateTracking()
     }
 
