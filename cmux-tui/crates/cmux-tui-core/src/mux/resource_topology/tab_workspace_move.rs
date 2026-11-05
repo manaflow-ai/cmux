@@ -423,32 +423,40 @@ impl Mux {
                     source_ws_id.as_str(),
                     workspace_value(state, &after, &source_ws_id)?,
                 ));
-                // A sidebar move can start from an inactive workspace. Clear the
-                // formerly focused pane/screen in public event streams as well.
+                // The workspace that had focus loses it: clear its formerly focused pane (and
+                // screen) in public event streams too. A sidebar move can start from an
+                // inactive workspace; a move from the active workspace leaves its focused pane
+                // there unfocused unless that pane was the moved tab's own (restated above, or
+                // gone). Without this, the journal kept that pane focused and a later scoped
+                // projection, which trusts the journal, left it so.
                 if let Some(previous) = state.workspaces.get(state.active_workspace)
-                    && previous.public_id != source_ws_id
                     && previous.public_id != target_ws.public_id
                     && let Some(screen) = previous.active_screen_ref()
                 {
-                    let screen = topology_screen(&after, &screen.public_id)?;
-                    deltas.push(upsert(
-                        deltas.len(),
-                        "screen",
-                        screen.public_id.as_str(),
-                        screen_value(
-                            screen,
-                            &after,
-                            after.active_workspace.as_ref(),
-                            active_screen(&after, &previous.public_id),
-                        )?,
-                    ));
-                    let pane = topology_pane(&after, &screen.active_pane)?;
-                    deltas.push(upsert(
-                        deltas.len(),
-                        "pane",
-                        pane.public_id.as_str(),
-                        pane_value(state, pane, &after)?,
-                    ));
+                    if previous.public_id != source_ws_id {
+                        let screen = topology_screen(&after, &screen.public_id)?;
+                        deltas.push(upsert(
+                            deltas.len(),
+                            "screen",
+                            screen.public_id.as_str(),
+                            screen_value(
+                                screen,
+                                &after,
+                                after.active_workspace.as_ref(),
+                                active_screen(&after, &previous.public_id),
+                            )?,
+                        ));
+                    }
+                    let focused = &state.resource_indexes.pane_ids[&screen.active_pane];
+                    if *focused != source_pane_id {
+                        let pane = topology_pane(&after, focused)?;
+                        deltas.push(upsert(
+                            deltas.len(),
+                            "pane",
+                            pane.public_id.as_str(),
+                            pane_value(state, pane, &after)?,
+                        ));
+                    }
                 }
                 let result = json!({"tab":tab_id,"workspace":target_ws.public_id});
                 let mut desired = mux.registry_projection(state);
