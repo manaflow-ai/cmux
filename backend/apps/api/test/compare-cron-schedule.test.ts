@@ -19,9 +19,7 @@ const production = (overrides: Record<string, unknown> = {}) => ({
   ENVIRONMENT: "production",
   PROJECTION_PRIMARY: undefined,
   PROJECTION_SHADOW: undefined,
-  PROJECTION_READS: undefined,
   HYPERDRIVE: untouchable("HYPERDRIVE"),
-  HYPERDRIVE_RO: untouchable("HYPERDRIVE_RO"),
   PS_MYSQL: untouchable("PS_MYSQL"),
   PS_MYSQL_RO: untouchable("PS_MYSQL_RO"),
   ...overrides
@@ -55,7 +53,6 @@ describe("the 15-minute cron", () => {
   it("the Worker's 15-minute run fails when the compare cannot run (a switch set, a binding missing)", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {})
     vi.spyOn(console, "log").mockImplementation(() => {})
-    // PROJECTION_READS stays unset so the shadow-read probe beside it does nothing.
     await expect(run(production({ PROJECTION_SHADOW: "mysql", HYPERDRIVE: undefined }))).rejects.toThrow("projection compare unconfigured")
   })
 

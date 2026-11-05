@@ -16,9 +16,7 @@ const staging = (overrides: Record<string, unknown> = {}) => ({
   ENVIRONMENT: "staging",
   PROJECTION_PRIMARY: undefined,
   PROJECTION_SHADOW: undefined,
-  PROJECTION_READS: undefined,
   HYPERDRIVE: untouchable("HYPERDRIVE"),
-  HYPERDRIVE_RO: untouchable("HYPERDRIVE_RO"),
   PS_MYSQL: untouchable("PS_MYSQL"),
   PS_MYSQL_RO: untouchable("PS_MYSQL_RO"),
   ...overrides

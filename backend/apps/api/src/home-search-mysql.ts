@@ -6,7 +6,7 @@ import { dt } from "./projection-mysql.ts"
 
 /**
  * `home.search` on the PlanetScale MySQL projection (state-placement.md 4.2, 4.3), the same contract
- * as the Postgres path (home-search.ts): membership through a current human participant row,
+ * as the retired Postgres path: membership through a current human participant row,
  * since_join through visible_from_seq, case-insensitive substring match (LIKE on the
  * utf8mb4_0900_ai_ci body, which also folds accents), newest first, keyset cursor. The server stops
  * the query after 3 s (MAX_EXECUTION_TIME); the caller sees search.unavailable.
