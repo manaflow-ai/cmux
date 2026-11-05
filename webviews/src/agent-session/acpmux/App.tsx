@@ -7654,7 +7654,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     subsessionStore.current!.set(snapshot.sessions);
   }, [snapshot.sessions]);
   const subsessions = useMemo<Subsessions>(
-    () => ({ store: subsessionStore.current!, open: openOfferChat, openSender: openSenderChat }),
+    () => ({
+      store: subsessionStore.current!,
+      open: openOfferChat,
+      openSender: openSenderChat,
+      // A sender chip whose name acpmux resolves to no chat says so, in a notice line.
+      senderMissing: (name: string) => directClient.current?.notice(translate("message.senderNotFound", { name })),
+    }),
     [],
   );
   /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.

@@ -2601,3 +2601,7 @@ reason = "Run by hand when cloud-chat-proof.py changes: python3 tests/test_cloud
 [[test]]
 path = "tests/test_nightly_never_blacksmith.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_one_mini.py"
+lane = "linux-guard"

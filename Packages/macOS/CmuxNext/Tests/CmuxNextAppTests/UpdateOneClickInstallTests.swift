@@ -65,6 +65,12 @@ import Testing
     }
 
     /// Off (the default): the click downloads only, and the staged update asks before the relaunch.
+    ///
+    /// Nothing here waits on time. The phase reaches the gate inside the `debugIndicatorPhase`
+    /// assignment (``UpdaterService/syncFlowPhase()``), and ``UpdateFlow/installRequested`` is the
+    /// only state an install can ever come from, so a gate that armed nothing can never install
+    /// later -- a stronger claim than "nothing had installed 50 ms on". The `readyCard` require and
+    /// the answered ask at the end both fail if the phase change did nothing at all.
     @Test func offTheClickStillOnlyDownloads() async throws {
         let (updater, effects) = Self.make(oneClick: false)
         updater.debugIndicatorPhase = .available(version: "2.0.0")
@@ -74,9 +80,19 @@ import Testing
         #expect(effects.downloads == 1 && !updater.flow.installRequested, "off, Update also asked to relaunch")
         updater.debugIndicatorPhase = .downloading(.starting)
         updater.debugIndicatorPhase = .ready(version: "2.0.0")
-        try await Task.sleep(for: .milliseconds(50))
+
+        // The staged update reached the gate, and the gate armed no install: no relaunch can come.
+        #expect(updater.flow.phase == .ready(version: "2.0.0"), "the staged update never reached the gate")
+        #expect(!updater.flow.installRequested, "off, the staged update armed the relaunch by itself")
         #expect(effects.installs == 0, "off, the staged update relaunched without asking")
-        #expect(updater.readyCard != nil, "off, the staged update did not ask before the relaunch")
+        let ready = try #require(updater.readyCard, "off, the staged update did not ask before the relaunch")
+        #expect(ready.buttonTitle == UpdaterStrings.restartToUpdate && !ready.isInstalling,
+                "off, the ask does not offer Restart to Update")
+
+        // The ask answered, the same staged update installs. So `installs == 0` above is this
+        // setting holding the relaunch, not a staged update that could never have installed.
+        updater.installClicked()
+        #expect(await eventually { effects.installs == 1 }, "Restart to Update did not install the staged update")
     }
 
     /// A late or repeated click (the download already runs) neither downloads again nor arms an install.
