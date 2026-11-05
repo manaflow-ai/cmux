@@ -79,6 +79,15 @@ pub(super) fn person_asks(conn: &Conn) -> bool {
     conn.is_person() || conn.origin == Origin::LocalApp
 }
 
+/// `_meta.acpmux.waitStart` from a local connection that is no agent's or lane's: those keep the
+/// start deadline (cx-m5up), as does a remote connection.
+fn asks_to_wait_on_its_harness(conn: &Conn, params: &Value) -> bool {
+    conn.caller().is_none()
+        && conn.unproven_caller.get().is_none()
+        && !conn.origin.web_class()
+        && mux_meta(params).and_then(|m| m.get("waitStart")).and_then(Value::as_bool) == Some(true)
+}
+
 /// The create's name, as `session/new` and `session/fork` read it.
 fn create_name(params: &Value) -> Option<String> {
     mux_meta(params)
@@ -882,6 +891,7 @@ pub(super) async fn handle_request(
         _ => {}
     }
     let key = super::session_key(&params).ok().map(str::to_owned);
+    let crossing = cross_host_prompt(conn.origin, m, &params);
     let mut reply = if verdict == crate::hub::person::PersonVerdict::PeerOnly {
         // The check saw a peer's prompt: only the peer decides it. If the
         // name no longer names a peer's session (renamed, killed, a new
@@ -896,7 +906,30 @@ pub(super) async fn handle_request(
         heap(|| dispatch_request(hub, conn, m, params, resolved)).await
     };
     super::remote_guard::after(hub, conn.origin, m, key.as_deref(), &mut reply);
+    if let Some(fields) = crossing
+        && reply.is_ok()
+    {
+        crate::xhost_audit::record("received", fields);
+    }
     reply
+}
+
+/// The cross-host audit line's fields (`xhost_audit.rs`) for a message request that crossed
+/// machines to reach this daemon: a peer daemon forwarded it, or its sender names another
+/// machine (a broker on this host relaying a lane VM's message). None for any other request.
+fn cross_host_prompt(origin: Origin, m: &str, params: &Value) -> Option<Value> {
+    if !matches!(m, method::SESSION_PROMPT | method::MUX_SEND_QUEUE) {
+        return None;
+    }
+    let mut fields = crate::xhost_audit::prompt_fields(params);
+    let from = fields.get("from").and_then(Value::as_str).map(str::to_owned);
+    let sender_far = from.as_deref().and_then(crate::xhost_audit::other_machine).map(str::to_owned);
+    if origin != Origin::Peer && sender_far.is_none() {
+        return None;
+    }
+    fields.set("via", json!(if origin == Origin::Peer { "peer" } else { "socket" }));
+    fields.set("fromHost", json!(sender_far));
+    Some(fields)
 }
 
 #[cfg(unix)]
@@ -1433,6 +1466,7 @@ async fn dispatch_request_with_identity(
                 checked_cwd: None,
                 additional_directories,
                 person: person_asks(conn),
+                wait_start: asks_to_wait_on_its_harness(conn, &params),
             };
             let s = match &admitted {
                 Some(admitted) => {
@@ -2305,6 +2339,9 @@ async fn dispatch_request_with_identity(
         | method::MUX_ROUTE_DEFAULT_SET
         | method::MUX_CHAT_ROUTE_SET => {
             heap(|| super::routes::handle(hub, conn.origin, m, &params)).await
+        }
+        method::MUX_ACCOUNTS | method::MUX_ACCOUNT_SET => {
+            heap(|| super::accounts::handle(hub, conn.origin, m, &params)).await
         }
         method::ACP_TRUST_GET | method::ACP_TRUST_SET => {
             // Recorded here, not on a peer: only a folder that exists here (`remote_guard.rs`).

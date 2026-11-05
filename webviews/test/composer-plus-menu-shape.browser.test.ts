@@ -65,7 +65,7 @@ await requireBrowserLane("composer-plus-menu-shape.browser.test.ts", async () =>
       `http://127.0.0.1:${port}${galleryFrame(entry, { variant, colorScheme, reducedMotion: "true", width, height: HEIGHT })}`,
     );
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady);
-    await page.waitForSelector(`${plus} .acpmux-menu .acpmux-menu-item`);
+    await page.waitForSelector(`${plus}.acpmux-menu .acpmux-menu-item`);
     return page;
   }
 
@@ -76,7 +76,7 @@ await requireBrowserLane("composer-plus-menu-shape.browser.test.ts", async () =>
         const rect = node.getBoundingClientRect();
         return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, height: rect.height };
       };
-      const popup = document.querySelector<HTMLElement>(`${plus} .acpmux-menu`)!;
+      const popup = document.querySelector<HTMLElement>(`${plus}.acpmux-menu`)!;
       const css = getComputedStyle(popup);
       const rows = [...popup.querySelectorAll<HTMLElement>(".acpmux-menu-item")].map((row) => {
         const label = row.querySelector(".acpmux-menu-label");
@@ -179,7 +179,7 @@ await requireBrowserLane("composer-plus-menu-shape.browser.test.ts", async () =>
               active: active ? `${active.tagName}.${active.className}` : null,
               prompt: document.querySelector(".acpmux-composer-prompt")?.textContent ?? null,
               caret: selection?.anchorOffset ?? null,
-              plusOpen: !!document.querySelector(".acpmux-composer-plus .acpmux-menu"),
+              plusOpen: !!document.querySelector(".acpmux-composer-plus.acpmux-menu"),
               escaped: document.querySelector("[data-escaped]")?.className ?? null,
             };
           }),
@@ -233,7 +233,7 @@ await requireBrowserLane("composer-plus-menu-shape.browser.test.ts", async () =>
       const x = (Math.max(pill.left, menu.popup.left) + Math.min(pill.right, menu.popup.right)) / 2;
       const y = (Math.max(pill.top, menu.popup.top) + Math.min(pill.bottom, menu.popup.bottom)) / 2;
       const onTop = await page.evaluate(
-        ([px, py, plus]) => !!document.elementFromPoint(px as number, py as number)?.closest(`${plus} .acpmux-menu`),
+        ([px, py, plus]) => !!document.elementFromPoint(px as number, py as number)?.closest(`${plus}.acpmux-menu`),
         [x, y, STATES.newTab.plus] as const,
       );
       expect(onTop).toBe(true);

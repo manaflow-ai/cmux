@@ -95,3 +95,15 @@ extension DaemonError {
         return details?["scope"]?.stringValue == "workspace"
     }
 }
+
+extension DaemonError {
+    /// The remote entry's refusal of a command it never admits on this link (`remote_denied`):
+    /// asking again gets the same answer, so callers stop instead of retrying.
+    public static let remoteDeniedCode = "remote_denied"
+
+    /// Whether the daemon refused this request as one its link never admits (``remoteDeniedCode``).
+    public var isRemoteDenied: Bool {
+        if case .command(_, _, let code, _, _) = self { return code == Self.remoteDeniedCode }
+        return false
+    }
+}

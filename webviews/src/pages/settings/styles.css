@@ -291,6 +291,35 @@ mark {
   overflow-wrap: anywhere;
 }
 
+/* A provider's accounts under its harness row (ProviderAccounts). */
+.harness-accounts {
+  gap: 8px;
+}
+
+.harness-account {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.harness-account-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.harness-account-copy > .row-help {
+  overflow-wrap: anywhere;
+}
+
+.harness-account-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
 .harness-update-card > .button {
   flex: 0 0 auto;
   margin-top: 1px;

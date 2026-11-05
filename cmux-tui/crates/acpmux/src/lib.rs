@@ -127,6 +127,7 @@ pub mod resume;
 pub mod review_box;
 pub mod route_account;
 mod route_probe;
+pub mod route_shadow;
 mod router_socket;
 pub mod routes;
 pub mod rpc;
@@ -181,5 +182,6 @@ pub mod workflow_runs;
 pub mod worktree_sessions;
 pub mod wrap_up_suggestion;
 pub mod write_journal;
+pub mod xhost_audit;
 
 pub mod model_catalog;

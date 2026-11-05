@@ -171,8 +171,6 @@ export function MachineDetailView({
 
       <h3 className="cloud-subsection-title">{t(L.overview)}</h3>
       <dl className="cloud-fields">
-        <dt>{t(L.fieldId)}</dt>
-        <dd className="cloud-mono">{machine.id}</dd>
         <dt>{t(L.fieldSize)}</dt>
         <dd>
           {machine.size && <span className="cloud-size-spec">{sizeSpec(machine.size, t, language)}</span>}

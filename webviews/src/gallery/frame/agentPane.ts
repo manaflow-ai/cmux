@@ -168,6 +168,8 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
   const stubWebkit = {
     messageHandlers: {
       agentSession: {
+        // A stand-in, not the app: the pane's flicker detector (acpmux/flickerLog.ts) stays off.
+        standIn: true,
         postMessage: (message: Message) => {
           const reply = handle(message);
           const delay = state.nativeDelayMs?.[message.method ?? ""];

@@ -2160,6 +2160,8 @@ impl Hub {
         };
         self.append(session, "mux", "renamed", json!({"from": old, "to": name}));
         self.save_meta_answered(session)?;
+        // Its running Claude Code takes the name too (`live_name.rs`).
+        self.rename_live_claude(session);
         Ok(())
     }
 
