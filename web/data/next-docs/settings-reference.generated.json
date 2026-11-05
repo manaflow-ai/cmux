@@ -4381,6 +4381,18 @@
           "kind": "string_list",
           "default": [],
           "group": "Opening Links"
+        },
+        {
+          "key": "terminal.term",
+          "title": "Terminal Type (TERM)",
+          "help": "The TERM new terminals start with. xterm-256color works on every host you ssh to. xterm-ghostty needs Ghostty's terminfo on each of those hosts, and applies only when it is installed on this Mac.",
+          "kind": "choice",
+          "default": "xterm-256color",
+          "group": "Compatibility",
+          "values": [
+            "xterm-256color",
+            "xterm-ghostty"
+          ]
         }
       ]
     },

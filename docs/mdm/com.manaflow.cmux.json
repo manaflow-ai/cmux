@@ -5115,6 +5115,16 @@
       "title" : "Program Link Rules",
       "type" : "array"
     },
+    "terminal.term" : {
+      "default" : "xterm-256color",
+      "description" : "The TERM new terminals start with. xterm-256color works on every host you ssh to. xterm-ghostty needs Ghostty's terminfo on each of those hosts, and applies only when it is installed on this Mac.",
+      "enum" : [
+        "xterm-256color",
+        "xterm-ghostty"
+      ],
+      "title" : "Terminal Type (TERM)",
+      "type" : "string"
+    },
     "ui.animations.bounce" : {
       "default" : "none",
       "description" : "None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce.",

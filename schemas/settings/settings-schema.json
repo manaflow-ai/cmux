@@ -47384,6 +47384,160 @@
     },
     {
       "accepts" : [
+        "xterm-256color",
+        "xterm-ghostty"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.xterm256color",
+            "text" : "xterm-256color (standard)"
+          },
+          "value" : "xterm-256color"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.xtermGhostty",
+            "text" : "xterm-ghostty"
+          },
+          "value" : "xterm-ghostty"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "xterm-256color",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.terminalCompatibility",
+        "text" : "Compatibility"
+      },
+      "help" : {
+        "key" : "settings.terminal.term.help",
+        "text" : "The TERM new terminals start with. xterm-256color works on every host you ssh to. xterm-ghostty needs Ghostty's terminfo on each of those hosts, and applies only when it is installed on this Mac."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "terminal.term",
+      "keywords" : [
+        "TERM",
+        "terminfo",
+        "xterm",
+        "xterm-256color",
+        "xterm-ghostty",
+        "ssh",
+        "htop",
+        "ncurses",
+        "terminal type",
+        "compatibility"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "terminal",
+        "term"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "terminal",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:terminal.term"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.terminal.term",
+        "text" : "Terminal Type (TERM)"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
 
       ],
       "agent_refusal" : null,
