@@ -4,8 +4,7 @@ import MessagesLabSidebar
 
 /// Debug Settings of the Home transcript (DEV and NIGHTLY only; Release and
 /// RC never activate the store, so they keep the defaults: the flight
-/// recorder's are off; product defaults such as `firstRunHero` and `launchIntoHome` are on, and
-/// Release ships them on).
+/// recorder's are off; product defaults such as `chatHeader` are on, and Release ships them on).
 ///
 /// The flight recorder is MessagesLab's (`HomeFlightRecorder`): after a
 /// send it samples every frame of the transcript, and on a blink (a row
@@ -29,36 +28,12 @@ public nonisolated struct HomeTunables {
         help: "A flight recorder dump also saves about 0.5 s of captures of the window (pictures of your conversation). Needs Flight recorder.",
         default: devDefault, code: "HomeTunables.flightRecorderCaptures")
 
-    /// The empty Chief conversation's hero (`HomeFirstRunHero`): the Chief's character and what it
-    /// does, over the rows. On by default (Leo 2026-10-19); off is the rows-only panel from before.
-    public static let firstRunHero = Tunable<Bool>.toggle(
-        "home.firstRun.hero", section, "Chief front page hero",
-        help: "The empty Chief conversation shows the Chief's character and two lines about what it does above its rows. Off shows only the rows.",
-        default: true, code: "HomeTunables.firstRunHero")
-
-    /// A launch with no workspace of the person's own lands on Home (the Chief's workspace) instead
-    /// of making an empty New Tab workspace (`FirstWorkspaceLaunch`; Leo 2026-10-19). Off restores
-    /// the New Tab workspace.
-    public static let launchIntoHome = Tunable<Bool>.toggle(
-        "home.launchIntoHome", section, "First launch opens Home",
-        help: "With no workspace of your own, launch shows Home and its Chief instead of making an empty workspace on its New Tab page.",
-        default: true, code: "HomeTunables.launchIntoHome")
-
     /// The Chief's running indicator above its typing dots (`HomeTurnProgress`): the folded steps, the
     /// Chief's newest thought and the step running now (default, Leo 2026-10-20), or the one line before.
     public static let turnProgress = Tunable<HomeTurnProgressChoice>.choice(
         "home.turnProgress", section, "Chief running indicator",
         help: "While the Chief works: its finished steps folded into one row (\"Ran 3 commands ›\"), its newest thought, and the step running now. Steps leaves out the thought; One line is the step running now only.",
         default: .narrated, code: "HomeTunables.turnProgress")
-
-    /// An agent's pipe tables in the transcript (MessagesLabHome `HomeTableRowProvider`): a card at
-    /// the chat's full width with real column widths, and an assignment table (an owner column of
-    /// subagent ids) as the Chief's plan card. On by default (Leo 2026-10-20); off keeps the table as
-    /// Markdown text in the bubble. Conversations opened after a change follow it.
-    public static let richTables = Tunable<Bool>.toggle(
-        "home.richTables", section, "Rich tables and plan cards",
-        help: "Tables in the Chief's replies break out of the bubble as full-width cards, and assignment tables (who does what) show as a plan card with owner chips, live states and pull requests. Off keeps tables as text in the bubble.",
-        default: true, code: "HomeTunables.richTables")
 
     /// The message box's mic (`HomeVoiceDictation`): on-device dictation into the field. On by
     /// default (Leo 2026-10-20); off shows Messages' drawn waveform, which does nothing.
@@ -96,9 +71,8 @@ public nonisolated struct HomeTunables {
         default: false, code: "HomeTunables.loneConversationRail")
 
     public static var all: [TunableDescriptor] {
-        [flightRecorder.descriptor, flightRecorderCaptures.descriptor, firstRunHero.descriptor, launchIntoHome.descriptor,
-         turnProgress.descriptor, richTables.descriptor, voiceInput.descriptor, chatHeader.descriptor,
-         topFadeStyle.descriptor, loneConversationRail.descriptor]
+        [flightRecorder.descriptor, flightRecorderCaptures.descriptor, turnProgress.descriptor, voiceInput.descriptor,
+         chatHeader.descriptor, topFadeStyle.descriptor, loneConversationRail.descriptor]
     }
 }
 

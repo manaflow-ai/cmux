@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 805,
-    "mcp": 720
+    "verbs": 807,
+    "mcp": 722
   },
   "nouns": [
     {
@@ -1092,6 +1092,13 @@
           "mcpTool": "app_browser_profile_open_link"
         },
         {
+          "command": "cmux browser-profile open-link-in-new",
+          "title": "Open Link in New Browser Profile…",
+          "id": "browserProfile.openLinkInNew",
+          "mcp": true,
+          "mcpTool": "app_browser_profile_open_link_in_new"
+        },
+        {
           "command": "cmux browser-profile remove-imported-data",
           "title": "Remove Imported Browser Data…",
           "id": "browserProfile.removeImportedData",
@@ -1138,6 +1145,13 @@
     {
       "noun": "chat",
       "verbs": [
+        {
+          "command": "cmux chat channel create",
+          "title": "New Channel…",
+          "id": "home.createChannel",
+          "mcp": true,
+          "mcpTool": "app_chat_channel_create"
+        },
         {
           "command": "cmux chat colors",
           "title": "Chat Colors…",

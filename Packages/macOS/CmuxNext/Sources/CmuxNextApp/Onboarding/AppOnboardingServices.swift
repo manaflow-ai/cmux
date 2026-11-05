@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAccounts
 import CmuxNextAgentActivity
 import CmuxNextActions
 import CmuxNextBrowser
@@ -115,6 +116,9 @@ final class AppOnboardingServices: OnboardingServices {
         // Turned off by policy (DisabledFeatures): no step and no prompts.
         services.registry.disabledFeatures.contains(.computerUse) ? nil : computerUseSource
     }
+
+    /// The first-run Agents step's harnesses (`OnboardingService.signInHarnesses`).
+    var agentSignIns: (any AgentSignInSource)? { owner.signInHarnesses }
 
     private lazy var computerUseSource: any ComputerUsePermissionSource = {
         #if DEBUG

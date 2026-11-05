@@ -578,3 +578,105 @@ fn a_codex_start_runs_the_broker_before_the_first_prompt() {
     assert_eq!((d.step, d.reason), (Step::Skip, Reason::NoTransfer));
     assert!(!d.reads_machine);
 }
+
+/// The Mac's cached Claude login present and absent, against each answer of the machine's login probe,
+/// for the composer and for a run that may show no prompt (fixtures only: the probe's words, no token).
+#[test]
+fn the_cache_present_and_absent_against_each_machine_login() {
+    use crate::machine_login::Probe;
+    let probe = |exit_code: i64, stdout: &str| Some(Probe { exit_code, stdout: stdout.into() });
+    // (probe, cached, headless) -> step. A missing or rejected login is replaced from the cache with no
+    // prompt; with no cache the composer asks once and a headless run refuses at once.
+    let rows = [
+        (probe(0, "none\n"), true, false, Step::Install),
+        (probe(0, "none\n"), true, true, Step::Install),
+        (probe(0, "none\n"), false, false, Step::ConfirmThenInstall),
+        (probe(0, "none\n"), false, true, Step::Refuse),
+        (probe(0, "rejected\n"), true, false, Step::Install),
+        (probe(0, "rejected\n"), true, true, Step::Install),
+        (probe(0, "rejected\n"), false, false, Step::ConfirmThenInstall),
+        (probe(0, "rejected\n"), false, true, Step::Refuse),
+        // An exec that failed reads as no login.
+        (probe(1, ""), true, true, Step::Install),
+        (probe(1, ""), false, true, Step::Refuse),
+        (None, true, false, Step::Install),
+        (None, false, true, Step::Refuse),
+        // A login the provider takes stays, cache or not: a start never loops on a login it just installed.
+        (probe(0, "session\n"), true, false, Step::Skip),
+        (probe(0, "cached\n"), true, true, Step::Skip),
+        (probe(0, "working\n"), false, false, Step::Skip),
+        // An unknown word with exit 0 counts as a working login (the older probe's reading).
+        (probe(0, "motd\n"), true, false, Step::Skip),
+    ];
+    for (machine_probe, cached, headless, step) in rows {
+        let d = decide(&Inputs {
+            machine_probe: machine_probe.clone(),
+            machine_login: None,
+            cached,
+            headless,
+            ..owner()
+        });
+        assert_eq!(d.step, step, "{machine_probe:?} cached {cached} headless {headless}");
+        let reason = match (step, cached) {
+            (Step::Install, true) => Reason::InstallCached,
+            (Step::ConfirmThenInstall, false) => Reason::ConfirmFirst,
+            (Step::Refuse, false) => Reason::NeedsLoginChoice,
+            (Step::Skip, _) => Reason::MachineLoginKept,
+            other => panic!("no row expects {other:?}"),
+        };
+        assert_eq!(d.reason, reason, "{machine_probe:?} cached {cached} headless {headless}");
+        // The record says whether the cache was there.
+        assert!(
+            d.summary.contains(if cached { "cached yes" } else { "cached no" }),
+            "{}",
+            d.summary
+        );
+    }
+}
+
+/// A cached login never moves a start past an earlier check: the build, the account, the owner, the
+/// person's `none`, and the guest all decide first, and before the owner check nothing reads the machine.
+#[test]
+fn a_cached_login_is_read_only_after_every_earlier_check() {
+    let rows = [
+        (Inputs { gate: false, ..cached(owner()) }, Reason::BuildGateOff, false),
+        (Inputs { signed_in: false, ..cached(owner()) }, Reason::SignedOut, false),
+        (Inputs { caller_owns: Some(false), ..cached(owner()) }, Reason::CallerNotOwner, false),
+        (Inputs { caller_owns: None, ..cached(owner()) }, Reason::CallerNotOwner, false),
+        (Inputs { requested: Some(Choice::None), ..cached(owner()) }, Reason::ChoseNone, false),
+        (Inputs { guest_kind: None, ..cached(owner()) }, Reason::GuestUnread, true),
+        (
+            Inputs { guest_kind: Some("shared".into()), ..cached(owner()) },
+            Reason::GuestNotOwner,
+            true,
+        ),
+        (
+            Inputs { requested: Some(Choice::Machine), ..cached(owner()) },
+            Reason::MachineLoginMissing,
+            true,
+        ),
+    ];
+    for (inputs, reason, reads_machine) in rows {
+        let d = decide(&inputs);
+        assert_eq!((d.reason, d.reads_machine), (reason, reads_machine), "{inputs:?}");
+        assert_ne!(d.step, Step::Install, "{inputs:?}");
+    }
+}
+
+/// What crosses the app FFI names the login's state, never a credential: no field of the request or the
+/// decision can hold a token.
+#[test]
+fn the_login_decision_wire_holds_no_credential() {
+    let inputs = Inputs {
+        machine_probe: Some(crate::machine_login::Probe {
+            exit_code: 0,
+            stdout: "rejected\n".into(),
+        }),
+        ..cached(owner())
+    };
+    let wire = serde_json::to_value(&inputs).unwrap().to_string()
+        + &serde_json::to_value(decide(&inputs)).unwrap().to_string();
+    for word in ["token", "secret", "password", "credential", "oauth"] {
+        assert!(!wire.to_lowercase().contains(word), "{word} in {wire}");
+    }
+}

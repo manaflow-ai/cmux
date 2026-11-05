@@ -18,6 +18,9 @@ struct HomeTable: Codable, Hashable, Sendable {
     /// (an attachment of the message: `cmux-attachment:<hash>`, or a file in Home's media folder);
     /// nil before the mapping resolves them. A source with no file draws its alt text instead.
     var pictures: [String: String]?
+    /// The pictures still loading (a path or web picture whose thumbnail is being made), each source with its
+    /// pixel size `[width, height]` (`[0, 0]` when not known yet): their cells hold a skeleton of that size.
+    var loading: [String: [Int]]?
 
     var columns: Int { header.count }
 }

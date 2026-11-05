@@ -156,6 +156,16 @@ def main():
     print(json.dumps(result))
     if os.path.exists(os.path.join(opts.out, "live-code.log")):
         print(open(os.path.join(opts.out, "live-code.log")).read())
+    else:
+        # The engine writes "watching" first, so no log means it never started: say whether the app
+        # has the engine compiled in (its log lines are string literals) and what the app printed.
+        binary = app.binary  # "cmux DEV" in a tagged bundle
+        compiled = b"live code: cannot watch" in open(binary, "rb").read()
+        print(f"live-code-app: no live-code.log in {live}: the engine never started; "
+              f"its code is {'in' if compiled else 'NOT in'} {binary}")
+        if os.path.exists(app.log_path):
+            lines = [line for line in open(app.log_path, errors="replace") if "live" in line.lower()]
+            print("live-code-app: the app's log lines naming live code:\n" + "".join(lines[-20:]))
     sys.exit(0 if result["shown"] and result["rolled_back"] else 1)
 
 

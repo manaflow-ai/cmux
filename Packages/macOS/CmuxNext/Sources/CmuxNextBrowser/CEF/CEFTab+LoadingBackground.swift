@@ -29,7 +29,7 @@ extension CEFTab {
         PageBackground.chromiumARGB(
             pastFirstRealPage: pastFirstRealPage,
             documentSettled: documentSettled,
-            document: BrowserResizeTunables.pageBackdrop.value ? pageBackdropARGB : nil,
+            document: pageBackdropARGB,
             newTab: PageBackground.themeARGB(in: container, surface: .newTabPage),
             loading: PageBackground.themeARGB(in: container))
     }
@@ -47,11 +47,11 @@ extension CEFTab {
     /// and the document settles on it, white only for a page with no background (BROWSER VIDEO F4: settling on white
     /// at once showed the whole page area white for up to 3 frames before a dark page's first frame). The wait is
     /// bounded (`settleReadLimit`): a renderer busy with page script settles then (as before this change), and the
-    /// later answer still applies. A failed read or the pageBackdrop tunable off settles at once as before; a
+    /// later answer still applies. A failed read settles at once as before; a
     /// navigation in between leaves the next document to its own events.
     func documentDidPaint() {
         guard pastFirstRealPage, !documentSettled else { return }
-        guard BrowserResizeTunables.pageBackdrop.value, browserID != nil, !isClosed else { return documentDidSettle() }
+        guard browserID != nil, !isClosed else { return documentDidSettle() }
         let document = pageBackdropDocument
         guard pageBackdropReading != document else {
             // Load end or stop during the in-flight read: the page may have set its background since that read left,

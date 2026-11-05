@@ -34,6 +34,14 @@ async function bashSyntax(script: string): Promise<void> {
   expect(result.status).toBe(0);
 }
 
+/** The guest runs a bake step with /bin/sh: parse with dash where the host has it (Linux CI), else POSIX sh. */
+async function guestShSyntax(script: string): Promise<void> {
+  const shell = (await runChild("sh", ["-c", "command -v dash"], { timeout: 5_000 })).status === 0 ? "dash" : "sh";
+  const result = await runChild(shell, ["-n"], { input: script, timeout: 20_000 });
+  expect(result.stderr).toBe("");
+  expect(result.status).toBe(0);
+}
+
 describe("layered bake keys", () => {
   const keys = layerKeys(lockText, [], "tree");
 
@@ -230,13 +238,15 @@ describe("baked npm cache", () => {
   test("the prefill parses, installs as the work user, reports its size and enforces the cap", async () => {
     const { npmCachePrefillCommand, NPM_CACHE_CAP_MB, PREFILL_NODE_DEPS } = await import("../scripts/cmux-vm-image/dep-cache");
     const cmd = npmCachePrefillCommand();
-    await bashSyntax(cmd);
+    await guestShSyntax(cmd);
     expect(cmd).toContain("runuser -u cmux");
     for (const dep of PREFILL_NODE_DEPS) expect(cmd).toContain(dep);
     expect(cmd).toContain(`-gt ${NPM_CACHE_CAP_MB}`);
     expect(cmd).toContain("npm-cache-mb");
     // No package's lifecycle scripts run in the build, and every prefill starts from an empty cache.
     expect(cmd).toContain("npm install --ignore-scripts");
+    // The guest runs steps with /bin/sh (dash): no bash-only options.
+    expect(cmd).not.toContain("pipefail");
     expect(cmd).toContain("rm -rf /tmp/cmux-npm-prefill /home/cmux/.npm/_cacache");
   });
 

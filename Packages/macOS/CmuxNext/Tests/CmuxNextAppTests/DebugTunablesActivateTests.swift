@@ -30,28 +30,28 @@ struct DebugTunablesActivateTests {
     /// bench that never calls `activate` still sees it.
     @Test func withoutActivateASetChangesNothing() {
         let services = Self.services(), store = TunableStore()
-        let row = Self.call(["action": "set", "key": "browserResize.pageBackdrop", "value": false], store, services)
+        let row = Self.call(["action": "set", "key": "motion.frameOwner.pages", "value": false], store, services)
         #expect(row["value"]?.boolValue == true)
         #expect(row["changed"]?.boolValue == false)
-        #expect(BrowserResizeTunables.pageBackdrop.value(in: store) == true)
+        #expect(BrowserResizeTunables.framesOwnedByCommit.value(in: store) == true)
         #expect(Self.call(["action": "state"], store, services)["active"]?.boolValue == false)
     }
 
     /// After `activate`, `state` says active, and each `set` reaches the next read: a switch
-    /// read per frame (`browserResize.pageBackdrop`) and a spring read when its motion starts (`motion.spring.move`,
+    /// read when each resize begins (`motion.frameOwner.pages`) and a spring read when its motion starts (`motion.spring.move`,
     /// which the speed sweep scales).
     @Test func activateTurnsTheStoreOnAndEachSetReachesTheNextRead() throws {
         let services = Self.services(), store = TunableStore()
         let state = Self.call(["action": "activate"], store, services)
         #expect(state["error"] == nil, "the action exists")
         #expect(state["active"]?.boolValue == true)
-        let backdrop = BrowserResizeTunables.pageBackdrop
-        let row = Self.call(["action": "set", "key": .string(backdrop.key), "value": false], store, services)
+        let pages = BrowserResizeTunables.framesOwnedByCommit
+        let row = Self.call(["action": "set", "key": .string(pages.key), "value": false], store, services)
         #expect(row["value"]?.boolValue == false)
         #expect(row["changed"]?.boolValue == true)
-        #expect(backdrop.value(in: store) == false)
-        _ = Self.call(["action": "set", "key": .string(backdrop.key), "value": true], store, services)
-        #expect(backdrop.value(in: store) == true)
+        #expect(pages.value(in: store) == false)
+        _ = Self.call(["action": "set", "key": .string(pages.key), "value": true], store, services)
+        #expect(pages.value(in: store) == true)
         let move = try #require(MotionTunables.springs[.move])
         _ = Self.call(["action": "set", "key": .string(move.key), "value": ["response": 0.6, "dampingFraction": 1]], store, services)
         #expect(move.value(in: store) == SpringParameters(response: 0.6, dampingFraction: 1))
@@ -63,8 +63,8 @@ struct DebugTunablesActivateTests {
         let services = Self.services(), store = TunableStore()
         _ = Self.call(["action": "activate"], store, services)
         let changes = CmuxNextCompat.Atomic<Int>(0)
-        withObservationTracking { _ = BrowserResizeTunables.pageBackdrop.value(in: store) } onChange: { changes.wrappingAdd(1, ordering: .relaxed) }
-        _ = Self.call(["action": "set", "key": "browserResize.pageBackdrop", "value": false], store, services)
+        withObservationTracking { _ = BrowserResizeTunables.framesOwnedByCommit.value(in: store) } onChange: { changes.wrappingAdd(1, ordering: .relaxed) }
+        _ = Self.call(["action": "set", "key": "motion.frameOwner.pages", "value": false], store, services)
         #expect(changes.load(ordering: .relaxed) == 1)
     }
 
@@ -73,11 +73,11 @@ struct DebugTunablesActivateTests {
         let services = Self.services(), store = TunableStore()
         store.register(BrowserResizeTunables.all)
         store.activate(file: nil)
-        store.set(BrowserResizeTunables.pageBackdrop.key, .bool(false))
+        store.set(BrowserResizeTunables.framesOwnedByCommit.key, .bool(false))
         let state = Self.call(["action": "activate"], store, services)
         #expect(state["error"] == nil, "the action exists")
         #expect(state["active"]?.boolValue == true)
-        #expect(BrowserResizeTunables.pageBackdrop.value(in: store) == false)
+        #expect(BrowserResizeTunables.framesOwnedByCommit.value(in: store) == false)
     }
 }
 #endif
