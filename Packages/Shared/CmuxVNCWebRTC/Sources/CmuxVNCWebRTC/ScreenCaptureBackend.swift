@@ -245,6 +245,13 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
                 self.stream = stream
                 streamDisplay = display
                 streamGeneration += 1
+                // The installed stream delivers, whatever another start or failure set
+                // meanwhile; when that moved it, the gate starts over for this stream.
+                if delivering != ObjectIdentifier(stream) {
+                    delivering = ObjectIdentifier(stream)
+                    lastDelivered = nil
+                    held = nil
+                }
             }
             return (self.stream, false, frameRate, streamGeneration + 1)
         }

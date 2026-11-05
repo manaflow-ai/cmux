@@ -470,7 +470,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
         // then costs one frame a second.
         session.tasks.append(Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(ScreenStreamHost.keepAliveMilliseconds)) // keep-alive period
+                try? await Task.sleep(for: .milliseconds(Int64(ScreenStreamHost.keepAliveMilliseconds))) // keep-alive period
                 guard let self else { return }
                 let stale = session.lock.withLock { () -> (CVPixelBuffer, CGRect)? in
                     guard let last = session.last,
