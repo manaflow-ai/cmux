@@ -37,7 +37,7 @@ const REPORT = [
 /// --from VM/LANE`, which acpmux records as a named sender's.
 function relay(text: string, minutes: number) {
   const provenance = { kind: "agent_message", from: "fromAgent", fromName: SENDER, to: SESSION_ID };
-  const incoming = incomingPrompt(text, { client: "acpmux-cli#01a1@cosmic-gray", _meta: { provenance } });
+  const incoming = incomingPrompt(text, { client: "acpmux-cli#01a1@build-box", _meta: { provenance } });
   return incoming?.kind === "message"
     ? user(incoming.message.text, minutes, { incoming, resend: text, untyped: true })
     : user(text, minutes);

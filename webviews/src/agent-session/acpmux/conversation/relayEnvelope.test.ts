@@ -46,7 +46,7 @@ test("a relayed message is its sender's card, the label only behind Details", ()
   const text = relayed(body);
   // acpmux records the broker's `acpmux send --no-wait --from VM/LANE` as a named sender's.
   const named = { kind: "agent_message", from: "fromAgent", fromName: "gcp-codex-swarm-11/claude-3", to: "s-1" };
-  const prompt = incomingPrompt(text, { _meta: { provenance: named }, client: "acpmux-cli#1@cosmic-gray" });
+  const prompt = incomingPrompt(text, { _meta: { provenance: named }, client: "acpmux-cli#1@build-box" });
   expect(prompt).toEqual({
     kind: "message",
     message: { name: "gcp-codex-swarm-11/claude-3", text: body, raw: text },
@@ -64,7 +64,7 @@ test("the label names the sender when nothing else does", () => {
 
 test("a signature inside the label still names the sender once", () => {
   const text = relayed("From claude-3: merged #36125.");
-  const prompt = incomingPrompt(text, { client: "acpmux-cli#1@cosmic-gray" });
+  const prompt = incomingPrompt(text, { client: "acpmux-cli#1@build-box" });
   expect(prompt?.kind === "message" && prompt.message.text).toBe("merged #36125.");
   expect(prompt?.kind === "message" && prompt.message.raw).toBe(text);
 });
