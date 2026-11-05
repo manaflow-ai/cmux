@@ -237,7 +237,8 @@ export function SessionInfoSectionList({
         const other = slot(id)!;
         return { top: other.offsetTop, height: other.offsetHeight };
       });
-      const at = heldPlace(boxes, order.indexOf(held.id), held.grabTop + (held.y - held.startY) + scrolled);
+      const gap = Number.parseFloat(getComputedStyle(root).rowGap) || 0;
+      const at = heldPlace(boxes, order.indexOf(held.id), held.grabTop + (held.y - held.startY) + scrolled, gap);
       const next = moveTo(
         order.filter((id) => id !== held.id),
         held.id,
