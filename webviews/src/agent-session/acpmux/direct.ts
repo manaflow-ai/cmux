@@ -2219,8 +2219,9 @@ export class AcpmuxDirectClient {
   private forking = false;
   private streamingAssistant?: string;
   private streamingAssistantMessageId?: string;
-  /// A prompt or steer came while the streaming row's message was still being written: only that
-  /// message's own chunks (the same `messageId`) go on in the row, above the prompt's bubble.
+  /// A prompt, steer or notice came while the streaming row's message was still being written: only
+  /// that message's own chunks go on in the row, above what came (the same `messageId`, or any text
+  /// from an agent that sends none, until its next step).
   private assistantCut = false;
   private streamingActivity?: string;
   /// The open turn's plan row: its later `plan` updates redraw this one list (cx-ncc.80).
@@ -6312,8 +6313,10 @@ export class AcpmuxDirectClient {
         // A line from outside the chat, such as cmux Cloud's after it resized the machine
         // (acpmux `server/host_notice.rs`): one muted notice where it happened.
         if (typeof msg.text === "string" && msg.text.trim()) {
-          // What the agent writes or does after the notice goes below it, not into the row above.
-          this.closeSegment();
+          // What the agent does after the notice goes below it; a reply still streaming keeps its
+          // words in its row above it.
+          this.holdAssistantSegment();
+          this.streamingActivity = undefined;
           const id = `host-notice-${event.seq}`;
           this.rows.set(id, { id, version: 1, at: event.at, kind: "notice", text: msg.text });
         }
@@ -6424,9 +6427,13 @@ export class AcpmuxDirectClient {
         // streams: Claude Code woke on its own (a background task's notice) and acpmux took the
         // chat for idle, so the prompt is no steer, yet the message goes on after it. Leo
         // 2026-10-31: "why was i able to cut my prompt in between your messages? that's s***
-        // rendering". Without message ids that end cannot be told.
-        if (!this.streamingAssistantMessageId) this.endAssistantSegment();
-        else this.assistantCut = true;
+        // rendering". A steer into an agent that sends no message ids (Codex) keeps its text in the
+        // row until its next step, since the agent reads the steer only there: a reply cut in two
+        // reads worse than a steer's answer run on (Leo, 2026-11-05: "If your text is streaming, I
+        // shouldn't be able to interrupt it"). A prompt that opens a turn is answered from its
+        // first word, so without message ids the text after it is that answer.
+        if (msg.steer === true || this.streamingAssistantMessageId) this.holdAssistantSegment();
+        else this.endAssistantSegment();
         // A call id names a call within its prompt: an adapter that numbers calls per process
         // reuses one in a later prompt, whose call draws under that prompt (cx-jzhka). A steer
         // splits a turn whose calls may still update.
@@ -7192,6 +7199,14 @@ export class AcpmuxDirectClient {
       kind: "typing",
       retriedMs: (row.retriedMs ?? 0) + Math.max(0, at - row.at),
     });
+  }
+
+  /// Something not the agent's own lands mid-turn (a prompt, a steer, another agent's message, a
+  /// notice): a reply still streaming keeps its row for the rest of its text, which stays one
+  /// message above what landed; anything else the agent writes next starts below it.
+  private holdAssistantSegment(): void {
+    if (this.streamingAssistant) this.assistantCut = true;
+    else this.endAssistantSegment();
   }
 
   private endAssistantSegment(): void {

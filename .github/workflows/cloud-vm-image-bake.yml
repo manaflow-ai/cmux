@@ -94,8 +94,10 @@ on:
 permissions:
   contents: read
 
+# A first-session probe bakes nothing and boots only its own machines, so it queues apart from the bakes: one
+# pending slot per group, and a bake dispatched behind a pending probe would otherwise cancel it (and the reverse).
 concurrency:
-  group: cloud-vm-image-bake-${{ github.ref }}
+  group: cloud-vm-image-bake-${{ github.ref }}${{ inputs.mode == 'first-session' && '-probe' || '' }}
   cancel-in-progress: false
 
 jobs:

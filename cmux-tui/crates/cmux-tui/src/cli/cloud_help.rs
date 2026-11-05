@@ -161,9 +161,9 @@ const GROUPS: &[Group] = &[
             ),
             verb(
                 "open-desktop",
-                "{target} [--viewer web]",
-                "Show the machine's desktop in a browser tab",
-                "マシンのデスクトップをブラウザタブに表示",
+                "{target} [--viewer rd|web]",
+                "Show the machine's desktop in a new workspace",
+                "マシンのデスクトップを新しいワークスペースに表示",
             ),
             verb(
                 "setup-github",

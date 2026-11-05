@@ -191,12 +191,13 @@ public nonisolated struct AgentPaneTunables {
     }
 
     /// Leo 2026-10-15: "Terminal: maybe not a toggle. Clicking the terminal button adds another
-    /// terminal on the right each time." On, the chat header's Terminal opens a split on every
-    /// click (`AgentChatSplitToggles.open`) instead of toggling the one it opened.
+    /// terminal on the right each time." On (the default), the chat header's Terminal opens a split on
+    /// every click (`AgentChatSplitToggles.open`) instead of toggling the one it opened. Off: Terminal
+    /// toggles the terminal it opened, as the other header buttons do.
     public static let terminalButtonAdds = Tunable<Bool>.toggle(
         "agentChat.terminalButtonAdds", .panes, "Terminal button adds a terminal",
-        help: "Each click of an agent chat's Terminal button opens a new terminal right of the last one and focuses it, instead of closing the terminal it opened.",
-        default: false, code: "AgentPaneTunables.terminalButtonAdds")
+        help: "Each click of an agent chat's Terminal button opens a new terminal right of the last one and focuses it, instead of closing the terminal it opened. Off: the button toggles its terminal.",
+        default: true, code: "AgentPaneTunables.terminalButtonAdds")
 
     /// Leo 2026-10-20, "these buttons are kind of weird": one globe instead of Preview beside Browser.
     /// On (the default), the chat header's Browser opens the chat's local page beside the chat when its

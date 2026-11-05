@@ -70,11 +70,32 @@ impl Ledger {
         match serde_json::from_slice::<Header>(bytes) {
             Ok(header) if header.version > VERSION => Load::Newer(header.version),
             Ok(_) => match serde_json::from_slice::<Ledger>(bytes) {
-                Ok(ledger) => Load::Ledger(ledger),
+                Ok(ledger) => match ledger.damage() {
+                    None => Load::Ledger(ledger),
+                    Some(reason) => Load::Unreadable(reason),
+                },
                 Err(error) => Load::Unreadable(error.to_string()),
             },
             Err(error) => Load::Unreadable(error.to_string()),
         }
+    }
+
+    /// Why a ledger that parses still cannot be trusted, if it cannot: a done
+    /// workspace that names no cmux workspace (the plan would call it closed
+    /// and offer it again, so a rerun could make it twice), or an entry that
+    /// names an empty one. Nothing this build records looks like that.
+    fn damage(&self) -> Option<String> {
+        self.workspaces.iter().find_map(|(workspace, entry)| {
+            match (entry.stage, entry.cmux_workspace.as_deref()) {
+                (_, Some("")) => {
+                    Some(format!("workspace {workspace} names an empty cmux workspace"))
+                }
+                (Stage::Done, None) => {
+                    Some(format!("done workspace {workspace} names no cmux workspace"))
+                }
+                _ => None,
+            }
+        })
     }
 
     /// Writes the ledger whole or not at all (a temporary file renamed over).
@@ -117,5 +138,21 @@ mod tests {
         assert_eq!(Ledger::load(&path), Load::Ledger(ledger));
         assert_eq!(Ledger::decode(br#"{"version":99,"runs":0}"#), Load::Newer(99));
         assert!(matches!(Ledger::decode(b"{"), Load::Unreadable(_)));
+    }
+
+    /// A ledger that parses but breaks what every record keeps is damaged,
+    /// not usable: a done entry always names its cmux workspace.
+    #[test]
+    fn a_done_entry_without_its_cmux_workspace_is_unreadable() {
+        let done = br#"{"version":1,"runs":0,"workspaces":{"w":{"stage":"done"}}}"#;
+        assert_eq!(
+            Ledger::decode(done),
+            Load::Unreadable("done workspace w names no cmux workspace".into())
+        );
+        let empty =
+            br#"{"version":1,"runs":0,"workspaces":{"w":{"stage":"pending","cmux_workspace":""}}}"#;
+        assert!(matches!(Ledger::decode(empty), Load::Unreadable(_)));
+        let pending = br#"{"version":1,"runs":0,"workspaces":{"w":{"stage":"pending"}}}"#;
+        assert!(matches!(Ledger::decode(pending), Load::Ledger(_)));
     }
 }
