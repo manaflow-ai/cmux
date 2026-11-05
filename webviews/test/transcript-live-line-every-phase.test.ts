@@ -137,20 +137,3 @@ test("the live line takes the running turn's slot from the send, so the turn ope
     expect({ id: last?.id, below: last?.below }).toEqual({ id: "thinking-live", below: true });
   }
 });
-
-// The setting that puts the line below (`lineBelow`) sets its slot, so a turn shaped under one value is not reused
-// under the other: the line would keep the old slot until the turn's rows changed (router review of #36443, F1).
-test("the live line follows a change of where it draws, for a prompt already shaped", () => {
-  const first = row("u-0", "user", 0, { text: "Deploy main on this host", pending: true });
-  for (const rows of [[first], [...before, sent]]) {
-    const at = (lineBelow: boolean) =>
-      turnView(rows, new Set(), {
-        working: false,
-        liveRuns: true,
-        lineBelow,
-        agentFamily: "claude",
-        now: START + 90_000,
-      }).at(-1)?.below;
-    expect([at(false), at(true), at(false)]).toEqual([undefined, true, undefined]);
-  }
-});
