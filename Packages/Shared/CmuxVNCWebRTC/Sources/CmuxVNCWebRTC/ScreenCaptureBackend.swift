@@ -242,14 +242,14 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
         try await stream.startCapture()
         // stop() may have run while this capture started: it then ends here, never stored.
-        let (previous, late, latest, generation) = lock.withLock { () -> (SCStream?, Bool, Int, Int) in
-            if stopped { return (nil, true, rate, streamGeneration) }
+        let (previous, late, latest, generation) = lock.withLock { () -> (SCStream?, Bool, (Int, Bool), Int) in
+            if stopped { return (nil, true, (rate, cursor), streamGeneration) }
             defer {
                 self.stream = stream
                 streamDisplay = display
                 streamGeneration += 1
             }
-            return (self.stream, false, frameRate, streamGeneration + 1)
+            return (self.stream, false, (frameRate, drawsCursor), streamGeneration + 1)
         }
         if late {
             try? await stream.stopCapture()
@@ -258,8 +258,9 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         if let previous { try? await previous.stopCapture() }
         input.display = display.frame
         log("capturing display \(display.displayID) at \(Int(size.width))x\(Int(size.height)), \(rate) fps")
-        // The rate changed while this capture started (setFrameRate found no stream to update).
-        if latest != rate { reconfigure(generation: generation) }
+        // The rate or the cursor changed while this capture started (setFrameRate
+        // or setDrawsCursor found no stream to update).
+        if latest != (rate, cursor) { reconfigure(generation: generation) }
     }
 
     /// The display, without the windows of `pids` (none: the whole display).

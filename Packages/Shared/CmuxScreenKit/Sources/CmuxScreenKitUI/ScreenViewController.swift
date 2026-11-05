@@ -39,7 +39,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     private let cursorLayer = CALayer()
     /// The agent's pointer (Computer Use) on a screen stream, from the Mac's telepointers.
     private let agentLayer = CALayer()
-    /// A screen stream's pointers from the Mac, in framebuffer pixels (nil: none on this display).
+    /// A screen stream's pointers from the Mac, as fractions of its display (nil: none on this display).
     private var streamPerson: CGPoint?
     private var streamAgent: CGPoint?
     private var cursor = VNCCursor(width: 0, height: 0, hotspotX: 0, hotspotY: 0, pixels: [])
@@ -222,10 +222,16 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     /// A screen stream's pointers (fractions of the streamed display) from
     /// the Mac: the person's is drawn as the cursor, the agent's as its own marker.
     private func setTelepointers(person: CGPoint?, agent: CGPoint?) {
-        func pixels(_ point: CGPoint?) -> CGPoint? { point.map { CGPoint(x: $0.x * frameSize.width, y: $0.y * frameSize.height) } }
-        streamPerson = pixels(person)
-        streamAgent = pixels(agent)
+        streamPerson = person
+        streamAgent = agent
         updateCursor()
+    }
+
+    /// A pointer's fraction of the streamed display at the current frame size
+    /// (kept as fractions: a pointer that came before the first frame, or
+    /// before a size change, lands right once the size is known).
+    private func streamPixels(_ fraction: CGPoint?) -> CGPoint? {
+        fraction.map { CGPoint(x: $0.x * frameSize.width, y: $0.y * frameSize.height) }
     }
 
     /// Draws the cursor at the pointer: the server's shape (local cursor),
@@ -237,7 +243,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         updateAgentPointer()
         let hostShape = !cursor.isEmpty && (session.preferences.localCursor || inputMode == .trackpad)
         let local = hostShape || inputMode == .trackpad || pointerHovering
-        let remote = local ? nil : streamPerson
+        let remote = local ? nil : streamPixels(streamPerson)
         let visible = frameSize != .zero && (local || remote != nil)
         cursorLayer.isHidden = !visible
         guard visible else { return }
@@ -263,7 +269,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     private func updateAgentPointer() {
         let visible = frameSize != .zero && streamAgent != nil
         agentLayer.isHidden = !visible
-        guard let point = streamAgent, visible else { return }
+        guard let point = streamPixels(streamAgent), visible else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         agentLayer.position = point
