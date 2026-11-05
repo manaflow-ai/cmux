@@ -329,6 +329,9 @@ impl RenderService {
         writer.write_all(b",\"colors\":")?;
         serde_json::to_writer(&mut writer, &value.colors).map_err(json_error_to_io)?;
         write_pending_sequence_json(&mut writer, &value.pending_sequence)?;
+        if let Some(omitted) = value.history_rows_omitted {
+            write!(writer, ",\"history_rows_omitted\":{omitted}")?;
+        }
         writer.write_all(b"}")?;
         Ok(writer.finish())
     }

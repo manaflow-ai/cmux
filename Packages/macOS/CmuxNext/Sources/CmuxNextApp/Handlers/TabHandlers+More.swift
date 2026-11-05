@@ -23,7 +23,7 @@ extension TabHandlers {
             case "down": .bottom
             default: .right
             }
-            let keepFocus = invocation["keep_focus"]?.boolValue == true
+            let keepFocus = invocation["keepFocus"]?.boolValue == true
             // The chat dock never splits (ChatDockRules): a chat moved out of it to its right, when the
             // dock keeps another tab, gets a new column right after the dock, so a docked chat's
             // subagents open beside it. A lone docked chat is still refused (the dock would close).
@@ -44,7 +44,7 @@ extension TabHandlers {
         registry.bind("tab.moveToNewColumn", invoke: { invocation in
             guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
             let reveal = revealer(ctx, tab: tab, outcome: .newColumn(screenID: "", afterColumnID: ""), workspaceID: nil)
-            TabMoves.toNewColumn(tab, anchor: pane, services: ctx.services, keepFocus: invocation["keep_focus"]?.boolValue == true, completion: reveal)
+            TabMoves.toNewColumn(tab, anchor: pane, services: ctx.services, keepFocus: invocation["keepFocus"]?.boolValue == true, completion: reveal)
         })
         registry.bind("tab.moveToWorkspace", invoke: { invocation in
             guard let (tab, _) = ctx.daemonTab(invocation), let workspace = ctx.workspaceArgument(invocation) else { return }

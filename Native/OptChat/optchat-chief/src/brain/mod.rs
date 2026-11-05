@@ -51,6 +51,8 @@ pub use outcome_ledger::{UNTOLD_TAG, UNTOLD_WAIT};
 pub use reply_ledger::{MAX_REPLY_TRIES, NO_REPLY_TAG, REPLY_RETRY_WAITS};
 mod send;
 mod side;
+mod spawn_text;
+pub use spawn_text::{NO_TEXT_TAG, no_text_note};
 mod spawns;
 mod steer;
 mod transcript;
@@ -834,6 +836,12 @@ pub struct Brain {
     owner_stopped: bool,
     /// This turn's send was refused for length once; its next send posts.
     length_refused: bool,
+    /// The subagents the running turn started (spawn_text.rs).
+    turn_spawned: Vec<String>,
+    /// The running turn posted words by `send` or `reply` (spawn_text.rs).
+    turn_said: bool,
+    /// The running turn was queued by a silent spawn turn's note: it is not nudged again.
+    spawn_text_nudged: bool,
     /// The running turn's interrupt (a new one per turn).
     interrupt: Arc<crate::turn::Interrupt>,
     /// The steer on its way into the running turn (`steer.rs`), and the
@@ -1117,6 +1125,9 @@ impl Brain {
             fatal: None,
             stop_wanted: false,
             length_refused: false,
+            turn_spawned: Vec::new(),
+            turn_said: false,
+            spawn_text_nudged: false,
             owner_stopped: false,
             interrupt: Arc::new(crate::turn::Interrupt::new()),
             steering: Vec::new(),
@@ -1596,6 +1607,9 @@ impl Brain {
                         }
                         plan
                     });
+                if let Ok(plan) = &plan {
+                    self.spawned_in_turn(&plan.ids);
+                }
                 let _ = reply.send(plan);
             }
             Input::SubagentQueued { id, launch } => self.sub_queued(&id, launch),
@@ -1668,7 +1682,11 @@ impl Brain {
                 let _ = reply.send(self.react(id, &reaction));
             }
             Input::Reply { id, text, reply } => {
-                let _ = reply.send(self.reply_now(id, &text));
+                let result = self.reply_now(id, &text);
+                if result.is_ok() {
+                    self.said_in_turn();
+                }
+                let _ = reply.send(result);
             }
             Input::Transcript { n, before, reply } => {
                 let _ = reply.send(self.transcript(n, before));
@@ -1679,7 +1697,16 @@ impl Brain {
                 message,
             } => self.tell_unsteered(&id, &session, &message),
             Input::Send { call, reply } => {
-                let _ = reply.send(self.send(call));
+                let words = call.text.as_deref().is_some_and(|t| !t.trim().is_empty());
+                let result = self.send(call);
+                if words
+                    && result
+                        .as_deref()
+                        .is_ok_and(|r| r.starts_with("outcome: done"))
+                {
+                    self.said_in_turn();
+                }
+                let _ = reply.send(result);
             }
             Input::StopTurn { reply } => {
                 let _ = reply.send(self.stop_turn());
