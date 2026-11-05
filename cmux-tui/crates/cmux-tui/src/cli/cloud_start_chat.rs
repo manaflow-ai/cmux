@@ -382,16 +382,25 @@ pub(super) fn shell_quote(text: &str) -> String {
     format!("'{}'", text.replace('\'', "'\\''"))
 }
 
-/// Whether an app error is the account being signed out.
+/// Whether an app error is the cmux account being signed out. A harness's own sign-in (acpmux's `auth.*`
+/// kinds, "Claude is not signed in here") is the machine's agent, never this account: `cmux cloud sign-in`
+/// does not fix it, so it keeps its own error. Beside the codes, only the app's own refusal
+/// (`CloudStrings.signInFirst`) is read from the message.
 fn signed_out(error: &Value) -> bool {
     let code = at(error, "code").as_str().unwrap_or_default();
+    let harness = |key: &str| at(error, key).as_str().is_some_and(|k| k.starts_with("auth."));
+    if harness("errorKind")
+        || harness("error_kind")
+        || (code.starts_with("auth.") && code != "auth.required")
+    {
+        return false;
+    }
     let message = at(error, "message").as_str().unwrap_or_default().to_lowercase();
     code.contains("signed_out")
         || code.contains("not_signed_in")
         || code == "auth.required"
-        || message.contains("sign in")
-        || message.contains("signed out")
-        || message.contains("not signed in")
+        || message.contains("sign in to use cloud")
+        || message.contains("cmux cloud sign-in")
 }
 
 /// Where a start the app answered `pending` for is stuck, read from the app's own machine list

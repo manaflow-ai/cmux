@@ -527,7 +527,8 @@ export function runStretches(row: AcpmuxRow, groups: readonly ToolGroup[]): RunS
   return stretches;
 }
 
-/// An entry a folded run keeps in sight beside its summary lines: a coordination card, or a file
+/// An entry a folded run keeps in sight beside its summary lines: a coordination card (who else
+/// works on these files among them), or a file
 /// change still waiting for its permission (toolGroups.ts `awaitsPermission`). Other edits fold with
 /// the rest of the work and the line names them (Leo 2026-10-22: "this is pretty good ui: … the
 /// collapsing i mean"); the turn's edited-files card lists them once it ends.
@@ -539,7 +540,8 @@ export function staysInSight(group: ToolGroup): boolean {
     group.type === "subsession" ||
     group.type === "subsessionGroup" ||
     group.type === "agentCall" ||
-    group.type === "dispatch"
+    group.type === "dispatch" ||
+    group.type === "whoElse"
   )
     return true;
   // A pending change draws as its own item (toolGroups.ts `toolGroupKind`); any entry holding one
