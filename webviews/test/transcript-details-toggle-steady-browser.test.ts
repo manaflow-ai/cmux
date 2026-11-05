@@ -458,7 +458,7 @@ await requireBrowserLane("transcript-details-toggle-steady-browser.test.ts", asy
       await page.mouse.move(450, view.top + view.height / 2);
       for (let step = 0; step < 4; step += 1) {
         await page.mouse.wheel(0, -40);
-        await page.waitForTimeout(50);
+        await page.evaluate(() => window.cmuxPaintFrame());
       }
       await settle(page);
       const failures: string[] = [];
