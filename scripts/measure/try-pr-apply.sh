@@ -138,12 +138,16 @@ real_home="$HOME"
 out="$root/artifacts/try-pr-apply"; mkdir -p "$out"
 work="$(mktemp -d "${TMPDIR:-/tmp}/try-pr-apply.XXXXXX")"; work="$(cd "$work" && pwd -P)"
 # An instance's settings, tunables and overlay: its own (web-overlay.sh reads the same variables).
-use_instance() { # NAME
+# NAME: points the settings, tunables, overlay and app copy that launches and probes read at NAME's.
+instance_env() {
   export CMUX_NEXT_CONFIG_FILE="$work/config-$1/cmux-next.json" CMUX_WEB_OVERLAY_DIR="$work/overlay-$1"
   export CMUX_NEXT_DEBUG_TUNABLES_FILE="$work/config-$1/debug-tunables.json"
+  inst_app="$app"; [[ "$mode" != lab ]] || inst_app="$work/app-$1/$(basename "$app")"
+}
+use_instance() { # NAME
+  instance_env "$1"
   mkdir -p "$work/config-$1" "$CMUX_WEB_OVERLAY_DIR"
   printf '{"version": 1, "values": {"webDev.override": true}}\n' > "$CMUX_NEXT_DEBUG_TUNABLES_FILE"
-  inst_app="$app"; [[ "$mode" != lab ]] || inst_app="$work/app-$1/$(basename "$app")"
 }
 pid="" pid_start="" sock="" socks=() mine=() survived="" coexisting="" inst_app="" lab_ids=() aside_held=""
 defaults_tool="${TRY_PR_APPLY_DEFAULTS:-defaults}"  # the override is for its tests
@@ -529,7 +533,7 @@ fi
 # Base state and controls: the base overlay in a running app, a repeat install, a base-only window.
 git -C "$root" worktree add --detach -q "$work/base-tree" "$base"
 use_instance base; build_web "$work/base-tree"; install_web base "$base" "$work/base-tree"
-launch base; base_pid="$pid" base_sock="$sock" base_app="$inst_app"; note base_pid "$base_pid"
+launch base; base_pid="$pid" base_sock="$sock"; note base_pid "$base_pid"
 settle base || { result fail fail "the base app never settled"; exit 1; }
 if [[ "$experience" == in-place && -n "$seed" ]]; then
   CMUX_TRY_PID="$pid" CMUX_TRY_APP="$inst_app" CMUX_TRY_SOCKET="$sock" bash -c "$seed" >"$out/seed.log" 2>&1 \
@@ -581,8 +585,10 @@ if [[ "$experience" == isolated ]]; then
   # still without the PR's behaviour.
   base_same="no"; kill -0 "$base_pid" 2>/dev/null && [[ "$(started "$base_pid")" == "$start_before" && -S "$base_sock" \
     && "$(ls -i "$base_sock" | awk '{print $1}')" == "$base_inode" ]] && base_same=yes
-  base_after=""; if [[ -n "$probe" ]]; then pr_pid="$pid" pr_sock="$sock" pr_app="$inst_app"; pid="$base_pid" sock="$base_sock" inst_app="$base_app"
-    base_after="$(probe_answer base answer)"; pid="$pr_pid" sock="$pr_sock" inst_app="$pr_app"; note probe_base_after "$base_after"; fi
+  # The base probe runs with the base instance's own pid, socket, app copy, settings, tunables and
+  # overlay (a subshell, so none of it leaks back to the PR instance's).
+  base_after=""; if [[ -n "$probe" ]]; then
+    base_after="$(instance_env base; pid="$base_pid" sock="$base_sock"; probe_answer base answer)"; note probe_base_after "$base_after"; fi
   note integrity "PR instance $pid started beside base instance $base_pid; base same process and socket: $base_same; base probe after: ${base_after:-not run}"
   [[ "$base_same" == yes ]] || { result fail fail "isolated: the base instance exited, restarted or lost its socket while the PR instance ran"; exit 0; }
   [[ "$base_after" != pass ]] || { result fail fail "isolated: the base instance took the PR's behaviour (no isolation)"; exit 0; }
