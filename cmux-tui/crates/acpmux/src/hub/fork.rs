@@ -321,11 +321,24 @@ impl Hub {
         let now = now_ms();
         let fork_dirs =
             super::additional_dirs::without_cwd(parent_meta.additional_directories.clone(), &cwd);
+        // A fork into another folder takes that folder's guidance and instructions, sent with
+        // its first turn even when the parent had already sent its own.
+        let moved = !parent_meta.remote_origin && !same_folder(&cwd, &parent_meta.cwd);
         let cmux_context = if !parent_meta.remote_origin
-            && (empty || (matches!(made, Made::Fresh) && parent_meta.cmux_context.is_none()))
+            && (empty
+                || moved
+                || (matches!(made, Made::Fresh) && parent_meta.cmux_context.is_none()))
         {
             let cfg = self.config.read().await;
-            Some(crate::context_inventory::snapshot(&cfg, &cwd))
+            let family = crate::context_inventory::family_for_folder(&cfg, &parent_meta.harness);
+            let parts = crate::context_inventory::snapshot(&cfg, &cwd);
+            // A native fork's agent keeps the parent's transcript, the old folder's
+            // instructions in it: the new ones say those no longer apply.
+            if moved && matches!(made, Made::Agent(..) | Made::ClaudeResume) {
+                Some(crate::folder_instructions::moved(parts, &family, &cwd, &parent_meta.cwd))
+            } else {
+                Some(crate::folder_instructions::retarget(parts, &family, &cwd))
+            }
         } else {
             parent_meta.cmux_context.clone()
         };
@@ -403,6 +416,7 @@ impl Hub {
             // Fresh reconstruction copies visible history only; hidden guidance must
             // reach the new harness again. Native transcript forks already retain it.
             cmux_context_delivered: !matches!(made, Made::Fresh | Made::Empty)
+                && !moved
                 && parent_meta.cmux_context_delivered,
             // The account's limits, which the fork shares.
             usage_limits: parent_meta.usage_limits.clone(),
@@ -674,4 +688,26 @@ pub(super) struct SubsessionFork<'a> {
 /// not known yet (the agent never started) count as offered: the agent then answers.
 pub(crate) fn offers_fork(caps: Option<&Value>) -> bool {
     caps.is_none_or(|c| c.pointer("/sessionCapabilities/fork").is_some_and(|f| !f.is_null()))
+}
+
+/// Whether two session folders are the same folder: `/repo` and `/repo/.` or a link to it
+/// are one folder, compared by where they resolve, or as written when one cannot resolve.
+fn same_folder(a: &Path, b: &Path) -> bool {
+    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => a == b,
+    }
+}
+
+#[cfg(test)]
+mod same_folder_tests {
+    use super::same_folder;
+
+    #[test]
+    fn the_same_folder_spelled_another_way_is_not_a_move() {
+        let dir = tempfile::tempdir().unwrap();
+        let other = tempfile::tempdir().unwrap();
+        assert!(same_folder(dir.path(), &dir.path().join(".")));
+        assert!(!same_folder(dir.path(), other.path()));
+    }
 }

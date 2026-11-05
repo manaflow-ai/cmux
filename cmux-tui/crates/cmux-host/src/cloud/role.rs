@@ -492,6 +492,9 @@ struct Worker {
     relay: Option<Relay>,
     bind_retry_at: Option<u64>,
     bind_backoff: Backoff,
+    /// The workload probe (`workload.rs`): its memory and when it runs next (while bound).
+    workload: super::workload::Tracker,
+    workload_at: Option<u64>,
     rng: SystemRandom,
     epoch: Instant,
 }
@@ -541,6 +544,8 @@ impl Worker {
             relay: None,
             bind_retry_at: None,
             bind_backoff: Backoff::new(2_000, 600_000),
+            workload: super::workload::Tracker::default(),
+            workload_at: None,
             rng: SystemRandom::new(),
             epoch: Instant::now(),
         })
@@ -567,6 +572,7 @@ impl Worker {
                 self.bind_retry_at,
                 self.activity.retry_at,
                 self.bootstrap_retry_at,
+                self.workload_at,
             ]
             .into_iter()
             .flatten()
@@ -963,6 +969,9 @@ impl Worker {
         self.activity = self.activity_reset();
         self.connect_activity();
         self.drive(reqs);
+        // A new session knows no workload yet: the first probe now, the first result one interval on.
+        self.workload = super::workload::Tracker::default();
+        self.workload_at = Some(self.now());
     }
 
     fn activity_reset(&self) -> Activity {
@@ -1068,11 +1077,35 @@ impl Worker {
         if self.activity.retry_at.is_some_and(|at| at <= now) {
             self.connect_activity();
         }
+        if self.workload_at.is_some_and(|at| at <= self.now()) {
+            self.probe_workload();
+        }
         let now = self.now();
         if let Some(live) = self.live.as_mut() {
             let reqs = live.session.fire(now);
             self.drive(reqs);
         }
+    }
+
+    /// One workload probe (`workload.rs`); the next one an interval later. A probe that does not
+    /// read makes the workload unknown, and the report then drops `activity-workload`.
+    fn probe_workload(&mut self) {
+        let now = self.now();
+        self.workload_at = Some(now + super::workload::PROBE_INTERVAL_MS);
+        let Some(live) = self.live.as_mut() else { return };
+        let seen = match super::workload::read_snapshot(self.paths.root(), now) {
+            // The first probe has no CPU baseline yet: it changes nothing.
+            Some(snapshot) => match self.workload.observe(&snapshot, wall_ms()) {
+                Some(workload) => Some(workload),
+                None => return,
+            },
+            None => {
+                self.workload = super::workload::Tracker::default();
+                None
+            }
+        };
+        let reqs = live.session.workload(seen, now);
+        self.drive(reqs);
     }
 
     /// Sends each request and feeds its answer back until nothing is due.
