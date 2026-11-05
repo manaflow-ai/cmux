@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
+import CmuxNextWakeups
 
 /// The right sidebar's Machines section (AppKit): this Mac, then a header per kind (Cloud, SSH,
 /// Servers, Joined) over its machines, then Add Machine…, laid out as ``MachineSectionStyle`` says. Every
@@ -69,9 +70,11 @@ public final class MachineSectionView: NSView {
 
     /// While this section is in a window and not hidden (itself or the whole panel), `store` re-checks
     /// its online rows once their heartbeat would pass the hub's 90 s window; hidden or out of the
-    /// window, the deadline stops (``JoinedMachineStore/startAging(_:visible:)``).
+    /// window, the deadline stops (``JoinedMachineStore/startAging(_:visible:)``). A covered window
+    /// coming back into view restarts it at once (``JoinedMachineStore/resumeAging()``).
     public func followAging(_ store: JoinedMachineStore) {
         agingStore = store
+        followSight()
         followVisibility()
     }
 
@@ -90,9 +93,24 @@ public final class MachineSectionView: NSView {
         }
     }
 
+    /// The window whose occlusion reports this section follows (the app's one occlusion observer).
+    private weak var sightWindow: NSWindow?
+
     override public func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        followSight()
         followVisibility()
+    }
+
+    private func followSight() {
+        if let sightWindow, sightWindow !== window { FrameScheduler.unfollowSight(of: sightWindow, owner: self) }
+        sightWindow = agingStore == nil ? nil : window
+        if let window = sightWindow {
+            FrameScheduler.followSight(of: window, owner: self) { [weak self] in
+                guard let self, isOnScreen else { return }
+                agingStore?.resumeAging()
+            }
+        }
     }
 
     override public func viewDidHide() {
