@@ -15,6 +15,9 @@ public final class WebDevOverrideWatcher {
     private let home = FileManager.default.homeDirectoryForCurrentUser
     private var readTask: Task<Void, Never>?
     private var readRequested = false
+    /// Counts ``reloadPages(live:hosting:pages:served:)`` calls, so an engine move a later reload
+    /// superseded does not finish.
+    private var reloadGeneration = 0
 
     /// A page or agent pane scheme handler is serving `webView`, from any of its paths (bundled
     /// file, dev server, overlay): it joins ``WebBundleServedViews`` so a change reloads it, and the
@@ -86,7 +89,8 @@ public final class WebDevOverrideWatcher {
                             hosting: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
                             pages: [PageWebView]? = nil,
                             served: WebBundleServedViews = .shared) -> Task<Void, Never>? {
-        reloadGeneration &+= 1
+        let watcher = shared
+        watcher.reloadGeneration &+= 1
         let chromiumLive = live && (hosting?.setLivePages(true) ?? false)
         if !live { _ = hosting?.setLivePages(false) }
         served.reloadServed()
@@ -100,8 +104,8 @@ public final class WebDevOverrideWatcher {
             let moving = pages.filter(\.isOnChromium)
             guard !moving.isEmpty else { return nil }
             // A later reload supersedes these moves: a page whose scroll read outlasts it stays put.
-            let generation = reloadGeneration
-            let current = { generation == reloadGeneration }
+            let generation = watcher.reloadGeneration
+            let current = { generation == watcher.reloadGeneration }
             // task-owner: one move per page, on the main actor; each ends with its page
             let moves = moving.map { page in Task { await page.reopenForLiveOverride(hosting: hosting, isCurrent: current) } }
             return Task { // task-owner: waits for this reload's moves (tests wait on it)
@@ -113,10 +117,6 @@ public final class WebDevOverrideWatcher {
         for page in pages where page.chromiumPage != nil { page.reload() }
         return nil
     }
-
-    /// Counts ``reloadPages(live:hosting:pages:served:)`` calls, so an engine move a later reload
-    /// superseded does not finish.
-    private static var reloadGeneration = 0
 
     /// Whether Chromium pages were serving the live loop after the last ``reloadPages()``.
     private static var chromiumServedLive = false
