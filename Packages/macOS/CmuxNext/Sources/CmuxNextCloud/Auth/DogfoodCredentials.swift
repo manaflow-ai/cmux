@@ -118,14 +118,14 @@ struct DogfoodCredentials: Equatable {
     static func ownedDirectories(above path: String) -> Bool {
         // realpath, not resolvingSymlinksInPath: Foundation drops `/private`, leaving `/var` and `/tmp` as symlinks.
         guard let resolved = realpath((path as NSString).deletingLastPathComponent, nil) else { return false }
-        var directory = String(cString: resolved)
+        let directory = String(cString: resolved)
         free(resolved)
-        while true {
+        let components = (directory as NSString).pathComponents
+        return components.indices.allSatisfy { end in
             var info = stat()
-            guard lstat(directory, &info) == 0, (info.st_mode & S_IFMT) == S_IFDIR,
-                  info.st_uid == getuid() || info.st_uid == 0, info.st_mode & 0o022 == 0 else { return false }
-            if directory == "/" { return true }
-            directory = (directory as NSString).deletingLastPathComponent
+            let path = NSString.path(withComponents: Array(components[...end]))
+            return lstat(path, &info) == 0 && (info.st_mode & S_IFMT) == S_IFDIR
+                && (info.st_uid == getuid() || info.st_uid == 0) && info.st_mode & 0o022 == 0
         }
     }
 }
