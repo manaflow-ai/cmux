@@ -34,13 +34,31 @@ fn any_work_starts_the_wait_again() {
     let mut watch = StartWatch::default();
     assert!(!watch.hung(&harness(50, 0), Duration::ZERO));
     assert!(!watch.hung(&harness(50, 0), TICK));
-    // Its CPU time moved, however little: slow, not hung.
-    assert!(!watch.hung(&harness(51, 0), START_HUNG + TICK));
-    assert!(!watch.hung(&harness(51, 0), START_HUNG + 2 * TICK));
+    // Its CPU time moved by a few ms: slow, not hung.
+    assert!(!watch.hung(&harness(60, 0), START_HUNG + TICK));
+    assert!(!watch.hung(&harness(60, 0), START_HUNG + 2 * TICK));
     // A thread waits for a CPU on a loaded host.
-    assert!(!watch.hung(&harness(51, 3), 2 * START_HUNG + 2 * TICK));
-    assert!(!watch.hung(&harness(51, 0), 2 * START_HUNG + 3 * TICK));
-    assert!(watch.hung(&harness(51, 0), 3 * START_HUNG + 3 * TICK));
+    assert!(!watch.hung(&harness(60, 3), 2 * START_HUNG + 2 * TICK));
+    assert!(!watch.hung(&harness(60, 0), 2 * START_HUNG + 3 * TICK));
+    assert!(watch.hung(&harness(60, 0), 3 * START_HUNG + 3 * TICK));
+}
+
+/// #36028: `sr2 claude` with its `claude` stopped. The launcher's Go runtime alone moves the tree's
+/// CPU time by under a millisecond per read; that is no work, so the start ends as hung.
+#[test]
+fn a_launchers_idle_runtime_ticks_do_not_keep_a_stopped_agent_counted_as_working() {
+    let mut watch = StartWatch::default();
+    let mut at = Duration::ZERO;
+    let mut cpu = 140;
+    assert!(!watch.hung(&harness(cpu, 0), at));
+    while at < START_HUNG {
+        at += TICK;
+        cpu += 1;
+        assert!(!watch.hung(&harness(cpu, 0), at), "hung early at {at:?}");
+    }
+    at += TICK;
+    cpu += 1;
+    assert!(watch.hung(&harness(cpu, 0), at), "a stopped agent under its launcher is hung");
 }
 
 #[test]

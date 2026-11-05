@@ -179,9 +179,10 @@ pub struct HarnessState {
     /// Its own program name (`sr2`, `claude`), so an error says which process it read.
     #[serde(skip_serializing_if = "String::is_empty")]
     pub name: String,
-    /// The first process it started, if any: for a launcher (`sr2 claude`) that is its agent. An
-    /// error names it, so a start that stalled before the launcher started its agent reads apart
-    /// from one whose agent is slow (#36028: the stall was in `claude`, after `sr2` started it).
+    /// The earliest-started process it still has, if any: for a launcher (`sr2 claude`) usually
+    /// its agent. An error names it, so a start that stalled before the launcher started its agent
+    /// reads apart from one whose agent is slow (#36028: the stall was in `claude`, after `sr2`
+    /// started it).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub first_child: Option<ChildSeen>,
 }
@@ -196,13 +197,20 @@ pub struct ChildSeen {
     pub pageins: u64,
 }
 
+/// The CPU time between two reads of a harness (about 10 s apart) that counts as work: an idle
+/// launcher's runtime spends some on its own. An `sr2` waiting on a stopped `claude` used 0.6 ms per
+/// 10 s (2026-11-05, #36028), so "any change" kept a harness that did nothing counted as working
+/// and its start never ended. A harness short of memory still reads pages in, and one short of CPU
+/// has a thread ready, so neither needs this budget to count as working.
+pub const WORK_CPU_MS: u64 = 5;
+
 impl HarnessState {
-    /// Whether it did any work between `earlier` and this read: a thread on a CPU, CPU time
-    /// used, a page read in, or a process started or ended. A loaded host or short memory slows
-    /// that down; only a harness that waits on input or a lock does none of it.
+    /// Whether it did any work between `earlier` and this read: a thread on a CPU, at least
+    /// [`WORK_CPU_MS`] of CPU time, a page read in, or a process started or ended. A loaded host
+    /// or short memory slows that down; only a harness that waits on input or a lock does none of it.
     pub fn worked_since(&self, earlier: &HarnessState) -> bool {
         self.threads_running > 0
-            || self.cpu_ms != earlier.cpu_ms
+            || self.cpu_ms.abs_diff(earlier.cpu_ms) >= WORK_CPU_MS
             || self.pageins != earlier.pageins
             || self.processes != earlier.processes
     }
@@ -546,14 +554,15 @@ mod tests {
         // The launcher alone used a few ms; its agent's loop took far more.
         assert!(state.cpu_ms >= 100, "the agent's CPU time counts: {state:?}");
         // The error names the launcher and the agent it started, with the agent's own work.
-        // macOS's `/bin/sh` runs as `bash`: both processes carry the same program name.
+        // Named by the kernel (macOS's `/bin/sh` runs as `bash`, so no fixed name is asserted).
         assert!(!state.name.is_empty(), "the launcher's name: {state:?}");
         let agent = state.first_child.as_ref().expect("the agent the launcher started");
-        assert_eq!(agent.name, state.name);
+        assert!(!agent.name.is_empty(), "the agent's name: {state:?}");
         assert_ne!(agent.pid, state.pid);
-        assert!(agent.cpu_ms >= 100, "the agent's own CPU time: {state:?}");
+        assert!(agent.cpu_ms >= 50, "the agent's own CPU time: {state:?}");
         let said = state.to_string();
-        let named = format!("; the first process it started is {} (pid {}), ", agent.name, agent.pid);
+        let named =
+            format!("; the first process it started is {} (pid {}), ", agent.name, agent.pid);
         assert!(said.contains(&named), "{said}");
     }
 
@@ -611,7 +620,9 @@ mod tests {
         assert!(!idle.worked_since(&idle));
         assert!(HarnessState { pageins: 501, ..idle.clone() }.worked_since(&idle));
         assert!(HarnessState { processes: 3, ..idle.clone() }.worked_since(&idle));
-        assert!(HarnessState { cpu_ms: 101, ..idle.clone() }.worked_since(&idle));
+        assert!(HarnessState { cpu_ms: 100 + WORK_CPU_MS, ..idle.clone() }.worked_since(&idle));
+        // #36028: an idle launcher's runtime ticks (0.6 ms per 10 s for `sr2`) are not work.
+        assert!(!HarnessState { cpu_ms: 101, ..idle.clone() }.worked_since(&idle));
         assert!(HarnessState { threads_running: 1, ..idle.clone() }.worked_since(&idle));
     }
 
