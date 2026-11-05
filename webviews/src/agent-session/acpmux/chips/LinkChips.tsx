@@ -21,11 +21,11 @@ import { isPrivateUrl, redactUrlText } from "./linkDisplay";
 import { isDeniedPath, pathName, textLinks } from "./paths";
 import { bareFileNames, useReplyFolders } from "./replyFolders";
 import { LinkHoverCard } from "./LinkHoverCard";
-import { pullRequestRef } from "./PullRequestCard";
+import { pullRequestRef } from "./pullRequestCardModel";
 import { usePullRequestState } from "./pullRequestStore";
 import { useHoverCard } from "./useHoverCard";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
-import { useAgentLinkClick } from "../conversation/SessionRef";
+import { useAgentLinkClick } from "../conversation/sessionRefModel";
 
 /// A path chip. `label` is the link's text, else the file name; `written` is the reply's own
 /// text, which a path that gets no chip draws as.

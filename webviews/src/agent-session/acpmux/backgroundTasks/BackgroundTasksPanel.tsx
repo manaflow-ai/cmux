@@ -43,7 +43,7 @@ import { ChevronLeft, Close, Expand } from "../conversation/icons";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
-import { useNow } from "../subagents/SubagentGroup";
+import { useNow } from "../subagents/subagentGroupModel";
 import type { WorkflowAgent } from "../summary/workflow";
 import type { TranscriptRead } from "../summary/workflowTranscript";
 import { useWorkflowTranscript } from "../summary/useWorkflowTranscript";
@@ -55,8 +55,10 @@ import {
   type BackgroundTask,
   type StopTarget,
 } from "./backgroundTasks";
-import { NestedAgents, SubagentTranscript } from "./SubagentTranscript";
+import { SubagentTranscript } from "./SubagentTranscript";
+import { NestedAgents } from "./subagentTranscriptModel";
 import "./backgroundTasks.css";
+import { FINISHED_PAGE, type PanelSection, panelSections } from "./backgroundTasksPanelModel";
 
 /// Whether this chat's subagents stop on their own (Claude Code's do; App.tsx `stopsSubagents`): a
 /// subagent's row shows no stop button where it would do nothing (never a dead click).
@@ -66,9 +68,6 @@ const StopsAgents = createContext(true);
 /// agents are listed but open nothing.
 export type WorkflowReads = { sessionId?: string; chat: string; connection: string; read: TranscriptRead };
 const Workflows = createContext<WorkflowReads | undefined>(undefined);
-
-/// How many finished tasks a group lists before Show more, and how many more each press adds.
-export const FINISHED_PAGE = 8;
 
 /// The gallery's arms (BackgroundTasksPanel.gallery.tsx). `nested` is Claude Desktop's shape and
 /// the one that ships; `flat` lists the running tasks under each agent with no counts line to open;
@@ -208,21 +207,6 @@ export function BackgroundTasksPanel({
       </Workflows.Provider>
     </StopsAgents.Provider>
   );
-}
-
-export type PanelSection = { id: "running" | "finished"; groups: BackgroundGroup[] };
-
-/// The list under its two headings, as Claude Desktop's panel splits it: "Running N", then
-/// "Finished N" (Leo, 2026-11-03, on its "Finished 28"). The groups keep their order
-/// (backgroundTasks.ts: running first, oldest first; then ended, latest first); a group that still
-/// runs a nested agent is a running one (`isLive`). An empty heading is left out.
-export function panelSections(groups: readonly BackgroundGroup[]): PanelSection[] {
-  const running = groups.filter(isLive);
-  const ended = groups.filter((group) => !isLive(group));
-  return [
-    { id: "running" as const, groups: running },
-    { id: "finished" as const, groups: ended },
-  ].filter((section) => section.groups.length > 0);
 }
 
 /// A heading that folds its groups, open at first; its fold is the panel's own state, so Back from a

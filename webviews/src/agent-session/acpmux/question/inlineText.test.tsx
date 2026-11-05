@@ -3,7 +3,7 @@
 import { expect, test } from "bun:test";
 import { isValidElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { hasMarks, inlineText, plainText } from "./inlineText";
+import { hasMarks, inlineText, plainText } from "./inlineTextModel";
 import type { AgentQuestion } from "./model";
 import { QuestionCard } from "./QuestionCard";
 

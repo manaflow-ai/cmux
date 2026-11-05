@@ -3,7 +3,7 @@
 // apart from what was typed since, and a draft outlives leaving the subagent's pane.
 import { describe, expect, test } from "bun:test";
 import type { ComposerAttachment } from "../attachments";
-import { afterFailedSend } from "./SubagentComposer";
+import { afterFailedSend } from "./subagentComposerModel";
 
 const chip = (id: string, text: string) => ({ id, kind: "pasted", text }) as unknown as ComposerAttachment;
 

@@ -1,7 +1,8 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 import { componentEntry } from "../../../gallery/format";
 import { Markdown } from "../conversation/Markdown";
-import { StartedMentionsContext, StartedSessionCards } from "./StartedSessionCard";
+import { StartedSessionCards } from "./StartedSessionCard";
+import { StartedMentionsContext } from "./startedSessionCardModel";
 import { type StartedSession, sessionMentions } from "./startedSessions";
 
 type Props = { started: StartedSession[]; reply?: string };

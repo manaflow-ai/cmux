@@ -10,7 +10,7 @@ import { componentEntry } from "../../../gallery/format";
 import { minutesAgo } from "../../../gallery/clock";
 import type { Play } from "../../../gallery/play";
 import type { AcpmuxRow } from "../model";
-import type { RetryAffordance } from "./SubagentDoneLine";
+import type { RetryAffordance } from "./subagentDoneLineModel";
 import type { Subagent } from "./subagentFold";
 import { failedLineLook } from "./failedLine.experiment";
 

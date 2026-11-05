@@ -3,7 +3,8 @@ import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import type { AcpmuxRow } from "../model";
-import { ShellActionsContext, ShellRow } from "./ShellRow";
+import { ShellRow } from "./ShellRow";
+import { ShellActionsContext } from "./shellRowModel";
 import type { ShellRun } from "./shellRuns";
 
 const now = 1_760_000_000_000;

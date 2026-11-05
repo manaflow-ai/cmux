@@ -11,7 +11,7 @@
 // forms and takes no input, except a component gallery stage (`isGalleryFrame`): one live
 // component, drawn at its own size and usable in place.
 import type { AcpmuxRow } from "../model";
-import { stripAnsi } from "./toolOutput";
+import { stripAnsi } from "./toolOutputModel";
 
 /// Height of the card's thumbnail after the reader clicks Load preview (`.acpmux-turn-preview-frame`
 /// in styles.css); the page draws at four times its size, scaled down.

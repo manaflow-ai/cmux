@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import { useT } from "../i18n";
-import { IMessageConnector, type IMessageLook } from "./IMessageConnector";
+import { IMessageConnector, type IMessageLook } from "./iMessageConnectorModel";
 import { IMESSAGE_INITIAL, type IMessageData, type IMessageThread } from "./imessage";
 import { SessionInfoPanel } from "./SessionInfo";
 import { SessionInfoSection } from "./SessionInfoSection";

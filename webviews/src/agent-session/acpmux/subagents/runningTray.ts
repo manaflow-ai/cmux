@@ -16,7 +16,7 @@ import { useSyncExternalStore } from "react";
 import type { AcpmuxRow } from "../model";
 import type { StartedSession } from "../started/startedSessions";
 import type { BackgroundCommand } from "../session-info/processes";
-import { nestAgents } from "./AgentsPill";
+import { nestAgents } from "./agentsPillModel";
 import { isRunGroup, isSubagentGroup, SUBAGENT_DONE, WORKFLOW_CARD } from "./subagentRows";
 import { awaitsOwnWork, type Subagent } from "./subagentFold";
 import { retrying, retryKey, sessionRetry, type RetryState } from "./retryState";

@@ -12,13 +12,9 @@ import { Icon } from "../icons/Icon";
 import { AgentMark } from "../../shared/AgentMark";
 import { agentTone } from "../subagents/agentTones";
 import { TonedIcon } from "../subagents/TonedIcon";
-import { tooltipProps } from "../shortcuts";
+
 import { readableParent, subagentBackLabel, type SubagentScope } from "./subagentScope";
-
-export type SubagentHeaderVariant = "title" | "crumb" | "card";
-/// The one the panel draws.
-export const SUBAGENT_HEADER: SubagentHeaderVariant = "title";
-
+import { type SubagentHeaderVariant } from "./subagentScopeHeaderModel";
 type Props = { scope: Pick<SubagentScope, "agent" | "parent" | "onBack"> };
 
 function Back({ scope }: Props) {

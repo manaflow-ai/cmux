@@ -13,28 +13,16 @@ import { DrivenList, DrivenRow, InlineCard } from "../../ui/DrivenList";
 import { isMousePress } from "../../ui/pressRelease";
 import { useOpenSide } from "../../ui/openSide";
 import { AddAccountDialog } from "./AddAccountDialog";
-import { SearchIcon, reasoningChoices, type Choice } from "./ComposerPickers";
+import { SearchIcon } from "./ComposerPickers";
+import { reasoningChoices, type Choice } from "./composerPickerModel";
 import { isDefaultChoice } from "./defaultChoice";
 import { useT } from "./i18n";
 import { OnNewTab } from "./newTabComposer";
 import { isModelRouterKind } from "./routerKinds";
 import { authLoginText, authText, canSessionLogin } from "./sessionAuth";
 import { useChatAccounts, type ChatAccount } from "./chatAccounts";
-import {
-  QuickModelMenu,
-  StarIcon,
-  familyTabs,
-  initialOf,
-  leadRoute,
-  runsOffers,
-  searchGroups,
-  symbolOf,
-  twinRows,
-  useAccountList,
-  type QuickFamily,
-  type QuickMenu,
-  type QuickModel,
-} from "./QuickModelMenu";
+import { QuickModelMenu, StarIcon } from "./QuickModelMenu";
+import { familyTabs, initialOf, leadRoute, runsOffers, searchGroups, symbolOf, twinRows, useAccountList, type QuickFamily, type QuickMenu, type QuickModel } from "./quickModelMenuModel";
 import "./quickModelColumns.css";
 
 type Column = 0 | 1 | 2;

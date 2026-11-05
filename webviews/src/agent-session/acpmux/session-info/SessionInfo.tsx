@@ -70,11 +70,12 @@ import { chatGallery } from "../summary/chatGallery";
 import { GalleryDialog } from "../summary/GalleryDialog";
 import { useScrollEdges } from "../summary/scrollEdges";
 import { sessionSummary, type SessionSummary, type SummaryBackgroundTask } from "../summary/sessionSummary";
-import { waitingSubagents } from "../summary/SubagentStatusList";
+import { waitingSubagents } from "../summary/subagentStatusListModel";
 import type { Artifact } from "../conversation/artifactPreview";
 import type { TurnFile } from "../diff";
 import type { StartedSession } from "../started/startedSessions";
-import { ChangesSection, headerStatus, visibleChanges, type SessionInfoPullRequestStatus } from "./ChangesSection";
+import { ChangesSection } from "./ChangesSection";
+import { headerStatus, visibleChanges, type SessionInfoPullRequestStatus } from "./changesSectionModel";
 import { useChangesStatuses, useStableUrls, withHeader } from "./changesStatus";
 import { ConnectorsSection } from "./ConnectorsSection";
 import { useIMessage, type IMessageView } from "./imessage";
@@ -84,7 +85,8 @@ import { SessionInfoSectionList, type SessionInfoCompactLook } from "./SessionIn
 import { sectionOrder, tuckedSections } from "./sectionOrder";
 import { SessionInfoSection } from "./SessionInfoSection";
 import { SourcesSection } from "./SourcesSection";
-import { SUBAGENT_HEADER, SubagentBanner, SubagentTitle } from "./SubagentScopeHeader";
+import { SubagentBanner, SubagentTitle } from "./SubagentScopeHeader";
+import { SUBAGENT_HEADER } from "./subagentScopeHeaderModel";
 import {
   subagentBackLabel,
   subagentProcesses,
@@ -107,7 +109,8 @@ import {
   type SessionInfoSectionId,
   type SessionInfoSections,
 } from "./sessionInfoState";
-import { OutputsSection, outputArtifacts, outputLinks, type OutputArtifact, type OutputLink } from "./OutputsSection";
+import { OutputsSection } from "./OutputsSection";
+import { outputArtifacts, outputLinks, type OutputArtifact, type OutputLink } from "./outputsSectionModel";
 import { sessionInfoLists, type SessionInfoProcess, type ProcessRegistry } from "./processes";
 import { ServersSection } from "./ServersSection";
 import { SubagentLimitStepper } from "./SubagentLimitStepper";
@@ -115,9 +118,11 @@ import { SubagentCountsMeta, SubagentsSection } from "./SubagentsSection";
 import { AlsoHereSection } from "./AlsoHereSection";
 import { alsoHere } from "./alsoHere";
 import { TasksSection } from "./TasksSection";
-import { currentPlan, planDone, ProgressSection, type SessionInfoPlan } from "./ProgressSection";
+import { ProgressSection } from "./ProgressSection";
+import { currentPlan, planDone, type SessionInfoPlan } from "./progressSectionModel";
 import { WorkflowTasks, type WorkflowAgentRowVariant } from "./WorkflowTasks";
-import { UsageSection, usageMeta, type UsageOwnRowLayout } from "./UsageSection";
+import { UsageSection, type UsageOwnRowLayout } from "./UsageSection";
+import { usageMeta } from "./usageSectionModel";
 import { AppPanelSection, useAppPanelSections } from "../../../apps/scene/panels";
 import type { AcpmuxSessionEntry } from "../sessionList";
 import type { WorkflowAgent, WorkflowSummary } from "../summary/workflow";

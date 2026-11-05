@@ -9,7 +9,7 @@ import { useT } from "../i18n";
 import type { AcpmuxSessionStart } from "../model";
 import { modelIdName } from "../defaultChoice";
 import { ChevronRight, TerminalSquare } from "./icons";
-import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { foldHome, routeOf } from "./sessionStart";
 
 export function SessionStartNote({ start }: { start: AcpmuxSessionStart }) {

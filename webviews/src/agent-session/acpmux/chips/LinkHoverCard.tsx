@@ -19,16 +19,7 @@ import type { HoverCard } from "./useHoverCard";
 import "./linkCard.css";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
 import { chatUnderHoverCard, hoverCardGlass } from "../chatUnderGlass";
-
-/// `href`'s host, or `href` when it doesn't parse.
-export function linkHost(href: string): string {
-  try {
-    return new URL(href).host;
-  } catch {
-    return href;
-  }
-}
-
+import { linkHost } from "./linkHoverCardModel";
 /// `href` with its secrets masked, unless it says no more than `host` (the head names the host).
 function addressBeyond(href: string, host: string): string | undefined {
   const address = redactUrlText(href);

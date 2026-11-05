@@ -69,7 +69,7 @@ import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { noteTranscriptMount } from "./flickerLog";
 import { authoritativeScrollIntent, createScrollPacer, type ScrollFrame } from "./scrollPacer";
 import { type Translate, useT } from "./i18n";
-import { TRAY_GHOST } from "./subagents/trayMotion";
+import { TRAY_GHOST } from "./subagents/trayMotionModel";
 import { noteReaderScroll } from "./summary/heldWhileScrolling";
 import { FisheyeFilters } from "../../ui/glass/Fisheye";
 import { transcriptRepositories, type RepositoryCache } from "./conversation/transcriptRepositories";
@@ -118,7 +118,7 @@ import {
   type ChatFind,
 } from "./conversation/chatFind";
 import { ChatFindBar } from "./conversation/ChatFindBar";
-import { THINKING, WORKED, turnFooterFrom, WORKING, retryTargetIn } from "./conversation/turns";
+import { THINKING, WORKED, turnFooterFrom, retryTargetIn } from "./conversation/turns";
 import { ArrowDown } from "./conversation/icons";
 import { installWheelGlide } from "./wheelGlide";
 import { installDockWheelHold, installWheelPassThrough } from "./wheelPassThrough";
@@ -140,13 +140,11 @@ import { chatSwitchMotion } from "./chatSwitch.experiment";
 import { callNative } from "./callNative";
 import { type NativeRegistry, type OpenDiff } from "./rows/rowProps";
 import { NoticeRow } from "./rows/NoticeRow";
-import { defaultRegistry, readOnlyRegistry } from "./rows/registry";
-import { workEnds } from "./conversation/waterfallSpans";
+import { defaultRegistry, readOnlyRegistry } from "./rows/registryModel";
+import { NO_ROWS, sameRowFrame, rowKind, FOLLOW_BOTTOM_DEADBAND_PX, SCROLL_ANCHOR_SETTLE_MS } from "./virtualTranscriptModel";
 
 /// The last measured transcript box on this page: a transcript mounting again starts from it.
 const lastTranscriptBox = { height: 600, width: 760 };
-
-export const NO_ROWS: readonly AcpmuxRow[] = [];
 
 /// A row's height as the page drew it at a width. It places the row until its next version is drawn.
 /// `actions`: whether a reply kept its action row's room then (model.ts `keepsReplyRoom`); a drawn
@@ -229,80 +227,6 @@ function sameDrawn(old: DrawnHeight | undefined, entry: DrawnHeight): boolean {
 function changesDrawn(current: Map<string, DrawnHeight>, updates: Map<string, DrawnHeight>): boolean {
   for (const [id, entry] of updates) if (!sameDrawn(current.get(id), entry)) return true;
   return false;
-}
-
-/// RowFrame redraws only when a prop it or its row's renderer reads changed. `children` is left out:
-/// it is a new element every render, built from `row` and the content props passed beside it
-/// (`contentType` and the rest), so comparing every other prop is enough. The callbacks are stable
-/// across snapshots (VirtualTranscript and the pane hold them), so a streaming snapshot that changes
-/// only the latest row leaves every other mounted row alone.
-function sameReferenceScope(previous: ReferenceScope | undefined, next: ReferenceScope | undefined): boolean {
-  if (previous === next) return true;
-  if (!previous || !next || previous.at !== next.at) return false;
-  if (previous.evidence.linked.length !== next.evidence.linked.length) return false;
-  if (!previous.evidence.linked.every((repo, index) => repo === next.evidence.linked[index])) return false;
-  const sameMap = <K, V>(a: ReadonlyMap<K, V>, b: ReadonlyMap<K, V>, valueEqual: (left: V, right: V) => boolean) => {
-    if (a.size !== b.size) return false;
-    for (const [key, value] of a) {
-      const other = b.get(key);
-      if (other === undefined || !valueEqual(value, other)) return false;
-    }
-    return true;
-  };
-  const sameMentions = (
-    left: readonly { at: number; repo: string }[],
-    right: readonly { at: number; repo: string }[],
-  ) =>
-    left.length === right.length &&
-    left.every((mention, index) => mention.at === right[index]?.at && mention.repo === right[index]?.repo);
-  return (
-    sameMap(previous.evidence.mentions, next.evidence.mentions, sameMentions) &&
-    sameMap(previous.turn, next.turn, (left, right) => left === right)
-  );
-}
-
-/// Whether two rows hold the same value in every own field (one level deep).
-function sameFields(previous: AcpmuxRow, next: AcpmuxRow): boolean {
-  if (previous === next) return true;
-  const before = previous as unknown as Record<string, unknown>;
-  const after = next as unknown as Record<string, unknown>;
-  const keys = Object.keys(after);
-  return keys.length === Object.keys(before).length && keys.every((key) => Object.is(before[key], after[key]));
-}
-
-export function sameRowFrame(previous: Record<string, unknown>, next: Record<string, unknown>): boolean {
-  const keys = Object.keys(next);
-  if (keys.length !== Object.keys(previous).length) return false;
-  return keys.every((key) => {
-    if (key === "children") return true;
-    if (key === "row") {
-      // Snapshot rebuilding can clone unchanged rows when a prompt is sent. Row renderers already
-      // use id/version as their draw identity; comparing the object here made every mounted frame
-      // repaint on that send even though its content had not changed. Keep the frame's own flags in
-      // the comparison because they are read outside the child renderer.
-      const before = previous.row as AcpmuxRow;
-      const after = next.row as AcpmuxRow;
-      // The running turn's live and working lines are drawn by turns.ts on every snapshot with a
-      // fixed version: what they say (the call in flight, its time, the clock offset) is in their
-      // fields, so they redraw whenever a field changes.
-      if (after.kind === THINKING || after.kind === WORKING) return sameFields(before, after);
-      return (
-        before.id === after.id &&
-        before.version === after.version &&
-        before.below === after.below &&
-        before.ended === after.ended &&
-        // A turn footer's Timeline also redraws when a background shell ends after the turn, which
-        // leaves its version as it was (conversation/waterfallSpans.ts workEnds, cached per array).
-        (after.kind !== "turnSummary" || workEnds(before.turnWork) === workEnds(after.turnWork))
-      );
-    }
-    if (key === "referenceScope")
-      return sameReferenceScope(
-        previous.referenceScope as ReferenceScope | undefined,
-        next.referenceScope as ReferenceScope | undefined,
-      );
-    return Object.is(previous[key], next[key]);
-  });
 }
 
 /// One transcript row. It reports its drawn height before the frame paints whenever it mounts or
@@ -513,8 +437,6 @@ const RowFrame = React.memo(function RowFrame({
 const speaker = (kind: string, t: Translate) =>
   kind === "user" ? t("transcript.you") : kind === "assistant" ? t("transcript.agent") : undefined;
 
-export const rowKind = (row: AcpmuxRow) => (isEditRow(row) ? "editedFiles" : row.kind);
-
 /// A row drawn as tool rows: tool calls and thoughts, a background task's or a subagent's end, a
 /// compaction, a failover, a policy the harness cannot keep or a session start note, and the one-line
 /// rows drawn on the tool rows' line (model.ts `isLineRow`: another agent's message, a notice, an
@@ -558,13 +480,6 @@ const disclosureControls = (rows: readonly AcpmuxRow[], after: number): string |
 /// The thread's top padding (styles.css `.acpmux-thread`): rows draw this far below their places
 /// (each row's `top` adds it), so the transcript ends this far past their total height.
 const THREAD_TOP = 16;
-
-/// Small layout changes arrive constantly while a reply streams. Treat the bottom as a short
-/// resting zone so every token does not write a new fractional scroll offset (and make the thumb
-/// visibly twitch at the same cadence). A meaningful displacement still corrects immediately.
-/// Four CSS pixels is below the visual rhythm of a transcript line, so the reader gets a little
-/// give while a burst is measured and one correction when that burst is meaningful.
-export const FOLLOW_BOTTOM_DEADBAND_PX = 4;
 
 /// Where a scroller sits, read while its content still matches `totalHeight`.
 const scrollPosition = (node: HTMLElement, totalHeight: number) => ({
@@ -809,9 +724,6 @@ function findMatchOffset(scroller: HTMLElement): number | undefined {
   if (!range) return undefined;
   return range.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
 }
-
-/// A scroll that rests this long is where the chat reopens (cx-6bgzj), reported once, not per frame.
-export const SCROLL_ANCHOR_SETTLE_MS = 400;
 
 /// Where a chat's transcript rests: the row at the top of the view and how far into it; null is the
 /// latest message, which a reopened chat follows anyway.

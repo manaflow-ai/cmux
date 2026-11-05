@@ -5,13 +5,15 @@ import { useT } from "../i18n";
 import { experimentArm } from "../../../experiments/experiment";
 import { hoverActions } from "../../../ui/hoverActions.experiment";
 import { useBlockWrap } from "./blockWrap";
-import { Lines, lineCount, PreviewMore, SIDEWAYS_SCROLLER, usePreview, useSidewaysRef, WrapButton } from "./BlockParts";
+import { Lines, PreviewMore, WrapButton } from "./BlockParts";
+import { lineCount, SIDEWAYS_SCROLLER, usePreview, useSidewaysRef } from "./blockPartsModel";
 import { CopyButton } from "./CopyButton";
 import { ChevronRight } from "./icons";
 import { Markdown } from "./Markdown";
 import { menuPartRef } from "./menuParts";
 import { watchOutputViewport } from "./outputViewport";
-import { OutputMore, previewedOutput, useOutput } from "./toolOutput";
+import { OutputMore } from "./toolOutput";
+import { previewedOutput, useOutput } from "./toolOutputModel";
 import type { ToolResult } from "./toolResult";
 
 /// Its own component keeps the sideways watcher mounted with the Raw body when a reader switches

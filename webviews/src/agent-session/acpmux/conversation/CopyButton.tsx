@@ -6,10 +6,7 @@ import type { rovingTabStopProps } from "../../../ui/listRowKeyboard";
 import { useT } from "../i18n";
 import { copyTextResult } from "./clipboard";
 import { Check, Copy } from "./icons";
-
-/// How long a copy shows its check.
-export const COPIED_MS = 1200;
-
+import { COPIED_MS } from "./copyButtonModel";
 export function CopyButton({
   text,
   label,

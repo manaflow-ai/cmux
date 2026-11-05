@@ -7,7 +7,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
-import { CloudStartView, startupChecklist } from "./CloudStartView";
+import { CloudStartView } from "./CloudStartView";
+import { startupChecklist } from "./cloudStartViewModel";
 import type { CloudStartProgress } from "./cloudStartProgress";
 
 let dom: JSDOM | undefined;

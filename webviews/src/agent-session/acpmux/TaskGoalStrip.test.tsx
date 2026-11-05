@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { loopNextText, TaskGoalStrip } from "./TaskGoalStrip";
+import { TaskGoalStrip } from "./TaskGoalStrip";
+import { loopNextText } from "./taskGoalStripModel";
 
 const never = async () => {
   throw new Error("a loop has no command");

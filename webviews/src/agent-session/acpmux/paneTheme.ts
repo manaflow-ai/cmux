@@ -1,12 +1,12 @@
 import { applyAgentTheme } from "../shared/theme";
 import { configureSubagentTray } from "./subagents/runningTray";
 import { configureSubagentTrayPlacement } from "./subagents/subagentTrayPlacement";
-import { configureSelectionReply } from "./conversation/SelectionReply";
+import { configureSelectionReply } from "./conversation/selectionReplyModel";
 import { configureChatWidth } from "./chatWidth";
 import { configureCodexToolRuns } from "./codexToolRuns";
 import { configureLiveLineBelow } from "./liveLineBelow";
 import { configureToolRunLook } from "./toolRunLook";
-import { configureSentLook } from "./conversation/SentMessageLine";
+import { configureSentLook } from "./conversation/sentMessageLineModel";
 import { configureInboxNoticeLook } from "./conversation/inboxNoticeLook";
 import { configureMessageLineLook } from "./conversation/messageLineLook";
 import { configureNoticeLook } from "./conversation/noticeLook";

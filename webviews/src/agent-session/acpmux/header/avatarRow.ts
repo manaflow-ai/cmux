@@ -1,7 +1,7 @@
 // The chat menu's Set Avatar… and Remove Avatar (Leo 2026-10-26: "upload their own"): the person's
 // own picture for this agent session, which its cards and sender chip draw (agentAvatar.ts).
 import { type Translate, translate } from "../i18n";
-import type { ChatMenuItem } from "./ChatHeaderTools";
+import type { ChatMenuItem } from "./chatHeaderToolsModel";
 
 export function avatarRows(
   chat: { sessionId: string | undefined; hasAvatar: boolean },

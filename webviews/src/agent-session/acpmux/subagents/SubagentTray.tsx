@@ -85,17 +85,19 @@ import { commandRead } from "../session-info/commandRules";
 import { trimRawCommand } from "../conversation/shortCommand";
 import { currentCommandRules } from "../session-info/commandLabelSettings";
 import { StopButton as ProcessStopButton } from "../session-info/TasksSection";
-import { STATUS_LABEL, type SubagentStatus, subagentStateText, subagentStatus } from "../summary/SubagentStatusList";
+import { STATUS_LABEL, type SubagentStatus, subagentStateText, subagentStatus } from "../summary/subagentStatusListModel";
 import { retrying, retryLabel, sessionRetry } from "./retryState";
 import { AgentMark } from "../../shared/AgentMark";
 import { AgentLine } from "./AgentLine";
-import { AgentIdentity, foreignHarness, SUBAGENT_FALLBACK } from "./AgentIdentity";
+import { AgentIdentity } from "./AgentIdentity";
+import { foreignHarness, SUBAGENT_FALLBACK } from "./agentIdentityModel";
 import { harnessFamily } from "./agentRuns";
 import { agentTone } from "./agentTones";
 import { subagentProgress } from "./subagentProgress";
 import { subagentDisplayName, subagentTaskLabel } from "./subsessions";
 import { BackgroundTaskTail } from "./BackgroundTaskTail";
-import { elapsed, StopButton, SubagentHarnessContext, useNow } from "./SubagentGroup";
+import { StopButton } from "./SubagentGroup";
+import { elapsed, SubagentHarnessContext, useNow } from "./subagentGroupModel";
 import { itemStart, type TrayItem } from "./runningTray";
 import { attentionFirst } from "./trayAttention";
 import { latestLine, toolDetail } from "./trayDetail";
@@ -110,7 +112,8 @@ import { COMMAND_KIND_ICON, commandKind } from "./trayCommandKinds";
 import { KIND_LINE_SEPARATOR, trayKindLineLook } from "./trayKindLine.experiment";
 import { traySurfaceLook } from "./traySurface.experiment";
 import { trayLatestLook } from "./trayLatest.experiment";
-import { Tick, useTrayMotion } from "./trayMotion";
+import { Tick } from "./trayMotion";
+import { useTrayMotion } from "./trayMotionModel";
 import type { StartedSession } from "../started/startedSessions";
 import { awaitsOwnWork, type Subagent } from "./subagentFold";
 import type { SubagentTrayPlacement } from "./subagentTrayPlacement";
@@ -118,6 +121,7 @@ import { rememberTrayOpen, trayOpenFor } from "./trayFoldMemory";
 import { PlanList } from "../conversation/PlanList";
 import type { AcpmuxPlanEntry } from "../model";
 import type { TrayHandleSide } from "../chatDisplay";
+import { planHead } from "./subagentTrayModel";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -914,14 +918,6 @@ function stackMarks(
 /// chat bubble, which reads as a message, and never the spinner, which each working line keeps.
 const HEAD_ICON = "app.sample.runningagents";
 
-/// The header's plan part: "2 of 5 · Write the tests", the step at work (else the next one waiting)
-/// after the progress; a list all done reads only its progress.
-export function planHead(t: Translate, plan: readonly AcpmuxPlanEntry[]): string {
-  const done = plan.filter((entry) => entry.status === "completed").length;
-  const progress = t("plan.hat", { done, total: plan.length });
-  const step = plan.find((entry) => entry.status === "in_progress") ?? plan.find((entry) => entry.status === "pending");
-  return step ? `${progress} · ${step.content}` : progress;
-}
 const NO_ITEMS: readonly TrayItem[] = [];
 const NO_ARRIVALS: ReadonlySet<string> = new Set();
 /// The most lines that rise in from one update; a bigger burst is simply there.

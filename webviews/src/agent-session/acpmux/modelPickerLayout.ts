@@ -1,6 +1,6 @@
 // The composer's model picker's props, the combos it lands, and its height bounds (ModelPicker.tsx).
 import type { AcpmuxSnapshot } from "./model";
-import type { Choice, Combo } from "./ComposerPickers";
+import type { Choice, Combo } from "./composerPickerModel";
 import type { QuickMenuExtras } from "./QuickModelMenu";
 import type { PickerProfile } from "./pickerProfiles";
 import type { SessionAuth } from "./sessionAuth";

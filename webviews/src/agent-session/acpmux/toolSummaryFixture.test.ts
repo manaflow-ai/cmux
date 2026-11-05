@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { backgroundCounts } from "./conversation/BackgroundStatusLine";
+import { backgroundCounts } from "./conversation/backgroundStatusLineModel";
 import { countsFailed, toolGroups } from "./conversation/toolGroups";
 import { toolSummaryRows } from "./toolSummaryFixture";
 

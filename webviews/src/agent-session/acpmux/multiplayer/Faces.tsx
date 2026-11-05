@@ -7,10 +7,7 @@ import { useT } from "../i18n";
 import { machineColor } from "../machineColor";
 import { useAvatarPicture } from "../../../pages/home-channels/avatars";
 import { initials, isGuest, type Participant } from "./participants";
-
-/// Faces the header shows before "+N".
-export const PRESENCE_STACK = 3;
-
+import { PRESENCE_STACK } from "./facesModel";
 /// A person's picture, or their initials on their own hue (the hash the pane gives machines). The
 /// picture is the record's, else the one Home's avatar service has for that id (avatars.ts; a page
 /// without the service, such as the agent pane today, reads none).

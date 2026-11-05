@@ -6,7 +6,7 @@ import { formatDuration } from "../conversation/turns";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
-import { useNow } from "../subagents/SubagentGroup";
+import { useNow } from "../subagents/subagentGroupModel";
 import type { SessionInfoServer } from "./processes";
 import { StopButton } from "./TasksSection";
 import { useScrollEdges } from "../../../ui/scrollEdges";

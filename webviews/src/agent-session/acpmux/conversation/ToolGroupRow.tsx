@@ -10,9 +10,11 @@ import { memo, useId, useMemo, useRef, type ReactNode } from "react";
 import { toolFiles } from "../diff";
 import type { AcpmuxActivity } from "../model";
 import { CommandRow } from "./CommandRow";
-import { EditCounts, useEditTotals } from "./EditCounts";
+import { EditCounts } from "./EditCounts";
+import { useEditTotals } from "./editCountsModel";
 import { FailedCount } from "./FailedCount";
-import { BackgroundStatusLine, backgroundCounts } from "./BackgroundStatusLine";
+import { BackgroundStatusLine } from "./BackgroundStatusLine";
+import { backgroundCounts } from "./backgroundStatusLineModel";
 import { EditDiff } from "./EditDiff";
 import { StepThought, ThoughtRow } from "./ThoughtRow";
 import { ToolRow } from "./ToolRow";
@@ -20,12 +22,15 @@ import { ChevronRight, Magnifier, OpenBook, Pencil, TerminalSquare } from "./ico
 import { isQuietThought, isThought } from "./thoughts";
 import { countsFailed, groupCalls, isRunning, toolGroupLabel, type ToolGroupKind } from "./toolGroups";
 import { useT } from "../i18n";
-import { useTranscriptDisclosure, useTranscriptViewContext } from "./transcriptDisclosure";
+import { useTranscriptDisclosure, useTranscriptViewContext } from "./transcriptDisclosureModel";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
-import { WriteLabel, writeCall } from "./WriteLabel";
+import { WriteLabel } from "./WriteLabel";
+import { writeCall } from "./writeLabelModel";
 import { ToolLabel } from "./ToolVerb";
 import { toolFailure } from "./toolFailure";
-import { failureWord, InlineFailureCause, InStep, ToolFailureCause } from "./ToolFailureCause";
+import { InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
+import { failureWord, InStep } from "./toolFailureCauseModel";
+import { stepProbe } from "./toolGroupRowModel";
 
 function groupIcon(kind: ToolGroupKind): ReactNode {
   switch (kind) {
@@ -43,9 +48,6 @@ function groupIcon(kind: ToolGroupKind): ReactNode {
 /// One drawn step of an opened group: the call or thought at `at` in the group's items, and a
 /// thought's number among the group's thoughts (-1 for a call), which names it wherever it draws.
 type StepEntry = { at: number; key: string; thought: number };
-
-/// Test probes: how many times the group built its step list and each step drew. Unset in the app.
-export const stepProbe: { build?: () => void; render?: (key: string) => void } = {};
 
 /// The group's step entries, rebuilt only when its shape changes (a call or thought joins, or one
 /// takes another's place), never when a call already listed streams output: the transcript replaces

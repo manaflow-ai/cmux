@@ -9,9 +9,11 @@ import { copyTextResult } from "./clipboard";
 import { Copy } from "./icons";
 import { useT } from "../i18n";
 import { fileBlockKind, useBlockWrap } from "./blockWrap";
-import { PreviewMore, usePreview, useSidewaysRef, WrapButton } from "./BlockParts";
+import { PreviewMore, WrapButton } from "./BlockParts";
+import { usePreview, useSidewaysRef } from "./blockPartsModel";
 import { FindReveal, foldFind } from "./chatFind";
-import { EditDiffLoading, useDiffPainted } from "./EditDiffLoading";
+import { EditDiffLoading } from "./EditDiffLoading";
+import { useDiffPainted } from "./editDiffLoadingModel";
 
 /// The card's lines (EditDiffHunks.tsx, on @pierre/diffs) come in their own chunk, so the page's
 /// first script parses without Pierre (bd cx-z9kz0). The header shows at once; the page starts the

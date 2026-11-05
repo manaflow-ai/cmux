@@ -35,10 +35,10 @@ import { waveProps } from "../../../ui/wave";
 import { Spinner } from "../conversation/icons";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
-import type { SubagentStatus } from "../summary/SubagentStatusList";
+import type { SubagentStatus } from "../summary/subagentStatusListModel";
 import type { Subagent } from "./subagentFold";
 import { TonedIcon } from "./TonedIcon";
-import { useAgentProgress } from "./agentProgressStore";
+import { useAgentProgress } from "./agentProgressStoreModel";
 import { Tick } from "./trayMotion";
 
 const ROW_ICON = rowIconSize(12);

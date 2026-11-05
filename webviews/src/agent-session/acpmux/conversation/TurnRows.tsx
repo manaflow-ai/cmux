@@ -11,7 +11,8 @@ import { WhoElseCard } from "./WhoElseCard";
 import { McpCallRows } from "./McpCallRows";
 import { SubsessionCallCard } from "./SubsessionCallCard";
 import { AgentCallCard } from "./AgentCallCard";
-import { AcpmuxSendLine, SentMessageGroup, sendKey } from "./SentMessageLine";
+import { AcpmuxSendLine, SentMessageGroup } from "./SentMessageLine";
+import { sendKey } from "./sentMessageLineModel";
 import { mcpNames, McpNamesContext } from "./mcpCalls";
 import { ToolGroupRow } from "./ToolGroupRow";
 import { ToolRow } from "./ToolRow";
@@ -33,19 +34,11 @@ import {
 } from "./turns";
 import { stoppedTurnLook } from "./stoppedTurn.experiment";
 import { turnCopyText } from "./turnCopy";
-import { hasTokens, TimedLabel, tokensText, TurnTokens } from "./TurnTokens";
+import { TimedLabel, TurnTokens } from "./TurnTokens";
+import { hasTokens, tokensText } from "./turnTokensModel";
 import { AlertCircle, ArrowRight, ChevronRight, Retry } from "./icons";
-import {
-  ForkButton,
-  forkWithFeedback,
-  MessageCopy,
-  MessageFooterRow,
-  MessageMore,
-  PinButton,
-  ReadAloudButton,
-  ReplyTime,
-  ROW_ICON,
-} from "./MessageActions";
+import { ForkButton, MessageCopy, MessageFooterRow, MessageMore, PinButton, ReadAloudButton, ReplyTime } from "./MessageActions";
+import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { CloudSignIn } from "./CloudSignIn";
 import type { CloudSignIn as CloudSignInActions } from "../cloudAgentLogin";
@@ -61,11 +54,13 @@ import {
 import { experimentArm } from "../../../experiments/experiment";
 import { turnErrorCard } from "./turnErrorCard.experiment";
 import { codeRouterOffer } from "./codeRouterOffer.experiment";
-import { CodeRouterAction, useCodeRouterChoice } from "./CodeRouterOffer";
+import { CodeRouterAction } from "./CodeRouterOffer";
+import { useCodeRouterChoice } from "./codeRouterOfferModel";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
-import { PresentationContext } from "./PresentationContext";
+import { PresentationContext } from "./presentationContextModel";
 import { useTranscriptReadOnly } from "./readOnly";
 import { useTurnWaterfall } from "./TurnWaterfall";
+import { thoughtIds } from "./turnRowsModel";
 
 /// Where a folded run splits (toolGroups.ts), which the row estimate (model.ts) reads too.
 export { runStretches, type RunStretch } from "./toolGroups";
@@ -218,31 +213,6 @@ function groupNode(
         />
       );
   }
-}
-
-/// A run of tool calls and thoughts between two pieces of text, in groups (toolGroups.ts). The
-/// Codex-style runs (Debug toggle `agentPane.debug.codexToolRuns`, on by default) fold a finished
-/// run (`foldRun`) of two or more entries under one summary line (toolRunSummary.ts: "Read 6 files,
-/// ran 4 commands"), and a run that is one group under that group's closed line ("Ran 3 commands"),
-/// so finished work is one click away between the paragraphs; coordination cards stay in sight
-/// between such lines (`runStretches`). Off, each group and call keeps its own line.
-/// Whether the whole run folds under one summary line.
-export function shouldFoldToolRun(row: AcpmuxRow, groups: readonly ToolGroup[]): boolean {
-  const stretches = runStretches(row, groups);
-  return stretches.length === 1 && stretches[0]!.fold;
-}
-
-/// How many thoughts come before each entry of a run. A thought keeps its number as calls arrive
-/// (a run only grows at its end, and grouping keeps the order), so its open state stays with it when
-/// a call that finished joins it to a group (Codex review of #24075).
-export function thoughtIds(groups: readonly ToolGroup[]): number[] {
-  let thoughts = 0;
-  return groups.map((group) => {
-    const before = thoughts;
-    const items = "items" in group ? group.items : [group.item];
-    thoughts += items.filter((item) => !item.tool && item.kind !== "note").length;
-    return before;
-  });
 }
 
 export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: string }) {

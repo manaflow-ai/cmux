@@ -21,7 +21,7 @@
 // richer"): a chevron right after the line's words opens the report, in the transcript's Markdown
 // and capped as an opened tool output is; the line's own click still opens the agent's view. How
 // it is offered is an experiment (doneReport.experiment.ts).
-import { createContext, useContext, useId, useLayoutEffect, useRef, useState } from "react";
+import { useContext, useId, useLayoutEffect, useRef, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { AgentTag } from "../conversation/AgentTag";
@@ -32,12 +32,13 @@ import { TurnActionsContext } from "../conversation/turnActions";
 import { ReactionMark, ReactionReply } from "../conversation/ReactionMark";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
-import { AgentIdentity, foreignHarness, SUBAGENT_FALLBACK } from "./AgentIdentity";
+import { AgentIdentity } from "./AgentIdentity";
+import { foreignHarness, SUBAGENT_FALLBACK } from "./agentIdentityModel";
 import { agentTone } from "./agentTones";
 import type { AcpmuxRow } from "../model";
 import { canRestart, STOP_REASON_LABEL } from "./restart";
 import { retryLabel, subagentRetry, type RetryAction, type RetryNote, type SessionRetryFields } from "./retryState";
-import { elapsed, SubagentHarnessContext, SubagentNavContext, SubagentPaneContext } from "./SubagentGroup";
+import { elapsed, SubagentHarnessContext, SubagentNavContext, SubagentPaneContext } from "./subagentGroupModel";
 import {
   subagentDisplayName,
   subagentTaskLabel,
@@ -47,7 +48,8 @@ import {
 } from "./subsessions";
 import { failedLineLook } from "./failedLine.experiment";
 import { Markdown } from "../conversation/Markdown";
-import { doneReportLook, type DoneReportLook } from "./doneReport.experiment";
+import { doneReportLook } from "./doneReport.experiment";
+import { RetryAffordanceContext, DoneReportLookContext, doneReport, shortReason } from "./subagentDoneLineModel";
 
 const DONE_LABEL: Record<string, StringKey> = {
   completed: "subagents.ended.completed",
@@ -56,35 +58,11 @@ const DONE_LABEL: Record<string, StringKey> = {
   disconnected: "subagents.ended.disconnected",
 };
 
-/// Where a failed line's Retry sits: an inline button (the default), a link after the line's
-/// time, or only in the ⋯ menu. The gallery compares them (SubagentRetry.gallery.tsx).
-export type RetryAffordance = "button" | "link" | "menu";
-export const RetryAffordanceContext = createContext<RetryAffordance>("button");
-
-/// The report's look a gallery variant pins (SubagentDoneLine.gallery.tsx); the pane leaves it
-/// unset and reads the experiment's arm.
-export const DoneReportLookContext = createContext<DoneReportLook | undefined>(undefined);
-
-/// What a finished subagent reported, for its line: its final reply, else its last message. Only
-/// a completed line has one to show; a failed, stopped or retrying line says why on the line.
-export function doneReport(agent: { state: string; result?: string; lastMessage?: string }): string | undefined {
-  if (agent.state !== "completed") return undefined;
-  return (agent.result ?? agent.lastMessage)?.trim() || undefined;
-}
-
 /// What acpmux names an Agent or Workflow call that gave no description (claude_stdio
 /// `spawn_subagent`): never a better name than the one a run reports.
 const PLACEHOLDER_TASKS = new Set(["Workflow", "Agent"]);
 
 const ACTION_LABEL: Record<RetryAction, StringKey> = { daemon: "retry.action", ask: "retry.askParent" };
-
-/// A failure's reason as a failed line shows it: its first sentence, the rest in the tooltip and the
-/// button's name ("Agent terminated early due to an API error. Retry with …" reads its first part).
-export function shortReason(error: string): string {
-  const line = error.trim().split("\n")[0]!.trim();
-  const sentence = /^(.+?[.!?])(?:\s|$)/u.exec(line);
-  return (sentence ? sentence[1]! : line).replace(/[.]$/u, "");
-}
 
 export function SubagentDoneLine({ row }: { row: AcpmuxRow }) {
   // Only a sub-session's line reads the session list (its retry is on its own session row): the

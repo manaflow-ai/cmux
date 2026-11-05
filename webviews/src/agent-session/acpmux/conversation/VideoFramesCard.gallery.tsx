@@ -11,7 +11,7 @@ import { componentEntry } from "../../../gallery/format";
 import { mergeToolItem, textFromContent } from "../direct";
 import { ImageViewerContext } from "./imageViewerContext";
 import type { McpCallRows as McpCallRowsComponent } from "./McpCallRows";
-import type { VideoFramesLayout, VideoFramesLayoutContext as LayoutContext } from "./VideoFramesCard";
+import type { VideoFramesLayout, VideoFramesLayoutContext as LayoutContext } from "./videoFramesCardModel";
 
 type Props = { layout: VideoFramesLayout; frames: number; named: boolean };
 

@@ -2,22 +2,13 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Combobox } from "../../ui/Combobox";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { Popover } from "../../ui/Popover";
-import { BrowseFailure, browseFailureMessage } from "./BrowseFailure";
+import { BrowseFailure } from "./BrowseFailure";
+import { browseFailureMessage } from "./browseFailureModel";
 import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
 import { Spinner } from "./conversation/icons";
-import {
-  AnotherMachineIcon,
-  EnvironmentIcon,
-  EnvironmentPicker,
-  ServerIcon,
-  type RunRowDetails,
-  type EnvironmentFaceStyle,
-  SECTION_LABELS,
-  environmentStateLabel,
-  useMachineRefresh,
-  type SavedEnvironmentRows,
-} from "./EnvironmentPicker";
+import { AnotherMachineIcon, EnvironmentIcon, EnvironmentPicker, ServerIcon, type RunRowDetails, type EnvironmentFaceStyle, type SavedEnvironmentRows } from "./EnvironmentPicker";
+import { SECTION_LABELS, environmentStateLabel, useMachineRefresh } from "./environmentPickerModel";
 import { machineColor } from "./machineColor";
 import {
   isCloudMachineRow,
@@ -49,7 +40,8 @@ import {
   type ExtraFolderControl,
   type ExtraFolderRows,
 } from "./extraFolders";
-import type { BrowseRequest, BrowseResult } from "./AddProjectPanel";
+import type { BrowseRequest } from "./AddProjectPanel";
+import type { BrowseResult } from "./addProjectPanelModel";
 import type { Project } from "./ProjectChooser";
 import { ProjectBadge } from "./ProjectBadge";
 import { projectSuffixes } from "./projectSuffix";
@@ -63,26 +55,7 @@ import type { RunModeRows } from "./sandboxRun";
 import { machineLoadWarning, type MachineResources } from "./machineResources";
 import { useComposerSettings } from "./composerSettings";
 import { repickMachine, type RepickMachine } from "./cloudRepick";
-
-export const CONTEXT_LABELS = {
-  computer: "composer.computer",
-  folder: "composer.folder",
-  local: "composer.thisMac",
-  chooseComputer: "composer.chooseComputer",
-  chooseFolder: "composer.chooseFolder",
-  chooseFolderMenu: "composer.chooseFolderMenu",
-  folderSearch: "composer.folderSearch",
-  cloud: "composer.cloud",
-  connectSSH: "composer.connectSSH",
-  addComputer: "composer.addComputer",
-  newCloudMachine: "composer.newCloudMachine",
-  newChatHere: "composer.newChatHere",
-  machine: "composer.machine",
-  chooseMachine: "composer.chooseMachine",
-  noProject: "composer.noProject",
-  environment: "composer.environment",
-} as const;
-
+import { CONTEXT_LABELS, splitForMiddleTruncation } from "./composerContextModel";
 /// How a new chat's strip asks where it runs (gallery seam; `where-machine` ships). Leo, 2026-11-03,
 /// on Codex desktop's strip: "chatgpt codex has nicer ways to deal with stuff".
 /// - `where-machine` (Codex desktop): Project | Where (This Mac, Cloud, Another machine) | Machine,
@@ -1151,19 +1124,6 @@ function LocationFace({
       )}
     </>
   );
-}
-
-/// A name split for a cut in the middle: the head takes the ellipsis, the tail always shows. Names
-/// under 7 characters are not split (they fit, or a cut would leave nothing to read). The tail is
-/// the name's last word when that word is 3 to 10 characters ("atlas-web-checkout-service" reads
-/// "atlas-we…service", never "…ervice"); otherwise a third of the name, 3 to 6 characters.
-export function splitForMiddleTruncation(value: string): [string, string] {
-  const chars = Array.from(value);
-  if (chars.length < 7) return [value, ""];
-  const separator = Math.max(...["-", "_", ".", " "].map((mark) => chars.lastIndexOf(mark)));
-  const word = chars.length - 1 - separator;
-  const tail = separator > 0 && word >= 3 && word <= 10 ? word : Math.min(6, Math.max(3, Math.floor(chars.length / 3)));
-  return [chars.slice(0, -tail).join(""), chars.slice(-tail).join("")];
 }
 
 function FolderIcon() {

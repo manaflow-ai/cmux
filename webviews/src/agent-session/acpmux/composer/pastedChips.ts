@@ -3,7 +3,7 @@
 import { type RefObject, useEffect, useRef } from "react";
 import type { ComposerAttachment } from "../attachments";
 import type { MarkdownFieldHandle } from "../MarkdownField";
-import type { MadeFile } from "./attachmentIntake";
+import type { MadeFile } from "./attachmentIntakeModel";
 import { isLargePaste, PASTE_FILE_CHARS, PASTED_TEXT_NAME, pastedTextAttachment, pastedTextFile } from "../pastedText";
 
 /// How long after Paste as Plain Text starts its paste still counts as that one: the menu's goes

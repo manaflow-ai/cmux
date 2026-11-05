@@ -5,7 +5,7 @@
 // them. A video the agent got no frames for (its read failed, or the agent takes no images) has no
 // note and stays the file chip it was.
 import type { AcpmuxRow, PromptContentPart, PromptImage } from "../model";
-import { attachmentPath } from "../FileAttachment";
+import { attachmentPath } from "../fileAttachmentModel";
 
 /// A video a prompt sent, as its bubble draws it (SentVideoTile.tsx).
 export type SentVideo = {

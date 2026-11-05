@@ -2,7 +2,7 @@
 import { expect, test } from "bun:test";
 import type { AcpmuxSessionEntry } from "../sessionList";
 import { alsoHere, ALSO_HERE_WINDOW_MS } from "./alsoHere";
-import { alsoHereRow } from "./AlsoHereSection";
+import { alsoHereRow } from "./alsoHereSectionModel";
 
 const NOW = 10 * ALSO_HERE_WINDOW_MS;
 const chat = (sessionId: string, more: Partial<AcpmuxSessionEntry> = {}): AcpmuxSessionEntry => ({

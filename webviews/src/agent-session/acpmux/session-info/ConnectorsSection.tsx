@@ -8,7 +8,7 @@ import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import type { AcpmuxSnapshot } from "../model";
-import { IMessageConnector } from "./IMessageConnector";
+import { IMessageConnector } from "./iMessageConnectorModel";
 import type { IMessageView } from "./imessage";
 
 type McpServer = NonNullable<NonNullable<AcpmuxSnapshot["summary"]>["mcpServers"]>[number];

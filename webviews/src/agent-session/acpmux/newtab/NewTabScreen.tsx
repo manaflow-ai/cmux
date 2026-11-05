@@ -18,8 +18,10 @@ import type { Project } from "../ProjectChooser";
 import { firstProject, isAgentHome, mostRecentProject, projectLabel, sessionMark } from "../sessionList";
 import { leaders } from "../leads";
 import { WorktreeFailure } from "../startFolder";
-import { BrowseFailure, browseFailureMessage } from "../BrowseFailure";
-import { BROWSE_BUSY, type BrowseRequest, type BrowseResult } from "../AddProjectPanel";
+import { BrowseFailure } from "../BrowseFailure";
+import { browseFailureMessage } from "../browseFailureModel";
+import { type BrowseRequest } from "../AddProjectPanel";
+import { BROWSE_BUSY, type BrowseResult } from "../addProjectPanelModel";
 import { errorMessage, isStartCancelled } from "../transportErrors";
 import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
 import { sandboxFailureKey, type RunMode, type RunModeRows } from "../sandboxRun";
@@ -35,19 +37,17 @@ import {
 } from "../attachments";
 import { composerCommand } from "../cmuxCommands";
 import type { UploadResult } from "../cloudUploads";
-import {
-  AttachmentStrip,
-  backspacedAttachment,
-  useAttachmentIntake,
-  useSendWhenAttached,
-} from "../composer/attachmentIntake";
+import { AttachmentStrip } from "../composer/attachmentIntake";
+import { backspacedAttachment, useAttachmentIntake, useSendWhenAttached } from "../composer/attachmentIntakeModel";
 import { isPasteAsPlainTextKey, usePastedChips } from "../composer/pastedChips";
 import { DropOverlay } from "../composer/DropOverlay";
-import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
+import { AllChatsList } from "./AllChatsList";
+import { type LoadChatsPage } from "./allChatsListModel";
 import { ChatCards } from "./ChatCards";
 import { ClosedList } from "./ClosedList";
 import { OpenTabsList } from "./OpenTabsList";
-import { type NowPlayingCommand, NowPlayingPlayer } from "./NowPlayingPlayer";
+import { NowPlayingPlayer } from "./NowPlayingPlayer";
+import { type NowPlayingCommand } from "./nowPlayingPlayerModel";
 import { ArrowUpIcon } from "../ComposerPickers";
 import { Spinner } from "../conversation/icons";
 import { newTabStart, useNewTabChipModel } from "./chipDefaults";
@@ -84,7 +84,8 @@ import {
   type PageWidgets,
   type WidgetEdit,
 } from "./pageWidgets";
-import { useWidgetEditing, WidgetEditBar, WidgetFrame } from "./WidgetEditing";
+import { WidgetEditBar, WidgetFrame } from "./WidgetEditing";
+import { useWidgetEditing } from "./widgetEditingModel";
 import { useNoEntryMotion } from "./noEntryMotion";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { AmbientWidgets } from "./AmbientWidgets";
@@ -103,11 +104,11 @@ import { tabsToComposer } from "../composerFocus";
 import { useEscapingPopup } from "../../../ui/popupHost";
 import { usePopupHost } from "../../../ui/UiProvider";
 import { UI_ANCHOR_GAP } from "../../../ui/anchor";
-import { useComposerChrome } from "../composerChrome";
+import { useComposerChrome } from "../composerChromeModel";
 import { useComposerSettings } from "../composerSettings";
 import { useComposerLook } from "../composerLook";
 import { MarkdownField, type MarkdownFieldHandle } from "../MarkdownField";
-import { useInlineAttachments } from "../composer/inlineAttachments";
+import { useInlineAttachments } from "../composer/inlineAttachmentsModel";
 import { ComposerFoot } from "../ComposerFoot";
 import { useRowFit } from "../composerRowFit";
 import { useMenuPressGuard } from "../menuPressGuard";
@@ -125,7 +126,7 @@ import {
   type SlashCommand,
   type SlashTrigger,
 } from "../slashCommands";
-import { useNewTabCommand, type NewTabCommandActions } from "./useNewTabCommand";
+import { useNewTabCommand, type NewTabCommandActions } from "./useNewTabCommandModel";
 import { useHarnessesListed } from "../catalog";
 import { agentName } from "../agents";
 import { openHarnessesPage } from "../harnesses/harnessesPage";
