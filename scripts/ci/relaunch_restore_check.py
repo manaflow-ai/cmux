@@ -253,9 +253,10 @@ def seed(inst: Instance, fake_agent: str, work: str, front_terminal: bool = True
 def scrollback_sha256(inst: Instance, term: str) -> str | None:
     """sha256 of the terminal's whole text: every scrollback row (oldest first, paged back from the newest), then
     the screen's rows, as one list. Independent of the terminal's size: a terminal first given a view after the
-    relaunch resizes, which moves rows between scrollback and screen and pads rows to the new width, so each row is
-    right-trimmed and the trailing blank rows dropped (nightly 4198271655001 reported every round "changed" when
-    the screen was hashed apart). The rows are kept on the instance (`last_rows`) for a failure's evidence."""
+    relaunch resizes, which moves rows between scrollback and screen, pads rows to the new width and rewraps long
+    lines at it, so the digest is of the text with every space and row break taken out (nightly 4198271655001
+    reported every round "changed" for the same text wrapped at another width). The rows are kept on the instance
+    (`last_rows`) for a failure's evidence."""
     rows, before = [], None
     for _ in range(100):
         page = unwrap(inst.cmux("terminal", term, "history", "read", "--limit", "1000",
@@ -276,7 +277,7 @@ def scrollback_sha256(inst: Instance, term: str) -> str | None:
     while rows and not rows[-1]:
         rows.pop()
     inst.last_rows = rows
-    return hashlib.sha256("\n".join(rows).encode()).hexdigest()
+    return hashlib.sha256("".join("".join(rows).split()).encode()).hexdigest()
 
 
 def chat_messages(inst: Instance, chat: str) -> int:
