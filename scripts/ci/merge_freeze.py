@@ -28,7 +28,9 @@ Usage:
   merge_freeze.py expire --repo OWNER/REPO [--dry-run]
 
 `check` exits 0 when nothing blocks the merge, 1 when a freeze does (it prints which), and
-2 when GitHub can't be read: an unknown freeze state never reads as clear.
+2 when GitHub can't be read: an unknown freeze state never reads as clear. On a lane VM, where gh
+goes through the lane-gh broker, a broker refusal of the GraphQL fallback is also 2, never 1, and
+says that the broker refused the read, with the broker's words: it is not a freeze.
 """
 
 from __future__ import annotations
@@ -216,6 +218,24 @@ def rate_limited(error: subprocess.CalledProcessError) -> bool:
     return bool(RATE_LIMIT.search(f"{error.stderr or ''} {error.stdout or ''}"))
 
 
+# The lane VM gh shim's words for a call the lane-gh broker refused (its Refused answer, "refused: REASON"):
+# "gh: lane-gh call graphql OWNER/REPO: refused: graphql: field ... is refused ...". Only that: a broker outage, a
+# lost socket or a GitHub error on the same path is no refusal, and keeps the plain "cannot read" report.
+BROKER_REFUSAL = re.compile(r"lane-gh call graphql \S+: refused: ")
+
+
+class BrokerRefused(Exception):
+    """The lane-gh broker refused the GraphQL fallback read: the freeze state is unknown, not frozen."""
+
+
+def broker_refusal(error: subprocess.CalledProcessError) -> str | None:
+    """The broker's refusal, one line, when ERROR is one (and not a spent quota); else None."""
+    text = f"{error.stderr or ''} {error.stdout or ''}".strip()
+    if not BROKER_REFUSAL.search(text) or rate_limited(error):
+        return None
+    return " ".join(text.split())[:600]
+
+
 def graphql_open_issues(repo: str) -> list[dict]:
     """The open merge-freeze issues over GraphQL, in the REST shape parse_issue reads. Used when
     the REST quota is spent. The variables are named `owner` and `name` so a broker can scope the
@@ -252,7 +272,13 @@ def open_freezes(repo: str, issues_file: str | None = None) -> list[Freeze]:
             # A spent REST quota is not an unknown freeze state: GraphQL has its own quota.
             if not rate_limited(error):
                 raise
-            issues = graphql_open_issues(repo)
+            try:
+                issues = graphql_open_issues(repo)
+            except subprocess.CalledProcessError as fallback:
+                refusal = broker_refusal(fallback)
+                if refusal is None:
+                    raise
+                raise BrokerRefused(refusal) from None
     freezes = []
     for issue in issues:
         if "pull_request" in issue:
@@ -366,6 +392,13 @@ def main(argv: list[str] | None = None) -> int:
             events = (read_json_list(args.events_file) if args.events_file is not None
                       else gh_items(f"repos/{args.repo}/issues/{args.pr}/events"))
             labeler = ok_labeler(events)
+    except BrokerRefused as refusal:
+        # Fail closed, as any unread freeze list does, but name the cause: nothing here says a freeze exists.
+        target = f"{args.repo}#{args.pr}" if args.mode == "check" else args.repo
+        print(f"cannot read merge freezes for {target}: REST is rate limited and the lane-gh broker refused the "
+              f"GraphQL fallback read of the open `{LABEL}` issues (not a freeze; the freeze state is unknown, so "
+              f"the merge waits): {refusal}", file=sys.stderr)
+        return 2
     # TypeError, AttributeError: GitHub answered with an unexpected shape (a null issue or a missing
     # timestamp, say). Still unknown, not frozen.
     except (subprocess.CalledProcessError, OSError, KeyError, ValueError, TypeError, AttributeError) as error:
