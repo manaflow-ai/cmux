@@ -23,7 +23,9 @@ import sys
 import time
 from pathlib import Path
 
-NIGHTLY = "nightly-2026-11-01"
+# A nightly from the 1.95 cycle (the pinned stable, cmux-tui/rust-toolchain.toml), so a nightly
+# variant changes only the flags it names; nightly-2026-11-01 (1.101) no longer compiles acpmux.
+NIGHTLY = "nightly-2026-02-20"
 EDITS = {
     "core": "crates/cmux-tui-core/src/lib.rs",
     "tui": "crates/cmux-tui/src/main.rs",
@@ -98,7 +100,18 @@ def variants(tools: Path) -> dict[str, dict]:
                           **({"skip": v[fast]["skip"]} if "skip" in v[fast] else {})}
     for k in ("cranelift", "cranelift+all"):
         v[k]["cranelift"] = True
+    # blaze (github.com/indexable-inc/blaze): a cargo stand-in whose daemon keeps the workspace
+    # compiled in memory and recompiles changed functions. Its own pinned nightly; dev loop only.
+    v["blaze"] = {"blaze": True} if shutil.which("blaze") else {"skip": "no blaze on PATH (rust-dev-loop.sh fetches it)"}
     return v
+
+
+def blaze_rss_mb() -> float:
+    """Resident memory of this run's blaze processes (the daemon and any client), in MB."""
+    r = subprocess.run(["ps", "-axo", "rss=,comm="], capture_output=True, text=True)
+    kb = sum(int(line.split(None, 1)[0]) for line in r.stdout.splitlines()
+             if line.strip() and Path(line.split(None, 1)[-1].strip()).name.startswith("blaze"))
+    return round(kb / 1024, 1)
 
 
 def ensure_nightly(log, cranelift: bool) -> tuple[str | None, str | None]:
@@ -129,6 +142,20 @@ ZIG_PACKAGES: Path | None = None
 
 def cargo(spec: dict, target: Path, args: list[str], log_path: Path) -> tuple[float, int, int]:
     env = dict(os.environ)
+    if spec.get("blaze"):
+        # blaze takes cargo's flags but refuses --locked; its build directory is under BLAZE_HOME.
+        cmd = ["blaze", *[x for x in args if x != "--locked"]]
+        t0 = time.monotonic()
+        with open(log_path, "a") as f:
+            f.write(f"\n$ {' '.join(cmd)}\n")
+            f.flush()
+            r = subprocess.run(cmd, env=env, stdout=f, stderr=subprocess.PIPE, text=True)
+            f.write(r.stderr)
+        dt = time.monotonic() - t0
+        if r.returncode != 0:
+            for line in r.stderr.strip().splitlines()[-15:]:
+                print(f"DEVLOOP-LOG {line}", flush=True)
+        return dt, r.returncode, len(re.findall(r"^\s+Compiling ", r.stderr, re.M))
     # Only this variant's settings: no inherited profile, wrapper or flags (a worker's global
     # config.toml may set a wrapper or rustflags; empty values here override it for every variant).
     for name in list(env):
@@ -172,8 +199,11 @@ def cargo(spec: dict, target: Path, args: list[str], log_path: Path) -> tuple[fl
         f.write(r.stderr)
     dt = time.monotonic() - t0
     if r.returncode != 0:
-        for line in r.stderr.strip().splitlines()[-12:]:
-            print(f"DEVLOOP-LOG {line}", flush=True)
+        lines = r.stderr.strip().splitlines()
+        picked = [i for i, ln in enumerate(lines) if ln.startswith("error")][:6]
+        keep = sorted({j for i in picked for j in range(i, min(i + 6, len(lines)))}) or range(max(0, len(lines) - 12), len(lines))
+        for j in keep:
+            print(f"DEVLOOP-LOG {lines[j]}", flush=True)
     compiled = len(re.findall(r"^\s+Compiling ", r.stderr, re.M))
     return dt, r.returncode, compiled
 
@@ -250,9 +280,14 @@ def main() -> int:
     scen = [s for s in a.scenarios.split(",") if s]
 
     def rec(variant: str, scenario: str, dt: float, rc: int, compiled: int, i: int) -> None:
-        samples.append({"variant": variant, "scenario": scenario, "seconds": round(dt, 3), "exit": rc,
-                        "compiled": compiled, "round": i})
-        log(f"DEVLOOP-SAMPLE {variant} {scenario} round={i} {dt:.2f}s exit={rc} compiled={compiled}")
+        smp = {"variant": variant, "scenario": scenario, "seconds": round(dt, 3), "exit": rc,
+               "compiled": compiled, "round": i}
+        extra = ""
+        if chosen.get(variant, {}).get("blaze"):
+            smp["rss_mb"] = blaze_rss_mb()
+            extra = f" rss_mb={smp['rss_mb']}"
+        samples.append(smp)
+        log(f"DEVLOOP-SAMPLE {variant} {scenario} round={i} {dt:.2f}s exit={rc} compiled={compiled}{extra}")
         (out / "samples.json").write_text(json.dumps({"host": host, "samples": samples}, indent=1))
 
     troot = Path(a.target_root).resolve() if a.target_root else out / "target"
@@ -261,6 +296,8 @@ def main() -> int:
     targets = {k: troot / re.sub(r"[^A-Za-z0-9_.-]", "_", k) for k in chosen}
     for c in range(a.clean_n):
         for k, spec in chosen.items():
+            if spec.get("blaze") and c > 0:
+                continue  # blaze keeps its build in its daemon and BLAZE_HOME: only its first build is cold
             shutil.rmtree(targets[k], ignore_errors=True)
             for p in EDITS.values():
                 restore(ws / p)
@@ -284,7 +321,7 @@ def main() -> int:
                     if s in EDITS:
                         dt, rc, comp = cargo(spec, targets[k], BUILD, lp)
                         rec(k, s, dt, rc, comp, i)
-                    elif s == "switch" and i == 0:
+                    elif s == "switch" and i == 0 and not spec.get("blaze"):
                         # Feature unification: build one package alone after the pair. Any
                         # dependency recompiled here is what a workspace-hack crate would save.
                         for pk, extra in (("acpmux", ["--bin", "acpmux"]), ("cmux-tui", ["--bins"])):
@@ -295,6 +332,10 @@ def main() -> int:
     finally:
         for p in EDITS.values():
             restore(ws / p)
+        if any(s.get("blaze") for s in chosen.values()):
+            st = subprocess.run(["blaze", "status", "--json"], capture_output=True, text=True)
+            log(f"DEVLOOP-BLAZE-STATUS {st.stdout.strip()[:2000]}")
+            subprocess.run(["blaze", "stop"], capture_output=True, text=True)
 
     if a.tests and "base" in chosen:
         lp = out / "tests.log"
@@ -320,8 +361,10 @@ def main() -> int:
         ok = [x["seconds"] for x in xs if x["exit"] == 0]
         fails = sum(1 for x in xs if x["exit"] != 0)
         comp = statistics.median([x["compiled"] for x in xs])
+        rss = [x["rss_mb"] for x in xs if "rss_mb" in x]
         log(f"DEVLOOP {v} {s} {len(ok)} {pct(ok, .5):.2f} {pct(ok, .95):.2f} "
-            f"{min(ok, default=float('nan')):.2f} {max(ok, default=float('nan')):.2f} {comp:g} {fails}")
+            f"{min(ok, default=float('nan')):.2f} {max(ok, default=float('nan')):.2f} {comp:g} {fails}"
+            + (f" rss_max_mb={max(rss)}" if rss else ""))
     return 1 if any(x["exit"] != 0 for x in samples if not x["scenario"].startswith("test")) else 0
 
 
