@@ -22,6 +22,11 @@ struct CmdNPrebuiltWorkspaceViewTests {
 
             let store = services.daemon.store
             let workspacesBefore = Set(store.workspaces.map(\.id))
+            // Chrome builds the next tab's renderer at a quiet moment, not at the key: the window may build the next
+            // Cmd-N's view after this test made this Mac's host known, and before the key.
+            try await PasswordManagerRouteTests.until({ Self.descendants(of: window.contentView).contains { $0 is WorkspaceContentView && $0 !== before } },
+                                                      within: .seconds(10),
+                                                      report: { "Cmd-N built its workspace view in the key's turn: it was not in the window before the key" })
             let viewsBeforeKey = Set(Self.descendants(of: window.contentView).map(ObjectIdentifier.init))
 
             let work = services.registry.capturingWork {
