@@ -38,7 +38,8 @@ public final class SettingsHarnesses {
     @ObservationIgnored private let runUpdate: (@MainActor (JSONValue, PageCallContext) async throws -> JSONValue)?
     @ObservationIgnored private let updateState: @MainActor () -> JSONValue
     @ObservationIgnored private let refreshUpdates: (@MainActor () async -> Void)?
-    @ObservationIgnored let accountsCall: @Sendable (AcpmuxEnvironment, AcpmuxHarnessMethod, [String: any Sendable]) async throws -> Data
+    /// A test's stand-in for the daemon's accounts calls; nil calls the daemon (`callAccounts`).
+    @ObservationIgnored let accountsCall: (@Sendable (AcpmuxEnvironment, AcpmuxHarnessMethod, [String: any Sendable]) async throws -> Data)?
     /// The person's home: an added account's folder is ~/.cmux/accounts/<id>, and the page shows folders under `~`.
     @ObservationIgnored let userHome: URL
     @ObservationIgnored private(set) var generation = 0
@@ -52,8 +53,7 @@ public final class SettingsHarnesses {
          runUpdate: (@MainActor (JSONValue, PageCallContext) async throws -> JSONValue)? = nil,
          updateState: @escaping @MainActor () -> JSONValue = { .array([]) },
          refreshUpdates: (@MainActor () async -> Void)? = nil,
-         accountsCall: @escaping @Sendable (AcpmuxEnvironment, AcpmuxHarnessMethod, [String: any Sendable]) async throws -> Data
-             = AcpmuxEnvironment.settingsAccountsCall,
+         accountsCall: (@Sendable (AcpmuxEnvironment, AcpmuxHarnessMethod, [String: any Sendable]) async throws -> Data)? = nil,
          userHome: URL = FileManager.default.homeDirectoryForCurrentUser,
          unsupported: (@MainActor () -> String)? = nil) {
         self.environment = environment

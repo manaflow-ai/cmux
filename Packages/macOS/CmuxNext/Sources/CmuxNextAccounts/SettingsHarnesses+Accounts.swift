@@ -80,16 +80,17 @@ extension AcpmuxEnvironment {
     public nonisolated static func settingsHarnessRows(_ environment: AcpmuxEnvironment) async throws -> [AcpmuxHarnessRow] {
         try await environment.harnessRows()
     }
-
-    /// One accounts call on the local daemon (Settings > Agents > Harnesses). Named so
-    /// `SettingsHarnesses` can default to it without an async closure literal.
-    public nonisolated static func settingsAccountsCall(_ environment: AcpmuxEnvironment, _ method: AcpmuxHarnessMethod,
-                                                 _ params: [String: any Sendable]) async throws -> Data {
-        try await environment.harness(method, params: params)
-    }
 }
 
 extension SettingsHarnesses {
+    /// One accounts call: the test's stand-in, else the local daemon. A direct call, not a static
+    /// function reference as the init's default: that default crashed the suite (SIGSEGV entering it).
+    func callAccounts(_ environment: AcpmuxEnvironment, _ method: AcpmuxHarnessMethod,
+                      _ params: [String: any Sendable]) async throws -> Data {
+        if let accountsCall { return try await accountsCall(environment, method, params) }
+        return try await environment.harness(method, params: params)
+    }
+
     /// The accounts the page lists; nil when the daemon has no `_acpmux/accounts` (the page then shows
     /// the harness rows alone, as before).
     var accountsState: JSONValue {
@@ -102,7 +103,7 @@ extension SettingsHarnesses {
     /// keeps what is shown. Only the newest refresh writes.
     func readAccounts(_ environment: AcpmuxEnvironment, generation mine: Int) async {
         do {
-            let data = try await accountsCall(environment, .accounts, [:])
+            let data = try await callAccounts(environment, .accounts, [:])
             guard mine == generation else { return }
             accounts = SettingsProviderAccount.list(data)
         } catch let error as AcpmuxRPCError where error.isMethodMissing {
@@ -130,7 +131,7 @@ extension SettingsHarnesses {
         case "accountEnable":
             guard let id = params["account"]?.stringValue, accounts?.contains(where: { $0.id == id }) == true,
                   let on = params["on"]?.boolValue else { throw PageError.invalidParams("accountEnable needs a listed account and on") }
-            _ = try await accountsCall(environment, .accountSet, ["id": id, "enabled": on])
+            _ = try await callAccounts(environment, .accountSet, ["id": id, "enabled": on])
         case "accountAdd":
             // Only Codex has a shadow-home add today (route/add `shadow`).
             guard let family = params["family"]?.stringValue, family == "codex", let accounts else {
@@ -138,7 +139,7 @@ extension SettingsHarnesses {
             }
             let made = Self.newAccount(family: family, existing: accounts)
             let home = userHome.appending(path: ".cmux/accounts/\(made.id)", directoryHint: .isDirectory).path
-            _ = try await accountsCall(environment, .routeAdd, [
+            _ = try await callAccounts(environment, .routeAdd, [
                 "id": made.id, "name": made.name, "kind": "direct-subscription", "families": [family],
                 "accountHome": home, "shadow": true,
             ] as [String: any Sendable])
