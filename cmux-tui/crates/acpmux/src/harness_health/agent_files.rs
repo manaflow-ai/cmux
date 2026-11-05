@@ -60,6 +60,11 @@ pub(super) fn file_auth(
         "muse" => &["muse", "muse-acp"],
         _ => return None,
     };
+    // Windows names them `gemini.exe`, `opencode.cmd` (an npm shim).
+    let program = [".exe", ".cmd", ".bat"]
+        .iter()
+        .find_map(|suffix| program.strip_suffix(suffix))
+        .unwrap_or(program);
     if !names.contains(&program) {
         return None;
     }
@@ -281,6 +286,9 @@ mod tests {
         let cursor = env(&dir, &[("CURSOR_API_KEY", "k")]);
         assert_eq!(auth("cursor", "agent-wrapper", &cursor), None);
         assert_eq!(auth("cursor", "agent", &cursor), Some(Auth::SignedIn));
+        assert_eq!(auth("cursor", "cursor-agent.exe", &cursor), Some(Auth::SignedIn));
+        assert_eq!(auth("gemini", "gemini.cmd", &gemini), Some(Auth::SignedIn));
+        assert_eq!(auth("gemini", "gemini-wrapper.exe", &gemini), None);
         assert_eq!(auth("aider", "aider", &gemini), None);
         let _ = std::fs::remove_dir_all(&dir);
     }
