@@ -779,7 +779,11 @@ mod tests {
             (".npmrc", "//registry.npmjs.org/:_authToken=npm_x\n"),
             (".pypirc", "[pypi]\npassword = x\n"),
         ];
-        let goes = [("README.md", "hi\n"), ("keys/id_ed25519.pub.txt", "x\n"), ("web/.npmrc", "save-exact=true\n")];
+        let goes = [
+            ("README.md", "hi\n"),
+            ("keys/id_ed25519.pub.txt", "x\n"),
+            ("web/.npmrc", "save-exact=true\n"),
+        ];
         for in_git in [true, false] {
             let dir = tempfile::tempdir().unwrap();
             let top = std::fs::canonicalize(dir.path()).unwrap();
@@ -803,7 +807,11 @@ mod tests {
                 assert!(set.files.contains_key(path), "git={in_git}: {path} stayed here");
             }
             let (_, counts) = set.skips.json();
-            assert_eq!(counts["secret"], serde_json::json!(secrets.len()), "git={in_git}: {counts}");
+            assert_eq!(
+                counts["secret"],
+                serde_json::json!(secrets.len()),
+                "git={in_git}: {counts}"
+            );
         }
     }
 
