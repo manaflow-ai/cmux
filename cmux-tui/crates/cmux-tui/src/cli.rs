@@ -98,6 +98,8 @@ pub(crate) fn remote_host_requested(raw_args: &[String]) -> bool {
 #[cfg(unix)]
 mod machine_doctor;
 #[cfg(unix)]
+mod machine_link;
+#[cfg(unix)]
 mod machine_join;
 #[cfg(unix)]
 pub(crate) use machine_join::{
@@ -545,6 +547,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_repo::run_if_requested(args))
         .or_else(|| cloud_client_session::run_if_requested(args))
         .or_else(|| cloud_machine_io::run_if_requested(args))
+        .or_else(|| machine_link::run_if_requested(args))
         .or_else(|| machine_join::run_if_requested(args))
         .or_else(|| machine_doctor::run_if_requested(args))
         .or_else(|| apps_list::run_if_requested(args))

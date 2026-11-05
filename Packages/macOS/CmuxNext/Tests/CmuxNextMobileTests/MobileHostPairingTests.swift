@@ -128,6 +128,38 @@ import Testing
         #expect(devices.devices[0].fingerprint.count == 16)
     }
 
+    /// Another of the person's Macs (docs/multi-machine-sessions.md): allowed, it starts with `view`
+    /// only, reaches hostd as a `mac` record with its grants, and never approves agent actions.
+    @Test func anAllowedMacStartsWithViewAndIsNeverAnApprover() throws {
+        var devices = MobileHostPairedDevices(userID: "u")
+        let mac = MobileHostPairRequest(phoneDeviceID: "m1", name: "Studio", identityKey: Self.identity, approvalKey: "", kind: "mac")
+        #expect(mac.isMachine)
+        #expect(devices.decision(for: mac) == .ask)
+        devices.approve(mac, at: Date(timeIntervalSince1970: 5))
+        #expect(devices.decision(for: mac) == .trusted)
+        // The same keys asking as a phone are a different request.
+        #expect(devices.decision(for: MobileHostPairRequest(phoneDeviceID: "m1", name: "Studio", identityKey: Self.identity, approvalKey: "")) == .ask)
+        #expect(devices.devices[0].grants == ["view"])
+        devices.setGrants(["run", "view", "root"], for: "m1")
+        #expect(devices.devices[0].grants == ["view", "run"], "unknown grants are dropped, the order is fixed")
+        devices.approve(Self.request, at: Date(timeIntervalSince1970: 6))
+        devices.setGrants(["install"], for: Self.request.phoneDeviceID)
+        #expect(devices.devices[1].grants.isEmpty, "a phone never gets grants")
+        let object = try #require(try JSONSerialization.jsonObject(with: MobileHostLaunch.devicesLine(devices).dropLast()) as? [String: Any])
+        let rows = try #require(object["devices"] as? [[String: Any]])
+        #expect(rows[0]["kind"] as? String == "mac")
+        #expect(rows[0]["grants"] as? [String] == ["view", "run"])
+        #expect(rows[1]["kind"] == nil, "a phone's record is as before")
+        #expect((devices.approversParams(macDevice: "x")["approvers"] as? [[String: String]])?.map { $0["id"] } == [Self.request.phoneDeviceID])
+        #expect(devices.devices[0].fingerprint == MobileHostPairedDevices.fingerprint(Self.identity))
+        // A file written before machines decodes as phones.
+        let old = Data(#"{"id":"p","name":"n","identityKey":"04","approvalKey":"04","pairedAt":0}"#.utf8)
+        let decoded = try JSONDecoder().decode(MobileHostPairedDevice.self, from: old)
+        #expect(decoded.kind == "phone" && decoded.grants.isEmpty)
+        let round = try JSONDecoder().decode(MobileHostPairedDevice.self, from: JSONEncoder().encode(devices.devices[0]))
+        #expect(round == devices.devices[0])
+    }
+
     @Test func theFileBelongsToOneUser() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

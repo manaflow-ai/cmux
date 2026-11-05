@@ -161,6 +161,27 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
         None
     };
     let mailbox = mailbox_for(&services, config.session_exposure.clone());
+    // This Mac reaching the person's other machines through the same warm
+    // socket (`link_socket.rs`); only with the app, which holds the identity key.
+    let (signaling_now, signaling_watch) = tokio::sync::watch::channel(None::<SignalingClient>);
+    let _machine_link = services.pairing.as_ref().map(|pairing| {
+        let dialer = Arc::new(crate::link_socket::Dialer::new(
+            config.device_id.clone(),
+            config.device_name.clone(),
+            config.base_url.clone(),
+            Arc::clone(&tokens),
+            ice.clone(),
+            signaling_watch.clone(),
+            pairing.identity.clone(),
+            Arc::clone(&pairing.activity),
+        ));
+        let path = crate::link_socket::socket_path(&services.daemon_socket());
+        AbortTask(tokio::spawn(async move {
+            if let Err(error) = crate::link_socket::serve(path, dialer).await {
+                tracing::warn!("machine link socket stopped: {error:#}");
+            }
+        }))
+    });
     // Phones keep their WireGuard sessions when the Mac changes networks.
     let _network_watch = AbortTask(tokio::spawn(crate::netwatch::run()));
     // Live tunnels can roam even while signaling is unreachable. Rehome resends
@@ -179,7 +200,7 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
         let attempt = tokio::select! {
             // Process a server removal first if both events are ready.
             biased;
-            result = connect_once(&config, &tokens, &services, &ice, &mailbox) => result,
+            result = connect_once(&config, &tokens, &services, &ice, &mailbox, &signaling_now) => result,
             Ok(()) = changes.changed() => {
                 ice.invalidate();
                 backoff = Duration::from_secs(1);
@@ -230,6 +251,7 @@ async fn connect_once(
     services: &Arc<ServiceConfig>,
     ice: &IceSource,
     mailbox: &Option<Arc<crate::mailbox::Mailbox>>,
+    signaling_now: &tokio::sync::watch::Sender<Option<SignalingClient>>,
 ) -> Result<String> {
     let token = tokens.access_token().await.context("access token")?;
     let owner = config
@@ -257,7 +279,9 @@ async fn connect_once(
         .context("signaling connect")?;
     // Cancellation on wake/network change must close the old socket and stop
     // its auxiliary tasks; dropping a SignalingClient alone does neither.
-    let mut lifetime = ConnectionLifetime { signaling: signaling.clone(), tasks: Vec::new() };
+    signaling_now.send_replace(Some(signaling.clone()));
+    let mut lifetime =
+        ConnectionLifetime { signaling: signaling.clone(), tasks: Vec::new(), published: signaling_now.clone() };
     tracing::info!(device_id = config.device_id, "signaling connected");
     // Sessions of the previous socket (WireGuard tunnels outlive it) send
     // their `bye` on this one now.
@@ -286,10 +310,13 @@ async fn connect_once(
 struct ConnectionLifetime {
     signaling: SignalingClient,
     tasks: Vec<tokio::task::JoinHandle<()>>,
+    /// Where the machine link finds the socket to dial on; emptied with it.
+    published: tokio::sync::watch::Sender<Option<SignalingClient>>,
 }
 
 impl Drop for ConnectionLifetime {
     fn drop(&mut self) {
+        self.published.send_replace(None);
         self.signaling.close();
         for task in &self.tasks {
             task.abort();

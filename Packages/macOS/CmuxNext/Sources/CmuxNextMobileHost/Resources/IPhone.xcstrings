@@ -1180,6 +1180,23 @@
         }
       }
     },
+    "iphone.pair.machineBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It is your Mac, signed in as %@. Once allowed, it can see this Mac’s name and what it may do here, nothing more. Choose more in Settings > Devices; remove it there to stop it at once."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ でサインインしているあなたの Mac です。許可すると、この Mac の名前と、ここで許可された操作だけを確認できます。追加の許可は「設定 > デバイス」で選べます。そこで削除するとすぐに止まります。"
+          }
+        }
+      }
+    },
     "iphone.pair.title": {
       "extractionState": "manual",
       "localizations": {

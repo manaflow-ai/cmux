@@ -383,6 +383,10 @@ pub enum Event {
         /// signature (the app checks and burns it; hostd only forwards it). Absent without one.
         #[serde(skip_serializing_if = "Option::is_none")]
         pair_token: Option<String>,
+        /// What asks: `phone` (omitted, as before) or a machine (`mac`, `linux`), which the
+        /// app approves with grants (docs/multi-machine-sessions.md).
+        #[serde(skip_serializing_if = "is_phone")]
+        kind: crate::peer::PeerKind,
     },
     /// A paired phone signed out and asks the Mac to forget it.
     Unpaired {
@@ -689,7 +693,8 @@ mod tests {
                 devices: vec![crate::pairing::TrustedDevice {
                     id: "p".into(),
                     identity_key: "04".into(),
-                    approval_key: "04".into()
+                    approval_key: "04".into(),
+                    ..Default::default()
                 }],
                 denied: vec![crate::pairing::DeniedDevice { id: "q".into(), identity_key: "04".into() }],
             }))
@@ -727,7 +732,9 @@ mod tests {
             })
         );
         assert_eq!(
-            Inbound::parse(r#"{"type":"needs_you","items":[{"id":"fi_a","title":"Held","url":"https://x"}]}"#),
+            Inbound::parse(
+                r#"{"type":"needs_you","items":[{"id":"fi_a","title":"Held","url":"https://x"}]}"#
+            ),
             Some(Inbound::NeedsYou {
                 items: vec![crate::needs_you::Request {
                     id: "fi_a".into(),
@@ -814,6 +821,7 @@ mod tests {
             approval_key: "04".into(),
             registered_at_ms,
             pair_token,
+            kind: crate::peer::PeerKind::Phone,
         };
         let request = |registered_at_ms| request_with(registered_at_ms, None);
         assert_eq!(
@@ -842,4 +850,8 @@ mod tests {
             r#"{"type":"waiting","reason":"x","retry_in_seconds":2}"#
         );
     }
+}
+
+fn is_phone(kind: &crate::peer::PeerKind) -> bool {
+    *kind == crate::peer::PeerKind::Phone
 }
