@@ -193,6 +193,10 @@ def run_app(opts):
             missing = [name for name in names if name not in got]
             if missing:
                 failures.append({"workspaces": count, "probe": probe, "missing": missing})
+        measured = ((reports[count]["sidebar"].get("sizes") or {}).get(str(sidebar_count)) or {}).get("rows_listed")
+        if isinstance(measured, int) and measured != count:
+            failures.append({"workspaces": count, "probe": "sidebar", "expected_rows": count,
+                             "measured_rows": measured})
     return reports, failures
 
 
