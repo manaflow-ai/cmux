@@ -44,9 +44,15 @@ public nonisolated struct SidebarNeedsYou: Hashable, Sendable {
     /// unread changes and hook-reported waiting or failure for workspaces without a lane.
     public static func shouldRefresh(for changes: [RowPatch], tree: SidebarSessionTreeState?) -> Bool {
         guard let tree else { return false }
+        func trayState(_ state: SidebarAgentState) -> SidebarAgentState? {
+            switch state {
+            case .blocked, .failed, .finishedUnread: state
+            case .running, .idle: nil
+            }
+        }
         return changes.contains { change in
-            SidebarAgentState.of(change.before, lane: tree.states[change.before.id])
-                != SidebarAgentState.of(change.after, lane: tree.states[change.after.id])
+            trayState(SidebarAgentState.of(change.before, lane: tree.states[change.before.id]))
+                != trayState(SidebarAgentState.of(change.after, lane: tree.states[change.after.id]))
         }
     }
 
