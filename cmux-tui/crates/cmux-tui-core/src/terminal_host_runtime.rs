@@ -656,8 +656,6 @@ pub use shared::attachment::launch::{
 pub(crate) use shared::attachment::launch::{
     launch_terminal_host_from, launch_terminal_host_seeded,
 };
-#[cfg(all(test, target_vendor = "apple"))]
-pub(crate) use shared::attachment::room_check_queues;
 #[cfg(any(unix, windows))]
 pub(crate) use shared::clipboard_read::ClipboardReadSignal;
 #[cfg(any(unix, windows))]

@@ -727,25 +727,6 @@ fn encode_header(frame: &Frame, max_payload: usize) -> Result<[u8; HEADER_LEN], 
     Ok(header)
 }
 
-/// The header of a frame with no flags, request id or sequence (an `Input` key), as [`write_frame`] writes it,
-/// built on the stack: the inline key write sends it and the payload in one call, with no copy of the payload.
-/// `version` is the connection's (never 0) and `payload_len` at most [`MAX_FRAME_PAYLOAD`].
-pub(crate) fn input_frame_header(
-    version: u16,
-    kind: MessageKind,
-    payload_len: u32,
-) -> [u8; HEADER_LEN] {
-    let [m0, m1, m2, m3] = MAGIC;
-    let [v0, v1] = version.to_le_bytes();
-    let [k0, k1] = (kind as u16).to_le_bytes();
-    let [l0, l1, l2, l3] = payload_len.to_le_bytes();
-    // magic, version, kind, flags 0, payload length, request id 0, sequence 0 (`encode_header`'s layout).
-    [
-        m0, m1, m2, m3, v0, v1, k0, k1, 0, 0, 0, 0, l0, l1, l2, l3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0,
-    ]
-}
-
 pub fn write_frame(writer: &mut impl Write, frame: &Frame) -> Result<(), ProtocolError> {
     let header = encode_header(frame, MAX_FRAME_PAYLOAD)?;
     writer.write_all(&header)?;
