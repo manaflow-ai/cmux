@@ -38,18 +38,25 @@ const PROBES = [
   },
 ];
 
+// Each edited file: its text before the first edit and the text this script last wrote.
 const files = new Map();
 // The edit being written, so a restore waits for it instead of racing it.
 let writing = Promise.resolve();
 async function write(file, text) {
   const absolute = path.join(webviews, file);
-  if (!files.has(absolute)) files.set(absolute, await fs.readFile(absolute, "utf8"));
+  const original = files.get(absolute)?.original ?? (await fs.readFile(absolute, "utf8"));
+  files.set(absolute, { original, written: text });
   writing = fs.writeFile(absolute, text);
   await writing;
 }
+/// Puts back each file this script edited, unless someone changed it since: their edit stays.
 async function restore() {
   await writing.catch(() => {});
-  for (const [absolute, text] of files) await fs.writeFile(absolute, text);
+  for (const [absolute, { original, written }] of files) {
+    const now = await fs.readFile(absolute, "utf8").catch(() => undefined);
+    if (now === written) await fs.writeFile(absolute, original);
+    else console.error(`left ${path.relative(webviews, absolute)} as it is: it changed during the run`);
+  }
   files.clear();
 }
 for (const [signal, code] of [
@@ -120,20 +127,21 @@ try {
   let n = 0;
   for (const probe of PROBES) {
     n += 1;
-    const original =
-      files.get(path.join(webviews, probe.file)) ?? (await fs.readFile(path.join(webviews, probe.file), "utf8"));
+    const original = await fs.readFile(path.join(webviews, probe.file), "utf8");
     const edited = probe.edit(original, n);
     if (edited === original) throw new Error(`${probe.name}: the edit no longer applies to ${probe.file}`);
     const started = performance.now();
     const viteBefore = vite.length;
+    const loadsAtWrite = loads;
     // The scripted turn's last reply has not arrived yet: the edit lands mid-turn.
     const midTurn = !(await page.evaluate((reply) => document.body.innerText.includes(reply), LAST_REPLY));
     await write(probe.file, edited);
     let shown = true;
     await page.waitForFunction(probe.seen, n, { timeout: 15_000 }).catch(() => (shown = false));
     const ms = Math.round(performance.now() - started);
-    // Let a reload that follows the update land before reading the page.
-    await page.waitForEvent("load", { timeout: 1_500 }).catch(() => {});
+    // A reload can follow the update by a few seconds (Vite invalidates up the importers first):
+    // give it time to land before reading the page.
+    await page.waitForEvent("load", { timeout: 4_000 }).catch(() => {});
     results.push({
       probe: probe.name,
       file: probe.file,
@@ -141,6 +149,7 @@ try {
       shown,
       ms,
       ...(await state()),
+      reloaded: loads > loadsAtWrite,
       vite: vite.slice(viteBefore),
     });
   }
@@ -156,7 +165,7 @@ try {
   for (const row of results)
     console.log(
       `${row.probe} (${row.file}, saved ${row.midTurn ? "mid-turn" : "after the turn"}): ${row.shown ? `shown in ${row.ms} ms` : "never shown"}, ` +
-        `same page ${row.samePage}, draft kept ${row.draftKept}, transcript kept ${row.transcriptKept}` +
+        `reloaded ${row.reloaded}, same page ${row.samePage}, draft kept ${row.draftKept}, transcript kept ${row.transcriptKept}` +
         (row.vite.length ? `\n    ${row.vite.join("\n    ")}` : ""),
     );
   console.log(`streaming turn finished after the edits: ${turnFinished}; page reloads: ${live.reloads}`);
@@ -204,7 +213,9 @@ try {
   await fs.writeFile(path.join(out, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
   console.log(out);
   const ok =
-    results.every((row) => row.shown && row.samePage && row.draftKept && row.transcriptKept) &&
+    results.every(
+      (row) => row.midTurn && row.shown && !row.reloaded && row.samePage && row.draftKept && row.transcriptKept,
+    ) &&
     turnFinished &&
     errors.length === 0;
   process.exitCode = ok ? 0 : 1;
