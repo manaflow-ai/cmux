@@ -11,10 +11,13 @@ import { PermissionCard } from "../src/agent-session/acpmux/PermissionCard";
 
 const PLAN = "## Retry uploads\n\n1. Add `withRetry`\n2. Wrap `uploadChunk`";
 
-const ask = (toolCall: Record<string, unknown>, options = [
-  { optionId: "allow_once", name: "Allow", kind: "allow_once" },
-  { optionId: "reject_once", name: "Reject", kind: "reject_once" },
-]) => permissionFromMessage({ sessionId: "s1", permissionId: "p1", request: { toolCall, options } }, "s1")!;
+const ask = (
+  toolCall: Record<string, unknown>,
+  options = [
+    { optionId: "allow_once", name: "Allow", kind: "allow_once" },
+    { optionId: "reject_once", name: "Reject", kind: "reject_once" },
+  ],
+) => permissionFromMessage({ sessionId: "s1", permissionId: "p1", request: { toolCall, options } }, "s1")!;
 
 const card = (permission: ReturnType<typeof ask>) =>
   renderToStaticMarkup(<PermissionCard permission={permission} onAnswer={() => undefined} harness="claude" />);
@@ -41,7 +44,9 @@ test("a switch_mode ask acpmux builds for Grok or Cursor carries its plan, from 
 
 test("any other ask, and a plan approval with no plan text, carries none", () => {
   expect(ask({ toolCallId: "t", title: "Write notes", kind: "edit", rawInput: { plan: PLAN } }).plan).toBeUndefined();
-  expect(ask({ toolCallId: "t", title: "Ready to code?", kind: "switch_mode", rawInput: { plan: "  " } }).plan).toBeUndefined();
+  expect(
+    ask({ toolCallId: "t", title: "Ready to code?", kind: "switch_mode", rawInput: { plan: "  " } }).plan,
+  ).toBeUndefined();
 });
 
 test("the card renders the plan as Markdown with Approve plan and Keep planning", () => {
