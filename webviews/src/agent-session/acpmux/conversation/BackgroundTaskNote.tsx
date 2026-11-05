@@ -95,10 +95,14 @@ export function BackgroundTaskNote({ task }: { task: AcpmuxBackgroundTask }) {
           {owner && (
             <span className="cv-bgtask__owner" {...ownerProps}>
               {owner}
-            </span>
+            </span>{" "}
+          )}
+          {lead && (
+            <>
+              <span className="cv-bgtask__state">{lead}</span>{" "}
+            </>
           )}
           <code className="cv-bgtask__command">{task.command || command}</code>
-          {lead && <span className="cv-bgtask__state">{lead}</span>}
         </span>
         <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
       </button>
