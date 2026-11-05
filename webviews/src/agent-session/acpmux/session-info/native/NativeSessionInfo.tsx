@@ -315,12 +315,25 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
   // checklist change, so other activity does not remap every step on every frame.
   const progressRows = useMemo<NativeInfoRow[] | undefined>(
     () =>
-      props.plan?.entries.map((entry, index) => ({
-        id: `progress:${index}`,
-        title: entry.content,
-        tone: entry.status === "completed" ? "muted" : entry.status === "in_progress" ? "running" : "waiting",
-        working: entry.status === "in_progress" && !props.plan?.ended,
-      })),
+      props.plan?.entries.map((entry, index) => {
+        const working = entry.status === "in_progress" && !props.plan?.ended;
+        // The web list's marks: a filled check when done, the spinner while working, a plain ring
+        // for a step left in progress when the turn ended, a dashed ring while pending.
+        const symbol = working
+          ? undefined
+          : entry.status === "completed"
+            ? "checkmark.circle.fill"
+            : entry.status === "in_progress"
+              ? "circle"
+              : "circle.dashed";
+        return {
+          id: `progress:${index}`,
+          title: entry.content,
+          ...(symbol ? { symbol } : {}),
+          tone: entry.status === "completed" ? "muted" : working ? "running" : "waiting",
+          working,
+        } satisfies NativeInfoRow;
+      }),
     [props.plan],
   );
   const actions = new NativeInfoActions();
@@ -372,6 +385,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
             group: "running",
             title: t("sessionInfo.progress"),
             meta: t("sessionInfo.progress.count", { done: planDone(props.plan), total: props.plan.entries.length }),
+            meter: planDone(props.plan) / props.plan.entries.length,
             open: state.sections.progress,
             foldable: true,
             reorderable: true,

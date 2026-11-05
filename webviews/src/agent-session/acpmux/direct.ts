@@ -6466,6 +6466,9 @@ export class AcpmuxDirectClient {
         }
         // A turn that does not name its prompt is no known one's: never the turn before's.
         this.turnPrompt = typeof msg.promptId === "string" && msg.promptId ? promptRoot(msg.promptId) : undefined;
+        // A turn the agent started on its own runs no earlier checklist: Progress shows it ended
+        // until the agent sends a plan again.
+        if (agentStarted && this.progressRow) this.progressSuperseded = true;
         this.turnOpen = true;
         if (startedTurnId !== undefined) this.runningTurnId = startedTurnId;
         else if (agentStarted) this.runningTurnId = undefined;
@@ -6782,7 +6785,8 @@ export class AcpmuxDirectClient {
       // A cleared list (TodoWrite with no todos, Codex's empty plan) takes the checklist away.
       if (Array.isArray(update.entries) && plan.length === 0) {
         if (existing) this.rows.delete(existing.id);
-        if (existing && this.progressRow === existing.id) this.progressRow = undefined;
+        // Session Info's Progress goes with it, even when a later prompt already closed that row.
+        this.progressRow = undefined;
         this.planRow = undefined;
         return;
       }

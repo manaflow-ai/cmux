@@ -135,6 +135,39 @@ test("a cleared list takes Progress away", async () => {
   expect(snapshot.progress).toBeUndefined();
 });
 
+test("a list cleared after a later prompt takes Progress away", async () => {
+  const snapshot = await snapshotAfter(
+    [
+      prompt("Build it"),
+      started,
+      plan(["Write", "completed"]),
+      ended,
+      prompt("Start over"),
+      started,
+      { update: { sessionUpdate: "plan", entries: [] } },
+      say("Cleared."),
+    ],
+    said("Cleared."),
+  );
+  expect(snapshot.progress).toBeUndefined();
+});
+
+test("a turn the agent starts on its own leaves the ended plan ended", async () => {
+  const snapshot = await snapshotAfter(
+    [
+      prompt("Build it"),
+      started,
+      plan(["Write", "in_progress"]),
+      ended,
+      { mux: "turn_started", msg: {} },
+      say("Background."),
+    ],
+    (next) => said("Background.")(next) && next.isWorking,
+  );
+  expect(snapshot.progress?.plan.map((step) => step.content)).toEqual(["Write"]);
+  expect(snapshot.progress?.ended).toBe(true);
+});
+
 test("Progress keeps its identity while the reply streams", async () => {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
