@@ -30,6 +30,16 @@ public nonisolated struct CloudSeedRefusal: Equatable, Sendable {
             identifier: Self.identifier)
     }
 
+    /// `copy` asking first (`.ask`); a refused seed asks the person in `window` and copies only on their
+    /// Copy (`.copy`). Their Cancel, a dismissal or no window throws `declined(reason)`.
+    @MainActor public static func copying<Copied>(machine: String, in window: @MainActor () -> NSWindow?, declined: (String) -> any Error,
+                                                  _ copy: (CloudMoveCLI.SeedRefusal) async throws -> (CloudMoveCLI.Answer, Copied)) async throws -> (CloudMoveCLI.Answer, Copied) {
+        let first = try await copy(.ask)
+        guard let refused = CloudSeedRefusal(first.0, machine: machine) else { return first }
+        guard await refused.confirmed(in: window()) else { throw declined(refused.message) }
+        return try await copy(.copy)
+    }
+
     /// Whether the person picked Copy; false for Cancel, a dismissal or no window to ask in.
     @MainActor public func confirmed(in window: NSWindow?) async -> Bool {
         guard let window else { return false }

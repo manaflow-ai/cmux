@@ -33,4 +33,25 @@ struct CloudSeedRefusalTests {
         #expect(CloudSeedRefusal(CloudMoveCLI.Answer(ok: false, errorCode: "disk_full", error: "full"), machine: "m") == nil)
         #expect(CloudSeedRefusal(CloudMoveCLI.Answer(ok: true), machine: "m") == nil)
     }
+
+    private struct Declined: Error, Equatable { let reason: String }
+
+    @Test func aSeedThatIsNotRefusedCopiesOnceAndAskingNowhereCopiesNothing() async throws {
+        var asked: [CloudMoveCLI.SeedRefusal] = []
+        let seeded = try await CloudSeedRefusal.copying(machine: "m", in: { nil }, declined: { Declined(reason: $0) }) { refusal in
+            asked.append(refusal)
+            return (CloudMoveCLI.Answer(ok: true), "seeded")
+        }
+        #expect(seeded.1 == "seeded")
+        #expect(asked == [.ask])
+
+        asked = []
+        await #expect(throws: Declined(reason: "why")) {
+            _ = try await CloudSeedRefusal.copying(machine: "m", in: { nil }, declined: { Declined(reason: $0) }) { refusal in
+                asked.append(refusal)
+                return (CloudMoveCLI.Answer(ok: false, errorCode: "seed_refused", error: "why"), "")
+            }
+        }
+        #expect(asked == [.ask], "a refusal with no window to ask in copied")
+    }
 }
