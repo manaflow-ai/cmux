@@ -417,6 +417,7 @@ fn copy_of(local: &str, subpath: &str) -> StartCopy {
         subpath: subpath.into(),
         work_roots: vec!["/home/cmux/work".into(), "/root/work".into()],
         acpmux_home: None,
+        seed_only: false,
     }
 }
 

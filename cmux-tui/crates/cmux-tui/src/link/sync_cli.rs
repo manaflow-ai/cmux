@@ -1478,9 +1478,32 @@ impl std::fmt::Display for TooBig {
 
 impl std::error::Error for TooBig {}
 
+/// What a copy of `local` (`cmux link sync push`, by its rules) would send:
+/// its files and their bytes.
+pub(super) fn copy_estimate(local: &Path) -> anyhow::Result<(u64, u64)> {
+    let local =
+        std::fs::canonicalize(local).with_context(|| format!("cannot open {}", local.display()))?;
+    let set = local::collect(&local, local::Rules::Copy)?;
+    let bytes = set.files.values().map(|file| size(file).unwrap_or(0)).fold(0, u64::saturating_add);
+    Ok((u64::try_from(set.files.len()).unwrap_or(u64::MAX), bytes))
+}
+
+/// "1 file", "36,796 files".
+pub(super) fn files_text(files: u64) -> String {
+    let digits = files.to_string();
+    let mut grouped = String::with_capacity(digits.len().saturating_add(digits.len() / 3));
+    for (index, digit) in digits.chars().enumerate() {
+        if index > 0 && digits.len().saturating_sub(index) % 3 == 0 {
+            grouped.push(',');
+        }
+        grouped.push(digit);
+    }
+    if files == 1 { "1 file".to_string() } else { format!("{grouped} files") }
+}
+
 /// `bytes` in decimal units as Finder shows them: "980 bytes", "12 kB",
 /// "12.8 GB".
-fn bytes_text(bytes: u64) -> String {
+pub(super) fn bytes_text(bytes: u64) -> String {
     const UNITS: [&str; 5] = ["kB", "MB", "GB", "TB", "PB"];
     if bytes < 1000 {
         return format!("{bytes} bytes");

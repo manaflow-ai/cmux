@@ -361,7 +361,7 @@ fn seed_only_refuses_instead_of_copying_and_says_what_a_copy_would_send() {
     assert!(error.contains("is not a git working copy"), "{error}");
     assert!(error.contains("2 files (5 bytes)"), "{error}");
     assert!(!remote.exists(), "--seed-only copied");
-    assert_eq!(w.writes.load(std::sync::atomic::Ordering::SeqCst), 0, "a file went");
+    assert_eq!(w.writes.load(Ordering::SeqCst), 0, "a file went");
 
     // A folder the seed takes goes as before.
     let widget = w.remote("widget");
