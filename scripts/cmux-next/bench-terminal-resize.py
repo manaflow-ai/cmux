@@ -58,6 +58,7 @@ sys.path.insert(0, HERE)
 import bench_launch  # noqa: E402
 import terminal_resize_arms as arms  # noqa: E402
 import terminal_resize_verdict  # noqa: E402
+import main_profile  # noqa: E402  SCRATCH (RESIZE MAIN BUDGET)
 from tag_teardown import TagTeardown  # noqa: E402
 
 parser = argparse.ArgumentParser()
@@ -76,6 +77,10 @@ parser.add_argument("--probe-pt", type=float, default=40.0, help="how far the dr
 parser.add_argument("--key-repeat", type=int, default=1, help="presses of each key per round (keys layouts)")
 parser.add_argument("--key-gap-ms", type=float, default=33.0, help="between repeated presses of one key")
 parser.add_argument("--key-settle-s", type=float, default=0.6, help="after the last press of a key")
+# SCRATCH (RESIZE MAIN BUDGET, never merge): tunables set after launch, held-key rows, a main-thread profile per round.
+parser.add_argument("--set", action="append", default=[], help="KEY=true|false: a boolean tunable set after launch")
+parser.add_argument("--held-repeat", type=int, default=0, help="keys layouts: also measure a held key (this many presses)")
+parser.add_argument("--xctrace-rounds", type=int, default=0, help="Time Profiler (attached to the app pid) on this many rounds per layout")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 APP = (opts.app or "").rstrip("/")
@@ -297,6 +302,42 @@ def refresh_period():
     return idle.get("refresh_ms") or 16.67
 
 
+APP_BINARIES = set()
+
+
+def profile_start(name, index):
+    """SCRATCH: a Time Profiler recording of the app pid for the first --xctrace-rounds rounds of a layout."""
+    if index >= opts.xctrace_rounds or not report.get("pid"):
+        return None
+    return main_profile.start(report["pid"], f"{name}-{index}", opts.out)
+
+
+def profile_stop(recording, entry):
+    """SCRATCH: ends the recording; the round keeps the summary (`main_profile`) and the raw samples (`main_samples`)."""
+    if not recording:
+        return
+    raw = main_profile.stop(recording)
+    if not APP_BINARIES:
+        APP_BINARIES.add(info["CFBundleExecutable"])
+        for path in glob.glob(os.path.join(APP, "Contents/Frameworks/*")):
+            APP_BINARIES.add(os.path.basename(path).split(".")[0])
+    entry["main_profile"] = main_profile.summarize(raw, APP_BINARIES)
+    entry["main_profile"]["mode"] = (raw or {}).get("mode")
+    entry["main_profile"]["threads_ms"] = (raw or {}).get("threads_ms")
+    entry["main_samples"] = {k: (raw or {}).get(k) for k in ("samples", "stacks", "frames")}
+
+
+def apply_sets():
+    """SCRATCH: --set KEY=true|false after launch (a bench build's tunable store is off until activated)."""
+    applied = {}
+    for item in opts.set:
+        key, _, value = item.partition("=")
+        rpc("debug.tunables", {"action": "activate"})
+        row = rpc("debug.tunables", {"action": "set", "key": key, "value": value.lower() == "true"}) or {}
+        applied[key] = row.get("value")
+    return applied
+
+
 def measure(name):
     dividers = vertical_dividers()
     if not dividers:
@@ -317,11 +358,15 @@ def measure(name):
                 rounds.append({**entry, "error": problem})
                 continue
             before = surfaces()
+            recording = profile_start(name, index)
+            background = main_profile.background_cpu()
             rpc("debug.terminal_display", {"action": "start"})
             rpc("debug.frames", {"action": "start"})
             drag(x0, y0, refresh_ms / 1000)
             frames = rpc("debug.frames", {"action": "stop", "raw": True}) or {}
             display = rpc("debug.terminal_display", {"action": "stop"}) or {}
+            entry["background_cpu"] = main_profile.background_delta(background)
+            profile_stop(recording, entry)
             time.sleep(1.0)  # bench script: the drag's last grid lands at the owner
             after = surfaces()
             numbers, raw = frame_numbers(frames)
@@ -337,10 +382,10 @@ def measure(name):
                    "divider": {"x": round(x0, 1), "height": round(height, 1), "vertical_dividers": len(dividers)}})
 
 
-def measure_keys(name):
+def measure_keys(name, repeat=None):
     """Ctrl-Shift-L then Ctrl-Shift-H on the focused pane, per round and arm (see the module docstring)."""
     refresh_ms = refresh_period()
-    plan = [action for action in ("resizePaneRight", "resizePaneLeft") for _ in range(max(1, opts.key_repeat))]
+    plan = [action for action in ("resizePaneRight", "resizePaneLeft") for _ in range(max(1, repeat or opts.key_repeat))]
     rounds = []
     for index in range(opts.rounds):
         for arm in arms.order(index, opts.ab):
@@ -350,6 +395,8 @@ def measure_keys(name):
                 rounds.append({**entry, "error": problem})
                 continue
             before = surfaces()
+            recording = profile_start(name, index)
+            background = main_profile.background_cpu()
             rpc("debug.terminal_display", {"action": "start"})
             rpc("debug.frames", {"action": "start"})
             presses = []
@@ -372,6 +419,8 @@ def measure_keys(name):
                 presses.append(press)
             frames = rpc("debug.frames", {"action": "stop", "raw": True}) or {}
             display = rpc("debug.terminal_display", {"action": "stop"}) or {}
+            entry["background_cpu"] = main_profile.background_delta(background)
+            profile_stop(recording, entry)
             if entry.get("error"):
                 rounds.append(entry)
                 continue
@@ -411,7 +460,10 @@ def keys():
         return {"layout": "keys", "error": f"the 2x2 grid did not form ({len(surfaces())} terminals shown)"}
     history()
     time.sleep(2.0)  # bench script: the history prints before the presses
-    return measure_keys("keys")
+    results = [measure_keys("keys")]
+    if opts.held_repeat:
+        results.append(measure_keys("keys-held", opts.held_repeat))
+    return results
 
 
 def keys_stress():
@@ -423,7 +475,12 @@ def keys_stress():
         time.sleep(1.0)  # bench script: the focus lands before the presses
     result = measure_keys("keys-stress")
     result["session"] = session_fields(summary)
-    return result
+    results = [result]
+    if opts.held_repeat:
+        held = measure_keys("keys-stress-held", opts.held_repeat)
+        held["session"] = result["session"]
+        results.append(held)
+    return results
 
 
 def light():
@@ -622,16 +679,22 @@ try:
         log.flush()
         tail = open(os.path.join(opts.out, "app.log"), errors="replace").read()[-3000:]
         sys.exit(f"app did not come up: socket {SOCKET} exists={os.path.exists(SOCKET)}; app log tail:\n{tail}")
+    if opts.set:
+        report["set"] = apply_sets()
+        print(f"MAIN-BUDGET set {json.dumps(report['set'])}", flush=True)
     for name in [n for n in opts.layouts.split(",") if n]:
-        result = {"idle-cursor": idle_cursor, "light": light, "stress": stress, "split-resize": split_resize,
-                  "split-resize-stress": lambda: split_resize(in_stress=True), "keys": keys, "keys-stress": keys_stress}[name]()
-        found = terminal_resize_verdict.problems(result)
-        if found:
-            # A layout that measured nothing fails the run (its zeros are not a result).
-            result["problems"] = found
-            unmeasured.extend(found)
-        report["layouts"].append(result)
-        print(f"TERMINAL-RESIZE {json.dumps(result)}", flush=True)
+        produced = {"idle-cursor": idle_cursor, "light": light, "stress": stress, "split-resize": split_resize,
+                    "split-resize-stress": lambda: split_resize(in_stress=True), "keys": keys, "keys-stress": keys_stress}[name]()
+        for result in (produced if isinstance(produced, list) else [produced]):
+            found = terminal_resize_verdict.problems(result)
+            if found:
+                # A layout that measured nothing fails the run (its zeros are not a result).
+                result["problems"] = found
+                unmeasured.extend(found)
+            report["layouts"].append(result)
+            printed = dict(result, rounds=[{k: v for k, v in r.items() if k not in ("main_samples", "raw")}
+                                           for r in result.get("rounds") or []])
+            print(f"TERMINAL-RESIZE {json.dumps(printed)}", flush=True)
 finally:
     if app.poll() is None:
         reset_arm()  # a layout that stopped early (an exception) did not reset it
