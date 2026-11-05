@@ -85,8 +85,10 @@ Computer: when the person asks you to turn on or use your computer, or a task ne
 own computer: \`chief-vm computer setup ID\` gives one of your sandboxes a desktop (once, a few minutes) and makes it
 your computer, which the person watches live in your profile as your Computer. Then \`chief-vm computer open ID URL\`,
 \`click ID X Y [--double|--right]\`, \`type ID TEXT\`, \`key ID ctrl+l Return\`, \`scroll ID X Y down 5\`, \`drag ...\`,
-\`screenshot ID\`: each prints the path of the screen after it (1280x800, pixels from the top left); Read it before the
-next step, and act on what it shows. Keep one computer; it pauses when idle like any sandbox.
+\`screenshot ID\`, \`windows ID\`: each action prints the path of the screen after it (1280x800, pixels from the top left);
+Read it before the next step, and act on what it shows. Keep one computer; it pauses when idle like any sandbox. The
+person can take it over; then your actions are refused until they hand it back (look again first). When a step needs
+them (a sign-in, a payment, a CAPTCHA), \`chief-vm computer request-human ID "what to do"\` and tell them in chat.
 Network: by default you reach the public Internet over IPv4 and IPv6 with DNS, and the tailnet; private
 addresses and other local ports are closed. \`chief-net show\`, \`chief-net set internet=on|off dns=on|off
 tailnet=on|off local=on|off\`, \`chief-net allow|deny|unallow|undeny HOST-OR-RANGE...\`, \`chief-net reset\`

@@ -6,7 +6,7 @@
 //   chief-vm list                                   (state, size, cost per hour)
 //   chief-vm get ID
 //   chief-vm cap                                    (your cap, how many are live, the plan's per-VM maximums)
-//   chief-vm create [SIZE] [SETTINGS] [--image ubuntu|chief] [--snapshot freestyle/NAME]
+//   chief-vm create [SIZE] [SETTINGS] [--image ubuntu|chief|computer] [--snapshot freestyle/NAME]
 //                                                   (default: Ubuntu 24.04 on a 16 GB disk, 4 vCPU / 8 GiB;
 //                                                    --image chief: your machine image with its tools, 32 GB)
 //   chief-vm update ID SETTINGS
@@ -30,6 +30,10 @@
 //   chief-vm computer move ID X Y | drag ID X Y TO_X TO_Y | scroll ID X Y up|down|left|right [N]
 //   chief-vm computer type ID TEXT | key ID KEYS... (xdotool names: ctrl+l Return shift+Tab)
 //   chief-vm computer open ID URL                   (opens the page in Chrome on the desktop)
+//   chief-vm computer windows ID                    (the desktop's windows: id, pid, title, bounds)
+//   chief-vm computer request-human ID REASON...    (asks the person to take over, e.g. to sign in; your input
+//                                                    actions are refused until they hand it back)
+//   chief-vm computer control ID                    (who has the computer now: you or the person)
 //                                                   (every action prints the path of the screen after it; the
 //                                                    screen is 1280x800, X and Y are pixels from its top left)
 //
@@ -38,7 +42,7 @@
 import { createHash } from "node:crypto"
 import { closeSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync, writeSync } from "node:fs"
 
-const USAGE = `usage: chief-vm list | get ID | cap | create [SIZE] [SETTINGS] [--image ubuntu|chief] [--snapshot freestyle/NAME] | update ID SETTINGS | resize ID SIZE | pause ID | start ID | stop ID | exec ID [--timeout S] [--user root|chief] [--env K=V]... [--stdin FILE|-] -- COMMAND... | fs ls|stat|exists|mkdir|rm|cat ID PATH | fs put ID LOCAL REMOTE | fs get ID REMOTE LOCAL | snapshot ID [--name T] [--ttl-seconds N] | snapshots | snapshot-get SNAP | snapshot-rename SNAP NAME | snapshot-delete SNAP | fork ID [SIZE] [SETTINGS] | delete ID | computer setup|screenshot ID | computer click ID X Y [--right|--middle] [--double] | computer move ID X Y | computer drag ID X Y TO_X TO_Y | computer scroll ID X Y up|down|left|right [N] | computer type ID TEXT | computer key ID KEYS... | computer open ID URL
+const USAGE = `usage: chief-vm list | get ID | cap | create [SIZE] [SETTINGS] [--image ubuntu|chief|computer] [--snapshot freestyle/NAME] | update ID SETTINGS | resize ID SIZE | pause ID | start ID | stop ID | exec ID [--timeout S] [--user root|chief] [--env K=V]... [--stdin FILE|-] -- COMMAND... | fs ls|stat|exists|mkdir|rm|cat ID PATH | fs put ID LOCAL REMOTE | fs get ID REMOTE LOCAL | snapshot ID [--name T] [--ttl-seconds N] | snapshots | snapshot-get SNAP | snapshot-rename SNAP NAME | snapshot-delete SNAP | fork ID [SIZE] [SETTINGS] | delete ID | computer setup|screenshot ID | computer click ID X Y [--right|--middle] [--double] | computer move ID X Y | computer drag ID X Y TO_X TO_Y | computer scroll ID X Y up|down|left|right [N] | computer type ID TEXT | computer key ID KEYS... | computer open ID URL | computer windows|control ID | computer request-human ID REASON
   SIZE: --cpu N --memory-gb N --disk-gb N    SETTINGS: --name TEXT --meta K=V --idle-seconds N --ttl-seconds N`
 const fail = (msg, code = 1) => [console.error(`chief-vm: ${msg}`), process.exit(code)]
 const call = async (body) => {
@@ -197,9 +201,13 @@ if (verb === "list" || verb === undefined) {
   else if (op === "type") req.text = args.join(" ") || fail(USAGE, 2)
   else if (op === "key") req.keys = args.join(" ") || fail(USAGE, 2)
   else if (op === "open") req.url = args[0] ?? fail(USAGE, 2)
-  else if (op !== "setup" && op !== "screenshot") fail(USAGE, 2)
+  else if (op === "request-human") [req.op, req.reason] = ["request_human", args.join(" ") || fail(USAGE, 2)]
+  else if (op !== "setup" && op !== "screenshot" && op !== "windows" && op !== "control") fail(USAGE, 2)
   const j = await call(req)
-  if (op === "setup") console.log(`${j.computer} is your computer now (${j.screen.width}x${j.screen.height}); the person sees its screen in your profile`)
+  if (j.note) console.log(j.note)
+  if (op === "setup") console.log(`${j.computer} is your computer now (${j.screen.width}x${j.screen.height}, driver ${j.driver ?? "xdotool"}); the person sees its screen in your profile`)
+  if (op === "windows") console.log(typeof j.windows === "string" ? j.windows : JSON.stringify(j.windows, null, 1))
+  if (j.control) console.log(j.control.holder === "human" ? `the person has the computer since ${new Date(j.control.since_ms).toISOString()}${j.control.reason ? ` (${j.control.reason})` : ""}; wait for them to hand it back` : "you have the computer")
   if (j.image) {
     const dir = `${process.env.HOME ?? "/tmp"}/work/.computer`
     mkdirSync(dir, { recursive: true })

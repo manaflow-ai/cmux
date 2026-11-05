@@ -30,8 +30,14 @@ import { type AppendBody, type AppendResult, type ImportBody, type ImportFail, t
  *   GET  /v1/chiefs/<agent>/runs/<run>?conversation=<id>&after_seq=<n>   a member: {run, steps, has_more}
  *        (a subagent's run `sub_<n>` is read from its own object, brain-spawn.ts)
  *   GET  /v1/chiefs/<agent>/machine-login/<run>?conversation=<id>   the owner's human session: pending provider sign-in status
- *   GET  /v1/chiefs/<agent>/computer        the owner: {used, acting?, computer: {id, state, name} | null, screen: {width, height}}, the
- *        Chief's computer (chief-brain-cc/sandbox-computer.ts) for its profile's Computer section; never wakes it
+ *   GET  /v1/chiefs/<agent>/computer        the owner: {used, entitled, acting?, computer: {id, state, name} | null, screen: {width, height},
+ *        control: {holder: chief | human, since_ms, reason?}}, the Chief's computer (chief-brain-cc/sandbox-computer.ts) for its
+ *        profile's Computer section; never wakes it. entitled: the owner's personal team has a Cloud plan
+ *   POST /v1/chiefs/<agent>/computer/control the owner's session: {action: take_over | hand_back} -> {control}; 404 with no computer
+ *   POST /v1/chiefs/<agent>/computer/input  the owner's session while they hold it: {op: click | move | drag | scroll | type | key |
+ *        open (open_url), x?, y?, to_x?, to_y?, button?, count?, text?, keys?, direction?, amount?, url?} -> {done, control};
+ *        409 computer.not_human until take_over, 409 computer.asleep (never woken). Both refuse a non-session caller
+ *        (an install grant, a Chief's own) with 403 computer.user_origin_required
  *   GET  /v1/chiefs/<agent>/computer/screen the owner: the computer's screen as image/jpeg while it runs; 409 while it
  *        sleeps (not woken for a look), 404 with no computer
  *   POST /v1/chiefs/<agent>/machine-login/<run>?conversation=<id>   the owner's human session: {action: start | finish | cancel, loginId?, code?}
@@ -42,7 +48,7 @@ import { type AppendBody, type AppendResult, type ImportBody, type ImportFail, t
  * "The owner" is the chief's owner_user (MuxDO head) with a session, or an install whose grant
  * covers mutate-own; a chief's own token never changes its brain.
  */
-export const CHIEF_BRAIN_PATH = /^\/v1\/chiefs\/(agent_[0-9A-HJKMNP-TV-Z]{26})\/(brain|github|memory|peer|computer(?:\/screen)?|(?:runs|machine-login)(?:\/((?:run|sub)_[0-9]{1,15}))?)$/
+export const CHIEF_BRAIN_PATH = /^\/v1\/chiefs\/(agent_[0-9A-HJKMNP-TV-Z]{26})\/(brain|github|memory|peer|computer(?:\/(?:screen|control|input))?|(?:runs|machine-login)(?:\/((?:run|sub)_[0-9]{1,15}))?)$/
 
 const NO_STORE = { "cache-control": "no-store" }
 const fail = (f: Fail) => Response.json({ ok: false, error: { code: f.code, message: f.message, ...f.extra } }, { status: f.status, headers: NO_STORE })
@@ -58,6 +64,7 @@ export const handleChiefBrain = async (request: Request, env: Env, agent: string
   if (path === "peer") return handlePeer(request, env, agent)
   if (path === "github") return handleGithub(request, env, agent)
   if (path === "computer" || path === "computer/screen") return handleComputer(request, env, agent, path)
+  if (path === "computer/control" || path === "computer/input") return handleComputerControl(request, env, agent, path)
   if (path === "brain") {
     if (request.method !== "GET" && request.method !== "PUT") return fail({ status: 405, code: "method_not_allowed", message: "GET or PUT" })
     const caller = await callerOf(request, env, "read")
@@ -289,9 +296,35 @@ const handleComputer = async (request: Request, env: Env, agent: string, path: "
   // One answer for a Chief that does not exist and one the caller does not own: no existence probe.
   if (!(await chiefOwnedBy(env, agent, p))) return fail({ status: 404, code: "not_found", message: "no such chief" })
   const sandboxes = sandboxesOf(env, agent)
-  if (path === "computer") return ok(await sandboxes.ccComputerStatus(agent))
+  if (path === "computer") return ok(await sandboxes.ccComputerStatus(agent, p.user!))
   const shot = await sandboxes.ccComputerScreen(agent)
   if (shot.status !== 200) return fail({ status: shot.status, code: shot.status === 409 ? "computer.asleep" : shot.status === 404 ? "not_found" : "computer.unreachable", message: shot.error, ...(shot.state ? { extra: { state: shot.state } } : {}) })
   const bytes = Uint8Array.from(atob(shot.image), (c) => c.charCodeAt(0))
   return new Response(bytes, { headers: { "content-type": "image/jpeg", ...NO_STORE } })
+}
+
+/**
+ * The person drives the Chief's computer (the control lease, sandbox-computer.ts): take over, hand back, and input
+ * while they hold it. Only the owner's own signed-in session: an install grant (a Mac or a Chief acting with
+ * mutate-own) is refused with computer.user_origin_required, so a Chief can never take its own computer from the
+ * person or type as them. Anyone who is not the owner gets the same 404 as for no Chief.
+ */
+const handleComputerControl = async (request: Request, env: Env, agent: string, path: "computer/control" | "computer/input"): Promise<Response> => {
+  if (request.method !== "POST") return fail({ status: 405, code: "method_not_allowed", message: "POST" })
+  const caller = await callerOf(request, env, "read")
+  if ("status" in caller) return fail(caller)
+  const p = caller.principal
+  if (p.kind !== "session" || p.agent !== undefined) return fail({ status: 403, code: "computer.user_origin_required", message: "only the owner's signed-in session takes over or drives the Chief's computer" })
+  if (!(await chiefOwnedBy(env, agent, p))) return fail({ status: 404, code: "not_found", message: "no such chief" })
+  const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
+  if (!body || typeof body !== "object" || Array.isArray(body)) return fail({ status: 400, code: "validation.invalid", message: "body is a JSON object" })
+  const sandboxes = sandboxesOf(env, agent)
+  if (path === "computer/control") {
+    if (body.action !== "take_over" && body.action !== "hand_back") return fail({ status: 400, code: "validation.invalid", message: "action must be take_over or hand_back" })
+    const r = await sandboxes.ccComputerControl(agent, body.action)
+    return r.status === 200 ? ok({ control: r.control }) : fail({ status: r.status, code: r.code, message: r.error })
+  }
+  const r = await sandboxes.ccComputerInput(agent, body)
+  if (r.status === 200) return ok({ done: r.done, control: r.control })
+  return fail({ status: r.status, code: r.code, message: r.error, ...(r.state ? { extra: { state: r.state } } : {}) })
 }
