@@ -354,7 +354,15 @@ export function setChatDisplay(value: unknown): void {
     return;
   }
   current = next;
-  loadChatUiFont(next.uiFont);
+  // A bundled face loads after this event: once it has, the estimate measures it (its measure
+  // stack changes), and a new look (the same values) makes the transcript measure every row again,
+  // offscreen ones too, as a new font does (App.tsx `measuredLook`).
+  const uiFont = next.uiFont;
+  loadChatUiFont(uiFont, () => {
+    if (current.uiFont !== uiFont) return;
+    current = { ...current };
+    for (const listener of listeners) listener();
+  });
   if (typeof document !== "undefined") applyChatDisplay(document.documentElement, next);
   for (const listener of listeners) listener();
 }

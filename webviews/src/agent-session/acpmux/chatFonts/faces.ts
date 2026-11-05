@@ -10,15 +10,17 @@ import { BUNDLED_FAMILY, type BundledChatFont } from "../chatUiFont";
 
 const FILES: Record<BundledChatFont, string> = { roboto, plex, "source-sans": sourceSans, geist };
 
-/** Declares `font`'s face (the Latin subset of its weight axis) in this document, once. */
-export function installChatFontFace(font: BundledChatFont): void {
+/** Declares `font`'s face (the Latin subset of its weight axis) in this document, once, and
+ * resolves when it has loaded (or failed to, which leaves the stack's next face drawing). */
+export async function installChatFontFace(font: BundledChatFont): Promise<void> {
   const id = `cmux-chat-font-${font}`;
-  if (document.getElementById(id)) return;
-  const style = document.createElement("style");
-  style.id = id;
-  style.textContent =
-    `@font-face{font-family:"${BUNDLED_FAMILY[font]}";src:url(${FILES[font]}) format("woff2");` +
-    "font-weight:100 900;font-style:normal;font-display:block}";
-  document.head.append(style);
-  void document.fonts?.load(`400 1em "${BUNDLED_FAMILY[font]}"`).catch(() => undefined);
+  if (!document.getElementById(id)) {
+    const style = document.createElement("style");
+    style.id = id;
+    style.textContent =
+      `@font-face{font-family:"${BUNDLED_FAMILY[font]}";src:url(${FILES[font]}) format("woff2");` +
+      "font-weight:100 900;font-style:normal;font-display:block}";
+    document.head.append(style);
+  }
+  await document.fonts?.load(`400 1em "${BUNDLED_FAMILY[font]}"`).catch(() => undefined);
 }

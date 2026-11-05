@@ -36,7 +36,8 @@ test("each other choice sets the face and its own tracking on the type scale", (
 
 test("the row estimator measures the System preset's text in the interface font", () => {
   const plex = chatMetrics(resolveChatDisplay({ [CHAT_UI_FONT_KEY]: "plex" }));
-  expect(plex.measureFont).toContain("cmux IBM Plex Sans");
+  // Before its bundled face loads it measures the stack's next face (chat-ui-font-load.test.ts).
+  expect(plex.measureFont).toContain('"IBM Plex Sans"');
   // A reading preset of its own keeps its own face.
   const serif = chatMetrics(
     resolveChatDisplay({ [CHAT_UI_FONT_KEY]: "plex", "agentPane.display.font.preset": "serif" }),

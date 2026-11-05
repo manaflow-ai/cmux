@@ -90,15 +90,27 @@ export function chatUiFontVariables(font: ChatUiFont): Record<string, string | n
   return variables;
 }
 
+/// The bundled faces this document has finished loading (loadChatUiFont).
+const loadedFaces = new Set<BundledChatFont>();
+
 /// What the row estimator's canvas measures the chat's text as when it follows the interface font
-/// (a canvas can't read CSS variables).
+/// (a canvas can't read CSS variables). A bundled face counts only once it has loaded: until then
+/// the page draws the stack's next face, so the estimate measures that, and the stack changing at
+/// the load is what makes the estimator's caches, keyed by it, measure the text again.
 export function chatUiMeasureStack(font: ChatUiFont): string {
-  return font === "inter-tuned" ? '"Inter", system-ui, sans-serif' : STACKS[font];
+  if (font === "inter-tuned") return '"Inter", system-ui, sans-serif';
+  if (isBundled(font) && !loadedFaces.has(font)) return STACKS[font].replace(`"${BUNDLED_FAMILY[font]}", `, "");
+  return STACKS[font];
 }
 
 /// Declares `font`'s bundled face in this document, once, the first time it is chosen: a chat
-/// that keeps the default never loads one.
-export function loadChatUiFont(font: ChatUiFont): void {
-  if (!isBundled(font) || typeof document === "undefined") return;
-  void import("./chatFonts/faces").then((faces) => faces.installChatFontFace(font));
+/// that keeps the default never loads one. `loaded` runs once the face is ready to measure.
+export function loadChatUiFont(font: ChatUiFont, loaded: () => void = () => {}): void {
+  if (!isBundled(font) || loadedFaces.has(font) || typeof document === "undefined") return;
+  void import("./chatFonts/faces")
+    .then((faces) => faces.installChatFontFace(font))
+    .then(() => {
+      loadedFaces.add(font);
+      loaded();
+    });
 }
