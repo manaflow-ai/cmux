@@ -4,7 +4,9 @@
 //! today (`cmux-tui-core/src/server/render_messages.rs`: `styled_run_json`,
 //! `render_rows_json`, `render_cursor_json`, `RenderDeltaMessage`): the dirty rows
 //! ghostty-vt reports, each as styled runs with resolved colours. The bench builds
-//! the same JSON so its byte counts are that wire's.
+//! the same rows, runs and cursor JSON; of the optional fields it leaves out
+//! `scrollback_rows` and `history_epoch` (a few dozen bytes when they change) and
+//! sends `size` and the default colours on every full message.
 //!
 //! `rowdiff` is a candidate: rows compared against what the viewer already holds,
 //! and a scroll op when the screen moved up, so a flood sends only the new lines.

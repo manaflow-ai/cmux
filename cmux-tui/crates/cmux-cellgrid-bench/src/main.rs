@@ -177,17 +177,17 @@ fn host_runs(frame: &ghostty_vt::RenderFrame, row: u16) -> Vec<Run> {
 /// the GHOSTSNP READY the terminal_bytes channel sends, a full render-delta,
 /// and an H.264 IDR of the pane's pixels.
 fn attach_cost(
-    host: &mut Terminal,
+    host: &Terminal,
+    frame: &ghostty_vt::RenderFrame,
     surf: &raster::Surface,
     rows: u16,
     w: usize,
     h: usize,
 ) -> Res<Value> {
+    // `frame` is the host RenderState's own latest frame: a second RenderState
+    // updating the terminal would clear the dirty rows the host's needs.
     let ready = host.encode_snapshot(ghostty_vt::SnapshotPhase::Ready)?;
-    let mut rs = RenderState::new()?;
-    rs.update(host)?;
-    let frame = rs.build_frame()?;
-    let full = wire::render_delta(&frame, &(0..rows).collect::<Vec<_>>(), true);
+    let full = wire::render_delta(frame, &(0..rows).collect::<Vec<_>>(), true);
     let mut idr = Video::new(w, h, 60, 12000, 0)?;
     let idr_bytes = idr.frame(&surf.bgrx, 0)?.bytes;
     Ok(json!({
@@ -271,6 +271,7 @@ fn main() -> Res<()> {
                 host_rs.update(&mut host)?;
                 let first = s_cells.sends.is_empty();
                 let frame = host_rs.build_frame()?;
+                let frame_ns = t0.elapsed().as_nanos() as u64;
                 let full = first || frame.dirty == Dirty::Full;
                 let dirty: Vec<u16> =
                     if full { (0..rows).collect() } else { frame.dirty_rows.clone() };
@@ -285,7 +286,8 @@ fn main() -> Res<()> {
 
                 let t2 = Instant::now();
                 let rd = rowdiff.message(&frame);
-                s_rowdiff.host_ns += t2.elapsed().as_nanos() as u64;
+                let rd_host_ns = frame_ns + t2.elapsed().as_nanos() as u64;
+                s_rowdiff.host_ns += rd_host_ns;
                 let mut rd_view_ns = 0;
                 if let Some(rd) = &rd {
                     s_rowdiff.send(due, rd.len(), d_rowdiff.bytes(rd));
@@ -321,6 +323,9 @@ fn main() -> Res<()> {
                         raster.draw_row(&mut cell_surf, r, &cell_view.rows[r], vd, col);
                     }
                 }
+                if attach.is_none() && o.attach_at.is_some_and(|a| due >= (a * 1e9) as u64) {
+                    attach = Some(attach_cost(&host, &frame, &host_surf, rows, w, h)?);
+                }
                 if !redraw.is_empty() {
                     damaged.iter_mut().for_each(|d| *d = true);
                 }
@@ -331,9 +336,9 @@ fn main() -> Res<()> {
                     let e = k.echo.unwrap_or(due);
                     k.drawn = Some(due);
                     s_cells.key([due - e, host_ns, ser_ns(msg.len()), viewer_ns]);
-                    if let Some(rd) = &rd {
-                        s_rowdiff.key([due - e, host_ns, ser_ns(rd.len()), rd_view_ns]);
-                    }
+                    // No rowdiff message: its viewer already showed this grid.
+                    let rd_len = rd.as_ref().map_or(0, Vec::len);
+                    s_rowdiff.key([due - e, rd_host_ns, ser_ns(rd_len), rd_view_ns]);
                 }
             } else {
                 for (i, v) in videos.iter_mut().enumerate() {
@@ -387,10 +392,6 @@ fn main() -> Res<()> {
                 next_tick += CAPTURE_PERIOD_NS;
             }
         }
-        let attach_due = o.attach_at.map(|a| (a * 1e9) as u64).filter(|&a| a <= rec_t);
-        if attach.is_none() && (attach_due.is_some() || idx == tr.records.len()) {
-            attach = Some(attach_cost(&mut host, &host_surf, rows, w, h)?);
-        }
         let Some(rec) = tr.records.get(idx) else { break };
         idx += 1;
         if rec.key {
@@ -429,6 +430,9 @@ fn main() -> Res<()> {
     vt_rs.update(&mut vt_view)?;
     let (hf, vf) = (host_rs.build_frame()?, vt_rs.build_frame()?);
     s_vt.mismatched_rows = (0..rows).filter(|&r| hf.row_runs(r) != vf.row_runs(r)).count() as u64;
+    if attach.is_none() {
+        attach = Some(attach_cost(&host, &hf, &host_surf, rows, w, h)?);
+    }
 
     let span = tr.records.last().map_or(1, |r| r.t_ns).max(1);
     let win = o.window.map_or((0, span), |(a, b)| ((a * 1e9) as u64, (b * 1e9) as u64));

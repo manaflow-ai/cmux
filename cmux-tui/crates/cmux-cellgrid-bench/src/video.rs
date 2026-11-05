@@ -68,7 +68,8 @@ impl Video {
         }
     }
 
-    /// Encodes `src` (BGRX), decodes the result into `self.decoded`.
+    /// Encodes `src` (BGRX), decodes the result into `self.decoded`. `decode_ns`
+    /// includes the CPU conversion back to BGRX, which a real viewer does on the GPU.
     pub fn frame(&mut self, src: &[u8], pts_ms: i64) -> Result<Encoded, String> {
         let t0 = Instant::now();
         bgrx_rect_to_i420(src, &mut self.pic, 0, 0, self.w, self.h, 4);
