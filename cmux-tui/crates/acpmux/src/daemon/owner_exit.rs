@@ -54,6 +54,57 @@ pub(super) fn follow() -> Option<(u32, watch::Receiver<bool>)> {
     }
 }
 
+/// Debug builds only: the pid of the test process that started this daemon or agent host. Hosts
+/// outlive their daemon on purpose, and #28319's orphan exit ends a host only once it is idle with
+/// everything acked, so a test that panicked, timed out or was killed mid-turn left its daemon, its
+/// hosts and their stand-in harnesses running for days: 34 hosts and 8 daemons on one lane VM,
+/// 130-144 h old, counted as live lanes. Every process a test starts gets it
+/// (`tests/support/daemon_env.rs`), a daemon passes it on to the hosts it starts (`link.rs`), and
+/// both end once that process exits, idle or not: the daemon ends its agents and stops
+/// ([`test_owner_exit`]), a host ends its harness group as on SIGTERM. Release builds ignore it.
+#[cfg(debug_assertions)]
+pub(crate) const TEST_OWNER_PID_ENV: &str = "ACPMUX_TEST_OWNER_PID";
+
+/// Debug builds only: runs `on_exit` on a thread of its own once the test process named in
+/// [`TEST_OWNER_PID_ENV`] exited (at once when it already did). Nothing happens without one, or
+/// when its exit cannot be watched.
+#[cfg(debug_assertions)]
+pub(crate) fn follow_test_owner(on_exit: impl FnOnce(u32) + Send + 'static) {
+    let Some(pid) = owner_pid(std::env::var(TEST_OWNER_PID_ENV).ok().as_deref()) else {
+        return;
+    };
+    let spawned =
+        std::thread::Builder::new().name("acpmux-test-owner-watch".into()).spawn(move || {
+            match imp::wait_exit(pid) {
+                Ok(()) => on_exit(pid),
+                Err(error) => tracing::warn!(pid, %error, "cannot watch the test process"),
+            }
+        });
+    if let Err(error) = spawned {
+        tracing::warn!(pid, %error, "cannot start the test process watch");
+    }
+}
+
+/// Resolves with the test process's pid once it exited ([`TEST_OWNER_PID_ENV`]); never without
+/// one, when its exit cannot be watched, or in a release build. The watch starts at the call.
+pub(super) fn test_owner_exit() -> impl std::future::Future<Output = u32> {
+    #[cfg(debug_assertions)]
+    let exited = {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        follow_test_owner(move |pid| {
+            let _ = tx.send(pid);
+        });
+        rx
+    };
+    async move {
+        #[cfg(debug_assertions)]
+        if let Ok(pid) = exited.await {
+            return pid;
+        }
+        std::future::pending().await
+    }
+}
+
 fn owner_pid(value: Option<&str>) -> Option<u32> {
     let pid = value?.trim().parse::<u32>().ok()?;
     (pid > 1 && pid != std::process::id() && i32::try_from(pid).is_ok()).then_some(pid)
