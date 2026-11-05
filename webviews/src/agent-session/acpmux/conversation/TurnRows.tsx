@@ -18,9 +18,17 @@ import { ThoughtRow } from "./ThoughtRow";
 import { groupId, runStretches, toolGroups, type ToolGroup } from "./toolGroups";
 import type { RetryNote } from "../subagents/retryState";
 import { RowReplyButton } from "./SelectionReply";
-import { TurnActionsContext } from "./turnActions";
+import { RetryTargetContext, TurnActionsContext } from "./turnActions";
 import { errorRecovery, signInRetry, type ErrorRecovery } from "./errorRecovery";
-import { footerLabel, isEmptyFooter, isStopped, offersRetry, workedLabel } from "./turns";
+import {
+  footerLabel,
+  isEmptyFooter,
+  isStopped,
+  NO_RETRY_TARGET,
+  offersRetry,
+  retryPlacement,
+  workedLabel,
+} from "./turns";
 import { stoppedTurnLook } from "./stoppedTurn.experiment";
 import { turnCopyText } from "./turnCopy";
 import { hasTokens, TimedLabel, tokensText, TurnTokens } from "./TurnTokens";
@@ -385,10 +393,21 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
         ? () => retry(row.retryRowId!, prompt)
         : undefined;
   // The footer of the person's last prompt, when that turn ended well, sends it again as the
-  // prompt's Retry did: the chat's last turn, or the one before notices and reminders that came
-  // after it (turns.ts retryTargetAt marks it `retryTarget` with the prompt to send).
+  // prompt's Retry did, where turns.ts retryPlacement puts the chat's one Retry on this footer.
+  const retryTarget = useContext(RetryTargetContext);
+  const footerTarget = retryTarget
+    ? retryTarget.footerId === row.id
+      ? retryTarget
+      : NO_RETRY_TARGET
+    : offersRetry(row) && !isEmptyFooter(row)
+      ? { promptId: row.retryRowId, footerId: row.id }
+      : NO_RETRY_TARGET;
   const lastRetry =
-    !failed && !messages && !readOnly && offersRetry(row) && retry && prompt && row.retryRowId
+    !failed &&
+    retryPlacement(footerTarget, { canRetry: Boolean(retry), readOnly, messages }) === "footer" &&
+    retry &&
+    prompt &&
+    row.retryRowId
       ? () => retry(row.retryRowId!, prompt)
       : undefined;
   const footerRetry = failedRetry ?? lastRetry;

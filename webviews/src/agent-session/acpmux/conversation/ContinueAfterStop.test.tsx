@@ -139,13 +139,10 @@ test("the footer draws Continue only with the action, and shows at rest", () => 
   expect(withResume).toContain(translate("turn.stopped", { time: "40s" }));
   // No action (a View Only chat, or not connected): no button.
   expect(renderToStaticMarkup(<TurnFooter row={row} />)).not.toContain("cv-turn-continue");
-  // There a folded stopped turn with nothing else to show (no answer, nothing it said to copy and no
-  // prompt to send again) keeps no line for it. One that said something keeps its Copy row (turns.ts
-  // endsChatOnWork), and the last one with its prompt keeps the row its Retry sits on (offersRetry).
+  // There a folded stopped turn with nothing else to show (no answer and nothing it said to copy)
+  // keeps no line for it. One that said something keeps its Copy row (turns.ts endsChatOnWork).
   const folded = { ...row, folded: true, text: undefined, turnCopy: undefined };
-  const nothingToSend = { ...folded, prompt: undefined };
-  expect(renderToStaticMarkup(<TurnFooter row={nothingToSend} />)).toContain("cv-turn-actions--empty");
-  expect(renderToStaticMarkup(<TurnFooter row={folded} />)).not.toContain("cv-turn-actions--empty");
+  expect(renderToStaticMarkup(<TurnFooter row={folded} />)).toContain("cv-turn-actions--empty");
   // A completed turn's footer never draws it, even with the action.
   const done = footers([prompt("p1", 1_000), answer("a1", 30_000), summary("s1", 41_000)])[0]!;
   expect(

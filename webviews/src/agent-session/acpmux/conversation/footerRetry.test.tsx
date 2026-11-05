@@ -7,10 +7,11 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../model";
-import { MARK_FOOTER_ROW, rowMark } from "../transcriptGrid";
+import { TranscriptReadOnly } from "./readOnly";
 import { TurnFooter } from "./TurnRows";
-import { isEmptyFooter, offersRetry, turnViewFrom } from "./turns";
-import { TurnActionsContext, type TurnActions } from "./turnActions";
+import { offersRetry, retryTargetIn, turnView, turnViewFrom } from "./turns";
+import { RetryTargetContext, TurnActionsContext, type TurnActions } from "./turnActions";
+import { UserBubble } from "./UserBubble";
 
 const last: AcpmuxRow = {
   id: "summary",
@@ -79,19 +80,6 @@ test("a failed last turn keeps its Retry and model switch in the same place", ()
   expect(markup).toContain("cv-turn-retry-menu");
 });
 
-// A last turn of tool calls alone has nothing to copy, but it offers Retry, so its footer is a row
-// of its own, not the hidden empty footer: else the chat would offer no Retry anywhere (cmux#34779).
-test("a tool-only last turn's footer shows to carry its Retry", () => {
-  const toolsOnly: AcpmuxRow = { ...last, text: undefined, answerId: undefined };
-  expect(isEmptyFooter(toolsOnly)).toBe(false);
-  expect(rowMark(toolsOnly)).toBe(MARK_FOOTER_ROW);
-  const markup = draw(toolsOnly);
-  expect(markup).not.toContain("cv-turn-actions--empty");
-  expect(markup).toContain('aria-label="Retry"');
-  // With nothing to send again (an earlier turn), it stays the hover-only empty footer.
-  expect(isEmptyFooter({ ...toolsOnly, retryable: undefined, prompt: undefined, retryRowId: undefined })).toBe(true);
-});
-
 // A turn a notification started has no prompt to send again, so Retry stays with the person's last
 // prompt, on its own turn's footer, as the prompt's Retry stayed under it before (cmux#34779). Once
 // the person sends another prompt, Retry moves to that turn, also when the view builds on the last.
@@ -151,4 +139,82 @@ test("a task result's turn offers no Retry; the person's last prompt keeps it", 
   const footers = turnViewFrom(rows, new Set(), { now: 100 }).rows.filter((row) => row.kind === "turnSummary");
   expect(footers.map(offersRetry)).toEqual([true, false]);
   expect(footers[0]!.prompt).toBe("Fix the grid");
+});
+
+// One table over every turn shape the reviews named (cmux#34779): the transcript draws exactly one
+// Retry where base drew the prompt's, on the reply footer when that footer shows and offers it, else
+// under the person's last prompt; none for a reader who may not act or a chat that cannot send; and a
+// task result acpmux sent in is never the prompt it resends.
+const P = (id: string, at: number, text: string): AcpmuxRow => ({ id, version: 1, at, kind: "user", text });
+const A = (id: string, at: number, text: string): AcpmuxRow => ({ id, version: 1, at, kind: "assistant", text });
+const S = (id: string, at: number): AcpmuxRow => ({ id, version: 1, at, kind: "turnSummary", status: "completed" });
+const tool = (id: string, at: number): AcpmuxRow => ({
+  id,
+  version: 1,
+  at,
+  kind: "activity",
+  items: [{ kind: "tool", text: "", tool: { toolCallId: id, title: "ls", kind: "execute", status: "completed" } }],
+});
+const notice = (id: string, at: number): AcpmuxRow => ({
+  id,
+  version: 1,
+  at,
+  kind: "user",
+  text: "<task-notification>done</task-notification>",
+  incoming: { kind: "notice", text: "Build finished" },
+});
+const received = (id: string, at: number): AcpmuxRow => ({
+  id,
+  version: 1,
+  at,
+  kind: "user",
+  text: "Task result: the header is done.",
+  received: { offerId: "o1", childSessionId: "child-1", title: "Header" },
+});
+
+/// Where each drawn row shows a Retry button, as the transcript renders it: "footer:<id>" or
+/// "prompt:<id>".
+function retries(source: AcpmuxRow[], value: TurnActions = actions(), readOnly = false): string[] {
+  const rows = turnView(source, new Set(), { now: 1_000 });
+  const target = retryTargetIn(rows);
+  const shown: string[] = [];
+  for (const row of rows) {
+    const node =
+      row.kind === "turnSummary" ? (
+        <TurnFooter row={row} />
+      ) : row.kind === "user" && !row.incoming && !row.received ? (
+        <UserBubble row={row} text={row.text ?? ""} />
+      ) : undefined;
+    if (!node) continue;
+    const markup = renderToStaticMarkup(
+      <TranscriptReadOnly.Provider value={readOnly}>
+        <TurnActionsContext.Provider value={value}>
+          <RetryTargetContext.Provider value={target}>{node}</RetryTargetContext.Provider>
+        </TurnActionsContext.Provider>
+      </TranscriptReadOnly.Provider>,
+    );
+    if (markup.includes('aria-label="Retry"')) shown.push(`${row.kind === "user" ? "prompt" : "footer"}:${row.id}`);
+  }
+  return shown;
+}
+
+const reply = [P("p1", 10, "Fix the grid"), A("a1", 20, "Fixed."), S("s1", 30)];
+test.each([
+  ["a normal reply: its footer", reply, ["footer:s1"]],
+  ["a tool-only last turn, whose footer is empty: the prompt", [P("p1", 10, "List it"), tool("t1", 20), S("s1", 30)], ["prompt:p1"]],
+  ["a notification's turn after it: the person's turn's footer", [...reply, notice("n", 40), A("a2", 50, "Built."), S("s2", 60)], ["footer:s1"]],
+  ["a self-started summary in its tail: its own footer once", [...reply, A("a2", 40, "Also checked CI."), S("s2", 50)], ["footer:s1"]],
+  ["a history turn with no summary: the prompt", [P("p1", 10, "First"), A("a1", 20, "Done.")], ["prompt:p1"]],
+  ["a task result after it: the person's turn's footer, never the result", [...reply, received("r", 40), A("a2", 50, "Merged."), S("s2", 60)], ["footer:s1"]],
+  ["a later prompt: only the last prompt's footer", [...reply, P("p2", 40, "Now the header"), A("a2", 50, "Done."), S("s2", 60)], ["footer:s2"]],
+] as const)("%s", (_name, source, expected) => {
+  expect(retries([...source])).toEqual([...expected]);
+});
+
+test("a reader who may not act, or a chat that cannot send now, sees no Retry anywhere", () => {
+  const toolOnly = [P("p1", 10, "List it"), tool("t1", 20), S("s1", 30)];
+  for (const source of [reply, toolOnly]) {
+    expect(retries(source, actions(), true)).toEqual([]);
+    expect(retries(source, {})).toEqual([]);
+  }
 });

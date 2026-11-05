@@ -134,17 +134,15 @@ const footerSays = (row: AcpmuxRow) =>
 /// reply after its last call, is not empty: it ends the chat, so its row with Copy (the whole turn,
 /// turnCopy.ts) shows once it ends, as ChatGPT's does under every finished turn (Leo, 2026-11-02:
 /// "the latest copy buttons auto showing when the turn is done like chatgpt"). Before, that footer
-/// drew nothing, so the chat ended on a blank band with no buttons. Nor is the last turn's footer
-/// that offers Retry (`offersRetry`): a turn of tool calls alone has nothing to copy, but its Retry
-/// is the footer's now, never the prompt's (cmux#34779), so the footer shows to carry it.
+/// drew nothing, so the chat ended on a blank band with no buttons. A footer that is empty never
+/// carries Retry: the prompt keeps it (`retryPlacement`).
 export const isEmptyFooter = (row: AcpmuxRow) =>
   row.kind === "turnSummary" &&
   row.status !== "failed" &&
   row.status !== "error" &&
   !row.text &&
   !row.resumable &&
-  !endsChatOnWork(row) &&
-  !offersRetry(row);
+  !endsChatOnWork(row);
 
 /// The footer with the person's last prompt to send again (TurnRows.tsx TurnFooter's Retry): the
 /// chat's last turn, or the last one a prompt opened when every turn after it came from a notice
@@ -161,6 +159,50 @@ const resendable = (user: AcpmuxRow) =>
   user.incoming?.kind !== "inbox" &&
   user.received === undefined &&
   Boolean(user.resend ?? user.text);
+
+/// The chat's one Retry in the transcript (cmux#34779): the person's last prompt it can send again
+/// (`promptId`), and its turn's footer when that footer draws Retry for it (`footerId`). Read by
+/// ``retryPlacement``. A prompt still sending or one that failed to send is skipped, as its bubble
+/// has its own controls; a steer is a prompt too, and its turn's footer resends the turn's opener,
+/// not it, so the steer keeps Retry under its bubble.
+export type RetryTarget = { promptId?: string; footerId?: string };
+export const NO_RETRY_TARGET: RetryTarget = {};
+
+export function retryTargetIn(rows: readonly AcpmuxRow[]): RetryTarget {
+  for (let at = rows.length - 1; at >= 0; at -= 1) {
+    const row = rows[at]!;
+    if (row.kind !== "user" || isUnsent(row) || row.delivery?.state === "sending" || !resendable(row)) continue;
+    // Its turn's footer is the first summary after it. A turn with none (history that ended
+    // without a turn result, or one still running) reaches the next turn's summary, which resends
+    // another prompt: then the prompt keeps Retry.
+    for (let next = at + 1; next < rows.length; next += 1) {
+      const footer = rows[next]!;
+      if (footer.kind !== "turnSummary") continue;
+      return offersRetry(footer) && footer.retryRowId === row.id && !isEmptyFooter(footer)
+        ? { promptId: row.id, footerId: footer.id }
+        : { promptId: row.id };
+    }
+    return { promptId: row.id };
+  }
+  return NO_RETRY_TARGET;
+}
+
+/// Where the transcript draws its one Retry: on the reply footer when that footer shows and offers
+/// it (the person's last prompt's turn ended with a footer that has something at rest, or failed),
+/// else under the prompt, as the prompt's Retry was drawn before Retry moved to the footer, so
+/// Retry never vanishes where it was (a turn of tool calls alone, whose empty footer draws nothing;
+/// history with no turn result; a turn still running). Nowhere when the reader may not act (read
+/// only) or the chat cannot send now (no `retry`, as while disconnected). The Messages view, which
+/// draws no footer for a turn that ended well, keeps Retry under its prompts.
+export type RetryPlace = "footer" | "prompt" | "none";
+export function retryPlacement(
+  target: RetryTarget,
+  ctx: { canRetry: boolean; readOnly: boolean; messages: boolean },
+): RetryPlace {
+  if (!target.promptId || !ctx.canRetry || ctx.readOnly) return "none";
+  if (ctx.messages || !target.footerId) return "prompt";
+  return "footer";
+}
 
 /// The turn whose footer offers Retry: the last one, or, when the last turns came from a notice or a
 /// reminder (nothing to send again), the last turn before them whose prompt can be sent again, as

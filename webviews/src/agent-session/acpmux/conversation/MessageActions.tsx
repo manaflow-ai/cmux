@@ -19,7 +19,8 @@ import { CopyButton } from "./CopyButton";
 import { hasMessageMenuHost, openMessageMenu, openForkMenu } from "./messageMenu";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { RowReplyButton } from "./SelectionReply";
-import { TurnActionsContext, type QueuedActions } from "./turnActions";
+import { RetryTargetContext, TurnActionsContext, type QueuedActions } from "./turnActions";
+import { retryPlacement } from "./turns";
 import { useTranscriptReadOnly } from "./readOnly";
 
 /// A hover row's glyph size: Claude's 16 px icons, each in a 24 px (--cv-meta-row) button.
@@ -324,14 +325,22 @@ export function PromptActions({
   pending?: (actions: ReactNode, queued: QueuedActions) => ReactNode;
 }) {
   // Retry is the last turn's reply footer's (TurnFooter), but the Messages view draws no footer for a
-  // turn that ended well, so its prompts, sent or queued, keep Retry there.
+  // turn that ended well, so its prompts, sent or queued, keep Retry there; and a prompt whose turn's
+  // footer draws none keeps it too (turns.ts retryPlacement).
   const messagesView = useContext(PresentationContext) === "messages";
+  const retryTarget = useContext(RetryTargetContext);
+  const canResend = Boolean(useContext(TurnActionsContext).retry);
+  const readOnly = useTranscriptReadOnly();
+  const promptRetry =
+    messagesView ||
+    (retryTarget?.promptId === row.id &&
+      retryPlacement(retryTarget, { canRetry: canResend, readOnly, messages: false }) === "prompt");
   const prompt = row.resend ?? row.text ?? "";
   const actions = (
     <MessageFooterRow>
       <MessageTime at={row.at} className="cv-user__time" />
       <MessageCopy text={text} />
-      {messagesView && <PromptRetry rowId={row.id} prompt={prompt} />}
+      {promptRetry && <PromptRetry rowId={row.id} prompt={prompt} />}
       <PinButton rowId={row.id} bookmark />
     </MessageFooterRow>
   );
