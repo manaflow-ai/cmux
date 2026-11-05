@@ -2017,6 +2017,25 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
         self.assertEqual(excuse.mask_shas(f"this run built {HEAD}"), "this run built <sha>")
         self.assertEqual(excuse.mask_shas(f"source stamp {HEAD} != {BASE_SHA}"), "source stamp <sha> != <sha>")
 
+    def test_a_stored_thing_id_after_punctuation_is_not_masked(self):
+        # cmux#35941 F1: the pattern took a literal space (and a backtick), so `artifact: <40-hex>` and
+        # `checksum=<40-hex>` fell back to the bare branch and two differing digests compared as one red.
+        digest = "f06132224fc58d3cd5349ed190eaadc44736abf2"
+        for named in (f"artifact: {digest}", f"checksum={digest}", f"digest ({digest})",
+                      f"hash [{digest}]", f'pack "{digest}"', f"artifact = {digest}"):
+            self.assertEqual(excuse.mask_shas(named), named)
+
+    def test_a_preserved_id_keeps_its_digits(self):
+        # cmux#35941 F2: normalise_error masks every digit after mask_shas, so two preserved ids that differ
+        # only in digits still normalised the same way.
+        first = "f06132224fc58d3cd5349ed190eaadc44736abf2"
+        second = "f06132224fc58d3cd5349ed190eaadc44736abf3"
+        self.assertNotEqual(excuse.normalise_error(f"##[error]artifact: {first} is not pinned"),
+                            excuse.normalise_error(f"##[error]artifact: {second} is not pinned"))
+        # The rest of the line still normalises: a run number, a duration, a pid vary run to run.
+        self.assertEqual(excuse.normalise_error(f"##[error]artifact: {first} after 12 attempts"),
+                         excuse.normalise_error(f"##[error]artifact: {first} after 3 attempts"))
+
     def test_two_different_object_digests_are_two_error_lines(self):
         first = "f06132224fc58d3cd5349ed190eaadc44736abf2"
         second = "2cadcc0a5426124272e806a9dca5273ce19940ea"

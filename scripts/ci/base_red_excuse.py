@@ -306,7 +306,11 @@ CRASH_LINE = re.compile(r"exited with unexpected signal code|the test helper die
 # whatever word introduces it: a base red often names each run's own tree or stamp with no keyword at
 # all ("source stamp <40-hex> != <40-hex>"), which is why the bare case cannot ask for one.
 ARTIFACT = r"(?i:artifacts?|artefacts?|assets?|digests?|checksums?|hashe?s?|packs?|bundles?|archives?|images?|layers?)"
-SHA = re.compile(rf"(?P<artifact>\b{ARTIFACT} `?[0-9a-f]{{40}}\b)"
+# What may stand between such a word and its id: spaces, one `:` or `=`, and an opening quote or bracket
+# (`artifact: <40-hex>`, `checksum=<40-hex>`, `digest (<40-hex>)`), which the literal space alone missed
+# (cmux#35941 F1).
+NAMED = r"(?:[ \t]+|[ \t]*[:=][ \t]*)[(\[`'\"]?"
+SHA = re.compile(rf"(?P<artifact>\b{ARTIFACT}{NAMED}[0-9a-f]{{40}}\b)"
                  r"|\b[0-9a-f]{40}\b"
                  r"|\b(?P<commit>(?:commit|sha|tree|revision) `?)[0-9a-f]{7,39}\b")
 # A compile check that gave no verdict (the build-fleet controller unreachable, timed out, or a result
@@ -511,21 +515,47 @@ def is_aggregate(name: str, repo: str = HOME_REPO) -> bool:
     return name in rollups(repo)["run"] or routed_rollup(name, repo) is not None
 
 
-def mask_shas(text: str) -> str:
-    """TEXT with its commit shas masked, leaving every other hex id as it is (SHA)."""
+def _sub_shas(text: str, keep: list | None = None) -> str:
+    """TEXT with its commit shas masked (SHA). With KEEP, each id the pattern preserves is set aside there and
+    left as a marker of letters alone, so a later pass over TEXT's numbers cannot touch its digits."""
     def masked(match: re.Match[str]) -> str:
-        if match.group("artifact") is not None:
-            return match.group("artifact")
+        if (named := match.group("artifact")) is not None:
+            if keep is None:
+                return named
+            keep.append(named)
+            return _marker(len(keep) - 1)
         return (match.group("commit") or "") + "<sha>"
 
     return SHA.sub(masked, text)
 
 
+def _marker(index: int) -> str:
+    """A placeholder for the id at INDEX of a keep list: letters between two NULs, so no number masking,
+    and nothing test_reds.volatile rewrites, is in it."""
+    letters = ""
+    index += 1
+    while index:
+        index, rest = divmod(index - 1, 26)
+        letters = chr(ord("a") + rest) + letters
+    return f"\0{letters}\0"
+
+
+def mask_shas(text: str) -> str:
+    """TEXT with its commit shas masked, leaving every other hex id as it is (SHA)."""
+    return _sub_shas(text)
+
+
 def normalise_error(text: str) -> str:
     """An error line as compared with the base's: the annotation prefix dropped, commit shas, run-to-run tokens
     (test_reds.volatile: run-named temp dirs, the runner's checkout root, times) and then
-    every number masked, so the same red on two runs is one line and a different red is not."""
-    return re.sub(r"\d+", "#", test_reds.volatile(mask_shas(text.replace("##[error]", "").strip())))
+    every number masked, so the same red on two runs is one line and a different red is not. An id mask_shas
+    preserves keeps its digits: they are the whole of what tells two digests apart (cmux#35941 F2)."""
+    kept: list = []
+    said = _sub_shas(text.replace("##[error]", "").strip(), keep=kept)
+    said = re.sub(r"\d+", "#", test_reds.volatile(said))
+    for index, id_ in enumerate(kept):
+        said = said.replace(_marker(index), id_)
+    return said
 
 
 def lines_of(log: str) -> list[str]:
