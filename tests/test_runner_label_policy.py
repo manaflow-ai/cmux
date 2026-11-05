@@ -295,13 +295,14 @@ class NightlyNextBuildVariable(unittest.TestCase):
 
 
 class NightlySigningPoolVariable(unittest.TestCase):
-    def test_only_glaedas_signing_label_is_allowed(self) -> None:
+    def test_only_the_signers_label_is_allowed(self) -> None:
         name = "CI_NIGHTLY_SIGNING_POOL"
-        for label in ("glaeda-signing-xcode-26.6", "glaeda-signing-xcode-27", ""):
+        for label in ("glaeda-trusted-next-signing", ""):
             with self.subTest(label=label):
                 self.assertEqual(drifted_runner_variables({name: label}), [])
         for label in ("glaeda-nightly-std-xcode-26.6", "glaeda-side-std-xcode-26.6", "glaeda-std-xcode-26.6",
-                      "blacksmith-6vcpu-macos-26", "glaeda-signing", "glaeda-signing-xcode-26.6 self-hosted"):
+                      "blacksmith-6vcpu-macos-26", "glaeda-signing-xcode-26.6", "glaeda-trusted-std-xcode-26.6",
+                      "glaeda-root-std-xcode-26.6", "glaeda-nightly-only-m4pro", "glaeda-trusted-next-signing self-hosted"):
             with self.subTest(label=label):
                 self.assertTrue(drifted_runner_variables({name: label}))
 

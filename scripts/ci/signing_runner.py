@@ -69,23 +69,24 @@ import pr_runner_pool as pool  # noqa: E402
 import warm_distance  # noqa: E402
 from nightly_build_runner import NIGHTLY_SLOT_LABEL, owned_label  # noqa: E402
 
-# SIGNING_SLOT_LABEL: glaeda's signing label, glaeda-signing-xcode-<v>, which glaeda gives only the nightly slot of a
-# mini enrolled for signing (its manifest's runner.nightlySigning). nightly.yml's signing jobs and their pickers ask
-# for it alone (vars.CI_NIGHTLY_SIGNING_POOL), never a label they share with nightly builds or PR side lanes: on
-# 2026-11-04 eleven sign-nightly-identity-legacy jobs queued on the shared std nightly label reached an M5 Ultra
+# SIGNER_LABEL: the signer's label (glaeda runner.trustedNextSigning), the one route nightly.yml's signing jobs and
+# their pickers ask for (vars.CI_NIGHTLY_SIGNING_POOL), never a label they share with nightly builds or PR side lanes:
+# on 2026-11-04 eleven sign-nightly-identity-legacy jobs queued on the shared std nightly label reached an M5 Ultra
 # Studio's nightly slot, a host never enrolled for signing, and GitHub delivered their secrets there before glaeda's
-# hook refused them. A signing slot is a nightly slot, so it drains like one.
-SIGNING_SLOT_LABEL = re.compile(r"glaeda-signing-xcode-[0-9]+(?:\.[0-9]+)*")
+# hook refused them. Only a trusted-only mini carries it: its hook admits no pull request job, and glaeda gives a
+# trustedRef host no nightly slot or shared pool label. A shared PR mini's nightly slot cannot sign safely: its other
+# runners run pull request jobs as the same user, whose persistent state outlives a whole-Mac claim.
+SIGNER_LABEL = "glaeda-trusted-next-signing"
 
 
 def signing_route_label(label: str) -> bool:
-    """An owned label a signing job may be routed to: owned_label()'s, or glaeda's signing label."""
-    return owned_label(label) or bool(SIGNING_SLOT_LABEL.fullmatch(label or ""))
+    """An owned label a signing job may be routed to: owned_label()'s, or the signer's label."""
+    return owned_label(label) or label == SIGNER_LABEL
 
 
 def slot_label(label: str) -> bool:
-    """A label only glaeda's nightly slots carry (a nightly slot or signing label): the drain path offers these."""
-    return bool(NIGHTLY_SLOT_LABEL.fullmatch(label) or SIGNING_SLOT_LABEL.fullmatch(label))
+    """A label the drain path offers: a nightly slot's, or the signer's (a nightly-only mini that runs no PR job)."""
+    return bool(NIGHTLY_SLOT_LABEL.fullmatch(label)) or label == SIGNER_LABEL
 
 ENABLED_VALUE = "1"
 # The signing jobs glaeda gives the whole mini (glaeda SIGNING_JOBS; tests/test_ci_signing_owned_mac.py keeps the

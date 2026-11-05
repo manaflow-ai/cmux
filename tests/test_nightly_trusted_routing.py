@@ -40,9 +40,9 @@ TAIL_CONTROL_JOBS = (
 # owned nightly slot (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER) and GitHub-hosted Ubuntu.
 NIGHTLY_ONLY = 'glaeda-nightly-only-m4pro'
 NIGHTLY_SLOT = 'glaeda-nightly-std-xcode-26.6'
-# glaeda's signing label: only the nightly slots of minis enrolled for signing carry it, and the secret-bearing
+# The signer's label: only a trusted-only mini that runs no pull request job carries it, and the secret-bearing
 # jobs end on it (vars.CI_NIGHTLY_SIGNING_POOL), never on a label nightly builds or PR side lanes share.
-SIGNING_SLOT = 'glaeda-signing-xcode-26.6'
+SIGNING_SLOT = 'glaeda-trusted-next-signing'
 HOSTED = 'ubuntu-24.04'
 OUR_LABELS = {NIGHTLY_ONLY, NIGHTLY_SLOT, SIGNING_SLOT, HOSTED}
 # Secret jobs that stay on GitHub-hosted Ubuntu until glaeda gives them the whole mini (its SIGNING_JOBS; the
@@ -267,7 +267,7 @@ class NightlyTrustedRouting(unittest.TestCase):
         # The owned-only Mac signing and verify jobs end on the owned nightly slot, then the side lane, then
         # the std pool (test_nightly_sign_runner.py OWNED_ONLY_JOBS); the early native jobs
         # (build-nightly-inputs, the Ghostty helper) fall back to the nightly slot.
-        # The secret-bearing jobs and their pickers end on glaeda's signing label instead (SIGNING_SLOT).
+        # The secret-bearing jobs and their pickers end on the signer's label instead (SIGNING_SLOT).
         self.assertEqual(uses, ['build-nightly-ghostty-cli-helper', 'build-nightly-inputs',
                                 'verify-final-dmg-nightly', 'verify-nightly-identity-legacy',
                                 'verify-recovered-nightly-next', 'verify-signed-nightly'])
@@ -387,7 +387,7 @@ class NightlyTrustedRouting(unittest.TestCase):
 
     def test_publication_controls_reject_unavailable_dedicated_m4pro(self):
         # Publication cannot use the dedicated label: glaeda-nightly-only-admit refuses every signing-class job,
-        # since those minis have no exclusive-claim capacity. It takes glaeda's signing label, never Blacksmith.
+        # since those minis have no exclusive-claim capacity. It takes the signer's label, never Blacksmith.
         jobs = DOC["jobs"]
         dedicated = {
             "github.repository_owner": "manaflow-ai",

@@ -186,11 +186,11 @@ def nightly_next_build_reason(label: str) -> str | None:
 
 
 # nightly.yml's signing jobs and their pickers queue on this one label after their picker branch
-# (signing_runner.SIGNING_SLOT_LABEL): glaeda's signing label, which only the nightly slots of minis enrolled for
-# signing carry. Anything else, a label nightly builds or PR side lanes share most of all, would hand the jobs'
-# signing secrets to a mini never enrolled for signing. Empty is fine (the workflow's literal).
+# (signing_runner.SIGNER_LABEL): the signer's label, which only a trusted-only mini (no pull request job) carries.
+# Anything else, a label nightly builds or PR side lanes share most of all, would hand the jobs' signing secrets to
+# a mini that runs pull request jobs. Empty is fine (the workflow's literal).
 NIGHTLY_SIGNING_POOL_VARIABLE = "CI_NIGHTLY_SIGNING_POOL"
-NIGHTLY_SIGNING_POOL_LABEL = re.compile(r"glaeda-signing-xcode-[0-9]+(?:\.[0-9]+)*")
+NIGHTLY_SIGNING_POOL_LABEL = re.compile(r"glaeda-trusted-next-signing")
 
 
 FAST_LANE_VARIABLE = "CI_FAST_LANE_RUNNER"
@@ -436,7 +436,7 @@ def drifted_runner_variables(
             reason = nightly_next_build_reason(value.strip())
         elif name == NIGHTLY_SIGNING_POOL_VARIABLE:
             reason = (None if not value.strip() or NIGHTLY_SIGNING_POOL_LABEL.fullmatch(value.strip()) else
-                      "must name glaeda's signing label (glaeda-signing-xcode-<version>) or be unset")
+                      "must name the signer's label (glaeda-trusted-next-signing) or be unset")
         elif name == FAST_LANE_VARIABLE:
             reason = fast_lane_reason(value.strip())
         elif name == SESSION_LANE_VARIABLE:

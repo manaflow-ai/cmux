@@ -54,9 +54,9 @@ OWNED_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNN
 # The notarization recovery's own owned pick (find-nightly-next-recovery), then the nightly build pool.
 RECOVERY_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}"
 RECOVERY_JOBS = {"recover-nightly-next-notarization", "verify-recovered-nightly-next"}
-# The secret-bearing jobs end on glaeda's signing label alone (only the nightly slots of minis enrolled for signing
-# carry it), never a label they share with nightly builds or PR side lanes.
-SIGNING_FALLBACK = "|| vars.CI_NIGHTLY_SIGNING_POOL || 'glaeda-signing-xcode-26.6' }}"
+# The secret-bearing jobs end on the signer's label alone (a trusted-only mini that runs no pull request job), never a
+# label they share with nightly builds or PR side lanes.
+SIGNING_FALLBACK = "|| vars.CI_NIGHTLY_SIGNING_POOL || 'glaeda-trusted-next-signing' }}"
 SECRET_JOBS = {"sign-nightly-identity-legacy", "generate-nightly-deltas", "build-sign-notarize-nightly",
                "recover-nightly-next-notarization"}
 
