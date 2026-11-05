@@ -8,7 +8,12 @@ import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRe
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { commandFolder } from "./commandFolder";
 import { execParts, execText, execView, isCmuxExec } from "./cmuxExec";
-import { cleanText, mcpCall, mcpOutputResult, prettyOutput, prettyValue } from "./mcpCalls";
+import { cleanText, mcpCall, mcpOutputResult, prettyOutput, prettyValue, type McpCall } from "./mcpCalls";
+import { acpmuxMcpSends } from "./acpmuxMcpSends";
+import { agentMessage } from "./agentMessages";
+import { dispatchCall } from "./dispatchCalls";
+import { subsessionCall } from "./subsessionCalls";
+import { fieldsText, inputFields } from "./toolInputFields";
 import { plainText } from "./messageMenu";
 import { drawnThought } from "./thoughts";
 import { callOutput, shellOutput, toolFailure } from "./toolFailure";
@@ -70,7 +75,10 @@ function drawnText(item: AcpmuxActivity): string {
     const output = failure?.kind === "hook" ? failure.output : tool.output;
     const result = mcpOutputResult(output, strip, call.tool);
     const text = result?.lang === "markdown" ? plainText(result.text) : result?.text;
-    return [prettyValue(call.args), text].filter(Boolean).join("\n");
+    // Arguments that open as labeled fields are read as their values (ToolDetail.tsx); any other
+    // shape, and a hook's refusal, as the pretty request.
+    const fields = failure?.kind === "hook" || drawnAsCard(item, call) ? undefined : inputFields(call.args);
+    return [fields ? fieldsText(fields, plainText) : prettyValue(call.args), text].filter(Boolean).join("\n");
   }
   const shell = tool.kind === "execute" && Boolean(tool.command);
   // A shell draws its output without Claude Code's leading "Exit code N" line (toolFailure.ts), which
@@ -86,9 +94,24 @@ function drawnText(item: AcpmuxActivity): string {
       : result.lang === "markdown"
         ? plainText(result.text)
         : result.text;
+  // A call with output that is not a shell or an edit opens to its input's fields over it (ToolRow.tsx).
+  const fields = result?.text.trim() && !tool.diffs?.length ? inputFields(tool.inputSummary) : undefined;
   // The command as its rows draw it, without a leading `cd <folder> &&` (commandFolder).
-  return [(tool.command && commandFolder(tool.command).rest) || tool.title, output].filter(Boolean).join("\n");
+  return [
+    (tool.command && commandFolder(tool.command).rest) || tool.title,
+    fields && fieldsText(fields, plainText),
+    output,
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
+
+/** An MCP call a card draws instead of the MCP row (toolGroups.ts): a sub-session, a dispatch, a
+ * sent or another agent's message. Its Raw keeps the request as it came, which Find reads. */
+const drawnAsCard = (item: AcpmuxActivity, call: McpCall) =>
+  Boolean(
+    dispatchCall(item) || acpmuxMcpSends(item.tool!) || agentMessage(item.tool!) || subsessionCall(item.tool!, call),
+  );
 
 /** A call's edits' new text, which draws in @pierre/diffs' shadow root, past the page's highlights. */
 const diffText = (item: AcpmuxActivity) => (item.tool?.diffs ?? []).map((diff) => diff.newText).join("\n");

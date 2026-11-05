@@ -1,7 +1,7 @@
 import { ToolVisualRow } from "./ToolVisualPreview";
 import { WrittenArtifactButtons } from "./writtenArtifacts";
 // One tool call drawn on its own row: its glyph, its title, and, when it has any, its
-// output, Shell block or diff below once opened.
+// output (under its input's labeled fields, ToolDetail.tsx), Shell block or diff below once opened.
 import { useFindReveal } from "./chatFind";
 import { memo, useContext, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toolFiles } from "../diff";
@@ -26,6 +26,8 @@ import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { useRowDisclosure } from "./transcriptDisclosure";
 import { toolResult } from "./toolResult";
 import { ToolOutput } from "./ToolOutputBody";
+import { ToolDetail } from "./ToolDetail";
+import { inputFields } from "./toolInputFields";
 import { WriteLabel, writeCall } from "./WriteLabel";
 import { ToolLabel } from "./ToolVerb";
 import { callOutput, rowFailed, toolFailure } from "./toolFailure";
@@ -140,6 +142,12 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
     return () => observer.disconnect();
   }, [hasDetails, open, label, expandable]);
   const images = useMemo(() => toolImages(tool), [tool]);
+  // Any other call opens to its input, one labeled field per argument, over its output
+  // (ToolDetail.tsx); read only while drawn, as the diff is.
+  const fields = useMemo(
+    () => (fold.present && !shell && !hasDiff ? inputFields(tool.inputSummary) : undefined),
+    [fold.present, shell, hasDiff, tool.inputSummary],
+  );
   const words = write ? <WriteLabel tool={tool} write={write} t={t} /> : <ToolLabel text={label} />;
   const content = (
     <>
@@ -222,6 +230,8 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
                 <EditDiff key={file.path} file={file} reveal={reveal} />
               ))}
             </div>
+          ) : result && fields ? (
+            <ToolDetail id={detailsId} fields={fields} result={result} reveal={reveal} />
           ) : result ? (
             <ToolOutput id={detailsId} result={result} reveal={reveal} />
           ) : null}
