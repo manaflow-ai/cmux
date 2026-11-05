@@ -22,7 +22,13 @@ export default componentEntry<GuestPageProps>({
   title: "Guest page: shared chat",
   area: "Agent pane",
   keywords: ["multiplayer", "share", "guest", "read only", "transcript"],
-  covers: ["agent-session/guest/GuestPage.tsx"],
+  covers: [
+    "agent-session/guest/GuestPage.tsx",
+    "agent-session/acpmux/rows/ReadOnlyAgentPairRow.tsx",
+    "agent-session/acpmux/rows/ReadOnlyNextStepRow.tsx",
+    "agent-session/acpmux/rows/ReadOnlyPermissionRow.tsx",
+    "agent-session/acpmux/rows/ReadOnlyQueuedMessageRow.tsx",
+  ],
   height: 720,
   // A phone browser at narrow.
   widths: { narrow: 390 },

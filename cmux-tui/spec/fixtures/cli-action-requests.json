@@ -1,0 +1,3953 @@
+{
+  "about": "action.run requests as the cmux CLI's own encoder builds them (cmux-tui cli/tests/action_argument_contract.rs writes this; CMUX_UPDATE_CLI_ACTION_REQUESTS=1 cargo test -p cmux-tui --lib action_argument_contract rewrites it). The app's ArgumentActionContractTests validate each against its catalog.",
+  "requests": [
+    {
+      "params": {
+        "action": "cloud relay-chat",
+        "args": {
+          "agent": "claude",
+          "cwd": "/home/cmux/w",
+          "prompt": "What is 2+2?",
+          "promptId": "p-1"
+        },
+        "cli": true,
+        "target": "machine:vm-1",
+        "wait": true
+      },
+      "source": "cmux cloud start-chat (relay)"
+    },
+    {
+      "params": {
+        "action": "app settings",
+        "args": {
+          "section": "general",
+          "setting": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux app settings --section general --setting /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "window screenshot",
+        "args": {
+          "out": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux window screenshot --out /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "app quit",
+        "args": {
+          "endEverything": true,
+          "endSessions": true,
+          "keepSessions": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux app quit --keep-sessions --end-sessions --end-everything"
+    },
+    {
+      "params": {
+        "action": "workspace move-to-window",
+        "args": {
+          "window": "window:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace move-to-window --window window:contract-1"
+    },
+    {
+      "params": {
+        "action": "workspace rename",
+        "args": {
+          "name": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace rename --name /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "workspace edit-description",
+        "args": {
+          "description": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace edit-description --description /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "workspace set-status",
+        "args": {
+          "status": "auto"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace set-status --status auto"
+    },
+    {
+      "params": {
+        "action": "workspace add-checklist-item",
+        "args": {
+          "text": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace add-checklist-item --text /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "workspace toggle-checklist-item-complete",
+        "args": {
+          "item": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace toggle-checklist-item-complete --item /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "workspace close-other",
+        "args": {
+          "confirm": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace close-other --confirm"
+    },
+    {
+      "params": {
+        "action": "workspace close-below",
+        "args": {
+          "confirm": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace close-below --confirm"
+    },
+    {
+      "params": {
+        "action": "workspace close-above",
+        "args": {
+          "confirm": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace close-above --confirm"
+    },
+    {
+      "params": {
+        "action": "workspace close-all",
+        "args": {
+          "confirm": true,
+          "window": "window:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace close-all --window window:contract-1 --confirm"
+    },
+    {
+      "params": {
+        "action": "workspace close-all-in-all-windows",
+        "args": {
+          "confirm": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace close-all-in-all-windows --confirm"
+    },
+    {
+      "params": {
+        "action": "workspace pin-unpin",
+        "args": {
+          "pinned": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace pin-unpin --pinned"
+    },
+    {
+      "params": {
+        "action": "workspace set-color",
+        "args": {
+          "color": "grey"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace set-color --color grey"
+    },
+    {
+      "params": {
+        "action": "workspace-group new-subgroup",
+        "args": {
+          "group": "workspace-group:contract-1",
+          "name": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace-group new-subgroup --group workspace-group:contract-1 --name /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "workspace-group rename",
+        "args": {
+          "name": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace-group rename --name /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "workspace-group toggle-pin",
+        "args": {
+          "pinned": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace-group toggle-pin --pinned"
+    },
+    {
+      "params": {
+        "action": "workspace-group delete",
+        "args": {
+          "confirm": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace-group delete --confirm"
+    },
+    {
+      "params": {
+        "action": "workspace save-layout-as-template",
+        "args": {
+          "name": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace save-layout-as-template --name /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "workspace new-from-template",
+        "args": {
+          "template": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace new-from-template --template /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "workspace new-in-new-group",
+        "args": {
+          "name": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace new-in-new-group --name /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "workspace new-on-machine",
+        "args": {
+          "machine": "machine:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace new-on-machine --machine machine:contract-1"
+    },
+    {
+      "params": {
+        "action": "workspace set-icon",
+        "args": {
+          "icon": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace set-icon --icon /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "workspace move-above",
+        "args": {
+          "anchor": "workspace:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace move-above --anchor workspace:contract-1"
+    },
+    {
+      "params": {
+        "action": "workspace move-below",
+        "args": {
+          "anchor": "workspace:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace move-below --anchor workspace:contract-1"
+    },
+    {
+      "params": {
+        "action": "workspace move-to-new-group",
+        "args": {
+          "name": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace move-to-new-group --name /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "workspace close-others-in-group",
+        "args": {
+          "confirm": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace close-others-in-group --confirm"
+    },
+    {
+      "params": {
+        "action": "workspace merge-into",
+        "args": {
+          "into": "workspace:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace merge-into --into workspace:contract-1"
+    },
+    {
+      "params": {
+        "action": "workspace-group create",
+        "args": {
+          "name": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace-group create --name /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "workspace-group add-workspace",
+        "args": {
+          "group": "workspace-group:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace-group add-workspace --group workspace-group:contract-1"
+    },
+    {
+      "params": {
+        "action": "workspace-group set-color",
+        "args": {
+          "color": "grey"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace-group set-color --color grey"
+    },
+    {
+      "params": {
+        "action": "workspace-group set-icon",
+        "args": {
+          "icon": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace-group set-icon --icon /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "workspace-group add-to-section",
+        "args": {
+          "section": "sidebar-section:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace-group add-to-section --section sidebar-section:contract-1"
+    },
+    {
+      "params": {
+        "action": "workspace-group set-sort",
+        "args": {
+          "sort": "manual"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace-group set-sort --sort manual"
+    },
+    {
+      "params": {
+        "action": "workspace-group move-to-window",
+        "args": {
+          "window": "window:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace-group move-to-window --window window:contract-1"
+    },
+    {
+      "params": {
+        "action": "workspace-group close-workspaces",
+        "args": {
+          "confirm": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace-group close-workspaces --confirm"
+    },
+    {
+      "params": {
+        "action": "workspace-group close-others",
+        "args": {
+          "confirm": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace-group close-others --confirm"
+    },
+    {
+      "params": {
+        "action": "space new-window",
+        "args": {
+          "space": "room:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux space new-window --space room:contract-1"
+    },
+    {
+      "params": {
+        "action": "space new-incognito",
+        "args": {
+          "name": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux space new-incognito --name /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "space open-in-new-window",
+        "args": {
+          "space": "room:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux space open-in-new-window --space room:contract-1"
+    },
+    {
+      "params": {
+        "action": "space bring-here",
+        "args": {
+          "space": "room:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux space bring-here --space room:contract-1"
+    },
+    {
+      "params": {
+        "action": "space new-workspace",
+        "args": {
+          "space": "room:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux space new-workspace --space room:contract-1"
+    },
+    {
+      "params": {
+        "action": "space rename",
+        "args": {
+          "name": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux space rename --name /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "space set-color",
+        "args": {
+          "color": "grey"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux space set-color --color grey"
+    },
+    {
+      "params": {
+        "action": "space set-icon",
+        "args": {
+          "icon": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux space set-icon --icon /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "space set-defaults",
+        "args": {
+          "cwd": "/tmp/contract",
+          "env": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux space set-defaults --cwd /tmp/contract --env /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "space clear-defaults",
+        "args": {
+          "confirm": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux space clear-defaults --confirm"
+    },
+    {
+      "params": {
+        "action": "space new-group",
+        "args": {
+          "name": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux space new-group --name /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "space delete",
+        "args": {
+          "confirm": true,
+          "moveTo": "room:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux space delete --move-to room:contract-1 --confirm"
+    },
+    {
+      "params": {
+        "action": "space move",
+        "args": {
+          "index": "1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux space move --index 1"
+    },
+    {
+      "params": {
+        "action": "space select-1-9",
+        "args": {
+          "index": "1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux space select-1-9 --index 1"
+    },
+    {
+      "params": {
+        "action": "space switch",
+        "args": {
+          "space": "room:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux space switch --space room:contract-1"
+    },
+    {
+      "params": {
+        "action": "workspace move-to-space",
+        "args": {
+          "space": "room:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace move-to-space --space room:contract-1"
+    },
+    {
+      "params": {
+        "action": "workspace duplicate-to-space",
+        "args": {
+          "space": "room:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace duplicate-to-space --space room:contract-1"
+    },
+    {
+      "params": {
+        "action": "workspace-group move-to-space",
+        "args": {
+          "space": "room:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace-group move-to-space --space room:contract-1"
+    },
+    {
+      "params": {
+        "action": "space set-theme",
+        "args": {
+          "theme": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux space set-theme --theme /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "workspace set-theme",
+        "args": {
+          "theme": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace set-theme --theme /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "terminal set-theme",
+        "args": {
+          "theme": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux terminal set-theme --theme /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "pane split-right",
+        "args": {
+          "cwd": "/tmp/contract",
+          "keep": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux pane split-right --cwd /tmp/contract --keep"
+    },
+    {
+      "params": {
+        "action": "pane screenshot",
+        "args": {
+          "out": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux pane screenshot --out /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "pane split-down",
+        "args": {
+          "cwd": "/tmp/contract",
+          "keep": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux pane split-down --cwd /tmp/contract --keep"
+    },
+    {
+      "params": {
+        "action": "pane swap-with-session",
+        "args": {
+          "pane": "pane:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux pane swap-with-session --pane pane:contract-1"
+    },
+    {
+      "params": {
+        "action": "pane open-files-as",
+        "args": {
+          "path": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux pane open-files-as --path /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "pane open-find-as",
+        "args": {
+          "path": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux pane open-find-as --path /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "file open",
+        "args": {
+          "asText": true,
+          "path": "/tmp/contract",
+          "where": "tab"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux file open --path /tmp/contract --where tab --as-text"
+    },
+    {
+      "params": {
+        "action": "tab new",
+        "args": {
+          "cwd": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux tab new --cwd /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "tab new-from-text",
+        "args": {
+          "agent": "/tmp/contract",
+          "search": true,
+          "text": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux tab new-from-text --text /tmp/contract --search --agent /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "tab new-terminal",
+        "args": {
+          "cwd": "/tmp/contract",
+          "keep": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux tab new-terminal --cwd /tmp/contract --keep"
+    },
+    {
+      "params": {
+        "action": "tab new-browser",
+        "args": {
+          "engine": "webkit",
+          "profile": "/tmp/contract",
+          "url": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux tab new-browser --url /tmp/contract --engine webkit --profile /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "tab new-webkit",
+        "args": {
+          "url": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux tab new-webkit --url /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "tab new-chromium",
+        "args": {
+          "url": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux tab new-chromium --url /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "tab rename",
+        "args": {
+          "name": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux tab rename --name /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "tab search",
+        "args": {
+          "query": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux tab search --query /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "tab screenshot",
+        "args": {
+          "out": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux tab screenshot --out /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "tab set-icon",
+        "args": {
+          "icon": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux tab set-icon --icon /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "home switch-view",
+        "args": {
+          "view": "messages"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux home switch-view --view messages"
+    },
+    {
+      "params": {
+        "action": "home attach",
+        "args": {
+          "path": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux home attach --path /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "home invite",
+        "args": {
+          "email": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux home invite --email /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "home invite-to-team",
+        "args": {
+          "email": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux home invite-to-team --email /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "home new-chief",
+        "args": {
+          "engine": "/tmp/contract",
+          "harness": "/tmp/contract",
+          "name": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux home new-chief --name /tmp/contract --harness /tmp/contract --engine /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "home archive-chief",
+        "args": {
+          "chief": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux home archive-chief --chief /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "home primary-chief",
+        "args": {
+          "chief": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux home primary-chief --chief /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "home delete-chief",
+        "args": {
+          "chief": "/tmp/contract",
+          "confirm": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux home delete-chief --chief /tmp/contract --confirm"
+    },
+    {
+      "params": {
+        "action": "home rename",
+        "args": {
+          "conversation": "/tmp/contract",
+          "title": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux home rename --conversation /tmp/contract --title /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "home add-members",
+        "args": {
+          "conversation": "/tmp/contract",
+          "people": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux home add-members --conversation /tmp/contract --people /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "home remove-member",
+        "args": {
+          "conversation": "/tmp/contract",
+          "person": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux home remove-member --conversation /tmp/contract --person /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "home leave",
+        "args": {
+          "confirm": true,
+          "conversation": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux home leave --conversation /tmp/contract --confirm"
+    },
+    {
+      "params": {
+        "action": "home mute",
+        "args": {
+          "conversation": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux home mute --conversation /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "home unmute",
+        "args": {
+          "conversation": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux home unmute --conversation /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "chat create",
+        "args": {
+          "members": "/tmp/contract",
+          "replies": "auto",
+          "title": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux chat create --members /tmp/contract --title /tmp/contract --replies auto"
+    },
+    {
+      "params": {
+        "action": "chat replies",
+        "args": {
+          "conversation": "/tmp/contract",
+          "replies": "auto"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux chat replies --conversation /tmp/contract --replies auto"
+    },
+    {
+      "params": {
+        "action": "home pin-unpin",
+        "args": {
+          "conversation": "/tmp/contract",
+          "pinned": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux home pin-unpin --conversation /tmp/contract --pinned"
+    },
+    {
+      "params": {
+        "action": "home hide",
+        "args": {
+          "conversation": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux home hide --conversation /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "chat colors",
+        "args": {
+          "conversation": "/tmp/contract",
+          "received": "/tmp/contract",
+          "receivedText": "/tmp/contract",
+          "reset": true,
+          "sent": "/tmp/contract",
+          "sentText": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux chat colors --conversation /tmp/contract --sent /tmp/contract --sent-text /tmp/contract --received /tmp/contract --received-text /tmp/contract --reset"
+    },
+    {
+      "params": {
+        "action": "home send",
+        "args": {
+          "conversation": "/tmp/contract",
+          "text": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux home send --conversation /tmp/contract --text /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "chat send",
+        "args": {
+          "text": "/tmp/contract",
+          "to": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux chat send --to /tmp/contract --text /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "tab-group create",
+        "args": {
+          "color": "grey",
+          "name": "/tmp/contract",
+          "tabs": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux tab-group create --name /tmp/contract --color grey --tabs /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "tab-group add-tab",
+        "args": {
+          "group": "tab-group:contract-1",
+          "tabs": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux tab-group add-tab --group tab-group:contract-1 --tabs /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "tab-group remove-tab",
+        "args": {
+          "tabs": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux tab-group remove-tab --tabs /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "tab-group rename",
+        "args": {
+          "name": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux tab-group rename --name /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "tab-group set-color",
+        "args": {
+          "color": "grey"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux tab-group set-color --color grey"
+    },
+    {
+      "params": {
+        "action": "tab-group set-icon",
+        "args": {
+          "icon": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux tab-group set-icon --icon /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "tab-group close",
+        "args": {
+          "confirm": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux tab-group close --confirm"
+    },
+    {
+      "params": {
+        "action": "tab-group move-to-split",
+        "args": {
+          "direction": "right"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux tab-group move-to-split --direction right"
+    },
+    {
+      "params": {
+        "action": "tab-group move-to-workspace",
+        "args": {
+          "workspace": "workspace:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux tab-group move-to-workspace --workspace workspace:contract-1"
+    },
+    {
+      "params": {
+        "action": "tab-group delete-saved",
+        "args": {
+          "group": "tab-group:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux tab-group delete-saved --group tab-group:contract-1"
+    },
+    {
+      "params": {
+        "action": "tab-group reopen-saved",
+        "args": {
+          "group": "tab-group:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux tab-group reopen-saved --group tab-group:contract-1"
+    },
+    {
+      "params": {
+        "action": "screen new-with",
+        "args": {
+          "color": "grey",
+          "cwd": "/tmp/contract",
+          "icon": "/tmp/contract",
+          "name": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux screen new-with --name /tmp/contract --color grey --icon /tmp/contract --cwd /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "screen close-others",
+        "args": {
+          "confirm": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux screen close-others --confirm"
+    },
+    {
+      "params": {
+        "action": "screen close-right",
+        "args": {
+          "confirm": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux screen close-right --confirm"
+    },
+    {
+      "params": {
+        "action": "screen close-left",
+        "args": {
+          "confirm": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux screen close-left --confirm"
+    },
+    {
+      "params": {
+        "action": "screen rename",
+        "args": {
+          "name": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux screen rename --name /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "screen set-color",
+        "args": {
+          "color": "grey"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux screen set-color --color grey"
+    },
+    {
+      "params": {
+        "action": "screen set-icon",
+        "args": {
+          "icon": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux screen set-icon --icon /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "screen move-to-workspace",
+        "args": {
+          "workspace": "workspace:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux screen move-to-workspace --workspace workspace:contract-1"
+    },
+    {
+      "params": {
+        "action": "screen-group create",
+        "args": {
+          "color": "grey",
+          "name": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux screen-group create --name /tmp/contract --color grey"
+    },
+    {
+      "params": {
+        "action": "screen-group add-screen",
+        "args": {
+          "group": "screen-group:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux screen-group add-screen --group screen-group:contract-1"
+    },
+    {
+      "params": {
+        "action": "screen-group rename",
+        "args": {
+          "name": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux screen-group rename --name /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "screen-group set-color",
+        "args": {
+          "color": "grey"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux screen-group set-color --color grey"
+    },
+    {
+      "params": {
+        "action": "screen-group set-icon",
+        "args": {
+          "icon": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux screen-group set-icon --icon /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "screen-group close",
+        "args": {
+          "confirm": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux screen-group close --confirm"
+    },
+    {
+      "params": {
+        "action": "screen-group move-to-workspace",
+        "args": {
+          "workspace": "workspace:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux screen-group move-to-workspace --workspace workspace:contract-1"
+    },
+    {
+      "params": {
+        "action": "screen-group reopen-saved",
+        "args": {
+          "saved": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux screen-group reopen-saved --saved /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "screen-group delete-saved",
+        "args": {
+          "confirm": true,
+          "saved": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux screen-group delete-saved --saved /tmp/contract --confirm"
+    },
+    {
+      "params": {
+        "action": "terminal keep",
+        "args": {
+          "on": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux terminal keep --on"
+    },
+    {
+      "params": {
+        "action": "terminal set-resume-command",
+        "args": {
+          "command": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux terminal set-resume-command --command /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "terminal open-current-directory-in",
+        "args": {
+          "app": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux terminal open-current-directory-in --app /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "browser clear-history",
+        "args": {
+          "browserProfile": "browser-profile:contract-1",
+          "confirm": true,
+          "range": "hour"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux browser clear-history --range hour --browser-profile browser-profile:contract-1 --confirm"
+    },
+    {
+      "params": {
+        "action": "browser theme",
+        "args": {
+          "theme": "system"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux browser theme --theme system"
+    },
+    {
+      "params": {
+        "action": "browser device",
+        "args": {
+          "device": "/tmp/contract",
+          "orientation": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux browser device --device /tmp/contract --orientation /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "browser fit",
+        "args": {
+          "fit": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux browser fit --fit /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "browser import-cookies",
+        "args": {
+          "domain": "/tmp/contract",
+          "from": "/tmp/contract",
+          "profile": "browser-profile:contract-1",
+          "reason": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux browser import-cookies --from /tmp/contract --domain /tmp/contract --reason /tmp/contract --profile browser-profile:contract-1"
+    },
+    {
+      "params": {
+        "action": "browser open-link-in-new-tab",
+        "args": {
+          "url": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux browser open-link-in-new-tab --url /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "browser open-link-in-new-window",
+        "args": {
+          "url": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux browser open-link-in-new-window --url /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "browser open-link-in-new-space",
+        "args": {
+          "url": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux browser open-link-in-new-space --url /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "browser open-link-in-new-workspace",
+        "args": {
+          "url": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux browser open-link-in-new-workspace --url /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "browser open-link-in-split",
+        "args": {
+          "url": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux browser open-link-in-split --url /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "browser open-link-in-incognito-window",
+        "args": {
+          "url": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux browser open-link-in-incognito-window --url /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "browser open-image-in-new-tab",
+        "args": {
+          "url": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux browser open-image-in-new-tab --url /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "browser search-web",
+        "args": {
+          "text": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux browser search-web --text /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "browser open-diff-viewer",
+        "args": {
+          "path": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux browser open-diff-viewer --path /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "browser open-markdown-file",
+        "args": {
+          "path": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux browser open-markdown-file --path /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "browser delete-site-data",
+        "args": {
+          "confirm": true,
+          "domain": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux browser delete-site-data --domain /tmp/contract --confirm"
+    },
+    {
+      "params": {
+        "action": "browser set-site-permission",
+        "args": {
+          "permission": "location",
+          "setting": "ask"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux browser set-site-permission --permission location --setting ask"
+    },
+    {
+      "params": {
+        "action": "extension load-unpacked",
+        "args": {
+          "path": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux extension load-unpacked --path /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "extension run",
+        "args": {
+          "extension": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux extension run --extension /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "extension pin",
+        "args": {
+          "extension": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux extension pin --extension /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "extension unpin",
+        "args": {
+          "extension": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux extension unpin --extension /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "extension enable",
+        "args": {
+          "extension": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux extension enable --extension /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "extension disable",
+        "args": {
+          "extension": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux extension disable --extension /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "extension move",
+        "args": {
+          "extension": "/tmp/contract",
+          "index": "0"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux extension move --extension /tmp/contract --index 0"
+    },
+    {
+      "params": {
+        "action": "extension reload",
+        "args": {
+          "extension": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux extension reload --extension /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "extension remove",
+        "args": {
+          "confirm": true,
+          "extension": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux extension remove --extension /tmp/contract --confirm"
+    },
+    {
+      "params": {
+        "action": "extension command",
+        "args": {
+          "command": "/tmp/contract",
+          "extension": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux extension command --extension /tmp/contract --command /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "browser-profile create",
+        "args": {
+          "color": "grey",
+          "icon": "/tmp/contract",
+          "name": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux browser-profile create --name /tmp/contract --color grey --icon /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "browser-profile rename",
+        "args": {
+          "name": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux browser-profile rename --name /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "browser-profile set-color",
+        "args": {
+          "color": "grey"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux browser-profile set-color --color grey"
+    },
+    {
+      "params": {
+        "action": "browser-profile set-icon",
+        "args": {
+          "icon": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux browser-profile set-icon --icon /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "browser-profile new-tab",
+        "args": {
+          "browserProfile": "browser-profile:contract-1",
+          "url": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux browser-profile new-tab --browser-profile browser-profile:contract-1 --url /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "browser-profile new-window",
+        "args": {
+          "browserProfile": "browser-profile:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux browser-profile new-window --browser-profile browser-profile:contract-1"
+    },
+    {
+      "params": {
+        "action": "browser-profile new-workspace",
+        "args": {
+          "browserProfile": "browser-profile:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux browser-profile new-workspace --browser-profile browser-profile:contract-1"
+    },
+    {
+      "params": {
+        "action": "browser-profile open-link",
+        "args": {
+          "browserProfile": "browser-profile:contract-1",
+          "url": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux browser-profile open-link --browser-profile browser-profile:contract-1 --url /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "browser-profile set-workspace-default",
+        "args": {
+          "browserProfile": "browser-profile:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux browser-profile set-workspace-default --browser-profile browser-profile:contract-1"
+    },
+    {
+      "params": {
+        "action": "browser-profile set-space-default",
+        "args": {
+          "browserProfile": "browser-profile:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux browser-profile set-space-default --browser-profile browser-profile:contract-1"
+    },
+    {
+      "params": {
+        "action": "browser-profile move-tab",
+        "args": {
+          "browserProfile": "browser-profile:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux browser-profile move-tab --browser-profile browser-profile:contract-1"
+    },
+    {
+      "params": {
+        "action": "browser-profile duplicate-tab",
+        "args": {
+          "browserProfile": "browser-profile:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux browser-profile duplicate-tab --browser-profile browser-profile:contract-1"
+    },
+    {
+      "params": {
+        "action": "browser-profile clear-browsing-data",
+        "args": {
+          "cache": true,
+          "confirm": true,
+          "cookies": true,
+          "history": true,
+          "range": "hour"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux browser-profile clear-browsing-data --range hour --history --cookies --cache --confirm"
+    },
+    {
+      "params": {
+        "action": "browser-profile remove-imported-data",
+        "args": {
+          "confirm": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux browser-profile remove-imported-data --confirm"
+    },
+    {
+      "params": {
+        "action": "sidebar edit-checklist-item",
+        "args": {
+          "item": "/tmp/contract",
+          "text": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux sidebar edit-checklist-item --item /tmp/contract --text /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "sidebar mark-checklist-item-in-progress",
+        "args": {
+          "item": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux sidebar mark-checklist-item-in-progress --item /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "sidebar complete-checklist-item",
+        "args": {
+          "item": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux sidebar complete-checklist-item --item /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "sidebar remove-checklist-item",
+        "args": {
+          "item": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux sidebar remove-checklist-item --item /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "sidebar attach-images-to-checklist-item",
+        "args": {
+          "item": "/tmp/contract",
+          "path": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux sidebar attach-images-to-checklist-item --item /tmp/contract --path /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "notification set-workspace-sound",
+        "args": {
+          "event": "all",
+          "file": "/tmp/contract",
+          "sound": "/tmp/contract",
+          "volume": "0"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux notification set-workspace-sound --sound /tmp/contract --event all --volume 0 --file /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "notification set-group-sound",
+        "args": {
+          "event": "all",
+          "file": "/tmp/contract",
+          "sound": "/tmp/contract",
+          "volume": "0"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux notification set-group-sound --sound /tmp/contract --event all --volume 0 --file /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "notification set-agent-sound",
+        "args": {
+          "agent": "/tmp/contract",
+          "event": "all",
+          "file": "/tmp/contract",
+          "sound": "/tmp/contract",
+          "volume": "0"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux notification set-agent-sound --agent /tmp/contract --sound /tmp/contract --event all --volume 0 --file /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "notification set-event-sound",
+        "args": {
+          "event": "finished",
+          "file": "/tmp/contract",
+          "sound": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux notification set-event-sound --event finished --sound /tmp/contract --file /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "notification preview-sound",
+        "args": {
+          "event": "all"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux notification preview-sound --event all"
+    },
+    {
+      "params": {
+        "action": "notification import-sound",
+        "args": {
+          "file": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux notification import-sound --file /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "agent new-chat",
+        "args": {
+          "cwd": "/tmp/contract",
+          "harness": "/tmp/contract",
+          "host": "machine:contract-1",
+          "model": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux agent new-chat --cwd /tmp/contract --harness /tmp/contract --model /tmp/contract --host machine:contract-1"
+    },
+    {
+      "params": {
+        "action": "agent open",
+        "args": {
+          "cwd": "/tmp/contract",
+          "defaultName": "/tmp/contract",
+          "group": "/tmp/contract",
+          "host": "/tmp/contract",
+          "key": "/tmp/contract",
+          "name": "/tmp/contract",
+          "placement": "/tmp/contract",
+          "session": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux agent open --arg session=/tmp/contract --name /tmp/contract --default-name /tmp/contract --key /tmp/contract --cwd /tmp/contract --host /tmp/contract --group /tmp/contract --placement /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "agent open-tab",
+        "args": {
+          "host": "/tmp/contract",
+          "session": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux agent open-tab --arg session=/tmp/contract --host /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "agent set-model",
+        "args": {
+          "model": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux agent set-model --model /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "agent set-effort",
+        "args": {
+          "effort": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux agent set-effort --effort /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "agent set-mode",
+        "args": {
+          "mode": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux agent set-mode --mode /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "share chat",
+        "args": {
+          "surface": "1",
+          "ttl": "/tmp/contract",
+          "uses": "1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux share chat --surface 1 --ttl /tmp/contract --uses 1"
+    },
+    {
+      "params": {
+        "action": "share list",
+        "args": {
+          "surface": "1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux share list --surface 1"
+    },
+    {
+      "params": {
+        "action": "share revoke",
+        "args": {
+          "shareId": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux share revoke --share-id /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "share kick",
+        "args": {
+          "guestId": "/tmp/contract",
+          "shareId": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux share kick --share-id /tmp/contract --guest-id /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "share invite",
+        "args": {
+          "account": "/tmp/contract",
+          "role": "talk",
+          "surface": "1",
+          "ttl": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux share invite --account /tmp/contract --role talk --surface 1 --ttl /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "share uninvite",
+        "args": {
+          "account": "/tmp/contract",
+          "shareId": "/tmp/contract",
+          "surface": "1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux share uninvite --account /tmp/contract --surface 1 --share-id /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "agent view",
+        "args": {
+          "key": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux agent view --key /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "agent add-harness",
+        "args": {
+          "args": "/tmp/contract",
+          "command": "/tmp/contract",
+          "example": "/tmp/contract",
+          "id": "/tmp/contract",
+          "name": "/tmp/contract",
+          "protocol": "acp",
+          "registry": "/tmp/contract",
+          "replace": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux agent add-harness --command /tmp/contract --args /tmp/contract --registry /tmp/contract --example /tmp/contract --id /tmp/contract --name /tmp/contract --protocol acp --replace"
+    },
+    {
+      "params": {
+        "action": "agent remove-harness",
+        "args": {
+          "id": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux agent remove-harness --id /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "agent restore-harness",
+        "args": {
+          "backup": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux agent restore-harness --backup /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "agent check-harness",
+        "args": {
+          "id": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux agent check-harness --id /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud new-machine",
+        "args": {
+          "bootstrap": "/tmp/contract",
+          "bootstrapScript": "/tmp/contract",
+          "machineConfig": "/tmp/contract",
+          "name": "/tmp/contract",
+          "persistent": true,
+          "repo": "/tmp/contract",
+          "size": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud new-machine --name /tmp/contract --size /tmp/contract --persistent --bootstrap /tmp/contract --bootstrap-script /tmp/contract --machine-config /tmp/contract --repo /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud restore-machine",
+        "args": {
+          "snapshot": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud restore-machine --snapshot /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud move",
+        "args": {
+          "machine": "machine:contract-1",
+          "path": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud move --path /tmp/contract --machine machine:contract-1"
+    },
+    {
+      "params": {
+        "action": "cloud exec",
+        "args": {
+          "command": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud exec --command /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud files-list",
+        "args": {
+          "path": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud files-list --path /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud file-read",
+        "args": {
+          "path": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud file-read --path /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud file-write",
+        "args": {
+          "contents": "/tmp/contract",
+          "path": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud file-write --path /tmp/contract --contents /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud file-mkdir",
+        "args": {
+          "path": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud file-mkdir --path /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud file-remove",
+        "args": {
+          "confirm": true,
+          "path": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud file-remove --path /tmp/contract --confirm"
+    },
+    {
+      "params": {
+        "action": "cloud file-stat",
+        "args": {
+          "path": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud file-stat --path /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud prepare-scp",
+        "args": {
+          "publicKey": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud prepare-scp --public-key /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud tunnel-attach",
+        "args": {
+          "path": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud tunnel-attach --path /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud tunnel-detach",
+        "args": {
+          "path": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud tunnel-detach --path /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud tunnel-rotate-key",
+        "args": {
+          "publicKey": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud tunnel-rotate-key --public-key /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud firewall-get",
+        "args": {
+          "path": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud firewall-get --path /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud firewall-create",
+        "args": {
+          "path": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud firewall-create --path /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud firewall-delete",
+        "args": {
+          "confirm": true,
+          "path": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud firewall-delete --path /tmp/contract --confirm"
+    },
+    {
+      "params": {
+        "action": "cloud provision-api",
+        "args": {
+          "name": "/tmp/contract",
+          "port": "1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud provision-api --port 1 --name /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud api-key-list",
+        "args": {
+          "path": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud api-key-list --path /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud api-key-revoke",
+        "args": {
+          "confirm": true,
+          "key": "/tmp/contract",
+          "path": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud api-key-revoke --path /tmp/contract --key /tmp/contract --confirm"
+    },
+    {
+      "params": {
+        "action": "cloud new-terminal-on-machine",
+        "args": {
+          "workspace": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud new-terminal-on-machine --workspace /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud open-desktop",
+        "args": {
+          "viewer": "web"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud open-desktop --viewer web"
+    },
+    {
+      "params": {
+        "action": "cloud rename-machine",
+        "args": {
+          "name": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud rename-machine --name /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud share-machine",
+        "args": {
+          "revoke": true,
+          "teammate": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud share-machine --teammate /tmp/contract --revoke"
+    },
+    {
+      "params": {
+        "action": "cloud kill-machine",
+        "args": {
+          "confirm": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud kill-machine --confirm"
+    },
+    {
+      "params": {
+        "action": "cloud resize-machine",
+        "args": {
+          "disk": "4",
+          "size": "small"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud resize-machine --size small --disk 4"
+    },
+    {
+      "params": {
+        "action": "cloud enroll-machine",
+        "args": {
+          "name": "/tmp/contract",
+          "sshKey": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud enroll-machine --name /tmp/contract --ssh-key /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud apply-machine-config",
+        "args": {
+          "machineConfig": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud apply-machine-config --machine-config /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud deliver-secrets",
+        "args": {
+          "names": "/tmp/contract",
+          "repo": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud deliver-secrets --repo /tmp/contract --names /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud set-idle-pause",
+        "args": {
+          "minutes": "off"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud set-idle-pause --minutes off"
+    },
+    {
+      "params": {
+        "action": "cloud set-network-access",
+        "args": {
+          "access": "full"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud set-network-access --access full"
+    },
+    {
+      "params": {
+        "action": "cloud delete-snapshot",
+        "args": {
+          "confirm": true,
+          "snapshot": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud delete-snapshot --snapshot /tmp/contract --confirm"
+    },
+    {
+      "params": {
+        "action": "cloud open-browser",
+        "args": {
+          "path": "/tmp/contract",
+          "port": "1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud open-browser --port 1 --path /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud port-forward",
+        "args": {
+          "port": "1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud port-forward --port 1"
+    },
+    {
+      "params": {
+        "action": "cloud port-close",
+        "args": {
+          "port": "1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud port-close --port 1"
+    },
+    {
+      "params": {
+        "action": "cloud preview-share",
+        "args": {
+          "port": "1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud preview-share --port 1"
+    },
+    {
+      "params": {
+        "action": "cloud preview-revoke",
+        "args": {
+          "linkId": "/tmp/contract",
+          "port": "1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud preview-revoke --port 1 --link-id /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud machine-link",
+        "args": {
+          "port": "1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud machine-link --port 1"
+    },
+    {
+      "params": {
+        "action": "accounts reauth",
+        "args": {
+          "provider": "codex"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux accounts reauth --provider codex"
+    },
+    {
+      "params": {
+        "action": "accounts connect",
+        "args": {
+          "provider": "codex"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux accounts connect --provider codex"
+    },
+    {
+      "params": {
+        "action": "accounts remove",
+        "args": {
+          "account": "/tmp/contract",
+          "confirm": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux accounts remove --account /tmp/contract --confirm"
+    },
+    {
+      "params": {
+        "action": "remote connect",
+        "args": {
+          "binary": "/tmp/contract",
+          "destination": "/tmp/contract",
+          "session": "/tmp/contract",
+          "stateDir": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux remote connect --destination /tmp/contract --arg session=/tmp/contract --binary /tmp/contract --state-dir /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "device add",
+        "args": {
+          "way": "network"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux device add --way network"
+    },
+    {
+      "params": {
+        "action": "machine add",
+        "args": {
+          "destination": "/tmp/contract",
+          "name": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux machine add --destination /tmp/contract --name /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "remote new-group",
+        "args": {
+          "destination": "/tmp/contract",
+          "name": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux remote new-group --destination /tmp/contract --name /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "remote open-terminal-here",
+        "args": {
+          "cwd": "/tmp/contract",
+          "direction": "right",
+          "machine": "machine:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux remote open-terminal-here --machine machine:contract-1 --direction right --cwd /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "open-remote",
+        "args": {
+          "attach": "/tmp/contract",
+          "cmd": "/tmp/contract",
+          "cwd": "/tmp/contract",
+          "focus": "true",
+          "host": "/tmp/contract",
+          "label": "/tmp/contract",
+          "name": "/tmp/contract",
+          "ratio": "/tmp/contract",
+          "split": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux open-remote --host /tmp/contract --split /tmp/contract --cwd /tmp/contract --cmd /tmp/contract --name /tmp/contract --label /tmp/contract --attach /tmp/contract --ratio /tmp/contract --arg focus=true"
+    },
+    {
+      "params": {
+        "action": "remote install",
+        "args": {
+          "confirm": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux remote install --confirm"
+    },
+    {
+      "params": {
+        "action": "workspace set-remote-localhost",
+        "args": {
+          "localhost": "machine"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace set-remote-localhost --localhost machine"
+    },
+    {
+      "params": {
+        "action": "remote forget",
+        "args": {
+          "confirm": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux remote forget --confirm"
+    },
+    {
+      "params": {
+        "action": "cloud start-session",
+        "args": {
+          "agent": "/tmp/contract",
+          "cwd": "/tmp/contract",
+          "login": "/tmp/contract",
+          "name": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud start-session --agent /tmp/contract --name /tmp/contract --cwd /tmp/contract --login /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud relay-chat",
+        "args": {
+          "agent": "/tmp/contract",
+          "cwd": "/tmp/contract",
+          "prompt": "/tmp/contract",
+          "promptId": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud relay-chat --agent /tmp/contract --prompt /tmp/contract --cwd /tmp/contract --prompt-id /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "machine set-icon",
+        "args": {
+          "icon": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux machine set-icon --icon /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "settings toggle-setting",
+        "args": {
+          "on": true,
+          "setting": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux settings toggle-setting --setting /tmp/contract --on"
+    },
+    {
+      "params": {
+        "action": "settings base-keymap",
+        "args": {
+          "keymap": "cmux"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux settings base-keymap --keymap cmux"
+    },
+    {
+      "params": {
+        "action": "settings install-cli-in-path",
+        "args": {
+          "cmuxNext": true,
+          "replace": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux settings install-cli-in-path --replace --cmux-next"
+    },
+    {
+      "params": {
+        "action": "settings switch-update-channel",
+        "args": {
+          "channel": "stable"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux settings switch-update-channel --channel stable"
+    },
+    {
+      "params": {
+        "action": "settings rollback-update",
+        "args": {
+          "confirm": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux settings rollback-update --confirm"
+    },
+    {
+      "params": {
+        "action": "density set",
+        "args": {
+          "density": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux density set --density /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "density create",
+        "args": {
+          "basedOn": "/tmp/contract",
+          "fontSize": "/tmp/contract",
+          "name": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux density create --name /tmp/contract --based-on /tmp/contract --font-size /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "pane set-background",
+        "args": {
+          "background": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux pane set-background --background /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "pane set-tint",
+        "args": {
+          "color": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux pane set-tint --color /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "workspace set-tint",
+        "args": {
+          "color": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace set-tint --color /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "tab set-tint",
+        "args": {
+          "color": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux tab set-tint --color /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "appearance set",
+        "args": {
+          "property": "theme",
+          "scope": "window",
+          "value": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux appearance set --scope window --property theme --value /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "appearance reset",
+        "args": {
+          "property": "theme",
+          "scope": "window"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux appearance reset --scope window --property theme"
+    },
+    {
+      "params": {
+        "action": "workspace restore-archived",
+        "args": {
+          "item": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace restore-archived --item /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "workspace-group set-auto-archive",
+        "args": {
+          "after": "default"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace-group set-auto-archive --after default"
+    },
+    {
+      "params": {
+        "action": "tab move-to-new-split",
+        "args": {
+          "direction": "right"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux tab move-to-new-split --direction right"
+    },
+    {
+      "params": {
+        "action": "tab move-to-workspace",
+        "args": {
+          "workspace": "workspace:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux tab move-to-workspace --workspace workspace:contract-1"
+    },
+    {
+      "params": {
+        "action": "tab move-to-space",
+        "args": {
+          "space": "room:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux tab move-to-space --space room:contract-1"
+    },
+    {
+      "params": {
+        "action": "pane split-left",
+        "args": {
+          "cwd": "/tmp/contract",
+          "keep": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux pane split-left --cwd /tmp/contract --keep"
+    },
+    {
+      "params": {
+        "action": "pane split-up",
+        "args": {
+          "cwd": "/tmp/contract",
+          "keep": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux pane split-up --cwd /tmp/contract --keep"
+    },
+    {
+      "params": {
+        "action": "pane rename",
+        "args": {
+          "name": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux pane rename --name /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "column dock",
+        "args": {
+          "edge": "right",
+          "mode": "docked"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux column dock --edge right --mode docked"
+    },
+    {
+      "params": {
+        "action": "tab move-to-new-dock-column",
+        "args": {
+          "edge": "right",
+          "mode": "docked"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux tab move-to-new-dock-column --edge right --mode docked"
+    },
+    {
+      "params": {
+        "action": "terminal send-text",
+        "args": {
+          "text": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux terminal send-text --text /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "history resume",
+        "args": {
+          "session": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux history resume --arg session=/tmp/contract"
+    },
+    {
+      "params": {
+        "action": "history reopen",
+        "args": {
+          "id": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux history reopen --id /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "history open",
+        "args": {
+          "id": "/tmp/contract",
+          "newTab": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux history open --id /tmp/contract --new-tab"
+    },
+    {
+      "params": {
+        "action": "history clear",
+        "args": {
+          "kind": "all",
+          "range": "hour"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux history clear --range hour --kind all"
+    },
+    {
+      "params": {
+        "action": "workspace stash",
+        "args": {
+          "confirm": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace stash --confirm"
+    },
+    {
+      "params": {
+        "action": "workspace-group stash",
+        "args": {
+          "confirm": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace-group stash --confirm"
+    },
+    {
+      "params": {
+        "action": "window stash",
+        "args": {
+          "confirm": true,
+          "window": "window:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux window stash --window window:contract-1 --confirm"
+    },
+    {
+      "params": {
+        "action": "bookmark add-all-tabs",
+        "args": {
+          "name": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux bookmark add-all-tabs --name /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "bookmark add",
+        "args": {
+          "folder": "/tmp/contract",
+          "profile": "browser-profile:contract-1",
+          "title": "/tmp/contract",
+          "url": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux bookmark add --url /tmp/contract --title /tmp/contract --folder /tmp/contract --profile browser-profile:contract-1"
+    },
+    {
+      "params": {
+        "action": "bookmark new-folder",
+        "args": {
+          "folder": "/tmp/contract",
+          "name": "/tmp/contract",
+          "profile": "browser-profile:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux bookmark new-folder --name /tmp/contract --folder /tmp/contract --profile browser-profile:contract-1"
+    },
+    {
+      "params": {
+        "action": "bookmark open",
+        "args": {
+          "bookmark": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux bookmark open --bookmark /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "bookmark open-in-new-tab",
+        "args": {
+          "bookmark": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux bookmark open-in-new-tab --bookmark /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "bookmark open-in-background-tab",
+        "args": {
+          "bookmark": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux bookmark open-in-background-tab --bookmark /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "bookmark open-all",
+        "args": {
+          "bookmark": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux bookmark open-all --bookmark /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "bookmark edit",
+        "args": {
+          "bookmark": "/tmp/contract",
+          "title": "/tmp/contract",
+          "url": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux bookmark edit --bookmark /tmp/contract --title /tmp/contract --url /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "bookmark set-icon",
+        "args": {
+          "bookmark": "/tmp/contract",
+          "icon": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux bookmark set-icon --bookmark /tmp/contract --icon /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "bookmark clear-icon",
+        "args": {
+          "bookmark": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux bookmark clear-icon --bookmark /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "bookmark move",
+        "args": {
+          "bookmark": "/tmp/contract",
+          "folder": "/tmp/contract",
+          "index": "0"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux bookmark move --bookmark /tmp/contract --folder /tmp/contract --index 0"
+    },
+    {
+      "params": {
+        "action": "bookmark remove",
+        "args": {
+          "bookmark": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux bookmark remove --bookmark /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "bookmark import",
+        "args": {
+          "path": "/tmp/contract",
+          "profile": "browser-profile:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux bookmark import --path /tmp/contract --profile browser-profile:contract-1"
+    },
+    {
+      "params": {
+        "action": "bookmark import-from-browser",
+        "args": {
+          "browser": "/tmp/contract",
+          "profile": "browser-profile:contract-1",
+          "source": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux bookmark import-from-browser --browser /tmp/contract --source /tmp/contract --profile browser-profile:contract-1"
+    },
+    {
+      "params": {
+        "action": "bookmark export",
+        "args": {
+          "path": "/tmp/contract",
+          "profile": "browser-profile:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux bookmark export --path /tmp/contract --profile browser-profile:contract-1"
+    },
+    {
+      "params": {
+        "action": "sidebar add-item",
+        "args": {
+          "item": "/tmp/contract",
+          "section": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux sidebar add-item --item /tmp/contract --section /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "sidebar add-section",
+        "args": {
+          "region": "top",
+          "title": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux sidebar add-section --title /tmp/contract --region top"
+    },
+    {
+      "params": {
+        "action": "sidebar rename-section",
+        "args": {
+          "title": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux sidebar rename-section --title /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "sidebar set-section-alignment",
+        "args": {
+          "align": "leading"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux sidebar set-section-alignment --align leading"
+    },
+    {
+      "params": {
+        "action": "sidebar set-section-gap",
+        "args": {
+          "gap": "0"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux sidebar set-section-gap --gap 0"
+    },
+    {
+      "params": {
+        "action": "sidebar set-section-columns",
+        "args": {
+          "columns": "0"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux sidebar set-section-columns --columns 0"
+    },
+    {
+      "params": {
+        "action": "sidebar set-section-height",
+        "args": {
+          "rows": "0"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux sidebar set-section-height --rows 0"
+    },
+    {
+      "params": {
+        "action": "sidebar remove-section",
+        "args": {
+          "confirm": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux sidebar remove-section --confirm"
+    },
+    {
+      "params": {
+        "action": "sidebar close-section-workspaces",
+        "args": {
+          "confirm": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux sidebar close-section-workspaces --confirm"
+    },
+    {
+      "params": {
+        "action": "sidebar reset",
+        "args": {
+          "confirm": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux sidebar reset --confirm"
+    },
+    {
+      "params": {
+        "action": "app store",
+        "args": {
+          "app": "/tmp/contract",
+          "category": "/tmp/contract",
+          "tab": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux app store --app /tmp/contract --tab /tmp/contract --category /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "apps hide",
+        "args": {
+          "app": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux apps hide --app /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "apps unhide",
+        "args": {
+          "app": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux apps unhide --app /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "apps install",
+        "args": {
+          "app": "/tmp/contract",
+          "deploy": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux apps install --app /tmp/contract --deploy /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "apps remove",
+        "args": {
+          "app": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux apps remove --app /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "app open",
+        "args": {
+          "app": "/tmp/contract",
+          "command": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux app open --app /tmp/contract --command /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "app run-command",
+        "args": {
+          "app": "/tmp/contract",
+          "command": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux app run-command --app /tmp/contract --command /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "phone open",
+        "args": {
+          "device": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux phone open --device /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "phone boot",
+        "args": {
+          "device": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux phone boot --device /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "phone screenshot",
+        "args": {
+          "device": "/tmp/contract",
+          "path": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux phone screenshot --device /tmp/contract --path /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "phone record",
+        "args": {
+          "device": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux phone record --device /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "phone stop",
+        "args": {
+          "notes": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux phone stop --notes /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "phone feedback",
+        "args": {
+          "notes": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux phone feedback --notes /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "phone open-url",
+        "args": {
+          "device": "/tmp/contract",
+          "url": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux phone open-url --url /tmp/contract --device /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "phone paste",
+        "args": {
+          "device": "/tmp/contract",
+          "text": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux phone paste --text /tmp/contract --device /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "phone shutdown",
+        "args": {
+          "device": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux phone shutdown --device /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "phone tap",
+        "args": {
+          "device": "/tmp/contract",
+          "x": "/tmp/contract",
+          "y": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux phone tap --x /tmp/contract --y /tmp/contract --device /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "phone swipe",
+        "args": {
+          "device": "/tmp/contract",
+          "fromX": "/tmp/contract",
+          "fromY": "/tmp/contract",
+          "seconds": "/tmp/contract",
+          "toX": "/tmp/contract",
+          "toY": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux phone swipe --from-x /tmp/contract --from-y /tmp/contract --to-x /tmp/contract --to-y /tmp/contract --seconds /tmp/contract --device /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "phone type",
+        "args": {
+          "device": "/tmp/contract",
+          "text": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux phone type --text /tmp/contract --device /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "phone button",
+        "args": {
+          "button": "home",
+          "device": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux phone button --button home --device /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "phone ui",
+        "args": {
+          "device": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux phone ui --device /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "phone appearance",
+        "args": {
+          "appearance": "light",
+          "device": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux phone appearance --appearance light --device /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "phone location",
+        "args": {
+          "device": "/tmp/contract",
+          "latitude": "/tmp/contract",
+          "longitude": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux phone location --latitude /tmp/contract --longitude /tmp/contract --device /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "phone locale",
+        "args": {
+          "device": "/tmp/contract",
+          "locale": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux phone locale --locale /tmp/contract --device /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "phone install",
+        "args": {
+          "device": "/tmp/contract",
+          "path": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux phone install --path /tmp/contract --device /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "phone launch",
+        "args": {
+          "app": "/tmp/contract",
+          "device": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux phone launch --app /tmp/contract --device /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "phone rotate",
+        "args": {
+          "device": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux phone rotate --device /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "phone logs",
+        "args": {
+          "device": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux phone logs --device /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "link open",
+        "args": {
+          "background": true,
+          "source": "/tmp/contract",
+          "url": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux link open --url /tmp/contract --background --source /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "servers add",
+        "args": {
+          "chief": true,
+          "code": "/tmp/contract",
+          "name": "/tmp/contract",
+          "words": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux servers add --code /tmp/contract --words /tmp/contract --name /tmp/contract --chief"
+    },
+    {
+      "params": {
+        "action": "import card",
+        "args": {
+          "action": "/tmp/contract",
+          "id": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux import card --id /tmp/contract --action /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "import suggest",
+        "args": {
+          "browser": "/tmp/contract",
+          "reason": "/tmp/contract",
+          "site": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux import suggest --browser /tmp/contract --site /tmp/contract --reason /tmp/contract"
+    }
+  ]
+}

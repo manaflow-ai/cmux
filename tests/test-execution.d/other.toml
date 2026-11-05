@@ -680,7 +680,7 @@ reason = "Run by the lane that changes scripts/measure/live-code-cost.* (no new 
 [[test]]
 path = "tests/test_live_code_ldflags_quoting.py"
 lane = "manual"
-reason = "Run by the lane that changes reload.sh's live code block (no new CI tests): python3 tests/test_live_code_ldflags_quoting.py; needs only bash and python3."
+reason = "Run by the lane that changes the live code xcodebuild args (scripts/live-code/lib/xcodebuild-args.sh; no new CI tests): python3 tests/test_live_code_ldflags_quoting.py; needs only bash and python3."
 
 [[test]]
 path = "tests/test_try_pr_live_code.py"

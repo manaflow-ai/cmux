@@ -906,7 +906,9 @@
         "CmuxNextWakeupsTestSupport"
       ],
       "packages": [],
-      "reads": []
+      "reads": [
+        "cmux-tui/spec/"
+      ]
     },
     "CmuxNextCookieImport": {
       "kind": "regular",
