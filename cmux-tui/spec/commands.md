@@ -10585,3 +10585,37 @@ read itself (its 60-second timeout or the terminal's end), or a newer read
 from the same terminal replaces it, the frontend receives
 `terminal-clipboard-read-cancelled` and the request id stops being accepted.
 These operations are exposed only in the SDKs' private `raw` namespace.
+
+## cmux Remote (remote-host-v1)
+
+macOS only (docs/cmux-remote.md). The daemon supervises cmux Remote, the signed
+helper that holds Accessibility and Screen Recording for Computer Use and Screen
+Sharing. Elsewhere every command answers `remote_host_unavailable`.
+
+### remote-host-status
+
+`{"cmd":"remote-host-status"}`. The host's state: `state` (`off`, `starting`,
+`running`, `unavailable` with `reason`), `config`, `upgrade` and, while it runs,
+`host` (its grants, workers and Screen Sharing state). Never starts the host.
+Only the verified app sees `host.screen.devices`.
+
+### remote-host-call
+
+`{"cmd":"remote-host-call","method":M,"params":{...}}` for `status`, `refresh`,
+`request {permission}`, `open_settings {permission}`, `restart {worker, force}`,
+`screen.share {on}`, `screen.access {device, scope}` and `screen.stop_session`.
+Any local Unix connection may read, refresh, ask macOS for a grant, restart a
+worker and lower access. Turning sharing on or raising a device's access is
+the verified app's only (`origin.forbidden`).
+
+### remote-host-config
+
+`{"cmd":"remote-host-config","computer_use":B,"screen_sharing":B,"headless":B}`,
+each optional. The verified app's switches; the daemon saves them and starts or
+stops the host.
+
+### remote-host-app
+
+`{"cmd":"remote-host-app"}`. The verified app's own credentials for cmux
+Remote's app socket: `{socket, secret, host_pid}`. The host admits only that
+app process; the secret is never logged or journaled.
