@@ -133,7 +133,7 @@ TAB_OUTLINE = "motion.frameOwner.tabOutline"
 # a HID press on a column edge the key's spring still moves lands within a few points of it.
 HIT_WIDTH = "metrics.dividerHitWidth"
 # A journey id is its case id, or the case id and one of these: -a.. (a sweep in parts), -s1r, -sw-<short>[-a..].
-JOURNEY_SUFFIX = re.compile(r"(-[a-h]|-s1r|-sw-[a-z0-9]+(-[a-c])?)?")
+JOURNEY_SUFFIX = re.compile(r"(-[a-h]|-s1r|-sw-[a-z0-9]+(-[a-c]|-off|-on)?)?")
 
 
 # -- fixtures -------------------------------------------------------------------------------------------------------
@@ -770,10 +770,21 @@ def cases():
     return out
 
 
-def journey(case, jid, speeds, part_note, switch_key=None):
+# Switches whose effect starts only when a page is shown next (motion.frameOwner.pages: layer hosting "applies when a page is
+# shown next"): flipped between films, the page shown at set-up keeps the old state (ab-s5host-964bbf7: hosted_pages 0 in every
+# ON film). They get one journey per arm, the switch set at set-up before any pane exists (<case>-sw-<short>-off, -on).
+SETUP_SWITCHES = ("motion.frameOwner.pages",)
+
+
+def journey(case, jid, speeds, part_note, switch_key=None, setup_value=None):
     """One journey of CASE: its set-up, one film per (label, speed) or (label, speed, (key, value)) of SPEEDS, the after
-    check. With SWITCH_KEY the switch goes back to its default in finally."""
+    check. With SWITCH_KEY the switch goes back to its default in finally. SETUP_VALUE (a SETUP_SWITCHES key): the switch
+    is set first, before any pane of the case is made."""
     steps = [fixture_settings()] + G.first_pane(jid, False) + fixture_files()
+    if setup_value is not None:
+        steps.insert(1, {"do": "px_tunable", "key": switch_key, "value": setup_value, "required": True,
+                         "title": f"set-up: {switch_key} {'ON' if setup_value else 'OFF'} before any pane is made (its effect "
+                                  f"starts when a page is shown)"})
     if case.layout.window:
         place = next(st for st in steps if st["do"] == "window_place")
         place.update(fraction=list(case.layout.window), title=f"set-up: the window at {case.layout.window} of the screen")
@@ -844,6 +855,10 @@ def switch_variants(case, key):
     films = [(f"{state}-{label}", speed, (key, state == "on")) for label, speed in (case.speeds or SPEEDS_S1R)
              for state in ("off", "on")]
     base = f"{case.cid}-sw-{switch_short(key)}"
+    if key in SETUP_SWITCHES:
+        # The film names stay <case>-sw-<short>-<state>-<label> (the journey id carries the state; the label does not).
+        return [journey(case, f"{base}-{state}", [(f[0].split("-", 1)[1],) + f[1:] for f in films if f[0].startswith(state + "-")],
+                        f" ({key} {state.upper()} from the set-up)", key, setup_value=state == "on") for state in ("off", "on")]
     groups = [films]
     while True:
         built = [journey(case, base, groups[0], f" ({key} OFF and ON)", key)] if len(groups) == 1 else \

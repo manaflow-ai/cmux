@@ -1,16 +1,14 @@
 {
- "id": "px-col-drag-2-sw-pages",
+ "id": "px-keys-single-3k-sw-pages-off",
  "priority": "P1",
- "title": "PIXEL: divider 0 dragged 150 pt right slowly and back fast (p0 T | p1 P), at x1 OFF, x1 ON, Reduce Motion OFF, Reduce Motion ON (motion.frameOwner.pages OFF and ON)",
+ "title": "PIXEL: Ctrl-Shift-L, H, J, K on p1 (p0 T | (p1 T / p2 P)), at x1 OFF, Reduce Motion OFF (motion.frameOwner.pages OFF from the set-up)",
  "why": "Lawrence 2026-11-03: resizing columns and splits is not pixel perfect when animated. Loud fixture colors (shell #FF00FF, terminal ground #00FFFF, tab strips #000000, rings #FF0000/#FFFFFF/#000000) make any gap, overlap or lag visible; judge_pixel.py reads every pane edge, tab strip and divider per film frame from the exact scan lines.",
  "source": "PIXEL PERFECT kit (video-cases/gen_pixel.py)",
- "budget_seconds": 102,
- "estimate_seconds": 85,
+ "budget_seconds": 78,
+ "estimate_seconds": 65,
  "recordings": [
-  "px-col-drag-2-sw-pages-off-s1",
-  "px-col-drag-2-sw-pages-on-s1",
-  "px-col-drag-2-sw-pages-off-reduce",
-  "px-col-drag-2-sw-pages-on-reduce"
+  "px-keys-single-3k-sw-pages-off-s1",
+  "px-keys-single-3k-sw-pages-off-reduce"
  ],
  "options": {
   "key_path": "real"
@@ -60,6 +58,13 @@
    }
   },
   {
+   "do": "px_tunable",
+   "key": "motion.frameOwner.pages",
+   "value": false,
+   "required": true,
+   "title": "set-up: motion.frameOwner.pages OFF before any pane is made (its effect starts when a page is shown)"
+  },
+  {
    "do": "smoke_ready",
    "timeout": 60
   },
@@ -72,7 +77,7 @@
   {
    "do": "new_terminal",
    "via": "key",
-   "name": "px-col-drag-2-sw-pages"
+   "name": "px-keys-single-3k-sw-pages-off"
   },
   {
    "do": "neutral_prompt"
@@ -152,11 +157,41 @@
    "do": "neutral_prompt"
   },
   {
+   "do": "type",
+   "text": "python3 /tmp/jr-tui-border.py --fill 00FF00 --label p1",
+   "enter": true,
+   "mark": "tui-p1",
+   "title": "set-up: the terminal fixture in p1 (fill #00FF00)"
+  },
+  {
+   "do": "expect",
+   "title": "set-up: the fixture runs in p1 (its alternate screen hides the prompt)",
+   "since": "tui-p1",
+   "timeout": 8,
+   "all": [
+    {
+     "daemon_lacks": "J> "
+    }
+   ]
+  },
+  {
+   "do": "action",
+   "action": "splitDown",
+   "title": "set-up: splitDown (p2)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "p2"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
    "do": "px_page",
-   "pane": "p1",
-   "bg": "#00FF00",
-   "label": "p1",
-   "title": "set-up: page.html in a browser tab of p1 (#00FF00)"
+   "pane": "p2",
+   "bg": "#FFFF00",
+   "label": "p2",
+   "title": "set-up: page.html in a browser tab of p2 (#FFFF00)"
   },
   {
    "do": "wait",
@@ -165,7 +200,7 @@
   },
   {
    "do": "px_film",
-   "name": "px-col-drag-2-sw-pages-off-s1",
+   "name": "px-keys-single-3k-sw-pages-off-s1",
    "steps": [
     {
      "do": "rpc",
@@ -175,14 +210,19 @@
      "title": "debug.cef before the film (tracker.hosted_pages, hosting_refused)"
     },
     {
+     "do": "rk_focus",
+     "pane": "p1",
+     "title": "set-up: focus p1 (cmux pane focus)"
+    },
+    {
      "do": "wait",
      "seconds": 0.8,
      "title": "the layout and the load settle (nothing observable to wait on)"
     },
     {
      "do": "px_record_start",
-     "name": "px-col-drag-2-sw-pages-off-s1",
-     "seconds": 9.7,
+     "name": "px-keys-single-3k-sw-pages-off-s1",
+     "seconds": 10.0,
      "require_hz": 120,
      "mbps": 60,
      "fixture": {
@@ -191,26 +231,33 @@
        "fill": "#FFFF00"
       },
       "p1": {
-       "kind": "page",
+       "kind": "tui",
        "fill": "#00FF00"
+      },
+      "p2": {
+       "kind": "page",
+       "fill": "#FFFF00"
       }
      },
-     "spring": null,
-     "input": "drag",
-     "title": "start the 120 Hz movie, the trace and scan lines across every pane border and tab strip (px-col-drag-2-sw-pages-off-s1)"
+     "spring": "move",
+     "input": "keys",
+     "title": "start the 120 Hz movie, the trace and scan lines across every pane border and tab strip (px-keys-single-3k-sw-pages-off-s1)",
+     "spring_default": {
+      "response": 0.15,
+      "damping": 1.0
+     }
     },
     {
-     "do": "hid_drag",
-     "target": {
-      "divider": 0
-     },
-     "by": [
-      150,
-      0
+     "do": "rk_press",
+     "key": "l",
+     "modifiers": [
+      "control",
+      "shift"
      ],
-     "duration_ms": 1000,
-     "mark": "slow",
-     "title": "slow drag: 150 pt right in 1 s"
+     "count": 1,
+     "gap_ms": 0,
+     "mark": "key0",
+     "title": "Ctrl-Shift-L"
     },
     {
      "do": "wait",
@@ -218,17 +265,50 @@
      "title": "the motion lands and rests"
     },
     {
-     "do": "hid_drag",
-     "target": {
-      "divider": 0
-     },
-     "by": [
-      -150,
-      0
+     "do": "rk_press",
+     "key": "h",
+     "modifiers": [
+      "control",
+      "shift"
      ],
-     "duration_ms": 100,
-     "mark": "fast",
-     "title": "fast drag: 150 pt back in 0.1 s"
+     "count": 1,
+     "gap_ms": 0,
+     "mark": "key1",
+     "title": "Ctrl-Shift-H"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.57,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "rk_press",
+     "key": "j",
+     "modifiers": [
+      "control",
+      "shift"
+     ],
+     "count": 1,
+     "gap_ms": 0,
+     "mark": "key2",
+     "title": "Ctrl-Shift-J"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.57,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "rk_press",
+     "key": "k",
+     "modifiers": [
+      "control",
+      "shift"
+     ],
+     "count": 1,
+     "gap_ms": 0,
+     "mark": "key3",
+     "title": "Ctrl-Shift-K"
     },
     {
      "do": "wait",
@@ -237,9 +317,9 @@
     },
     {
      "do": "video_stop",
-     "name": "px-col-drag-2-sw-pages-off-s1",
+     "name": "px-keys-single-3k-sw-pages-off-s1",
      "tail": 0.4,
-     "title": "the motion ends; stop the recording (px-col-drag-2-sw-pages-off-s1)"
+     "title": "the motion ends; stop the recording (px-keys-single-3k-sw-pages-off-s1)"
     },
     {
      "do": "rpc",
@@ -250,7 +330,7 @@
     }
    ],
    "after": [],
-   "title": "film px-col-drag-2-sw-pages-off-s1: every motion.spring.* response / 1, motion.frameOwner.pages OFF",
+   "title": "film px-keys-single-3k-sw-pages-off-s1: every motion.spring.* response / 1, motion.frameOwner.pages OFF",
    "speed": 1.0,
    "switch": {
     "key": "motion.frameOwner.pages",
@@ -259,7 +339,7 @@
   },
   {
    "do": "px_film",
-   "name": "px-col-drag-2-sw-pages-on-s1",
+   "name": "px-keys-single-3k-sw-pages-off-reduce",
    "steps": [
     {
      "do": "rpc",
@@ -269,14 +349,19 @@
      "title": "debug.cef before the film (tracker.hosted_pages, hosting_refused)"
     },
     {
+     "do": "rk_focus",
+     "pane": "p1",
+     "title": "set-up: focus p1 (cmux pane focus)"
+    },
+    {
      "do": "wait",
      "seconds": 0.8,
      "title": "the layout and the load settle (nothing observable to wait on)"
     },
     {
      "do": "px_record_start",
-     "name": "px-col-drag-2-sw-pages-on-s1",
-     "seconds": 9.7,
+     "name": "px-keys-single-3k-sw-pages-off-reduce",
+     "seconds": 9.6,
      "require_hz": 120,
      "mbps": 60,
      "fixture": {
@@ -285,55 +370,95 @@
        "fill": "#FFFF00"
       },
       "p1": {
-       "kind": "page",
+       "kind": "tui",
        "fill": "#00FF00"
+      },
+      "p2": {
+       "kind": "page",
+       "fill": "#FFFF00"
       }
      },
-     "spring": null,
-     "input": "drag",
-     "title": "start the 120 Hz movie, the trace and scan lines across every pane border and tab strip (px-col-drag-2-sw-pages-on-s1)"
+     "spring": "move",
+     "input": "keys",
+     "title": "start the 120 Hz movie, the trace and scan lines across every pane border and tab strip (px-keys-single-3k-sw-pages-off-reduce)",
+     "spring_default": {
+      "response": 0.15,
+      "damping": 1.0
+     }
     },
     {
-     "do": "hid_drag",
-     "target": {
-      "divider": 0
-     },
-     "by": [
-      150,
-      0
+     "do": "rk_press",
+     "key": "l",
+     "modifiers": [
+      "control",
+      "shift"
      ],
-     "duration_ms": 1000,
-     "mark": "slow",
-     "title": "slow drag: 150 pt right in 1 s"
+     "count": 1,
+     "gap_ms": 0,
+     "mark": "key0",
+     "title": "Ctrl-Shift-L"
     },
     {
      "do": "wait",
-     "seconds": 0.57,
+     "seconds": 0.5,
      "title": "the motion lands and rests"
     },
     {
-     "do": "hid_drag",
-     "target": {
-      "divider": 0
-     },
-     "by": [
-      -150,
-      0
+     "do": "rk_press",
+     "key": "h",
+     "modifiers": [
+      "control",
+      "shift"
      ],
-     "duration_ms": 100,
-     "mark": "fast",
-     "title": "fast drag: 150 pt back in 0.1 s"
+     "count": 1,
+     "gap_ms": 0,
+     "mark": "key1",
+     "title": "Ctrl-Shift-H"
     },
     {
      "do": "wait",
-     "seconds": 0.57,
+     "seconds": 0.5,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "rk_press",
+     "key": "j",
+     "modifiers": [
+      "control",
+      "shift"
+     ],
+     "count": 1,
+     "gap_ms": 0,
+     "mark": "key2",
+     "title": "Ctrl-Shift-J"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "rk_press",
+     "key": "k",
+     "modifiers": [
+      "control",
+      "shift"
+     ],
+     "count": 1,
+     "gap_ms": 0,
+     "mark": "key3",
+     "title": "Ctrl-Shift-K"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5,
      "title": "the motion lands and rests"
     },
     {
      "do": "video_stop",
-     "name": "px-col-drag-2-sw-pages-on-s1",
+     "name": "px-keys-single-3k-sw-pages-off-reduce",
      "tail": 0.4,
-     "title": "the motion ends; stop the recording (px-col-drag-2-sw-pages-on-s1)"
+     "title": "the motion ends; stop the recording (px-keys-single-3k-sw-pages-off-reduce)"
     },
     {
      "do": "rpc",
@@ -344,199 +469,11 @@
     }
    ],
    "after": [],
-   "title": "film px-col-drag-2-sw-pages-on-s1: every motion.spring.* response / 1, motion.frameOwner.pages ON",
-   "speed": 1.0,
-   "switch": {
-    "key": "motion.frameOwner.pages",
-    "value": true
-   }
-  },
-  {
-   "do": "px_film",
-   "name": "px-col-drag-2-sw-pages-off-reduce",
-   "steps": [
-    {
-     "do": "rpc",
-     "method": "debug.cef",
-     "params": {},
-     "keep": "cef-before",
-     "title": "debug.cef before the film (tracker.hosted_pages, hosting_refused)"
-    },
-    {
-     "do": "wait",
-     "seconds": 0.8,
-     "title": "the layout and the load settle (nothing observable to wait on)"
-    },
-    {
-     "do": "px_record_start",
-     "name": "px-col-drag-2-sw-pages-off-reduce",
-     "seconds": 9.4,
-     "require_hz": 120,
-     "mbps": 60,
-     "fixture": {
-      "p0": {
-       "kind": "tui",
-       "fill": "#FFFF00"
-      },
-      "p1": {
-       "kind": "page",
-       "fill": "#00FF00"
-      }
-     },
-     "spring": null,
-     "input": "drag",
-     "title": "start the 120 Hz movie, the trace and scan lines across every pane border and tab strip (px-col-drag-2-sw-pages-off-reduce)"
-    },
-    {
-     "do": "hid_drag",
-     "target": {
-      "divider": 0
-     },
-     "by": [
-      150,
-      0
-     ],
-     "duration_ms": 1000,
-     "mark": "slow",
-     "title": "slow drag: 150 pt right in 1 s"
-    },
-    {
-     "do": "wait",
-     "seconds": 0.5,
-     "title": "the motion lands and rests"
-    },
-    {
-     "do": "hid_drag",
-     "target": {
-      "divider": 0
-     },
-     "by": [
-      -150,
-      0
-     ],
-     "duration_ms": 100,
-     "mark": "fast",
-     "title": "fast drag: 150 pt back in 0.1 s"
-    },
-    {
-     "do": "wait",
-     "seconds": 0.5,
-     "title": "the motion lands and rests"
-    },
-    {
-     "do": "video_stop",
-     "name": "px-col-drag-2-sw-pages-off-reduce",
-     "tail": 0.4,
-     "title": "the motion ends; stop the recording (px-col-drag-2-sw-pages-off-reduce)"
-    },
-    {
-     "do": "rpc",
-     "method": "debug.cef",
-     "params": {},
-     "keep": "cef-after",
-     "title": "debug.cef after the film (tracker.hosted_pages, hosting_refused)"
-    }
-   ],
-   "after": [],
-   "title": "film px-col-drag-2-sw-pages-off-reduce: Reduce Motion, motion.frameOwner.pages OFF",
+   "title": "film px-keys-single-3k-sw-pages-off-reduce: Reduce Motion, motion.frameOwner.pages OFF",
    "reduce": true,
    "switch": {
     "key": "motion.frameOwner.pages",
     "value": false
-   }
-  },
-  {
-   "do": "px_film",
-   "name": "px-col-drag-2-sw-pages-on-reduce",
-   "steps": [
-    {
-     "do": "rpc",
-     "method": "debug.cef",
-     "params": {},
-     "keep": "cef-before",
-     "title": "debug.cef before the film (tracker.hosted_pages, hosting_refused)"
-    },
-    {
-     "do": "wait",
-     "seconds": 0.8,
-     "title": "the layout and the load settle (nothing observable to wait on)"
-    },
-    {
-     "do": "px_record_start",
-     "name": "px-col-drag-2-sw-pages-on-reduce",
-     "seconds": 9.4,
-     "require_hz": 120,
-     "mbps": 60,
-     "fixture": {
-      "p0": {
-       "kind": "tui",
-       "fill": "#FFFF00"
-      },
-      "p1": {
-       "kind": "page",
-       "fill": "#00FF00"
-      }
-     },
-     "spring": null,
-     "input": "drag",
-     "title": "start the 120 Hz movie, the trace and scan lines across every pane border and tab strip (px-col-drag-2-sw-pages-on-reduce)"
-    },
-    {
-     "do": "hid_drag",
-     "target": {
-      "divider": 0
-     },
-     "by": [
-      150,
-      0
-     ],
-     "duration_ms": 1000,
-     "mark": "slow",
-     "title": "slow drag: 150 pt right in 1 s"
-    },
-    {
-     "do": "wait",
-     "seconds": 0.5,
-     "title": "the motion lands and rests"
-    },
-    {
-     "do": "hid_drag",
-     "target": {
-      "divider": 0
-     },
-     "by": [
-      -150,
-      0
-     ],
-     "duration_ms": 100,
-     "mark": "fast",
-     "title": "fast drag: 150 pt back in 0.1 s"
-    },
-    {
-     "do": "wait",
-     "seconds": 0.5,
-     "title": "the motion lands and rests"
-    },
-    {
-     "do": "video_stop",
-     "name": "px-col-drag-2-sw-pages-on-reduce",
-     "tail": 0.4,
-     "title": "the motion ends; stop the recording (px-col-drag-2-sw-pages-on-reduce)"
-    },
-    {
-     "do": "rpc",
-     "method": "debug.cef",
-     "params": {},
-     "keep": "cef-after",
-     "title": "debug.cef after the film (tracker.hosted_pages, hosting_refused)"
-    }
-   ],
-   "after": [],
-   "title": "film px-col-drag-2-sw-pages-on-reduce: Reduce Motion, motion.frameOwner.pages ON",
-   "reduce": true,
-   "switch": {
-    "key": "motion.frameOwner.pages",
-    "value": true
    }
   },
   {
