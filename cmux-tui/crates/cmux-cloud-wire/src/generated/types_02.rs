@@ -4,6 +4,14 @@
 #[allow(unused_imports)]
 use super::*;
 
+/// Per-user push rules, synced by the feed owner.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedPrefs {
+    pub push_enabled: bool,
+    pub push_delay: FeedPrefsPushDelay,
+    pub push_skip_when_mac_active: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FeedPrefsPushDelay {
     pub urgent: Option<i64>,
@@ -888,16 +896,3 @@ wire_enum! {
         Aarch64 = "aarch64",
     }
 }
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct PairingPreview {
-    pub code: PairingCode,
-    pub info: PairingInfo,
-    pub public_jwk: PublicJwk,
-    pub thumbprint: String,
-    pub country: Option<String>,
-    pub expires_at: i64,
-}
-
-/// user_<id>, agent_<name> or addr_<26> (an invited address).
-pub type ParticipantId = String;
