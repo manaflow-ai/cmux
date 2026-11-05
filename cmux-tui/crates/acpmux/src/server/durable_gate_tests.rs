@@ -251,3 +251,124 @@ async fn a_replay_after_a_hard_stop_sends_the_tail_past_the_saved_last_seq() {
     .unwrap_or_else(|e| panic!("{e:#}"));
     assert_eq!(seen, vec![1, 2, 3], "the replay left out the log's tail past the saved lastSeq");
 }
+
+/// The reviewer's scenario (review of #36022, finding 1), with handshakes and no timer: a replay
+/// that comes while another catch-up of the same chat is under way (a first replay, the
+/// background log pass or the chat's first append) must still send the tail past the saved
+/// `lastSeq`. `catch_up_locked` marked the chat caught up before it counted the tail, so a replay
+/// that read the mark skipped the catch-up and stopped at the saved `lastSeq`. The first catch-up
+/// is held while it counts: its read of the tail waits at the journal's read fence, because
+/// another chat's append holds the appends' lock (`PAUSE_AFTER_LOG_WRITE`). The first replay says
+/// when its catch-up is under way (`NOTE_IN_CATCH_UP`). The second says when it waits for the
+/// chat's append lock (`NOTE_BEFORE_CATCH_UP_LOCK`, the fixed code) or reads the log having
+/// skipped its catch-up (`NOTE_BEFORE_REPLAY_SCAN`, the code before), and only then is the append
+/// let go.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_replay_during_another_catch_up_sends_the_tail_past_the_saved_last_seq() {
+    use crate::hub::{NOTE_BEFORE_CATCH_UP_LOCK, NOTE_BEFORE_REPLAY_SCAN, NOTE_IN_CATCH_UP};
+    use crate::store::PAUSE_AFTER_LOG_WRITE;
+    const WAIT: Duration = Duration::from_secs(10);
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let mut config = Config::default();
+    config.store.mode = StoreMode::Local;
+    // The hard stop: three lines in the chat's log, `lastSeq` saved at 1.
+    {
+        let store = crate::store::open(&config.store, home.path())
+            .unwrap_or_else(|e| panic!("open the store: {e:#}"));
+        for (id, last) in [(CHAT, 1), (OTHER, 0)] {
+            let meta: crate::store::SessionMeta = serde_json::from_value(json!({
+                "schema": crate::store::META_SCHEMA, "id": id, "name": id,
+                "harness": "fake", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1,
+                "lastSeq": last,
+            }))
+            .unwrap_or_else(|e| panic!("meta: {e}"));
+            store.save(&meta).unwrap_or_else(|e| panic!("{e:#}"));
+        }
+        for seq in 1..=3 {
+            let record = crate::store::EventRecord {
+                seq,
+                at: 1_000 + seq,
+                dir: "mux".into(),
+                kind: "note".into(),
+                msg: json!({ "n": seq }),
+                host_seq: None,
+            };
+            store.append(CHAT, &record).unwrap_or_else(|e| panic!("{e:#}"));
+        }
+        store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    // A new daemon with the journal on, its logs read later (`Hub::new_deferred`).
+    config.store.journal = true;
+    let journal = SimStorage::new(64);
+    let journal_config = cmux_journal::Config {
+        retry_min: Duration::from_millis(1),
+        retry_max: Duration::from_millis(5),
+        ..cmux_journal::Config::default()
+    };
+    let store = crate::store::open_with_journal(
+        &config.store,
+        home.path(),
+        Arc::new(journal.clone()),
+        journal_config,
+    )
+    .unwrap_or_else(|e| panic!("open the store: {e:#}"));
+    let hub = crate::hub::Hub::new_deferred(config, store, crate::mailbox::Mailbox::memory());
+    // The chat's log is not loaded yet: else neither replay would catch up.
+    let chat = hub.resolve(CHAT).unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(!hub.session_log_loaded(&chat), "the chat's log was loaded before the replays");
+    // The other chat's append stops after its log write, the appends' lock held.
+    let other = hub.resolve(OTHER).unwrap_or_else(|e| panic!("{e:?}"));
+    let (arrived_tx, arrived) = std::sync::mpsc::channel();
+    let (release, release_rx) = std::sync::mpsc::channel::<()>();
+    *PAUSE_AFTER_LOG_WRITE.lock().unwrap_or_else(|e| e.into_inner()) =
+        Some((arrived_tx, release_rx));
+    let appender = {
+        let hub = hub.clone();
+        std::thread::spawn(move || hub.append(&other, "mux", "note", json!({"n": 1})).seq)
+    };
+    arrived.recv_timeout(WAIT).unwrap_or_else(|e| panic!("the append never paused: {e}"));
+    // The first replay: its catch-up is under way, and its read of the tail waits at the fence.
+    let (under_way_tx, under_way) = std::sync::mpsc::channel();
+    let first = {
+        let hub = hub.clone();
+        std::thread::spawn(move || {
+            NOTE_IN_CATCH_UP.with(|note| *note.borrow_mut() = Some(under_way_tx));
+            let mut seen = Vec::new();
+            hub.scan_events(CHAT, 0, &mut |record| {
+                seen.push(record.seq);
+                true
+            })
+            .unwrap_or_else(|e| panic!("{e:#}"));
+            seen
+        })
+    };
+    under_way.recv_timeout(WAIT).unwrap_or_else(|e| panic!("the first catch-up never began: {e}"));
+    // The second replay meanwhile: it says where it stopped.
+    let (events_tx, events) = std::sync::mpsc::channel();
+    let second = {
+        let hub = hub.clone();
+        std::thread::spawn(move || {
+            NOTE_BEFORE_CATCH_UP_LOCK.with(|note| *note.borrow_mut() = Some(events_tx.clone()));
+            NOTE_BEFORE_REPLAY_SCAN.with(|note| *note.borrow_mut() = Some(events_tx));
+            let mut seen = Vec::new();
+            hub.scan_events(CHAT, 0, &mut |record| {
+                seen.push(record.seq);
+                true
+            })
+            .unwrap_or_else(|e| panic!("{e:#}"));
+            seen
+        })
+    };
+    let stopped =
+        events.recv_timeout(WAIT).unwrap_or_else(|e| panic!("no word from the second replay: {e}"));
+    let _ = release.send(());
+    let _ = appender.join().unwrap_or_else(|_| panic!("append panicked"));
+    let first = first.join().unwrap_or_else(|_| panic!("the first replay panicked"));
+    let second = second.join().unwrap_or_else(|_| panic!("the second replay panicked"));
+    assert_eq!(first, vec![1, 2, 3], "the first replay left out the tail");
+    assert_eq!(
+        second,
+        vec![1, 2, 3],
+        "a replay during another catch-up left out the tail (it {stopped} while the first catch-up counted)"
+    );
+}

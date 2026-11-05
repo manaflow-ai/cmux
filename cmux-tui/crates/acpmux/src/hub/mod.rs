@@ -109,6 +109,8 @@ mod hosts;
 mod lifecycle;
 mod log_deferral;
 mod log_load;
+#[cfg(test)]
+pub(crate) use log_load::{NOTE_BEFORE_CATCH_UP_LOCK, NOTE_BEFORE_REPLAY_SCAN, NOTE_IN_CATCH_UP};
 mod repo_sync;
 mod retention;
 pub use retention::RetentionRequest;
@@ -1207,6 +1209,8 @@ impl Hub {
     /// ahead of it. Counts the tail past `lastSeq` once, so no sequence is
     /// handed out twice; only that tail is read.
     pub(super) fn catch_up(&self, session: &Session) {
+        #[cfg(test)]
+        log_load::catch_up_note(&log_load::NOTE_BEFORE_CATCH_UP_LOCK, "takes the append lock");
         let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         self.catch_up_locked(session);
     }
@@ -1215,6 +1219,8 @@ impl Hub {
         if session.caught_up.swap(true, Ordering::SeqCst) {
             return;
         }
+        #[cfg(test)]
+        log_load::catch_up_note(&log_load::NOTE_IN_CATCH_UP, "counts the tail");
         let after =
             session.meta.lock().unwrap_or_else(|e| e.into_inner()).harness_failures.through_seq;
         let mut results = Vec::new();
@@ -2348,6 +2354,8 @@ impl Hub {
             self.catch_up(&session);
         }
         let last = session.meta().last_seq;
+        #[cfg(test)]
+        log_load::catch_up_note(&log_load::NOTE_BEFORE_REPLAY_SCAN, "scans the log");
         self.store.scan(id, after, &mut |record| record.seq <= last && visit(record))
     }
 
