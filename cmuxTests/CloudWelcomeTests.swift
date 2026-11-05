@@ -192,6 +192,9 @@ struct CloudWelcomeTests {
     @Test("the rendered welcome pager advances with its movie without reading the player's time")
     @MainActor
     func renderedPagerNeverReadsPlayerTime() async throws {
+        // Reduce Motion pauses the movie and the timeline, and CI hosts turn it on.
+        exchangeReduceMotionGetter()
+        defer { exchangeReduceMotionGetter() }
         let counter = CarouselPlayheadReadCounter.install()
         defer { counter.uninstall() }
 
@@ -221,7 +224,7 @@ struct CloudWelcomeTests {
                 return player.timeControlStatus == .playing && item.duration.seconds.isFinite
             }
         }
-        #expect(moviePlaying)
+        try #require(moviePlaying, "the movie never played, so the old code path would not have run either")
 
         // Hosts without a ticking display never fire `.animation`, so each new
         // input re-runs the TimelineView body directly; a live display adds frames.
@@ -590,6 +593,22 @@ private func renderedFillOffsets(in window: NSWindow) -> [Int] {
     renderedViews(in: window)
         .filter { String(describing: type(of: $0)).contains("FillView") }
         .compactMap { $0.layer?.sublayers?.first.map { Int($0.frame.minX.rounded()) } }
+}
+
+/// Swaps `accessibilityDisplayShouldReduceMotion` for a getter returning false;
+/// a second call restores it.
+private func exchangeReduceMotionGetter() {
+    guard let original = class_getInstanceMethod(NSWorkspace.self, #selector(getter: NSWorkspace.accessibilityDisplayShouldReduceMotion)),
+          let motionOn = class_getInstanceMethod(NSWorkspace.self, #selector(NSWorkspace.reduceMotionOffForTest))
+    else {
+        Issue.record("accessibilityDisplayShouldReduceMotion could not be exchanged")
+        return
+    }
+    method_exchangeImplementations(original, motionOn)
+}
+
+private extension NSWorkspace {
+    @objc dynamic func reduceMotionOffForTest() -> Bool { false }
 }
 
 /// Counts `-[AVPlayerItem currentTime]` calls made from the welcome carousel,
