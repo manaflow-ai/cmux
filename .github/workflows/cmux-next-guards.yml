@@ -95,9 +95,8 @@ jobs:
 
   nightly-guards:
     # !cancelled(): a skipped or failed portable-placement leaves the group on its usual runner.
-    # Pushes only: a pull request runs release-notary in ci-guard-group's head-and-base comparison (header).
     needs: [portable-placement]
-    if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+    if: ${{ !cancelled() }}
     permissions:
       contents: read
       checks: read
@@ -105,7 +104,9 @@ jobs:
     with:
       # Fleet Linux or a free mini when portable-placement found one; empty keeps ci-guards.yml's own runner.
       guard_tests_runner: ${{ needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' release-notary ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' release-notary ') && needs.portable-placement.outputs.mini_runner || '' }}
-      linux_guard_tests: ${{ 'true' }}
+      # Pushes only: a pull request runs release-notary in ci-guard-group's head-and-base comparison (header),
+      # and keeps this call for the submodule forward-only guard and Guard status.
+      linux_guard_tests: ${{ github.event_name != 'pull_request' && 'true' || 'false' }}
       linux_guard_test_groups: '["release-notary"]'
       linux_guard_history: ${{ 'false' }}
       linux_guard_cli: ${{ 'false' }}
@@ -361,11 +362,14 @@ jobs:
         run: |
           # The base checkout is untracked in this workspace; the workload profile refuses a dirty checkout.
           echo "/.guard-base/" >> .git/info/exclude
+          # The groups are literal flags so scripts/ci/pr_test_lanes.py sees what a pull request runs.
           groups=()
           if [ "$EVENT_NAME" = pull_request ]; then
             groups=(--group ci --group release-notary)
+            scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --group ci --group release-notary --feat-routes "$RUNNER_TEMP/changed-files.txt" --results "$RUNNER_TEMP/guards-head.json" || true
+          else
+            scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --feat-routes "$RUNNER_TEMP/changed-files.txt" --results "$RUNNER_TEMP/guards-head.json" || true
           fi
-          scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" "${groups[@]}" --feat-routes "$RUNNER_TEMP/changed-files.txt" --results "$RUNNER_TEMP/guards-head.json" || true
           # The base re-runs only the steps red on the head (guards_new_reds.py --red-steps): a step green on the
           # head is never the change's, and the full base pass doubled the job once release-notary joined it.
           steps=()

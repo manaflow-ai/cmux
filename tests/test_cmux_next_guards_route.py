@@ -55,7 +55,11 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
         self.assertIn("feat-cmux-next", pull.get("branches") or [])
         self.assertFalse(pull.get("paths"), "a path filter would let a pull request skip the release guards")
         jobs = workflow["jobs"]
-        self.assertIn("github.event_name != 'pull_request'", jobs["nightly-guards"]["if"])
+        # nightly-guards still runs on a pull request (the submodule forward-only guard, Guard status), without
+        # the release-notary matrix leg.
+        self.assertEqual(jobs["nightly-guards"]["if"], "${{ !cancelled() }}")
+        self.assertEqual(jobs["nightly-guards"]["with"]["linux_guard_tests"],
+                         "${{ github.event_name != 'pull_request' && 'true' || 'false' }}")
         group = jobs["ci-guard-group"]
         self.assertEqual(group["if"], "${{ !cancelled() }}")
         steps = {step.get("name"): step for step in group["steps"]}
@@ -64,9 +68,9 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
         script = run["run"]
         self.assertIn('if [ "$EVENT_NAME" = pull_request ]; then\n  groups=(--group ci --group release-notary)', script)
         calls = [line for line in script.splitlines() if "scripts/ci/guards-local.sh" in line]
-        self.assertEqual(len(calls), 2, calls)
-        for call in calls:
-            self.assertIn('"${groups[@]}"', call)
+        self.assertEqual(len(calls), 3, calls)
+        self.assertIn("--group ci --group release-notary --feat-routes", calls[0])
+        self.assertIn('"${groups[@]}"', calls[2])
         self.assertIn('python3 scripts/ci/guards_new_reds.py "$RUNNER_TEMP/guards-head.json" "$RUNNER_TEMP/guards-base.json"',
                       script)
 
