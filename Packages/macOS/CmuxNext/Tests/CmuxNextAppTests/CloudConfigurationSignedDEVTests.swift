@@ -60,13 +60,15 @@ struct CloudConfigurationSignedDEVTests {
         #expect(config.ownerAPIBaseURL() == URL(string: "https://debug.fixture.invalid"))
     }
     @Test func signedDEVOnTheNightlyAccountUsesProductionAndNightlysSession() {
-        let config = CloudConfiguration.resolve(bundleID: "com.cmuxterm.app.debug.next", bundled: [:], process: [:],
-                                                isDebugBuild: false, devAccount: .nightly)
+        // The origins come from the runtime selection (Rust's client_config); this checks what Swift adds.
+        let production = "9790718f-14cd-4f7e-824d-eaf527a82b82"
+        let config = CloudConfiguration.resolve(bundleID: "com.cmuxterm.app.debug.next", bundled: ["CMUX_STACK_PROJECT_ID": production],
+                                                process: [:], isDebugBuild: false, devAccount: .nightly)
         #expect(config.isProductionAuth)
         #expect(config.backend == .production)
-        #expect(config.apiBaseURL.absoluteString == "https://cmux.com")
-        #expect(config.stackProjectID == "9790718f-14cd-4f7e-824d-eaf527a82b82")
-        #expect(config.ownerAPIBaseURL(environment: [:]).absoluteString == "https://cloud-api.cmux.dev")
+        #expect(config.apiBaseURL == config.runtimeSelection?.apiOrigin)
+        #expect(config.stackProjectID == production)
+        #expect(config.ownerAPIBaseURL(environment: [:]) == config.runtimeSelection?.apiOrigin)
         #expect(config.callbackURL.absoluteString == "cmux-next-dev://auth-callback")
         #expect(config.linkSource == .appServer)
         // Its own production namespace: neither the staging session nor the old unscoped one.

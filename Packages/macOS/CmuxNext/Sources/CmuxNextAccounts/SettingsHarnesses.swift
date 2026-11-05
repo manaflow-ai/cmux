@@ -1,9 +1,9 @@
-import CmuxNextAgentPane
+public import CmuxNextAgentPane
 import CmuxNextAgentUpdates
 import CmuxNextDaemonService
-import CmuxNextPages
-import CmuxNextSettings
-import Foundation
+public import CmuxNextPages
+public import CmuxNextSettings
+public import Foundation
 import Observation
 
 /// Settings > Agents > Harnesses (cx-mg91): this app's acpmux harnesses
@@ -22,29 +22,40 @@ import Observation
 /// outdated (`_acpmux/harness/health {autoUpdate}`; never one that needs sudo).
 @MainActor
 @Observable
-final class SettingsHarnesses {
+public final class SettingsHarnesses {
     private(set) var rows: [AcpmuxHarnessRow] = []
     /// `_acpmux/harness/health` rows by harness id; empty from a daemon without it.
     private(set) var health: [String: JSONValue] = [:]
     private(set) var loading = false
     /// `unavailable` (no acpmux here) or `unreachable` (the daemon did not answer).
     private(set) var problem: String?
-    @ObservationIgnored private let environment: @MainActor () -> AcpmuxEnvironment?
+    /// `_acpmux/accounts` (SettingsHarnesses+Accounts.swift); nil from a daemon without it.
+    var accounts: [SettingsProviderAccount]?
+    @ObservationIgnored let environment: @MainActor () -> AcpmuxEnvironment?
     @ObservationIgnored private let fetch: @Sendable (AcpmuxEnvironment) async throws -> [AcpmuxHarnessRow]
     @ObservationIgnored private let fetchHealth: @Sendable (AcpmuxEnvironment, Bool) async throws -> Data
-    @ObservationIgnored private let openTerminal: @MainActor (String) -> Void
+    @ObservationIgnored let openTerminal: @MainActor (String) -> Void
     @ObservationIgnored private let runUpdate: (@MainActor (JSONValue, PageCallContext) async throws -> JSONValue)?
     @ObservationIgnored private let updateState: @MainActor () -> JSONValue
     @ObservationIgnored private let refreshUpdates: (@MainActor () async -> Void)?
-    @ObservationIgnored private var generation = 0
+    /// A test's stand-in for the daemon's accounts calls; nil calls the daemon (`callAccounts`).
+    @ObservationIgnored let accountsCall: (@Sendable (AcpmuxEnvironment, AcpmuxHarnessMethod, [String: any Sendable]) async throws -> Data)?
+    /// The person's home: an added account's folder is ~/.cmux/accounts/<id>, and the page shows folders under `~`.
+    @ObservationIgnored let userHome: URL
+    @ObservationIgnored private(set) var generation = 0
+    /// The refusal text when this app cannot run updates (the App's localized string).
+    @ObservationIgnored private let unsupported: (@MainActor () -> String)?
 
-    init(environment: @escaping @MainActor () -> AcpmuxEnvironment?,
-         fetch: @escaping @Sendable (AcpmuxEnvironment) async throws -> [AcpmuxHarnessRow] = { try await $0.harnessRows() },
+    public init(environment: @escaping @MainActor () -> AcpmuxEnvironment?,
+         fetch: @escaping @Sendable (AcpmuxEnvironment) async throws -> [AcpmuxHarnessRow] = AcpmuxEnvironment.settingsHarnessRows,
          fetchHealth: @escaping @Sendable (AcpmuxEnvironment, Bool) async throws -> Data = AcpmuxEnvironment.harnessHealth,
          openTerminal: @escaping @MainActor (String) -> Void,
          runUpdate: (@MainActor (JSONValue, PageCallContext) async throws -> JSONValue)? = nil,
          updateState: @escaping @MainActor () -> JSONValue = { .array([]) },
-         refreshUpdates: (@MainActor () async -> Void)? = nil) {
+         refreshUpdates: (@MainActor () async -> Void)? = nil,
+         accountsCall: (@Sendable (AcpmuxEnvironment, AcpmuxHarnessMethod, [String: any Sendable]) async throws -> Data)? = nil,
+         userHome: URL = FileManager.default.homeDirectoryForCurrentUser,
+         unsupported: (@MainActor () -> String)? = nil) {
         self.environment = environment
         self.fetch = fetch
         self.fetchHealth = fetchHealth
@@ -52,14 +63,18 @@ final class SettingsHarnesses {
         self.runUpdate = runUpdate
         self.updateState = updateState
         self.refreshUpdates = refreshUpdates
+        self.accountsCall = accountsCall
+        self.userHome = userHome
+        self.unsupported = unsupported
     }
 
     /// The page's `cmux.settings.harnesses.state` (webviews/src/pages/settings/ops.ts `HarnessesState`).
-    var state: JSONValue {
+    public var state: JSONValue {
         [
             "loading": .bool(loading),
             "problem": problem.map(JSONValue.string) ?? .null,
             "jobs": updateState(),
+            "accounts": accountsState,
             "harnesses": .array(rows.map { row -> JSONValue in
                 let health = health[row.id]
                 let update = health?["update"].flatMap { plan -> JSONValue? in
@@ -77,6 +92,8 @@ final class SettingsHarnesses {
                     // The update owner runs only npm, Bun and native installations; others show no Update.
                     "ownerUpdate": .bool(["npm", "bun", "native"].contains(health?["channel"]?.stringValue ?? "")),
                     "autoUpdate": .bool(health?["autoUpdate"]?.boolValue ?? false),
+                    // When acpmux last checked it (ms since the epoch): the page's "Checked 5m ago".
+                    "checkedAt": health?["checkedAt"]?.doubleValue.map(JSONValue.number) ?? .null,
                     "lastAutoUpdate": health?["lastAutoUpdate"].flatMap { last -> JSONValue? in
                         guard let ok = last["ok"]?.boolValue else { return nil }
                         return ["ok": .bool(ok), "detail": .string(last["detail"]?.stringValue ?? "")]
@@ -108,6 +125,9 @@ final class SettingsHarnesses {
         }
         rows = fresh
         problem = nil
+        // Accounts first: they answer from the daemon's state, a health check may take a while.
+        await readAccounts(environment, generation: mine)
+        guard mine == generation else { return }
         // The rows show first: a check can take a while. A failed one (an older daemon without
         // the method, a timeout) keeps the health already shown.
         guard let checked = try? await fetchHealth(environment, recheck),
@@ -124,7 +144,7 @@ final class SettingsHarnesses {
     /// One page gesture (`cmux.settings.harnesses.run`): `refresh` (`recheck`: the daemon checks
     /// health again), `signIn` / `check` / `update` with a listed harness `id`, `updateAll`,
     /// `resumeUpdate` / `dismissUpdate` with a retained `intent` key, or `registry`.
-    func run(_ params: JSONValue, context: PageCallContext?) async throws -> JSONValue {
+    public func run(_ params: JSONValue, context: PageCallContext?) async throws -> JSONValue {
         let action = params["action"]?.stringValue ?? ""
         // Anything that runs an update (now, or after acpmux's next check) or settles one needs the person.
         let updates = ["update", "updateAll", "resumeUpdate", "dismissUpdate"].contains(action) || (action == "autoUpdate" && params["on"]?.boolValue == true)
@@ -134,7 +154,7 @@ final class SettingsHarnesses {
             await refresh(recheck: params["recheck"]?.boolValue ?? false)
         case "update", "updateAll", "resumeUpdate", "dismissUpdate":
             guard action != "update" || rows.contains(where: { $0.id == params["id"]?.stringValue }) else { throw PageError.invalidParams("id must be a listed harness") }
-            guard let runUpdate, let context else { throw PageError.unavailable(AgentHarnessStrings.unsupported) }
+            guard let runUpdate, let context else { throw PageError.unavailable(unsupported?() ?? "") }
             return try await runUpdate(params, context)
         case "autoUpdate":
             // acpmux keeps the choice and runs the update after a check finds it outdated.
@@ -149,6 +169,12 @@ final class SettingsHarnesses {
             guard let environment = environment() else { throw PageError(code: "cmux.page.unavailable", message: "no acpmux") }
             // `--`: an id is never taken for a flag.
             try type(environment.shellLine(["harness", "login"] + (action == "check" ? ["--status"] : []) + ["--", id]))
+        case "accountEnable", "accountAdd", "accountSignIn":
+            // A switch that lets routing move chats, a new login folder, or a sign-in: the person's.
+            guard context?.userGesture == true || context?.isConfirmedUser == true else {
+                throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
+            }
+            return try await runAccount(action, params)
         case "registry":
             guard let environment = environment() else { throw PageError(code: "cmux.page.unavailable", message: "no acpmux") }
             try type(environment.shellLine(["harness", "registry"]))

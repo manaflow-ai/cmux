@@ -1,4 +1,5 @@
 import SwiftUI
+import CmuxNextDesign
 
 /// Snapshot row: an observable feed model never crosses the lazy-list boundary.
 struct FeedInboxRow: View {
@@ -33,7 +34,7 @@ struct FeedInboxRow: View {
             }
             .padding(.horizontal, 12).padding(.vertical, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
+            .background(RoundedRectangle(cornerRadius: Metrics.insetCornerRadius, style: .continuous)
                 .fill(selected ? colors.selection : (hovering ? colors.hover : .clear)))
             .opacity(pending ? 0.55 : 1)
             .contentShape(Rectangle())

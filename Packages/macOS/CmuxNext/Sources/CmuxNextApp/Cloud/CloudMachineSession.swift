@@ -319,6 +319,9 @@ final class CloudMachineSession {
                 self?.endAppLink(error, ticket: ticket.id)
                 throw error
             }
+        }, stream: {
+            // An agent chat's attach and the history reader dial the same carrier: never the drop signal above.
+            try await appLink.streamEndpoint(ticket)
         })
     }
 

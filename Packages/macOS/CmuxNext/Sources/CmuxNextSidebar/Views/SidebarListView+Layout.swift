@@ -313,6 +313,7 @@ extension SidebarListViewComponents {
         })
         var leaving: [(SidebarRowView, NSRect)] = []
         let removeRuns = SidebarRowTransition.runTops(of: old, missingFrom: layout)
+        let cards = flyingCardFrames
         for (key, view) in rowViews where !keep.contains(key) {
             if key == hoveredKey {
                 hoveredKey = nil
@@ -322,10 +323,12 @@ extension SidebarListViewComponents {
             rowViews[key] = nil
             let placeholder = switch key { case .emptySection, .emptyGroup: true; default: false }
             let replaced = old.row(for: key).map { returning.contains($0.section) || $0.group.map(emptied.contains) == true } ?? false
-            if adopting, !suppressed.contains(key) {
+            // Under a dropped card on its way to its slot, a leaving row goes at once (`isUnderCard`).
+            let underCard = isUnderCard(view.frame, cards)
+            if adopting, !suppressed.contains(key), !underCard {
                 // A row the drop or the model took away fades where it is (its slot closes on the rows' spring).
                 leaving.append((view, view.frame))
-            } else if suppressed.contains(key) || !animate || placeholder || replaced {
+            } else if suppressed.contains(key) || !animate || placeholder || replaced || underCard {
                 recycle(view)
             } else {
                 // A leaving row fades out without the selection fill: the
