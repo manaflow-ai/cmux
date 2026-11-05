@@ -123,8 +123,8 @@ thread_local! {
 pub struct HotModule(Arc<Shared>);
 
 /// The daemon's slot: `ACPMUX_HOT_MODULE` names the file, in a debug build only (a release build
-/// answers `None` whatever the environment says). The first call starts the watcher, which loads
-/// the file in the background; until then every call runs native code.
+/// answers `None` whatever the environment says). The first call loads the file and starts the
+/// watcher, which loads every later change in the background.
 pub fn daemon() -> Option<&'static HotModule> {
     static SLOT: OnceLock<Option<HotModule>> = OnceLock::new();
     SLOT.get_or_init(|| {
@@ -133,13 +133,21 @@ pub fn daemon() -> Option<&'static HotModule> {
         }
         let path = std::env::var_os(crate::ENV)?;
         match HotModule::new(Path::new(&path), Options::default()) {
-            Ok(slot) => match slot.watch(Duration::from_millis(100)) {
-                Ok(_) => Some(slot),
-                Err(e) => {
-                    eprintln!("acpmux-hot: no watcher thread: {e}");
-                    None
+            Ok(slot) => {
+                // The first load runs here, once, so the call that asked already gets the module's
+                // answer (a debug daemon's first sign-in waits one compile, 40 to 90 ms); every
+                // later change loads on the watcher thread and no caller waits for it.
+                if let Err(e) = slot.reload() {
+                    eprintln!("acpmux-hot: {e}");
                 }
-            },
+                match slot.watch(Duration::from_millis(100)) {
+                    Ok(_) => Some(slot),
+                    Err(e) => {
+                        eprintln!("acpmux-hot: no watcher thread: {e}");
+                        None
+                    }
+                }
+            }
             Err(e) => {
                 eprintln!("acpmux-hot: not loading {}: {e}", Path::new(&path).display());
                 None

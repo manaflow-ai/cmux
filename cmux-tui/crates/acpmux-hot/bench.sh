@@ -21,6 +21,7 @@ build_guest good
 build_guest v2 v2
 build_guest trap trap
 build_guest spin spin
+build_guest no-offer no-offer
 # A second edit-and-rebuild of the warm good guest: the dev loop's compile step.
 touch "$here/../acpmux/src/agent_login/parse.rs"
 t0=$(date +%s.%N)
@@ -44,5 +45,17 @@ cargo run --locked --release -p acpmux-hot --features wasm --example hot_bench -
 cat "$out/hot-bench.json"
 # The daemon side compiles with the feature on (the default build is unchanged: the dep is optional).
 cargo check --locked -p acpmux --features hot-modules 2>&1 | tail -3
+# A debug daemon's sign-in end to end (tests/agent_login.rs: stand-in claude and codex CLIs over a
+# connection), with the parser from the module: passes with the good module, and fails with the
+# `no-offer` one, which proves the daemon asked the module and not its native parser.
+run_login() { # MODULE
+  ACPMUX_HOT_MODULE="$live_dir/acpmux_hot.wasm" cargo test --locked -p acpmux --features hot-modules \
+    --test agent_login 2>&1 | tee "$out/daemon-login-$1.log" | grep -E '^test |test result|acpmux-hot:'
+}
+cp "$here/guest/target/good.wasm" "$live_dir/acpmux_hot.wasm"
+run_login good
+cp "$here/guest/target/no-offer.wasm" "$live_dir/acpmux_hot.wasm"
+if run_login no-offer; then echo "daemon login passed with the no-offer module: the module was not asked" >&2; exit 1; fi
+echo "daemon login failed with the no-offer module, as it must"
 cp Cargo.lock "$out/Cargo.lock"
 cp "$here/guest/Cargo.lock" "$out/guest-Cargo.lock"

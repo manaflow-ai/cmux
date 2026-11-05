@@ -53,6 +53,9 @@ impl bindings::Guest for Hot {
             bindings::Agent::Claude => Agent::Claude,
             bindings::Agent::Codex => Agent::Codex,
         };
+        if cfg!(feature = "no-offer") {
+            return None;
+        }
         parse::offer(agent, &output).map(|o| bindings::Offer { url: o.url, user_code: o.user_code })
     }
 }

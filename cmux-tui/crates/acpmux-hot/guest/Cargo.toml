@@ -16,6 +16,9 @@ crate-type = ["cdylib"]
 trap = []
 spin = []
 v2 = []
+# `login-offer` never finds an offer: the daemon sign-in test fails with it, which proves the
+# daemon asked the module.
+no-offer = []
 
 [dependencies]
 wit-bindgen = "=0.61.1"
