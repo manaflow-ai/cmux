@@ -3,8 +3,8 @@
 // `commandRead`). Leo, 2026-11-04, on an open tray of lines reading "Command hold", "Command review
 // result": "wtf are these holds". They were a subagent's Claude Monitor calls, which an agent names
 // in a word or two; acpmux did not know the Monitor call, so the line had only that word. Now a
-// word-or-two description follows what the command does ("Waiting 14m · hold"), a long description
-// stays as it is, a command with none reads from its program, and a subagent's line says whose it is.
+// word-or-two description follows what the command does ("Waiting 14m · hold"), the raw command
+// appears as its dim monospace activity, and a subagent's line says whose it is.
 import { componentEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import type { CommandTitlesScene } from "../../../gallery/fixtures/SubagentTrayCommandTitlesStage";

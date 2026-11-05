@@ -18,6 +18,7 @@ await mock.module("./shellHighlight", () => ({
   },
 }));
 const { ShellBlock } = await import("./ShellBlock");
+const { Lines, OUTPUT_LINE_WINDOW } = await import("./BlockParts");
 
 const { shellTokens, MAX_HIGHLIGHTED_COMMAND } = highlight;
 
@@ -221,6 +222,29 @@ test("streaming output tokenizes the command once, and a sibling step's not at a
     ),
   );
   expect(calls).toBe(3);
+});
+
+test("streaming output keeps finished line chunks stable and windows the live tail", async () => {
+  const lines = (n: number) => Array.from({ length: n }, (_, at) => `line ${at + 1}`).join("\n");
+  await act(async () => root!.render(<Lines text={lines(100)} windowed />));
+  const first = container.querySelector<HTMLElement>(".cv-line")!;
+  await act(async () => root!.render(<Lines text={lines(101)} windowed />));
+  expect(container.querySelector<HTMLElement>(".cv-line")).toBe(first);
+
+  await act(async () => root!.render(<Lines text={lines(401)} windowed />));
+  const frozenMiddle = [...container.querySelectorAll<HTMLElement>(".cv-line")].find(
+    (line) => line.textContent === "line 65\n",
+  );
+  await act(async () => root!.render(<Lines text={lines(402)} windowed />));
+  expect(
+    [...container.querySelectorAll<HTMLElement>(".cv-line")].find((line) => line.textContent === "line 65\n"),
+  ).toBe(frozenMiddle);
+
+  await act(async () => root!.render(<Lines text={lines(OUTPUT_LINE_WINDOW + 80)} windowed />));
+  const rendered = [...container.querySelectorAll(".cv-line")];
+  expect(rendered).toHaveLength(OUTPUT_LINE_WINDOW);
+  expect(rendered[0]!.textContent).toBe("line 81\n");
+  expect(rendered.at(-1)!.textContent).toBe(`line ${OUTPUT_LINE_WINDOW + 80}`);
 });
 
 test("past eight lines the output is capped to scroll, with Show all to lift the cap", async () => {

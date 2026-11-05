@@ -43,7 +43,8 @@
 // it: no View all under it, the list scrolls past its five lines (Leo, 2026-11-01: "why is there even
 // a view all 5 button it's useless just let it be scroll-downable"). The header shows whenever the
 // tray has more than one line, running or ended.
-// A line says what the agent does now in words (trayDetail.ts), never a raw shell line.
+// A line says what the agent does now in words; command rows keep their actual shell command as
+// the dim activity line so a monitor's work is identifiable at a glance.
 //
 // A line is quiet at rest: no fill of its own inside the tray's glass, so the tray is one box, not
 // a box in a box. Hovering a line that opens something fills that whole line to the tray's own
@@ -81,6 +82,7 @@ import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { arrivalKey, type BackgroundCommand, sendLabel } from "../session-info/processes";
 import { commandRead } from "../session-info/commandRules";
+import { trimRawCommand } from "../conversation/shortCommand";
 import { currentCommandRules } from "../session-info/commandLabelSettings";
 import { StopButton as ProcessStopButton } from "../session-info/TasksSection";
 import { STATUS_LABEL, type SubagentStatus, subagentStateText, subagentStatus } from "../summary/SubagentStatusList";
@@ -97,7 +99,6 @@ import { elapsed, StopButton, SubagentHarnessContext, useNow } from "./SubagentG
 import { itemStart, type TrayItem } from "./runningTray";
 import { attentionFirst } from "./trayAttention";
 import { latestLine, toolDetail } from "./trayDetail";
-import { trayLatestLook } from "./trayLatest.experiment";
 import { trayPanelLook, trayRowLook, trayStopLook } from "./trayPanel.experiment";
 import { trayMotionLook } from "./trayMotion.experiment";
 import { trayHeadLook } from "./trayHead.experiment";
@@ -230,7 +231,6 @@ export const SubagentTray = memo(function SubagentTray({
   const [surface] = useState(() => experimentArm(traySurfaceLook));
   const [foldHead] = useState(() => experimentArm(trayFoldHeadLook));
   const [stopLook] = useState(() => experimentArm(trayStopLook));
-  const [latestAt] = useState(() => experimentArm(trayLatestLook));
   const [opensArm] = useState(() => experimentArm(trayOpenLook));
   const [kindsArm] = useState(() => experimentArm(trayHeadKindsLook));
   const [kindLine] = useState(() => experimentArm(trayKindLineLook));
@@ -658,7 +658,13 @@ export const SubagentTray = memo(function SubagentTray({
   }
 
   function line(item: TrayItem) {
-    if (item.kind === "agent")
+    if (item.kind === "agent") {
+      const parent =
+        item.agent.parent === null
+          ? undefined
+          : [...items, ...finished].find(
+              (candidate) => candidate.kind === "agent" && candidate.agent.id === item.agent.parent,
+            );
       return menu(
         <AgentLine
           // Its task, as Claude Code's and ChatGPT's task rows read; its name moves to the tooltip.
@@ -683,8 +689,9 @@ export const SubagentTray = memo(function SubagentTray({
           // A narrow tray's workflow progress wraps under the title, above its time and controls.
           progressAt={row === "below" || narrow ? "below" : "meta"}
           // What it did last, on its own quiet line (Leo, 2026-11-03: "Tray only, richer").
-          latest={latestAt === "tooltip" ? undefined : latestLine(t, item.agent, awaitsOwnWork(item.agent))}
-          latestAt={latestAt === "inline" ? "inline" : "below"}
+          latest={latestLine(t, item.agent, awaitsOwnWork(item.agent))}
+          latestAt="below"
+          via={parent?.kind === "agent" ? subagentTaskLabel(t, parent.agent) : undefined}
           onOpen={() => onOpen(item.agent.id)}
           after={
             stop &&
@@ -703,9 +710,18 @@ export const SubagentTray = memo(function SubagentTray({
             () => stop(item.agent.id),
           ),
       );
+    }
     if (item.kind === "command") {
       const key = itemKey(item);
       const processId = item.command.processId;
+      const commandElapsed =
+        item.command.startedAt === undefined ? undefined : formatDuration(Math.max(0, now - item.command.startedAt));
+      const ownerParent =
+        item.owner?.parent === null || item.owner?.parent === undefined
+          ? undefined
+          : [...items, ...finished].find(
+              (candidate) => candidate.kind === "agent" && candidate.agent.id === item.owner!.parent,
+            );
       // Named in words (session-info/commandRules.ts); the command as typed is its tooltip and the
       // first line of its tail.
       // A rule's mark where one reads the command (commandRules.ts), else the mark of the kind the
@@ -722,7 +738,14 @@ export const SubagentTray = memo(function SubagentTray({
         <>
           {menu(
             <AgentLine
-              name={item.owner ? `${subagentDisplayName(t, item.owner)} · ${named}` : named}
+              name={item.owner ? subagentTaskLabel(t, item.owner) : named}
+              latest={trimRawCommand(item.command.command, 56)}
+              latestAt="below"
+              latestCode
+              via={ownerParent?.kind === "agent" ? subagentTaskLabel(t, ownerParent.agent) : undefined}
+              nameLink={
+                item.owner ? { href: `#subagent:${item.owner.id}`, open: () => onOpen(item.owner!.id) } : undefined
+              }
               title={item.command.command}
               chevron
               icon={read.icon}
@@ -732,11 +755,7 @@ export const SubagentTray = memo(function SubagentTray({
               quiet
               expanded={canOpenTerminal ? openCommands.has(key) : undefined}
               trayColumns
-              time={
-                item.command.startedAt === undefined
-                  ? undefined
-                  : formatDuration(Math.max(0, now - item.command.startedAt))
-              }
+              time={commandElapsed}
               onOpen={
                 onOpenCommand
                   ? () => {
@@ -772,6 +791,8 @@ export const SubagentTray = memo(function SubagentTray({
             open={openCommands.has(key) && (canReadTail || read.link !== undefined)}
             readOutput={canReadTail}
             link={read.link}
+            owner={item.owner ? subagentTaskLabel(t, item.owner) : undefined}
+            elapsed={commandElapsed}
             onOpenTerminal={
               canOpenTerminal && onOpenCommand && item.command.toolCallId
                 ? () => onOpenCommand(item.command)

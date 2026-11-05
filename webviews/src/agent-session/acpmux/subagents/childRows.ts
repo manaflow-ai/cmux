@@ -159,7 +159,7 @@ export class ChildRowView {
         // (direct.ts `markBackgroundCall`): a shell stopped at its time limit, or that finished,
         // never reads as running in its view, Session Info or the tray. A late `running` leaves an
         // ended one as it is.
-        const task = backgroundTask(update);
+        const task = backgroundTask(update, event.at);
         const rowId = task ? tools.get(task.toolCallId) : undefined;
         const existing = rowId ? rows.get(rowId) : undefined;
         const index = existing?.items?.findIndex((item) => item.tool?.id === task!.toolCallId) ?? -1;

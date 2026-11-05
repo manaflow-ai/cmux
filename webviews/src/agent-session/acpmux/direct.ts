@@ -6722,7 +6722,7 @@ export class AcpmuxDirectClient {
       this.toolRows.set(callId, id);
       if (!knownRow) this.streamingActivity = id;
     } else if (event.kind === "background_task_update") {
-      const task = backgroundTask(update);
+      const task = backgroundTask(update, event.at);
       if (!task) return;
       // The shell's state goes on the call that started it: its "Ran" row turns from running in
       // the background to finished where it is, in whichever turn (Leo 2026-10-20: never a
@@ -10708,13 +10708,38 @@ type BackgroundUpdate = Omit<AcpmuxBackgroundTask, "state"> & {
   state: AcpmuxBackgroundState["state"];
 };
 
-export function backgroundTask(update: any): BackgroundUpdate | undefined {
+export function backgroundTask(update: any, at?: number): BackgroundUpdate | undefined {
   const state = update.state;
   if (typeof update.toolCallId !== "string" || !["running", "completed", "failed", "stopped"].includes(state))
     return undefined;
+  const ownerId =
+    typeof update.ownerId === "string"
+      ? update.ownerId
+      : typeof update.subagentSessionId === "string"
+        ? update.subagentSessionId
+        : typeof update.subagent === "string"
+          ? update.subagent
+          : typeof update?._meta?.acpmux?.subagent === "string"
+            ? update._meta.acpmux.subagent
+            : undefined;
+  const ownerTitle =
+    typeof update.ownerTitle === "string"
+      ? update.ownerTitle.trim()
+      : typeof update.subagentTitle === "string"
+        ? update.subagentTitle.trim()
+        : undefined;
+  const startedAt = typeof update.startedAt === "number" ? update.startedAt : undefined;
+  const endedAt = state === "running" ? undefined : typeof update.endedAt === "number" ? update.endedAt : at;
   return {
     toolCallId: update.toolCallId,
     command: typeof update.command === "string" ? update.command : "",
+    ...(ownerId ? { ownerId } : {}),
+    ...(ownerTitle ? { ownerTitle } : {}),
+    ...(typeof update.description === "string" && update.description.trim()
+      ? { description: update.description.trim() }
+      : {}),
+    ...(startedAt !== undefined ? { startedAt } : {}),
+    ...(endedAt !== undefined ? { endedAt } : {}),
     state,
     ...(typeof update.reason === "string" && update.reason ? { reason: update.reason } : {}),
     ...(typeof update.summary === "string" && update.summary ? { summary: update.summary } : {}),

@@ -3410,6 +3410,45 @@ button.cv-video-frames__frame:focus-visible {
 :is(.cv-command__title, .cv-bgtask__title) {
   color: var(--cv-text);
 }
+.cv-bgtask__text {
+  min-width: 0;
+}
+.cv-bgtask__owner {
+  color: var(--cv-text-muted);
+  margin-inline-end: var(--cv-tool-gap);
+}
+.cv-bgtask__owner[role="link"] {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+  text-underline-offset: 2px;
+}
+.cv-bgtask__command,
+.cv-bgtask__raw-command {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--cv-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-bgtask__state {
+  margin-inline-start: var(--cv-tool-gap);
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+}
+.cv-bgtask__details {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+  min-height: var(--cv-tool-row-height);
+  padding: 0 var(--cv-tool-text-inset) var(--ds-space-2);
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+}
+.cv-bgtask__raw-command {
+  flex: 1 1 100%;
+  color: var(--cv-text);
+}
 /* An opened run's "1 background command completed, 1 failed, 1 running" (BackgroundStatusLine.tsx):
    a quiet line after the steps, its words on their text column and their pitch; not a step or a
    control, so it adds no row to the steps. */

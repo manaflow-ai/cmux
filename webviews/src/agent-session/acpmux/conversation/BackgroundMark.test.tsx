@@ -12,6 +12,7 @@ import { JSDOM } from "jsdom";
 import { translate } from "../i18n";
 import type { AcpmuxActivity, AcpmuxBackgroundState, AcpmuxBackgroundTask } from "../model";
 import { BackgroundTaskNote } from "./BackgroundTaskNote";
+import { SubagentNavContext } from "../subagents/SubagentGroup";
 import {
   BACKGROUND_TAIL_BYTES,
   BackgroundTaskOutputContext,
@@ -139,17 +140,42 @@ test("a command that never went to the background draws as before", async () => 
   expect(container.querySelector(".cv-tool__meta")).toBeNull();
 });
 
-test("a background task's end without its call names the command in a few words", async () => {
+test("a background task's end without its call keeps the raw command visible", async () => {
   const command =
     'export PATH="/Applications/cmux NIGHTLY.app/Contents/Resources/bin:$PATH"; B=~/Projects/leo-workspace; cmux browser open https://example.com';
   const container = await render(<BackgroundTaskNote task={{ toolCallId: "bg9", command, state: "completed" }} />);
   const note = container.querySelector(".cv-bgtask")!;
-  // "Background command completed" (muted), then the command (Leo, 2026-11-03, on Claude Code desktop's
-  // tool rows: "claude code desktop's summarization of tool calls/parsing of them seem kinda good?").
-  expect(note.textContent).toBe(`${translate("bgTask.completedLead")} cmux browser open https://example.com`);
-  expect(note.textContent).not.toContain("export PATH");
+  expect(note.textContent).toContain(command);
+  expect(note.textContent).toContain(translate("bgTask.completedLead"));
   // No tooltip: the whole command is one click away, in the opened note.
   expect(note.getAttribute("title")).toBeNull();
+});
+
+test("a background task names and links its owner, and keeps its duration in the details", async () => {
+  const opened: string[] = [];
+  const task: AcpmuxBackgroundTask = {
+    toolCallId: "bg-owner",
+    command: "sleep 299; echo t",
+    ownerId: "chat/helper-1",
+    ownerTitle: "Cut create overhead",
+    startedAt: STARTED,
+    endedAt: STARTED + 6_100,
+    state: "completed",
+  };
+  const container = await render(
+    <SubagentNavContext.Provider value={(id) => opened.push(id ?? "")}>
+      <BackgroundTaskNote task={task} />
+    </SubagentNavContext.Provider>,
+  );
+  const owner = container.querySelector<HTMLElement>('.cv-bgtask__owner[role="link"]')!;
+  expect(owner.textContent).toBe("Cut create overhead");
+  expect(owner.dataset.deeplink).toBe("#subagent:chat/helper-1");
+  expect(container.textContent).toContain("sleep 299; echo t");
+  await click(owner);
+  expect(opened).toEqual(["chat/helper-1"]);
+  expect(container.querySelector("button.cv-bgtask")?.getAttribute("aria-expanded")).toBe("false");
+  await click(container.querySelector("button.cv-bgtask")!);
+  expect(container.textContent).toContain("6s");
 });
 
 /// What the page posts to the native host (CmuxNextAgentPane's `agentSession` handler).
@@ -178,7 +204,7 @@ const settle = () => act(async () => await new Promise((resolve) => setTimeout(r
 const LONG =
   'export PATH="/Applications/cmux NIGHTLY.app/Contents/Resources/bin:$PATH"; cd ~/src/app && cargo watch -x test';
 
-test("a click opens a background task's end in place and opens no terminal", async () => {
+test("a task with no output opens its command details without a terminal card", async () => {
   const container = await render(<BackgroundTaskNote task={{ toolCallId: "bg1", command: LONG, state: "failed" }} />);
   const posted = recordNative();
   const note = container.querySelector<HTMLButtonElement>("button.cv-bgtask")!;
@@ -191,10 +217,10 @@ test("a click opens a background task's end in place and opens no terminal", asy
   expect(note.querySelector(".cv-rotor.is-open")).not.toBeNull();
   // A disclosure the transcript holds in place while it opens (foldAnchor.ts FOLD_TOGGLE).
   expect(note.matches("button.is-toggle[aria-expanded]")).toBe(true);
-  const card = container.querySelector(".cv-shell")!;
-  expect(card.id).toBe(note.getAttribute("aria-controls")!);
-  // The whole command, not the row's few words.
-  expect(card.querySelector(".cv-shell__command")!.textContent).toBe(`$ ${LONG}`);
+  const details = container.querySelector(".cv-bgtask__details")!;
+  expect(details.id).toBe(note.getAttribute("aria-controls")!);
+  expect(details.querySelector(".cv-bgtask__raw-command")!.textContent).toBe(LONG);
+  expect(container.querySelector(".cv-shell")).toBeNull();
   // A failure keeps its red mark open.
   expect(note.dataset.state).toBe("failed");
   expect(terminals(posted)).toEqual([]);
@@ -205,13 +231,29 @@ test("a click opens a background task's end in place and opens no terminal", asy
   expect(terminals(posted)).toEqual([]);
 });
 
-test("only Open in terminal, inside the opened note, opens the task's terminal", async () => {
+test("a task with output offers Open in terminal inside its opened card", async () => {
+  const { reader } = registry(
+    [
+      {
+        id: "s1/bg2",
+        sessionId: "s1",
+        toolCallId: "bg2",
+        harness: "claude",
+        command: "cargo watch -x test",
+        state: "failed",
+      },
+    ],
+    "output\n",
+  );
   const container = await render(
-    <BackgroundTaskNote task={{ toolCallId: "bg2", command: "cargo watch -x test", state: "failed" }} />,
+    <BackgroundTaskOutputContext.Provider value={reader}>
+      <BackgroundTaskNote task={{ toolCallId: "bg2", command: "cargo watch -x test", state: "failed" }} />
+    </BackgroundTaskOutputContext.Provider>,
   );
   const posted = recordNative();
   expect(container.querySelector(".cv-bgtask__open")).toBeNull();
   await click(container.querySelector("button.cv-bgtask")!);
+  await settle();
   const open = container.querySelector<HTMLButtonElement>(".cv-shell button.cv-bgtask__open")!;
   expect(open.textContent).toBe(translate("shell.openInTerminal"));
   await click(open);
@@ -230,8 +272,9 @@ test("the opened note shows the exit code and the harness's words on the end", a
   };
   const container = await render(<BackgroundTaskNote task={task} />);
   await click(container.querySelector("button.cv-bgtask")!);
-  expect(container.querySelector(".cv-shell__exit")!.textContent).toBe(translate("shell.exit", { code: 2 }));
-  expect(container.querySelector(".cv-bgtask__detail")!.textContent).toBe("2 tests failed");
+  expect(container.querySelector(".cv-shell__exit")).toBeNull();
+  expect(container.textContent).toContain("2 tests failed");
+  expect(container.textContent).toContain("exit 2");
 });
 
 /// A process registry that lists `records` for chat `s1` and answers every tail with `text`.
@@ -286,7 +329,7 @@ test("opened, the note reads the end of the task's output from acpmux, once", as
   expect(asked.length).toBe(2);
 });
 
-test("a Codex task shows the registry's exit code and asks for no output acpmux does not keep", async () => {
+test("a Codex task shows the registry's exit code and stays a quiet details row", async () => {
   const { reader, asked } = registry([
     { id: "s1/p9", sessionId: "s1", toolCallId: "bg5", harness: "codex", command: "make", exitCode: 101 },
   ]);
@@ -298,7 +341,8 @@ test("a Codex task shows the registry's exit code and asks for no output acpmux 
   await click(container.querySelector("button.cv-bgtask")!);
   await settle();
   expect(asked.map((ask) => ask.method)).toEqual(["list"]);
-  expect(container.querySelector(".cv-shell__exit")!.textContent).toBe(translate("shell.exit", { code: 101 }));
+  expect(container.textContent).toContain("exit 101");
+  expect(container.querySelector(".cv-bgtask__details")).not.toBeNull();
   expect(container.querySelector(".cv-shell__output")).toBeNull();
 });
 
@@ -311,7 +355,7 @@ test("a task the registry does not list still opens with its command and nothing
   );
   await click(container.querySelector("button.cv-bgtask")!);
   await settle();
-  expect(container.querySelector(".cv-shell__command")!.textContent).toBe("$ pytest -x");
+  expect(container.querySelector(".cv-bgtask__raw-command")!.textContent).toBe("pytest -x");
   expect(container.querySelector(".cv-shell__output")).toBeNull();
   expect(container.querySelector(".cv-shell__exit")).toBeNull();
 });

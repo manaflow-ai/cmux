@@ -918,14 +918,19 @@ button.cv-subagent > :last-child {
    keep at least 160px; the time, Stop and chevron keep their fixed columns, so they line up across
    rows. A long state word is cut first (its tooltip and accessible name keep it). */
 @container running-tray (max-width: 400px) {
+  /* There is only one text line beside the fixed controls in a narrow tray. Keep the activity
+     readable after the title instead of growing every row; wide trays use the block form below. */
+  .acpmux-running-tray .acpmux-agent-line__latest {
+    display: inline;
+    margin-inline-start: var(--ds-space-2);
+    line-height: inherit;
+  }
   .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button {
     --acpmux-tray-status-width: clamp(0px, calc(100cqw - 160px - var(--acpmux-tray-time-width) - var(--acpmux-tray-stop-width) - var(--acpmux-tray-chevron-width) - 4 * var(--acpmux-tray-gap) - 2 * var(--acpmux-tray-inset)), 74px);
   }
-  /* Two rows only where one cannot hold the title: a line whose workflow progress wraps here, a
-     line with its latest step on its own line (trayLatest.experiment.ts `below`), and every line of
-     a tray of 260px or less (below). The title goes above the same right-aligned
-     controls, and the status track takes the title's room. */
-  .acpmux-running-tray .acpmux-agent-line:is(:has(.acpmux-agent-line__progress), :has(.acpmux-agent-line__latest)) > .acpmux-agent-line__button {
+  /* A narrow tray keeps the title and activity together. Only workflow progress, which is already
+     a separate block of facts, takes a second row here; the activity line becomes inline below. */
+  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__button {
     --acpmux-tray-status-width: clamp(0px, calc(100cqw - var(--acpmux-tray-time-width) - var(--acpmux-tray-stop-width) - var(--acpmux-tray-chevron-width) - 4 * var(--acpmux-tray-gap) - 2 * var(--acpmux-tray-inset)), 74px);
     position: relative;
     grid-template-rows: var(--ui-row-height, 28px) var(--ui-row-height, 28px);
@@ -933,29 +938,29 @@ button.cv-subagent > :last-child {
     height: calc(2 * var(--ui-row-height, 28px));
     padding-block: 0;
   }
-  .acpmux-running-tray .acpmux-agent-line:is(:has(.acpmux-agent-line__progress), :has(.acpmux-agent-line__latest)):is(:has(.acpmux-agent-line__progress), :has(.acpmux-agent-line__latest)) > .acpmux-agent-line__button {
+  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__button {
     grid-template-rows: auto var(--ui-row-height, 28px);
     height: auto;
     align-items: center;
   }
-  .acpmux-running-tray .acpmux-agent-line:is(:has(.acpmux-agent-line__progress), :has(.acpmux-agent-line__latest)) > .acpmux-agent-line__button > .acpmux-lineage__icon {
+  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__button > .acpmux-lineage__icon {
     position: absolute;
     grid-area: auto;
     top: var(--acpmux-tray-two-row-icon-top);
     left: var(--acpmux-tray-inset);
   }
-  .acpmux-running-tray .acpmux-agent-line:is(:has(.acpmux-agent-line__progress), :has(.acpmux-agent-line__latest)) > .acpmux-agent-line__button > .acpmux-summary-text {
+  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__button > .acpmux-summary-text {
     grid-column: 1 / -1;
   }
-  .acpmux-running-tray .acpmux-agent-line:is(:has(.acpmux-agent-line__progress), :has(.acpmux-agent-line__latest)) > .acpmux-agent-line__button > :is(.acpmux-agent-line__trail, .acpmux-agent-line__stop-track, .acpmux-agent-line__chevron, .acpmux-agent-line__chevron-track) {
+  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__button > :is(.acpmux-agent-line__trail, .acpmux-agent-line__stop-track, .acpmux-agent-line__chevron, .acpmux-agent-line__chevron-track) {
     grid-row: 2;
   }
   /* The controls line has the title's track free: a long state word takes that room first. Stop's
      track stays its own, empty or not. */
-  .acpmux-running-tray .acpmux-agent-line:is(:has(.acpmux-agent-line__progress), :has(.acpmux-agent-line__latest)) > .acpmux-agent-line__button > .acpmux-agent-line__trail {
+  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__button > .acpmux-agent-line__trail {
     grid-column: 1 / 4;
   }
-  .acpmux-running-tray .acpmux-agent-line:is(:has(.acpmux-agent-line__progress), :has(.acpmux-agent-line__latest)) > .acpmux-agent-line__stop-slot {
+  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__stop-slot {
     top: auto;
     bottom: 0;
     height: var(--ui-row-height, 28px);
@@ -972,7 +977,7 @@ button.cv-subagent > :last-child {
     height: calc(2 * var(--ui-row-height, 28px));
     padding-block: 0;
   }
-  .acpmux-running-tray .acpmux-agent-line:is(:has(.acpmux-agent-line__progress), :has(.acpmux-agent-line__latest)) > .acpmux-agent-line__button {
+  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__button {
     grid-template-rows: auto var(--ui-row-height, 28px);
     height: auto;
     align-items: center;
@@ -1122,6 +1127,16 @@ button.cv-subagent > :last-child {
   line-height: var(--text-detail--line-height);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+.acpmux-running-tray__meta {
+  flex: 0 1 auto;
+  min-width: 0;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .acpmux-running-tray__tail a,
 .acpmux-running-tray__tail button {
@@ -1473,6 +1488,22 @@ button.cv-subagent > :last-child {
   color: var(--agent-muted);
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-agent-line__latest.is-code,
+.acpmux-agent-line__latest-inline.is-code {
+  font-family: var(--cv-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+.acpmux-agent-line__via {
+  margin-left: var(--ds-space-2);
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  white-space: nowrap;
+}
+.acpmux-agent-line__name-link {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+  text-underline-offset: 2px;
 }
 /* What a running agent did last (AgentLine.tsx `latest`, trayLatest.experiment.ts): one quiet
    line under the title, cut with an ellipsis, so a new step changes its words and never the
