@@ -9,9 +9,11 @@
 //!   nothing is found, and `error` says why when there is no plan to show.
 //! - `conductor_import.record` (mutation): one workspace's stage in the
 //!   ledger, `pending` before the app makes it and `done` once made, and
-//!   `run_completed` counts a finished run.
+//!   `run_completed` counts a finished run. A done workspace whose cmux
+//!   workspace is still open is not recorded over by another one.
 //!
-//! A ledger from a newer cmux is never read past or written over.
+//! A ledger from a newer cmux, or one that breaks the ledger's invariants,
+//! is never read past or written over.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -25,6 +27,7 @@ use crate::resource::{ResourceError, ResourceOperation};
 use crate::resource_router::{ParsedResourceRequest, mutation_result, resource_operation_error};
 use crate::state::commit::StateEffects;
 use crate::state::conductor_import_store as store;
+use crate::state::prelude::State;
 use crate::state::store::{StateChanges, StateCommit};
 use crate::workspace_registry::WorkspaceMutation;
 use crate::{Mux, ResourceTarget};
@@ -132,6 +135,30 @@ impl Record {
         })
     }
 
+    /// Why this record may not change the ledger, if it may not: the entry is
+    /// done and its cmux workspace is still open, and the record names
+    /// another workspace (or none, as a pending one about to be made). Two
+    /// runs that overlap both plan the workspace as one to adopt; the first
+    /// done wins and the second run's records are refused, so the ledger never
+    /// trades the open workspace for a duplicate. A done entry whose workspace
+    /// was closed is offered again and may be recorded over, pending replaces
+    /// pending, and the same workspace recorded again is no change.
+    fn conflict(&self, ledger: &Ledger, state: &State) -> Option<String> {
+        let entry = ledger.workspaces.get(&self.workspace)?;
+        if entry.stage != Stage::Done {
+            return None;
+        }
+        let made = entry.cmux_workspace.as_deref()?;
+        let open = open_key(state, made)?;
+        let named = self.cmux_workspace.as_deref().and_then(|name| open_key(state, name));
+        (named != Some(open)).then(|| {
+            format!(
+                "Conductor workspace {} is already imported as cmux workspace {made}, which is still open",
+                self.workspace
+            )
+        })
+    }
+
     /// The ledger after this record. A pending workspace keeps the cmux
     /// workspace named with it, so a cut-off run's half-made one is known.
     fn apply(&self, ledger: &mut Ledger) {
@@ -159,9 +186,18 @@ fn stage_name(stage: Stage) -> &'static str {
     }
 }
 
+/// The key of the open workspace `name` names, by its key (what the app
+/// records: the key it created the workspace with) or its public id.
+fn open_key<'a>(state: &'a State, name: &str) -> Option<&'a str> {
+    state
+        .workspaces
+        .iter()
+        .find(|workspace| workspace.key == name || workspace.public_id.to_string() == name)
+        .map(|workspace| workspace.key.as_str())
+}
+
 impl Mux {
-    /// The workspaces open now, each by its key (what the app records: the
-    /// key it created the workspace with) and by its public id.
+    /// The workspaces open now, each by its key and by its public id.
     fn open_workspace_ids(&self) -> BTreeSet<String> {
         self.with_state(|state| {
             state
@@ -204,7 +240,9 @@ impl Mux {
 
     /// `conductor_import.record`: one ledger change, committed with its
     /// idempotency key. A newer build's or a damaged ledger is refused, not
-    /// written over.
+    /// written over, and so is a record over a done workspace that is still
+    /// open ([`Record::conflict`]): read and written in the one transaction,
+    /// so two runs cannot both pass the check.
     pub(crate) fn state_conductor_import_record(
         &self,
         mutation: &WorkspaceMutation,
@@ -216,9 +254,12 @@ impl Mux {
             &record.fingerprint(),
             None,
             StateEffects::EVENTS_ONLY,
-            |transaction, _| {
+            |transaction, state| {
                 let mut ledger = usable(store::load(transaction)?)
                     .map_err(|reason| anyhow::anyhow!("bad request: {reason}"))?;
+                if let Some(reason) = record.conflict(&ledger, state) {
+                    anyhow::bail!("bad request: {reason}");
+                }
                 record.apply(&mut ledger);
                 store::save(transaction, &ledger)?;
                 let entry = ledger.workspaces.get(&record.workspace);
