@@ -244,6 +244,13 @@ impl Editor {
         }
     }
 
+    /// Deletes message `id` (the person deleted it in the chat): its text
+    /// becomes `TOMBSTONE`, as `/api/memory/delete` writes it. A message that
+    /// already holds the tombstone answers 400 "nothing changed".
+    pub fn delete_message(&self, id: u64) -> Answer {
+        self.change("delete", Target::Message(id), TOMBSTONE)
+    }
+
     /// The current text of `target`, or 404.
     fn current(&self, target: Target) -> Result<String, (u16, String)> {
         match target {
