@@ -613,6 +613,9 @@ pub struct Agents {
     /// `new_session` of a session whose name contains the text takes this
     /// long (a Claude Code process that starts slowly).
     pub slow_session: Option<(String, Duration)>,
+    /// `new_session_watching` never answers: its wait runs, 10 s of it a call, until the watch
+    /// ends it (a harness still working on a loaded machine).
+    pub hold_starts: bool,
     /// `new_session` on this harness profile fails with the text.
     pub session_errors: BTreeMap<String, String>,
     /// The next `new_session` calls fail with these texts, one each, in order.
@@ -840,6 +843,24 @@ impl AgentPort for FakeAgents {
     fn trust_folder(&self, cwd: &std::path::Path) -> Result<(), String> {
         self.inner.lock().unwrap().trusted.push(cwd.to_owned());
         Ok(())
+    }
+
+    fn new_session_watching(
+        &self,
+        spec: &SessionSpec,
+        keep_waiting: &mut dyn FnMut(Duration) -> bool,
+    ) -> Result<String, String> {
+        if !self.inner.lock().unwrap().hold_starts {
+            return self.new_session(spec);
+        }
+        let mut waited = Duration::ZERO;
+        loop {
+            waited += Duration::from_secs(10);
+            if !keep_waiting(waited) {
+                return Err("session/new: stopped waiting".to_owned());
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
     }
 
     fn new_session(&self, spec: &SessionSpec) -> Result<String, String> {

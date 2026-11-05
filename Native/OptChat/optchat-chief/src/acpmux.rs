@@ -204,6 +204,16 @@ pub type SteerWait = Box<dyn FnOnce() -> Result<(), String> + Send>;
 pub trait AgentPort: Send + Sync {
     /// Creates a session; returns its id.
     fn new_session(&self, spec: &SessionSpec) -> Result<String, String>;
+    /// [`Self::new_session`], asking `keep_waiting` about once a second, with how long the start
+    /// has taken, whether to go on. False ends the wait with an error; the start may still run
+    /// in acpmux, under the session's name.
+    fn new_session_watching(
+        &self,
+        spec: &SessionSpec,
+        _keep_waiting: &mut dyn FnMut(Duration) -> bool,
+    ) -> Result<String, String> {
+        self.new_session(spec)
+    }
     /// [`Self::new_session`] with no preset at all (not the port's turn
     /// preset): a session on a harness of its own (brain/chief_inbox.rs).
     fn new_plain_session(&self, spec: &SessionSpec) -> Result<String, String> {
@@ -1155,7 +1165,17 @@ pub fn session_meta(spec: &SessionSpec, preset: Option<&str>) -> Value {
     if let Some(peer) = &spec.peer {
         meta["peer"] = json!(peer);
     }
+    if waits_on_harness(spec) {
+        meta["waitStart"] = json!(true);
+    }
     meta
+}
+
+/// The Chief's own sessions on this machine (its turns, which answer a person's message, and the
+/// compactor's): acpmux lets their start run while the harness works, however loaded the machine
+/// is, and ends it when the harness stops working (acpmux `lifecycle.rs` `StartWatch`).
+fn waits_on_harness(spec: &SessionSpec) -> bool {
+    spec.peer.is_none() && spec.tags.contains_key(CHIEF_ROLE_TAG)
 }
 
 /// How long Chief waits on `session/new`: past acpmux's own start deadline (`agent_start`, 90 s
@@ -1164,18 +1184,39 @@ pub fn session_meta(spec: &SessionSpec, preset: Option<&str>) -> Value {
 /// doing (alive or not, its CPU class, run and CPU time), not a bare "no answer".
 pub const SESSION_NEW_DEADLINE: Duration = Duration::from_secs(200);
 
+/// How long Chief waits on the `session/new` of a session that waits on its harness: acpmux bounds
+/// that start by the harness's work and answers, so only a daemon that stopped answering, or a
+/// harness whose work it cannot read (not macOS), comes this far.
+pub const START_WAIT_CEILING: Duration = Duration::from_secs(30 * 60);
+
 /// `session/new` with acpmux's name, harness, policy, model and preset.
 pub fn new_session(
     client: &RpcClient,
     spec: &SessionSpec,
     preset: Option<&str>,
 ) -> Result<String, String> {
+    new_session_watching(client, spec, preset, &mut |_| true)
+}
+
+/// [`new_session`] under `keep_waiting` (`AgentPort::new_session_watching`).
+pub fn new_session_watching(
+    client: &RpcClient,
+    spec: &SessionSpec,
+    preset: Option<&str>,
+    keep_waiting: &mut dyn FnMut(Duration) -> bool,
+) -> Result<String, String> {
     let mut meta = session_meta(spec, preset);
-    let request = |meta: &Value| {
-        client.request_within(
+    let deadline = if waits_on_harness(spec) {
+        START_WAIT_CEILING
+    } else {
+        SESSION_NEW_DEADLINE
+    };
+    let mut request = |meta: &Value| {
+        client.request_watching(
             "session/new",
             json!({"cwd": if spec.peer.is_some() && spec.cwd.as_os_str().is_empty() { None } else { Some(&spec.cwd) }, "mcpServers": [], "_meta": {"acpmux": meta}}),
-            SESSION_NEW_DEADLINE,
+            deadline,
+            &mut *keep_waiting,
         )
     };
     let result = match request(&meta) {
@@ -1260,7 +1301,8 @@ impl Acpmux {
                 let done = match answer.recv() {
                     Ok(Ok(value)) => TurnSignal::Done(Ok(value)),
                     Ok(Err(RpcError::Remote { message, .. })) => TurnSignal::Done(Err(message)),
-                    Ok(Err(RpcError::Closed | RpcError::Timeout(_))) | Err(_) => TurnSignal::Lost,
+                    Ok(Err(RpcError::Closed | RpcError::Timeout(_) | RpcError::Stopped))
+                    | Err(_) => TurnSignal::Lost,
                 };
                 let _ = signals.send(done);
             })
@@ -1271,6 +1313,14 @@ impl Acpmux {
 
 impl AgentPort for Acpmux {
     fn new_session(&self, spec: &SessionSpec) -> Result<String, String> {
+        self.new_session_watching(spec, &mut |_| true)
+    }
+
+    fn new_session_watching(
+        &self,
+        spec: &SessionSpec,
+        keep_waiting: &mut dyn FnMut(Duration) -> bool,
+    ) -> Result<String, String> {
         let ready = self
             .ready
             .lock()
@@ -1292,7 +1342,7 @@ impl AgentPort for Acpmux {
                 .filter(|p| ready.contains(&p.name))
                 .map(|p| p.name.as_str()),
         };
-        new_session(&*self.client()?, spec, preset)
+        new_session_watching(&*self.client()?, spec, preset, keep_waiting)
     }
 
     fn new_plain_session(&self, spec: &SessionSpec) -> Result<String, String> {
@@ -1678,6 +1728,25 @@ mod whole_list_tests {
         assert_eq!(
             asked.into_inner(),
             [("_acpmux/sessions".to_owned(), json!({"limit": 1}))]
+        );
+    }
+}
+
+#[cfg(test)]
+mod wait_start_tests {
+    use super::{SessionSpec, chief_tags, session_meta};
+
+    #[test]
+    fn a_chiefs_own_session_waits_on_its_harness_and_no_other_does() {
+        let chief = SessionSpec {
+            tags: chief_tags("home", "turn"),
+            ..SessionSpec::default()
+        };
+        assert_eq!(session_meta(&chief, None)["waitStart"], true);
+        assert!(
+            session_meta(&SessionSpec::default(), None)
+                .get("waitStart")
+                .is_none()
         );
     }
 }
