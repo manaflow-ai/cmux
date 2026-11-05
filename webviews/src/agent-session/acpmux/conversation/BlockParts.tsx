@@ -133,7 +133,9 @@ export const Lines = memo(function Lines({
   startLine?: number;
 }) {
   const allLines = useMemo(() => text.split("\n"), [text]);
-  const offset = windowed ? Math.max(0, allLines.length - OUTPUT_LINE_WINDOW) : 0;
+  // A final newline leaves an empty split element, but it does not add a line to the tail window.
+  // Keep that element for rendering so the output still ends with its newline.
+  const offset = windowed ? Math.max(0, lineCount(text) - OUTPUT_LINE_WINDOW) : 0;
   const previous = useRef<ReadonlyMap<number, FrozenLineChunk>>(new Map());
   const chunks = useMemo(() => {
     const prior = previous.current;
