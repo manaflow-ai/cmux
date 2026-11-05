@@ -51,6 +51,7 @@ Condition (inside `expect.all`; evidence kind app):
 """
 import json
 import os
+import re
 import time
 
 D = None  # the driver module (install)
@@ -384,6 +385,11 @@ def _profile_rows(xml_path):
     deref = lambda e: ids.get(e.get("ref"), e) if e is not None and e.get("ref") else e
     out = []
     for row in rows:
+        when = deref(row.find("sample-time"))
+        try:
+            at = int((when.text or "").strip()) if when is not None else None
+        except ValueError:
+            at = None
         thread = deref(row.find("thread"))
         weight = deref(row.find("weight"))
         # The backtrace column is `backtrace` or `tagged-backtrace` (which holds a `backtrace`), by reference or inline.
@@ -396,14 +402,15 @@ def _profile_rows(xml_path):
             ns = int((weight.text or "0").strip()) if weight is not None else 1000000
         except ValueError:
             ns = 1000000
-        out.append(((thread.get("fmt") if thread is not None else "") or "", ns, frames))
+        out.append(((thread.get("fmt") if thread is not None else "") or "", ns, frames, at))
     return out
 
 
 # The main-thread work under these frames, as a call tree (root first), so the display cycle's flush splits into
 # its layout, display and commit parts and the display-link clients into their owners.
-TREE_ROOTS = ("stepTransactionFlush", "FrameScheduler.tick(_:)", "__CFMachPortPerform", "MainActorWorkQueue.drainFrame()")
-TREE_DEPTH = 14
+TREE_ROOTS = ("stepTransactionFlush", "CA::Transaction::commit()", "FrameScheduler.tick(_:)", "__CFMachPortPerform",
+              "MainActorWorkQueue.drainFrame()")
+TREE_DEPTH = 40
 TREE_MIN_MS = 4.0
 
 
@@ -440,7 +447,7 @@ def step_film_profile(j, step):
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     time.sleep(4.0)  # xctrace attaches before the first press
     j.outwait_creation_hold(getattr(j, "last_key_at", 0.0))
-    sent, measures = [], []
+    sent, sent_wall, measures = [], [], []
     for _ in range(presses):
         # The per-frame probe (cheap, one presentation read per frame) runs beside the profiler, so each press has
         # its frame intervals; its start and stop requests fall outside the motion.
@@ -448,6 +455,7 @@ def step_film_profile(j, step):
         j.app.rpc("debug.sidebar_rows", {"motion": "start"})
         time.sleep(0.15)  # still frames before the press
         sent.append(now())
+        sent_wall.append(time.time())
         j.key(press[0], press[1])
         time.sleep(gap)  # the press's motion ends; the main thread idles (no samples) until the next
         stopped = j.app.rpc("debug.sidebar_rows", {"motion": "stop"}, timeout=60) or {}
@@ -467,7 +475,21 @@ def step_film_profile(j, step):
     rows = _profile_rows(str(xml))
     with open(str(xml), errors="replace") as handle:
         head = handle.read(6000)  # the export's first rows, kept as evidence of its shape
-    main = [(ns, frames) for name, ns, frames in rows if "Main Thread" in name]
+    main = [(ns, frames) for name, ns, frames, _ in rows if "Main Thread" in name]
+    # The raw main-thread samples (time from the trace start, weight, stack index), so the burst after each press can be
+    # cut out offline: the trace's start date (TOC) and each press's wall time align them.
+    table, index, raw = [], {}, []
+    for name, ns, frames, at in rows:
+        if "Main Thread" not in name:
+            continue
+        key = "\x1f".join(frames)
+        if key not in index:
+            index[key] = len(table)
+            table.append(frames)
+        raw.append([at, ns, index[key]])
+    toc = subprocess.run(["xcrun", "xctrace", "export", "--input", str(trace), "--toc"], capture_output=True, text=True,
+                         timeout=120).stdout
+    start_date = re.search(r"<start-date>([^<]+)</start-date>", toc or "")
     inclusive, own, stacks = {}, {}, {}
     for ns, frames in main:
         ms = ns / 1e6
@@ -484,6 +506,8 @@ def step_film_profile(j, step):
                "main_ms": round(total, 2), "main_ms_per_press": round(total / max(1, presses), 2),
                "samples": len(main), "all_samples": len(rows), "inclusive": top(inclusive, 150), "self": top(own, 80),
                "stacks": top(stacks, 60), "frames": measures, "export_head": head, "trees": trees,
+               "trace_start": start_date.group(1) if start_date else None, "toc_head": (toc or "")[:3000],
+               "press_wall": sent_wall, "press_mono": sent, "samples_raw": raw, "stack_table": table,
                "motion_frames": sum(m.get("motion_frames", 0) for m in measures),
                "main_ms_per_motion_frame": round(total / max(1, sum(m.get("motion_frames", 0) for m in measures)), 2)}
     (j.out / f"profile-{scenario}.json").write_text(json.dumps(profile) + "\n")

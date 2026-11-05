@@ -83,7 +83,7 @@ class ProfileRowsTests(unittest.TestCase):
         rows = film._profile_rows(handle.name)
         os.unlink(handle.name)
         self.assertEqual(len(rows), 3)
-        self.assertEqual(rows[1], ("Main Thread 0x1 (cmux, pid: 9)", 1000000, ["layoutRows", "apply"]))
+        self.assertEqual(rows[1], ("Main Thread 0x1 (cmux, pid: 9)", 1000000, ["layoutRows", "apply"], 2))
         self.assertEqual(rows[2][0], "Thread 0x2 (cmux, pid: 9)")
         self.assertEqual(rows[2][2], ["apply"])
 
