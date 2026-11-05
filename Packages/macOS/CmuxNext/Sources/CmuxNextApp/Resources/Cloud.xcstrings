@@ -16030,11 +16030,11 @@
       }
     },
     "cloud.cli.repoUnrecognized": {
-      "comment": "cmux cloud new-machine --repo: not a GitHub repository. Keep the flag and the example forms as written.",
+      "comment": "cmux cloud new-machine --repo: not a GitHub repository or an https git URL. Keep the flag and the example forms as written.",
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "--repo takes a GitHub repository: OWNER/NAME, https://github.com/OWNER/NAME or git@github.com:OWNER/NAME.git, with an optional @REF."}},
-        "ja": {"stringUnit": {"state": "translated", "value": "--repo には GitHub リポジトリを指定します: OWNER/NAME、https://github.com/OWNER/NAME、または git@github.com:OWNER/NAME.git（末尾に @REF を付けられます）。"}},
+        "en": {"stringUnit": {"state": "translated", "value": "--repo takes a GitHub repository (OWNER/NAME, https://github.com/OWNER/NAME or git@github.com:OWNER/NAME.git) or another host's https URL (https://gitlab.com/GROUP/NAME), with an optional @REF."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "--repo には GitHub リポジトリ（OWNER/NAME、https://github.com/OWNER/NAME、または git@github.com:OWNER/NAME.git）か、ほかのホストの https URL（https://gitlab.com/GROUP/NAME）を指定します（末尾に @REF を付けられます）。"}},
         "de": {"stringUnit": {"state": "needs_review", "value": "--repo nimmt ein GitHub-Repository: OWNER/NAME, https://github.com/OWNER/NAME oder git@github.com:OWNER/NAME.git, optional mit @REF."}},
         "fr": {"stringUnit": {"state": "needs_review", "value": "--repo attend un dépôt GitHub : OWNER/NAME, https://github.com/OWNER/NAME ou git@github.com:OWNER/NAME.git, avec un @REF facultatif."}},
         "es": {"stringUnit": {"state": "needs_review", "value": "--repo acepta un repositorio de GitHub: OWNER/NAME, https://github.com/OWNER/NAME o git@github.com:OWNER/NAME.git, con un @REF opcional."}},

@@ -41,13 +41,23 @@ struct ChildPageFocusKeyChangeTests {
         /// Runs inside a grant, after its page window took the keys (AppKit's didBecomeKey).
         var duringGrant: (() -> Void)?
         private(set) var focusCalls: [(String, Bool)] = []
+        /// Pages whose window the fork ordered out (host hidden, empty or out of its window): they cannot take keys.
+        var hidden: Set<String> = []
+        /// The pages that kept their ask while they could not take the keys.
+        private(set) var keptAsks: [String] = []
 
         init() {
             keys = Keys([cmux: "cmux", pageA: "pageA", pageB: "pageB"])
             let engine = MockBrowserEngine(kind: .cef)
             a = engine.makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://a.example")))
             b = engine.makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://b.example")))
-            focus = ChildPageFocus(keys: keys) { [weak self] page, focused in
+            focus = ChildPageFocus(keys: keys, canTakeKeys: { [weak self] page in
+                guard let self else { return true }
+                return !self.hidden.contains(page === self.a ? "a" : "b")
+            }, keepAsk: { [weak self] page in
+                guard let self else { return }
+                self.keptAsks.append(page === self.a ? "a" : "b")
+            }) { [weak self] page, focused in
                 guard let self else { return }
                 let isA = page === self.a
                 self.focusCalls.append((isA ? "a" : "b", focused))
@@ -148,6 +158,25 @@ struct ChildPageFocusKeyChangeTests {
         world.focus.focus(world.a) // the model re-applies its target
         #expect(world.keys.changes == ["pageA", "cmux", "pageA"], "the page never got the keys back: \(world.keys.changes)")
         #expect(world.focusCalls.map { "\($0.0)\($0.1)" } == ["atrue", "afalse", "atrue"])
+    }
+
+    /// INSTANT OWNER (#36474): a Cmd-N made 31 key-window changes. Each frame change of the pane host of the
+    /// focused Chromium page that left it hidden or empty made the fork order the page window out (AppKit gave the keys
+    /// to the cmux window), and this tracker then blurred the page and the model granted it again at once, to a window
+    /// that could not show. A page that cannot take the keys keeps its ask, with no blur and no grant: the fork's own
+    /// order-out is the one change, and the page is granted once when it shows again.
+    @Test func keysReturnedFromAPageThatCannotTakeThemKeepItsAskWithNoBlurAndNoGrant() {
+        let world = World()
+        defer { [world.cmux, world.pageA, world.pageB].forEach { $0.closeAfterTest() } }
+        world.focus.focus(world.a)
+        world.hidden = ["a"]
+        world.keys.makeKey(world.cmux) // the fork ordered the hidden page's window out
+        let returned = world.focus.keysReturned(to: world.cmux)
+        #expect(!returned, "the page that cannot take the keys was blurred, and the model re-applied its target at once")
+        #expect(world.focus.page === world.a, "the page lost its focus while it could not show")
+        #expect(world.keptAsks == ["a"], "the page kept no ask: \(world.keptAsks)")
+        #expect(world.focusCalls.map { "\($0.0)\($0.1)" } == ["atrue"], "focus calls: \(world.focusCalls.map { "\($0.0)\($0.1)" })")
+        #expect(world.keys.changes == ["pageA", "cmux"], "key changes: \(world.keys.changes) (want the fork's order-out only)")
     }
 
     @Test func keysReturnedChangesNothingWhileThePageWindowIsKey() {

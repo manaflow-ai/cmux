@@ -41,6 +41,10 @@ A compile check that gave no verdict (the build fleet's "no result", "No build-f
 base red, even with the base's identical line: nothing compiled the head. It is set aside only when the
 same head has a real compile pass (a green Mac Release compile or a cmux-next/compile success). Error
 lines are compared with commit shas masked, so a real red that names each run's own commit still matches.
+
+No failure is exit 0: asked about no red run or check (or about a green ws-check), it prints why and exits 0. A
+red run or check it was named that shows no failed job is still refused (2026-11-05: merge_hold asks it about
+every merge, and a green head read as exit 1).
 """
 from __future__ import annotations
 
@@ -1657,7 +1661,8 @@ def ws_check(repo: str, base: str, sha: str, github) -> list[str]:
     if kind == "none":
         raise Refused(f"'{WS_CHECK}' has no result on {sha}: {head['why']}; never excused, wait for its verdict")
     if kind == "pass":
-        raise Refused(f"'{WS_CHECK}' passed on {sha}: nothing red to excuse")
+        # No failure is exit 0 (NoFailureExitsZero): a merge check may ask about every head, green ones included.
+        return [f"'{WS_CHECK}' passed on {sha}: no failure to excuse"]
     units = ws_check_units(head["steps"])
     diff = github.json(f"repos/{repo}/compare/{base}...{sha}?per_page=1")
     merge_base = ((diff.get("merge_base_commit") or {}).get("sha")) or ""
@@ -1746,6 +1751,11 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         audit.extend(ws_check(repo, base, sha, github))
         if not (runs or checks):
             return audit
+    if not (runs or checks):
+        # Asked about no red run or check: no failure, exit 0 (cmuxterm-hq#7234 at ce69ab6d, 16/16 green, exited 1
+        # here as "no failed job found", and a merge check that asks about every head refused every green PR). A red
+        # run or check that was named and shows no failed job is still refused below.
+        return audit or [f"no red run or check named on {sha}: no failure to excuse"]
     jobs = head_jobs(repo, sha, runs, checks, github, base=base, excused=audit)
     if not jobs and not audit:
         # A red run or check with no failed job to show has nothing the base can excuse.

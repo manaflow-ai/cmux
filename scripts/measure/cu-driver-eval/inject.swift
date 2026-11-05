@@ -79,6 +79,16 @@ case "observe":
         "cursor": [cursor.x, cursor.y], "screen": [screen.width, screen.height],
         "order": windows().compactMap { $0[kCGWindowNumber as String] as? Int }])
 
+case "windows":
+  // Every on-screen window, front to back, at any layer: what was in front when a driver said so.
+  let all = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+  emit(["windows": all.map { info -> [String: Any] in
+    let bounds = (info[kCGWindowBounds as String] as? NSDictionary).flatMap { CGRect(dictionaryRepresentation: $0) } ?? .zero
+    return ["number": info[kCGWindowNumber as String] as? Int ?? -1, "owner": info[kCGWindowOwnerName as String] as? String ?? "",
+            "name": info[kCGWindowName as String] as? String ?? "", "layer": info[kCGWindowLayer as String] as? Int ?? 0,
+            "alpha": info[kCGWindowAlpha as String] as? Double ?? 1, "frame": [bounds.minX, bounds.minY, bounds.width, bounds.height]]
+  }])
+
 case "find-window":
   guard args.count == 2, let pid = Int(args[1]) else { fail("find-window PID") }
   let mine = windows().filter { ($0[kCGWindowOwnerPID as String] as? Int) == pid }

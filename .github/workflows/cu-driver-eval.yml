@@ -118,6 +118,6 @@ jobs:
             artifacts/cu-driver-eval/vm.json
             artifacts/cu-driver-eval/eval.log
           if-no-files-found: ignore
-          # The next daily run compares with this one; past three days a run has no earlier results to
-          # compare (the earlier-results step is continue-on-error), as after any gap.
+          # The next daily run reads this one (the last successful run) for its comparison, so 3
+          # days covers it; the repo keeps uploads at 3 days or less (tests/test_ci_upload_artifact_retention.py).
           retention-days: 3
