@@ -21,6 +21,8 @@ export type ChatAccountList = {
   family?: string;
   active?: string;
   scope?: string;
+  /// Every route's id, those of other families too: a new account's id must be none of them.
+  ids?: string[];
   /// The reply carried no route list (an error or a shape this pane does not know): no routes known,
   /// which is not the same as none.
   unread?: true;
@@ -71,8 +73,10 @@ export function readChatAccounts(reply: unknown): ChatAccountList {
     active?: { routeId?: unknown; scope?: unknown } | null;
   };
   const accounts: ChatAccount[] = [];
+  const ids: string[] = [];
   for (const row of Array.isArray(raw.routes) ? raw.routes : []) {
     const route = row as { id?: unknown; name?: unknown; kind?: unknown; serves?: unknown } | null;
+    if (typeof route?.id === "string") ids.push(route.id);
     if (typeof route?.id !== "string" || route.serves === false) continue;
     accounts.push({
       id: route.id,
@@ -87,6 +91,7 @@ export function readChatAccounts(reply: unknown): ChatAccountList {
     ...(typeof raw.family === "string" && raw.family ? { family: raw.family } : {}),
     ...(active ? { active } : {}),
     ...(scope ? { scope } : {}),
+    ...(ids.length ? { ids } : {}),
     ...(Array.isArray(raw.routes) ? {} : { unread: true as const }),
   };
 }

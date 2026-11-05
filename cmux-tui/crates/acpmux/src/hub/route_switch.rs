@@ -373,12 +373,23 @@ impl Hub {
         let profile = self.config.read().await.harnesses.get(&meta.harness).cloned()?;
         let family = crate::config::derive_family(&meta.harness, &profile);
         let workspace = meta.session_env.get("CMUX_WORKSPACE_ID").map(String::as_str);
-        // A codex chat on the CLI's own login (no route) is on the built-in one.
-        let bound = routes::bound_route(&routes::bindings(&state), &session.id, workspace, &family);
+        // The route the spawn ran on (`routes::spawn_route`); a profile's own only for codex,
+        // whose logins this moves between.
+        let bound = routes::spawn_route(
+            &routes::bindings(&state),
+            &session.id,
+            workspace,
+            &family,
+            &profile.env,
+        )
+        .filter(|(_, scope)| *scope != "profile" || family == "codex");
         let unbound = bound.is_none();
+        let own_endpoint = crate::byo_endpoint::Kind::of_env(&profile.env).is_some();
         let id = match bound {
             Some((id, _)) => id,
-            None if family == "codex" => routes::CODEX_LOGIN_ROUTE_ID.to_owned(),
+            // A codex chat on the CLI's own login (no route) is on the built-in one; a profile
+            // with an endpoint of its own is not a login.
+            None if family == "codex" && !own_endpoint => routes::CODEX_LOGIN_ROUTE_ID.to_owned(),
             None => return None,
         };
         let route = routes::find(dir.as_deref(), &id).ok()?;
