@@ -23,7 +23,9 @@ import sys
 import time
 from pathlib import Path
 
-NIGHTLY = "nightly-2026-11-01"
+# A nightly from the 1.95 cycle (the pinned stable, cmux-tui/rust-toolchain.toml), so a nightly
+# variant changes only the flags it names; nightly-2026-11-01 (1.101) no longer compiles acpmux.
+NIGHTLY = "nightly-2026-02-20"
 EDITS = {
     "core": "crates/cmux-tui-core/src/lib.rs",
     "tui": "crates/cmux-tui/src/main.rs",
@@ -172,8 +174,11 @@ def cargo(spec: dict, target: Path, args: list[str], log_path: Path) -> tuple[fl
         f.write(r.stderr)
     dt = time.monotonic() - t0
     if r.returncode != 0:
-        for line in r.stderr.strip().splitlines()[-12:]:
-            print(f"DEVLOOP-LOG {line}", flush=True)
+        lines = r.stderr.strip().splitlines()
+        picked = [i for i, ln in enumerate(lines) if ln.startswith("error")][:6]
+        keep = sorted({j for i in picked for j in range(i, min(i + 6, len(lines)))}) or range(max(0, len(lines) - 12), len(lines))
+        for j in keep:
+            print(f"DEVLOOP-LOG {lines[j]}", flush=True)
     compiled = len(re.findall(r"^\s+Compiling ", r.stderr, re.M))
     return dt, r.returncode, compiled
 

@@ -38,6 +38,19 @@ fi
 zig_packages="$root/.build/rust-dev-loop-zig"
 mkdir -p "$zig_packages"
 ZIG_GLOBAL_CACHE_DIR="$zig_packages" "$root/scripts/ci/fetch-ghostty-zig-packages.sh" "$root/ghostty-next"
+# Linux without mold: mold's release binary, checked against its published sha256.
+if [[ "$(uname -s)" == Linux && "$(uname -m)" == x86_64 ]] && ! command -v mold >/dev/null; then
+  mold_dir="$root/.build/rust-dev-loop-mold"
+  mold_tgz="$mold_dir/mold-3.0.0-x86_64-linux.tar.gz"
+  mkdir -p "$mold_dir"
+  if curl -fsSL --retry 3 -o "$mold_tgz" https://github.com/rui314/mold/releases/download/v3.0.0/mold-3.0.0-x86_64-linux.tar.gz \
+    && echo "6c90d4a474c7c0409dfb575be03a5345878ac14fdba18de8b40fa58c60121189  $mold_tgz" | sha256sum -c --quiet; then
+    tar -xzf "$mold_tgz" -C "$mold_dir"
+    export PATH="$mold_dir/mold-3.0.0-x86_64-linux/bin:$PATH"
+  else
+    echo "notice: mold download failed; the mold variants are skipped"
+  fi
+fi
 cd "$root/cmux-tui"
 rustup show active-toolchain || true
 out="${out:-$root/.build/rust-dev-loop}"
