@@ -6,7 +6,7 @@ import CmuxNextSettings
 /// `home-chief-profile-details`, `-settings` and `-computer`: Home at the Chief with its profile panel
 /// open beside the chat at that tab. Computer shows a fixture computer (running, a desktop drawn by the
 /// app, the person in control), since capture minis have no Cloud Chief with one; Details and Settings
-/// show the showcase Chief's real card.
+/// show the showcase Chief's real card. The panel stays open after the scene for the capture's own stills.
 extension CaptureSceneRegistry {
     static let chiefProfileScenes: [String: HomeChiefProfileTab] = [
         "home-chief-profile-details": .details, "home-chief-profile-settings": .settings, "home-chief-profile-computer": .computer,
@@ -29,8 +29,6 @@ extension CaptureSceneRegistry {
             return opened && host.panel.view.debugSettled(tab, fixtureComputer: fixture)
         }, start: ContinuousClock.now, window: 100, deadline: 10_000)
         let frameStats = frames.stop()
-        // The panel stays open: the capture takes its own light and dark stills after this returns. The next scene
-        // in this app reopens it at its own tab.
         guard settled != nil else {
             return .object(["error": .string(page == nil ? "Home page did not open" : "the Chief's profile panel did not settle"), "scene": .string(name), "opened": .bool(opened), "frames": frameStats])
         }
