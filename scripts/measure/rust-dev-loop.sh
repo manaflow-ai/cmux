@@ -37,8 +37,10 @@ if [[ ! -f "$root/ghostty-next/build.zig" ]]; then
 fi
 # Scratch (variant targets, zig packages, blaze) lives outside the checkout: blaze's daemon watches
 # the checkout, .gitignore'd build output included.
-scratch="${CMUX_DEVLOOP_SCRATCH:-${TMPDIR:-/tmp}}/cmux-rust-dev-loop-$$"
+# On disk, not /tmp: Linux /tmp is often tmpfs (RAM), and the variant targets are tens of GB.
+scratch="${CMUX_DEVLOOP_SCRATCH:-$HOME/.cache/cmux-rust-dev-loop}/run-$$"
 mkdir -p "$scratch"
+df -h "$scratch" | tail -1
 # This run's own scratch and blaze home only (named by this shell's pid).
 trap 'rm -rf "$scratch" "${TMPDIR:-/tmp}/cmux-rust-dev-loop-blaze-home-$$"' EXIT
 # Ghostty's zig packages download once, with retries, before any clock starts; every variant's
