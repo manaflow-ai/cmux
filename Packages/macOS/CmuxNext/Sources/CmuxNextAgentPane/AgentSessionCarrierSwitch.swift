@@ -91,6 +91,9 @@ public nonisolated final class AgentSessionCarrierSwitch: AgentSessionRemoteClie
     /// New calls wait for a cutover or a fall-back now.
     var holding: Bool { state.withLock { $0.holding } }
 
+    /// The calls waiting for that cutover or fall-back.
+    var heldCalls: Int { state.withLock { $0.held.count } }
+
     // MARK: The move
 
     /// Moves the chat to `preferred` (the direct link): true once it carries the chat. False, with

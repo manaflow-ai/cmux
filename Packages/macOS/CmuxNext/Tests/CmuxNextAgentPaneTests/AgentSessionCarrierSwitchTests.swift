@@ -173,7 +173,7 @@ struct AgentSessionCarrierSwitchTests {
         let move = Task { await chat.move(to: direct) }
         await Self.until { chat.holding }
         let second = Task { try await chat.prompt(id: "b", text: "second") }
-        try await Task.sleep(for: .milliseconds(50))
+        await Self.until { chat.heldCalls == 1 }
         #expect(direct.prompts.isEmpty, "a prompt made during the cutover waits for it")
 
         relay.releasePrompts()
@@ -382,7 +382,7 @@ struct AgentSessionCarrierSwitchTests {
         direct.end("link.down")
         await Self.until { relay.state.withLock { $0.attaches.count } == 2 }
         let second = Task { try await chat.prompt(id: "b", text: "second") }
-        try await Task.sleep(for: .milliseconds(100))
+        await Self.until { chat.heldCalls == 1 }
         #expect(relay.prompts.isEmpty, "the newer prompt waits for the one still running on the direct link")
 
         direct.releasePrompts()
