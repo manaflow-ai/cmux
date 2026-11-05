@@ -1091,15 +1091,19 @@ fn a_read_that_shows_a_line_covers_its_record() {
         })
     };
     arrived.recv_timeout(WAIT).unwrap_or_else(|e| panic!("the append never paused: {e}"));
+    let (at_fence_tx, at_fence) = std::sync::mpsc::channel();
     let reader = {
         let store = Arc::clone(&store);
         let acked = Arc::clone(&durability.acked);
         std::thread::spawn(move || {
+            super::journal_store::NOTE_AT_READ_FENCE
+                .with(|note| *note.borrow_mut() = Some(at_fence_tx));
             let seen = seqs(store.as_ref(), CHAT);
             (seen, acked.load(Ordering::SeqCst))
         })
     };
-    std::thread::sleep(Duration::from_millis(200));
+    // The read has read the log and waits at the fence: only then the append goes on.
+    at_fence.recv_timeout(WAIT).unwrap_or_else(|e| panic!("the read never reached the fence: {e}"));
     let _ = release.send(());
     appender
         .join()

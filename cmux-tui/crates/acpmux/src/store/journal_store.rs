@@ -151,6 +151,9 @@ thread_local! {
     /// Tests: the next log write on this thread stops right after the write
     /// ([`pause_next_log_write_on_this_thread`]).
     static PAUSE_AFTER_LOG_WRITE: log_sync::HoldSlot = const { std::cell::RefCell::new(None) };
+    /// Tests: a read on this thread says so, once, when it has read and waits for an append
+    /// under way (`Inner::fenced`).
+    pub(crate) static NOTE_AT_READ_FENCE: log_sync::Note = const { std::cell::RefCell::new(None) };
 }
 
 /// Tests: the stop of [`HOLD_AFTER_START`].
@@ -188,6 +191,8 @@ impl Inner {
     /// line `read` saw has its record appended by the time this returns.
     fn fenced<T>(&self, read: impl FnOnce() -> T) -> T {
         let out = read();
+        #[cfg(test)]
+        log_sync::note(&NOTE_AT_READ_FENCE, "waits at the read fence");
         drop(self.order.lock_or_recover());
         out
     }

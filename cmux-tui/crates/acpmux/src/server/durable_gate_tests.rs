@@ -190,8 +190,14 @@ async fn a_replay_never_sends_a_line_before_its_record() {
     arrived
         .recv_timeout(Duration::from_secs(10))
         .unwrap_or_else(|e| panic!("the append never paused: {e}"));
+    // The replay reads `lastSeq` and says so before it scans the log: only then the append goes
+    // on. (The first append caught the chat up, so the replay takes no append lock first.)
+    let (scans_tx, scans) = std::sync::mpsc::channel();
+    crate::hub::NOTE_BEFORE_REPLAY_SCAN.with(|note| *note.borrow_mut() = Some(scans_tx));
     let releaser = std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(200));
+        scans
+            .recv_timeout(Duration::from_secs(10))
+            .unwrap_or_else(|e| panic!("the replay never began its scan: {e}"));
         let _ = release.send(());
     });
     let mut seen = Vec::new();
