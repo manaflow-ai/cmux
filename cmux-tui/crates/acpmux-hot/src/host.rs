@@ -15,6 +15,7 @@ use crate::{ABI_VERSION, Agent, Offer};
 use arc_swap::ArcSwapOption;
 use sha2::Digest as _;
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
@@ -81,8 +82,9 @@ struct Loaded {
 struct Writer {
     /// The module before the current one: where a trap rolls back to.
     previous: Option<Arc<Loaded>>,
-    /// Bytes that trapped or failed to load; skipped until the file holds other bytes.
-    refused: Option<String>,
+    /// Bytes (sha256) that trapped or failed to load: never loaded or rolled back to again. The
+    /// file holding other bytes loads those.
+    refused: HashSet<String>,
 }
 
 #[derive(Default)]
@@ -158,10 +160,14 @@ pub fn daemon() -> Option<&'static HotModule> {
 }
 
 impl HotModule {
-    /// A slot for `path` (checked by [`crate::trust`]), empty until [`Self::reload`] or the
-    /// watcher loads it.
+    /// A slot for `path`, empty until [`Self::reload`] or the watcher loads it. The path need not
+    /// exist yet (a daemon started before the first guest build): every load checks it with
+    /// [`crate::trust`], and one that exists now is checked here too, so a wrong path says so at once.
     pub fn new(path: &Path, options: Options) -> Result<Self, String> {
-        let path = crate::trust::check(path)?;
+        if !path.is_absolute() {
+            return Err(format!("{} is not an absolute path", path.display()));
+        }
+        let path = if path.exists() { crate::trust::check(path)? } else { path.to_path_buf() };
         let mut config = Config::new();
         // On by default with the `component-model` feature; said here so a default change in a
         // later wasmtime cannot turn every load into a refusal.
@@ -209,12 +215,12 @@ impl HotModule {
         let read = started.elapsed();
         let sha256 = hex::encode(sha2::Sha256::digest(&bytes));
         if self.live().as_deref() == Some(sha256.as_str())
-            || lock(&shared.writer).refused.as_deref() == Some(sha256.as_str())
+            || lock(&shared.writer).refused.contains(&sha256)
         {
             return Ok(None);
         }
         let refuse = |why: String| {
-            lock(&shared.writer).refused = Some(sha256.clone());
+            lock(&shared.writer).refused.insert(sha256.clone());
             shared.counters.refused.fetch_add(1, Ordering::Relaxed);
             Err(format!("refused {}: {why}", &sha256[..12]))
         };
@@ -342,14 +348,20 @@ impl HotModule {
         }
     }
 
-    /// Rolls the slot back from `loaded` to the module before it, if `loaded` is still live.
+    /// Refuses `loaded`'s bytes, and rolls the slot back to the module before it if `loaded` is
+    /// still live. A stale call (one that started before a newer module went live) can trap after
+    /// the swap: then `loaded` is the rollback target, and stops being one.
     fn trapped(&self, loaded: &Arc<Loaded>, error: &wasmtime::Error) {
         let shared = &self.0;
         shared.counters.traps.fetch_add(1, Ordering::Relaxed);
         let mut writer = lock(&shared.writer);
-        writer.refused = Some(loaded.sha256.clone());
+        writer.refused.insert(loaded.sha256.clone());
+        if writer.previous.as_ref().is_some_and(|p| writer.refused.contains(&p.sha256)) {
+            writer.previous = None;
+        }
         let live = shared.current.load();
         if live.as_ref().map(|l| l.generation) != Some(loaded.generation) {
+            eprintln!("acpmux-hot: stale call into {} trapped ({error})", &loaded.sha256[..12]);
             return;
         }
         drop(live);
@@ -383,11 +395,19 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-fn stamp(path: &Path) -> Option<(u64, Option<SystemTime>, u64)> {
+/// What the watcher compares between polls: size, mtime, inode, and the inode's change time,
+/// which every write and every mtime change moves (no tool sets it), so a rewrite in place that
+/// keeps size, mtime and inode is still seen.
+type Stamp = (u64, Option<SystemTime>, u64, i64, i64);
+
+fn stamp(path: &Path) -> Option<Stamp> {
     let meta = std::fs::metadata(path).ok()?;
     #[cfg(unix)]
-    let ino = std::os::unix::fs::MetadataExt::ino(&meta);
+    let (ino, ctime, ctime_nsec) = {
+        use std::os::unix::fs::MetadataExt as _;
+        (meta.ino(), meta.ctime(), meta.ctime_nsec())
+    };
     #[cfg(not(unix))]
-    let ino = 0;
-    Some((meta.len(), meta.modified().ok(), ino))
+    let (ino, ctime, ctime_nsec) = (0, 0, 0);
+    Some((meta.len(), meta.modified().ok(), ino, ctime, ctime_nsec))
 }
