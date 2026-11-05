@@ -219,6 +219,12 @@ import CmuxNextCompat
     public var promptJournal: AgentPanePromptJournal? = AgentPanePromptJournal.shared
     var promptRelay: AgentPanePromptRelay?
 
+    /// Where this pane's launch marks go (`debug.timings`; tests pass their own).
+    var launchTimings = AgentPaneLaunchTimings.shared
+    /// Whether this pane is a New Tab page now (the model sets it): a New Tab spare's connection is not
+    /// the restored chat's, so its marks must not stand for the chat's (cmuxterm-hq#7149).
+    public var isNewTabPage: @MainActor () -> Bool = { false }
+
     /// Pushes and flushes so far (tests and the bench read them).
     public private(set) var flushes = 0
 
@@ -262,7 +268,7 @@ import CmuxNextCompat
         remoteHostID = connection.remote?.hostID
         remoteWire = connection.remote != nil
         trustDaemon = remoteWire ? nil : (connection.socketPath ?? connection.url.absoluteString)
-        AgentPaneLaunchTimings.shared.mark("agent_pane.transport_open_start")
+        launchTimings.mark("agent_pane.transport_open_start")
         if let daemon = trustDaemon {
             bindPreOpenTrust(to: daemon)
             guard await restorePendingTrust(daemon: daemon, connection: id) else { throw .closed }
@@ -303,7 +309,7 @@ import CmuxNextCompat
             if self.socket === socket { self.socket = nil; localAppToken = nil; trustDaemon = nil }
             throw .connectFailed
         }
-        AgentPaneLaunchTimings.shared.mark("agent_pane.transport_listener_checked")
+        launchTimings.mark("agent_pane.transport_listener_checked")
         do {
             try await socket.start(timeout: limits.connectTimeout)
         } catch {
@@ -323,13 +329,13 @@ import CmuxNextCompat
         } else {
             onOtherInstall?(false)
         }
-        AgentPaneLaunchTimings.shared.mark("agent_pane.transport_accepted_checked")
+        launchTimings.mark("agent_pane.transport_accepted_checked")
         // P1: the daemon's mode fields, once per connection, before the page's first frame.
         modeFields = nil
         let answer = await webModes(nil, nil, nil)
         guard self.socket === socket, id == current else { throw .staleConnection }
         modeFields = answer?.modeFields
-        AgentPaneLaunchTimings.shared.mark("agent_pane.transport_open")
+        launchTimings.mark("agent_pane.transport_open")
         Self.logger.info("agent pane transport open connection=\(id, privacy: .public) localApp=\(self.localAppToken != nil, privacy: .public)")
         return id
     }
