@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 
 /// Demo data for the pane: several agents on this Mac, a Mac mini and a
 /// Linux VM, live, paused and ended sessions, typed text redacted, one
@@ -174,7 +175,7 @@ public final class AgentActivityMockSource: AgentActivitySource {
                 let y = 30 + CGFloat(row) * 22
                 let width = rect.width * (0.35 + CGFloat((row * 13 + step * 7) % 40) / 100)
                 NSColor(white: row == step % 7 ? 0.55 : 0.8, alpha: 1).setFill()
-                NSBezierPath(roundedRect: NSRect(x: rect.width * 0.3, y: y, width: width, height: 10), xRadius: 3, yRadius: 3).fill()
+                NSBezierPath(roundedRect: NSRect(x: rect.width * 0.3, y: y, width: width, height: 10), xRadius: Metrics.capsuleRadius(CGSize(width: 10, height: 10)), yRadius: Metrics.capsuleRadius(CGSize(width: 10, height: 10))).fill()
             }
             let label = "\(app) · \(step + 1)" as NSString
             label.draw(at: NSPoint(x: 6, y: 2), withAttributes: [

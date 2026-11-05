@@ -46,6 +46,7 @@ const PREVIEW_CHARS: usize = 120;
 /// Why a turn that ended left its messages unanswered, as the notes say it.
 pub(super) const WHY_NO_REPLY: &str = "the turn ended with NO_REPLY";
 pub(super) const WHY_SILENT: &str = "the turn ended without a reply";
+pub(super) const WHY_UNSTARTED: &str = "its agent could not start";
 
 impl Brain {
     /// Person message `message` of the Chief conversation is queued for a
@@ -143,6 +144,8 @@ impl Brain {
     pub(super) fn reply_not_needed(&mut self, ids: &[String]) {
         let before = self.state.awaiting.len();
         self.state.awaiting.retain(|a| !ids.contains(&a.id));
+        // Nor does a turn carry it on (a start that stalled carried it).
+        self.state.carry_answers.retain(|id| !ids.contains(id));
         if self.state.awaiting.len() != before {
             self.save();
         }
@@ -315,6 +318,8 @@ impl Brain {
 
     /// Posts the failure note for `a`, out of retries, in its thread.
     fn post_reply_failure(&mut self, a: &Awaiting) {
+        // Its failure note answers it: no later turn carries it on.
+        self.state.carry_answers.retain(|id| id != &a.id);
         let Some(conversation) = self.state.conversation.clone() else {
             return;
         };

@@ -1,6 +1,7 @@
 import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCloudCredentials
+import CmuxNextCloudUI
 @testable import CmuxNextApp
 import Foundation
 import Testing
@@ -8,21 +9,17 @@ import Testing
 @MainActor
 struct CloudCredentialRecoveryTests {
     /// cmux-platform#89: a Worker machine (the app server link) reaches its exec and file routes on
-    /// the Worker machines origin, so recovery is on there too once signed in.
-    @Test func credentialRecoveryAvailabilityReturnsAfterSignInOnEitherLink() {
-        #expect(!AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: .legacy, isSignedIn: false, passesLogin: true))
-        #expect(AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: .legacy, isSignedIn: true, passesLogin: true))
-        #expect(AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: .appServer, isSignedIn: true, passesLogin: true))
-        #expect(!AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: .appServer, isSignedIn: false, passesLogin: true))
+    /// the Worker machines origin, so recovery is on there once signed in.
+    @Test func credentialRecoveryAvailabilityReturnsAfterSignIn() {
+        #expect(AgentTabStore.cloudCredentialTransferIsAvailable(isSignedIn: true, passesLogin: true))
+        #expect(!AgentTabStore.cloudCredentialTransferIsAvailable(isSignedIn: false, passesLogin: true))
     }
 
     /// Leo: "IN THE ACTUAL PRODUCTION APP IT MAY BE AGAINST TOS". A build that does not pass the
     /// Mac's login offers no transfer from the card, signed in or not; the card signs in on the machine.
     @Test func credentialRecoveryIsOffWhereTheBuildDoesNotPassTheLogin() {
-        for link in [CloudConfiguration.LinkSource.legacy, .appServer] {
-            #expect(!AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: link, isSignedIn: true, passesLogin: false))
-            #expect(!AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: link, isSignedIn: false, passesLogin: false))
-        }
+        #expect(!AgentTabStore.cloudCredentialTransferIsAvailable(isSignedIn: true, passesLogin: false))
+        #expect(!AgentTabStore.cloudCredentialTransferIsAvailable(isSignedIn: false, passesLogin: false))
     }
 
     /// The transfer the restart follows; `creator` is the DEV creator allowance.
@@ -70,6 +67,8 @@ struct CloudCredentialRecoveryTests {
         #expect(DebugDialog.userOnly.contains(CloudPresenter.codexDeviceCodeIdentifier))
         // cloud.startChat's first-login confirm caches and installs a year-long login: only the person says Set Up.
         #expect(DebugDialog.userOnly.contains(CloudPresenter.firstLoginIdentifier))
+        // Using the Mac's own Codex sign-in on Cloud machines: only the person's click says Use My Login.
+        #expect(DebugDialog.userOnly.contains(CloudCodexSignInConsent.identifier))
     }
 
     @Test func remoteHandshakeCarriesProviderVMIdentitySeparatelyFromSession() async throws {

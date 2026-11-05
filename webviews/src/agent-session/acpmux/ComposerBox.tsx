@@ -192,7 +192,10 @@ export function ComposerBox({
   useImperativeHandle(
     handle,
     () => ({
-      plainPaste: () => plainPaste.current(),
+      plainPaste: () => {
+        plainPaste.current();
+        prompt.current?.plainPaste();
+      },
       place: (chips) => inline.place(chips, "paste"),
       sent: (ids) => inline.sent(ids),
     }),

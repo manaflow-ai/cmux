@@ -437,7 +437,26 @@ async fn send_one(daemon: &Arc<Client>, args: &Value) -> Value {
     let target = Target { index: 0, to: to.clone(), key: key.clone(), tag: None, text, file, item };
     let (prompt, queued) = match queue(daemon, &target).await {
         Ok(sent) => sent,
-        Err(e) => return refusal(e),
+        Err(e) => {
+            return match relay(&target, &e).await {
+                Some(row) if row_ok(&row) => {
+                    let text_of = |k: &str| row.get(k).and_then(Value::as_str).unwrap_or_default();
+                    ok(
+                        format!(
+                            "Sent to {to} through the send relay (no session here or on a peer): {}",
+                            text_of("deliveryId")
+                        ),
+                        json!({"deliveryId": text_of("deliveryId"), "target": key, "status": "relayed",
+                               "delivery": "relayed"}),
+                    )
+                }
+                Some(row) => error_result(format!(
+                    "Not sent to {to}: {}",
+                    row.get("error").and_then(Value::as_str).unwrap_or("the send relay refused it")
+                )),
+                None => refusal(e),
+            };
+        }
     };
     let row = settle(daemon, &target, &prompt, queued, STATUS_WAIT).await;
     let field = |k: &str| row.get(k).cloned().unwrap_or(Value::Null);
@@ -521,7 +540,10 @@ async fn send_batch(daemon: &Arc<Client>, args: &Value) -> Value {
         in_order(&targets, chain, deadline, move |target, wait| async move {
             match queue(daemon, target).await {
                 Ok((prompt, queued)) => settle(daemon, target, &prompt, queued, wait).await,
-                Err(e) => target.row(false, "failed", Some(format!("{e:#}"))),
+                Err(e) => match relay(target, &e).await {
+                    Some(row) => row,
+                    None => target.row(false, "failed", Some(format!("{e:#}"))),
+                },
             }
         })
     }))
@@ -689,6 +711,63 @@ async fn tag_recipients(
     Ok(found)
 }
 
+/// How long a relayed send may take (`relay`).
+const RELAY_WAIT: Duration = Duration::from_secs(45);
+
+/// A message the outbox refused because its target names no session here and no peer lists it,
+/// handed to the configured send relay as `acpmux send` does (`cli/send_relay.rs`): its row, or
+/// None when there is no relay, the refusal was another one, or it carries a file (the relay
+/// carries text only). The relay's sender is the session this tool runs for, and the send is a
+/// line in the cross-host audit log. Leo, 2026-11-05, on sends between lane machines: "Just do
+/// what's expected. Just do the magic."
+async fn relay(target: &Target, e: &anyhow::Error) -> Option<Value> {
+    if target.file.is_some() || !format!("{e:#}").to_lowercase().contains("no session") {
+        return None;
+    }
+    let relay = crate::cli::send_relay::configured()?;
+    // The session's name when its environment has one, else its id (an MCP server's environment
+    // carries ACPMUX_SESSION_ID alone), so the relay always names the sender.
+    let from = crate::cli::send_relay::sender(None, |k| std::env::var(k).ok()).or_else(|| {
+        std::env::var(SESSION_ENV).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty())
+    });
+    let (session, text) = (target.key.clone(), target.text.clone());
+    let deadline = tokio::time::Instant::now() + RELAY_WAIT;
+    let done = tokio::task::spawn_blocking(move || {
+        let done = crate::cli::send_relay::relay_with_deadline(
+            &relay,
+            &session,
+            &text,
+            from.as_deref(),
+            true,
+            Some(deadline),
+        );
+        if let Ok(done) = &done {
+            crate::cli::send_relay::audit_sent(&session, &text, from.as_deref(), done);
+        }
+        done
+    })
+    .await;
+    Some(match done {
+        Ok(Ok(done)) if done.status == 0 => {
+            let mut row = target.row(true, "relayed", None);
+            row.set("deliveryId", json!(done.output.unwrap_or_default().trim()));
+            row.set("delivery", json!("relayed"));
+            row
+        }
+        Ok(Ok(done)) => {
+            let why = done.stderr.filter(|s| !s.is_empty()).unwrap_or_default();
+            let why = why.lines().last().unwrap_or("").to_owned();
+            target.row(
+                false,
+                "failed",
+                Some(format!("the send relay refused it (exit {}): {why}", done.status)),
+            )
+        }
+        Ok(Err(e)) => target.row(false, "failed", Some(format!("the send relay: {e:#}"))),
+        Err(e) => target.row(false, "failed", Some(format!("the send relay: {e}"))),
+    })
+}
+
 /// Hand one message to the outbox (`_acpmux/send_queue`).
 async fn queue(daemon: &Arc<Client>, target: &Target) -> Result<(PromptId, Value)> {
     let mut prompt = PromptId::new(None);
@@ -784,6 +863,11 @@ fn sent_line(row: &Value) -> String {
         "next_step" => "steered into its running turn: it reads it at its next tool step",
         "queued" => "queued behind its running turn: it reads it when that turn ends",
         "started" => "it started a turn with it",
+        "relayed" => {
+            return format!(
+                "Sent to {to} through the send relay (no session here or on a peer): delivery {delivery}."
+            );
+        }
         _ => {
             return format!(
                 "On its way to {to} (delivery {delivery}, promptId {prompt_id}): this daemon keeps \
