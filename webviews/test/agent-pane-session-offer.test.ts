@@ -7,6 +7,8 @@
 //   chat in the offer's folder on its agent, sends it the offer's prompt, and answers the offer
 //   with that chat; the pane keeps showing this chat, and the card becomes the started chat's row.
 //   Dismiss answers the offer dismissed, and acpmux's decision takes the card away.
+// - An offer on this chat's own agent starts at this chat's model, effort and permission mode;
+//   its Options' picks (offer/OfferOptions.tsx) go to the new chat before its prompt.
 //
 // Real Chromium from Playwright; skipped where it is not installed (the hosted webviews job).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -37,6 +39,35 @@ await requireBrowserLane("agent-pane-session-offer.test.ts", async () => {
     harness: "claude",
     status: "running",
     updatedAt: Date.now(),
+    model: "opus",
+    modes: {
+      availableModes: [
+        { id: "default", name: "Ask before edits" },
+        { id: "bypassPermissions", name: "Bypass permissions" },
+      ],
+      currentModeId: "bypassPermissions",
+    },
+    configOptions: [
+      {
+        id: "model",
+        category: "model",
+        currentValue: "opus",
+        options: [
+          { value: "opus", name: "Opus 5.5" },
+          { value: "sonnet", name: "Sonnet 5.5" },
+        ],
+      },
+      {
+        id: "effort",
+        category: "thought_level",
+        currentValue: "medium",
+        options: [
+          { value: "low", name: "Low" },
+          { value: "medium", name: "Medium" },
+          { value: "high", name: "High" },
+        ],
+      },
+    ],
   });
   type Record_ = {
     sessionId: string;
@@ -46,7 +77,7 @@ await requireBrowserLane("agent-pane-session-offer.test.ts", async () => {
     kind: string;
     msg: Record<string, unknown>;
   };
-  const offer = {
+  const codexOffer = {
     offerId: "offer-1",
     title: "Fix the flaky upload test",
     prompt: "The upload test fails one run in five: find why and fix it.",
@@ -55,6 +86,15 @@ await requireBrowserLane("agent-pane-session-offer.test.ts", async () => {
     harness: "codex",
     model: "gpt-5.5",
   };
+  /// An offer with no agent of its own: it runs on this chat's, whose lists its Options show.
+  const ownOffer = {
+    offerId: "offer-2",
+    title: "Trim the upload log output",
+    prompt: "The upload handler logs every chunk: keep only the first and the last.",
+    cwd: "/home/dev/api",
+    worktree: false,
+  };
+  let offer: typeof codexOffer | typeof ownOffer = codexOffer;
   let seq = 0;
   let history: Record_[] = [];
   let calls: { method: string; params: Record<string, any> }[] = [];
@@ -153,7 +193,8 @@ await requireBrowserLane("agent-pane-session-offer.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  async function openChat(experiment: "on" | "off", turnEnded = false): Promise<Page> {
+  async function openChat(experiment: "on" | "off", turnEnded = false, offered = codexOffer): Promise<Page> {
+    offer = offered;
     calls = [];
     seq = 0;
     history = [record("user_message", { text: "Add the upload endpoint" }), record("session_offer", offer)];
@@ -225,6 +266,10 @@ await requireBrowserLane("agent-pane-session-offer.test.ts", async () => {
       expect(created?.params.cwd).toBe(offer.cwd);
       expect(created?.params._meta?.acpmux?.harness).toBe("codex");
       expect(created?.params.model).toBe("gpt-5.5");
+      // Another agent's offer takes none of this chat's mode or effort.
+      expect(calls.some((c) => c.method === "session/set_mode" || c.method === "session/set_config_option")).toBe(
+        false,
+      );
       // The prompt goes after the answer, and its turn ends at once here: its attach ends with it.
       await waitUntil(() => calls.some((c) => c.method === "_acpmux/detach" && c.params.sessionId === CHILD));
       const prompt = calls.find((c) => c.method === "session/prompt");
@@ -243,6 +288,32 @@ await requireBrowserLane("agent-pane-session-offer.test.ts", async () => {
       );
       expect(await page.locator(".acpmux-task-row-title").first().innerText()).toBe(offer.title);
       expect(await chip(page).getByRole("button", { name: "Start", exact: true }).count()).toBe(0);
+      await page.close();
+    });
+
+    test("Options start at this chat's values, and Start gives the new chat the picks before its prompt", async () => {
+      const page = await openChat("on", false, ownOffer);
+      await chip(page).getByText(ownOffer.title).waitFor({ timeout: 10_000 });
+      await chip(page).getByRole("button", { name: "Options" }).click();
+      const options = page.getByRole("dialog", { name: "Options" });
+      await options.getByText("This computer").waitFor({ timeout: 5_000 });
+      expect(await options.getByRole("button", { name: "Effort" }).innerText()).toContain("Medium");
+      expect(await options.getByRole("button", { name: "Permissions" }).innerText()).toContain("Bypass permissions");
+      await options.getByRole("button", { name: "Model" }).click();
+      await page.getByRole("menuitemradio", { name: "Sonnet 5.5" }).click();
+      await page.keyboard.press("Escape");
+      await chip(page).getByRole("button", { name: "Start", exact: true }).click();
+      await waitUntil(() => calls.some((c) => c.method === "session/prompt" && c.params.sessionId === CHILD));
+
+      const created = calls.find((c) => c.method === "session/new");
+      expect(created?.params.model).toBe("sonnet");
+      const childCalls = calls.filter((c) => c.params.sessionId === CHILD);
+      const at = (method: string) => childCalls.findIndex((c) => c.method === method);
+      expect(childCalls.find((c) => c.method === "session/set_mode")?.params.modeId).toBe("bypassPermissions");
+      const effort = childCalls.find((c) => c.method === "session/set_config_option")?.params;
+      expect([effort?.configId, effort?.value]).toEqual(["effort", "medium"]);
+      expect(at("session/set_mode")).toBeLessThan(at("session/prompt"));
+      expect(at("session/set_config_option")).toBeLessThan(at("session/prompt"));
       await page.close();
     });
 

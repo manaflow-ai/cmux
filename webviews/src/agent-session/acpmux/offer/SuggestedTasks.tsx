@@ -3,6 +3,9 @@
 // it here and Start; an offer made alone is the same card with one task. A started task becomes
 // one quiet row hung off the card by an elbow, with what its chat is doing now, which opens that
 // chat. The prompt that brings a task's result back draws as one "Received message from" line.
+// A lone offer reads "New session" and its Options open the rows of Claude desktop's
+// suggested-session card (OfferOptions.tsx): Environment, the folder, Worktree, Model, Effort and
+// Permissions, starting at this chat's own values (offerChoice.ts).
 // Gated by the `sessions.promptSuggestions` setting (or the Debug tunable forcing it on) or the
 // session-offer experiment (offersShown.ts).
 import { useId, useState } from "react";
@@ -12,14 +15,15 @@ import { useT, type Translate } from "../i18n";
 import type { AcpmuxOfferResult, AcpmuxSessionOffer } from "../model";
 import { errorMessage } from "../transportErrors";
 import { ContextMenu } from "../../../ui/ContextMenu";
-import { Menu, MenuButton, MenuCheckboxItem, MenuItem, MenuPopup } from "../../../ui/Menu";
 import "./suggestedTasks.css";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
 import { openSessionAttributes } from "../conversation/menuParts";
+import { OfferOptions } from "./OfferOptions";
+import { initialChoice, useOfferDefaults, type OfferChoice, type OfferDefaults } from "./offerChoice";
 
 /// What a task's buttons do (App.tsx routes them to `chat.offer.*`).
 export type OfferActions = {
-  start(offerId: string, worktree: boolean): Promise<unknown>;
+  start(offerId: string, choice: OfferChoice): Promise<unknown>;
   here(offerId: string): Promise<unknown>;
   dismiss(offerId: string): Promise<unknown>;
   open(childSessionId: string): void;
@@ -31,9 +35,10 @@ export function SuggestedTasks({ offers, actions }: { offers: AcpmuxSessionOffer
   const t = useT();
   const [busy, setBusy] = useState<Record<string, Busy>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
-  // Each task's Options > Start in a new worktree, from the agent's ask until the person changes it.
-  const [worktrees, setWorktrees] = useState<Record<string, boolean>>({});
-  const worktree = (offer: AcpmuxSessionOffer) => worktrees[offer.offerId] ?? offer.worktree;
+  const defaults = useOfferDefaults();
+  // Each task's Options, from the agent's ask and this chat's values until the person changes them.
+  const [choices, setChoices] = useState<Record<string, OfferChoice>>({});
+  const choice = (offer: AcpmuxSessionOffer) => choices[offer.offerId] ?? initialChoice(offer, defaults);
   const open = offers.filter((offer) => !offer.outcome);
   const started = offers.filter((offer) => offer.outcome === "accepted" && offer.childSessionId);
   const single = offers.length === 1 && !offers[0]!.groupId;
@@ -53,7 +58,7 @@ export function SuggestedTasks({ offers, actions }: { offers: AcpmuxSessionOffer
     }
   };
   const start = (offer: AcpmuxSessionOffer) =>
-    run(offer.offerId, "start", () => actions.start(offer.offerId, worktree(offer)));
+    run(offer.offerId, "start", () => actions.start(offer.offerId, choice(offer)));
   const here = (offer: AcpmuxSessionOffer) => void run(offer.offerId, "here", () => actions.here(offer.offerId));
   const dismiss = (offer: AcpmuxSessionOffer) =>
     void run(offer.offerId, "dismiss", () => actions.dismiss(offer.offerId));
@@ -93,8 +98,9 @@ export function SuggestedTasks({ offers, actions }: { offers: AcpmuxSessionOffer
             offer={offer}
             busy={busy[offer.offerId]}
             error={errors[offer.offerId]}
-            worktree={worktree(offer)}
-            onWorktree={(on) => setWorktrees((current) => ({ ...current, [offer.offerId]: on }))}
+            defaults={defaults}
+            choice={choice(offer)}
+            onChoice={(next) => setChoices((current) => ({ ...current, [offer.offerId]: next }))}
             onStart={() => void start(offer)}
             onHere={() => here(offer)}
             onDismiss={() => dismiss(offer)}
@@ -115,17 +121,18 @@ function withKey<T>(record: Record<string, T>, key: string, value: T | undefined
   return next;
 }
 
-/// "3 suggested tasks", or a lone offer's "Suggested".
+/// "3 suggested tasks", or a lone offer's "New session".
 function heading(t: Translate, offers: AcpmuxSessionOffer[], single: boolean): string {
-  return single ? t("offer.label") : t("offer.tasks.count", { n: offers.length });
+  return single ? t("offer.newSession") : t("offer.tasks.count", { n: offers.length });
 }
 
 function OpenTask({
   offer,
   busy,
   error,
-  worktree,
-  onWorktree,
+  defaults,
+  choice,
+  onChoice,
   onStart,
   onHere,
   onDismiss,
@@ -133,8 +140,9 @@ function OpenTask({
   offer: AcpmuxSessionOffer;
   busy?: Busy;
   error?: string;
-  worktree: boolean;
-  onWorktree(on: boolean): void;
+  defaults: OfferDefaults | undefined;
+  choice: OfferChoice;
+  onChoice(next: OfferChoice): void;
   onStart(): void;
   onHere(): void;
   onDismiss(): void;
@@ -172,18 +180,15 @@ function OpenTask({
           </span>
         )}
         <div className="acpmux-task-actions" aria-live="polite">
-          <Menu>
-            <MenuButton className="acpmux-task-action" aria-haspopup="menu" disabled={off}>
-              {t("offer.options")}
-            </MenuButton>
-            <MenuPopup className="ui-context-menu acpmux-task-menu" label={t("offer.options")} align="start">
-              <MenuCheckboxItem checked={worktree} onCheckedChange={onWorktree}>
-                {t("offer.newWorktree")}
-              </MenuCheckboxItem>
-              <MenuItem onSelect={onDismiss}>{t("offer.dismiss")}</MenuItem>
-            </MenuPopup>
-          </Menu>
-          {worktree && <span className="acpmux-task-note">{t("offer.worktree")}</span>}
+          <OfferOptions
+            offer={offer}
+            defaults={defaults}
+            choice={choice}
+            disabled={off}
+            onChoice={onChoice}
+            onDismiss={onDismiss}
+          />
+          {choice.worktree && <span className="acpmux-task-note">{t("offer.worktree")}</span>}
           <span className="acpmux-task-spacer" />
           {busy === "start" ? (
             <span className="acpmux-task-note">{t("offer.starting")}</span>

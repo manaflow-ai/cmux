@@ -120,6 +120,10 @@
   border-radius: var(--ds-radius-control);
   font-weight: var(--weight-regular);
 }
+/* Options sits on a quiet fill, as Claude desktop's card has it; Do it here stays bare. */
+.acpmux-task-action[aria-haspopup="dialog"] {
+  background: var(--acpmux-composer-hover);
+}
 .acpmux-task-action[data-primary] {
   background: var(--agent-text);
   color: var(--acpmux-base);
@@ -160,16 +164,113 @@
   outline: 1.5px solid var(--agent-text);
   outline-offset: 1px;
 }
-/* The Options menu shares the environment picker's neutral hover/keyboard wash (#33137). */
-.ui-context-menu.acpmux-task-menu .ui-menu-item[data-highlighted] {
+/* The Options popover's menus (Model, Effort, Permissions) share the environment picker's neutral
+   hover/keyboard wash (#33137). */
+.acpmux-task-menu .ui-menu-item[data-highlighted] {
   background: var(--acpmux-menu-hover);
   box-shadow: none;
 }
-/* Its check sits on the menu's state column (ui/popupSurface.css, "EVERY MENU ON ONE GRID"). */
+/* Their check sits on the menu's state column (ui/popupSurface.css, "EVERY MENU ON ONE GRID"). */
 .acpmux-task-menu .ui-menu-check {
   display: inline-flex;
   justify-content: center;
   flex: none;
+}
+
+/* A task's Options popover (OfferOptions.tsx), as Claude desktop's suggested-session card has it:
+   a label on the left and its value or control on the right, 32px rows, the folder as its name
+   over its parent path, Dismiss at the foot. */
+.acpmux-task-options {
+  width: 280px;
+  max-width: calc(100vw - 24px);
+}
+.acpmux-task-options-body {
+  display: flex;
+  flex-direction: column;
+  padding: var(--ds-space-1) 0;
+  color: var(--agent-text);
+  font-size: var(--text-control);
+  line-height: 18px;
+  letter-spacing: var(--text-control--letter-spacing);
+}
+.acpmux-task-option {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  min-height: 32px;
+  padding: 0 var(--ds-space-3);
+}
+.acpmux-task-option-label {
+  flex: 1;
+  min-width: 0;
+  color: var(--acpmux-composer-dim);
+  white-space: nowrap;
+}
+.acpmux-task-option-value {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.acpmux-task-option--folder {
+  /* Its two lines (name, parent path) set its height. */
+  padding-block: var(--ds-space-1);
+  color: var(--acpmux-composer-dim);
+}
+.acpmux-task-folder {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.acpmux-task-folder-name,
+.acpmux-task-folder-path {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.acpmux-task-folder-name {
+  color: var(--agent-text);
+}
+.acpmux-task-folder-path {
+  font-size: var(--text-detail);
+  line-height: 16px;
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-task-option .ui-select {
+  flex: none;
+  min-width: 0;
+  max-width: 60%;
+}
+.acpmux-task-option-select {
+  max-width: 100%;
+}
+.acpmux-task-options-foot {
+  display: flex;
+  margin-top: var(--ds-space-1);
+  padding: var(--ds-space-1) var(--ds-space-2) 0;
+  border-top: 1px solid color-mix(in srgb, var(--agent-text) 8%, transparent);
+}
+.acpmux-task-option-dismiss {
+  height: 24px;
+  padding: 0 var(--ds-space-2);
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  background: none;
+  color: var(--acpmux-composer-dim);
+  font: inherit;
+}
+.acpmux-task-option-dismiss:hover {
+  background: var(--acpmux-menu-hover);
+  color: var(--agent-text);
+}
+.acpmux-task-option-dismiss:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 1px;
 }
 
 /* A started task: `⎿ title  subtitle  •  ›`, one 28px line. */
