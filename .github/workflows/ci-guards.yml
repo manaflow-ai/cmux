@@ -120,6 +120,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_run_guards.py
 
+      - name: Validate the deleted-test guard
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_test_integrity.py
+
       - name: Validate machine-failure detection for focused reruns
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_machine_failure.py
