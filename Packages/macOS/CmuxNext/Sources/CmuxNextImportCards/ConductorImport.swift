@@ -116,9 +116,16 @@ public struct ConductorImport {
             try await daemon.record(workspace: id, stage: .pending, cmuxWorkspace: key.rawValue, runCompleted: false,
                                     idempotencyKey: "conductor-import-\(run)-\(id)-pending")
             let made = try await host.openConductorWorkspace(folder: path, name: item.workspace.name, key: key)
-            try await daemon.record(workspace: id, stage: .done, cmuxWorkspace: made,
-                                    runCompleted: failedProjects.isEmpty && index == adopting.count - 1,
-                                    idempotencyKey: "conductor-import-\(run)-\(id)-done")
+            do {
+                try await daemon.record(workspace: id, stage: .done, cmuxWorkspace: made,
+                                        runCompleted: failedProjects.isEmpty && index == adopting.count - 1,
+                                        idempotencyKey: "conductor-import-\(run)-\(id)-done")
+            } catch {
+                // Refused when another run took this workspace after this one's pending record: its
+                // workspace is the one the ledger keeps, so this one closes rather than stay a duplicate.
+                try? await daemon.closeWorkspace(key)
+                throw error
+            }
             opened += 1
             progress?(Double(index + 1) / Double(adopting.count))
         }

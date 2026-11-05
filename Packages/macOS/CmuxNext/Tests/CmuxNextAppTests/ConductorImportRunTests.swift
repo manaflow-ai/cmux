@@ -20,6 +20,7 @@ struct ConductorImportRunTests {
         var listed: [String] = []
         var closeError: (any Error)?
         var refusedPaths: Set<String> = []
+        var refusedStage: ConductorImportStage?
         private(set) var closed: [WorkspaceKey] = []
         private(set) var added: [String] = []
         private(set) var records: [(workspace: String, stage: ConductorImportStage)] = []
@@ -41,6 +42,9 @@ struct ConductorImportRunTests {
 
         func record(workspace: String, stage: ConductorImportStage, cmuxWorkspace: String?, runCompleted: Bool,
                     idempotencyKey: String) async throws {
+            if stage == refusedStage {
+                throw DaemonError.command(cmd: "conductor_import.record", message: "taken", code: "validation.invalid")
+            }
             records.append((workspace, stage))
         }
     }
@@ -108,6 +112,18 @@ struct ConductorImportRunTests {
         host.keys["ended"] = WorkspaceKey(rawValue: "key-ended")
         #expect(try await Self.run(daemon, host, Preview()) == 1)
         #expect(host.opened == ["/w/w1"])
+    }
+
+    /// Another run took the workspace after this one's pending record, so its done record is
+    /// refused: the workspace this run made closes instead of staying open beside the other.
+    @Test func aRefusedDoneRecordClosesTheWorkspaceItMade() async throws {
+        let daemon = Daemon(try Self.reply([Self.project("r1", [Self.workspace("w1", kind: "adopt", checked: true)])]))
+        daemon.listed = ["/src/r1"]
+        daemon.refusedStage = .done
+        let host = Host()
+        await #expect(throws: DaemonError.self) { _ = try await Self.run(daemon, host, Preview()) }
+        #expect(host.opened == ["/w/w1"])
+        #expect(daemon.closed.count == 1)
     }
 
     /// A repository that cannot be added keeps its workspaces unrecorded (Import Again offers

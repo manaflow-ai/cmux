@@ -130,18 +130,19 @@ fn conductor_import_plan_adopts_then_records_pending_and_done() {
     assert_eq!(lima(&first)["disposition"], json!({"kind": "adopt"}));
     assert_eq!(lima(&first)["checked"], true);
 
+    // The app records the key before it makes the workspace with it.
+    let cmux_workspace = open_workspace(&mux);
     let pending = mutate(
         &mux,
         "conductor_import.record",
-        json!({"workspace": "w-lima", "stage": "pending", "cmux_workspace": "ws-half"}),
+        json!({"workspace": "w-lima", "stage": "pending", "cmux_workspace": cmux_workspace}),
         "lima-pending",
     );
     assert_eq!(
         pending,
-        json!({"workspace": "w-lima", "stage": "pending", "cmux_workspace": "ws-half", "runs": 0})
+        json!({"workspace": "w-lima", "stage": "pending", "cmux_workspace": cmux_workspace, "runs": 0})
     );
 
-    let cmux_workspace = open_workspace(&mux);
     let done = mutate(
         &mux,
         "conductor_import.record",
@@ -275,7 +276,23 @@ fn conductor_import_record_keeps_an_open_done_workspace() {
         assert_eq!(pending["cmux_workspace"], cmux_workspace);
     }
 
+    // Two runs both recorded pending: the earlier run's done, naming the
+    // workspace it made instead of the one pending names now, is refused.
+    let earlier = send(
+        &mux,
+        "conductor_import.record",
+        json!({"workspace": "w-lima", "stage": "done", "cmux_workspace": "ws-first"}),
+        Some("a-done-earlier"),
+    );
+    assert_eq!(error_code(earlier), "validation.invalid");
+
     let first = open_workspace(&mux);
+    mutate(
+        &mux,
+        "conductor_import.record",
+        json!({"workspace": "w-lima", "stage": "pending", "cmux_workspace": first}),
+        "a-pending-made",
+    );
     mutate(
         &mux,
         "conductor_import.record",

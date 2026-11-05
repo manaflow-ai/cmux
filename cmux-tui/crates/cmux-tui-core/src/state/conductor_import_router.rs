@@ -9,7 +9,8 @@
 //!   nothing is found, and `error` says why when there is no plan to show.
 //! - `conductor_import.record` (mutation): one workspace's stage in the
 //!   ledger, `pending` before the app makes it and `done` once made, and
-//!   `run_completed` counts a finished run. A done workspace whose cmux
+//!   `run_completed` counts a finished run. A done record names the
+//!   workspace its pending record named, and a done workspace whose cmux
 //!   workspace is still open is not recorded over by another one.
 //!
 //! A ledger from a newer cmux, or one that breaks the ledger's invariants,
@@ -135,18 +136,32 @@ impl Record {
         })
     }
 
-    /// Why this record may not change the ledger, if it may not: the entry is
-    /// done and its cmux workspace is still open, and the record names
-    /// another workspace (or none, as a pending one about to be made). Two
-    /// runs that overlap both plan the workspace as one to adopt; the first
-    /// done wins and the second run's records are refused, so the ledger never
-    /// trades the open workspace for a duplicate. A done entry whose workspace
-    /// was closed is offered again and may be recorded over, pending replaces
-    /// pending, and the same workspace recorded again is no change.
+    /// Why this record may not change the ledger, if it may not. Done
+    /// follows the pending record that named its workspace: a done record
+    /// naming another workspace than the pending entry is refused, so of two
+    /// runs that both recorded pending, only the later one's done lands and
+    /// the other run closes the workspace it made. And a done entry whose
+    /// cmux workspace is still open is kept against any record naming
+    /// another workspace (or none, as a pending one about to be made), so the
+    /// ledger never trades the open workspace for a duplicate. A done entry
+    /// whose workspace was closed is offered again and may be recorded over,
+    /// pending replaces pending, and the same workspace recorded again is no
+    /// change.
     fn conflict(&self, ledger: &Ledger, state: &State) -> Option<String> {
         let entry = ledger.workspaces.get(&self.workspace)?;
         if entry.stage != Stage::Done {
-            return None;
+            let (Stage::Done, Some(named)) = (self.stage, self.cmux_workspace.as_deref()) else {
+                return None;
+            };
+            let pending = entry.cmux_workspace.as_deref()?;
+            let same = pending == named
+                || open_key(state, pending).is_some_and(|key| open_key(state, named) == Some(key));
+            return (!same).then(|| {
+                format!(
+                    "Conductor workspace {} is being imported as cmux workspace {pending}, not {named}",
+                    self.workspace
+                )
+            });
         }
         let made = entry.cmux_workspace.as_deref()?;
         let open = open_key(state, made)?;
