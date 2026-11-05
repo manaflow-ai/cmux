@@ -104,6 +104,12 @@ public final class JoinedMachineStore {
     /// A section's window came back into view (``MachineSectionView`` follows its window's
     /// occlusion): aging restarts now. A row whose heartbeat passed the window while it was covered
     /// is read at once; otherwise the deadline is the next expiry again.
+    /// A section's window was covered: with every section covered the deadline stops now, so a covered
+    /// window costs no wakeups at all (``resumeAging()`` starts it again).
+    public func pauseAging() {
+        if !watchers.values.contains(where: { $0() }) { ageTimer.cancel() }
+    }
+
     public func resumeAging() {
         guard watchers.values.contains(where: { $0() }), let due = JoinedMachine.nextExpiry(machines) else { return }
         let delay = max(0, due.timeIntervalSince(clock()) + 1)

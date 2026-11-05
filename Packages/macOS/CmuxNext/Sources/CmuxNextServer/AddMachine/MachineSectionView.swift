@@ -71,7 +71,7 @@ public final class MachineSectionView: NSView {
     /// While this section is in a window and not hidden (itself or the whole panel), `store` re-checks
     /// its online rows once their heartbeat would pass the hub's 90 s window; hidden or out of the
     /// window, the deadline stops (``JoinedMachineStore/startAging(_:visible:)``). A covered window
-    /// coming back into view restarts it at once (``JoinedMachineStore/resumeAging()``).
+    /// coming back into view restarts it at once (``JoinedMachineStore/resumeAging()``); covering it stops it.
     public func followAging(_ store: JoinedMachineStore) {
         agingStore = store
         followSight()
@@ -107,8 +107,8 @@ public final class MachineSectionView: NSView {
         sightWindow = agingStore == nil ? nil : window
         if let window = sightWindow {
             FrameScheduler.followSight(of: window, owner: self) { [weak self] in
-                guard let self, isOnScreen else { return }
-                agingStore?.resumeAging()
+                guard let self else { return }
+                if isOnScreen { agingStore?.resumeAging() } else { agingStore?.pauseAging() }
             }
         }
     }

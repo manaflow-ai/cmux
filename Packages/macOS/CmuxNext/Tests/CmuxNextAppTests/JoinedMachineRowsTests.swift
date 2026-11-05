@@ -88,6 +88,9 @@ import CmuxNextWakeups
         #expect(!store.isAging, "the last section hid: the deadline stops")
         store.startAging(section) { visible }
         visible = false
+        store.pauseAging()
+        #expect(!store.isAging, "the window was covered: the deadline stops at once, no wakeup at the expiry")
+        store.startAging(section) { visible }
         let reads = fake.lists
         await store.ageFired()
         #expect(fake.lists == reads, "a fire with no section on screen reads nothing")
