@@ -216,9 +216,10 @@ struct CuaTargetGuard: Sendable {
 
     /// Tools that run other tools from content outside their arguments.
     static let opaqueDispatchTools: Set<String> = ["run_script", "replay_trajectory"]
-    /// Tools cmux never offers. Upstream v0.38's parse_visual_regions runs the
-    /// separately installed cua-perception worker, whose OmniParser model is
-    /// AGPL; this dylib configures no worker, and cmux keeps it that way.
+    /// Tools cmux never offers. Upstream's parse_visual_regions (registered
+    /// since v0.34) runs the separately installed cua-perception worker, whose
+    /// OmniParser model is AGPL; this dylib configures no worker, and cmux
+    /// keeps it that way.
     static let excludedTools: Set<String> = ["parse_visual_regions"]
     /// Tools that run nested tool calls given in their arguments (run_actions
     /// is upstream's hidden alias of run_steps).
