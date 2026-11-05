@@ -163,11 +163,12 @@ fn save_at(home: &std::path::Path, record: &MachineCredential) -> Result<()> {
     recovery::write_durable(&home.join(CREDENTIAL_FILE), &serde_json::to_vec_pretty(record)?, true)
 }
 
-/// Whether `record` was copied here from another box: marked so, or joined on a box whose
-/// fingerprint differs from this one's. A record or a box with no fingerprint is no clone.
-fn copied_here(record: &MachineCredential, current: Option<&str>) -> bool {
+/// Whether `record`, read from `home`, was copied here from another box: marked so, or joined
+/// on a box whose fingerprint differs from this one's. A record or a box with no fingerprint
+/// is no clone.
+fn copied_here(home: &std::path::Path, record: &MachineCredential, current: Option<&str>) -> bool {
     record.cloned
-        || matches!((record.host_fingerprint.as_deref(), current), (Some(joined), Some(here)) if !host_fingerprint::same_box(joined, here))
+        || matches!((record.host_fingerprint.as_deref(), current), (Some(joined), Some(here)) if !host_fingerprint::same_box(home, joined, here))
 }
 
 /// At daemon start, before the WireGuard transport and the mesh relay: a record joined on
@@ -198,7 +199,10 @@ pub(crate) fn settle_clone_at_start() -> Result<CloneCheck> {
 /// Whether this home's record was joined on another box (marked or not yet marked).
 pub(crate) fn copied_from_another_box() -> bool {
     let current = host_fingerprint::current();
-    load().ok().flatten().is_some_and(|record| copied_here(&record, current.as_deref()))
+    load()
+        .ok()
+        .flatten()
+        .is_some_and(|record| copied_here(&state_dir(), &record, current.as_deref()))
 }
 
 /// [`settle_clone_at_start`] in `home`, as the box whose fingerprint is `current`. The caller
@@ -212,7 +216,7 @@ pub(crate) fn settle_clone_at(home: &std::path::Path, current: Option<&str>) -> 
     match record.host_fingerprint.as_deref() {
         Some(joined) if joined == current => Ok(CloneCheck::Same),
         // Joined before cmux-host bound this box's instance id: the same box, now under it.
-        Some(joined) if host_fingerprint::same_box(joined, current) => {
+        Some(joined) if host_fingerprint::same_box(home, joined, current) => {
             record.host_fingerprint = Some(current.to_owned());
             save_at(home, &record)?;
             Ok(CloneCheck::Adopted)
@@ -295,13 +299,14 @@ fn load() -> Result<Option<MachineCredential>> {
 /// A record copied from another box is no credential of this one: None, as if not joined.
 pub(crate) fn machine_credential() -> Result<Option<MachineCredential>> {
     let current = host_fingerprint::current();
-    Ok(load()?.filter(|record| !copied_here(record, current.as_deref())))
+    Ok(load()?.filter(|record| !copied_here(&state_dir(), record, current.as_deref())))
 }
 
 /// The person this machine recorded at join, for `controlFrom`'s `sameUser` entry. None when
 /// the machine is not joined, is revoked, or recorded no person.
 pub(crate) fn machine_user_id() -> Option<String> {
-    let record = load().ok().flatten()?;
+    // A copy of another box's join speaks for nobody here.
+    let record = machine_credential().ok().flatten()?;
     (!record.revoked).then_some(record.user_id?).and_then(|user| safe_id(&user))
 }
 
@@ -342,7 +347,7 @@ pub(crate) fn read_join_credential(hub_origin: &str) -> Result<String> {
     let record = load()?.ok_or_else(|| anyhow!("machine credential is missing"))?;
     anyhow::ensure!(!record.revoked, "revoked: run machine add again");
     anyhow::ensure!(
-        !copied_here(&record, host_fingerprint::current().as_deref()),
+        !copied_here(&state_dir(), &record, host_fingerprint::current().as_deref()),
         "cloned: this machine's state was copied from another machine; paste a new join line"
     );
     anyhow::ensure!(
@@ -414,14 +419,18 @@ impl Drop for HeldLock {
 pub(crate) fn credential_present() -> Result<bool> {
     let current = host_fingerprint::current();
     load()
-        .map(|value| value.is_some_and(|record| !copied_here(&record, current.as_deref())))
+        .map(|value| {
+            value.is_some_and(|record| !copied_here(&state_dir(), &record, current.as_deref()))
+        })
         .map_err(|_| store_error().into())
 }
 
 pub(crate) fn already_joined(replace: bool, json_out: bool) -> Result<bool> {
     let Some(record) = load().map_err(|_| store_error())? else { return Ok(false) };
     // A copy of another box's join is no join of this one: the new join line makes one.
-    if replace || join_incomplete()? || copied_here(&record, host_fingerprint::current().as_deref())
+    if replace
+        || join_incomplete()?
+        || copied_here(&state_dir(), &record, host_fingerprint::current().as_deref())
     {
         return Ok(false);
     }
@@ -510,7 +519,7 @@ pub async fn status(hub: Option<String>, json_out: bool) -> Result<()> {
     )
     .await;
     let running = matches!(daemon, Ok(Ok(_)));
-    let cloned = copied_here(&record, host_fingerprint::current().as_deref());
+    let cloned = copied_here(&state_dir(), &record, host_fingerprint::current().as_deref());
     // A copy holds no credential of this box: not present, and the copied public key is not
     // this box's (its own appears with its new join).
     let wg_public_key = (!cloned).then_some(record.wg_public_key.clone());
@@ -684,7 +693,7 @@ mod tests {
             super::CloneCheck::Same
         );
         let record = super::load_at(home.path()).unwrap().unwrap();
-        assert!(!record.cloned && !super::copied_here(&record, Some("box-a")));
+        assert!(!record.cloned && !super::copied_here(home.path(), &record, Some("box-a")));
         assert_eq!(std::fs::read(home.path().join("node.wg.key")).unwrap(), key);
     }
 
@@ -695,7 +704,7 @@ mod tests {
         let key = joined_on(home.path(), Some("box-a"));
         let before = super::load_at(home.path()).unwrap().unwrap();
         assert!(
-            super::copied_here(&before, Some("box-b")),
+            super::copied_here(home.path(), &before, Some("box-b")),
             "a mismatch is a copy before any start"
         );
         assert_eq!(
@@ -716,7 +725,10 @@ mod tests {
             super::CloneCheck::AlreadyCloned
         );
         assert_eq!(std::fs::read(home.path().join("node.wg.key")).unwrap(), fresh);
-        assert!(super::copied_here(&record, Some("box-b")) && super::copied_here(&record, None));
+        assert!(
+            super::copied_here(home.path(), &record, Some("box-b"))
+                && super::copied_here(home.path(), &record, None)
+        );
     }
 
     #[test]
@@ -725,7 +737,10 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let key = joined_on(home.path(), None);
         let before = super::load_at(home.path()).unwrap().unwrap();
-        assert!(!super::copied_here(&before, Some("box-a")), "no fingerprint is no clone");
+        assert!(
+            !super::copied_here(home.path(), &before, Some("box-a")),
+            "no fingerprint is no clone"
+        );
         assert_eq!(super::settle_clone_at(home.path(), None).unwrap(), super::CloneCheck::Unknown);
         assert_eq!(
             super::settle_clone_at(home.path(), Some("box-a")).unwrap(),
@@ -760,7 +775,7 @@ mod tests {
         let key = joined_on(home.path(), Some("mid-a"));
         TEST_MACHINE_ONLY.with(|cell| *cell.borrow_mut() = Some(Some("mid-a".into())));
         let before = super::load_at(home.path()).unwrap().unwrap();
-        assert!(!super::copied_here(&before, Some("inst-1")));
+        assert!(!super::copied_here(home.path(), &before, Some("inst-1")));
         assert_eq!(
             super::settle_clone_at(home.path(), Some("inst-1")).unwrap(),
             super::CloneCheck::Adopted
@@ -776,6 +791,29 @@ mod tests {
             super::CloneCheck::Cloned
         );
         TEST_MACHINE_ONLY.with(|cell| *cell.borrow_mut() = None);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_cloud_fork_still_on_the_originals_machine_id_is_a_clone() {
+        use super::host_fingerprint::TEST_MACHINE_ONLY;
+        // Joined on "mid-a" before a bind, then forked: the fork keeps machine id "mid-a" until
+        // it is rekeyed, but cmux-host marked its home with `clone-boot` before this start.
+        for marker in [crate::hub::clone_boot::MARKER, crate::hub::clone_boot::DONE] {
+            let home = tempfile::tempdir().unwrap();
+            let key = joined_on(home.path(), Some("mid-a"));
+            std::fs::write(home.path().join(marker), r#"{"from":"m1","to":"m2"}"#).unwrap();
+            TEST_MACHINE_ONLY.with(|cell| *cell.borrow_mut() = Some(Some("mid-a".into())));
+            let before = super::load_at(home.path()).unwrap().unwrap();
+            assert!(super::copied_here(home.path(), &before, Some("inst-2")), "{marker}");
+            assert_eq!(
+                super::settle_clone_at(home.path(), Some("inst-2")).unwrap(),
+                super::CloneCheck::Cloned,
+                "{marker}"
+            );
+            assert_ne!(std::fs::read(home.path().join("node.wg.key")).unwrap(), key);
+            TEST_MACHINE_ONLY.with(|cell| *cell.borrow_mut() = None);
+        }
     }
 
     #[test]

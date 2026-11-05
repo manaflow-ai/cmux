@@ -379,7 +379,9 @@ pub(super) async fn join(
             match load().map_err(|_| store_error())? {
                 // A copy never proves a replacement with the original box's credential: that
                 // would retire the original's enrollment from here.
-                Some(old) if !copied_here(&old, host_fingerprint::current().as_deref()) => {
+                Some(old)
+                    if !copied_here(&state_dir(), &old, host_fingerprint::current().as_deref()) =>
+                {
                     replacement_proof(old).await?
                 }
                 _ => None,

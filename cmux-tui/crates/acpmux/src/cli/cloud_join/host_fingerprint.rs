@@ -35,11 +35,19 @@ fn machine_only() -> Option<String> {
     machine_id().map(|raw| of(&raw))
 }
 
-/// Whether a record joined with fingerprint `joined` is this box, whose fingerprint is `here`:
-/// the same fingerprint, or (an instance id bound since the join) the fingerprint of this
-/// box's own machine id. A copy carries another box's machine id and matches neither.
-pub(crate) fn same_box(joined: &str, here: &str) -> bool {
-    joined == here || machine_only().is_some_and(|machine| machine == joined)
+/// Whether a record in acpmux home `home`, joined with fingerprint `joined`, is this box, whose
+/// fingerprint is `here`: the same fingerprint, or (an instance id bound since the join) the
+/// fingerprint of this box's own machine id. A copy onto another box carries another machine
+/// id. A Cloud fork keeps the original's machine id until it is rekeyed, so the machine id
+/// alone never counts in a home cmux-host marked as a copy (`clone-boot`, or `clone-boot.done`
+/// once spent: `hub/clone_boot.rs`).
+pub(crate) fn same_box(home: &std::path::Path, joined: &str, here: &str) -> bool {
+    use crate::hub::clone_boot::{DONE, MARKER};
+    if joined == here {
+        return true;
+    }
+    let marked_copy = [MARKER, DONE].iter().any(|name| home.join(name).exists());
+    !marked_copy && machine_only().is_some_and(|machine| machine == joined)
 }
 
 fn of(raw: &str) -> String {
