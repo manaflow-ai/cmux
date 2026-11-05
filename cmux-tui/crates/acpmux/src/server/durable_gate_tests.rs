@@ -204,3 +204,50 @@ async fn a_replay_never_sends_a_line_before_its_record() {
     assert!(seen.contains(&first.seq), "the replay missed line {}: {seen:?}", first.seq);
     assert!(!seen.contains(&second), "the replay sent line {second} before its record: {seen:?}");
 }
+
+/// Review of #35400 N1: after a hard stop the log can be ahead of the chat's saved `lastSeq`
+/// (metadata is saved less often than lines). `session/load`'s replay stops at `lastSeq`, so it
+/// must count the log's tail first (`Hub::catch_up`): else the first replay of a chat whose log
+/// is not loaded yet leaves out its newest lines, and they are never sent live either. With the
+/// switch off too.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_replay_after_a_hard_stop_sends_the_tail_past_the_saved_last_seq() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let mut config = Config::default();
+    config.store.mode = StoreMode::Local;
+    let store = crate::store::open(&config.store, home.path())
+        .unwrap_or_else(|e| panic!("open the store: {e:#}"));
+    let meta: crate::store::SessionMeta = serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA, "id": CHAT, "name": CHAT,
+        "harness": "fake", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1,
+        "lastSeq": 1,
+    }))
+    .unwrap_or_else(|e| panic!("meta: {e}"));
+    store.save(&meta).unwrap_or_else(|e| panic!("{e:#}"));
+    // The hard stop: three lines in the log, `lastSeq` saved at 1.
+    for seq in 1..=3 {
+        let record = crate::store::EventRecord {
+            seq,
+            at: 1_000 + seq,
+            dir: "mux".into(),
+            kind: "note".into(),
+            msg: json!({ "n": seq }),
+            host_seq: None,
+        };
+        store.append(CHAT, &record).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    drop(store);
+    // A new daemon on the same home, as the daemon builds its hub: the chat's metadata loads, its
+    // log is read later (`load_logs`, after the ready line). `Hub::new` would read it at once.
+    let store = crate::store::open(&config.store, home.path())
+        .unwrap_or_else(|e| panic!("open the store: {e:#}"));
+    let hub = crate::hub::Hub::new_deferred(config, store, crate::mailbox::Mailbox::memory());
+    let mut seen = Vec::new();
+    hub.scan_events(CHAT, 0, &mut |record| {
+        seen.push(record.seq);
+        true
+    })
+    .unwrap_or_else(|e| panic!("{e:#}"));
+    assert_eq!(seen, vec![1, 2, 3], "the replay left out the log's tail past the saved lastSeq");
+}
