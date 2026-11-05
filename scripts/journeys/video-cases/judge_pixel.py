@@ -105,6 +105,8 @@ CODE = {v: k for k, v in CLASS.items()}
 ROLE_DEFAULT = {"shell": "#FF00FF", "theme": "#00FFFF", "ring1": "#FF0000", "ring2": "#FFFFFF", "ring3": "#000000", "strip": "#000000"}
 SHELL_TOL = 4               # an exact shell pixel: every channel this close to the shell's color
 CUE_WIDEN_PT = 40.0         # the cue counts this far from a divider's rect (it trails the divider in a fast drag)
+GLOW_HALF_PT = 4.0          # 3e.7: a pressed divider's glow band, each side of its line (DividerGlowBand: 1 pt of the
+                            # 2 pt core and the 3 pt halo)
 PILL_TOL = 6                # a strip pixel this far (max channel) from the strip's ground is not ground: the pill, text
 PILL_BRIDGE = 2             # ground gaps this narrow inside a run (between glyphs) are bridged
 PILL_MIN_PX = 12            # the selected tab's pill: the longest run of non-ground pixels, at least this long
@@ -228,6 +230,7 @@ class Film:
             elif cell and strip:
                 self.headers[pid] = max(0.0, float(strip[1]) + float(strip[3]) - float(cell[1]))
         self.inputs = _journal_inputs(events.get("journal") or [])
+        self.presses = _journal_presses(events.get("journal") or [])
         scan = Path(f"{self.base}.mov.scan")
         self.has_scan = scan.is_file()
         self.rows, self.cols, self.t, self.row_px, self.col_px = [], [], np.zeros(0), None, None
@@ -276,6 +279,74 @@ class Film:
         drags = sum(1 for t, kind in self.inputs if kind == "mouse_drag" and t0 - 2 * self.period <= t <= t1)
         keys = sum(1 for t, kind in self.inputs if kind == "key_down" and t0 - INPUT_KEY_WINDOW_S <= t <= t1)
         return drags > 0 or keys >= 2
+
+
+def _journal_presses(journal):
+    """[(down host s, up host s, x, y)] of the app's input journal: each mouse-down with the next mouse-up (window points);
+    a down with no up lasts to the end of the film."""
+    out, down = [], None
+    for e in sorted((e for e in journal if isinstance(e, dict) and e.get("uptimeNanos")), key=lambda e: e["uptimeNanos"]):
+        body = (e.get("kind") or {}).get("mouse") if isinstance(e.get("kind"), dict) else None
+        body = body.get("_0", body) if isinstance(body, dict) else None
+        if not isinstance(body, dict):
+            continue
+        t = float(e["uptimeNanos"]) / 1e9
+        if body.get("phase") == "down" and down is None and body.get("x") is not None and body.get("y") is not None:
+            down = (t, float(body["x"]), float(body["y"]))
+        elif body.get("phase") == "up" and down is not None:
+            out.append((down[0], t, down[1], down[2]))
+            down = None
+    if down is not None:
+        out.append((down[0], math.inf, down[1], down[2]))
+    return out
+
+
+def pressed_dividers(film):
+    """[(down host s, up host s, divider id)]: per press, the divider whose rect holds the mouse-down point in the sample
+    committed at the down (no divider there: no entry)."""
+    out = []
+    for t_down, t_up, x, y in film.presses:
+        k = film.committed(t_down)
+        if k is None:
+            continue
+        for did, d in film.samples[k].dividers.items():
+            if len(d) >= 5:
+                dx, dy, dw, dh = (float(v) for v in d[1:5])
+                if dx - 1 <= x <= dx + dw + 1 and dy <= y <= dy + dh:
+                    out.append((t_down, t_up, did))
+                    break
+    return out
+
+
+def with_glow(film, codes, rgb, f, k, coord_px, presses):
+    """3e.7: CODES of a strip row in film frame F (shown sample K) with the pressed divider's glow band read: while a
+    divider is pressed (PRESSES, pressed_dividers; to two refreshes past the mouse-up: the band goes out with the next
+    commit, and the frame after the up can still show it: ab-s2bt3-sw-3fbd40a drag-3t on-s0125 frame 264), within
+    GLOW_HALF_PT of its line a pixel with red and blue on (the glow over the shell: #ED65F5, the cue) is the shell and any
+    other pixel is the strip (the glow over the strip: #62646A, #111213), so a strip edge under the band is read where it
+    is; a strip that is truly off under the band still reads off."""
+    t = float(film.t[f])
+    bands = []
+    for t_down, t_up, did in presses:
+        if not t_down <= t <= t_up + 2 * film.period:
+            continue
+        d = film.samples[k].dividers.get(did)
+        if d is None or len(d) < 5:
+            continue
+        x, y, w, h = (float(v) for v in d[1:5])
+        if h > w and y * film.scale <= coord_px < (y + h) * film.scale:  # a vertical divider that crosses this row
+            c = (x + w / 2) * film.scale
+            bands.append((int(math.floor(c - GLOW_HALF_PT * film.scale)), int(math.ceil(c + GLOW_HALF_PT * film.scale))))
+    if not bands:
+        return codes
+    out = codes.copy()
+    for a, b in bands:
+        a, b = max(0, a), min(len(codes), b)
+        if b <= a:
+            continue
+        shell_like = (rgb[a:b, 0] >= HI) & (rgb[a:b, 2] >= HI)
+        out[a:b] = np.where(shell_like, film.roles["shell"], film.roles["strip"])
+    return out
 
 
 def _journal_inputs(journal):
@@ -910,9 +981,12 @@ def measure_lines(film, lines, shown):
     measured: (pid, line, axis, side) -> per frame a side dict or None; inside: (pid, line, axis) -> per frame (shell px
     inside the pane, has fill) or None; line_codes: line -> per frame codes (the cue marked), for the strips."""
     measured, inside, line_codes = {}, {}, {}
+    presses = pressed_dividers(film)
+    strip_rows = set(film.strip_rows.values())
     for name, axis, coord, px in lines:
         codes_all = classify(px)
         rgb = px[..., 2::-1].astype(np.int16)
+        glow = presses if axis == "row" and int(coord) in strip_rows else ()
         near_shell = (codes_all == film.roles["shell"]) & (np.abs(rgb - film.shell_rgb).max(-1) > SHELL_TOL)
         per_line = []
         for f in range(film.n):
@@ -920,8 +994,10 @@ def measure_lines(film, lines, shown):
             if k is None:
                 per_line.append(codes_all[f])
                 continue
-            codes = outside_window(film, with_cue(codes_all[f], near_shell[f], divider_bands(film, film.samples[k], axis, coord)),
-                                   axis, k)
+            codes = with_cue(codes_all[f], near_shell[f], divider_bands(film, film.samples[k], axis, coord))
+            if glow:
+                codes = with_glow(film, codes, rgb[f], f, k, coord, glow)
+            codes = outside_window(film, codes, axis, k)
             per_line.append(codes)
             for pid, m in measure(film, codes, axis, coord, film.samples[k], film.closing_rows[k]).items():
                 inside.setdefault((pid, name, axis), [None] * film.n)[f] = (m["shell_in"], m["has_fill"])
