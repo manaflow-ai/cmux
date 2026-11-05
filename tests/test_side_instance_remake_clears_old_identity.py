@@ -107,6 +107,13 @@ class SideInstanceRemakeTests(unittest.TestCase):
         self.assertEqual(self.make(nightly), first)
         self.assertEqual([p for p in state if not p.exists()], [])
 
+    def test_remove_clears_the_current_identity(self):
+        ident = self.make(self.app("nightly", "com.cmuxterm.app.nightly", "cmux-next"))
+        state = self.state_of(ident)
+        subprocess.run(["bash", str(SCRIPT), "remove", "pr-1"], env=self.env, check=True, capture_output=True, text=True)
+        self.assertEqual([p for p in state if p.exists()], [])
+        self.assertFalse((self.tmp / "side/pr-1").exists())
+
 
 if __name__ == "__main__":
     unittest.main()
