@@ -62,4 +62,12 @@ struct UpdateTransferRateTests {
         rate.record(Self.phase(1_000_000), at: Self.start.addingTimeInterval(4))
         #expect(rate.bytesPerSecond == nil, "a count that went back kept the old download's samples")
     }
+
+    /// Review F1 at 9dd8c4bd6f11: a Double fraction floored read 29 of 50 as 57%.
+    @Test func thePercentIsExactAtWholeValues() {
+        for (received, expected, shown) in [(UInt64(29), UInt64(50), "58%"), (57, 100, "57%"), (1, 3, "33%"), (49, 50, "98%")] {
+            let text = UpdateTransfer.downloading(received: received, expected: expected).bytesText ?? ""
+            #expect(text.hasSuffix(shown), "\(received) of \(expected) reads \(text)")
+        }
+    }
 }
