@@ -1,3 +1,4 @@
+import AppKit
 public import CmuxNextCompat
 public import CmuxNextDesign
 import CmuxNextWakeups
@@ -56,15 +57,15 @@ public final class WebKitSpareTab {
     /// Spares a new tab took in this process (`debug` reports).
     public private(set) var taken = 0
 
+    /// - Parameters: nil `activity`, `isTrackingMenu` and `isEnabled` read the app's input count, the main run
+    ///   loop's menu tracking and the Debug Setting (a test passes its own).
     public init(policy: Policy = Policy(), clock: any Clock<Duration> = ContinuousClock(),
-                activity: @escaping () -> UInt64 = { ExpectedActivity.shared.total },
-                isTrackingMenu: @escaping () -> Bool = { RunLoop.main.currentMode == .eventTracking },
-                isEnabled: @escaping () -> Bool = { WebKitSpareTab.setting.value },
+                activity: (() -> UInt64)? = nil, isTrackingMenu: (() -> Bool)? = nil, isEnabled: (() -> Bool)? = nil,
                 memoryPressure: MemoryPressureEvents? = nil) {
         self.policy = policy
-        self.activity = activity
-        self.isTrackingMenu = isTrackingMenu
-        self.isEnabled = isEnabled
+        self.activity = activity ?? { ExpectedActivity.shared.total }
+        self.isTrackingMenu = isTrackingMenu ?? { RunLoop.main.currentMode == .eventTracking }
+        self.isEnabled = isEnabled ?? { WebKitSpareTab.setting.value }
         timer = DemandTimer(owner: "WebKitSpareTab.build", clock: clock)
         if let memoryPressure { watch(memoryPressure) }
     }
