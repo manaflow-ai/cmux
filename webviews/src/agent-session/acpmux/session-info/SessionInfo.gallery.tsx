@@ -21,7 +21,7 @@ import { activity, assistant, chat, CONTEXT_BREAKDOWN, CWD, tool } from "../../.
 import type { StartedSession } from "../started/startedSessions";
 import type { Subagent } from "../subagents/subagentFold";
 import { createWorkflowAdapter } from "../summary/foldWorkflows";
-import { sessionSummary, type SummaryWakeup } from "../summary/sessionSummary";
+import { sessionSummary, type SummarySource, type SummaryWakeup } from "../summary/sessionSummary";
 import { workflowFixture, type WorkflowFixtureStage } from "../summary/workflowFixture";
 import { SessionInfo, SessionInfoPanel, type SessionInfoPlacement } from "./SessionInfo";
 import { SubagentBanner, SubagentTitle, type SubagentHeaderVariant } from "./SubagentScopeHeader";
@@ -1053,6 +1053,13 @@ const openMcpTools: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-context-breakdown__items") !== null);
 };
 
+/// A pasted image as acpmux keeps it: WebKit named it "image.png"; `source` is the app it came from.
+const pasted = (id: string, source?: string): SummarySource => ({
+  label: "image.png",
+  kind: "image",
+  image: { id: id.repeat(64), ...(source ? { source } : {}) },
+});
+
 const text = (ctx: Parameters<Play>[0]) => ctx.document.querySelector(".acpmux-session-info")?.textContent ?? "";
 
 export default componentEntry<Props>({
@@ -1588,6 +1595,31 @@ export default componentEntry<Props>({
       },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector('[data-kind="folder"]') !== null);
+        ctx.document.querySelector('[data-section="sources"]')?.scrollIntoView({ block: "center" });
+      },
+    },
+    "sources-screenshots": {
+      note: 'Five images pasted from the clipboard, each named "image.png" by WebKit, and one real capture file (Leo, 2026-11-05: "instead of, like screenshot number one, two, three, four, or whatever"): Sources reads them Screenshot 1, 2, ... in chat order, "Safari screenshot 4" for the one copied from Safari, and the file by its own name.',
+      props: {
+        ...full,
+        made: {
+          ...full.made,
+          sources: [
+            pasted("1"),
+            pasted("2"),
+            { label: "cmux.com/docs/session-info", url: "https://cmux.com/docs/session-info", kind: "url" },
+            pasted("3"),
+            pasted("4", "Safari"),
+            pasted("5"),
+            { label: "Screenshot 2026-11-05 at 10.12.04.png", kind: "image", image: { id: "6".repeat(64) } },
+          ],
+        },
+      },
+      play: async (ctx) => {
+        const rows = () => ctx.document.querySelectorAll('[data-section="sources"] li').length;
+        await ctx.waitFor(() => rows() === 5);
+        await ctx.click({ selector: "button.acpmux-session-info-sources-fold" });
+        await ctx.waitFor(() => rows() === 7);
         ctx.document.querySelector('[data-section="sources"]')?.scrollIntoView({ block: "center" });
       },
     },
