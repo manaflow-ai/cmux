@@ -10452,7 +10452,7 @@ or null), hidden?, target_kind?}`.
 
 | Command | Params | Data | Error codes |
 | --- | --- | --- | --- |
-| `fs.stat` | `{path}` | entry + `{mode_display, owner_display, revision}` | `fs.not_found` |
+| `fs.stat` | `{path}` | entry + `{mode_display, owner_display, revision}`, and for a folder `available_bytes` (what a writer may still use on its file system; an older daemon leaves it out) | `fs.not_found` |
 | `fs.list` | `{path, sort?, filter?, limit (1..1000, default 200), cursor?, listing?}` | `{entries, listing, cursor, total, revision}` | `fs.not_a_directory`, `fs.too_large`, `cursor.expired` |
 | `fs.read` | `{path, offset?, max_bytes}` | `{text \| bytes_base64, truncated, size, encoding: "utf-8"\|"base64"}` | `fs.not_a_file` |
 | `fs.write` | `{path, text \| bytes_base64, mode: "create"\|"overwrite"\|"replace"\|"append", expected?, permissions?}` (`append` adds the bytes in place to a regular, singly linked file while it has the revision `expected`, for files over the single-write limit; a failed append is cut back. `permissions` gives the written file 0644, 0755, 0600 or 0700, as a decimal number) | `{entry}` (with `revision`) | `fs.exists`, `fs.revision_mismatch` (`error_details.current`), `fs.too_large`, `fs.no_space`, `fs.read_only` |

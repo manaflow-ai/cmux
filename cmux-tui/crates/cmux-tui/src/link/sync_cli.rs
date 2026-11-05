@@ -369,6 +369,9 @@ pub(super) fn progress_printer() -> impl FnMut(Progress) {
 /// A failed push's error code and message: the machine's full disk is
 /// `disk_full` in plain words, a refusal of the machine its own code.
 pub(super) fn push_failure(error: &anyhow::Error) -> (String, String) {
+    if let Some(too_big) = error.downcast_ref::<TooBig>() {
+        return ("folder_too_big".to_string(), too_big.to_string());
+    }
     match remote::refusal_code(error) {
         Some("fs.no_space") => {
             ("disk_full".to_string(), "The Cloud machine's disk is full".to_string())
@@ -851,6 +854,20 @@ fn push_inner(
                 Pushed { sha256: String::new(), permissions: 0, revision: current },
             );
         }
+    }
+    // A folder too big for the machine stops here, before any file goes. A
+    // file the machine already holds is rewritten in place and needs no new
+    // room; a daemon too old to name its free space is not asked.
+    let needed = set
+        .files
+        .iter()
+        .filter(|(relative, _)| !previous.files.contains_key(*relative))
+        .map(|(_, file)| size(file).unwrap_or(0))
+        .fold(0, u64::saturating_add);
+    if let Some(free) = remote.stat(remote_root)?.and_then(|stat| stat["available_bytes"].as_u64())
+        && needed > free
+    {
+        return Err(TooBig { needed, free }.into());
     }
     let mut links = LinkSync::default();
 
@@ -1439,6 +1456,46 @@ fn open(file: &LocalFile) -> anyhow::Result<Box<dyn std::io::Read>> {
         }
         Source::Bytes(bytes) => Box::new(std::io::Cursor::new(bytes.clone())),
     })
+}
+
+/// A push whose new files need more room than the machine has left.
+#[derive(Debug)]
+pub(super) struct TooBig {
+    needed: u64,
+    free: u64,
+}
+
+impl std::fmt::Display for TooBig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "The folder needs {} on the Cloud machine, which has {} free",
+            bytes_text(self.needed),
+            bytes_text(self.free)
+        )
+    }
+}
+
+impl std::error::Error for TooBig {}
+
+/// `bytes` in decimal units as Finder shows them: "980 bytes", "12 kB",
+/// "12.8 GB".
+fn bytes_text(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["kB", "MB", "GB", "TB", "PB"];
+    if bytes < 1000 {
+        return format!("{bytes} bytes");
+    }
+    // Tenths of the unit, rounded: exact in integers up to u64::MAX.
+    let mut scaled = bytes;
+    let mut unit = 0;
+    while scaled >= 999_950 && unit < UNITS.len().saturating_sub(1) {
+        scaled /= 1000;
+        unit = unit.saturating_add(1);
+    }
+    let tenths = scaled.saturating_add(50) / 100;
+    let (whole, tenth) = (tenths / 10, tenths % 10);
+    let name = UNITS.get(unit).copied().unwrap_or("PB");
+    if tenth == 0 { format!("{whole} {name}") } else { format!("{whole}.{tenth} {name}") }
 }
 
 fn size(file: &LocalFile) -> anyhow::Result<u64> {

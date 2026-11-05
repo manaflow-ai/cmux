@@ -128,9 +128,8 @@ fn a_folder_stat_names_the_free_bytes_and_a_file_stat_does_not() {
     assert_eq!(answer["ok"], true, "{answer}");
     assert!(answer["data"]["available_bytes"].as_u64().is_some_and(|free| free > 0), "{answer}");
 
-    let write = home.map(
-        r#"{"id":2,"cmd":"fs.write","path":"/home/cmux/a.txt","text":"a","mode":"create"}"#,
-    );
+    let write = home
+        .map(r#"{"id":2,"cmd":"fs.write","path":"/home/cmux/a.txt","text":"a","mode":"create"}"#);
     assert_eq!(answer_line(Some(&service), true, "owner", &write)["ok"], true);
     let line = home.map(r#"{"id":3,"cmd":"fs.stat","path":"/home/cmux/a.txt"}"#);
     let answer = answer_line(Some(&service), true, "owner", &line);

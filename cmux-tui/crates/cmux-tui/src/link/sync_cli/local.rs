@@ -855,7 +855,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let top = std::fs::canonicalize(dir.path()).unwrap();
         git(&top, &["init", "-q"]);
-        for (path, text) in [("Cargo.toml", "[package]\n"), ("vendor/node_modules/kept.js", "1\n")] {
+        for (path, text) in [("Cargo.toml", "[package]\n"), ("vendor/node_modules/kept.js", "1\n")]
+        {
             let file = top.join(path);
             std::fs::create_dir_all(file.parent().unwrap()).unwrap();
             std::fs::write(file, text).unwrap();
