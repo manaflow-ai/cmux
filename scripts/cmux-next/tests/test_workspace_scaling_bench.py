@@ -34,6 +34,20 @@ class WorkspaceScalingTests(unittest.TestCase):
         rows = bench.collect({1: {"invalid_probes": ["typing"], "typing": {"phases": []}}})
         self.assertFalse(any(row["interaction"] == "type" for row in rows))
 
+    def test_all_missed_instant_samples_are_incomplete(self):
+        report = {
+            "summary": {"idle@1ws/new_workspace": {"visible_p50": None, "visible_p95": None}},
+            "runs": [{"phase": "idle@1ws", "command": "new_workspace", "visible_ms": None}],
+        }
+        self.assertEqual(bench.instant_rows(report, 1), {})
+        failures = bench.coverage_failures(bench.collect({1: {"instant": report}}))
+        self.assertEqual(failures[0]["workspaces"], 1)
+        self.assertIn("new_workspace", failures[0]["missing"])
+
+    def test_summary_without_p95_is_incomplete(self):
+        report = {"summary": {"idle@1ws/new_workspace": {"visible_p50": 3.0}}}
+        self.assertEqual(bench.instant_rows(report, 1), {})
+
     def test_switch_uses_real_two_row_baseline(self):
         rows = [{"interaction": "switch", "workspaces": 100, "p95": 10},
                 {"interaction": "switch", "workspaces": 1000, "p95": 11.1}]

@@ -73,13 +73,18 @@ def instant_rows(report, count):
             values = [r.get("visible_ms") for r in runs if isinstance(r, dict)
                       if r.get("phase") == f"idle{suffix}" and r.get("command") == command]
             if not values:
-                if isinstance(entry.get("visible_p50"), (int, float)):
+                if (isinstance(entry.get("visible_p50"), (int, float))
+                        and isinstance(entry.get("visible_p95"), (int, float))):
                     out[interaction] = {"p50": entry["visible_p50"], "p95": entry.get("visible_p95"),
                                         "p99": entry.get("visible_p99", entry.get("visible_p95")),
                                         "n": entry.get("n")}
                     continue
         if values:
-            out[interaction] = stats(values)
+            sample = stats(values)
+            # A probe can exit successfully after missing every display sample. Do not publish
+            # null percentile rows: coverage_failures must see the interaction as missing.
+            if sample["n"] and isinstance(sample["p95"], (int, float)):
+                out[interaction] = sample
     return out
 
 
