@@ -49,6 +49,8 @@ mod handover;
 mod home_watch;
 mod notify;
 pub(crate) mod owner_exit;
+/// A process's start time, which with its pid names it (the test owner, `owner_exit.rs`).
+pub use owner_exit::process_start;
 mod persist_retry;
 #[cfg(unix)]
 mod socket_rebind;
@@ -207,30 +209,47 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     let _ = std::env::set_current_dir(home());
     exe_path::check_run(opts.ready_fd)?;
     let lock = home().join("daemon.lock");
+    // Debug builds only: a daemon a test started stops with that test's process, mid-turn too
+    // (`daemon/owner_exit.rs`); never in a release build. Armed before the lock wait, which has no
+    // limit while the holder lives, so a test that dies during it ends this daemon too.
+    let mut test_owner = std::pin::pin!(owner_exit::test_owner_exit());
     #[cfg(unix)]
     handover::reclaim_from_dev(&lock, &socket_path(), &home()).await;
-    let _lock_file = match acquire_daemon_lock(&lock, opts.take_over).await {
-        Ok(lock) => lock,
-        Err(e) => {
-            // The command that started this daemon waits for the holder (`connect`).
-            if let Some(fd) = opts.ready_fd.filter(|_| e.downcast_ref::<LockHeld>().is_some()) {
-                // The app launches `daemon run` directly, without `start_and_connect`.
-                // Its losing launch must report the winner's endpoint once it answers.
-                tracing::info!("another daemon holds the lock; waiting for its socket or exit");
-                match handover::wait(&home(), &socket_path()).await {
-                    Some(handover::Started::Acquired(lock)) => lock,
-                    Some(handover::Started::Ready(ready)) => {
-                        write_ready(fd, &ready);
-                        return Ok(());
+    // None: another daemon answers for this home and its ready line went out; nothing to do.
+    let lock_wait = async {
+        match acquire_daemon_lock(&lock, opts.take_over).await {
+            Ok(lock) => Ok(Some(lock)),
+            Err(e) => {
+                // The command that started this daemon waits for the holder (`connect`).
+                if let Some(fd) = opts.ready_fd.filter(|_| e.downcast_ref::<LockHeld>().is_some()) {
+                    // The app launches `daemon run` directly, without `start_and_connect`.
+                    // Its losing launch must report the winner's endpoint once it answers.
+                    tracing::info!("another daemon holds the lock; waiting for its socket or exit");
+                    match handover::wait(&home(), &socket_path()).await {
+                        Some(handover::Started::Acquired(lock)) => Ok(Some(lock)),
+                        Some(handover::Started::Ready(ready)) => {
+                            write_ready(fd, &ready);
+                            Ok(None)
+                        }
+                        None => {
+                            write_ready(fd, &serde_json::json!({"ready": false, "lockHeld": true}));
+                            Err(e)
+                        }
                     }
-                    None => {
-                        write_ready(fd, &serde_json::json!({"ready": false, "lockHeld": true}));
-                        return Err(e);
-                    }
+                } else {
+                    Err(e)
                 }
-            } else {
-                return Err(e);
             }
+        }
+    };
+    let _lock_file = tokio::select! {
+        lock = lock_wait => match lock? {
+            Some(lock) => lock,
+            None => return Ok(()),
+        },
+        pid = &mut test_owner => {
+            tracing::warn!("stopping before it held its lock: its test process {pid} exited");
+            return Ok(());
         }
     };
     // The home and lock this daemon holds, read as soon as it holds them: one replaced during
@@ -635,9 +654,6 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // Unused for its grace on a home of its own, or soon after its owner app quit: a normal stop
     // (`daemon/unused_exit.rs`, `daemon/owner_exit.rs`).
     let mut unused = std::pin::pin!(unused_exit::unused(Arc::downgrade(&hub)));
-    // Debug builds only: a daemon a test started stops with that test's process, mid-turn too
-    // (`daemon/owner_exit.rs`); never in a release build.
-    let mut test_owner = std::pin::pin!(owner_exit::test_owner_exit());
     // Its home and lock, re-read during the shutdown too.
     #[cfg(unix)]
     let held_home = owned_home.clone();

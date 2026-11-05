@@ -29,17 +29,10 @@ final class ServerMenuBarController: NSObject, NSPopoverDelegate {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.server-menu")
 
     init(makeSource: @escaping @MainActor () -> (any ServerSource)? = { MockServerSource(scenario: .healthyMac) },
-         makeInviteCard: @escaping @MainActor () -> PairInviteCardPanel? = ServerMenuBarController.mockInviteCard) {
+         makeInviteCard: @escaping @MainActor () -> PairInviteCardPanel? = { PairInviteCardPanel.mock() }) {
         self.makeSource = makeSource
         self.makeInviteCard = makeInviteCard
         super.init()
-    }
-
-    /// The previews' and tests' card: the mock invite over the mock server's preview.
-    static func mockInviteCard() -> PairInviteCardPanel? {
-        let approver = ServerModel(source: MockServerSource(scenario: .healthyMac))
-        approver.start()
-        return PairInviteCardPanel(model: PairInviteModel(service: .mock(), approver: approver))
     }
 
     var isShown: Bool { item != nil }
