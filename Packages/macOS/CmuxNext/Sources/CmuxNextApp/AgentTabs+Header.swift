@@ -10,7 +10,7 @@ extension AgentTabStore {
     func wireHeader(_ model: AgentPaneModel, key provisional: String, machine: String? = nil) {
         let scoped = tabKey(provisional, machine: machine)
         let actions = AgentChatTabActions(tab: { [weak self] in self?.resolve(provisional, machine: scoped.machine) ?? provisional },
-                                          registry: { [weak self] in self?.actionRegistry }, files: { [weak self] in self?.openFiles?(self?.resolve(provisional) ?? provisional, $0, $1) }, hidden: { [weak self] in CloudMove.hiddenMenuItems(self?.record(for: self?.resolvedKey(scoped) ?? scoped)?.record) }, local: { [weak self] in self?.gitLinkScoped?(self?.resolvedKey(scoped))?.isLocal == true }, openTool: { [weak self] kind, cwd in guard let self else { return false }; return self.openToolScoped?(self.resolvedKey(scoped), kind, cwd) ?? false })
+                                          registry: { [weak self] in self?.actionRegistry }, files: { [weak self] in self?.openFiles?(self?.resolve(provisional, machine: scoped.machine) ?? provisional, $0, $1) }, hidden: { [weak self] in CloudMove.hiddenMenuItems(self?.record(for: self?.resolvedKey(scoped) ?? scoped)?.record) }, local: { [weak self] in self?.gitLinkScoped?(self?.resolvedKey(scoped))?.isLocal == true }, openTool: { [weak self] kind, cwd in guard let self else { return false }; return self.openToolScoped?(self.resolvedKey(scoped), kind, cwd) ?? false })
         let toggles = AgentChatSplitToggles(), pullRequest = AgentChatPullRequest()
         let watch = AgentChatHeaderWatch(state: { [weak self] in
             guard let self else { return AgentPaneHeaderState() }
@@ -35,40 +35,40 @@ extension AgentTabStore {
             // The page reads the state when a chat opens; its changes are pushed.
             watch.read()
         }, openSide: { [weak self] chat, fork in // the tracker (AgentSidePanes) asks RightColumnPlacement; the app opens there
-            guard let self else { return }; AgentSidePanes.chat(chat).open(fork, chat: resolve(provisional), hooks: .init(pane: { [weak self] in self?.locate(self?.resolve($0) ?? $0).map { "\(ObjectIdentifier($0.daemon).hashValue):\($0.pane.rawValue)" } }, column: { [weak self] in self?.rightColumn(self?.resolve($0) ?? $0) ?? .init() }) { [weak self] _, _, created, finished in // openOnRight decides again in its turn (RightColumnTurns)
+            guard let self else { return }; AgentSidePanes.chat(chat).open(fork, chat: resolve(provisional, machine: scoped.machine), hooks: .init(pane: { [weak self] in self?.locate(self?.resolve($0, machine: scoped.machine) ?? $0).map { "\(ObjectIdentifier($0.daemon).hashValue):\($0.pane.rawValue)" } }, column: { [weak self] in self?.rightColumn(self?.resolve($0, machine: scoped.machine) ?? $0) ?? .init() }) { [weak self] _, _, created, finished in // openOnRight decides again in its turn (RightColumnTurns)
                 self?.openOnRight(of: provisional, open: { [weak self] pane, daemon, split in guard let self else { throw CancellationError() }; return try open(in: pane, of: daemon, session: fork, split: split) }, created: { key, _ in created(key) }, finished: { _ in finished() }) ?? false })
         }, openRight: { [weak self] session in guard let self else { return false }; return self.openRightScoped?(self.resolvedKey(scoped), session, nil) ?? false
-        }, openTab: { [weak self] session, destination in self?.openFork(session, at: destination, beside: provisional) ?? false }, openSubagent: { [weak self] in self?.openSubagent($1, of: $0, focus: $2, beside: provisional) ?? false }, showsSubagent: { [weak self] title, tone, keepingTitle in guard let self else { return }; SubagentTabTitles.shared.show(title, inTab: resolve(provisional), tone: tone, keepingTitle: keepingTitle) }, openProcess: { [weak self] viewer in guard let self else { return false }; return openProcess?(resolve(provisional), viewer) ?? false }, newChat: { [weak self] in self?.openNewTabColumn(beside: provisional, cwd: $0, split: false) ?? false }, sideTabs: { [weak self] in
+        }, openTab: { [weak self] session, destination in self?.openFork(session, at: destination, beside: provisional) ?? false }, openSubagent: { [weak self] in self?.openSubagent($1, of: $0, focus: $2, beside: provisional) ?? false }, showsSubagent: { [weak self] title, tone, keepingTitle in guard let self else { return }; SubagentTabTitles.shared.show(title, inTab: resolve(provisional, machine: scoped.machine), tone: tone, keepingTitle: keepingTitle) }, openProcess: { [weak self] viewer in guard let self else { return false }; return openProcess?(resolve(provisional, machine: scoped.machine), viewer) ?? false }, newChat: { [weak self] in self?.openNewTabColumn(beside: provisional, cwd: $0, split: false) ?? false }, sideTabs: { [weak self] in
             guard let self else { return nil }
-            let chat = resolve(provisional)
-            return toggles.sideTabs(chat: chat, store: lookup(chat)?.store, actions: actions) { [weak self] in
+            let chat = resolve(provisional, machine: scoped.machine)
+            return toggles.sideTabs(chat: chat, store: record(for: self.resolvedKey(scoped))?.store, actions: actions) { [weak self] in
                 self?.openNewTabColumn(beside: provisional) ?? false
             }
         }, preview: { [weak self] url, toggle in
-            let chat = self?.resolve(provisional) ?? provisional
-            let store = self?.lookup(chat)?.store, id = AgentPaneModel.previewAction
+            let chat = self?.resolve(provisional, machine: scoped.machine) ?? provisional
+            let store = self?.record(for: self?.resolvedKey(scoped) ?? scoped)?.store, id = AgentPaneModel.previewAction
             if toggle { toggles.toggle(id, cwd: nil, url: url, chat: chat, store: store, actions: actions) }
             else { toggles.open(id, cwd: nil, url: url, chat: chat, store: store, actions: actions) }
         }, saveQuickActions: { [weak self] list in
             await self?.customization.saveQuickActions(list) ?? false
-        }, moveToFloatingChat: { [weak self] session in actions.moveToFloatingChat(session, via: self?.moveToFloatingChat) }, refreshPullRequest: pullRequest.askAgain, showSession: { [weak self] session in guard let self, let shown = tab(showing: session, host: lookup(resolve(provisional))?.record.host, where: { self.subagentTabIsBeside(self.resolve(provisional), $0) }) else { return false }; _ = actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: shown), origin: .user)); return true }, jumpToSession: { [weak self] session in guard let self, let shown = tab(showing: session, host: lookup(resolve(provisional))?.record.host) else { return false }; _ = actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: shown), origin: .user)); return true }, hasTab: { [weak self] session in guard let self else { return false }; return tab(showing: session, host: lookup(resolve(provisional))?.record.host) != nil }, isFamily: { [weak self] session, chat in self?.turns.isFamily(session, of: chat) ?? false }, moveTargets: { [weak self] in
+        }, moveToFloatingChat: { [weak self] session in actions.moveToFloatingChat(session, via: self?.moveToFloatingChat) }, refreshPullRequest: pullRequest.askAgain, showSession: { [weak self] session in guard let self, let shown = tab(showing: session, host: self.record(for: self.resolvedKey(scoped))?.record.host, where: { self.subagentTabIsBeside(self.resolve(provisional, machine: scoped.machine), $0) }) else { return false }; _ = actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: shown), origin: .user)); return true }, jumpToSession: { [weak self] session in guard let self, let shown = tab(showing: session, host: self.record(for: self.resolvedKey(scoped))?.record.host) else { return false }; _ = actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: shown), origin: .user)); return true }, hasTab: { [weak self] session in guard let self else { return false }; return tab(showing: session, host: self.record(for: self.resolvedKey(scoped))?.record.host) != nil }, isFamily: { [weak self] session, chat in self?.turns.isFamily(session, of: chat) ?? false }, moveTargets: { [weak self] in
             self?.machineTargets() ?? []
         }, moveToMachine: { [weak self] machine, session in
             guard let self else { return false }
             // Bound to the chat whose menu the page opened: a tab that shows another chat by now
             // (the person switched before this was handled) moves nothing.
-            let tab = self.resolve(provisional)
+            let tab = self.resolve(provisional, machine: scoped.machine)
             guard AgentPaneMoveTarget.tabStillShows(self.session(of: tab), requested: session) else { return false }
             return self.moveAgentToMachine(tab, machine)
         }, showsChat: { [weak self] session in
             guard let self else { return false }
-            return AgentPaneMoveTarget.tabStillShows(self.session(of: self.resolve(provisional)), requested: session)
+            return AgentPaneMoveTarget.tabStillShows(self.session(of: self.resolve(provisional, machine: scoped.machine)), requested: session)
         }) // an opened session's tab (on the chat's acpmux host, a Chief chat's `chief:<id>`) is shown only beside the chat (its pane or right column), never in another workspace; a chat opens only its family (startedBy)
         // Changes with the chat's turn (D1, D2), or the turn's own patch where no git source holds it:
         // the diff beside the chat offers the turn as Last turn, or shows only the patch.
         model.header?.diffOpen = { [weak self] cwd, extra, toggle in
-            let chat = self?.resolve(provisional) ?? provisional
-            let store = self?.lookup(chat)?.store, id = AgentChatSplitToggles.changes
+            let chat = self?.resolve(provisional, machine: scoped.machine) ?? provisional
+            let store = self?.record(for: self?.resolvedKey(scoped) ?? scoped)?.store, id = AgentChatSplitToggles.changes
             if toggle { toggles.toggle(id, cwd: cwd, extra: extra, chat: chat, store: store, actions: actions) }
             else { toggles.open(id, cwd: cwd, extra: extra, chat: chat, store: store, actions: actions) }
         }

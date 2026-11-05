@@ -116,7 +116,9 @@ extension AgentTabStore {
                 if let sequence { store.noteSettled(transaction, at: sequence) } else { store.noteSettledAtNextSnapshot(transaction) }
                 if store.creations.wasCancelled(transaction) { throw CancellationError() }
                 // A chat its page started (or the harness acpmux reported) before the store answered binds now.
-                if let started = sessions[AgentTabKey(machine: daemon.machineID, key: created.key)], !remote { sendSession(started, for: created.key) }
+                if let started = sessions[AgentTabKey(machine: daemon.machineID, key: created.key)], !remote {
+                    sendSession(started, for: created.key, machine: daemon.machineID)
+                }
                 return created
             } catch {
                 // A cancelled creation stays in the log until the store's close of its tab commits.

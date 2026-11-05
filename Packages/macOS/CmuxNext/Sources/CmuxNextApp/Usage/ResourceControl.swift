@@ -141,11 +141,21 @@ extension ResourceControl {
 
     @MainActor // browser tabs by browser id, agent tabs by the browser showing their page
     private static func rendererOwners(_ services: AppServices) -> [Int32: CEFRendererOwner] {
-        let browsers = services.cache.browsers.compactMap { key, entry in (entry.tab as? CEFTab)?.browserID.map { ($0, key, "browser") } }
-        let agents = (services.madeAgentTabs?.views.bare ?? [:]).compactMap { key, view in services.cache.cef.browserID(showing: view.focusTarget).map { ($0, key, "agent") } }
-        return Dictionary((browsers + agents).map { browser, key, kind in
+        struct Source {
+            let browser: Int32
+            let key: String
+            let kind: String
+            let scoped: AgentTabKey?
+        }
+        let browsers = services.cache.browsers.compactMap { key, entry in (entry.tab as? CEFTab)?.browserID.map { Source(browser: $0, key: key, kind: "browser", scoped: nil) } }
+        let agents = services.madeAgentTabs?.views.entries.compactMap { entry in
+            services.cache.cef.browserID(showing: entry.value.focusTarget).map { Source(browser: $0, key: entry.key.key, kind: "agent", scoped: entry.key) }
+        } ?? []
+        return Dictionary((browsers + agents).map { source in
+            let browser = source.browser, key = source.key, kind = source.kind
             var owner = CEFRendererOwner(kind: kind, tab: key)
-            if let (tab, pane) = services.locateTab(key) {
+            let located = if let scoped = source.scoped { services.locateTab(scoped.key, onMachine: scoped.machine) } else { services.locateTab(key) }
+            if let (tab, pane) = located {
                 let found = services.machines.daemons.lazy.compactMap { daemon in daemon.store.workspace(holdingTab: tab.id).map { (daemon.machineID, $0) } }.first
                 (owner.tab, owner.tabTitle, owner.pane, owner.session) = (tab.id, tab.displayTitle, pane.id, tab.agentSession?.session)
                 (owner.workspace, owner.workspaceTitle, owner.machine) = (found?.1.id, found?.1.displayName, found?.0)

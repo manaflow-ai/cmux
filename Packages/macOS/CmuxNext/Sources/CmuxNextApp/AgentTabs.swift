@@ -256,7 +256,7 @@ final class AgentTabStore {
 
     /// Tabs opened as the chooser page, and the actions for their selected kind.
     var newTabPages: AgentTabMap<(page: AgentPaneNewTab, handler: NewTabPageHandler)> = .init() {
-        didSet { pageTabs.set(Set(newTabPages.keys)) }
+        didSet { pageTabs.set(newTabPages.entries.map { (machine: $0.key.machine, key: $0.key.key) }) }
     }
     /// The ids in ``newTabPages``, observed: the strip titles those tabs "New Tab".
     let pageTabs = NewTabPageIDs()
@@ -642,15 +642,15 @@ final class AgentTabStore {
             (newTabPages[AgentTabKey(machine: scoped.machine, key: key)]?.handler ?? blankChatHandler?(key))?.open(key, request)
         }
         model.onRunAttach = { [weak self] request in guard let self, let runAttachScoped else { throw AgentPaneHostError.daemonStopped }; try await runAttachScoped(self.resolvedKey(scoped), request) }
-        model.onTypeAhead = { [weak self] text in self.map { $0.pageHandler(provisional)?.typeAhead($0.resolve(provisional, machine: scoped.machine), text) } }
+        model.onTypeAhead = { [weak self] text in self.map { $0.pageHandler($0.resolve(provisional, machine: scoped.machine))?.typeAhead($0.resolve(provisional, machine: scoped.machine), text) } }
         model.onNewTabInputReady = { [weak self] token in self.map { let key = $0.resolvedKey(scoped); $0.newTabPages[key]?.handler.inputReady(key.key, token) } }
         model.onRememberNewTab = { [weak self, weak model] pick in
             if let model { AgentPaneNewTabFrame.shared.modelChanged(pick, by: model) }
-            self?.pageHandler(provisional)?.remember(pick)
+            self?.pageHandler(self?.resolve(provisional, machine: scoped.machine) ?? provisional)?.remember(pick)
         }
-        model.onEditNewTab = { [weak self] edit in self?.pageHandler(provisional)?.edit(edit) }
-        model.onJump = { [weak self] target, id in self?.newTabPage(provisional)?.handler.jump(target, id) }
-        model.onEditShortcut = { [weak self] kind in self?.newTabPage(provisional)?.handler.editShortcut(kind) }
+        model.onEditNewTab = { [weak self] edit in self?.pageHandler(self?.resolve(provisional, machine: scoped.machine) ?? provisional)?.edit(edit) }
+        model.onJump = { [weak self] target, id in self?.newTabPage(self?.resolve(provisional, machine: scoped.machine) ?? provisional)?.handler.jump(target, id) }
+        model.onEditShortcut = { [weak self] kind in self?.newTabPage(self?.resolve(provisional, machine: scoped.machine) ?? provisional)?.handler.editShortcut(kind) }
         model.machineLink = machineLink
         model.onRunAction = { [weak self] id, arguments in
             guard let self else { return false }
@@ -661,7 +661,7 @@ final class AgentTabStore {
                 guard let machine = remoteMachineID(of: provisional) else { return false }
                 target = ActionTargetRef(kind: .machine, id: machine)
             } else {
-                target = ActionTargetRef(kind: .tab, id: resolve(provisional))
+                target = ActionTargetRef(kind: .tab, id: resolve(provisional, machine: scoped.machine))
             }
             return actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(target: target, arguments: arguments.mapValues(ActionValue.string), origin: .user)) ?? false
         }
@@ -677,7 +677,7 @@ final class AgentTabStore {
         model.onOpenChat = { [weak self] key in
             guard let self else { return }
             // From a New Tab page the chat takes that tab; elsewhere it opens through Open Chat.
-            let page = resolve(provisional)
+            let page = resolve(provisional, machine: scoped.machine)
             if isNewTabPage(page), let openHere = pageChats.openHere { openHere(key, page) } else { pageChats.open?(key) }
         }
         model.onOpenChatInTerminal = { [weak self] key in self?.pageChats.openInTerminal?(key) }
@@ -685,7 +685,7 @@ final class AgentTabStore {
         model.onChatsPage = { [weak self] query in
             let answer = await self?.pageChats.page?(query)
             // A New Tab page on screen gives the frame of the list it draws now.
-            if let self, let view = views[resolve(provisional)], view.model.newTab != nil, let host = view.superview { AgentPaneNewTabFrame.shared.capture(view, in: host) }
+            if let self, let view = views[self.resolvedKey(scoped)], view.model.newTab != nil, let host = view.superview { AgentPaneNewTabFrame.shared.capture(view, in: host) }
             return answer
         }
         model.onAppAction = { [weak self] id in
