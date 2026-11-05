@@ -97,6 +97,8 @@ public protocol PageChromiumPage: AnyObject {
     func setZoom(_ zoom: Double)
     /// Gives or takes the keyboard focus.
     func setFocused(_ focused: Bool)
+    /// Whether the page has the keyboard (a Chromium page takes it in its own child window).
+    var hasKeys: Bool { get }
     /// Shows or hides and pauses the page.
     func setVisible(_ visible: Bool)
     /// Makes the page see-through (true) or gives it its opaque page color back: where the document

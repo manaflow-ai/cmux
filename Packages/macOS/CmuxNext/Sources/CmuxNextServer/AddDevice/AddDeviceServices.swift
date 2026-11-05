@@ -12,7 +12,7 @@ public struct AddDeviceServices {
     public var newCloudMachine: () -> Void
     public var installTailscale: () -> Void
     public var copy: (String) -> Void
-    /// The one-line join's calls, nil while Labs `labs.machineJoin` is off (the way does not show).
+    /// The one-line join's calls; nil when the app offers no join (the way does not show and ssh stays first).
     public var machineJoin: () -> MachineJoinService?
     /// Copies a secret line: plain text marked concealed and transient, so clipboard managers skip it.
     public var copyConcealed: (String) -> Void

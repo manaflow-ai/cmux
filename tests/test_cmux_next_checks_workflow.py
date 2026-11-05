@@ -572,11 +572,13 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertIn("needs.path_route.outputs.scheme == 'true'", jobs["cmux-scheme-compile"]["if"])
         # A same-repository PR runs its routed tiers; full-ci is what a fork PR needs
         # (SameRepositoryPullRequestsRunTheirTiers evaluates the conditions).
-        for job_id in ("swift-canary", "swift-test", "generated-files", "daemon-test"):
+        for job_id in ("swift-canary", "generated-files", "daemon-test"):
             self.assertIn("github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || "
                           "contains(github.event.pull_request.labels.*.name, 'full-ci')", jobs[job_id]["if"], job_id)
-        # The two heavy app compiles are back behind full-ci on every PR (HeavyMacCompilesBehindFullCi).
-        for job_id in HEAVY_COMPILES:
+        # The two heavy app compiles and swift-test are behind full-ci on every PR
+        # (HeavyMacCompilesBehindFullCi; swift-test since 2026-11-05: on every PR push it was
+        # cancelled or skipped and never passed, and the tip suite dispatch gives the base verdict).
+        for job_id in HEAVY_COMPILES + ("swift-test",):
             self.assertIn("github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')",
                           jobs[job_id]["if"], job_id)
             self.assertNotIn("github.event.pull_request.head.repo.full_name == github.repository || ", jobs[job_id]["if"], job_id)
@@ -2723,9 +2725,9 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
         return {name for name in self.TIER_JOBS + ("macos-placement", "checks") if evaluate(jobs[name]["if"], context)}
 
     def test_a_same_repository_pr_runs_every_routed_tier_without_a_label(self):
-        # Except the two heavy app compiles, which need full-ci (HeavyMacCompilesBehindFullCi).
+        # Except the two heavy app compiles and swift-test, which need full-ci (HeavyMacCompilesBehindFullCi).
         self.assertEqual(self.running(self.context()),
-                         set(self.TIER_JOBS) - set(HEAVY_COMPILES) | {"macos-placement", "checks"})
+                         set(self.TIER_JOBS) - set(HEAVY_COMPILES) - {"swift-test"} | {"macos-placement", "checks"})
         self.assertEqual(self.running(self.context(labels=("full-ci",))),
                          set(self.TIER_JOBS) | {"macos-placement", "checks"})
 
@@ -2795,7 +2797,7 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
         place = next(step for step in self.jobs()["macos-placement"]["steps"] if step.get("id") == "place")
         expression = place["env"]["CASCADE_RUNS"]
         self.assertEqual(set(evaluate(expression, self.context()).split()),
-                         {"fast-tier", "swift-canary", "swift-test", "daemon-test"})
+                         {"fast-tier", "swift-canary", "daemon-test"})
         self.assertEqual(set(evaluate(expression, self.context(labels=("full-ci",))).split()),
                          {"fast-tier", "swift-canary", "cmux-scheme-compile", "release-compile", "swift-test", "daemon-test"})
         generated = self.context()

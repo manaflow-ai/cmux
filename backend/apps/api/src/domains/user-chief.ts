@@ -49,6 +49,16 @@ export interface ChiefRecord {
   readonly archived_at: string | null
   /** The chief that created this one with its chiefs grant (brain-chiefs.ts); absent when the user did. */
   readonly created_by?: string
+  /**
+   * A channel Chief (plans/cmux-next/chief-channels-DESIGN.md): its main conversation is the channel, a group
+   * conversation its owner owns, and its MuxDO takes wakes only from there. Absent on an ordinary Chief.
+   */
+  readonly channel?: ChiefChannel
+}
+/** The channel a channel Chief belongs to: the group conversation and the title it was made with. */
+export interface ChiefChannel {
+  readonly conversation: string
+  readonly title: string
 }
 export interface ChiefTombstone {
   readonly id: string
@@ -62,7 +72,7 @@ export interface ChiefsState {
   readonly hosted_default?: string
 }
 
-export const CHIEF_OPS = new Set(["chief.create", "chief.update", "chief.archive", "chief.delete"])
+export const CHIEF_OPS = new Set(["chief.create", "chief.update", "chief.archive", "chief.delete", "channel.create"])
 export const RESTORE_WINDOW_MS = 30 * 24 * 3_600_000
 /** A chief's agent class (participant `agent_class`); only this class acts under its owner's reach. */
 export const CHIEF_AGENT_CLASS = "mux"
@@ -167,7 +177,7 @@ export const reduceChief = (stateIn: UserState, op: string, params: Params, ctx:
   const viaChief = p.kind === "agent" && p.agent !== undefined && p.user === owner && p.identity === `agent:${p.agent} via chief` && chiefActive(stateIn, p.agent)
   if (viaChief) {
     const keys = Object.keys(params)
-    const allowed = op === "chief.create" ? ["display_name"] : op === "chief.update" ? ["chief", "expected_rev", "display_name"] : []
+    const allowed = op === "chief.create" ? ["display_name"] : op === "channel.create" ? ["title", "display_name"] : op === "chief.update" ? ["chief", "expected_rev", "display_name"] : []
     if (allowed.length === 0 || keys.some((k) => !allowed.includes(k)) || (op === "chief.update" && params.chief === p.agent)) return reject("auth.forbidden", "a Chief creates chiefs and renames other chiefs only")
   } else if ((p.kind !== "session" && p.kind !== "install") || p.agent || p.user !== owner) return reject("auth.forbidden", "only the user writes chief records")
   const now = formatNow(ctx.now)
@@ -184,6 +194,52 @@ export const reduceChief = (stateIn: UserState, op: string, params: Params, ctx:
     Object.fromEntries(Object.entries(all).map(([id, c]) => [id, c.is_default && id !== keep ? { ...c, is_default: false, rev: c.rev + 1, updated_at: now } : c]))
 
   switch (op) {
+    case "channel.create": {
+      // A group conversation with its own Chief (chief-channels-DESIGN.md 1). The system create holds only the
+      // owner and the new Chief; people join through the owner's reach-checked participants.add / invite.create.
+      const title = typeof params.title === "string" ? params.title.trim() : ""
+      if (title.length === 0 || [...title].length > 200) return reject("validation.invalid", "title must be 1 to 200 characters")
+      if (params.display_name !== undefined && !nameOk(params.display_name)) return reject("validation.invalid", "display_name must be 1 to 100 characters")
+      if (active.length >= MAX_CHIEFS) return reject("validation.invalid", `at most ${MAX_CHIEFS} chiefs`)
+      const id = `agent_${invites.crockford(createHash("sha256").update(`chief\u0000${owner}\u0000${ctx.tx}`).digest(), 26)}`
+      if (chiefs[id] || state.chief_tombstones?.[id]) return reject("validation.invalid", "chief id collision")
+      const conversation = chiefMainConversation(id)
+      const named = typeof params.display_name === "string" ? params.display_name.trim() : [...`${title} Chief`].slice(0, 100).join("")
+      const record: ChiefRecord = {
+        id,
+        owner_user: owner,
+        display_name: named,
+        is_default: false,
+        brain: "cloud",
+        brain_place: null,
+        main_conversation: conversation,
+        harness: null,
+        rev: 1,
+        created_at: now,
+        updated_at: now,
+        archived_at: null,
+        channel: { conversation, title },
+        ...(viaChief ? { created_by: p.agent } : {})
+      }
+      const bind: OutboxItem = { kind: "mux.bind", entity: `bind:${id}`, payload: { agent: id, owner_user: owner, brain: "cloud", channel: conversation }, target: { class: "MuxDO", name: id } }
+      const group: OutboxItem = {
+        kind: "conversation.create",
+        entity: `chief-channel:${id}`,
+        payload: {
+          id: conversation,
+          kind: "group",
+          owner,
+          title,
+          channel_chief: id,
+          participants: [
+            { id: owner, kind: "human", display_name: stateIn.user?.display_name ?? "Me" },
+            { id, kind: "agent", agent_class: CHIEF_AGENT_CLASS, owner_user: owner, display_name: named }
+          ]
+        },
+        target: { class: "ConversationDO", name: conversation }
+      }
+      return commit({ ...chiefs, [id]: record }, record, [bind, group, ...levelSync(state, id)])
+    }
     case "chief.create": {
       if (params.display_name !== undefined && !nameOk(params.display_name)) return reject("validation.invalid", "display_name must be 1 to 100 characters")
       if (params.is_default !== undefined && typeof params.is_default !== "boolean") return reject("validation.invalid", "is_default must be a boolean")

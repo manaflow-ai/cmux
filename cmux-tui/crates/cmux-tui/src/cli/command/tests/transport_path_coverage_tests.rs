@@ -300,6 +300,10 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "stash.restore"
                         | "stash.delete"
                         | "stash.import"
+                        // Import from Conductor is the app's: it reads the
+                        // plan and records what it made.
+                        | "conductor_import.plan"
+                        | "conductor_import.record"
                         | "sidebar_layout.update"
                         // The sidebar document (sidebar-doc-v1) is the app's
                         // too; the CLI sets only a section's scroll and row
