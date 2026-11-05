@@ -32,15 +32,20 @@ export function opensToFields(
 /// The fields of a call's input, in the order the harness sent them, or nil when the input is not
 /// an object with at least one argument (the caller then shows it as it came).
 export function inputFields(args: unknown, source?: string): InputField[] | undefined {
-  // JSON holding a number a double would change (a 64-bit ID) shows as it came, never parsed and
-  // rounded (toolResult.ts losesNumbers): the caller's request or output view, not fields.
-  const raw = source ?? (typeof args === "string" ? args : undefined);
-  if (raw && losesNumbers(raw)) return undefined;
   const input = typeof args === "string" ? parseObject(args) : args;
   if (!isRecord(input)) return undefined;
+  // A value holding a number a double would change (a 64-bit ID) shows as the agent spelled it,
+  // never parsed and rounded (toolResult.ts losesNumbers).
+  const raw = source ?? (typeof args === "string" ? args : undefined);
+  const exact = raw && losesNumbers(raw) ? rawMembers(raw) : undefined;
   const fields: InputField[] = [];
   for (const [key, value] of Object.entries(input)) {
     if (value === undefined) continue;
+    const spelled = exact?.get(key);
+    if (spelled !== undefined && losesNumbers(spelled)) {
+      fields.push({ key, text: spelled, look: typeof value === "object" ? "tree" : "value" });
+      continue;
+    }
     // An empty argument is still one the agent passed: it shows as the JSON it is, so the opened
     // call names every argument (generic calls have no Raw to fall back on).
     if (value === null || value === "" || (typeof value === "object" && Object.keys(value).length === 0)) {
@@ -69,6 +74,60 @@ export function inputFields(args: unknown, source?: string): InputField[] | unde
     }
   }
   return fields.length ? fields : undefined;
+}
+
+/// The raw JSON text of a call's arguments: the whole input, or a Codex MCP envelope's `arguments`
+/// (mcpCalls.ts mcpCall), so a caller can show them as spelled.
+export function argsSource(tool: { title: string; inputSummary?: string }): string | undefined {
+  const input = tool.inputSummary;
+  if (!input || tool.title.trim().startsWith("mcp__")) return input;
+  return rawMembers(input)?.get("arguments") ?? input;
+}
+
+/// The request as the MCP Raw view and Find show it: pretty, or as it came when parsing it would
+/// round a number.
+export function requestText(args: unknown, source: string | undefined): string | undefined {
+  if (source && losesNumbers(source) && parseObject(source) !== undefined) return source.trim();
+  return prettyValue(args);
+}
+
+/// Each top-level member of a JSON object's text, as it is spelled there, by key; undefined when
+/// the text is not one object.
+export function rawMembers(text: string): Map<string, string> | undefined {
+  const source = text.trim();
+  if (!source.startsWith("{") || parseObject(source) === undefined) return undefined;
+  const members = new Map<string, string>();
+  let depth = 0;
+  let start = 1;
+  let inString = false;
+  const take = (end: number) => {
+    const member = source.slice(start, end);
+    const colon = keyEnd(member);
+    if (colon > 0) members.set(JSON.parse(member.slice(0, colon).trim()) as string, member.slice(colon + 1).trim());
+  };
+  for (let index = 1; index < source.length; index++) {
+    const char = source[index];
+    if (inString) {
+      if (char === "\\") index++;
+      else if (char === '"') inString = false;
+    } else if (char === '"') inString = true;
+    else if (char === "{" || char === "[") depth++;
+    else if ((char === "}" || char === "]") && depth > 0) depth--;
+    else if (depth === 0 && (char === "," || char === "}")) {
+      take(index);
+      start = index + 1;
+    }
+  }
+  return members;
+}
+
+/// The index of the colon after a member's key string.
+function keyEnd(member: string): number {
+  for (let index = member.indexOf('"') + 1; index > 0 && index < member.length; index++) {
+    if (member[index] === "\\") index++;
+    else if (member[index] === '"') return member.indexOf(":", index);
+  }
+  return -1;
 }
 
 function parseObject(text: string): unknown {

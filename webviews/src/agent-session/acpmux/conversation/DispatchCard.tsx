@@ -8,7 +8,7 @@ import { ChevronRight, Envelope, ToolGroup } from "./icons";
 import { CopyButton } from "./CopyButton";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { useT, type Translate } from "../i18n";
-import type { DispatchCall } from "./dispatchCalls";
+import { dispatchDestination, type DispatchCall } from "./dispatchCalls";
 import { messagePreview } from "./AgentMessageRow";
 import "./DispatchCard.css";
 
@@ -22,8 +22,7 @@ export function DispatchCard({ item, call }: { item: AcpmuxActivity; call: Dispa
   );
   const tool = item.tool;
   const running = call.status === "running" || tool?.status === "pending" || tool?.status === "in_progress";
-  const target = call.to ?? call.sessionId ?? call.host;
-  const destination = target && call.host && target !== call.host ? `${target} · ${call.host}` : target;
+  const destination = dispatchDestination(call);
   const preview = messagePreview(call.text ?? call.summary ?? "");
   const title = call.title ? `'${call.title}'` : preview ? `'${preview}'` : t("message.unknown");
   const line = lineLabel(t, call, title, destination);

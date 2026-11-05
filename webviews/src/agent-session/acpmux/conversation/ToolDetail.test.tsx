@@ -8,7 +8,7 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
-import { inputFields } from "./toolInputFields";
+import { inputFields, rawMembers } from "./toolInputFields";
 import { ToolRow } from "./ToolRow";
 import { ToolRows } from "./TurnRows";
 import { resetTranscriptDisclosure } from "./transcriptDisclosure";
@@ -265,13 +265,21 @@ test("a call with input and no output yet still opens to its fields", async () =
   expect(keys(container)).toEqual(["title", "prompt", "options", "priority"]);
 });
 
-test("an input holding a number a double would round shows as it came, never as rounded fields", async () => {
-  const exact = '{"issue": 9007199254740993, "team": "WEB"}';
-  expect(inputFields(exact)).toBeUndefined();
-  expect(inputFields({ issue: 9007199254740992 }, exact)).toBeUndefined();
-  expect(inputFields('{"issue": 42}')).toEqual([{ key: "issue", text: "42", look: "value" }]);
+test("an argument holding a number a double would round reads as the agent spelled it", async () => {
+  const exact = '{"issue": 9007199254740993, "team": "WEB", "ids": [1, 18446744073709551617]}';
+  expect(inputFields(exact)).toEqual([
+    { key: "issue", text: "9007199254740993", look: "value" },
+    { key: "team", text: "WEB", look: "prose" },
+    { key: "ids", text: "[1, 18446744073709551617]", look: "tree" },
+  ]);
+  expect(rawMembers('{"a": "x,}", "b": {"c": [1, 2]}}')).toEqual(
+    new Map([
+      ["a", '"x,}"'],
+      ["b", '{"c": [1, 2]}'],
+    ]),
+  );
   const { activityText } = await import("./chatFind");
-  const item: AcpmuxActivity = {
+  const generic: AcpmuxActivity = {
     kind: "tool",
     text: "Close issue",
     tool: {
@@ -283,22 +291,48 @@ test("an input holding a number a double would round shows as it came, never as 
       output: "Closed.",
     },
   };
-  expect(activityText(item)).not.toContain("9007199254740992");
-});
-
-test("Find reads no input fields of a message card, which draws none", async () => {
-  const { activityText } = await import("./chatFind");
-  const item: AcpmuxActivity = {
+  const container = await render(<ToolRow item={generic} />);
+  await open(container);
+  expect(keys(container)).toEqual(["issue", "team", "ids"]);
+  expect(container.textContent).toContain("9007199254740993");
+  expect(container.textContent).not.toContain("9007199254740992");
+  expect(activityText(generic)).toContain("9007199254740993");
+  // A Codex MCP envelope: the exact argument, in its fields, its Raw request and Find.
+  const codex: AcpmuxActivity = {
     kind: "tool",
-    text: "tell",
+    text: "linear.close_issue",
     tool: {
-      id: "t8",
-      title: "tell",
+      id: "m7",
+      title: "linear.close_issue",
       kind: "other",
       status: "completed",
-      inputSummary: JSON.stringify({ id: "landing-hydration", message: "The fixture is ready." }),
-      output: "Sent.",
+      inputSummary: `{"server": "linear", "tool": "close_issue", "arguments": ${exact}}`,
+      output: "Closed.",
     },
   };
-  expect(activityText(item)).not.toContain("landing-hydration");
+  expect(activityText(codex)).toContain("9007199254740993");
+  expect(activityText(codex)).not.toContain("9007199254740992");
+});
+
+test("Find reads what a message or dispatch card draws, never its call's hidden input", async () => {
+  const { activityText } = await import("./chatFind");
+  const tell = (title: string, inputSummary: string): AcpmuxActivity => ({
+    kind: "tool",
+    text: title,
+    tool: { id: title, title, kind: "other", status: "completed", inputSummary, output: "Sent." },
+  });
+  const args = { id: "landing-hydration", message: "The fixture is ready.", secret_hint: "hidden-arg" };
+  for (const item of [tell("tell", JSON.stringify(args)), tell("mcp__optchat__tell", JSON.stringify(args))]) {
+    const text = activityText(item);
+    expect(text).toContain("The fixture is ready.");
+    expect(text).toContain("landing-hydration");
+    expect(text).not.toContain("hidden-arg");
+  }
+  const dispatch = tell(
+    "mcp__acpmux__dispatch",
+    JSON.stringify({ title: "Hydration fix", brief: "Fix the warning", to: "web-lane", hidden_flag: "zzz-hidden" }),
+  );
+  const text = activityText(dispatch);
+  expect(text).toContain("Hydration fix");
+  expect(text).not.toContain("zzz-hidden");
 });

@@ -34,6 +34,12 @@ const CLI_TITLE = /^acpmux(?:-debug-cli)?\s+(dispatch|steer|report|briefs(?:\s+(
 const CLI_ACTION =
   /(?:^|(?:&&|\|\||;)\s*)(?:\w+=\S+\s+)*(?:\S+\/)?acpmux(?:-debug-cli)?\s+(dispatch|steer|report|briefs(?:\s+(?:ls|list))?)(?:\s|$)/i;
 
+/// Where a dispatch went as its card names it: the target, then its host when that is another name.
+export function dispatchDestination(call: DispatchCall): string | undefined {
+  const target = call.to ?? call.sessionId ?? call.host;
+  return target && call.host && target !== call.host ? `${target} · ${call.host}` : target;
+}
+
 /// The dispatch operation represented by one ACP activity, or undefined for ordinary MCP calls.
 export function dispatchCall(item: AcpmuxActivity): DispatchCall | undefined {
   const tool = item.tool;

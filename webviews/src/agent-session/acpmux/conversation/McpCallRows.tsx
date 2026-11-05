@@ -20,7 +20,6 @@ import {
   mcpOutputResult,
   mcpRawName,
   prettyOutput,
-  prettyValue,
   type McpCall,
 } from "./mcpCalls";
 import { callLine, cmuxTitle, execParts, execView, isCmuxExec } from "./cmuxExec";
@@ -29,7 +28,7 @@ import { RawToggle } from "./SentMessageLine";
 import { isFailed, isRunning } from "./toolGroups";
 import { ToolOutput } from "./ToolOutputBody";
 import { ToolDetail } from "./ToolDetail";
-import { inputFields, type InputField } from "./toolInputFields";
+import { argsSource, inputFields, requestText, type InputField } from "./toolInputFields";
 import { ToolImages } from "./ToolRow";
 import { ToolVisualRow } from "./ToolVisualPreview";
 import { VideoFramesCard } from "./VideoFramesCard";
@@ -148,8 +147,8 @@ function McpCallRow({ item }: { item: AcpmuxActivity; grouped?: boolean }) {
   // An object of arguments opens as one labeled field each (ToolDetail.tsx); any other shape, and a
   // hook's refusal, as the request and response it came as.
   const fields = useMemo(
-    () => (fold.present ? inputFields(call.args, tool.inputSummary) : undefined),
-    [fold.present, call, tool.inputSummary],
+    () => (fold.present ? inputFields(call.args, argsSource(tool)) : undefined),
+    [fold.present, call, tool],
   );
   return (
     <>
@@ -269,7 +268,7 @@ export function McpCallDetails({
   requestFindAlternatives?: Readonly<Record<string, string>>;
 }) {
   const t = useT();
-  const request = useMemo(() => prettyValue(call.args), [call]);
+  const request = useMemo(() => requestText(call.args, tool && argsSource(tool)), [call, tool]);
   const failure = useMemo(() => (tool ? toolFailure(tool) : undefined), [tool]);
   const blocked = failure?.kind === "hook";
   const shownOutput = blocked ? failure.output : output;
