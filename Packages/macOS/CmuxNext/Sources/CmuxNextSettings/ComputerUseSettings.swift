@@ -1,3 +1,5 @@
+public import Foundation
+
 /// Which Computer Use driver the helper runs (`computerUse.driver`).
 public nonisolated enum ComputerUseDriver: String, Sendable, Hashable, CaseIterable {
     /// The cmux-cua 0.8.12 helper (today's path, unchanged).
@@ -13,13 +15,36 @@ public nonisolated enum ComputerUseDriver: String, Sendable, Hashable, CaseItera
 /// helper v2 (a DEV build embeds a dev helper, com.cmuxterm.cua.dev).
 /// `livePreview` (on by default) shows a small live view of the app an agent
 /// drives at the top right of that agent's chat.
+/// `groundingFallback` (off by default; the upstream driver only) gives agents
+/// `point_at_element`, which asks a vision grounding model at
+/// `groundingEndpoint` where an element is when a window's accessibility tree
+/// is thin. The window's screenshot goes to that endpoint, so only a loopback
+/// address may be plain http (scripts/measure/grounding-eval/serve-mlx.sh
+/// serves one on this Mac).
 public nonisolated struct ComputerUseSettings: Sendable, Equatable {
     public static let enabledPath = ["computerUse", "enabled"]
     public static let driverPath = ["computerUse", "driver"]
     public static let livePreviewPath = ["computerUse", "livePreview"]
+    public static let groundingFallbackPath = ["computerUse", "groundingFallback"]
+    public static let groundingEndpointPath = ["computerUse", "groundingEndpoint"]
+    public static let defaultGroundingEndpoint = "http://127.0.0.1:8080/v1"
     public var enabled = false
     public var driver: ComputerUseDriver = .legacy
     public var livePreview = true
+    public var groundingFallback = false
+    public var groundingEndpoint = ComputerUseSettings.defaultGroundingEndpoint
+
+    /// The endpoint the helper may use: nil when the fallback is off or the
+    /// address is not https, or http to this Mac.
+    public var groundingEndpointURL: URL? {
+        guard groundingFallback else { return nil }
+        let text = groundingEndpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: text), let scheme = url.scheme?.lowercased(),
+              let host = url.host?.lowercased(), !host.isEmpty, url.user == nil, url.password == nil,
+              url.query == nil, url.fragment == nil else { return nil }
+        if scheme == "https" { return url }
+        return scheme == "http" && ["127.0.0.1", "localhost", "::1"].contains(host) ? url : nil
+    }
 
     public init() {}
 
@@ -29,6 +54,8 @@ public nonisolated struct ComputerUseSettings: Sendable, Equatable {
         if let value = reader.bool("enabled") { settings.enabled = value }
         if let value = reader.choice("driver", ComputerUseDriver.self) { settings.driver = value }
         if let value = reader.bool("livePreview") { settings.livePreview = value }
+        if let value = reader.bool("groundingFallback") { settings.groundingFallback = value }
+        if let value = reader.string("groundingEndpoint") { settings.groundingEndpoint = value }
         diagnostics = reader.diagnostics
         return settings
     }
@@ -71,6 +98,24 @@ nonisolated enum ComputerUseSettingsSchema {
                 summary: SettingsText.keyed("settings.computerUse.livePreview.summary", "Shows the app an agent uses in its chat"),
                 kind: .toggle, default: .bool(ComputerUseSettings().livePreview),
                 keywords: ["computer use", "live preview", "preview", "agent activity", "screenshot", "chat"]
+            ),
+            SettingDescriptor(
+                ComputerUseSettings.groundingFallbackPath, section: .general, group: group,
+                title: SettingsText.keyed("settings.computerUse.groundingFallback", "Find Elements with a Vision Model"),
+                help: SettingsText.keyed("settings.computerUse.groundingFallback.help",
+                                         "When an app shows agents few named controls (canvas apps, games, Electron apps), agents can ask a vision model where an element is. The app window's screenshot goes to the model address below. Upstream driver only."),
+                summary: SettingsText.keyed("settings.computerUse.groundingFallback.summary", "Lets agents find unnamed controls with a vision model"),
+                kind: .toggle, default: .bool(ComputerUseSettings().groundingFallback),
+                keywords: ["computer use", "grounding", "vision", "model", "canvas", "accessibility", "point", "element"]
+            ),
+            SettingDescriptor(
+                ComputerUseSettings.groundingEndpointPath, section: .general, group: group,
+                title: SettingsText.keyed("settings.computerUse.groundingEndpoint", "Vision Model Address"),
+                help: SettingsText.keyed("settings.computerUse.groundingEndpoint.help",
+                                         "An OpenAI-compatible server for the vision model, such as one on this Mac at http://127.0.0.1:8080/v1. Any other address must use https."),
+                summary: SettingsText.keyed("settings.computerUse.groundingEndpoint.summary", "Where the vision model runs"),
+                kind: .url, default: .string(ComputerUseSettings().groundingEndpoint),
+                keywords: ["computer use", "grounding", "vision", "model", "endpoint", "server", "address"]
             ),
         ]
     }

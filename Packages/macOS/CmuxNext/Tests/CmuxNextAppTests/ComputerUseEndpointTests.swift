@@ -70,6 +70,12 @@ struct ComputerUseEndpointTests {
     }
 
     /// A pane can connect before settings load; it must not enroll an empty endpoint.
+    @Test func theHelperV2GetsAGroundingEndpointOnlyWhenOneIsGiven() throws {
+        #expect(ComputerUseHelperV2.environment()["CMUX_CUA_GROUNDING_ENDPOINT"] == nil)
+        let url = try #require(URL(string: "http://127.0.0.1:8080/v1"))
+        #expect(ComputerUseHelperV2.environment(groundingEndpoint: url)["CMUX_CUA_GROUNDING_ENDPOINT"] == url.absoluteString)
+    }
+
     @Test func theEndpointIsPublishedFromLaunch() {
         let daemon = Self.daemon(RecordingHelperLauncher())
         #expect(daemon.childEnvironment["CMUX_NEXT_CUA_SOCKET"] == daemon.socketPath)

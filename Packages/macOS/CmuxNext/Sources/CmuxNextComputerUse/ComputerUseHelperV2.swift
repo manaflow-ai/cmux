@@ -72,6 +72,9 @@ public final class ComputerUseHelperV2 {
     private let restarts: ComputerUseHelperRestarts
     /// Only explicit setup clicks; never persisted across app launches.
     private var pendingPermissions: Set<String> = []
+    /// The grounding model endpoint the running helper was started with
+    /// (`computerUse.groundingFallback`); nil means the fallback is off.
+    private var groundingEndpoint: URL?
 
     init(directory: String = ComputerUseHelperV2.defaultDirectory(),
          helperApp: @escaping @Sendable () -> URL? = { ComputerUseHelperV2.embeddedHelperApp() },
@@ -109,12 +112,13 @@ public final class ComputerUseHelperV2 {
     nonisolated static func environment(home: String = NSHomeDirectory(),
                                         temporaryDirectory: String = ComputerUseHelperDaemon.userTemporaryDirectory(),
                                         user: String = NSUserName(),
-                                        bundleID: String? = Bundle.main.bundleIdentifier) -> [String: String] {
+                                        bundleID: String? = Bundle.main.bundleIdentifier,
+                                        groundingEndpoint: URL? = nil) -> [String: String] {
         // Legacy permits an exact tagged DEV bundle for dogfood. Only this
         // app chooses that scope. Do not read it from an agent or inherited env.
         let prefix = "com.cmuxterm.app.debug."
         let allowed = bundleID.flatMap { $0.hasPrefix(prefix) && $0.count > prefix.count ? $0 : nil } ?? ""
-        return [
+        var environment = [
             "CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS": allowed,
             "CUA_DRIVER_RS_TELEMETRY_ENABLED": "0",
             "CUA_TELEMETRY_ENABLED": "false",
@@ -130,6 +134,10 @@ public final class ComputerUseHelperV2 {
             "USER": user,
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
         ]
+        // Set only when the person turned the grounding fallback on: the helper then offers
+        // point_at_element, whose fallback sends a window's screenshot to this endpoint.
+        if let groundingEndpoint { environment["CMUX_CUA_GROUNDING_ENDPOINT"] = groundingEndpoint.absoluteString }
+        return environment
     }
 
     /// `<this user's temp dir>/cmux-cua-v2/<scope>`: per user, 0700, one
@@ -150,10 +158,16 @@ public final class ComputerUseHelperV2 {
     }
 
     /// Computer Use on with the upstream driver: start the helper (once); otherwise stop it.
-    func apply(enabled: Bool) async {
+    /// `grounding` is read only at launch, so a change restarts a running helper.
+    func apply(enabled: Bool, grounding: URL? = nil) async {
         generation &+= 1
         let current = generation
         guard enabled else { return await stop() }
+        if case .running = state, grounding != groundingEndpoint {
+            await stop()
+            guard current == generation else { return }
+        }
+        groundingEndpoint = grounding
         if case .running = state { return }
         guard let embedded = helperApp() else { return unavailable("the cmux Computer Use (dev) helper is not in this build") }
         let runningCheck = await staging.runningCheck(for: embedded)
@@ -171,7 +185,7 @@ public final class ComputerUseHelperV2 {
         let executable = app.appending(path: "Contents/MacOS/\(Self.helperExecutableName)")
         let spawned: ComputerUseHelperV2Child
         do {
-            spawned = try spawner.spawn(executable: executable, environment: Self.environment(),
+            spawned = try spawner.spawn(executable: executable, environment: Self.environment(groundingEndpoint: groundingEndpoint),
                                         logPath: directory + "/helper.log")
         } catch {
             return unavailable("the helper did not start: \(error)")
@@ -338,7 +352,7 @@ public final class ComputerUseHelperV2 {
         // task-owner: one start; a later apply or quit moves `generation`, and then it does nothing.
         Task { [weak self] in
             guard let self, generation == expected else { return }
-            await apply(enabled: true)
+            await apply(enabled: true, grounding: groundingEndpoint)
         }
     }
 
