@@ -165,6 +165,17 @@ import Testing
         #expect(nativeCER <= upstreamCER)
     }
 
+    @Test func ocrDiagnostic() throws {
+        for (label, image) in [("full", Self.editor()), ("top half", Self.editor().cropping(to: CGRect(x: 0, y: 0, width: 1366, height: 440))!),
+                               ("band 640", Self.editor().cropping(to: CGRect(x: 0, y: 200, width: 640, height: 40))!),
+                               ("full 2x", Self.editor(scale: 2))] {
+            for accurate in [true, false] {
+                let lines = try PerceptionOCR(accurate: accurate).lines(in: image)
+                print("perception-diag | \(label) \(image.width)x\(image.height) accurate=\(accurate) | \(lines.count) lines | \(lines.first?.text ?? "-")")
+            }
+        }
+    }
+
     /// OCR in som mode: how well Vision reads the delivered screenshot, and what it costs.
     @Test func ocrOfTheDeliveredScreenshot() throws {
         let image = Self.editor()
