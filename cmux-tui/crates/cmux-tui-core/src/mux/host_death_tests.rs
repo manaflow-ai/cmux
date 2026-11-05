@@ -359,6 +359,57 @@ fn kept_tab_survives_a_real_exit_and_a_restart() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+/// The parked-snapshot trim asks which terminals are parked: a kept tab and
+/// no running shell. That read takes the registry, the connection and state
+/// in rank order (`lock_rank` panics on a wrong order in test builds), both
+/// with the exited surface still in the catalog and after a restart.
+#[cfg(unix)]
+#[test]
+fn an_exited_kept_terminal_is_parked_and_read_in_lock_order() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-parked-lock-order-{}", crate::workspace_registry::new_uuid_v4()));
+    let session = "parked-lock-order";
+    let options = SurfaceOptions {
+        terminal_host_root: Some(crate::terminal_host_runtime::terminal_host_root(&root, session)),
+        ..SurfaceOptions::default()
+    };
+    let mux = Mux::open_persistent(session, options.clone(), &root).unwrap();
+    let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+    let (id, incarnation) = (terminal_hex("00", 1), terminal_hex("10", 1));
+    let surface = mux
+        .seed_running_terminal_with_on_exit_for_test(
+            &id,
+            &incarnation,
+            &workspace.key,
+            TerminalOnExit::Close,
+        )
+        .unwrap();
+    let public_id =
+        mux.workspace_registry.lock().unwrap().terminal_resource_id(&id).unwrap().unwrap();
+    let running = mux.parked_terminal_ids([public_id.clone()]);
+    assert!(running.is_empty(), "a running shell is not parked");
+    let tabs = tabs_of(&topology(&mux))
+        .into_iter()
+        .map(|tab_id| crate::state::kept_tab_store::KeptTab { tab_id, ..Default::default() })
+        .collect::<Vec<_>>();
+    mux.commit_kept_tabs(&tabs).unwrap();
+    mux.surface(surface).unwrap().record_process_end_for_test(TerminalExit::now(
+        TerminalExitOutcome::Signal { signal: libc::SIGTERM, core_dumped: false },
+    ));
+    mux.surface_exited(surface);
+    let parked = mux.parked_terminal_ids([public_id.clone()]);
+    assert!(parked.contains(&public_id), "an exited kept terminal is parked");
+    mux.shutdown();
+    drop(mux);
+
+    let reopened = Mux::open_persistent(session, options, &root).unwrap();
+    let parked = reopened.parked_terminal_ids([public_id.clone()]);
+    assert!(parked.contains(&public_id), "a kept terminal stays parked after a restart");
+    reopened.shutdown();
+    drop(reopened);
+    let _ = std::fs::remove_dir_all(root);
+}
+
 /// Logout race (`session-shutdown`, ownership.md section 3.2): logout
 /// signals every process of the session at once, so a shell's signal exit
 /// can reach the owner before the owner records its own shutdown start. A
