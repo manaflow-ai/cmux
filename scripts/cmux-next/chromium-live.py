@@ -41,6 +41,7 @@ history.jsonl, which `status` (and `cmux live status`) prints.
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 import os
@@ -158,21 +159,39 @@ def cmux_cli() -> str:
     return os.environ.get("CMUX_CLI") or shutil.which("cmux") or "cmux"
 
 
-def chromium_tabs() -> list[str]:
+def browser_tabs() -> list[str]:
     out = run([cmux_cli(), "browser", "page", "tabs", "--all", "--json"], timeout=15).stdout
     data = json.loads(out or b"{}")
     tabs = data.get("tabs") if isinstance(data, dict) else data
-    ids = []
-    for tab in tabs or []:
-        engine = str(tab.get("engine", "chromium")).lower()
-        if engine in ("chromium", "cef") and tab.get("id"):
-            ids.append(str(tab["id"]))
-    return ids
+    return [str(tab["id"]) for tab in tabs or [] if tab.get("id")]
+
+
+def runs_on_chromium(tab: str) -> bool:
+    """A tab's engine, asked of its page: CEF's user agent says Chrome/, WebKit's does not.
+
+    The tab list carries no engine, so this asks each page while its renderer still runs. A tab
+    that does not answer (never loaded, or its renderer already gone) counts as not Chromium: it is
+    left alone, and a CEF one shows its own Reload button.
+    """
+    try:
+        proc = run([cmux_cli(), "browser", tab, "eval", "navigator.userAgent"], check=False,
+                   timeout=5)
+    except subprocess.TimeoutExpired:
+        return False
+    return proc.returncode == 0 and b"Chrome/" in proc.stdout
+
+
+def chromium_tabs() -> list[str]:
+    tabs = browser_tabs()
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        engines = list(pool.map(runs_on_chromium, tabs))
+    return [tab for tab, chromium in zip(tabs, engines) if chromium]
 
 
 def respawn(app: Path, gpu: bool = False) -> dict:
     procs = parse_ps(run(["ps", "-axww", "-o", "pid=,ppid=,args="]).stdout.decode(errors="replace"))
     app_pid = app_process(app, procs)
+    tabs = chromium_tabs()  # before the renderers end, while every page can still answer
     ended = helpers_to_end(procs, app_pid, gpu)
     for pid in ended:
         try:
@@ -180,7 +199,7 @@ def respawn(app: Path, gpu: bool = False) -> dict:
         except ProcessLookupError:
             pass
     reloaded, failed = 0, []
-    for tab in chromium_tabs():
+    for tab in tabs:
         if run([cmux_cli(), "browser", tab, "reload"], check=False, timeout=15).returncode == 0:
             reloaded += 1
         else:

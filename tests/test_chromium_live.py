@@ -64,30 +64,36 @@ class SwapTest(unittest.TestCase):
 
 
 class RespawnTest(unittest.TestCase):
-    def test_it_ends_renderers_then_reloads_every_chromium_tab(self):
-        tabs = json.dumps({"tabs": [{"id": "tab_1", "engine": "chromium"},
-                                    {"id": "tab_2", "engine": "webkit"},
-                                    {"id": "tab_3"}]}).encode()
+    def test_it_ends_renderers_then_reloads_only_the_tabs_on_chromium(self):
+        tabs = json.dumps({"tabs": [{"id": "tab_1"}, {"id": "tab_2"}, {"id": "tab_3"}]}).encode()
+        agents = {"tab_1": b'{"value": "Mozilla/5.0 (Macintosh) AppleWebKit/537.36 Chrome/151.0 Safari/537.36"}',
+                  "tab_2": b'{"value": "Mozilla/5.0 (Macintosh) AppleWebKit/605.1.15 Version/27.0 Safari/605.1.15"}'}
         calls = []
+        killed = []
 
         def fake_run(argv, **_):
-            calls.append(argv)
+            calls.append((argv, list(killed)))
             if argv[0] == "ps":
                 return mock.Mock(returncode=0, stdout=PS.encode())
             if argv[-3:] == ["tabs", "--all", "--json"]:
                 return mock.Mock(returncode=0, stdout=tabs)
+            if "eval" in argv:
+                tab = argv[2]
+                return mock.Mock(returncode=0 if tab in agents else 1, stdout=agents.get(tab, b""))
             return mock.Mock(returncode=0, stdout=b"")
 
-        killed = []
         with mock.patch.object(cl, "run", fake_run), mock.patch.object(cl.os, "kill",
                                                                      lambda pid, sig: killed.append(pid)), \
                 mock.patch.dict(os.environ, {"CMUX_CLI": "cmux"}):
             result = cl.respawn(Path(APP))
         self.assertEqual(killed, [501])
-        self.assertEqual(result["reloaded"], 2)
-        self.assertIn(["cmux", "browser", "tab_1", "reload"], calls)
-        self.assertIn(["cmux", "browser", "tab_3", "reload"], calls)
-        self.assertNotIn(["cmux", "browser", "tab_2", "reload"], calls)
+        self.assertEqual(result["reloaded"], 1)
+        argvs = [argv for argv, _ in calls]
+        self.assertIn(["cmux", "browser", "tab_1", "reload"], argvs)
+        self.assertNotIn(["cmux", "browser", "tab_2", "reload"], argvs)  # WebKit
+        self.assertNotIn(["cmux", "browser", "tab_3", "reload"], argvs)  # did not answer
+        self.assertTrue(all(not before for argv, before in calls if "eval" in argv),
+                        "engines are asked before any renderer ends")
 
 
 class StatusTest(unittest.TestCase):
