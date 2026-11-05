@@ -315,7 +315,15 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
       current = browsers.get(name)!;
       // A fresh chat per engine (an earlier run's streamed reply would move its tail). A running
       // last turn: the pane follows its tail, and Jump to latest offers "still replying".
-      pane = await papercutPane(() => current!, { turns: 12, running: true, lead, attachPage: 160 });
+      // The summary counts every prompt, the older ones too, as acpmux's does: the pane reserves the
+      // room for the unloaded history from it.
+      pane = await papercutPane(() => current!, {
+        turns: 12,
+        running: true,
+        lead,
+        attachPage: 160,
+        session: { turnCount: OLDER + 12 + 1 },
+      });
       const page = await pane.open({ width: 1100, height: 760 });
       await page.emulateMedia({ reducedMotion: "no-preference" });
       // Session Info open beside the chat, as Leo has it (the header state the app sends, then its
