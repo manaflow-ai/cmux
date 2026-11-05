@@ -86,7 +86,10 @@ struct PermissionCard: View {
                     Image(systemName: "hand.raised.fill").foregroundStyle(Color.cmuxMobileWarning)
                     Text("\(agentName) wants to \(action)").font(.headline)
                 }
-                if let command = record.request.toolCall.command {
+                if let plan = record.request.plan {
+                    // The plan as the transcript renders a reply (the Mac pane's plan card).
+                    StreamingMarkdown(markdown: plan, isStreaming: false, animatesBlocks: false)
+                } else if let command = record.request.toolCall.command {
                     CodeCard(language: "bash", code: command, title: "Command", maxHeight: 6 * 19 + 60)
                 } else {
                     Text(record.request.toolCall.title).font(.subheadline.monospaced())
@@ -107,7 +110,8 @@ struct PermissionCard: View {
     }
 
     private var action: String {
-        switch record.request.toolCall.kind {
+        if record.request.plan != nil { return "start on this plan" }
+        return switch record.request.toolCall.kind {
         case .execute: "run a command"
         case .edit, .fileChange: "edit files"
         case .fetch: "fetch a URL"
@@ -168,7 +172,7 @@ public struct PermissionActionBar: View {
                             ProgressView().controlSize(.small).tint(option.kind == .allowOnce ? Color.cmuxMobileOnAccent : Color.primary).accessibilityHidden(true)
                             Text(Self.sendingAllow).lineLimit(2).multilineTextAlignment(.center)
                         } else {
-                            Text(option.phoneLabel).multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.9)
+                            Text(request.label(for: option)).multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.9)
                         }
                     }
                     .animation(.cmuxMobileSnap, value: approvingOptionID)
@@ -516,8 +520,9 @@ struct FailureCard: View {
     }
 }
 
-/// The Mac's next-step card (#33269): a tagged ask a finished turn ended on, its question, a muted
-/// line, and its answers as buttons, the first filled. A tap sends the answer as the next prompt;
+/// The Mac's next-step card (#33269): a tagged ask a finished turn ended on, or the agent's own
+/// wrap-up call with its recap above (WrapUp.swift); its question, a muted line, and its answers as
+/// buttons, the first filled. A tap sends the answer as the next prompt;
 /// once a prompt follows, the card folds to the question and the answer in grey.
 struct NextStepCard: View {
     let ask: NextStepAsk
@@ -528,9 +533,19 @@ struct NextStepCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(ask.question)
-                .font(.headline)
-                .fixedSize(horizontal: false, vertical: true)
+            // The agent's wrap-up call carries a recap: what changed and where things stand.
+            if let recap = ask.recap {
+                Text(recap)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("agentChat.nextStep.recap")
+            }
+            if !ask.question.isEmpty {
+                Text(ask.question)
+                    .font(.headline)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if let answer {
                 Label(answer, systemImage: "arrowshape.turn.up.left")
                     .font(.subheadline)

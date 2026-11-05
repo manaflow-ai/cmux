@@ -5,7 +5,6 @@ import type { Env } from "./env.ts"
 import type { ReadResult } from "./owner-do.ts"
 import { signInRules, ssoRefusal, withSsoSession } from "./policy-gate.ts"
 import { stackReadPace, stackServer, type StackServer } from "./stack-server.ts"
-import type { StackEvent, StackSyncReply } from "./team-stack-sync.ts"
 
 const TEAM_ID = /^team_[0-9a-f]{20}$/
 type Membership = { role: string; display_name: string; kind: "personal" | "stack" } | null
@@ -17,7 +16,7 @@ const logged = (msg: string, e: unknown) => console.error(JSON.stringify({ msg, 
 
 const membershipOf = async (env: Env, team: string, user: string): Promise<Membership | "unreachable"> => {
   try {
-    const stub = env.TEAM_DO.get(env.TEAM_DO.idFromName(team)) as unknown as { membership(entity: string, user: string): Promise<Membership> }
+    const stub = env.TEAM_DO.get(env.TEAM_DO.idFromName(team))
     return await stub.membership(team, user)
   } catch (e) {
     logged("team list membership unreachable", e)
@@ -67,7 +66,7 @@ const stackTeamsOf = async (env: Env, p: Principal, deps: UserTeamsDeps): Promis
 /** A full sync of one Stack team in its TeamDO (team-stack-sync.ts), as a team.updated delivery would run it; one per person per window. */
 const syncTeam = async (env: Env, team: string, stackTeam: string, user: string, now: number): Promise<void> => {
   try {
-    const stub = env.TEAM_DO.get(env.TEAM_DO.idFromName(team)) as unknown as { stackWebhook(entity: string, event: StackEvent): Promise<StackSyncReply> }
+    const stub = env.TEAM_DO.get(env.TEAM_DO.idFromName(team))
     const reply = await stub.stackWebhook(team, { svix_id: `user-teams:${user}:${Math.floor(now / HEAL_WINDOW_MS)}`, type: "team.updated", stack_team: stackTeam, urgent: true })
     console.log(JSON.stringify({ msg: "team list synced a stack team", team, outcome: reply.ok ? reply.outcome : reply.reason }))
   } catch (e) {
@@ -101,7 +100,7 @@ export const listUserTeams = async (env: Env, p: Principal, deps: UserTeamsDeps 
   if (p.kind !== "session" || !p.user || p.agent !== undefined) return { ok: false, code: "auth.forbidden", message: "user.teams.list is for a person's session" }
   const user = p.user
   const personal = personalTeamIdFor(user)
-  const stub = env.USER_DO.get(env.USER_DO.idFromName(user)) as unknown as { homeTeamsOf(entity: string): Promise<Array<{ team: string; kind: string }>> }
+  const stub = env.USER_DO.get(env.USER_DO.idFromName(user))
   const indexed = (await stub.homeTeamsOf(user)).filter((e) => e.team !== personal && TEAM_ID.test(e.team)).map((e) => e.team)
   // Stack's own list joins the index, so a team TeamDO never mirrored is synced below and listed.
   const fromStack = await stackTeamsOf(env, p, deps)

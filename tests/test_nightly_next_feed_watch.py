@@ -141,10 +141,9 @@ class MainTests(unittest.TestCase):
 
 
 class FeedTests(unittest.TestCase):
-    def test_watches_the_cmux_next_feed(self):
-        # nightly-next ships as cmux NEXT with its own feed (cx-x7hwx); the old
-        # cmux NIGHTLY-identity feed is no longer written.
-        self.assertEqual(watch.FEED_URL, "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml")
+    def test_watches_the_cmux_nightly_feed(self):
+        # nightly-next ships once, as cmux NIGHTLY, on the bare feed it polls (hq#7156).
+        self.assertEqual(watch.FEED_URL, "https://files-next.cmux.com/nightly-next/appcast-arm64.xml")
         self.assertEqual(watch.LEGACY_FEED_URL, "https://files-next.cmux.com/nightly-next/appcast-arm64.xml")
 
     def test_feed_watch_runs_every_five_minutes(self):

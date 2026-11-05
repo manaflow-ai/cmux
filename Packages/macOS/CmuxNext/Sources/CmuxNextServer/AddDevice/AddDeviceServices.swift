@@ -20,13 +20,16 @@ public struct AddDeviceServices {
     public var showMachines: () -> Void
     /// The app's Sign In, for a join line refused signed out.
     public var signIn: () -> Void
+    /// Opens the Pair Another Machine card; nil while signed out (the join line's ticket shows
+    /// instead). Read at each opening.
+    public var pairAnotherMachine: () -> (() -> Void)?
 
     public init(list: @escaping () async -> DeviceListing?, addComputer: @escaping (String, String) -> Void,
                 addByName: @escaping () -> Void, enterCode: @escaping () -> Void, newCloudMachine: @escaping () -> Void = {},
                 copy: @escaping (String) -> Void, installTailscale: @escaping () -> Void = {},
                 machineJoin: @escaping () -> MachineJoinService? = { nil },
                 copyConcealed: @escaping (String) -> Void = { _ in }, showMachines: @escaping () -> Void = {},
-                signIn: @escaping () -> Void = {}) {
+                signIn: @escaping () -> Void = {}, pairAnotherMachine: @escaping () -> (() -> Void)? = { nil }) {
         self.list = list
         self.addComputer = addComputer
         self.addByName = addByName
@@ -38,5 +41,6 @@ public struct AddDeviceServices {
         self.copyConcealed = copyConcealed
         self.showMachines = showMachines
         self.signIn = signIn
+        self.pairAnotherMachine = pairAnotherMachine
     }
 }

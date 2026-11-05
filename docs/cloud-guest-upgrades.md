@@ -3,12 +3,44 @@
 > **CLI note (2026-09-30):** the Mac-side `cmux vm push`, `vm pull` and exec verbs named
 > below were removed in the Rust CLI cutover.
 
-A cmux Cloud machine keeps the software its image baked for its whole life.
-Nothing on the guest updates itself, so every change to guest software, the
-daemon's command line, or the attach contract reaches only machines created
-after the next bake unless it is shipped to running machines on purpose. This
-doc is the contract that makes that shipping possible, the runbook for doing
-it, and the plan for machines it cannot reach.
+A machine from an image with the store (`/opt/cmux/current`, `cmux host run`)
+updates its cmux-tui and cmux-tui-hook by itself: the session host, acpmux, the
+Cloud receiver and `cmux host` itself (see "Self-update" below). Everything
+else a machine keeps from its image for its whole life, and so does a machine
+from an older image (the devbox supervisor), so every other change to guest
+software, the daemon's command line, or the attach contract reaches only
+machines created after the next bake unless it is shipped to running machines
+on purpose. This doc is the contract that makes that shipping possible, the
+runbook for doing it, and the plan for machines it cannot reach.
+
+## Self-update
+
+`cmux host run`'s `updater` role (`cmux-tui/crates/cmux-host/src/updater`)
+reads the signed channel `https://files.cmux.com/cmux-tui/channels/cloud-machine.json`
+30 s after it starts, on every resume and every five minutes. CI moves the
+channel to every feat-cmux-next push whose cmux-tui build is published
+(`point-machine-channel` in `cmux-tui-artifacts.yml`; signed with the web update
+key, which never leaves CI). When the channel names another build, the machine
+waits until no acpmux session runs a turn or waits on a permission, downloads
+both binaries into `/opt/cmux/store` (sha256 and size from the signed file),
+builds the next profile, flips `/opt/cmux/current` and restarts the work user's
+`acpmux.service`, other services running the old binary and last
+`cmux-host.service`. The new build must report the channel's commit from the
+session host and acpmux within ten minutes, or it flips back; a guard timer
+running the previous build rolls back one that never starts. A rolled-back
+build is not tried again, and a machine never goes back to a build older than
+one it applied. So the rules below for cmux-tui apply to every merge, not just
+to a fleet upgrade: a merge reaches running machines within minutes of its
+build.
+
+- Read it on a machine: `sudo cmux host update status`; run one check now:
+  `sudo cmux host update check`.
+- Off on one machine: `sudo touch /etc/cmux/no-self-update` (the bake writes it
+  while it runs and removes it at park; the image smoke writes it on its clones).
+  A machine whose `~/.cmux/bin/cmux-tui` the Mac app replaced in place
+  (`cmux link machine update`) also leaves itself alone.
+- The image is a cache: a machine from an older image boots its image's build
+  and updates 30 s later. Rebaking is a periodic refresh, not the path for fixes.
 
 Read it before changing any of: `cmux-tui` (daemon, terminal host, remote
 protocol, journal), `web/services/vms/images/devbox/` (the boot supervisor and
@@ -30,7 +62,8 @@ missing, and an in-place upgrade plus a one-row backfill restored them
 
 | Change | Reaches running machines? | How |
 | --- | --- | --- |
-| `cmux-tui` binary, `cmux-tui-hook`, and the state-mount helper | Yes | `web/scripts/upgrade-fleet-cmux-tui.ts` (below) |
+| `cmux-tui` binary and `cmux-tui-hook` on a store image (`cmux host run`) | Yes, by itself | The `updater` role (Self-update, above) |
+| `cmux-tui` binary, `cmux-tui-hook`, and the state-mount helper on a devbox image | Yes | `web/scripts/upgrade-fleet-cmux-tui.ts` (below) |
 | Coding-agent hook entries | Yes | Same run: the pinned install command re-runs `cmux-tui agent hook install` |
 | `cmux-devbox-boot`, systemd units, the daemon's argv and environment | No | Bake only. The supervisor that is running keeps its own copy |
 | Baked packages, agent pins, desktop, `/etc/cmux/*` | No (agent pins: only on machines opted into `agentUpdates: "latest"`) | Bake only; opted-in machines update their coding agents on attach (`web/services/vms/guestAgentUpdates.ts`) |

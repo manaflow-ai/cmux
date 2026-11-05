@@ -4994,6 +4994,9 @@
           "\"vt-state\""
         ]
       },
+      "/history_rows_omitted": {
+        "ty": "uint64"
+      },
       "/kitty_graphics_state": {
         "ty": "object"
       },
@@ -7178,6 +7181,10 @@
           "bytes",
           "render"
         ]
+      },
+      "/replay_history_rows": {
+        "ty": "uint32",
+        "nullable": true
       },
       "/rows": {
         "ty": "uint16",

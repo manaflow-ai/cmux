@@ -8,6 +8,15 @@ name: cmux-next guards
 # its pull requests and pushes. It takes under a minute; there is no path
 # filter so a base red shows on the push that caused it.
 #
+# A push runs the group in nightly-guards, judged at its tip, so a base red
+# still fails the push that caused it. A pull request runs it inside the CI
+# guard group's head-and-base comparison instead (ci-guard-group, below), which
+# fails only on a step red on the change and not on its base. Run on its own,
+# every pull request was red while the branch was: workflow-text pins in this
+# group (nightly.yml, warm-sources.json, the step-coverage map) go red on any
+# push that edits those files without the tests, and 833 of 1656 pull request
+# runs in the 24 h to 2026-11-05 08:24Z were red with the base's reds alone.
+#
 # vt-link-graph also runs the nightly's libghostty-vt notices precondition: a
 # ghostty-next gitlink move without a regenerated vt-link-graph.json failed every
 # nightly-next build for 9 hours (10-11), and nothing else checked it before the
@@ -95,7 +104,9 @@ jobs:
     with:
       # Fleet Linux or a free mini when portable-placement found one; empty keeps ci-guards.yml's own runner.
       guard_tests_runner: ${{ needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' release-notary ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' release-notary ') && needs.portable-placement.outputs.mini_runner || '' }}
-      linux_guard_tests: ${{ 'true' }}
+      # Pushes only: a pull request runs release-notary in ci-guard-group's head-and-base comparison (header),
+      # and keeps this call for the submodule forward-only guard and Guard status.
+      linux_guard_tests: ${{ github.event_name != 'pull_request' && 'true' || 'false' }}
       linux_guard_test_groups: '["release-notary"]'
       linux_guard_history: ${{ 'false' }}
       linux_guard_cli: ${{ 'false' }}
@@ -217,7 +228,8 @@ jobs:
   # ci.yml also routes ci-guards.yml's other groups by path, again only into main, so about 70 guard tests
   # never ran for feat-cmux-next (tests/pr-lane-exemptions.json). This job runs them too: --feat-routes picks
   # the groups a pull request's paths route to (detect_linux_guard_changes.classify_feat, workflow_guard_groups.py's
-  # ownership), and every routed group on a push. The main-only release-ios group never runs here; release-notary runs in nightly-guards.
+  # ownership), and every routed group on a push. The main-only release-ios group never runs here; release-notary runs here
+  # on a pull request (compared with its base) and in nightly-guards on a push (judged at the tip).
   ci-guard-group:
     name: cmux-next CI guard group
     # 32 vCPU, a guard worker per core: the head and the base each run every routed group, on every pull request
@@ -341,18 +353,37 @@ jobs:
           path: .guard-base
           persist-credentials: false
 
+      # A pull request adds release-notary to the compared groups: nightly-guards runs it on pushes only (header).
       - name: Run the ci guard group and the routed groups
         env:
           CMUX_GUARDS_BASE_SHA: ${{ steps.changes.outputs.base }}
           GUARDS_AT_TIP: ${{ steps.changes.outputs.tip }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           # The base checkout is untracked in this workspace; the workload profile refuses a dirty checkout.
           echo "/.guard-base/" >> .git/info/exclude
-          scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --feat-routes "$RUNNER_TEMP/changed-files.txt" --results "$RUNNER_TEMP/guards-head.json" || true
-          if [ -d .guard-base ]; then
-            scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --feat-routes "$RUNNER_TEMP/changed-files.txt" --root .guard-base \
+          # The groups are literal flags so scripts/ci/pr_test_lanes.py sees what a pull request runs.
+          groups=()
+          if [ "$EVENT_NAME" = pull_request ]; then
+            groups=(--group ci --group release-notary)
+            scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --group ci --group release-notary --feat-routes "$RUNNER_TEMP/changed-files.txt" --results "$RUNNER_TEMP/guards-head.json" || true
+          else
+            scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --feat-routes "$RUNNER_TEMP/changed-files.txt" --results "$RUNNER_TEMP/guards-head.json" || true
+          fi
+          # The base re-runs only the steps red on the head (guards_new_reds.py --red-steps): a step green on the
+          # head is never the change's, and the full base pass doubled the job once release-notary joined it.
+          steps=()
+          while IFS= read -r step; do
+            [ -n "$step" ] && steps+=(--step "$step")
+          done < <(python3 scripts/ci/guards_new_reds.py --red-steps "$RUNNER_TEMP/guards-head.json")
+          if [ -d .guard-base ] && [ "${#steps[@]}" -gt 0 ]; then
+            echo "re-running the head's $(( ${#steps[@]} / 2 )) red steps on the base"
+            scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" "${groups[@]}" --feat-routes "$RUNNER_TEMP/changed-files.txt" "${steps[@]}" --root .guard-base \
               --results "$RUNNER_TEMP/guards-base.json" > "$RUNNER_TEMP/guards-base.log" 2>&1 || true
             tail -1 "$RUNNER_TEMP/guards-base.log"
+          elif [ -d .guard-base ]; then
+            echo "no red step on the head; the base is not re-run"
+            echo '{}' > "$RUNNER_TEMP/guards-base.json"
           fi
           if [ "$GUARDS_AT_TIP" = true ]; then
             python3 scripts/ci/guards_new_reds.py --tip "$RUNNER_TEMP/guards-head.json"

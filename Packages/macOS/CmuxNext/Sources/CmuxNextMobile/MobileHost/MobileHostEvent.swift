@@ -94,7 +94,8 @@ public enum MobileHostEvent: Sendable, Equatable {
             guard let phone = wire.phoneDeviceId, let identity = wire.identityKey, let approval = wire.approvalKey else { return nil }
             let registered = wire.registeredAtMs.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000) }
             self = .pairRequest(MobileHostPairRequest(phoneDeviceID: phone, name: wire.name ?? "", identityKey: identity,
-                                               approvalKey: approval, registeredAt: registered, pairToken: wire.pairToken))
+                                               approvalKey: approval, registeredAt: registered, pairToken: wire.pairToken,
+                                               kind: wire.kind ?? "phone"))
         case "unpaired":
             guard let phone = wire.phoneDeviceId else { return nil }
             self = .unpaired(phoneDeviceID: phone)
@@ -139,6 +140,7 @@ public enum MobileHostEvent: Sendable, Equatable {
         var approvalKey: String?
         var registeredAtMs: Int64?
         var pairToken: String?
+        var kind: String?
         var request: UInt64?
         var tab: String?
         var url: String?

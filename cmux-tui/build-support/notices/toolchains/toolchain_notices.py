@@ -25,7 +25,11 @@ stored text (texts/<file>), its sha256 and where it came from:
         ghostty_sources (submodules whose build.zig.zon minimum_zig_version
         must equal version: ghostty-next, the source of every Zig binary that
         cmux-next and cmux-tui ship; the classic `ghostty` submodule only
-        builds the classic app, which ships from main), binaries (a note)
+        builds the classic app, which ships from main), binaries (a note).
+        At most one entry names a source; zig_for("ghostty-next") is the Zig
+        of the shipped binaries. An entry with no sources is a reviewed Zig
+        that CI may still install (the classic Ghostty's, or the next one
+        before the ghostty-next gitlink moves to it); its LICENSE is bundled too.
 check-repo fails when a pin moves, so a toolchain bump stops until the new
 text is reviewed and recorded. A missing build.zig.zon fails (initialize the
 submodule); nothing is skipped.
@@ -125,7 +129,20 @@ class Manifest:
         commits = [r.rustc_commit for r in rust]
         if len(set(commits)) != len(commits):
             raise ManifestError("toolchains.json: two rust entries name one rustc_commit")
+        versions = [z.version for z in zig]
+        if len(set(versions)) != len(versions):
+            raise ManifestError("toolchains.json: two zig entries name one version")
+        sources = [source for z in zig for source in z.ghostty_sources]
+        if len(set(sources)) != len(sources):
+            raise ManifestError("toolchains.json: two zig entries name one ghostty_sources submodule")
         return cls(data["bundle_dir"], rust, zig)
+
+    def zig_for(self, source: str = "ghostty-next") -> ZigToolchain:
+        """The Zig whose LICENSE covers the binaries built from `source`."""
+        for zig in self.zig:
+            if source in zig.ghostty_sources:
+                return zig
+        raise ManifestError(f"toolchains.json: no zig entry lists {source!r} in ghostty_sources")
 
     def texts(self) -> List[Text]:
         return [*self.rust, *self.zig]

@@ -8677,6 +8677,18 @@ Snapshot format version 1 carries no Kitty images (`terminal-snapshot-images-v1`
 sends them after the history). Another `snapshot_version`
 gets the replay stream above (capability fallback).
 
+Servers advertising `attach-replay-history-rows-v1` accept `replay_history_rows`
+(uint32) on a `mode:"bytes"` PTY attach that gets the replay stream (no
+snapshot): the latest screen first. The first `vt-state` then rebuilds the
+active area whole and at most that many of the newest history rows above it
+(more only where a visible Kitty image's anchor needs its row), and carries
+`history_rows_omitted` (uint64): the history rows older than its first row
+that it left out, 0 when the history fit. A viewer that wants older rows
+attaches again without the field (whole history, as before), typically only
+when its reader scrolls up to them. `resized` replays and attaches without
+the field are unchanged; a client must not send the field to a server that
+does not advertise the capability.
+
 Browser attach requires `browser-pointer-frame-guard-v1` in both the server's `identify` response and the client's earlier `set-client-info` request. This prevents an older client from rendering browser frames that it cannot address with an authoritative sequence. PTY attach does not require this capability.
 
 Params:
@@ -8691,6 +8703,7 @@ Params:
 | `rows` | `uint16` | default null | `attach-initial-size` capability; paired with `cols`, clamped to at least 1 |
 | `snapshot_local_history` | `bool` | default false | `terminal-snapshot-local-history-v1`; only with `snapshot` |
 | `snapshot_images` | `bool` | default false | `terminal-snapshot-images-v1`; only with `snapshot` |
+| `replay_history_rows` | `uint32` | default null (whole history) | `attach-replay-history-rows-v1`; bytes mode without `snapshot` |
 
 Result:
 
