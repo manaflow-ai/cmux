@@ -203,13 +203,19 @@ def agent(host: str, port: int, token: str, root: Path) -> int:
     state.mkdir(parents=True, exist_ok=True)
     os.chmod(state, 0o700)
     deadline = time.monotonic() + AGENT_WAIT_S
+    said = 0.0
     while True:  # the host Mac's step may start later than this one
         try:
             first = offsets()
             break
-        except OSError:
+        except OSError as error:
+            # A refusal (nothing listening yet) is the usual wait; anything else (no route, a
+            # timeout, a privacy or firewall refusal) is worth seeing, once a minute and at the end.
+            if time.monotonic() - said > 60:
+                print(f"peer.py agent: {base} not reachable yet: {error!r}", file=sys.stderr, flush=True)
+                said = time.monotonic()
             if time.monotonic() > deadline:
-                print(f"peer.py agent: no host Mac at {base} within {AGENT_WAIT_S} s", file=sys.stderr)
+                print(f"peer.py agent: no host Mac at {base} within {AGENT_WAIT_S} s (last: {error!r})", file=sys.stderr)
                 return 1
             time.sleep(5)  # bounded by AGENT_WAIT_S
     request("/hello/0", {"host": os.uname().nodename, **first})
