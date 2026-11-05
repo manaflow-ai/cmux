@@ -36,9 +36,10 @@ jobs:
     environment: ci-routing-agent
     permissions:
       contents: write
-    # Called only by nightly.yml, so a nightly job: never Blacksmith. It holds contents: write and OIDC, so it
-    # stays on GitHub-hosted Ubuntu, an ephemeral runner, not a reused mini.
-    runs-on: ubuntu-24.04
+    # Called only by nightly.yml, so a nightly job: never Blacksmith. With vars.CI_NIGHTLY_MINI the whole nightly runs
+    # on the one nightly mini (Lawrence, 2026-11-04), which already holds the signing keys, so this job too; otherwise
+    # it stays on GitHub-hosted Ubuntu, an ephemeral runner, since it holds contents: write and OIDC.
+    runs-on: ${{ vars.CI_NIGHTLY_MINI || 'ubuntu-24.04' }}
     timeout-minutes: 10
     steps:
       - name: Check out the probe target
