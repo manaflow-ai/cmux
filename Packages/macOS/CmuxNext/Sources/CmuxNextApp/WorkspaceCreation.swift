@@ -129,9 +129,10 @@ enum WorkspaceCreation {
         }
         let key = response.tabResourceID?.rawValue ?? "surface:\(response.surface.rawValue)"
         if linked {
-            tabs.sessions[key] = session
+            let scoped = AgentTabKey(machine: daemon.machineID, key: key)
+            tabs.sessions[scoped] = session
             tabs.linkedSessions.insert(key)
-            tabs.track(key, in: daemon.store)
+            tabs.track(key, in: daemon.store, machine: daemon.machineID)
         }
         return key
     }

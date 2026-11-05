@@ -33,6 +33,14 @@ public final class NewTabPageIDs {
     /// Every page tab (observes the set, not each key).
     public var ids: Set<String> { Set(pages.keys.map(Self.key)) }
 
+    /// Page ids owned by one daemon, without collapsing an id reused on another machine.
+    public func ids(machine: String) -> Set<String> {
+        Set(pages.keys.compactMap { encoded in
+            guard encoded.hasPrefix("\u{1f}\(machine)\u{1f}") else { return nil }
+            return Self.key(encoded)
+        })
+    }
+
     private static func encode(machine: String, key: String) -> String { "\u{1f}\(machine)\u{1f}\(key)" }
     private static func key(_ encoded: String) -> String {
         guard encoded.first == "\u{1f}", let split = encoded.dropFirst().firstIndex(of: "\u{1f}") else { return encoded }

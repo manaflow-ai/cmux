@@ -38,11 +38,11 @@ extension AgentTabStore {
             guard let self else { return }; AgentSidePanes.chat(chat).open(fork, chat: resolve(provisional, machine: scoped.machine), hooks: .init(pane: { [weak self] in self?.locate(self?.resolve($0, machine: scoped.machine) ?? $0).map { "\(ObjectIdentifier($0.daemon).hashValue):\($0.pane.rawValue)" } }, column: { [weak self] in self?.rightColumn(self?.resolve($0, machine: scoped.machine) ?? $0) ?? .init() }) { [weak self] _, _, created, finished in // openOnRight decides again in its turn (RightColumnTurns)
                 self?.openOnRight(of: provisional, open: { [weak self] pane, daemon, split in guard let self else { throw CancellationError() }; return try open(in: pane, of: daemon, session: fork, split: split) }, created: { key, _ in created(key) }, finished: { _ in finished() }) ?? false })
         }, openRight: { [weak self] session in guard let self else { return false }; return self.openRightScoped?(self.resolvedKey(scoped), session, nil) ?? false
-        }, openTab: { [weak self] session, destination in self?.openFork(session, at: destination, beside: provisional) ?? false }, openSubagent: { [weak self] in self?.openSubagent($1, of: $0, focus: $2, beside: provisional) ?? false }, showsSubagent: { [weak self] title, tone, keepingTitle in guard let self else { return }; SubagentTabTitles.shared.show(title, inTab: resolve(provisional, machine: scoped.machine), tone: tone, keepingTitle: keepingTitle) }, openProcess: { [weak self] viewer in guard let self else { return false }; return openProcess?(resolve(provisional, machine: scoped.machine), viewer) ?? false }, newChat: { [weak self] in self?.openNewTabColumn(beside: provisional, cwd: $0, split: false) ?? false }, sideTabs: { [weak self] in
+        }, openTab: { [weak self] session, destination in self?.openFork(session, at: destination, beside: provisional) ?? false }, openSubagent: { [weak self] in self?.openSubagent($1, of: $0, focus: $2, beside: provisional) ?? false }, showsSubagent: { [weak self] title, tone, keepingTitle in guard let self else { return }; SubagentTabTitles.shared.show(title, inTab: resolve(provisional, machine: scoped.machine), tone: tone, keepingTitle: keepingTitle) }, openProcess: { [weak self] viewer in guard let self else { return false }; return openProcess?(resolve(provisional, machine: scoped.machine), viewer) ?? false }, newChat: { [weak self] in self?.openNewTabColumn(beside: provisional, machine: scoped.machine, cwd: $0, split: false) ?? false }, sideTabs: { [weak self] in
             guard let self else { return nil }
             let chat = resolve(provisional, machine: scoped.machine)
             return toggles.sideTabs(chat: chat, store: record(for: self.resolvedKey(scoped))?.store, actions: actions) { [weak self] in
-                self?.openNewTabColumn(beside: provisional) ?? false
+                self?.openNewTabColumn(beside: provisional, machine: scoped.machine) ?? false
             }
         }, preview: { [weak self] url, toggle in
             let chat = self?.resolve(provisional, machine: scoped.machine) ?? provisional
@@ -80,10 +80,10 @@ extension AgentTabStore {
     /// [+] New tab's column: a New Tab page in the chat's folder (or `cwd`, New Chat Here), moved to
     /// a new split on its right unless not `split`. The page's choices
     /// replace it in whichever pane it is in then. Returns whether the page was started.
-    private func openNewTabColumn(beside provisional: String, cwd: String? = nil, split: Bool = true) -> Bool {
-        let chat = resolve(provisional)
+    private func openNewTabColumn(beside provisional: String, machine: String? = nil, cwd: String? = nil, split: Bool = true) -> Bool {
+        let chat = resolve(provisional, machine: machine ?? "")
         // The page opens on the chat's machine: that machine's folders, never this Mac's (cx-k21v).
-        let scoped = tabKey(chat)
+        let scoped = tabKey(chat, machine: machine)
         guard let newTab = firstPageNewTab?(cwd ?? record(for: scoped)?.store.tab(id: scoped.key)?.cwd, scoped) else { return false }
         return openBeside(provisional, split: split) { pane, daemon, direction in try self.open(in: pane, of: daemon, newTab: newTab, split: direction) }
     }
