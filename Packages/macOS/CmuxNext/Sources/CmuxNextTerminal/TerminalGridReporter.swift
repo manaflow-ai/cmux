@@ -44,6 +44,7 @@ final class TerminalGridReporter {
 
     /// `grid` goes now; a grid that waits is older and is dropped. `final`: a layout spring's final grid.
     func now(_ grid: TerminalGridSize, final: Bool = false) {
+        awaitsShown = false // a size that waits to show is older than this grid; its landing sends nothing after it
         sendingFinal = final
         defer { sendingFinal = false }
         coalescer.reportNow(grid)
