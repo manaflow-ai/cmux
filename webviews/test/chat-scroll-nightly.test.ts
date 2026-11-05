@@ -266,6 +266,7 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
     let infoFaded = 0;
     let thumbDown = 0;
     let thumbDownMax = 0;
+    const thumbLog: string[] = [];
     for (let index = 1; index < frames.length; index++) {
       const [a, b] = [frames[index - 1]!, frames[index]!];
       if (!a.info !== !b.info) infoMoves++;
@@ -277,6 +278,10 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
       // The reader only goes up: the thumb may only go up (or hold).
       if (b.thumb - a.thumb > 1) {
         thumbDown++;
+        if (thumbLog.length < 6)
+          thumbLog.push(
+            `${index}: thumb ${Math.round(a.thumb)}->${Math.round(b.thumb)}, height ${a.scrollHeight}->${b.scrollHeight}`,
+          );
         thumbDownMax = Math.max(thumbDownMax, b.thumb - a.thumb);
       }
     }
@@ -292,6 +297,7 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
       infoFaded,
       thumbDown,
       thumbDownMax: Math.round(thumbDownMax),
+      thumbLog,
       heightChanges: frames.filter(
         (frame, index) => index > 0 && frame.scrollHeight !== frames[index - 1]!.scrollHeight,
       ).length,
