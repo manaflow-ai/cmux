@@ -234,7 +234,10 @@ def main() -> int:
         eyes.press("cmd+space")
         eyes.type(APP + "\n")
         # Gatekeeper's first-open question, or (once answered) the app's own first window.
-        eyes.wait(r"downloaded from the Internet|Are you sure you want to open|Bring your history", 120)
+        try:
+            eyes.wait(r"downloaded from the Internet|Are you sure you want to open|Bring your history", 120)
+        except NotSeen:
+            row["note"] = "no Gatekeeper question or first-run page seen; the pid decides"
         if eyes.find(r"downloaded from the Internet|Are you sure you want to open"):
             eyes.click(r"^Open$")
         for _ in range(60):

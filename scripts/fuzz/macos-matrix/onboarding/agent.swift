@@ -16,6 +16,8 @@
 import AppKit
 import Foundation
 
+// A write to an MCP server that exited must fail the call, not kill the agent before its result.
+signal(SIGPIPE, SIG_IGN)
 let out = ProcessInfo.processInfo.environment["ONB_OUT"] ?? FileManager.default.currentDirectoryPath
 let typed = "cmux onboarding 42"
 let stdoutLock = NSLock()
@@ -69,7 +71,7 @@ final class Mcp {
         process.standardInput = input
         process.standardOutput = output
         let log = out + "/agent-mcp-stderr.log"
-        FileManager.default.createFile(atPath: log, contents: nil)
+        _ = FileManager.default.createFile(atPath: log, contents: nil)
         process.standardError = FileHandle(forWritingAtPath: log) ?? FileHandle.nullDevice
         try process.run()
         Thread.detachNewThread { [self] in
@@ -92,7 +94,7 @@ final class Mcp {
 
     func send(_ object: [String: Any]) {
         if let data = try? JSONSerialization.data(withJSONObject: object) {
-            input.fileHandleForWriting.write(data + Data("\n".utf8))
+            try? input.fileHandleForWriting.write(contentsOf: data + Data("\n".utf8))
         }
     }
 
@@ -292,8 +294,8 @@ func handlePrompt(_ id: Any, _ sid: String) {
     let report = act(serversBySession[sid] ?? [])
     let path = out + "/agent-result.json"
     if let data = try? JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted]) {
-        try? data.write(to: URL(fileURLWithPath: path + ".tmp"))
-        _ = try? FileManager.default.replaceItemAt(URL(fileURLWithPath: path), withItemAt: URL(fileURLWithPath: path + ".tmp"))
+        // rename(2): atomic, and works whether or not the file exists yet.
+        if (try? data.write(to: URL(fileURLWithPath: path + ".tmp"))) != nil { rename(path + ".tmp", path) }
     }
     let summary = ["ok", "checks", "focus_steals", "errors", "error"].reduce(into: [String: Any]()) { $0[$1] = report[$1] }
     let line = (try? JSONSerialization.data(withJSONObject: summary)).map { String(decoding: $0, as: UTF8.self) } ?? ""
