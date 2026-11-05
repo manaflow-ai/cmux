@@ -129,5 +129,8 @@ default-off setting first). Flip it on once a week of dogfood shows no lost stat
 3. Daemon: parked snapshots trim by tier, budget, free-space guard (`output_store/parked_trim.rs`), run with the
    store's prune and once a day from the writer; only a terminal whose shell ended (its tab stays) trims. Byte keys
    match the other `terminal.persistence.*Bytes` keys. Rust tests with a fixed clock and a given free-disk state.
-4. Last-command record, the restored marker line, Run Last Command Again, `runningCommands: relaunch`.
+4. Last-command record, the restored marker line, Run Last Command Again, `runningCommands: relaunch`. The record
+   exists: the daemon's command history (`terminal-command-history-v1`, `mux/command_history.rs`) stores each
+   finished OSC 133 command per terminal with its start, end and exit. Slice 4 reads the newest row for the marker
+   line and the action, and keeps that newest row of a parked terminal past the history's retention.
 5. Hover card "Freed 2d ago · restores on open", `debug.surfaces` counts, docs.
