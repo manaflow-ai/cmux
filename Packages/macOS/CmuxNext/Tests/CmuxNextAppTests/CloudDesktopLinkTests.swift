@@ -118,13 +118,14 @@ import Testing
     @Test func takeOverRestartsTheSessionInControl() throws {
         var made: [Bool] = []
         let record = try #require(RemoteViewTabRecord(host: "vm-1", target: .virtual, mode: .view, cloudDesktop: true, cloudRd: true))
-        let session = try #require(RemoteViewPageSession.make(record: record, closeTab: {}, cloudRd: { _ in
+        let maybeSession = RemoteViewPageSession.make(record: record, closeTab: {}, cloudRd: { _ in
             { control in
                 made.append(control)
                 return RemoteRdStreamTransport(carrier: RecordingCarrier(), hello: RemoteRdHello.cloudDesktop(install: "test"),
                                                startKey: "k", control: control)
             }
-        }))
+        })
+        let session = try #require(maybeSession)
         #expect(made == [false], "a Cloud desktop opens watching")
         session.resume()
         let pane = session.paneForTesting
@@ -142,13 +143,14 @@ import Testing
     @Test func theControlSurfaceSwitchesModeOnACloudDesktop() throws {
         var made: [Bool] = []
         let record = try #require(RemoteViewTabRecord(host: "vm-1", target: .virtual, mode: .view, cloudDesktop: true, cloudRd: true))
-        let session = try #require(RemoteViewPageSession.make(record: record, closeTab: {}, cloudRd: { _ in
+        let maybeSession = RemoteViewPageSession.make(record: record, closeTab: {}, cloudRd: { _ in
             { control in
                 made.append(control)
                 return RemoteRdStreamTransport(carrier: RecordingCarrier(), hello: RemoteRdHello.cloudDesktop(install: "test"),
                                                startKey: "k", control: control)
             }
-        }))
+        })
+        let session = try #require(maybeSession)
         session.resume()
         #expect(session.selectMode(.control))
         #expect(made == [false, true])
