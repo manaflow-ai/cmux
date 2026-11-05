@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { KnownError, KnownErrors } from "@hexclave/shared";
 import en from "../messages/en.json";
-import { emailCodeRefusal } from "../app/handler/sign-in-entry";
+import { emailCodeRefusal, withRefusalCode } from "../app/handler/sign-in-entry";
 
 describe("email code refusal", () => {
   test("an existing account with an unverified email is told to use its sign-up method", () => {
@@ -40,5 +40,22 @@ describe("email code refusal", () => {
         .toEqual({ name, unverified: "string", button: "string" });
     }
     expect(en.cmuxSignIn.errorEmailUnverified).not.toBe(en.cmuxSignIn.errorGeneric);
+  });
+});
+
+describe("refusal code on the generic message", () => {
+  const generic = en.cmuxSignIn.errorGeneric;
+
+  test("a refusal from the auth service names its code, so the failure can be told apart", () => {
+    expect(withRefusalCode(generic, new KnownErrors.BotChallengeFailed("challenge failed"))).toBe(`${generic} (BOT_CHALLENGE_FAILED)`);
+  });
+
+  test("an error with no service code keeps the plain message", () => {
+    expect(withRefusalCode(generic, new Error("network"))).toBe(generic);
+    expect(withRefusalCode(generic, null)).toBe(generic);
+  });
+
+  test("only a code is shown: never free text the service or SDK wrote", () => {
+    expect(withRefusalCode(generic, { errorCode: "Please update your SDK vendor" })).toBe(generic);
   });
 });
