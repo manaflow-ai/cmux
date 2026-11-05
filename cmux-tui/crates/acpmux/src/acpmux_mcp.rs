@@ -71,6 +71,8 @@ mod bg;
 mod pr;
 #[path = "acpmux_mcp_send.rs"]
 mod send;
+#[path = "acpmux_mcp_who_else.rs"]
+mod who_else;
 #[path = "acpmux_mcp_wrap_up.rs"]
 mod wrap_up;
 
@@ -80,6 +82,7 @@ fn tools() -> Value {
         list.extend(bg::tools());
         list.push(pr::tool());
         list.push(wrap_up::tool());
+        list.push(who_else::tool());
     }
     all
 }
@@ -233,6 +236,9 @@ fn instructions(tools: &Value) -> Option<String> {
     if crate::mcp_hint::names(tools).any(|n| n == wrap_up::NAME) {
         parts.push(wrap_up::STEER);
     }
+    if crate::mcp_hint::names(tools).any(|n| n == who_else::NAME) {
+        parts.push(who_else::STEER);
+    }
     (!parts.is_empty()).then(|| parts.join(" "))
 }
 
@@ -284,6 +290,9 @@ pub async fn run() -> Result<()> {
                 }
                 if name == wrap_up::NAME {
                     return wrap_up::call(&args);
+                }
+                if name == who_else::NAME {
+                    return who_else::call(&daemon, &session, &args).await;
                 }
                 if name == crate::github_status::TOOL {
                     let sources = crate::github_status::Sources::current();

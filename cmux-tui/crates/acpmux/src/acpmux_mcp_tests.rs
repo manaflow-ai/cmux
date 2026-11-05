@@ -80,7 +80,8 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
             "bg_stop",
             "run_wait",
             "pr_state",
-            "wrap_up"
+            "wrap_up",
+            "who_else"
         ]
     );
     let send = tools[0]["description"].as_str().unwrap();
@@ -1034,4 +1035,19 @@ fn wrap_up_is_listed_with_its_instruction() {
     assert!(text.contains("call wrap_up as your last step"), "{text}");
     let chief = allowed(all, Some(crate::agent_tools::CHIEF_TURN_TOOLS));
     assert!(!crate::mcp_hint::names(&chief).any(|n| n == "wrap_up"));
+}
+
+/// Every chat's `acpmux` server lists `who_else` and tells the agent to call it instead of git
+/// archaeology; its params name the chat's session, and `since` reads as a duration.
+#[test]
+fn who_else_is_listed_with_its_instruction_and_names_the_chat() {
+    let all = tools_with_artifacts(false);
+    assert!(crate::mcp_hint::names(&all).any(|n| n == "who_else"));
+    let text = instructions(&all).unwrap();
+    assert!(text.contains("call who_else"), "{text}");
+    let p = who_else::params("s1", &json!({"files": ["a.rs", " "], "since": "2h"})).unwrap();
+    assert_eq!(p, json!({"sessionId": "s1", "files": ["a.rs"], "sinceMs": 7_200_000}));
+    assert!(who_else::params("s1", &json!({"files": "a.rs"})).is_err());
+    let chief = allowed(all, Some(crate::agent_tools::CHIEF_TURN_TOOLS));
+    assert!(!crate::mcp_hint::names(&chief).any(|n| n == "who_else"));
 }
