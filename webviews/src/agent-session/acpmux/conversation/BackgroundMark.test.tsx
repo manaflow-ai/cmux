@@ -178,6 +178,17 @@ test("a background task names and links its owner, and keeps its duration in the
   expect(container.textContent).toContain("6s");
 });
 
+test("a background task without an owner title does not show the owner id", async () => {
+  const container = await render(
+    <BackgroundTaskNote
+      task={{ toolCallId: "bg-owner-id", ownerId: "chat/helper-2", command: "sleep 1", state: "completed" }}
+    />,
+  );
+  expect(container.textContent).not.toContain("chat/helper-2");
+  await click(container.querySelector("button.cv-bgtask")!);
+  expect(container.textContent).not.toContain("chat/helper-2");
+});
+
 test("a stopped background task keeps its status and reason", async () => {
   const container = await render(
     <BackgroundTaskNote
@@ -294,7 +305,7 @@ test("the opened note shows the exit code and the harness's words on the end", a
   await click(container.querySelector("button.cv-bgtask")!);
   expect(container.querySelector(".cv-shell__exit")).toBeNull();
   expect(container.textContent).toContain("2 tests failed");
-  expect(container.textContent).toContain("exit 2");
+  expect(container.textContent).toContain("Exit code 2");
 });
 
 /// A process registry that lists `records` for chat `s1` and answers every tail with `text`.
@@ -361,9 +372,23 @@ test("a Codex task shows the registry's exit code and stays a quiet details row"
   await click(container.querySelector("button.cv-bgtask")!);
   await settle();
   expect(asked.map((ask) => ask.method)).toEqual(["list"]);
-  expect(container.textContent).toContain("exit 101");
+  expect(container.textContent).toContain("Exit code 101");
   expect(container.querySelector(".cv-bgtask__details")).not.toBeNull();
   expect(container.querySelector(".cv-shell__output")).toBeNull();
+});
+
+test("a successful task does not show an exit code", async () => {
+  const { reader } = registry([
+    { id: "s1/p10", sessionId: "s1", toolCallId: "bg-ok", harness: "codex", command: "make" },
+  ]);
+  const container = await render(
+    <BackgroundTaskOutputContext.Provider value={reader}>
+      <BackgroundTaskNote task={{ toolCallId: "bg-ok", command: "make", state: "completed", exitCode: 0 }} />
+    </BackgroundTaskOutputContext.Provider>,
+  );
+  await click(container.querySelector("button.cv-bgtask")!);
+  await settle();
+  expect(container.textContent).not.toContain("Exit code");
 });
 
 test("a task the registry does not list still opens with its command and nothing more", async () => {

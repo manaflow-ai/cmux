@@ -109,6 +109,7 @@ import { trayHead } from "./trayHeadKinds";
 import { COMMAND_KIND_ICON, commandKind } from "./trayCommandKinds";
 import { KIND_LINE_SEPARATOR, trayKindLineLook } from "./trayKindLine.experiment";
 import { traySurfaceLook } from "./traySurface.experiment";
+import { trayLatestLook } from "./trayLatest.experiment";
 import { Tick, useTrayMotion } from "./trayMotion";
 import type { StartedSession } from "../started/startedSessions";
 import { awaitsOwnWork, type Subagent } from "./subagentFold";
@@ -234,6 +235,17 @@ export const SubagentTray = memo(function SubagentTray({
   const [opensArm] = useState(() => experimentArm(trayOpenLook));
   const [kindsArm] = useState(() => experimentArm(trayHeadKindsLook));
   const [kindLine] = useState(() => experimentArm(trayKindLineLook));
+  const [latestAt] = useState(() => experimentArm(trayLatestLook));
+  const latestPlacement = latestAt === "tooltip" ? undefined : latestAt;
+  const agentsById = useMemo(
+    () =>
+      new Map(
+        [...items, ...finished]
+          .filter((item): item is Extract<TrayItem, { kind: "agent" }> => item.kind === "agent")
+          .map((item) => [item.agent.id, item.agent] as const),
+      ),
+    [items, finished],
+  );
   // How the header reaches the Background tasks panel, where the chat has one (Leo, 2026-11-03: "a
   // thing like this that can either expand OR open up to this sort of thing"): a panel button beside
   // its chevron (the default), or the whole header, Claude's chip.
@@ -659,12 +671,7 @@ export const SubagentTray = memo(function SubagentTray({
 
   function line(item: TrayItem) {
     if (item.kind === "agent") {
-      const parent =
-        item.agent.parent === null
-          ? undefined
-          : [...items, ...finished].find(
-              (candidate) => candidate.kind === "agent" && candidate.agent.id === item.agent.parent,
-            );
+      const parent = item.agent.parent === null ? undefined : agentsById.get(item.agent.parent);
       return menu(
         <AgentLine
           // Its task, as Claude Code's and ChatGPT's task rows read; its name moves to the tooltip.
@@ -690,8 +697,8 @@ export const SubagentTray = memo(function SubagentTray({
           progressAt={row === "below" || narrow ? "below" : "meta"}
           // What it did last, on its own quiet line (Leo, 2026-11-03: "Tray only, richer").
           latest={latestLine(t, item.agent, awaitsOwnWork(item.agent))}
-          latestAt="below"
-          via={parent?.kind === "agent" ? subagentTaskLabel(t, parent.agent) : undefined}
+          latestAt={latestPlacement}
+          via={parent ? subagentTaskLabel(t, parent) : undefined}
           onOpen={() => onOpen(item.agent.id)}
           after={
             stop &&
@@ -717,11 +724,7 @@ export const SubagentTray = memo(function SubagentTray({
       const commandElapsed =
         item.command.startedAt === undefined ? undefined : formatDuration(Math.max(0, now - item.command.startedAt));
       const ownerParent =
-        item.owner?.parent === null || item.owner?.parent === undefined
-          ? undefined
-          : [...items, ...finished].find(
-              (candidate) => candidate.kind === "agent" && candidate.agent.id === item.owner!.parent,
-            );
+        item.owner?.parent === null || item.owner?.parent === undefined ? undefined : agentsById.get(item.owner.parent);
       // Named in words (session-info/commandRules.ts); the command as typed is its tooltip and the
       // first line of its tail.
       // A rule's mark where one reads the command (commandRules.ts), else the mark of the kind the
@@ -738,11 +741,11 @@ export const SubagentTray = memo(function SubagentTray({
         <>
           {menu(
             <AgentLine
-              name={item.owner ? subagentTaskLabel(t, item.owner) : named}
+              name={item.owner ? `${subagentTaskLabel(t, item.owner)} · ${named}` : named}
               latest={trimRawCommand(item.command.command, 56)}
-              latestAt="below"
+              latestAt={latestPlacement}
               latestCode
-              via={ownerParent?.kind === "agent" ? subagentTaskLabel(t, ownerParent.agent) : undefined}
+              via={ownerParent ? subagentTaskLabel(t, ownerParent) : undefined}
               nameLink={
                 item.owner ? { href: `#subagent:${item.owner.id}`, open: () => onOpen(item.owner!.id) } : undefined
               }

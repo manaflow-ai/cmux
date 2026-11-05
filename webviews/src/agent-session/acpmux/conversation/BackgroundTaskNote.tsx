@@ -52,7 +52,7 @@ export function BackgroundTaskNote({ task }: { task: AcpmuxBackgroundTask }) {
   // What the harness said of its end beyond the row's words: Claude Code's summary, else a reason the
   // row does not already name (it names a stop's).
   const detail = task.summary || reason;
-  const owner = task.ownerTitle?.trim() || task.ownerId;
+  const owner = task.ownerTitle?.trim();
   const duration =
     task.startedAt !== undefined && task.endedAt !== undefined
       ? formatDuration(Math.max(0, task.endedAt - task.startedAt))
@@ -135,7 +135,9 @@ export function BackgroundTaskNote({ task }: { task: AcpmuxBackgroundTask }) {
               )}
               {duration && <span className="cv-bgtask__detail">{duration}</span>}
               {detail && <span className="cv-bgtask__detail">{detail}</span>}
-              {exitCode !== undefined && <span className="cv-bgtask__detail">exit {exitCode}</span>}
+              {exitCode !== undefined && exitCode !== 0 && (
+                <span className="cv-bgtask__detail">{t("shell.exit", { code: exitCode })}</span>
+              )}
               {task.toolCallId && !readOnly && (
                 <div className="cv-bgtask__foot">
                   <button
