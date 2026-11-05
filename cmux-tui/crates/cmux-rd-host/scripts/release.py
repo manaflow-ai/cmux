@@ -135,7 +135,9 @@ def notices(cargo_tree: Path, out: Path, cache: Path) -> None:
     rust = next((r for r in toolchains.rust if channel and r.version == channel.group(1)), None)
     if rust is None:
         raise SystemExit("toolchains.json has no text for the rustc of cmux-tui/rust-toolchain.toml")
-    [zig] = toolchains.zig
+    # The release links with the Zig of ghostty-next (GHOSTTY_ZIG_SOURCE in cmux-rd-release.yml);
+    # toolchains.json lists one Zig per Ghostty source.
+    zig = toolchains.zig_for("ghostty-next")
     package_notices = ROOT / "cmux-tui/dist/notices"
     musl = json.loads((package_notices / "package-notices.json").read_text(encoding="utf-8"))["musl"]
     cache.mkdir(parents=True, exist_ok=True)

@@ -14,8 +14,8 @@ import Testing
 /// by the Rust suites (`link/machine_update.rs`) and Update Machine by `CloudMoveTests`.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
 struct CloudMachineUpdateTargetTests {
-    static let bundled = "abc123def456"
-    static let older = "a9b104f3cb7d"
+    nonisolated static let bundled = "abc123def456"
+    nonisolated static let older = "a9b104f3cb7d"
 
     /// The production default (Leo: "OUR SHIT IS HARDLY EVER GOING TO GO IDLE"): a machine where an
     /// agent works is updated on the first ask, with no wait; the new daemon adopts the terminals

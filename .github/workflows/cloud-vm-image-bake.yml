@@ -31,7 +31,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: bake = one bake + smoke; repro = two bakes + SBOM/file-hash diff; prod-copy = the production copy of dev_snapshot (production account)
+        description: bake = one bake + smoke; repro = two bakes + SBOM/file-hash diff; prod-copy = the production copy of dev_snapshot (production account); first-session = time a first session's installs with and without package caches baked in (dev_snapshot, else the dev channel's image)
         required: true
         default: bake
         type: choice
@@ -39,6 +39,7 @@ on:
           - bake
           - repro
           - prod-copy
+          - first-session
       dev_snapshot:
         description: "prod-copy only: the dev image (sh-...) in channels/dev.json history to copy; its lock and flags are reused"
         required: false
@@ -60,7 +61,7 @@ on:
         default: false
         type: boolean
       probes:
-        description: Also run the VM agent bind probe (dev API) and the sm->md resize probe
+        description: Also run the VM agent bind probe (dev API) and the sm->md resize probe, and with agent_tools the agent tools probe (rd-* desktop checks)
         required: false
         default: false
         type: boolean
@@ -225,6 +226,9 @@ jobs:
           # A team image must also pass the /srv/team check.
           TEAM_VM: ${{ inputs.team_vm && '--team-vm' || '' }}
           NATIVE_RECEIVER: ${{ inputs.native_receiver && '--native-receiver' || '' }}
+          # A per-commit (layered) bake samples idle CPU over the idle-wakeup check's own minute; the weekly full
+          # bake keeps the two-minute sample.
+          IDLE_SECONDS: ${{ inputs.layered && '60' || '120' }}
         run: |
           set -euo pipefail
           # A layered bake left its builder for the SBOM and file manifest (inventory.ts); they run beside the
@@ -236,7 +240,7 @@ jobs:
           fi
           smoke_status=0
           # shellcheck disable=SC2086
-          bun ../images/cmux-vm/smoke.ts --snapshot "$SNAPSHOT" --tag "$TAG" --clones "$CLONES" --out-dir "$OUT_DIR" $PROBES $TEAM_VM $NATIVE_RECEIVER | tee "$OUT_DIR/smoke.out" || smoke_status=$?
+          bun ../images/cmux-vm/smoke.ts --snapshot "$SNAPSHOT" --tag "$TAG" --clones "$CLONES" --idle-seconds "$IDLE_SECONDS" --out-dir "$OUT_DIR" $PROBES $TEAM_VM $NATIVE_RECEIVER | tee "$OUT_DIR/smoke.out" || smoke_status=$?
           if [ -n "$inventory_pid" ]; then
             inventory_status=0
             wait "$inventory_pid" || inventory_status=$?
@@ -256,6 +260,18 @@ jobs:
         run: |
           set -euo pipefail
           bun ../images/cmux-vm/first-build.ts --mode after --snapshot "$SNAPSHOT" --tag "$TAG" --ref "$GITHUB_SHA" --out-dir "$OUT_DIR" | tee "$OUT_DIR/first-build-after.out"
+
+      # The agent tools probe (agent-tools-probe.ts) on a clone of this image: the recorded MCP servers and
+      # skills, the agent display, computer use and the cmux-rd desktop socket (rd-* checks). The probe deletes
+      # its clone. --agent-tools images only, with probes on.
+      - name: Agent tools probe
+        if: inputs.mode == 'bake' && inputs.agent_tools && inputs.probes
+        env:
+          FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
+          SNAPSHOT: ${{ steps.bake.outputs.snapshot }}
+        run: |
+          set -euo pipefail
+          bun scripts/cmux-vm-image/agent-tools-probe.ts --snapshot "$SNAPSHOT" --tag "$TAG" --out-dir "$OUT_DIR" | tee "$OUT_DIR/agent-tools-probe.out"
 
       # The fields of a channels/dev.json history entry (promote.ts promotes only a
       # recorded snapshot_id with smoke PASSED, under --var <var>).
@@ -415,6 +431,18 @@ jobs:
           set -euo pipefail
           mkdir -p "$OUT_DIR"
           bun ../images/cmux-vm/repro.ts --tag "$TAG" --out-dir "$OUT_DIR" | tee "$OUT_DIR/repro.out"
+
+      # Should a bake step fill package caches? Only where a first session measurably gets faster (first-session.ts).
+      - name: First-session cache probe
+        if: inputs.mode == 'first-session'
+        env:
+          FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
+          DEV_SNAPSHOT: ${{ inputs.dev_snapshot }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$OUT_DIR"
+          snapshot="${DEV_SNAPSHOT:-$(jq -r '.snapshot_id' ../images/cmux-vm/channels/dev.json)}"
+          bun ../images/cmux-vm/first-session.ts --snapshot "$snapshot" --tag "$TAG" --out-dir "$OUT_DIR" | tee "$OUT_DIR/first-session.out"
 
       # Deletes every id the ledger recorded and did not delete yet: the bake
       # snapshot, and any builder or clone a failed or cancelled step left.
