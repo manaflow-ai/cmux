@@ -79,6 +79,18 @@ import Testing
         // Another server's tool of the same name is not acpmux's.
         let other = Self.call(title: "mcp__github__who_else", output: Self.answer)
         #expect(WhoElseCall(other) == nil)
+        let bare = Self.call(title: "who_else",
+                             input: .object(["server": .string("github"), "tool": .string("who_else"), "arguments": .object([:])]),
+                             output: Self.answer)
+        #expect(WhoElseCall(bare) == nil)
+    }
+
+    @Test func aPullRequestLinkIsOnlyAnHttpsUrl() {
+        #expect(WhoElseCall.isPullLink("https://github.com/o/r/pull/2"))
+        #expect(!WhoElseCall.isPullLink("javascript:alert(1)"))
+        #expect(!WhoElseCall.isPullLink("data:text/html,x"))
+        #expect(!WhoElseCall.isPullLink("http://github.com/o/r/pull/2"))
+        #expect(!WhoElseCall.isPullLink("https://me:pw@github.com/o/r/pull/2"))
     }
 
     @Test func aShellCallCountsOnlyWithJson() throws {

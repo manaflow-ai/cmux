@@ -85,6 +85,21 @@ test("the acpmux MCP tool's answer is one who-else card, in Claude's and Codex's
   }
 });
 
+test("another server's who_else, even titled bare, is its own tool row", () => {
+  const github = activity({
+    title: "who_else",
+    inputSummary: JSON.stringify({ server: "github", tool: "who_else", arguments: {} }),
+    output: JSON.stringify(ANSWER),
+  });
+  expect(whoElseCall(github)).toBeUndefined();
+});
+
+test("a pull request link is drawn only to an https URL", () => {
+  const session = { ...ANSWER.sessions[0]!, pullRequests: ["javascript:alert(1)", "data:text/html,x", "http://x/pull/1", "https://github.com/o/r/pull/2"] };
+  const call = whoElseCall(activity({ title: "mcp__acpmux__who_else", output: JSON.stringify({ ...ANSWER, sessions: [session] }) }));
+  expect(call?.answer?.sessions[0]?.pullRequests).toEqual(["https://github.com/o/r/pull/2"]);
+});
+
 test("a shell `acpmux who-else --json` is the card; a text answer stays shell output", () => {
   const json = activity({
     title: "acpmux who-else --json src/a.rs",

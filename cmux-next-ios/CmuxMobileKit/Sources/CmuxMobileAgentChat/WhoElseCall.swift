@@ -85,7 +85,8 @@ public struct WhoElseCall: Hashable, Sendable {
     }
 
     static func asksWhoElse(_ call: ACPToolCall) -> Bool {
-        if let mcp = mcpCall(call), ["acpmux", "cmux"].contains(mcp.server.lowercased()), matches(toolName, mcp.tool) { return true }
+        // Another server's tool of the same name is that server's: its output draws as itself.
+        if let mcp = mcpCall(call) { return ["acpmux", "cmux"].contains(mcp.server.lowercased()) && matches(toolName, mcp.tool) }
         if matches(toolName, call.title.trimmingCharacters(in: .whitespacesAndNewlines)) { return true }
         guard let command = call.command else { return false }
         return matches(cli, command) && matches(jsonFlag, command)
@@ -154,7 +155,7 @@ public struct WhoElseCall: Hashable, Sendable {
         return Session(
             sessionId: text(raw["sessionId"]) ?? "", name: name, ref: text(raw["ref"]) ?? name, title: text(raw["title"]),
             harness: text(raw["harness"]) ?? "", host: text(raw["host"]), status: text(raw["status"]) ?? "",
-            live: raw["live"] == .bool(true), branch: text(raw["branch"]), pullRequests: strings(raw["pullRequests"]),
+            live: raw["live"] == .bool(true), branch: text(raw["branch"]), pullRequests: strings(raw["pullRequests"]).filter(isPullLink),
             agoMs: raw["agoMs"]?.numberValue.flatMap { $0.isFinite ? $0 : nil } ?? 0,
             filesInCommon: int(raw["filesInCommon"]), editedInCommon: int(raw["editedInCommon"]), files: files,
             sameWorktree: raw["sameWorktree"] == .bool(true), sameBranch: raw["sameBranch"] == .bool(true),
@@ -182,6 +183,13 @@ public struct WhoElseCall: Hashable, Sendable {
     private static func int(_ value: JSONValue?) -> Int {
         guard let number = value?.numberValue, number.isFinite, abs(number) < Double(Int.max) else { return 0 }
         return Int(number)
+    }
+
+    /// Tool output is untrusted: a link is drawn only to an https URL with a host and no
+    /// credentials (the Mac's `safeHref`), never `javascript:` or `data:`.
+    static func isPullLink(_ text: String) -> Bool {
+        guard let url = URL(string: text), url.scheme?.lowercased() == "https" else { return false }
+        return url.host?.isEmpty == false && url.user == nil && url.password == nil
     }
 
     private static func strings(_ value: JSONValue?) -> [String] {

@@ -4,6 +4,7 @@
 // into cmux_exec as `acpmux_who_else`) returns it as structured content; `acpmux who-else --json`
 // in a shell prints it. Either becomes one card (`WhoElseCard`), never raw JSON in the transcript.
 import type { AcpmuxActivity } from "../model";
+import { safeHref } from "../replyHref";
 import { mcpCall } from "./mcpCalls";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
@@ -68,9 +69,10 @@ export function whoElseCall(item: AcpmuxActivity): WhoElseCall | undefined {
 
 function asksWhoElse(tool: Tool): boolean {
   const mcp = mcpCall(tool);
+  // Another server's tool of the same name is that server's: its output draws as itself.
   if (mcp) {
     const server = mcp.server.toLowerCase();
-    if ((server === "acpmux" || server === "cmux") && TOOL_NAME.test(mcp.tool)) return true;
+    return (server === "acpmux" || server === "cmux") && TOOL_NAME.test(mcp.tool);
   }
   if (TOOL_NAME.test(tool.title.trim())) return true;
   return Boolean(tool.command && CLI.test(tool.command) && /--json\b/.test(tool.command));
@@ -126,7 +128,11 @@ function sessionOf(raw: Record<string, unknown>): WhoElseSession {
     status: str(raw.status) ?? "",
     live: raw.live === true,
     branch: str(raw.branch),
-    pullRequests: strings(raw.pullRequests),
+    // Tool output is untrusted: a link is drawn only to an https URL (`safeHref`), never `javascript:`.
+    pullRequests: strings(raw.pullRequests).flatMap((u) => {
+      const href = safeHref(u);
+      return href?.startsWith("https://") ? [href] : [];
+    }),
     agoMs: num(raw.agoMs),
     filesInCommon: num(raw.filesInCommon),
     editedInCommon: num(raw.editedInCommon),
