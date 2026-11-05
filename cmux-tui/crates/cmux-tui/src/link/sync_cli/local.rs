@@ -783,7 +783,7 @@ mod tests {
         ];
         let goes = [
             ("README.md", "hi\n"),
-            ("keys/id_ed25519.pub", "ssh-ed25519 AAAA x\n"),
+            ("keys/keyboard.rs", "fn main() {}\n"),
             ("web/.npmrc", "save-exact=true\n"),
         ];
         for in_git in [true, false] {
