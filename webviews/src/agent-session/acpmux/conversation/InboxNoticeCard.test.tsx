@@ -170,3 +170,45 @@ test("thirteen flattened deliveries render as one-level sender rows without the 
   expect(container.textContent).toContain("merged #29638");
   setMessageOpened(undefined, group.id, false);
 });
+
+test("a click on the digest's own line shows every message's words, not only their lines (Leo, 2026-11-05)", async () => {
+  const waiting = (id: string, name: string, sessionId: string, text: string): AcpmuxRow => ({
+    id,
+    version: 1,
+    at: 1,
+    kind: "queuedMessage",
+    text,
+    incoming: { kind: "message", message: { name, sessionId, text, raw: text } },
+    queuedMessage: { promptId: id },
+  });
+  const group = pendingMessagesRow(
+    [],
+    [
+      waiting("m1", "claude-13", "s-13", "landing #36600 now"),
+      waiting("m2", "claude-13", "s-13", "landed #36600"),
+      waiting("m3", "gcp-codex-swarm-08/claude", "s-08", "review passed, no findings"),
+    ],
+  )!;
+  const container = await render(
+    <PendingMessagesCard
+      row={group}
+      onOpen={() => undefined}
+      renderMessage={(row) =>
+        row.incoming?.kind === "message" ? (
+          <IncomingMessageLine id={row.id} message={row.incoming.message} onOpen={() => undefined} />
+        ) : null
+      }
+    />,
+  );
+  const head = container.querySelector<HTMLButtonElement>(".cv-pending__toggle")!;
+  expect(head.textContent).toContain("2");
+  await act(async () => head.click());
+  const words = [...container.querySelectorAll(".cv-received__text")].map((node) => node.textContent);
+  expect(words).toEqual(["landing #36600 now", "landed #36600", "review passed, no findings"]);
+  // Closed again from the same line, every message closes with it.
+  await act(async () => head.click());
+  expect(container.querySelectorAll(".cv-received")).toHaveLength(0);
+  await act(async () => head.click());
+  expect(container.querySelectorAll(".cv-received__text")).toHaveLength(3);
+  await act(async () => head.click());
+});

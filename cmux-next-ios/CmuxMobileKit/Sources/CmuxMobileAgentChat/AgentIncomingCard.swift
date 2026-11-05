@@ -47,12 +47,35 @@ struct AgentIncomingCard: View {
         .accessibilityElement(children: .contain)
     }
 
-    private var header: some View {
+    /// The harness a sender's icon draws: the card's, when one sender sent every message.
+    private func harness(for sender: String) -> String? {
+        incoming.messages.allSatisfy { $0.sender == sender } ? incoming.harness : nil
+    }
+
+    /// A card of several messages opens and closes all of them from its header, so every message can
+    /// be read from the top line (Leo, 2026-11-05: "we don't seem to be able to click it at the top
+    /// level, which is no bueno. Like all of these things, we need to be able to see them here").
+    @ViewBuilder private var header: some View {
+        if incoming.messages.count > 1 {
+            let allOpen = open.count == incoming.messages.count
+            Button {
+                withAnimation(.cmuxMobileSmooth) {
+                    open = allOpen ? [] : Set(incoming.messages.indices)
+                }
+            } label: {
+                headerLine(chevron: allOpen).contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint(allOpen ? "Closes every message" : "Opens every message")
+        } else {
+            headerLine(chevron: nil)
+        }
+    }
+
+    private func headerLine(chevron open: Bool?) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: "person.crop.circle.badge.checkmark")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
+            AgentSenderIcon(harness: incoming.messages.count == 1 ? incoming.harness : nil,
+                            identity: incoming.messages.count == 1 ? incoming.senders : "messages", size: 16)
             Text(incoming.messages.count == 1 ? incoming.senders : "\(incoming.messages.count) messages")
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
@@ -67,6 +90,12 @@ struct AgentIncomingCard: View {
             Text(at, style: .time)
                 .font(.caption)
                 .foregroundStyle(.tertiary)
+            if let open {
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .rotationEffect(.degrees(open ? 90 : 0))
+            }
         }
     }
 
@@ -79,6 +108,7 @@ struct AgentIncomingCard: View {
                 }
             } label: {
                 HStack(spacing: 6) {
+                    AgentSenderIcon(harness: harness(for: message.sender), identity: message.sender, size: 14)
                     Text(message.sender)
                         .font(.footnote.weight(.semibold))
                         .lineLimit(1)

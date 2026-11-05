@@ -7,7 +7,7 @@ import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { FindReveal } from "./chatFind";
-import { messageOpened, setMessageOpened } from "./incomingOpened";
+import { messageOpened, setDigestOpened, setMessageOpened } from "./incomingOpened";
 import { messageRunSummary } from "./messageRuns";
 import { NoticeMark } from "./NoticeMark";
 import { useFold } from "./fold";
@@ -102,7 +102,16 @@ export function LaneNoticeBatch({ row, renderMessage }: { row: AcpmuxRow; render
           hint={received ? shortNames : undefined}
           open={open}
           bodyId={bodyId}
-          onToggle={() => show(!open)}
+          onToggle={() => {
+            // The head opens the batch with every message in it open (incomingOpened.ts).
+            setDigestOpened(
+              session,
+              row.id,
+              batch.rows.map((member) => member.id),
+              !open,
+            );
+            setOpen(!open);
+          }}
           className="cv-lane-batch__toggle"
           ariaLabel={[count, received ? shortNames : detail].filter(Boolean).join(". ")}
           mark={folded.severity && <NoticeMark severity={folded.severity} />}
