@@ -53,6 +53,7 @@ def _samples(summary, key):
 
 def instant_rows(report, count):
     """Return new-workspace and open-pane timings from instant-new-surfaces."""
+    report = report if isinstance(report, dict) else {}
     summary = (report or {}).get("summary") or {}
     out = {}
     suffix = f"@{count}ws"
@@ -76,6 +77,7 @@ def instant_rows(report, count):
 
 
 def sidebar_rows(report, count):
+    report = report if isinstance(report, dict) else {}
     size = ((report or {}).get("sizes") or {}).get(str(count)) or {}
     out = {}
     frame_reply = (size.get("scroll") or {}).get("frames") or {}
@@ -102,6 +104,7 @@ def sidebar_rows(report, count):
 def typing_rows(report, count):
     # automation-typing-bench reports a phase for the seeded workspace count.  Prefer automation
     # (load) and fall back to light so older reports remain consumable.
+    report = report if isinstance(report, dict) else {}
     phases = (report or {}).get("phases") or []
     candidates = [p for p in phases if "automation" in str(p.get("phase", "")) and p.get("key_to_frame_ms")]
     candidates += [p for p in phases if "light" in str(p.get("phase", "")) and p.get("key_to_frame_ms")]
@@ -141,6 +144,8 @@ def collect(reports):
     rows = []
     for count in COUNTS:
         docs = reports.get(count) or {}
+        if not isinstance(docs, dict):
+            docs = {}
         merged = {}
         invalid = set(docs.get("invalid_probes") or ())
         if "instant" not in invalid:
@@ -199,7 +204,11 @@ def run_probe(script, args, out, timeout=900):
 def read_report(path):
     """Load a probe report without turning a failed or truncated probe into a crash."""
     try:
-        return json.loads(path.read_text())
+        value = json.loads(path.read_text())
+        # A probe report is always a JSON object. Treat a valid scalar/list as an absent
+        # report so collection records missing rows as incomplete instead of raising while
+        # indexing the probe's fields.
+        return value if isinstance(value, dict) else {}
     except (OSError, json.JSONDecodeError):
         return {}
 
@@ -325,8 +334,15 @@ def main():
                     continue
                 try:
                     with open(values[index]) as handle:
-                        reports[count][probe] = json.load(handle)
+                        value = json.load(handle)
+                    if not isinstance(value, dict):
+                        raise ValueError("expected a JSON object")
+                    reports[count][probe] = value
                 except (OSError, json.JSONDecodeError) as error:
+                    failures.append({"workspaces": count, "probe": probe, "report": values[index],
+                                     "error": str(error)})
+                    reports[count][probe] = {}
+                except ValueError as error:
                     failures.append({"workspaces": count, "probe": probe, "report": values[index],
                                      "error": str(error)})
                     reports[count][probe] = {}
