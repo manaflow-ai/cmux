@@ -160,6 +160,9 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT_SECONDS, help="seconds before one test is killed")
     parser.add_argument("--list", action="store_true", help="print lane members without executing them")
     parser.add_argument("--shard", type=shard_argument, help="K/N: run only the K-th of N balanced parts")
+    parser.add_argument("--path", action="append", default=[],
+                        help="run only this registered test (repeatable; before --shard splits them). "
+                             "scripts/ci/affected_tests.py passes the tests a change selects")
     args = parser.parse_args(argv)
     if args.jobs < 1:
         raise SystemExit("--jobs must be at least 1")
@@ -185,6 +188,12 @@ def main(argv: list[str]) -> int:
     for entry in tests:
         if not isinstance(entry.get("path"), str):
             raise SystemExit(f"lane {entry.get('lane')!r} contains an entry without a string path")
+    if args.path:
+        unknown = sorted(set(args.path) - {str(entry["path"]) for entry in tests})
+        if unknown:
+            raise SystemExit(f"not in lanes {', '.join(args.lane)}: {' '.join(unknown)}")
+        wanted = set(args.path)
+        tests = [entry for entry in tests if entry["path"] in wanted]
     if args.shard:
         chosen = set(shard([str(entry["path"]) for entry in tests], recorded_seconds(), *args.shard))
         tests = [entry for entry in tests if entry["path"] in chosen]
