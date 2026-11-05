@@ -933,10 +933,13 @@ impl Hub {
         };
         super::team_information::prepend(&mut blocks, &team_messages);
         // A team message, or an inbox notice (`inbox.rs`), counts as delivered only once the
-        // harness writer took its prompt: `on_sent` then logs it.
+        // harness writer took its prompt: `on_sent` then logs it. A blocking thread logs a team
+        // mark, which syncs the log; the turn waits for it after the answer (#35971).
         let confirm_team_write = !team_messages.is_empty()
             || (team_enabled && self.has_team_work(session, &team_prompt_ids))
             || super::inbox::is_notice(provenance.as_ref());
+        let team_work = team_enabled.then_some(team_prompt_ids.as_slice());
+        let mark_team = || self.mark_team_written(session, &team_messages, team_work);
         if session.rehydrate.swap(false, Ordering::SeqCst)
             && let Some(transcript) = self.transcript(session, 24_000)
         {
@@ -1033,6 +1036,7 @@ impl Hub {
         // session-info title can still win before the cheap completion is spent.
         let delivers_context = control != Control::Web
             && blocks.iter().any(|b| b.pointer("/_meta/acpmux/contextSource").is_some());
+        let mut team_marks = None;
         let mut result = super::steer_end::agent_prompt_hook(
             session,
             &child,
@@ -1052,10 +1056,7 @@ impl Hub {
                         .cmux_context_delivered = true;
                     self.save_meta(session);
                 }
-                self.mark_team_messages(session, &team_messages);
-                if team_enabled {
-                    self.mark_team_work(session, &team_prompt_ids);
-                }
+                team_marks = mark_team();
                 self.watch_stalled_turn(session, None);
                 // Written: a notice this is went in, and what is new in the inbox may steer in
                 // behind it (`inbox.rs`).
@@ -1064,6 +1065,7 @@ impl Hub {
             },
         )
         .await;
+        Self::team_marked(team_marks).await;
         // The account behind this harness is exhausted: move the session
         // onto its fallback profile (the subrouter pool for Claude), which
         // resumes the same agent session, and run the prompt once more.
@@ -1213,7 +1215,8 @@ impl Hub {
                                 Err(e) => Err(e),
                                 Ok(_) if stopped => Err(stopped_before_prompt()),
                                 Ok(wire) => {
-                                    super::steer_end::agent_prompt_hook(
+                                    let mut team_marks = None;
+                                    let answer = super::steer_end::agent_prompt_hook(
                                         session,
                                         &child2,
                                         json!({"sessionId": sid2, "prompt": wire}),
@@ -1224,15 +1227,14 @@ impl Hub {
                                         confirm_team_write,
                                         None,
                                         || {
-                                            self.mark_team_messages(session, &team_messages);
-                                            if team_enabled {
-                                                self.mark_team_work(session, &team_prompt_ids);
-                                            }
+                                            team_marks = mark_team();
                                             self.watch_stalled_turn(session, None);
                                             self.inbox_prompt_written(session, &prompt_id);
                                         },
                                     )
-                                    .await
+                                    .await;
+                                    Self::team_marked(team_marks).await;
+                                    answer
                                 }
                             };
                         }
