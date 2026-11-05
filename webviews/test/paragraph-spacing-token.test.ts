@@ -2,7 +2,7 @@
 // Gallery agent-pane.paragraph-spacing-token provides before, chosen and comparison arms.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import path from "node:path";
-import { chromium, type Browser, type Page } from "playwright";
+import { chromium, type Browser } from "playwright";
 import { DENSITIES } from "../src/gallery/env";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
@@ -58,7 +58,7 @@ await requireBrowserLane("paragraph-spacing-token.test.ts", async () => {
         interfaceScale,
         theme,
         colorScheme: theme.includes("Light") ? "light" : "dark",
-        reducedMotion: true,
+        reducedMotion: 1,
       })}`,
       { waitUntil: "commit" },
     );
@@ -66,20 +66,25 @@ await requireBrowserLane("paragraph-spacing-token.test.ts", async () => {
       timeout: 120_000,
     });
     await page.evaluate(() => document.fonts.ready);
-    const result = await page.evaluate(() => {
-      const markdown = document.querySelector<HTMLElement>(".cv-md");
-      const math = document.querySelector<HTMLElement>(".cv-p + .cv-math-display");
-      const paragraphs = document.querySelectorAll(".cv-md .cv-p");
-      return {
-        paragraphCount: paragraphs.length,
-        equation: !!document.querySelector(".cv-math-display .katex"),
-        token: markdown ? getComputedStyle(markdown).getPropertyValue("--cv-para-after").trim() : "",
-        gridGap: getComputedStyle(document.documentElement).getPropertyValue("--grid-gap-inner").trim(),
-        mathMarginTop: math ? Number.parseFloat(getComputedStyle(math).marginTop) : Number.NaN,
-      };
-    });
+    const read = () =>
+      page.evaluate(() => {
+        const markdown = document.querySelector<HTMLElement>(".cv-md");
+        const paragraph = document.querySelector<HTMLElement>(".cv-md .cv-p");
+        const math = document.querySelector<HTMLElement>(".cv-p + .cv-math-display");
+        return {
+          paragraphCount: document.querySelectorAll(".cv-md .cv-p").length,
+          equation: !!document.querySelector(".cv-math-display .katex"),
+          gridGap: markdown ? Number.parseFloat(getComputedStyle(markdown).rowGap) : Number.NaN,
+          paragraphAfter: paragraph ? Number.parseFloat(getComputedStyle(paragraph).marginBottom) : Number.NaN,
+          mathMarginTop: math ? Number.parseFloat(getComputedStyle(math).marginTop) : Number.NaN,
+        };
+      });
+    const result = await read();
+    // A page that sets the token above the transcript (Home Channels sets 4px on its root) keeps it.
+    await page.evaluate(() => document.documentElement.style.setProperty("--cv-para-after", "4px"));
+    const inherited = await read();
     await page.close();
-    return result;
+    return { ...result, inherited };
   }
 
   for (const density of DENSITIES)
@@ -90,9 +95,13 @@ await requireBrowserLane("paragraph-spacing-token.test.ts", async () => {
             const result = await measure(variant.name, density, theme.name, interfaceScale);
             expect(result.paragraphCount).toBeGreaterThanOrEqual(3);
             expect(result.equation).toBe(true);
+            const after = variant.relation === "shared" ? result.gridGap : variant.relation === "before" ? 14 : 16;
+            expect(result.gridGap).toBeGreaterThan(0);
+            expect(result.paragraphAfter).toBeCloseTo(after, 1);
+            expect(result.mathMarginTop).toBeCloseTo(result.gridGap - after, 1);
             if (variant.relation === "shared") {
-              expect(result.token).toBe(result.gridGap);
-            } else if (variant.relation === "before") expect(result.token).toBe("14px");
-            else expect(result.token).toBe("16px");
+              expect(result.inherited.paragraphAfter).toBeCloseTo(4, 1);
+              expect(result.inherited.mathMarginTop).toBeCloseTo(result.gridGap - 4, 1);
+            }
           });
 });
