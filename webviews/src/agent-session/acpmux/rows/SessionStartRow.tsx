@@ -4,7 +4,7 @@ import { type RowProps } from "./rowProps";
 
 export const SessionStartRow = memo(
   function SessionStartRow({ row }: RowProps) {
-    return row.sessionStart ? <SessionStartNote start={row.sessionStart} /> : null;
+    return row.sessionStart ? <SessionStartNote start={row.sessionStart} id={row.id} /> : null;
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );

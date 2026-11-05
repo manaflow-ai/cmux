@@ -1104,6 +1104,22 @@ export default componentEntry<Props>({
         await checkTopBlockAlignment(ctx);
       },
     },
+    "agent-row": {
+      note: 'A Claude Code chat: under the machine, the agent row says what it runs on ("Claude Code · Opus 5.5", version 2.1.312 at the end; the model id, route and folder on hover). The transcript draws that line only where the model or route changes (Leo, 2026-11-05: "why does it even show that ... like we know what it is ... giving tmi").',
+      props: {
+        ...full,
+        summary: {
+          ...summary,
+          sessionStart: {
+            agent: "claude",
+            version: "2.1.312",
+            model: "claude-opus-5-5",
+            harness: "claude",
+            cwd: summary.cwd,
+          },
+        },
+      },
+    },
     "compact-more": {
       note: "Chosen default view (Leo, 2026-11-03: \"i feel like it's a bit too much stuff by default there's a bunch of things there that can be a bit more hidden under 'show more' or whatnot\"): his four in view (the machine, Context, subagents and background tasks, Sources), then one whole-row Show more that names what it holds (Usage, Changes, Outputs, Connectors). Opened, every section shows in the default order and the choice stays for the pane; a reveal of a held section opens it. A section the person dragged above one of the four stays in view. The play opens and closes it.",
       props: { ...full, more: false },

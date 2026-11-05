@@ -8,7 +8,9 @@
 // the modes alone (Leo, 2026-10-29). A chat in a temporary or internal folder (a harness's scratchpad)
 // has no project row and no Save: only its machine. Every row does something: the project opens in
 // the Files tree beside the chat, the repository and the branch are links to GitHub, which the pane
-// opens in the browser as it opens a reply's link.
+// opens in the browser as it opens a reply's link. A Claude Code chat's agent row says what it runs
+// on ("Claude Code · Opus 5.5", its version at the end; the model id, route and folder on hover):
+// the transcript draws that line only where it changes (conversation/SessionStartNote.tsx).
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -18,6 +20,7 @@ import type { SavedEnvironmentDraft } from "../environments";
 import type { AcpmuxSnapshot } from "../model";
 import { homePath } from "../sessionList";
 import { chatProject } from "./chatFolders";
+import { sessionStartLabels } from "../conversation/sessionStart";
 import { openCloudEnvironment } from "../cloudEnvironment";
 import { Switch } from "../../../ui/Switch";
 import "../../../ui/controls.css";
@@ -123,7 +126,8 @@ function Row({
     );
   if (!onClick)
     return (
-      // tooltip-allow: a folder row shows the folder's name; its full path appears nowhere else.
+      // tooltip-allow: a folder row shows the folder's name; its full path appears nowhere else. The
+      // agent row's whole facts (model id, route, folder) are its hover too.
       <li className="acpmux-session-info-row" title={title}>
         {content}
       </li>
@@ -188,6 +192,7 @@ export function EnvironmentSection({
   const canUseCloudRepositories = Boolean(cloudSession && cloudRepositoryAvailable);
   const branch = summary?.branch;
   const project = chatProject(summary, repository);
+  const start = summary?.sessionStart && sessionStartLabels(summary.sessionStart, t);
   const repositoryUrl = repository ? `https://github.com/${repository}` : undefined;
   const branchUrl =
     repositoryUrl && branch
@@ -262,6 +267,14 @@ export function EnvironmentSection({
           </button>
         )}
       </li>
+      {start && (
+        <Row icon="terminal" title={start.facts}>
+          <span className="acpmux-session-info-row__name">{start.short}</span>
+          <span className="acpmux-session-info-row__detail acpmux-session-info-row__end">
+            {summary?.sessionStart?.version}
+          </span>
+        </Row>
+      )}
       {machine.kind === "cloud" && (
         // What a Cloud machine is and how long its files last, said plainly beside the chat
         // (Leo, 2026-11-02, on Claude Code's cloud session that says so: "i want us to be able to
