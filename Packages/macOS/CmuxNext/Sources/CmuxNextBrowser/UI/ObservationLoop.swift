@@ -22,10 +22,11 @@ final class ObservationLoop {
 
     private func arm() {
         guard isActive else { return }
+        let instance = ObjectIdentifier(self)
         withObservationTracking {
             render()
         } onChange: { [weak self, site] in
-            ObservationWakes.record(site: site)
+            ObservationWakes.record(site: site, instance: instance)
             Task { @MainActor in self?.arm() }
         }
     }

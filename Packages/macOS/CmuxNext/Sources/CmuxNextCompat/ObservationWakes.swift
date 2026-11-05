@@ -18,6 +18,8 @@ public final class ObservationWakes: Sendable {
     @TaskLocal public static var current: ObservationWakes?
 
     private let wakes = Mutex<[String: Int]>([:])
+    /// The woken observer instances (a stream's change state, a tracking, a loop), with their sites.
+    private let instances = Mutex<[ObjectIdentifier: String]>([:])
 
     /// A counter at zero.
     public init() {}
@@ -28,11 +30,16 @@ public final class ObservationWakes: Sendable {
     /// The wakes counted so far, by the `#fileID:#line` where each woken stream, tracking or loop was made.
     public var bySite: [String: Int] { wakes.withLock { $0 } }
 
-    /// One tracking made at `site` woke: counted when a counter is set for the current task.
-    package static func record(site: ObservationSite) {
+    /// The observer instances that woke, each with its site: one instance's read set is the changes that wake it.
+    public var woken: [ObjectIdentifier: String] { instances.withLock { $0 } }
+
+    /// One tracking made at `site` woke (`instance`: the observer that armed it): counted when a counter is set for the
+    /// current task.
+    package static func record(site: ObservationSite, instance: ObjectIdentifier) {
         guard let current else { return }
         let key = "\(site.fileID):\(site.line)"
         current.wakes.withLock { $0[key, default: 0] += 1 }
+        current.instances.withLock { $0[instance] = key }
     }
 }
 

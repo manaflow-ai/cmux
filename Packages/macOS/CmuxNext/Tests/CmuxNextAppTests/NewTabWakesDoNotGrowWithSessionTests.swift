@@ -39,9 +39,9 @@ struct NewTabWakesDoNotGrowWithSessionTests {
         for _ in 0..<80 { await Task.yield() }
     }
 
-    /// The wakes of one New Terminal Tab on the first pane of a window showing `panes` panes of `tabs` tabs, by the
-    /// `#fileID:#line` of each woken observer.
-    private static func wakesOfNewTab(panes: Int, tabs: Int) async throws -> [String: Int] {
+    /// Runs `body` on a whole window showing `panes` panes of `tabs` tabs (its store and its content), then closes it.
+    private static func withWindow<T>(panes: Int, tabs: Int,
+                                      _ body: (DaemonStore, WorkspaceContentController) async throws -> T) async throws -> T {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
@@ -58,6 +58,13 @@ struct NewTabWakesDoNotGrowWithSessionTests {
         try #require(content.panes.count == panes, "fixture: the window shows \(content.panes.count) of \(panes) panes")
         content.contentView.layoutSubtreeIfNeeded()
         await drainMain()
+        return try await body(store, content)
+    }
+
+    /// The wakes of one New Terminal Tab on the first pane of a window showing `panes` panes of `tabs` tabs, by the
+    /// `#fileID:#line` of each woken observer.
+    private static func wakesOfNewTab(panes: Int, tabs: Int) async throws -> [String: Int] {
+        try await withWindow(panes: panes, tabs: tabs) { store, content in
         let pane = try #require(content.panes.values.first { $0.pane.handle == PaneID(rawValue: 1) })
         let workspace = try #require(store.workspaces.first)
         func tabCount() -> Int { workspace.screens.flatMap(\.panes).reduce(0) { $0 + $1.tabs.count } }
@@ -73,6 +80,25 @@ struct NewTabWakesDoNotGrowWithSessionTests {
         }
         try #require(tabCount() == before + 1, "fixture: New Terminal Tab made \(tabCount() - before) tabs, not 1")
         return wakes.bySite
+        }
+    }
+
+    /// How many tabs each woken observer reads, by site: every tab's title changes once, in turn, and each change counts
+    /// for every observer instance it wakes. An observer's count is the number of tabs whose change wakes it (the tab
+    /// registrations it holds); the largest instance of each site is kept.
+    private static func tabsReadPerObserver(panes: Int, tabs: Int) async throws -> [String: Int] {
+        try await withWindow(panes: panes, tabs: tabs) { store, _ in
+            let models = try #require(store.workspaces.first).screens.flatMap(\.panes).flatMap(\.tabs)
+            try #require(models.count == panes * tabs, "fixture: \(models.count) tabs, not \(panes * tabs)")
+            var reads: [ObjectIdentifier: (site: String, tabs: Int)] = [:]
+            for (index, tab) in models.enumerated() {
+                let wakes = ObservationWakes()
+                ObservationWakes.$current.withValue(wakes) { tab.title = "tab \(index)" }
+                for (instance, site) in wakes.woken { reads[instance, default: (site, 0)].tabs += 1 }
+                await drainMain() // the woken observers re-arm before the next tab changes
+            }
+            return reads.values.reduce(into: [:]) { $0[$1.site] = max($0[$1.site, default: 0], $1.tabs) }
+        }
     }
 
     @Test(.timeLimit(.minutes(2)))
@@ -92,5 +118,22 @@ struct NewTabWakesDoNotGrowWithSessionTests {
         #expect(smallCount > 0, "fixture: the new tab woke no observer (the counter is not wired)")
         #expect(stressCount == smallCount,
                 "one New Terminal Tab woke \(smallCount) observers with 2 panes x 1 tab and \(stressCount) with 14 panes x 6 tabs; grew: \(grew)")
+    }
+
+    /// The cost of a wake is the observer's re-evaluation, which cancels and re-registers every value it reads: an observer
+    /// that reads every tab of the session costs O(session) each time it wakes, even when one wake is all a new tab makes
+    /// (the profile of STRESS New Terminal Tab: 72 % of the 9 ms after the key turn is Observation re-tracking). With 6
+    /// tabs in every pane, an observer that reads only what it shows reads as many tabs with 14 panes as with 2.
+    @Test(.timeLimit(.minutes(3)))
+    func noObserverReadsMoreTabsInAStressSessionThanInASmallOne() async throws {
+        let small = try await Self.tabsReadPerObserver(panes: 2, tabs: 6)
+        let stress = try await Self.tabsReadPerObserver(panes: 14, tabs: 6)
+        for site in Set(small.keys).union(stress.keys).sorted() {
+            print("tabs read \(site): 2x6 \(small[site, default: 0]), 14x6 \(stress[site, default: 0])")
+        }
+        let grew = stress.filter { $0.value > small[$0.key, default: 0] }.sorted { $0.value > $1.value }
+            .map { "\($0.key) \(small[$0.key, default: 0]) -> \($0.value)" }
+        #expect(!small.isEmpty, "fixture: no observer read a tab (the counter is not wired)")
+        #expect(grew.isEmpty, "observers that read more tabs with 14 panes x 6 tabs than with 2 x 6 (they read the whole session): \(grew)")
     }
 }
