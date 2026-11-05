@@ -2458,6 +2458,7 @@ def xctrace_stop(handle, action_id):
         import collections
         heads = []
         turn_self, gap_self, gap_incl = collections.Counter(), collections.Counter(), collections.Counter()
+        turn_incl = collections.Counter()
         turn_ms = gap_ms = total_all = 0
         idle_gap = 0
         for n_row, (row, byid) in enumerate(xml_rows(exports["time-profile"])):
@@ -2480,6 +2481,8 @@ def xctrace_stop(handle, action_id):
             if t <= win[1]:
                 turn_ms += weight
                 turn_self[leaf] += weight
+                for name in set(frames):
+                    turn_incl[name[:150]] += weight
             else:
                 gap_ms += weight
                 gap_self[leaf] += weight
@@ -2494,6 +2497,7 @@ def xctrace_stop(handle, action_id):
         out["main_ms_after_turn_waiting"] = round(idle_gap / 1e6, 1)
         out["windows"] = len(windows)
         out["turn_self_ms"] = {k: round(v / 1e6, 1) for k, v in turn_self.most_common(25)}
+        out["turn_inclusive_ms"] = {k: round(v / 1e6, 1) for k, v in turn_incl.most_common(200)}
         out["after_turn_self_ms"] = {k: round(v / 1e6, 1) for k, v in gap_self.most_common(40)}
         out["after_turn_inclusive_ms"] = {k: round(v / 1e6, 1) for k, v in gap_incl.most_common(150)}
     print(f"XCTRACE {action_id} {json.dumps(out)[:20000]}", flush=True)
