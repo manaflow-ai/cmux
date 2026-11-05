@@ -96,6 +96,7 @@ const SLOW: &[(&str, Option<&str>, Option<&str>, &str)] = &[
     ("gh", Some("pr"), Some("--watch"), "a CI wait"),
     ("tail", None, Some("-f"), "a follow that never ends on its own"),
     ("tail", None, Some("-F"), "a follow that never ends on its own"),
+    ("tail", None, Some("--follow"), "a follow that never ends on its own"),
     ("watch", None, None, "a watch that never ends on its own"),
     ("next", Some("dev"), None, "a dev server, which never ends on its own"),
     ("vite", Some("dev"), None, "a dev server, which never ends on its own"),
@@ -376,6 +377,54 @@ mod tests {
             "tail -n 50 log.txt",
         ] {
             assert_eq!(slow_reason(quick), None, "{quick}");
+        }
+    }
+
+    /// Only a command the shell runs is slow, never the text of an argument, a quote or a
+    /// heredoc body. The lane live-apply-nightly was turned away five times on 2026-11-04 for a
+    /// grep pattern and a heredoc that named `swift build`, `tail -f` and `watch`.
+    #[test]
+    fn words_in_arguments_quotes_and_heredocs_are_not_run() {
+        for quick in [
+            "grep -e 'swift build' -r .",
+            r#"rg "tail -f" src"#,
+            r#"grep -rIl -iE "foreground|swift build.*watch|tail -f" ~/.claude"#,
+            "cat <<'EOF' > notes.md\nrun tail -f log, then watch -n1 ls\nswift build\nEOF",
+            "cat <<EOF\ntail -F x\nwatch ls\nEOF\ngit status",
+            "cat > f.txt <<-EOF\n\ttail -f x\n\tEOF",
+            r#"git commit -m "fix: swift build | tail -f; watch""#,
+            "echo 'watch this'",
+            "echo watch this # tail -f x",
+            "ls 2>&1 | tee log",
+            "cat <<'EOF'\n$(swift build)\nEOF",
+            "bash; cat <<EOF\nswift build\nEOF",
+            "cat <<DATA; bash <<CODE\nswift build\nDATA\nls\nCODE",
+            // ssh's remote command is not read (the policy before this change).
+            "ssh host swift build",
+        ] {
+            assert_eq!(slow_reason(quick), None, "{quick}");
+        }
+        for slow in [
+            "swift build",
+            r#"bash -c "swift build""#,
+            "sh -ec 'cd x && tail -F y'",
+            "foo | tail -f x",
+            "watch -n1 ls",
+            "env A=1 swift build",
+            r#"echo "$(swift build)""#,
+            "x=`tail -f log`",
+            "bash <<EOF\nswift build\nEOF",
+            "cat <<EOF | sh\nswift build\nEOF",
+            "cat <<EOF\nnotes\nEOF\nswift build",
+            "( cd app && swift build )",
+            "cat <<EOF\n$(\nswift build\n)\nEOF",
+            r#"echo "${X:-$(swift build)}""#,
+            "if true; then watch ls; fi",
+            "tail --follow app.log",
+            // Unreadable input falls back to the loose read, which names more.
+            "echo 'open && swift build",
+        ] {
+            assert!(slow_reason(slow).is_some(), "{slow}");
         }
     }
 

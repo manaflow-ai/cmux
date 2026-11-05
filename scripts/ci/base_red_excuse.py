@@ -64,6 +64,9 @@ _spec = importlib.util.spec_from_file_location("main_fix_evidence", Path(__file_
 _evidence = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_evidence)
 Refused, job_for, latest_checks = _evidence.Refused, _evidence.job_for, _evidence.latest_checks
+# A read GitHub rate-limited, where the evidence reader tells it apart (main's main_fix_evidence.py): exit 3, which
+# gh-merge-green reports as a rate limit rather than a red. A reader without it raises Refused (exit 1).
+RateLimited = getattr(_evidence, "RateLimited", ())
 
 
 ESCAPE_FLAG = "--allow-escape-sequences"
@@ -259,8 +262,16 @@ CRASH_LINE = re.compile(r"exited with unexpected signal code|the test helper die
                         r"no \"Test run with\" summary line")
 # A commit sha inside an error line: a full 40-hex sha, or 7 to 39 hex digits right after a word that
 # names a commit (commit, sha, tree, revision). The same red on the head and the base names each run's
-# own commit; any other hex id (an artifact, a hash) is compared as it is.
-SHA = re.compile(r"\b[0-9a-f]{40}\b|\b((?:commit|sha|tree|revision) `?)[0-9a-f]{7,39}\b")
+# own commit; any other hex id (an artifact, a hash) is compared as it is. A full 40-hex id right after
+# a word that names a stored thing rather than a commit (ARTIFACT) is such an id: two different digests
+# stayed one error line while every bare 40-hex token was masked, so a real red could pass as a base red
+# (cmux#35902, from the review of #35893). A commit the line does not name as an artifact still masks,
+# whatever word introduces it: a base red often names each run's own tree or stamp with no keyword at
+# all ("source stamp <40-hex> != <40-hex>"), which is why the bare case cannot ask for one.
+ARTIFACT = r"(?i:artifacts?|artefacts?|assets?|digests?|checksums?|hashe?s?|packs?|bundles?|archives?|images?|layers?)"
+SHA = re.compile(rf"(?P<artifact>\b{ARTIFACT} `?[0-9a-f]{{40}}\b)"
+                 r"|\b[0-9a-f]{40}\b"
+                 r"|\b(?P<commit>(?:commit|sha|tree|revision) `?)[0-9a-f]{7,39}\b")
 # A compile check that gave no verdict (the build-fleet controller unreachable, timed out, or a result
 # for another head): nothing compiled the head, so it is never a base red, whatever the base shows
 # (2026-10-28: the fleet Release compile's "no result" was red on PRs and on the base alike while the
@@ -464,7 +475,13 @@ def is_aggregate(name: str, repo: str = HOME_REPO) -> bool:
 
 
 def mask_shas(text: str) -> str:
-    return SHA.sub(lambda match: (match.group(1) or "") + "<sha>", text)
+    """TEXT with its commit shas masked, leaving every other hex id as it is (SHA)."""
+    def masked(match: re.Match[str]) -> str:
+        if match.group("artifact") is not None:
+            return match.group("artifact")
+        return (match.group("commit") or "") + "<sha>"
+
+    return SHA.sub(masked, text)
 
 
 def normalise_error(text: str) -> str:
@@ -804,15 +821,15 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
                 continue
             job = job_for(repo, latest[name], sha, github)
             if is_aggregate(name, repo):
-                if name in rollups(repo)["run"]:
-                    aggregate_runs.append((name, job["run_id"]))
-                    continue
                 # The check-run can remain failed while its Actions job has
                 # been retried or replaced.  Never discard this exact job and
                 # rescan the run: a green/missing aggregate must not allow its
-                # child failures to be excused.
+                # child failures to be excused (a run rollup like ci-status too).
                 if job.get("conclusion") != "failure":
                     raise Refused(f"'{name}': exact aggregate job is {job.get('conclusion')}, not failure")
+                if name in rollups(repo)["run"]:
+                    aggregate_runs.append((name, job["run_id"]))
+                    continue
                 aggregate_jobs.append(job)
             else:
                 jobs[job["id"]] = job
@@ -1325,8 +1342,13 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             # jobs already answers for its finished ones (before_merge_base's note).
             listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?branch={base}"
                                  f"&per_page={BASE_RUNS_PAGE}")
-            base_runs[workflow] = [run for run in listed.get("workflow_runs") or []
-                                   if run.get("event") != "pull_request" and run.get("conclusion") != "skipped"]
+            # Newest first, whatever order GitHub lists them in; a run in a PR's context (pull_request or
+            # pull_request_target) is never the base's.
+            base_runs[workflow] = sorted(
+                (run for run in listed.get("workflow_runs") or []
+                 if run.get("event") not in ("pull_request", "pull_request_target")
+                 and run.get("conclusion") != "skipped"),
+                key=lambda run: run.get("created_at") or "", reverse=True)
         # The newest base run where this job has a verdict decides whether it is red on the base.
         verdicts = base_verdicts(repo, base, workflow, name, github, base_runs, base_jobs, job_reads)
         base_run, base_job = next(verdicts, (None, None))
@@ -1391,6 +1413,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         audit = judge(args.repo, args.base, args.sha, args.run, GitHub(), checks=args.check,
                       flake_state=test_reds.load_flake_state(args.flake_state, fetch=True))
+    except RateLimited as error:
+        print(f"rate-limited: {error}", file=sys.stderr)
+        return 3
     except Infra as error:
         print(f"not excused: infra, not a verdict: {error}", file=sys.stderr)
         return 1
