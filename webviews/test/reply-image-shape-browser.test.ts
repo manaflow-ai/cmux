@@ -103,4 +103,38 @@ await requireBrowserLane("reply-image-shape-browser.test.ts", async () => {
           await page.close();
         }
       });
+
+  // A sent video's poster keeps its tile (SentVideoTile.tsx): 120px tall at the tile's width, cropped
+  // to fill, loaded or still loading. The images' new sizing must not reach it.
+  for (const variant of ["video-only", "video-loading"])
+    test(`agent-pane.sent-video ${variant}: the poster keeps its 120px tile`, async () => {
+      const page = await browser!.newPage({ viewport: { width: 760, height: 720 }, deviceScaleFactor: 2 });
+      try {
+        const base = `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}`;
+        await page.goto(base + galleryFrame("agent-pane.sent-video", { variant, width: 760, height: 720 }));
+        await page.waitForFunction(() =>
+          ["1", "error"].includes(document.documentElement.dataset.galleryReady ?? ""),
+        );
+        expect(await page.evaluate(() => document.documentElement.dataset.galleryReady)).toBe("1");
+        if (variant === "video-only")
+          await page.waitForFunction(() => {
+            const poster = document.querySelector<HTMLImageElement>(".cv-user__video img.cv-user__image");
+            return !!poster && poster.complete && poster.naturalWidth > 0;
+          });
+        const tiles = await page.evaluate(() =>
+          [...document.querySelectorAll(".cv-user__video")].map((tile) => {
+            const poster = tile.querySelector(".cv-user__image, .cv-user__image-placeholder");
+            return { tile: tile.getBoundingClientRect().toJSON(), poster: poster?.getBoundingClientRect().toJSON() };
+          }),
+        );
+        expect(tiles.length).toBeGreaterThan(0);
+        for (const { tile, poster } of tiles) {
+          expect(poster).toBeDefined();
+          expect(Math.abs(poster!.height - 120)).toBeLessThan(1);
+          expect(Math.abs(poster!.width - tile.width)).toBeLessThan(1);
+        }
+      } finally {
+        await page.close();
+      }
+    });
 });
