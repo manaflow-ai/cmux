@@ -38998,6 +38998,34 @@
     },
     {
       "cli" : "guiOnly",
+      "cli_name" : "action server-pair-another-machine",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "server.pairAnotherMachine",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Pair Another Machine…",
+      "title_key" : "action.server.pairAnotherMachine",
+      "title_table" : "ServerActions"
+    },
+    {
+      "cli" : "guiOnly",
       "cli_name" : "action server-show-panel",
       "context_menu" : "noObject",
       "context_menus" : [
