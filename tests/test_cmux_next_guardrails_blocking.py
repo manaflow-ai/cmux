@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""guardrails.py's main-blocking, raw-blocking and thread-doc rules (PL-blocking, plans/cmux-next/threading-model.md).
+"""guardrails.py's main-blocking, raw-blocking, thread-doc and main-hop rules (PL-blocking, plans/cmux-next/threading-model.md).
 
 Each test commits into a throwaway repository and runs `guardrails.check` on what the commit adds. Not on CI
 (Lawrence 2026-10-23: no new CI tests): run it yourself after a change to those rules:
@@ -318,6 +318,118 @@ class BlockingRuleTests(unittest.TestCase):
         elapsed = time.process_time() - started
         self.assertEqual(len(hits["main-blocking"]), 20 * 600)  # the scope and closure checks really ran
         self.assertLess(elapsed, 1.0)
+
+
+# main-hop (cmux-ad m35 item 3): a direct main-actor hop in a UI target, against the scheduler's entry points.
+OLD_HOP = "func old() {\n    Task { @MainActor in self.refresh() }\n}\n"
+HOPS = [
+    "func f() {\n    Task { @MainActor in self.refresh() }\n}\n",
+    "func f() {\n    Task { @MainActor [weak self] in\n        self?.refresh()\n    }\n}\n",
+    "func f() {\n    Task(priority: .userInitiated) { @MainActor in self.refresh() }\n}\n",
+    "func f() async {\n    await MainActor.run { self.refresh() }\n}\n",
+    "nonisolated func f() async {\n    await MainActor.run {\n        self.refresh()\n    }\n}\n",
+]
+SCHEDULED = [
+    "func f() {\n    frames.enqueue { self.refresh() }\n}\n",
+    "func f() {\n    MainDelivery().run { self.refresh() }\n}\n",
+    "func f() {\n    AfterFrameCommit().run { [weak self] in self?.refresh() }\n}\n",
+    "func f() async {\n    await model.refresh()\n}\n",
+    "func f() {\n    // Task { @MainActor in self.refresh() } was here: a comment is no hop\n    frames.enqueue { self.refresh() }\n}\n",
+    'func f() {\n    log("Task { @MainActor in")\n}\n',
+]
+
+
+class MainHopRuleTests(unittest.TestCase):
+    setUp, git, write, commit = BlockingRuleTests.setUp, BlockingRuleTests.git, BlockingRuleTests.write, BlockingRuleTests.commit
+    push, refused_ids = BlockingRuleTests.push, BlockingRuleTests.refused_ids
+
+    def main_hops(self):
+        saved = {k: os.environ.pop(k) for k in list(os.environ) if k.startswith("GIT_")}
+        try:
+            refusals, warnings = guardrails.check(self.repo, self.base, "HEAD")
+        finally:
+            os.environ.update(saved)
+        self.assertEqual([w for w in warnings if w[0] == "guardrails"], [], "a rule failed open")
+        return [h.text.strip() for r, hits in refusals if r.id == "main-hop" for h in hits]
+
+    def rebase_with_old_hop(self):
+        self.write(f"{UI}/OldHop.swift", OLD_HOP)
+        self.commit("an old hop")
+        self.base = self.git("rev-parse", "HEAD").stdout.strip()
+
+    def test_a_new_direct_hop_in_an_added_line_of_a_ui_target_is_refused(self):
+        for text in HOPS:
+            with self.subTest(text=text):
+                self.push(UI, text)
+                self.assertEqual(len(self.main_hops()), 1, text)
+
+    def test_the_scheduler_path_passes(self):
+        for text in SCHEDULED:
+            with self.subTest(text=text):
+                self.push(UI, text)
+                self.assertEqual(self.main_hops(), [], text)
+
+    def test_a_target_that_is_not_main_actor_by_default_is_not_judged(self):
+        self.push(SERVICE, HOPS[0])
+        self.assertEqual(self.main_hops(), [])
+
+    def test_an_existing_hop_is_not_refused_when_the_push_edits_around_or_moves_it(self):
+        self.rebase_with_old_hop()
+        self.write(f"{UI}/OldHop.swift", "// a new comment\n" + OLD_HOP + "func other() {}\n")
+        self.commit("edits around the old hop")
+        self.assertEqual(self.main_hops(), [])
+        self.git("reset", "--quiet", "--hard", self.base)
+        self.git("mv", f"{UI}/OldHop.swift", f"{UI}/Moved.swift")
+        self.commit("moves the old hop")
+        self.assertEqual(self.main_hops(), [])
+
+    def test_editing_an_old_hop_adds_none_but_a_second_hop_in_the_same_file_is_refused(self):
+        self.rebase_with_old_hop()
+        self.write(f"{UI}/OldHop.swift", OLD_HOP.replace("self.refresh()", "self.reload()"))
+        self.commit("edits the old hop's line")
+        self.assertEqual(self.main_hops(), [])
+        self.write(f"{UI}/OldHop.swift", OLD_HOP + "func g() {\n    Task { @MainActor in self.again() }\n}\n")
+        self.commit("adds a second hop")
+        self.assertEqual(self.main_hops(), ["Task { @MainActor in self.again() }"])
+
+    def test_the_reviewed_escape_passes_and_removing_it_is_new_debt(self):
+        escaped = ("func f() {\n    // main-hop-allow: NSSavePanel's completion runs once per click; the body sets one flag\n"
+                   "    Task { @MainActor in self.refresh() }\n}\n")
+        self.push(UI, escaped)
+        self.assertEqual(self.main_hops(), [])
+        self.write(f"{UI}/Escaped.swift", escaped)
+        self.commit("an escaped hop")
+        self.base = self.git("rev-parse", "HEAD").stdout.strip()
+        self.write(f"{UI}/Escaped.swift", escaped.replace(
+            "    // main-hop-allow: NSSavePanel's completion runs once per click; the body sets one flag\n", ""))
+        self.commit("drops the escape")
+        self.assertEqual(self.main_hops(), ["Task { @MainActor in self.refresh() }"])
+
+    def test_raw_blocking_calls_in_a_ui_target_are_refused_and_the_checked_seam_passes(self):
+        """The ratchet's other half is the existing main-blocking / raw-blocking pair: a raw call added in a UI
+        target is refused (in main-actor code as main-blocking, in a closure as raw-blocking), its checked seam
+        off main passes."""
+        self.assertIn("main-blocking", self.push(UI, "func load() -> Data? {\n    try? Data(contentsOf: url)\n}\n"))
+        self.assertIn("raw-blocking", self.push(
+            UI, "func load() {\n    queue.async {\n        _ = try? Data(contentsOf: url)\n    }\n}\n"))
+        self.assertEqual(self.push(
+            UI, "func load() {\n    queue.async {\n        _ = try? Data(blockingContentsOf: url)\n    }\n}\n"), [])
+
+    def test_the_counts_see_hops_scheduler_entries_and_blocking_calls(self):
+        self.write(f"{UI}/Counted.swift", HOPS[0] + SCHEDULED[0].replace("func f", "func g")
+                   + "func h() {\n    // main-hop-allow: test fixture\n    Task { @MainActor in self.x() }\n}\n")
+        self.write(f"{SERVICE}/Counted.swift", HOPS[3])
+        self.commit("counted")
+        saved = {k: os.environ.pop(k) for k in list(os.environ) if k.startswith("GIT_")}
+        try:
+            counts = guardrails.main_thread_counts(self.repo, "HEAD")
+        finally:
+            os.environ.update(saved)
+        ui, every = counts["ui_targets"], counts["all_sources"]
+        self.assertEqual((ui["main_hops"]["lines"], ui["main_hops_escaped"]["lines"], ui["scheduler_entries"]["lines"]),
+                         (1, 1, 1))
+        self.assertEqual(every["main_hops"], {"lines": 2, "files": 2})
+        self.assertEqual(ui["raw_blocking"], {"lines": 1, "files": 1})  # the base's Old.swift
 
 
 if __name__ == "__main__":

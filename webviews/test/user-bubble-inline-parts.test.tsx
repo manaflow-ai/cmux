@@ -106,7 +106,7 @@ try {
     expect(dom.window.getComputedStyle(button).cursor).toBe("zoom-in");
   });
 
-  test("an inline pasted block is a chip that opens to its text", async () => {
+  test("an inline pasted block is a card of its first lines that opens to its text", async () => {
     const pasted = "first pasted line\nsecond pasted line\nthird pasted line";
     await render(
       prompt("inline-paste", `before\n${pasted}\nafter`, [
@@ -117,9 +117,14 @@ try {
     );
     const chip = host.querySelector<HTMLButtonElement>("[data-inline-content] .cv-user__paste");
     expect(chip).not.toBeNull();
-    expect(host.querySelector("[data-inline-content] .cv-user__paste-text")).toBeNull();
+    // Closed, its lines are a preview outside Find; open, the same text is the paste, found.
+    const text = host.querySelector("[data-inline-content] .cv-user__paste-text");
+    expect(text?.closest("[data-find-skip]")).not.toBeNull();
+    expect(chip!.getAttribute("aria-expanded")).toBe("false");
     await act(async () => chip!.click());
+    expect(chip!.getAttribute("aria-expanded")).toBe("true");
     expect(host.querySelector("[data-inline-content] .cv-user__paste-text")?.textContent).toBe(pasted);
+    expect(host.querySelector("[data-inline-content] .cv-user__paste-text")?.closest("[data-find-skip]")).toBeNull();
   });
 
   test("an image's retained original is not drawn again as a file", async () => {

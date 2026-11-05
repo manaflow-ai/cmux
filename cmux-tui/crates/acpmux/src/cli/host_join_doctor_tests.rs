@@ -183,6 +183,27 @@ fn service_and_daemon_failures_name_local_commands() {
 }
 
 #[test]
+fn a_daemon_that_answers_without_its_service_warns_instead_of_failing() {
+    // A headless Linux user with no systemd user session: `systemctl --user` prints nothing.
+    assert_eq!(systemd_state("", true), Service::NoManager);
+    assert_eq!(systemd_state("\n", false), Service::NoManager);
+    assert_eq!(systemd_state("active\n", true), Service::Active { linger: None });
+    assert_eq!(systemd_state("inactive\n", true), Service::Inactive { installed: true });
+    assert_eq!(systemd_state("failed\n", false), Service::Inactive { installed: false });
+    for installed in [true, false] {
+        let checked = steps(&Facts { service: Service::Inactive { installed }, ..healthy() }, NOW);
+        let service = step(&checked, "service");
+        assert_eq!(service.state, StepState::Warn, "{service:?}");
+        assert!(service.healthy() && service.fix.is_some());
+        assert!(service.detail.contains("the daemon runs without it"), "{}", service.detail);
+        let (_, ok) = render("box", "host", &checked, Print::Quiet);
+        assert!(ok, "a join whose daemon answers is healthy: {checked:?}");
+    }
+    let none = steps(&Facts { service: Service::NoManager, ..healthy() }, NOW);
+    assert!(render("box", "host", &none, Print::Quiet).1, "{none:?}");
+}
+
+#[test]
 fn consent_is_informational_and_reports_grants() {
     let granted = with_status(json!({"consent": {"screen": "granted", "control": true}}));
     let consent = step(&granted, "consent");

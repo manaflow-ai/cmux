@@ -60,7 +60,9 @@ case "$mode" in
     [[ " ${flags[*]} " == *" -Demit-lib-vt=true "* ]] || { echo "error: could not read build.rs's zig flags" >&2; exit 1; }
     version="$(sed -n 's/^[[:space:]]*\.version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$src/build.zig.zon" | head -1)"
     echo "libghostty-vt: ${line} with ${flags[*]}"
-    (cd "$src" && zig build "${flags[@]}" "-Dversion-string=$version" --prefix "$work/out")
+    # CMUX_VT_ZIG: the libghostty-vt tree's Zig when PATH's zig is the classic
+    # ghostty's (a job that builds both); default zig on PATH.
+    (cd "$src" && "${CMUX_VT_ZIG:-zig}" build "${flags[@]}" "-Dversion-string=$version" --prefix "$work/out")
     ;;
   helper)
     src="$(fresh_copy ghostty "$(git -C "$ROOT" rev-parse HEAD:ghostty)")"

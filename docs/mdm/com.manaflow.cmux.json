@@ -81,6 +81,26 @@
       "title" : "Chat Font Size",
       "type" : "number"
     },
+    "agentPane.display.font.ui" : {
+      "default" : "inter-tuned",
+      "description" : "The font of the whole chat: replies, the composer, cards and menus.",
+      "enum" : [
+        "inter-tuned",
+        "inter",
+        "verdana",
+        "roboto",
+        "plex",
+        "source-sans",
+        "geist",
+        "cmux-sans",
+        "hanken",
+        "atkinson",
+        "system-ui",
+        "system-ui-tight"
+      ],
+      "title" : "Chat Interface Font",
+      "type" : "string"
+    },
     "agentPane.display.fullWidth" : {
       "default" : false,
       "description" : "The chat fills the whole pane instead of the text width.",

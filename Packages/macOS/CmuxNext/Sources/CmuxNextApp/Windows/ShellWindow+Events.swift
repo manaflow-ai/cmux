@@ -58,11 +58,13 @@ extension ShellWindow {
     }
 
     override func becomeKey() {
+        BenchSpans.mark("key.become") // debug.new_tab bench_create's key_changes
         cursorRectHold?.windowKeyStateWillChange(self)
         super.becomeKey()
     }
 
     override func resignKey() {
+        BenchSpans.mark("key.resign")
         cursorRectHold?.windowKeyStateWillChange(self)
         super.resignKey()
     }
