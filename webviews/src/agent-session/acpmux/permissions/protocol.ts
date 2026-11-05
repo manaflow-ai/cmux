@@ -46,8 +46,7 @@ function record(value: unknown, message: StringKey = "error.invalid.permissionRe
 }
 
 function nonemptyText(value: unknown, field: string): string {
-  if (typeof value !== "string" || value.length === 0)
-    throw invalidReply("error.invalid.permissionField", { field });
+  if (typeof value !== "string" || value.length === 0) throw invalidReply("error.invalid.permissionField", { field });
   return value;
 }
 

@@ -51,8 +51,7 @@ function object(value: unknown, message: StringKey = "error.invalid.checkpointRe
   return value as Record<string, unknown>;
 }
 function text(value: unknown, field: string): string {
-  if (typeof value !== "string" || value.length === 0)
-    throw invalidReply("error.invalid.checkpointField", { field });
+  if (typeof value !== "string" || value.length === 0) throw invalidReply("error.invalid.checkpointField", { field });
   return value;
 }
 function nonnegative(value: unknown, field: string): number {
@@ -86,8 +85,7 @@ function checkpoint(value: unknown): Checkpoint {
   )
     throw invalidReply("error.invalid.checkpointResponse");
   if (base.head !== null && typeof base.head !== "string") throw invalidReply("error.invalid.checkpointBase");
-  if (base.branch !== null && typeof base.branch !== "string")
-    throw invalidReply("error.invalid.checkpointBase");
+  if (base.branch !== null && typeof base.branch !== "string") throw invalidReply("error.invalid.checkpointBase");
   if (!Array.isArray(raw.skipped) || raw.skipped.length > nonnegative(raw.skipped_total, "skipped_total"))
     throw invalidReply("error.invalid.checkpointSkipAccounting");
   const skipped = raw.skipped.map((entry) => {
