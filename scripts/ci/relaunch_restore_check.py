@@ -26,7 +26,8 @@ Two halves, one file:
     relaunch_restore_check.py (--app APP | --dmg DMG) [--rounds 3] [--fronts terminal,chat] [--budget-ms 3000]
         [--out DIR] [--fake-agent PATH]
   seeds, reads the state, then each round: puts the round's front in the front window (--fronts, cycled over
-  the rounds: `terminal` l5-a's terminal tab, `chat` l5-b's chat tab, `home` Home), Quit and Keep Sessions
+  the rounds: `terminal` l5-a's terminal tab, `chat` l5-b's chat tab, `home` Home on its home-dock tab,
+  `first-run` the fresh home's first-run Home with no tab selected, round 1 only), Quit and Keep Sessions
   (`action.run quitKeepSessions`), waits for the process to end, starts the same app with the same
   environment, and polls every POLL_S until it is usable: the control socket answers snapshot.get with the
   topology loaded, both l5 workspaces and the chat's tab back, the front window showing what it showed at
@@ -36,7 +37,7 @@ Two halves, one file:
   usable a new turn sent to the chat must be answered (live_ms), so the chat is reattached to its agent, not
   only bound to its tab; where the build serves `debug.agent_pane` (a DEV build; a NIGHTLY's release router
   drops `debug.*`), the shown page must also report a live event (`liveEvent`, as bench_relaunch_reconnect.py
-  reads it). `home` stays out of the default until cmux#36306 (the #36274 fix) lands. Each round prints
+  reads it). `first-run` (the #36274 case) stays out of the default until cmux#36306 (its fix) lands. Each round prints
   `L5-ROUND {json}` (quit_ms: quit asked to process gone; quit_to_usable_ms: quit asked to the end of the
   poll that found it usable, the budgeted number; ready_ms: to the start of that poll, a lower bound), and the
   run prints `L5 {json}` with the verdict. Exit 0 only when every round restored everything within budget.
@@ -180,7 +181,7 @@ def write_harness(home: str, fake_agent: str) -> None:
     profile.chmod(0o600)
 
 
-def seed(inst: Instance, fake_agent: str, work: str) -> dict:
+def seed(inst: Instance, fake_agent: str, work: str, front_terminal: bool = True) -> dict:
     """Makes the probed state and records it; raises RuntimeError naming the step that failed."""
     os.makedirs(work, exist_ok=True)
     pidfile = os.path.join(work, "l5-terminal.pid")
@@ -236,9 +237,11 @@ def seed(inst: Instance, fake_agent: str, work: str) -> dict:
     made["front_workspace"] = a.get("workspace_id")
     made.update(workspace_a=a.get("workspace_id"), terminal_tab=a.get("tab_id"), workspace_b=ws_b,
                 chat_tab=chat_tab_id(inst.topology(), made["chat"]))
-    focused = inst.cmux("workspace", a["workspace_id"], "focus")
-    if isinstance(focused, dict) and focused.get("error"):
-        raise RuntimeError(f"focusing l5-a failed: {focused['error']}")
+    # The check sets each round's front itself (put_front), so a `first-run` round can find the first-run Home.
+    if front_terminal:
+        focused = inst.cmux("workspace", a["workspace_id"], "focus")
+        if isinstance(focused, dict) and focused.get("error"):
+            raise RuntimeError(f"focusing l5-a failed: {focused['error']}")
     with open(inst.record, "w") as handle:
         json.dump(made, handle)
     return made
@@ -411,7 +414,7 @@ def front(topo: dict | None) -> list[dict]:
     return shown
 
 
-FRONTS = ("terminal", "chat", "home")
+FRONTS = ("terminal", "chat", "home", "first-run")
 
 
 def fronted(shown: list[dict], which: str, made: dict) -> bool:
@@ -422,14 +425,21 @@ def fronted(shown: list[dict], which: str, made: dict) -> bool:
             return True
         if which == "chat" and window.get("workspace") == "l5-b" and any(t.get("agent_session") == made["chat"] for t in selected):
             return True
-        if which == "home" and window.get("kind") == "home":
+        # Home's workspace has no kind in the topology (null on nightly 4191131679101): its name and page say it.
+        home = window.get("kind") == "home" or window.get("workspace") == "Home"
+        if which == "home" and home and any(t.get("page") == "home-dock" for t in selected):
+            return True
+        # The fresh home's first-run Home: its cover leaves the pane with no selected tab (cmux#36274).
+        if which == "first-run" and home and not selected:
             return True
     return False
 
 
 def put_front(inst: Instance, which: str, made: dict) -> str | None:
     """Puts the round's front in the front window before the quit, as a person leaves it; None, or why it failed."""
-    if which == "home":
+    if which == "first-run":
+        steps = []  # nothing to do: it holds only while nothing has changed the front since the first launch
+    elif which == "home":
         steps = [lambda: call(inst.sock, "action.run", {"action": "home.show", "focus": True}, timeout=15)]
     else:
         ws, tab = (made["workspace_a"], made["terminal_tab"]) if which == "terminal" else (made["workspace_b"], made["chat_tab"])
@@ -440,7 +450,7 @@ def put_front(inst: Instance, which: str, made: dict) -> str | None:
         answer = step()
         if isinstance(answer, dict) and answer.get("error"):
             return f"putting {which} in front failed: {answer['error']}"
-    if not wait(lambda: fronted(front(inst.topology()), which, made), 10, 0.1):
+    if not wait(lambda: fronted(front(inst.topology()), which, made), 0 if which == "first-run" else 10, 0.1):
         return f"{which} never showed in the front window: {json.dumps(front(inst.topology()))[:300]}"
     return None
 
@@ -563,7 +573,7 @@ def check(args) -> int:
         out = Path(out) if out else Path(env["HOME"]).parent
         inst = Instance(str(socket_path), str(app), env["HOME"])
         try:
-            made = seed(inst, args.fake_agent, os.path.join(env["HOME"], "l5-work"))
+            made = seed(inst, args.fake_agent, os.path.join(env["HOME"], "l5-work"), front_terminal=False)
         except RuntimeError as error:
             result["seed_error"] = str(error)
             return [f"seed: {error}"]
