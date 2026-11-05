@@ -280,9 +280,10 @@ fn a_pending_machine_names_the_command_that_waits_on() {
             json!({"machines": [{"title": "chat-fresh", "machine_id": "vm-9", "status": "provisioning"}]}),
         ),
     ]);
-    // A name no machine has: `start-session --name` makes it, so no relay chat first.
+    // A name no machine has: the relay chat makes it under that name, and it is still being made.
     let asked = request(&["--prompt", "x", "--name", "chat-fresh", "--wait"]);
     let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!() };
+    assert_eq!(fake.ran[1], strings(&["cloud", "new-machine", "--name", "chat-fresh", "--json"]));
     assert_eq!((error["code"].as_str(), exit), (Some("cloud.start_pending"), 75));
     assert_eq!(
         error["details"]["again"],
@@ -754,6 +755,55 @@ fn the_relay_answers_a_new_chat_with_no_link_to_the_machine() {
         ])
     );
     assert_eq!(fake.ran.len(), 3);
+}
+
+#[test]
+fn a_name_no_machine_has_is_made_and_its_first_chat_goes_the_relay_way() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        made(),
+        relayed(json!({"session_id": "relay-1", "reply": "ok", "stop_reason": "end_turn",
+                       "first_text_ms": 1800, "total_ms": 2000})),
+    ]);
+    let asked = request(&["--prompt", "Reply with exactly: ok", "--name", "probe-1", "--wait"]);
+    let Outcome::Done(answer) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(answer["reply"], "ok");
+    assert_eq!(answer["path"], "relay");
+    assert_eq!(fake.ran[1], strings(&["cloud", "new-machine", "--name", "probe-1", "--json"]));
+    assert_eq!(&fake.ran[2][..4], &strings(&["cloud", "relay-chat", "--target", "machine:vm-1"]));
+    assert_eq!(fake.ran.len(), 3, "no start-session: no link to the machine");
+}
+
+#[test]
+fn a_named_new_machine_the_relay_never_reached_goes_the_link_way_on_that_machine() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        made(),
+        relayed(json!({"delivered": false, "error_code": "cloud.relay.machine_offline"})),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+        exec_out(
+            "@@wait 0\n@@history\n{\"turns\":[{\"seq\":3,\"status\":\"completed\",\"endedAt\":9}]}\n\
+             @@last\n{\"sessionId\":\"sess-1\",\"replies\":[\"ok\"]}\n@@lastexit 0\n",
+        ),
+    ]);
+    let asked = request(&["--prompt", "x", "--name", "probe-1", "--wait"]);
+    let Outcome::Done(answer) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(answer["reply"], "ok");
+    // Made once, by its name; the link path starts on that machine's id, never a second create.
+    assert_eq!(fake.ran[1], strings(&["cloud", "new-machine", "--name", "probe-1", "--json"]));
+    assert_eq!(
+        fake.ran[3],
+        strings(&[
+            "cloud",
+            "start-session",
+            "--target",
+            "machine:vm-1",
+            "--agent",
+            "claude",
+            "--json"
+        ])
+    );
 }
 
 #[test]
