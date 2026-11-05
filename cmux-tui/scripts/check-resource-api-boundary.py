@@ -1194,6 +1194,10 @@ def _validate_catalog_type(
                 # passed through unchanged (its turn summaries grow fields).
                 "operations.chief.engine.get.result",
                 "operations.chief.engine.set.result.arguments[0]",
+                # Import from Conductor's dry run, owned by the
+                # cmux-conductor-import crate (plan::Plan) and passed
+                # through unchanged; the app that confirms it reads it.
+                "types.ConductorImportPlanResult.fields.plan.value",
             }
             is_explicit_extra = (
                 context.startswith("types.")
