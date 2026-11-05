@@ -218,6 +218,36 @@ public final class AutoArchiveCoordinator {
         host.autoArchiveToast(AutoArchiveStrings.archived(items.count)) { [weak self] in self?.restore(items) }
     }
 
+    /// The document items of `workspaces` that Archive Other Workspaces, Archive Workspaces Above or
+    /// Below would archive, in that order: placed, not pinned (top-level Pinned or pinned in a group)
+    /// and not archived yet, by itself or under an archived group.
+    public func archivableItems(workspaces: [String]) -> [String] {
+        guard let records = activeStore()?.records else { return [] }
+        var seen = Set<String>()
+        return workspaces.compactMap { host.autoArchiveItem(workspace: $0) }.filter { item in
+            records.items[item] != nil && seen.insert(item).inserted && !records.isPinned(item: item) && !records.isArchived(item: item)
+                && !groups(of: item, in: records).contains { records.isArchived(item: $0) }
+        }
+    }
+
+    /// Archives `workspaces` a person named (the bulk archive rows): their ``archivableItems(workspaces:)``
+    /// as one undo step, and a toast whose Undo brings the whole batch back. Returns how many it
+    /// archived; 0 sends nothing. Unlike the sweep it leaves the ledger alone: a hand archive is no
+    /// auto-archive, so showing the workspace again does not bring it back.
+    @discardableResult
+    public func archive(workspaces: [String]) throws(AutoArchiveRefusal) -> Int {
+        guard let store = activeStore() else { throw AutoArchiveRefusal(message: AutoArchiveStrings.needsDocument) }
+        let items = archivableItems(workspaces: workspaces)
+        guard !items.isEmpty else { return 0 }
+        do throws(SidebarDocSendRefusal) {
+            try store.setArchived(items, archived: true, title: AutoArchiveStrings.archiveWorkspacesTitle)
+        } catch {
+            throw AutoArchiveRefusal(message: error.message)
+        }
+        host.autoArchiveToast(AutoArchiveStrings.archivedByHand(items.count)) { [weak self] in self?.restore(items) }
+        return items.count
+    }
+
     /// Unarchives `items` (the toast's Undo, Restore in the Archived list).
     public func restore(_ items: [String]) {
         guard let store = activeStore(), !items.isEmpty else { return }
