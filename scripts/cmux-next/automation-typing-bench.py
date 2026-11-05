@@ -160,10 +160,12 @@ def seed_empty_workspaces(count):
     """Fill the requested topology with empty workspaces so large runs do not exhaust PTYs."""
     if count <= 0:
         return {"requested": 0, "created": 0, "failures": []}
-    # The probe adds one focused typing workspace and, unless disabled, one browser workspace.
-    # Active agent workspaces are bounded by --agents; only the remainder needs empty rows.
-    fixed = 1 + (0 if opts.no_browser else 1)
-    empty = max(0, count - opts.agents - fixed)
+    # The probe adds one focused typing workspace, optional browser workspace and agent
+    # workspaces. Account for any row the app restored before seeding so the final topology
+    # remains exactly the requested size instead of silently becoming count+1.
+    existing = len(topology().get("workspaces") or [])
+    fixed = opts.agents + 1 + (0 if opts.no_browser else 1)
+    empty = max(0, count - existing - fixed)
     failures = []
     created = 0
     for index in range(empty):
@@ -173,7 +175,19 @@ def seed_empty_workspaces(count):
         else:
             failures.append({"index": index, "returncode": done.returncode,
                              "stderr": (done.stderr or "")[-300:]})
-    return {"requested": empty, "created": created, "failures": failures}
+    return {"requested": empty, "created": created, "existing": existing, "failures": failures}
+
+
+def reset_restored_workspaces():
+    """Keep a restored row from making the requested topology count+1."""
+    existing = len(topology().get("workspaces") or [])
+    if not existing:
+        return {"existing": 0, "closed": 0, "failures": []}
+    done = cli("workspace", "close-all-in-all-windows", "--confirm", timeout=120)
+    if done.returncode != 0 or not wait(lambda: len(topology().get("workspaces") or []) == 0, 30):
+        return {"existing": existing, "closed": 0,
+                "failures": [{"returncode": done.returncode, "stderr": (done.stderr or "")[-300:]}]}
+    return {"existing": existing, "closed": existing, "failures": []}
 
 
 # ---------------------------------------------------------------- load
@@ -380,6 +394,11 @@ def main():
     pid = APP.process.pid
     summary = {}
     try:
+        reset = reset_restored_workspaces()
+        results["reset_restored_workspaces"] = reset
+        if reset["failures"]:
+            results["invalid"] = {"restored_workspaces": reset}
+            return 2
         seeded = seed_empty_workspaces(opts.workspace_count)
         results["seeded_empty_workspaces"] = seeded
         names = [f"agent {i:02d}" for i in range(opts.agents)]

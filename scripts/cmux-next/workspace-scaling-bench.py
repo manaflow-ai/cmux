@@ -15,6 +15,7 @@ import argparse
 import json
 import os
 import pathlib
+import signal
 import subprocess
 import sys
 
@@ -118,13 +119,17 @@ def scaling_warnings(rows, limit=LIMIT):
         by_name.setdefault(row["interaction"], {})[int(row["workspaces"])] = row
     warnings = []
     for interaction, values in sorted(by_name.items()):
-        one = (values.get(1) or {}).get("p95")
+        # A one-row sidebar cannot perform a real scroll or workspace switch.  Use
+        # the smallest topology with a real gesture/selection for those interactions.
+        baseline_count = 100 if interaction in ("sidebar_scroll", "switch") else 1
+        one = (values.get(baseline_count) or {}).get("p95")
         many = (values.get(1000) or {}).get("p95")
         if not isinstance(one, (int, float)) or not isinstance(many, (int, float)) or one <= 0:
             continue
         ratio = many / one
         if ratio > limit:
-            warnings.append({"interaction": interaction, "p95_1": one, "p95_1000": many,
+            warnings.append({"interaction": interaction, "p95_baseline": one,
+                             "baseline_workspaces": baseline_count, "p95_1000": many,
                              "ratio": round(ratio, 3), "limit": limit})
     return warnings
 
@@ -134,10 +139,14 @@ def collect(reports):
     for count in COUNTS:
         docs = reports.get(count) or {}
         merged = {}
-        merged.update(instant_rows(docs.get("instant"), count))
-        merged.update(sidebar_rows(docs.get("sidebar"), docs.get("sidebar_count", count)))
-        merged.update(typing_rows(docs.get("typing"), count))
-        if count == 1 and "switch" not in merged:
+        invalid = set(docs.get("invalid_probes") or ())
+        if "instant" not in invalid:
+            merged.update(instant_rows(docs.get("instant"), count))
+        if "sidebar" not in invalid:
+            merged.update(sidebar_rows(docs.get("sidebar"), docs.get("sidebar_count", count)))
+        if "typing" not in invalid:
+            merged.update(typing_rows(docs.get("typing"), count))
+        if count == 1 and "sidebar" not in invalid and "switch" not in merged:
             # A single workspace cannot switch to a different workspace. Keep the row in the
             # fixed 5-interaction x 3-topology schema while excluding it from ratio warnings.
             merged["switch"] = {"p50": None, "p95": None, "p99": None, "n": 0, "status": "undefined"}
@@ -150,11 +159,20 @@ def collect(reports):
 def run_probe(script, args, out, timeout=900):
     path = out / (script.stem + ".log")
     with path.open("w") as log:
+        process = subprocess.Popen([sys.executable, str(script), *args], stdout=log, stderr=subprocess.STDOUT,
+                                    cwd=HERE.parent.parent, start_new_session=True)
         try:
-            return subprocess.run([sys.executable, str(script), *args], stdout=log, stderr=subprocess.STDOUT,
-                                  cwd=HERE.parent.parent, check=False, timeout=timeout).returncode
+            return process.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
             log.write(f"workspace-scaling: probe timed out after {timeout}s\n")
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+                process.wait(timeout=10)
+            except (ProcessLookupError, subprocess.TimeoutExpired):
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
             return 124
 
 
@@ -171,6 +189,7 @@ def run_app(opts):
     for count in COUNTS:
         root = pathlib.Path(opts.out) / str(count)
         root.mkdir(parents=True, exist_ok=True)
+        failure_start = len(failures)
         instant = root / "instant"
         code = run_probe(HERE / "instant-new-surfaces-bench.py",
                          ["--tag", opts.tag, "--app", opts.app, "--commands", "new_workspace,split_right",
@@ -237,6 +256,15 @@ def run_app(opts):
         if isinstance(measured, int) and measured != count:
             failures.append({"workspaces": count, "probe": "sidebar", "expected_rows": count,
                              "measured_rows": measured})
+        reports[count]["invalid_probes"] = sorted({failure.get("probe") for failure in failures[failure_start:]
+                                                    if failure.get("probe")})
+        # Preserve completed topology reports if the outer cron budget interrupts a later probe.
+        partial = {"workspaces": list(COUNTS), "rows": collect(reports),
+                   "warnings": scaling_warnings(collect(reports)), "incomplete": failures,
+                   "budget": {"ratio": LIMIT, "advisory": True}}
+        output = pathlib.Path(opts.json)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(partial, indent=2) + "\n")
     return reports, failures
 
 
@@ -246,7 +274,7 @@ def main():
     ap.add_argument("--tag", default="workspace-scaling")
     ap.add_argument("--out", required=True)
     ap.add_argument("--json", required=True)
-    ap.add_argument("--probe-timeout", type=int, default=900,
+    ap.add_argument("--probe-timeout", type=int, default=300,
                     help="maximum seconds for each GUI probe before recording it incomplete")
     ap.add_argument("--instant-report", action="append", default=[])
     ap.add_argument("--sidebar-report", action="append", default=[])
