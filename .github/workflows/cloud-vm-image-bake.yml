@@ -31,7 +31,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: bake = one bake + smoke; repro = two bakes + SBOM/file-hash diff; prod-copy = the production copy of dev_snapshot (production account)
+        description: bake = one bake + smoke; repro = two bakes + SBOM/file-hash diff; prod-copy = the production copy of dev_snapshot (production account); first-session = time a first session's installs with and without package caches baked in (dev_snapshot, else the dev channel's image)
         required: true
         default: bake
         type: choice
@@ -39,6 +39,7 @@ on:
           - bake
           - repro
           - prod-copy
+          - first-session
       dev_snapshot:
         description: "prod-copy only: the dev image (sh-...) in channels/dev.json history to copy; its lock and flags are reused"
         required: false
@@ -418,6 +419,18 @@ jobs:
           set -euo pipefail
           mkdir -p "$OUT_DIR"
           bun ../images/cmux-vm/repro.ts --tag "$TAG" --out-dir "$OUT_DIR" | tee "$OUT_DIR/repro.out"
+
+      # Should a bake step fill package caches? Only where a first session measurably gets faster (first-session.ts).
+      - name: First-session cache probe
+        if: inputs.mode == 'first-session'
+        env:
+          FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
+          DEV_SNAPSHOT: ${{ inputs.dev_snapshot }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$OUT_DIR"
+          snapshot="${DEV_SNAPSHOT:-$(jq -r '.snapshot_id' ../images/cmux-vm/channels/dev.json)}"
+          bun ../images/cmux-vm/first-session.ts --snapshot "$snapshot" --tag "$TAG" --out-dir "$OUT_DIR" | tee "$OUT_DIR/first-session.out"
 
       # Deletes every id the ledger recorded and did not delete yet: the bake
       # snapshot, and any builder or clone a failed or cancelled step left.
