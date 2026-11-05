@@ -254,3 +254,30 @@ test("a reader who may not act, or a chat that cannot send now, sees no Retry an
     expect(retries(source, {})).toEqual([]);
   }
 });
+
+test("a waiting steer that is the latest prompt is the retry target and keeps its held Retry", () => {
+  const steer: AcpmuxRow = { ...P("p2", 30, "Also the header"), steer: "waiting" };
+  const rows = turnView([P("p1", 10, "Fix the grid"), A("a1", 20, "Working."), steer], new Set(), { now: 1_000 });
+  const target = retryTargetIn(rows);
+  expect(target.promptId).toBe("p2");
+  const row = rows.find((item) => item.id === "p2")!;
+  const markup = renderToStaticMarkup(
+    <TurnActionsContext.Provider value={actions()}>
+      <RetryTargetContext.Provider value={target}>
+        <UserBubble
+          row={row}
+          text={row.text ?? ""}
+          pending={(rowActions, queued) => (
+            <div className="steer-queue">
+              {rowActions}
+              {queued.retry}
+            </div>
+          )}
+        />
+      </RetryTargetContext.Provider>
+    </TurnActionsContext.Provider>,
+  );
+  const queue = markup.slice(markup.indexOf('class="steer-queue"'));
+  expect(queue).toContain('aria-label="Retry"');
+  expect(queue).toMatch(/aria-label="Retry"[^>]*disabled|disabled[^>]*aria-label="Retry"/);
+});
