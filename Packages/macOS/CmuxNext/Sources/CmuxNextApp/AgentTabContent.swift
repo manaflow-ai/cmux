@@ -20,7 +20,7 @@ struct AgentTabContent {
         let services = pane.services
         let focused = pane.workspace?.focus.state.pane
         let deferred = services.agentTabs.deferAtLaunch(
-            key, reveal: services.launchReveal, focusedPane: focused, pane: pane.paneKey,
+            key, machine: pane.daemon.machineID, reveal: services.launchReveal, focusedPane: focused, pane: pane.paneKey,
             focusedDraws: focused.flatMap { key in pane.workspace?.panes.values.first { $0.paneKey == key } }?.showsLiveTerminal ?? false
         ) { [weak pane] in
             if let pane, pane.currentTabKey == key { pane.showSelected() }

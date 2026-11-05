@@ -20,8 +20,9 @@ enum RestoredNewTabPages {
         let machine = tabs.daemonListing(tab)?.machineID
         if tabs.pageTabs.contains(key, machine: machine) || tabs.newTabPages[AgentTabKey(machine: machine ?? "", key: key)] != nil { return true }
         // Cheap lookups first: a restored chat leaves here, before the host checks.
-        guard let record = tab.agentSession, tabs.views[key] == nil, tabs.tabStores[key] == nil,
-              (tabs.sessions[key] ?? record.session) == nil, tabs.seeds[key] == nil, !tabs.linkedSessions.contains(AgentTabKey(machine: machine ?? "", key: key)),
+        let scoped = tabs.tabKey(key, machine: machine)
+        guard let record = tab.agentSession, tabs.views[scoped] == nil, tabs.tabStores[scoped] == nil,
+              (tabs.sessions[scoped] ?? record.session) == nil, tabs.seeds[scoped] == nil, !tabs.linkedSessions.contains(scoped),
               !tabs.unsentDrafts.hasDraft(key),
               tabs.hostKind(record, listedHere: tabs.daemonListing(tab)?.isLocal != false) != .remote else { return false }
         // The daemon whose tree lists this record, found by identity (no tab-list read).

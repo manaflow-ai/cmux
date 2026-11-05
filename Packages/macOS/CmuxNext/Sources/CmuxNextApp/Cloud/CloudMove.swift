@@ -68,7 +68,8 @@ struct CloudMove {
               !record.host.hasPrefix(MachineRegistry.registryHostPrefix) else {
             throw ActionFailure(message: CloudMoveStrings.alreadyRemote)
         }
-        guard let session = tabs.sessions[tabs.resolve(tab.id)] ?? record.session else { throw ActionFailure(message: CloudMoveStrings.noSession) }
+        let scoped = tabs.tabKey(tab.id, machine: services.machines.daemon(forTab: tab).machineID)
+        guard let session = tabs.sessions[scoped] ?? record.session else { throw ActionFailure(message: CloudMoveStrings.noSession) }
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
         var invocation = invocation
         // A person's Retry pinned to a machine since deleted drops the pin, as a kept pin does above.

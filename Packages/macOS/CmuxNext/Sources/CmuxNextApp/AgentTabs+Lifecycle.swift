@@ -355,11 +355,11 @@ extension AgentTabStore {
     /// A tab this client closed (``TabContentCache/release(_:)``). A tab the trees still list (the
     /// close failed, or its event has not arrived) keeps its page until its tree drops it.
     func releaseIfGone(_ key: String) {
-        let scoped = tabKey(key)
-        if record(for: scoped) == nil, !scoped.machine.isEmpty {
-            release(scoped.key, machine: scoped.machine)
-        } else if record(for: scoped) == nil {
-            release(resolve(key))
+        let candidates = Set((views.entries + tabStores.entries + sessions.entries + newTabPages.entries).map(\.key).filter { $0.key == key })
+        if candidates.isEmpty {
+            if record(for: tabKey(key)) == nil { release(resolve(key)) }
+        } else {
+            for scoped in candidates where record(for: scoped) == nil { release(scoped.key, machine: scoped.machine) }
         }
     }
 
@@ -372,7 +372,7 @@ extension AgentTabStore {
             machineLink.forget(view)
             // An untouched new tab page goes back to the pool (no teardown, no rebuild, R81); a
             // page of another machine's chat never does (NewTabSparePool.recycle, cx-k21v).
-            if newTabPages[key] != nil, recycle?(view) == true {
+            if newTabPages[scoped] != nil, recycle?(view) == true {
                 standaloneViews.add(view)
             } else {
                 retirer.retire(view)
