@@ -161,7 +161,7 @@ PARTS = [
     # 1/100/1000 workspace topology: warning-only constant-scaling trend budget. This is the one 60-minute
     # part: seeding and measuring all three topologies is intentionally longer than the normal 15-minute tick.
     {"name": "workspace-scaling", "args": [*MEASURE, "--vdisplay-hold=3600", "--suite=workspace-scaling"],
-     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "run_seconds": 3600},
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "workspace-scaling", "run_seconds": 3600},
     {"name": "home-idle", "args": [*MEASURE, "--suite=budgets", "--only=home,idle"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
     {"name": "chat-anim", "args": [*MEASURE, "--suite=budgets", "--only=acp,anim"],
@@ -1461,6 +1461,12 @@ def supported_parts_at(sha):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
             ok = f"--suite={need}" in text
+        elif need == "workspace-scaling":
+            text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
+                                  capture_output=True, text=True).stdout
+            ok = "--suite=workspace-scaling" in text and subprocess.run(
+                ["git", "-C", ROOT, "cat-file", "-e", f"{sha}:scripts/cmux-next/workspace-scaling-bench.py"],
+                capture_output=True).returncode == 0
         else:
             ok = True
         if ok:
