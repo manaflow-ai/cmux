@@ -814,11 +814,14 @@ fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Value) -> Rel
                     ));
                 }
                 // A name no machine has yet: made here under that name, so its first chat still goes the relay way.
-                None if name_is_free(listed) => match new_machine(runner, request, Some(name)) {
-                    Ok(id) => id,
-                    Err(outcome) => return Relayed::Answered(outcome),
-                },
-                // The list is not loaded yet, or a nameless create is on its way: the link path, as before.
+                None if plain_name(name) && name_is_free(listed) => {
+                    match new_machine(runner, request, Some(name)) {
+                        Ok(id) => id,
+                        Err(outcome) => return Relayed::Answered(outcome),
+                    }
+                }
+                // A name `cloud new-machine` does not take (`start-session --name` does), the list not loaded yet, or a
+                // nameless create on its way: the link path, as before.
                 None => return Relayed::Fallback(None),
             }
         }
@@ -937,6 +940,15 @@ fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Value) -> Rel
     Relayed::Answered(failed(code, message, json!({"answer": answer}), exit))
 }
 
+/// A name `cloud new-machine --name` takes (the app's `CloudMachineRequest.isPlainName`): 1-64 ASCII letters,
+/// digits, `.`, `_` and `-`, not starting with `-`.
+fn plain_name(name: &str) -> bool {
+    name != "true"
+        && (1..=64).contains(&name.len())
+        && !name.starts_with('-')
+        && name.chars().all(|ch| ch.is_ascii_alphanumeric() || "._-".contains(ch))
+}
+
 /// Whether `cloud list-machines` lists a create on its way under `name`.
 fn creating_named(listed: &Value, name: &str) -> bool {
     at(listed, "creating")
@@ -957,9 +969,6 @@ fn name_is_free(listed: &Value) -> bool {
             .any(|row| at(row, "name").as_str().is_none())
 }
 
-/// The idempotency key prefix of a named `cloud new-machine` (machine names are at most 64 bytes; keys 128).
-const NEW_MACHINE_KEY: &str = "cloud-start-chat-new-machine-";
-
 /// `cloud new-machine` for the relay chat, under the command's name when it gave one: the machine's id, or the
 /// command's answer when the create failed or is still on its way.
 fn new_machine(
@@ -967,12 +976,7 @@ fn new_machine(
     request: &Request,
     name: Option<&str>,
 ) -> Result<String, Outcome> {
-    // A named create runs under a key of its name: a retry, or another start-chat of the same name at the same
-    // time, joins that create (or gets its answer) in the app instead of making a second machine.
-    let mut args = match name {
-        Some(name) => vec!["--idempotency-key".to_owned(), format!("{NEW_MACHINE_KEY}{name}")],
-        None => Vec::new(),
-    };
+    let mut args = Vec::new();
     args.extend(words(&["cloud", "new-machine"]));
     if let Some(name) = name {
         args.extend(["--name".to_owned(), name.to_owned()]);
