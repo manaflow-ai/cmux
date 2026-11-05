@@ -59,7 +59,8 @@ class Proxy:
     """A TCP proxy on 127.0.0.1:port to the dev server, logging each HTTP request line with its monotonic time.
     Raw bytes pass both ways, so Vite's HMR WebSocket works through it."""
 
-    LINE = re.compile(rb"(?:^|\r\n)(GET|HEAD|POST) (\S+) HTTP/1\.[01]\r\n")
+    # A request line, at the end of a CRLF-terminated line: body bytes of an earlier request may come before it.
+    LINE = re.compile(rb"(GET|HEAD|POST) (\S+) HTTP/1\.[01]$")
 
     def __init__(self, port: int, upstream: int):
         self.port, self.upstream = port, upstream
@@ -88,12 +89,16 @@ class Proxy:
             return
 
         async def pipe(src, dst, record):
+            pending = b""  # the unfinished last line, carried to the next read
             try:
                 while data := await src.read(65536):
                     if record:
-                        for match in self.LINE.finditer(data):
-                            with self.lock:
-                                self.requests.append((time.monotonic(), match.group(2).decode("latin-1")))
+                        *lines, pending = (pending + data).split(b"\r\n")
+                        pending = pending[-8192:]  # bounded, so a body or WebSocket frames never grow it
+                        for line in lines:
+                            if match := self.LINE.search(line):
+                                with self.lock:
+                                    self.requests.append((time.monotonic(), match.group(2).decode("latin-1")))
                     dst.write(data)
                     await dst.drain()
             except (ConnectionError, OSError):
@@ -217,7 +222,19 @@ def check(args) -> int:
                 step("open", False, error=opened)
                 return [f"open: {opened}"]
             doc = wait(lambda: [r for r in proxy.since(t_open) if f"/{PAGE}" in r[1]], 30)
-            if not step("open", bool(doc), open_to_page_ms=int((doc[0][0] - t_open) * 1000) if doc else None):
+            if not doc:
+                # What the app answered and showed, and what reached the server, for the report.
+                topo = inst.topology() or {}
+                (out / "topology.json").write_text(json.dumps(topo, indent=1, default=str))
+                try:
+                    subprocess.run(["screencapture", "-x", str(out / "open.png")], check=False, timeout=20)
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
+                step("open", False, open_to_page_ms=None, answer=opened, windows_before=windows_before,
+                     windows_after=len(topo.get("windows") or []), requests=[r[1] for r in proxy.since(0.0)][-40:])
+                failures.append("open: the projection window's page never loaded from the worktree")
+                return failures
+            if not step("open", True, open_to_page_ms=int((doc[0][0] - t_open) * 1000)):
                 failures.append("open: the projection window's page never loaded from the worktree")
                 return failures
 

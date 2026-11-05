@@ -1,5 +1,13 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-05: sidebar corners follow the one concentric corner rule. Lawrence, verbatim (2026-11-04): "all nested
+  radius everywhere, for all types of panes where it applies, must be concentric, where inner radius is outer minus
+  padding, where padding is configurable too". Rows and rail tiles take the one corner radius
+  (`Metrics.surfaceCornerRadius`, `layout.paneCornerRadius`: 10 compact, 11 comfortable, as before); a card or edit box
+  around a row is that radius plus its `space1` gap; the notice, update and now-playing cards and the Needs You tray are
+  the one radius (12 pt before, 10 now); rows inside them, the rename field and the drop outline the radius less the
+  corner padding; buttons, toggles and small cards the radius less twice the padding; progress bars and dots capsules.
+  Regression: `ConcentricSurfaceCornerTests`.
 - 2026-11-05: Update in One Click (`updates.oneClickInstall`, off by default; #35951). Leo, verbatim, on the Codex app's
   Update available pill: "codex having this update available and then me clicking it enabling it to auto install and
   restart is... interesting". On, the footer's Update Available button (tooltip "…: Click to Update and Restart") and

@@ -1,4 +1,5 @@
 import SwiftUI
+import CmuxNextDesign
 
 /// The four fingerprint words, two by two.
 struct WordsGrid: View {
@@ -18,7 +19,7 @@ struct WordsGrid: View {
                         }
                         .padding(.horizontal, 10).padding(.vertical, size * 0.45)
                         .frame(maxWidth: .infinity)
-                        .card(radius: 8)
+                        .card(radius: Metrics.insetCornerRadius)
                     }
                 }
             }
