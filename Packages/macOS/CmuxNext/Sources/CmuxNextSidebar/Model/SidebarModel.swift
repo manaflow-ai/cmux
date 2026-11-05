@@ -119,6 +119,9 @@ public final class SidebarModel {
     @ObservationIgnored var itemOrderCache: (inputs: SidebarItemOrderInputs, order: SidebarItemOrder)?
     /// Told the workspaces `patchWorkspaces` changed in place (the list reconfigures their rows).
     @ObservationIgnored public var onRowsPatched: (([SidebarWorkspace]) -> Void)?
+    /// The same row patches with their previous values, for projections that only need to react
+    /// when a row crosses one of their states. The list callback above still receives every patch.
+    @ObservationIgnored public var onRowsPatchedWithPrevious: (([SidebarNeedsYou.RowPatch]) -> Void)?
     /// The workspace rows as the list draws them, top to bottom (its folder sort and filter applied; empty with no list).
     @ObservationIgnored public var drawnWorkspaceOrder: () -> [WorkspaceID] = { [] }
     /// Every workspace a selection can hold, as drawn: the pinned tiles too (`SidebarListView.selectionOrder`).

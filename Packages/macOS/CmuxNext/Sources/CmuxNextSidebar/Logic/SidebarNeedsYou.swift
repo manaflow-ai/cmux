@@ -27,6 +27,8 @@ public nonisolated struct SidebarNeedsYouItem: Hashable, Sendable, Identifiable 
 /// the path to each, and a count of finished sessions you have not read. Running, idle and merely
 /// unread sessions never enter the list; a folded parent never hides an item. Empty without the tree.
 public nonisolated struct SidebarNeedsYou: Hashable, Sendable {
+    public typealias RowPatch = (before: SidebarWorkspace, after: SidebarWorkspace)
+
     public var items: [SidebarNeedsYouItem] = []
     /// Finished sessions with output you have not read: a count, never an item.
     public var unread = 0
@@ -36,6 +38,17 @@ public nonisolated struct SidebarNeedsYou: Hashable, Sendable {
     public init() {}
 
     public var isEmpty: Bool { items.isEmpty && unread == 0 }
+
+    /// Whether a row patch can change the tray's blocked, failed or finished-unread projection.
+    /// Lane transitions arrive through `SidebarSessionTreeState` itself; row patches still carry
+    /// unread changes and hook-reported waiting or failure for workspaces without a lane.
+    public static func shouldRefresh(for changes: [RowPatch], tree: SidebarSessionTreeState?) -> Bool {
+        guard let tree else { return false }
+        return changes.contains { change in
+            SidebarAgentState.of(change.before, lane: tree.states[change.before.id])
+                != SidebarAgentState.of(change.after, lane: tree.states[change.after.id])
+        }
+    }
 
     public static func make(_ sections: [SidebarSection], tree: SidebarSessionTreeState?) -> SidebarNeedsYou {
         var result = SidebarNeedsYou()
