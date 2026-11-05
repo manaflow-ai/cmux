@@ -573,20 +573,30 @@ def click_subagent(run):
     return {**reply, "probe": subagent_probe(run)}
 
 
-# What a failed subagent click looks for, to say what the page shows instead (`probe` in the open's reply).
-PROBE_SELECTORS = ("button.cv-subagent-done", "button.acpmux-agent-line__button", ".acpmux-summary-agent__name",
-                   ".acpmux-tray-pull__tab", "[data-tray-status]", ".cv-tool")
+# A finished turn's subagents fold into their group (SubagentGroup.tsx), which starts open only while its agents
+# run: in the seeded chat, whose subagents all ended, their lines are not in the page until the group opens.
+GROUP_TOGGLE = 'button.cv-subagents[aria-expanded="false"]'
+
+
+def open_subagent_groups(run, limit=8):
+    """Opens each closed subagent group the chat shows, before the trace is armed (unmeasured), so the click finds
+    a subagent's line. Returns how many it opened."""
+    opened = 0
+    for _ in range(limit):
+        reply = run.rpc("debug.agent_pane", {"action": "click", "selector": GROUP_TOGGLE}) or {}
+        if reply.get("error"):
+            break
+        opened += 1
+        time.sleep(0.3)  # test script: the opened group's lines render
+    return opened
 
 
 def subagent_probe(run):
-    """Per `PROBE_SELECTORS`, whether the page shows one (a `hover`, which moves the pointer and clicks nothing)."""
-    found = {}
-    for selector in PROBE_SELECTORS:
-        reply = run.rpc("debug.agent_pane", {"action": "hover", "selector": selector}) or {}
-        found[selector] = reply.get("error") or "shown"
+    """What the page says it shows, for a subagent click that matched nothing (`probe` in the open's reply). No
+    selector test: `debug.agent_pane hover` takes a point, not a selector, so asking it by selector answered
+    "pass x and y" whatever the page showed."""
     state = run.rpc("debug.agent_pane", {"action": "chat_state"}) or {}
-    found["chat_state"] = json.dumps(state, default=str)[:1500]  # the summary card and what the page says it shows
-    return found
+    return {"chat_state": json.dumps(state, default=str)[:1500]}  # the summary card and what the page says it shows
 
 
 def workspace_id(row):
@@ -784,7 +794,10 @@ def measure_case(run, case, sessions, index):
         return traced(run, lambda: open_workspace(run, session))
     if case == "subagent":
         settle_open(run, session)
-        return traced(run, lambda: click_subagent(run))
+        groups = open_subagent_groups(run)
+        record = traced(run, lambda: click_subagent(run))
+        record["opened_groups"] = groups
+        return record
     raise ValueError(case)
 
 
