@@ -73,6 +73,8 @@ class Daemon {
   onclose: (() => void) | null = null;
   onmessage: ((message: { data: string }) => void) | null = null;
   hold?: string;
+  /// Lists asked while set are never answered: a list acpmux is still pacing.
+  holdLists = false;
   attaches: string[] = [];
 
   constructor(public listed: string[]) {
@@ -88,6 +90,7 @@ class Daemon {
     const sessionId = String(message.params?.sessionId ?? "");
     if (message.method === "_acpmux/attach") this.attaches.push(sessionId);
     if (message.method === "_acpmux/attach" && sessionId === this.hold) return;
+    if (message.method === "_acpmux/watch" && this.holdLists) return;
     queueMicrotask(() => this.answer(message));
   }
 
@@ -214,4 +217,35 @@ test("a page that read the chat itself keeps its own, newer tail over the one an
   expect(keepAdoptedTail({ sessionId: "none" })).toBe(false);
   expect(keepAdoptedTail({ sessionId: "empty", tail: { events: [] } })).toBe(false);
   expect(keptTail("empty")).toBeUndefined();
+});
+
+// HQ#5914, the two failures that turned spare adoption of existing chats off (#31486): a sidebar open
+// whose adopted page dropped its cover onto an empty transcript (read before its rows), and a reopen
+// whose adopted page never read its chat, so it never painted. A subagent pane adopts only with its
+// chat's tail in the adopt event, so the chat is read from that tail, with rows, whatever acpmux does.
+test("an adopted page with its chat's tail never reads the chat without rows, and reads it with acpmux stalled", async () => {
+  const chat = "hq5914-chat";
+  (
+    dom.window as unknown as { cmuxAcpmuxActions: Record<string, (params: any) => Promise<unknown>> }
+  ).cmuxAcpmuxActions = {
+    "chat.tail.get": async () => null,
+    "chat.tail": async () => null,
+  };
+  // The chat is not on the page's list yet, its attach never answers, and acpmux is still pacing its list.
+  const daemon = new Daemon(["other"]);
+  const page = await spare(daemon);
+  daemon.hold = chat;
+  daemon.holdLists = true;
+
+  expect(keepAdoptedTail({ sessionId: chat, revealTurn: "subagent:a", tail: handed(chat) })).toBe(true);
+  void page.client.adoptSession(chat);
+  for (let pass = 0; pass < 8; pass += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const read = page.drawn.filter((snapshot) => snapshot.sessionId === chat && snapshot.chatRead === true);
+  // Failure 2 (reopen never paints): the chat is read, so the page reports its first paint.
+  expect(read.length).toBeGreaterThan(0);
+  // Failure 1 (empty transcript on open): no frame reads as the chat without its rows.
+  for (const snapshot of read) expect(text(snapshot)).toContain("The retry path holds its lock.");
+  expect(page.last()?.missingSession).toBeUndefined();
+  expect(daemon.attaches).toEqual([chat]);
 });
