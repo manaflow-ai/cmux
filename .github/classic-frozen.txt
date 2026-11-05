@@ -26,7 +26,8 @@ web/app/v1/**                      all   classic public /v1 API
 web/app/vm/**                      main  classic VM pages customers open (deleted on feat-cmux-next)
 web/app/handler/**                 all   classic sign-in handler (Stack)
 web/app/authorize/**               all   classic OAuth authorize flow
-web/services/runs/**               main  classic /api/runs backend (deleted on feat-cmux-next; model.ts stays, NEXT's web/services/vms reads it)
+web/services/runs/model.ts         all   classic Run model; kept on feat-cmux-next because NEXT's web/services/vms reads it
+web/services/runs/**               main  classic /api/runs backend (deleted on feat-cmux-next)
 web/services/billing/**            all   classic billing and Stripe webhooks
 web/services/vm-publications/**    all   classic VM publications backend
 web/db/**                          all   classic Postgres schema and migrations (customers' data)

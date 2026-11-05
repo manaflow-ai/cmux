@@ -32,12 +32,9 @@ class ClassicFrozenGuardTests(unittest.TestCase):
 
     def test_runs_and_db_are_frozen_everywhere(self) -> None:
         for base in ("feat-cmux-next", "main"):
-            for path in ("web/db/schema.ts", "web/app/api/runs/route.ts"):
+            for path in ("web/services/runs/model.ts", "web/db/schema.ts", "web/app/api/runs/route.ts"):
                 code, _ = guard.check(RULES, base, [], [path])
                 self.assertEqual(code, 1, (base, path))
-        # The classic runs backend is deleted on feat-cmux-next (Leo, 2026-11-05); main keeps it frozen.
-        self.assertEqual(guard.check(RULES, "main", [], ["web/services/runs/model.ts"])[0], 1)
-        self.assertEqual(guard.check(RULES, "feat-cmux-next", [], ["web/services/runs/model.ts"])[0], 0)
 
     def test_label_lets_it_through(self) -> None:
         code, lines = guard.check(RULES, "main", ["classic-migration"], ["web/app/api/vm/route.ts"])
