@@ -126,8 +126,14 @@ import Testing
 
     /// A relayed message steered into a running turn shares its id: the person's prompt stays the
     /// turn's prompt, never replaced by the steer's card.
+    final class Recorder: AgentSessionSource {
+        let summary = AgentSessionSummary(id: "s", name: "S", harness: "claude", agentName: "Claude", cwd: "~", workspaceTitle: "w", macName: "m")
+        func events() -> AsyncStream<AgentSessionEvent> { AsyncStream { _ in } }
+        func send(_ intent: AgentClientIntent) {}
+    }
+
     @MainActor @Test func steerIntoATurnDoesNotTakeItsPrompt() throws {
-        let store = AgentChatStore(source: ChatPolishParityTests.Source())
+        let store = AgentChatStore(source: Recorder())
         store.apply(.userMessage(text: "Fix the grid", promptId: "p-1", turnId: "t-1", attachments: [], at: Date()))
         store.apply(.turnStarted(turnId: "t-1", at: Date()))
         let steer = relayed("Merged #36125")
