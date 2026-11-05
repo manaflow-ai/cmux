@@ -83,6 +83,19 @@ await requireBrowserLane("hover-material-browser.test.ts", async () => {
           if (captures) {
             await mkdir(captures, { recursive: true });
             await page.screenshot({ path: path.join(captures, `hover-material-${variant}-${colorScheme}.png`) });
+            // Each surface alone, padded, so what shows through it can be read at full size.
+            const boxes = await page.evaluate(() =>
+              [...document.querySelectorAll<HTMLElement>(".hm-stage .ui-glass, .hm-blur-control")].map((node) => {
+                const box = node.getBoundingClientRect();
+                const look = node.closest(".hm-column")?.className.match(/hm-look--(\w+)/)?.[1] ?? "x";
+                return { look, kind: node.classList.contains("ui-card") ? "card" : node.classList.contains("hm-blur-control") ? "control" : "tooltip", x: box.x - 12, y: box.y - 12, width: box.width + 24, height: box.height + 24 };
+              }),
+            );
+            for (const box of boxes)
+              await page.screenshot({
+                path: path.join(captures, `zoom-${variant}-${colorScheme}-${box.look}-${box.kind}.png`),
+                clip: { x: Math.max(0, box.x), y: Math.max(0, box.y), width: box.width, height: box.height },
+              });
           }
           expect(ready).toBe("1");
           expect(surfaces).toBe(variant === "compare" ? 6 : 2);
