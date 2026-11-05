@@ -244,6 +244,15 @@ export function canResendAttachments(row: Pick<AcpmuxRow, "retryAttachments" | "
         )),
   );
 }
+/// A prompt with attachments that Retry can all send again (``canResendAttachments``): what an
+/// attachment-only prompt resends, so it keeps Retry under the prompt (UserBubble) and on its turn's
+/// footer (turns.ts isRetryablePrompt) only when this holds.
+export function resendsAttachments(row: Pick<AcpmuxRow, "retryAttachments" | "inlineParts" | "images">): boolean {
+  const has = Boolean(
+    row.images?.length || row.retryAttachments?.length || row.inlineParts?.some((part) => part.kind !== "text"),
+  );
+  return has && canResendAttachments(row);
+}
 export async function restoreInline(
   row: AcpmuxRow,
   text: string,

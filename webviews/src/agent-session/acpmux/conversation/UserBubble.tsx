@@ -36,7 +36,7 @@ import { ImageViewerContext } from "./imageViewerContext";
 import { useStableImage } from "./imageEntries";
 import { PromptText } from "./PromptText";
 import { InlinePromptContent, isStripMedia, PromptFile, readsAsText } from "./InlinePromptContent";
-import { canResendAttachments, recordedPromptParts } from "../inlinePrompt";
+import { recordedPromptParts, resendsAttachments } from "../inlinePrompt";
 import { frameTextOf, rowImageNames, withoutFramesNotes, withoutVideoFrames } from "../composer/videoPrompt";
 import { useComposerSettings } from "../composerSettings";
 import { attachmentPath, FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
@@ -220,7 +220,7 @@ export function UserBubble({
   // their Retry; not while one is on its way, as a second send would duplicate it.
   // An attachment-only prompt retries only when every attachment can go again: a Retry that sent
   // none of them would send an empty prompt.
-  const retryAttachments = hasAttachment && canResendAttachments(row);
+  const retryAttachments = resendsAttachments(row);
   const retry =
     (messagesView || promptRetry) && !row.pending && row.delivery?.state !== "sending" ? (
       <PromptRetry rowId={row.id} prompt={resend} hasAttachment={retryAttachments} />
