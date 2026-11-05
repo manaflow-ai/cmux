@@ -1,8 +1,12 @@
 {
-  "title": "Sidebar Thunderdome E (chaos mode): the corner where the sidebar meets the tab strip, chrome.cornerChaos = seal, comfortable density, on the showcase fixture. Record it with: cmux-ci capture SHA --state scripts/cmux-next/media/states/corner-chaos-seal.json",
-  "launch_args": ["--showcase"],
+  "title": "Sidebar Thunderdome E (chaos mode): the corner where the sidebar meets the tab strip, chrome.cornerChaos = seal, comfortable density, three workspaces with tabs. Record it with: cmux-ci capture SHA --state scripts/cmux-next/media/states/corner-chaos-seal.json",
   "steps": [
-    {"title": "Comfortable density", "cmux": ["settings", "set", "appearance.density", "comfortable"], "wait": 2},
+    {"title": "Launch", "wait": 2},
+    {"title": "Comfortable density", "cmux": ["settings", "set", "appearance.density", "comfortable"], "wait": 1},
+    {"title": "Workspace Atlas", "cmux": ["workspace", "new", "--name", "Atlas"], "wait": 1},
+    {"title": "Workspace Bramble", "cmux": ["workspace", "new", "--name", "Bramble"], "wait": 1},
+    {"title": "Workspace Cobalt", "cmux": ["workspace", "new", "--name", "Cobalt"], "wait": 2},
+    {"title": "A second tab", "cmux": ["tab", "new-browser", "--url", "https://example.com"], "wait": 3},
     {"title": "Corner chaos: seal", "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "chrome.cornerChaos", "value": "seal"}}, "wait": 2, "optional": "debug.tunables is DEBUG only"}
   ]
 }
