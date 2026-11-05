@@ -5,7 +5,7 @@ import os
 // The live web loop (``WebDevOverride``) turned on while this page showed in a Chromium that cannot
 // serve it (``PageChromiumHosting/setLivePages(_:)`` false): Chromium shows only the bundled files,
 // so the page re-picks its engine and, when ``PageEnginePolicy`` now says WebKit, reopens there at
-// once, keeping its route and scroll (``WebDevOverrideWatcher/reloadPages(live:hosting:pages:served:)``).
+// once, keeping its route and scroll (``WebDevOverrideWatcher/reloadPages(live:hosting:pages:served:watcher:)``).
 extension PageWebView {
     /// Whether the page shows in Chromium or is starting its Chromium page.
     var isOnChromium: Bool { chromiumSession != nil || chromiumStart != nil }

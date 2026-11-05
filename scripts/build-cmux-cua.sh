@@ -19,6 +19,7 @@ CMUX_CUA_PATCH_RELATIVE_PATHS=(
   "scripts/cmux-cua-codex-delivery-mode.patch"
   "scripts/cmux-cua-machine-consent.patch"
   "scripts/cmux-cua-display-still.patch"
+  "scripts/cmux-cua-single-post.patch"
 )
 CMUX_CUA_SOURCE_OWNER_FILE=".cmux-cua-managed-source"
 CMUX_CUA_SOURCE_OWNER_VALUE="cmux-cua-cache-v2 $CMUX_CUA_PINNED_SHA"

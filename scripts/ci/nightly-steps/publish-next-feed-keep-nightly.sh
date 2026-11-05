@@ -4,18 +4,20 @@
 # before it revises the feed). The new build's feed alone drops every earlier item, so a
 # Nightly-ring app (cmux-next only) is offered nothing while the new build waits on Dev for its
 # verdict, and a later pass on that build can never promote it here. Combined as the old feed is
-# (nightly_next_ring.py legacy): the new build, the newest cmux-next item and at most five Dev items
-# above it, each tagged from its verdict. With the ring off every item is cmux-next and the feed
-# is left as it is.
+# (nightly_next_ring.py legacy): the new build, the newest cmux-next item, the cmux-next item before
+# it and at most five Dev items above it, each tagged from its verdict. With the ring off every item
+# is cmux-next: the new build and the one before it, so a launch crash still has a build to roll
+# back to.
 #
 # A live feed that cannot be read stops the publication: going on without it would replace the
 # feed with the new build alone and drop the Nightly item for good. Only a 404 (no feed yet)
 # starts from the new build's items.
 #
 # usage: publish-next-feed-keep-nightly.sh FEED... (each read live at $CHANNEL_FEED_BASE/<name>)
-# env: DEV_RING (on|off), CHANNEL_FEED_BASE, NIGHTLY_NEXT_FEED_BASE (the verdicts), GITHUB_RUN_ID
+# env: DEV_RING (on|off), CHANNEL_FEED_BASE, NIGHTLY_NEXT_VERDICTS_BASE (the verdicts), GITHUB_RUN_ID
 set -euo pipefail
-[ "${DEV_RING:?}" = on ] || { echo "Dev ring off: every item is cmux-next; nothing to keep"; exit 0; }
+mode="${DEV_RING:?}"
+case "$mode" in on|off) ;; *) echo "::error::DEV_RING must be on or off, not '$mode'"; exit 1 ;; esac
 ring="$(cd "$(dirname "$0")/.." && pwd)/nightly_next_ring.py"
 for feed in "$@"; do
   [ -f "$feed" ] || continue
@@ -33,14 +35,23 @@ for feed in "$@"; do
       # A 200 that is not an appcast with items (an empty body or an error page) is unreadable too.
       # Well-formedness only, without namespace processing: a live feed with an unbound cmux:
       # prefix (2026-11-01) is still read here, and the R2 writer declares it on the root.
-      if ! python3 -I -c 'import sys, xml.parsers.expat as X; p = X.ParserCreate(); n = []; p.StartElementHandler = lambda name, attrs: n.append(name == "item"); p.ParseFile(open(sys.argv[1], "rb")); sys.exit(0 if any(n) else 1)' "$live" 2>/dev/null; then
-        echo "::error title=nightly-next feed::the live $name answered 200 with no appcast items; publishing it now would drop its Nightly item"
-        exit 1
-      fi
-      current=(--current "$live") ;;
+      if python3 -I -c 'import sys, xml.parsers.expat as X; p = X.ParserCreate(); n = []; p.StartElementHandler = lambda name, attrs: n.append(name == "item"); p.ParseFile(open(sys.argv[1], "rb")); sys.exit(0 if any(n) else 1)' "$live" 2>/dev/null; then
+        current=(--current "$live")
+      else
+        code="answered 200 with no appcast items"
+      fi ;;
     404) echo "::notice::no live $name yet; publishing the new build's items alone" ;;
-    *) echo "::error title=nightly-next feed::could not read the live $name (HTTP $code); publishing it now would drop its Nightly item"; exit 1 ;;
   esac
-  python3 "$ring" legacy --new "$feed" ${current[@]+"${current[@]}"} --out "$feed" --mode on \
-    --verdicts-base "${NIGHTLY_NEXT_FEED_BASE:?}"
+  if [ "$code" != 200 ] && [ "$code" != 404 ]; then
+    # With the ring off the new build is itself the Nightly item: an unreadable feed costs only
+    # the earlier build a rollback would serve, so the publication goes on.
+    if [ "$mode" = off ]; then
+      echo "::warning title=nightly-next feed::could not read the live $name ($code); publishing the new build without the earlier one to roll back to"
+    else
+      echo "::error title=nightly-next feed::could not read the live $name ($code); publishing it now would drop its Nightly item"
+      exit 1
+    fi
+  fi
+  python3 "$ring" legacy --new "$feed" ${current[@]+"${current[@]}"} --out "$feed" --mode "$mode" \
+    --verdicts-base "${NIGHTLY_NEXT_VERDICTS_BASE:?}"
 done

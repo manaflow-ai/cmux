@@ -22,16 +22,18 @@ const snapshot = chat([
   summary(7, { status: "completed" }),
 ]);
 
-/** Waits for the draft's deeplinks to draw (none in the plain arm, so it waits for the text). */
-const drawn = async (ctx: PlayContext) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-md")?.textContent?.includes(WORKSPACE));
+/** Waits for the draft to show `url`, its deeplink (none in the plain arm, so it waits for the text).
+ * Each variant waits for a URL its own draft has: the web agent link's draft has no workspace link. */
+const drawnWith = (url: string) => async (ctx: PlayContext) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-md")?.textContent?.includes(url));
 };
+const drawn = drawnWith(WORKSPACE);
 
-const variant = (note: string, draft: string): AgentPaneVariant => ({
+const variant = (note: string, draft: string, url = WORKSPACE): AgentPaneVariant => ({
   note,
   ready: { draft },
   snapshot,
-  play: drawn,
+  play: drawnWith(url),
 });
 
 export default agentPaneEntry({
@@ -50,6 +52,7 @@ export default agentPaneEntry({
     "web-agent-link": variant(
       "A cmux.com agent deeplink in the draft draws as a link too.",
       `Pick up where ${WEB_AGENT} left off`,
+      WEB_AGENT,
     ),
     "not-a-deeplink": variant(
       "Other schemes and plain words stay text: cmux:/x, javascript:, a path.",

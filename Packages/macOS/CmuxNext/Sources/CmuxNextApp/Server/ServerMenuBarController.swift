@@ -19,14 +19,27 @@ final class ServerMenuBarController: NSObject, NSPopoverDelegate {
     /// The floating Add Server card (u3849: pairing is not a menu bar popover).
     private var card: AddServerCardPanel?
     private var model: ServerModel?
+    /// The floating Pair Another Machine card, made on its first opening and kept.
+    private var inviteCard: PairInviteCardPanel?
+    /// Makes the Pair Another Machine card: the cloud invite in the App, the mock in previews and tests.
+    private let makeInviteCard: @MainActor () -> PairInviteCardPanel?
     /// Makes the model's source: the cloud pairing source in the App, the
     /// mock alone in previews and tests. Nil once the App's services are gone.
     private let makeSource: @MainActor () -> (any ServerSource)?
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.server-menu")
 
-    init(makeSource: @escaping @MainActor () -> (any ServerSource)? = { MockServerSource(scenario: .healthyMac) }) {
+    init(makeSource: @escaping @MainActor () -> (any ServerSource)? = { MockServerSource(scenario: .healthyMac) },
+         makeInviteCard: @escaping @MainActor () -> PairInviteCardPanel? = ServerMenuBarController.mockInviteCard) {
         self.makeSource = makeSource
+        self.makeInviteCard = makeInviteCard
         super.init()
+    }
+
+    /// The previews' and tests' card: the mock invite over the mock server's preview.
+    static func mockInviteCard() -> PairInviteCardPanel? {
+        let approver = ServerModel(source: MockServerSource(scenario: .healthyMac))
+        approver.start()
+        return PairInviteCardPanel(model: PairInviteModel(service: .mock(), approver: approver))
     }
 
     var isShown: Bool { item != nil }
@@ -103,6 +116,18 @@ final class ServerMenuBarController: NSObject, NSPopoverDelegate {
         let card = self.card.flatMap { $0.model === model ? $0 : nil } ?? AddServerCardPanel(model: model)
         self.card = card
         card.present(over: Self.frontWindow(), takeKeys: code == nil)
+    }
+
+    /// Shows the Pair Another Machine card near the top center of the front cmux window, with the
+    /// keys, and mints a new invite (a card still showing a live one keeps it). Opened by a person
+    /// only: the palette's person-only action and Add Device's hand-off.
+    func openInvite() {
+        guard let card = inviteCard ?? makeInviteCard() else {
+            Self.logger.fault("pair invite card: no source (the App's services are gone)")
+            return
+        }
+        inviteCard = card
+        card.present(over: Self.frontWindow())
     }
 
     /// The cmux window the card belongs over: the main window, else the

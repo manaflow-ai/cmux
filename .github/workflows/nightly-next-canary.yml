@@ -38,7 +38,10 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  NIGHTLY_NEXT_FEED: https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml
+  NIGHTLY_NEXT_FEED: https://files-next.cmux.com/nightly-next/appcast-arm64.xml
+  # The verdicts stay in the retired feed's folder, where nightly-next-verdict.yml writes them and
+  # the app reads them (nightly.yml NIGHTLY_NEXT_VERDICTS_BASE).
+  NIGHTLY_NEXT_VERDICTS_BASE: https://files-next.cmux.com/nightly-next/next
   # Bumping it verifies every feed build again.
   CANARY_CACHE_PREFIX: nightly-next-canary-v1-
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
@@ -112,7 +115,7 @@ jobs:
           build, url, length, signature = max(items)
           # The release copy, or the feed's own R2 base (publish-nightly-next-r2.py).
           if not url.startswith(("https://github.com/manaflow-ai/cmux/releases/download/nightly-next/",
-                                 "https://files-next.cmux.com/nightly-next/next/")):
+                                 "https://files-next.cmux.com/nightly-next/")):
               sys.exit(f"{url} is not a nightly-next download")
           print(f"build={build}\nurl={url}\nlength={length}\ned_signature={signature}")
           PY
@@ -139,7 +142,7 @@ jobs:
           BUILD: ${{ steps.feed.outputs.build }}
         run: |
           set -uo pipefail
-          url="${NIGHTLY_NEXT_FEED%/*}/verdicts/${BUILD}.json"
+          url="${NIGHTLY_NEXT_VERDICTS_BASE}/verdicts/${BUILD}.json"
           if curl -fsSL --retry 3 -A "cmux-nightly-next-canary/1" -H "Cache-Control: no-cache" -o verdict.json "$url?canary=$GITHUB_RUN_ID" \
             && python3 -I -c 'import json, sys; d = json.load(open(sys.argv[1])); sys.exit(d.get("build") != sys.argv[2] or d.get("verdict") not in ("pass", "fail"))' verdict.json "$BUILD"; then
             echo "written=true" >> "$GITHUB_OUTPUT"
