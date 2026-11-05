@@ -473,7 +473,11 @@ class Workflow(unittest.TestCase):
         self.assertEqual(steps.count("continue-on-error: true"), len(names))
         budgets = [int(value) for value in re.findall(r"^        timeout-minutes: (\d+)$", steps, re.MULTILINE)]
         self.assertEqual(len(budgets), len(names))
-        self.assertLess(sum(budgets), int(re.search(r"^    timeout-minutes: (\d+)$", job, re.MULTILINE).group(1)))
+        # The job limit is fixed, or `${{ vars.CI_CLASSIC_NIGHTLY_MINI != '' && N+120 || N }}` (the one-mini mode adds
+        # glaeda's capacity wait; tests/test_classic_nightly_one_mini.py): the step budgets fit inside N.
+        limit = re.search(r"^    timeout-minutes: (?:(\d+)|\$\{\{ vars\.CI_CLASSIC_NIGHTLY_MINI != '' && \d+ \|\| (\d+) \}\})$",
+                          job, re.MULTILINE)
+        self.assertLess(sum(budgets), int(limit.group(1) or limit.group(2)))
         step = job[job.index("id: pick"):]
         self.assertIn("continue-on-error: true", step[:200])
         self.assertIn("scripts/ci/classic_nightly_build_runner.py", step)
