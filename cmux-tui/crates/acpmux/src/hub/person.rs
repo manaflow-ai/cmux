@@ -20,9 +20,9 @@
 //!     process could restart the daemon with its own key).
 //!   - an unsigned daemon on a Cloud machine (Linux, not root): the VM provisioning exec, which
 //!     runs as root, gives the RUNNING daemon the key with `_acpmux/person_enroll`
-//!     (`acpmux daemon enroll --person-key-fd 0`, `daemon/provision.rs`). The daemon takes it
-//!     only from a connection whose peer uid is 0, made itself not dumpable when it accepted
-//!     that connection, and the provisioner checked the daemon's process before it sent the
+//!     (`acpmux daemon enroll --person-key-fd 0`, `daemon/provision.rs`). Such a daemon is not
+//!     dumpable for its whole run, takes the key only from a connection whose peer uid is 0, and
+//!     the provisioner checks the process that writes the daemon's replies before it sends the
 //!     key. An agent runs as the daemon's user and cannot. One daemon (acpmux.service) then
 //!     owns the home: nothing stops and restarts it for a key.
 //! - The key never crosses a socket after enrollment (cx-fcaq): whatever

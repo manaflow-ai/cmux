@@ -197,8 +197,9 @@ export function guestInstallScript(sha: string, mode: "patch" | "full", units: s
     // The session daemon runs ~/.cmux/bin/cmux-tui; an earlier in-place update may have left a real file there.
     `if [ ! -L /home/cmux/.cmux/bin/cmux-tui ]; then mv -f /home/cmux/.cmux/bin/cmux-tui "$D/home-cmux-tui.orig"; ln -s /opt/cmux/current/bin/cmux-tui /home/cmux/.cmux/bin/cmux-tui; fi`,
     // Old dev profiles and binaries but this one and the last (never the one just made).
-    `ls -1dt /opt/cmux/profiles/devloop-* 2>/dev/null | grep -vxF "$P" | tail -n +2 | xargs -r sudo -n rm -rf`,
-    `ls -1t /opt/cmux/devloop/cmux-tui-* 2>/dev/null | grep -vxF /opt/cmux/devloop/cmux-tui-${short} | tail -n +2 | xargs -r sudo -n rm -f`,
+    // grep -v exits 1 when nothing else is left: under pipefail that would stop the install here.
+    `ls -1dt /opt/cmux/profiles/devloop-* 2>/dev/null | { grep -vxF "$P" || true; } | tail -n +2 | xargs -r sudo -n rm -rf`,
+    `ls -1t /opt/cmux/devloop/cmux-tui-* 2>/dev/null | { grep -vxF /opt/cmux/devloop/cmux-tui-${short} || true; } | tail -n +2 | xargs -r sudo -n rm -f`,
     ...restartLines(units),
     `echo "installed ${short}: $(/opt/cmux/current/bin/cmux-tui --version)"`,
   ].join("\n");

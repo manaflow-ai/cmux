@@ -195,7 +195,7 @@ pub struct Conn {
     peer: Option<cmux_link::app_caller::PeerToken>,
     /// A unix socket peer that is root while this daemon is not (Linux, `daemon/provision.rs`):
     /// the VM provisioning exec, the one caller besides the signed app that may give the person key.
-    /// The daemon made itself not dumpable when it accepted this connection.
+    /// Only a Cloud machine's daemon, not dumpable since its start, has one.
     provisioner: bool,
     /// Requests seen so far (`hub/person.rs`: initialize first, the proof second).
     requests: std::sync::atomic::AtomicU64,
@@ -788,7 +788,7 @@ pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
                 use std::os::fd::AsRawFd;
                 cmux_link::app_caller::peer_token(stream.as_raw_fd())
             };
-            // Before a byte of it is read: a root peer may carry the person key.
+            // A root peer of a Cloud machine's daemon may carry the person key (`daemon/provision.rs`).
             let provisioner = crate::daemon::provision::accept_provisioner(&stream);
             stream::serve_stream(hub, stream, peer, provisioner).await;
         });

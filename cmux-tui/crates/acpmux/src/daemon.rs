@@ -170,6 +170,10 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     windows::keep_from_children(opts.ready_fd);
     // Before anything is spawned: the key never reaches a child.
     let person_key = opts.person_key_fd.and_then(read_person_key);
+    // A Cloud machine's daemon, which the provisioning exec may give the key later: not dumpable for
+    // its whole run, from before anything is spawned (`daemon/provision.rs`).
+    #[cfg(unix)]
+    provision::at_start();
     // A capture fixture that cannot be read stops the start: a capture must
     // never show this host's harnesses in its place (`harness_fixture.rs`).
     crate::harness_fixture::check().map_err(|why| anyhow!(why))?;
