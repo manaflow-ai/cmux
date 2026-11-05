@@ -44,6 +44,8 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     var ring: UpdateRing = .nightly
     /// Builds at or below this are not offered (``UpdateController/skipsBuildsThrough``).
     var skipsBuildsThrough: String?
+    /// A found build waits for a click even in background mode (``UpdateController/asksBeforeInstalling``).
+    var asksBeforeInstalling = false
     /// Builds the host refuses (``UpdateController/refusesUpdate``).
     var refusesBuild: (@MainActor (String) -> Bool)?
     /// The host's bounded refusal-policy read, awaited before any item is accepted.
@@ -185,7 +187,9 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         available.reply.onConsumed = { [weak self] reply, choice, source in
             self?.handlePromptReply(reply, choice: choice, source: source, item: appcastItem)
         }
-        if installsInBackground && downloadsInBackground { return acceptInBackground(available) }
+        // On a build the person picked (a rollback or Install this version) a newer build waits for
+        // their click, never installs by itself: they chose this build, so forward is theirs too.
+        if installsInBackground && downloadsInBackground && !asksBeforeInstalling { return acceptInBackground(available) }
         setState(.updateAvailable(available))
     }
 

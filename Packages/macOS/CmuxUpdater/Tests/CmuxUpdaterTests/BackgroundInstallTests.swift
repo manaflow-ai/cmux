@@ -429,11 +429,13 @@ import Testing
     }
 
     /// After a rollback, the build rolled back from (and anything older) is not offered
-    /// again; a newer build is.
+    /// again; a newer build is offered, and installs only on the person's click.
     @Test func skippedBuildsAreNotOfferedAgain() {
+        // The host asks before installing while the build the person rolled back to runs.
         let harness = Harness()
         harness.controller.installsUpdatesInBackground = true
         harness.controller.skipsBuildsThrough = "0.64.17"
+        harness.controller.asksBeforeInstalling = true
         let found = ChoiceBox()
         find(harness, into: found)
         #expect(found.choice == .dismiss)
@@ -442,7 +444,21 @@ import Testing
         harness.controller.skipsBuildsThrough = "0.64.16"
         let newer = ChoiceBox()
         find(harness, into: newer)
+        guard case .updateAvailable = harness.model.state else {
+            Issue.record("after a rollback a newer build must wait for a click, got \(harness.model.state)")
+            return
+        }
+        #expect(newer.choice == nil, "a newer build installed by itself after a rollback")
+        harness.controller.acceptAvailableUpdate()
         #expect(newer.choice == .install)
+
+        // Without the hold (the person installed another build since), it installs as set.
+        let held = Harness()
+        held.controller.installsUpdatesInBackground = true
+        held.controller.skipsBuildsThrough = "0.64.16"
+        let free = ChoiceBox()
+        find(held, into: free)
+        #expect(free.choice == .install)
     }
 }
 
