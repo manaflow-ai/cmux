@@ -50,6 +50,10 @@ public final class LiveCode {
     private var current: [String: UnsafeRawPointer] = [:]
     /// The applied patches, oldest first: a rollback undoes the last one.
     private var applied: [Interposer.Applied] = []
+    /// Patches still loading off the main thread; a rollback waits for them, so it undoes the
+    /// newest patch, not the one before it.
+    private var loading = 0
+    private var waitingRollbacks: [String] = []
 
     /// Watches `folder` for patch dylibs (`*.dylib`, each a new name) and applies each once; each new
     /// `*.rollback` file undoes the newest applied patch (cmuxterm-hq#7149 L4). The
@@ -102,7 +106,7 @@ public final class LiveCode {
         for name in names where !loaded.contains(name) {
             loaded.insert(name)
             if name.hasSuffix(".rollback") {
-                rollBack(name)
+                if loading > 0 { waitingRollbacks.append(name) } else { rollBack(name) }
             } else {
                 apply(folder.url.appendingPathComponent(name))
             }
@@ -131,6 +135,7 @@ public final class LiveCode {
     private func apply(_ patch: URL) {
         let started = Date()
         let path = patch.path
+        loading += 1
         Task.detached(priority: .userInitiated) {
             let loaded = Result { try Interposer.load(path) }
             await MainActor.run { self.applyLoaded(loaded, patch: patch, started: started) }
@@ -138,6 +143,14 @@ public final class LiveCode {
     }
 
     private func applyLoaded(_ loaded: Result<Int, any Error>, patch: URL, started: Date) {
+        loading -= 1
+        defer {
+            if loading == 0 {
+                let waiting = waitingRollbacks
+                waitingRollbacks = []
+                for name in waiting { rollBack(name) }
+            }
+        }
         do {
             let patched = try Interposer.apply(handle: loaded.get(), dylib: patch.path, current: &current)
             applied.append(patched)
