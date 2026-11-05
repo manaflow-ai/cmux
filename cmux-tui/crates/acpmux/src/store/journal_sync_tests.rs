@@ -7,7 +7,7 @@
 use super::log_sync::FAIL_DIR_SYNC_WHEN;
 use super::*;
 use cmux_journal::{Crash, SimStorage};
-use serde_json::json;
+use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -226,5 +226,67 @@ fn a_failed_sync_of_a_kept_aside_image_freezes_the_store() {
         kept(home.path()).iter().any(|name| name.ends_with(".session.json")),
         "the restart lost the kept-aside image: {:?}",
         kept(home.path())
+    );
+}
+
+// ---------------------------------------------------------------- review of #35963: the restart makes the entries again
+
+fn checkpoint_lsn(home: &Path) -> u64 {
+    let bytes = std::fs::read(home.join("journal-projected.json")).unwrap_or_default();
+    serde_json::from_slice::<Value>(&bytes).ok().and_then(|v| v["lsn"].as_u64()).unwrap_or(0)
+}
+
+fn acked(store: &dyn Store) -> u64 {
+    let durability = store.durability().unwrap_or_else(|| panic!("no durability"));
+    durability.acked.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+fn inode(path: &Path) -> u64 {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::metadata(path).unwrap_or_else(|e| panic!("stat {}: {e}", path.display())).ino()
+}
+
+/// The reviewer's test (review of #35963 at `6823956542f`, finding 1, path 3; repro branch
+/// `review/35963-restart-entries-nomerge`, red on macOS fleet b165aaf9): the freeze, then the
+/// restart that is to keep the image aside again.
+/// The restart rewrites the kept file in place (same inode, same `journal-unapplied` entry) and
+/// its first checkpoint retires the image's record, though no step since the failed folder sync
+/// made that entry again.
+#[test]
+fn a_restart_after_a_failed_kept_image_sync_makes_its_entry_again() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(213);
+    let store = open(home.path(), &journal);
+    store.save(&meta(CHAT, "old")).unwrap_or_else(|e| panic!("{e:#}"));
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    store.save(&meta(CHAT, "old-renamed")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let image = acked(store.as_ref());
+    let sessions = home.path().join("sessions");
+    std::fs::rename(sessions.join(CHAT), sessions.join(format!(".{CHAT}.replacement-backup")))
+        .unwrap_or_else(|e| panic!("{e}"));
+    std::fs::create_dir(sessions.join(CHAT)).unwrap_or_else(|e| panic!("{e}"));
+    let unapplied = home.path().join("journal-unapplied");
+    super::log_sync::FAIL_DIR_SYNC.with(|fail| *fail.borrow_mut() = Some(unapplied.clone()));
+    let failed = store.flush();
+    super::log_sync::FAIL_DIR_SYNC.with(|fail| *fail.borrow_mut() = None);
+    assert!(failed.is_err(), "the checkpoint did not report its failed folder sync");
+    assert!(stop_asked(store.as_ref()), "the store did not freeze");
+    let name = kept(home.path())
+        .into_iter()
+        .find(|name| name.ends_with(".session.json"))
+        .unwrap_or_else(|| panic!("no kept image"));
+    let kept_in = inode(&unapplied.join(&name));
+    let before = checkpoint_lsn(home.path());
+    let killed = journal.restart(Crash::Process);
+    drop(store);
+    let _store = open(home.path(), &killed);
+    let after = inode(&unapplied.join(&name));
+    let checkpoint = checkpoint_lsn(home.path());
+    assert!(
+        after != kept_in || checkpoint < image,
+        "the restart's first checkpoint moved from {before} to {checkpoint}, past the image's \
+         record ({image}), while journal-unapplied/{name} is still the entry (inode {after}) \
+         whose folder sync failed: no step re-made it"
     );
 }
