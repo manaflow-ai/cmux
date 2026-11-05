@@ -21,9 +21,16 @@ enum AgentPaneHarnessCard {
         return again.outdated ? AgentPaneReply.failure(code: "harness.failed", message: oldServiceMessage) : again.reply
     }
 
-    /// One try of `request` on the acpmux at `socket`; `outdated` when that service lacks the method.
+    /// One try's reply; `outdated` when the service lacks the method. A struct, not a tuple: a tuple
+    /// returned from an awaiting do and its catch loses its first element at -O (swiftlang/swift#92698).
+    private struct Outcome {
+        var reply: [String: Any]
+        var outdated = false
+    }
+
+    /// One try of `request` on the acpmux at `socket`.
     private static func call(_ request: AgentPaneRequest, transport: AgentPaneTransport, session sessionId: String?,
-                             socket: String) async -> (reply: [String: Any], outdated: Bool) {
+                             socket: String) async -> Outcome {
         do {
             switch request {
             case .harnessUpdate(let id):
@@ -34,31 +41,31 @@ enum AgentPaneHarnessCard {
                 var value: [String: Any] = ["ok": row?["ok"] as? Bool ?? false]
                 if let version = row?["version"] as? String { value["version"] = version }
                 if let error = row?["error"] as? String { value["error"] = error }
-                return (AgentPaneReply.success(value), false)
+                return Outcome(reply: AgentPaneReply.success(value))
             case .harnessRestart:
                 // Only a chat this pane started or shows: the page can adopt any id (`chat.persistSession`).
                 guard let session = sessionId, transport.sessions.contains(session) else {
-                    return (AgentPaneReply.failure(code: "harness.not_this_chat", message: unavailableMessage), false)
+                    return Outcome(reply: AgentPaneReply.failure(code: "harness.not_this_chat", message: unavailableMessage))
                 }
                 let result = try await AcpmuxStatusClient.call(socketPath: socket, method: "_acpmux/sessions/restart_harness",
                                                                params: ["sessions": [session]], deadline: .seconds(300), detailed: true)
                 var value: [String: Any] = ["restarted": result["restarted"] as? Int ?? 0, "after_turn": result["after_turn"] as? Int ?? 0,
                                             "failed": result["failed"] as? Int ?? 0]
                 if let error = (result["errors"] as? [[String: Any]])?.first?["error"] as? String { value["error"] = error }
-                return (AgentPaneReply.success(value), false)
+                return Outcome(reply: AgentPaneReply.success(value))
             default:
-                return (AgentPaneModel.unsupported("harness"), false)
+                return Outcome(reply: AgentPaneModel.unsupported("harness"))
             }
         } catch AcpmuxStatusClient.Failure.rpc(let message) {
-            return (AgentPaneReply.failure(code: "harness.failed", message: message), false)
+            return Outcome(reply: AgentPaneReply.failure(code: "harness.failed", message: message))
         } catch let error as AcpmuxRPCError {
             // An agent service from before this app's update does not know the method yet.
             let message = error.isMethodMissing ? oldServiceMessage : error.isUnreachable ? unavailableMessage : error.message
-            return (AgentPaneReply.failure(code: "harness.failed", message: message), error.isMethodMissing)
+            return Outcome(reply: AgentPaneReply.failure(code: "harness.failed", message: message), outdated: error.isMethodMissing)
         } catch is AgentPaneDeadlineExceeded {
-            return (AgentPaneReply.failure(code: "harness.failed", message: slowMessage), false)
+            return Outcome(reply: AgentPaneReply.failure(code: "harness.failed", message: slowMessage))
         } catch {
-            return (AgentPaneReply.failure(code: "harness.failed", message: unavailableMessage), false)
+            return Outcome(reply: AgentPaneReply.failure(code: "harness.failed", message: unavailableMessage))
         }
     }
 
