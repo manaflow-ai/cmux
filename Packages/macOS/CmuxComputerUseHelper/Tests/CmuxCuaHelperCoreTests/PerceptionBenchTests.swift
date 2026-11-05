@@ -173,8 +173,9 @@ import Testing
         let delivered = Self.editor()
         let native = Self.editor(scale: 2 / Self.pixelsPerPoint)
         // "delivered as is" is what Vision reads without this layer's 2x (PerceptionOCR.upscaleBelow).
-        let runs: [(String, CGImage, Int)] = [("delivered as is", delivered, 1), ("delivered (read at 2x)", delivered, 2000),
-                                              ("native 2x capture", native, 2000)]
+        let runs: [(String, CGImage, Int)] = [("delivered as is", delivered, 1),
+                                              ("delivered, this layer (as is or 2x, the better)", delivered, 2000),
+                                              ("native 2x capture", native, 1)]
         for (label, image, upscaleBelow) in runs {
             let started = ContinuousClock.now
             let lines = try PerceptionOCR(upscaleBelow: upscaleBelow).lines(in: image)
@@ -189,7 +190,7 @@ import Testing
             let recall = Double(found) / Double(truth.count)
             print("perception-bench | som OCR \(label) \(image.width)x\(image.height) | word recall \(found)/\(truth.count) " +
                   "= \(recall) | \(lines.count) lines | \(ms) ms | \(PerceptionOCR.render(lines).utf8.count) bytes of OCR text")
-            if upscaleBelow > 1 { #expect(recall > 0.5) }
+            if upscaleBelow > 1 { #expect(recall > 0.5, "this layer reads most words on every macOS release") }
         }
     }
 }

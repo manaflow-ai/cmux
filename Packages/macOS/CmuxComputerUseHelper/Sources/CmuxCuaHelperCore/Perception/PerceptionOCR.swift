@@ -23,14 +23,29 @@ struct OCRLine: Equatable, Sendable {
 struct PerceptionOCR: Sendable {
     /// Vision's accurate recogniser; the fast one misreads small UI text.
     var accurate = true
-    /// A screenshot with a long edge under this is read at twice its size:
-    /// Vision misses most 12 px UI text of a delivered window screenshot
-    /// (none at all on some macOS releases) and reads it at 2x.
+    /// A screenshot with a long edge under this is also read at twice its
+    /// size, and the read with more confident text wins. Which one reads 12 px
+    /// UI text depends on the macOS release: on a 1366 px code window, macOS
+    /// 27's Vision read 0% of the words as is and 79% at 2x, macOS 26's 58% as
+    /// is and 15% at 2x (PerceptionBenchTests).
     var upscaleBelow = 2000
 
     func lines(in image: CGImage) throws -> [OCRLine] {
-        // Boxes come back normalised, so they map onto `image` whatever was read.
-        let source = max(image.width, image.height) < upscaleBelow ? Self.scaled(image, by: 2) ?? image : image
+        let direct = try read(image, source: image)
+        guard max(image.width, image.height) < upscaleBelow, let doubled = Self.scaled(image, by: 2) else { return direct }
+        let upscaled = try read(image, source: doubled)
+        return Self.score(upscaled) > Self.score(direct) ? upscaled : direct
+    }
+
+    /// Characters read, weighted by Vision's confidence.
+    static func score(_ lines: [OCRLine]) -> Double {
+        lines.reduce(0) { total, line in
+            total + line.words.reduce(0) { $0 + Double($1.text.count) * Double($1.confidence) }
+        }
+    }
+
+    /// Reads `source` (`image`, maybe scaled); boxes come back normalised, so they map onto `image`.
+    private func read(_ image: CGImage, source: CGImage) throws -> [OCRLine] {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = accurate ? .accurate : .fast
         // UI labels, paths and code are not prose: language correction
