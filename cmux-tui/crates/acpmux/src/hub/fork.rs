@@ -307,8 +307,13 @@ impl Hub {
         let now = now_ms();
         let fork_dirs =
             super::additional_dirs::without_cwd(parent_meta.additional_directories.clone(), &cwd);
+        // A fork into another folder takes that folder's guidance and instructions, sent with
+        // its first turn even when the parent had already sent its own.
+        let moved = cwd != parent_meta.cwd && !parent_meta.remote_origin;
         let cmux_context = if !parent_meta.remote_origin
-            && (empty || (matches!(made, Made::Fresh) && parent_meta.cmux_context.is_none()))
+            && (empty
+                || moved
+                || (matches!(made, Made::Fresh) && parent_meta.cmux_context.is_none()))
         {
             let cfg = self.config.read().await;
             let family = crate::context_inventory::family_for_folder(&cfg, &parent_meta.harness);
@@ -317,13 +322,6 @@ impl Hub {
                 &family,
                 &cwd,
             ))
-        } else if cwd != parent_meta.cwd && !parent_meta.remote_origin {
-            let cfg = self.config.read().await;
-            let family = crate::context_inventory::family_for_folder(&cfg, &parent_meta.harness);
-            parent_meta
-                .cmux_context
-                .clone()
-                .map(|parts| crate::folder_instructions::retarget(parts, &family, &cwd))
         } else {
             parent_meta.cmux_context.clone()
         };
@@ -401,6 +399,7 @@ impl Hub {
             // Fresh reconstruction copies visible history only; hidden guidance must
             // reach the new harness again. Native transcript forks already retain it.
             cmux_context_delivered: !matches!(made, Made::Fresh | Made::Empty)
+                && !moved
                 && parent_meta.cmux_context_delivered,
             // The account's limits, which the fork shares.
             usage_limits: parent_meta.usage_limits.clone(),

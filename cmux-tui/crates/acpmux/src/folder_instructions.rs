@@ -44,22 +44,69 @@ fn native(family: &str) -> &'static [&'static str] {
     }
 }
 
-/// The start of a regular file (at most the cap and a few bytes) and its full size.
-fn readable(path: &Path) -> Option<(String, u64)> {
-    let meta = std::fs::symlink_metadata(path).ok()?;
-    // A regular file only: never a link out of the folder, a fifo or a device.
-    if !meta.file_type().is_file() {
+/// `rel` (one or more `/`-separated names) opened beneath `root` without following a link
+/// at any step: each folder is opened with `O_NOFOLLOW` from the one before it, so a
+/// linked `.github` or a swapped component never leads out of the session folder.
+#[cfg(unix)]
+fn open_beneath(root: &Path, rel: &str) -> Option<std::fs::File> {
+    use std::ffi::CString;
+    use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd};
+
+    let mut folders: Vec<&str> = rel.split('/').collect();
+    let last = folders.pop()?;
+    let mut dir: OwnedFd = std::fs::File::open(root).ok()?.into();
+    for name in folders {
+        let name = CString::new(name).ok()?;
+        // SAFETY: `dir` is an open descriptor and `name` is NUL-terminated.
+        let fd = unsafe {
+            libc::openat(
+                dir.as_raw_fd(),
+                name.as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            )
+        };
+        if fd < 0 {
+            return None;
+        }
+        // SAFETY: `fd` was just opened and nothing else owns it.
+        dir = unsafe { OwnedFd::from_raw_fd(fd) };
+    }
+    let name = CString::new(last).ok()?;
+    // SAFETY: as above; O_NONBLOCK keeps a fifo from blocking the open.
+    let fd = unsafe {
+        libc::openat(
+            dir.as_raw_fd(),
+            name.as_ptr(),
+            libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,
+        )
+    };
+    if fd < 0 {
         return None;
     }
+    // SAFETY: `fd` was just opened and nothing else owns it.
+    let file = unsafe { std::fs::File::from_raw_fd(fd) };
+    // A regular file only: never a fifo or a device.
+    file.metadata().ok()?.is_file().then_some(file)
+}
+
+#[cfg(not(unix))]
+fn open_beneath(root: &Path, rel: &str) -> Option<std::fs::File> {
+    let path = root.join(rel);
+    let meta = std::fs::symlink_metadata(&path).ok()?;
+    meta.file_type().is_file().then(|| std::fs::File::open(path).ok()).flatten()
+}
+
+/// The start of `rel` beneath `cwd` (at most the cap and a few bytes) and its full size;
+/// `None` when it is not there as a regular file or holds only whitespace.
+fn readable(cwd: &Path, rel: &str) -> Option<(String, u64)> {
+    let file = open_beneath(cwd, rel)?;
+    let size = file.metadata().ok()?.len();
     // Never more than the cap and a little: a huge file must not fill memory.
     let mut bytes = Vec::new();
-    std::io::Read::read_to_end(
-        &mut std::io::Read::take(std::fs::File::open(path).ok()?, MAX_BYTES as u64 + 4),
-        &mut bytes,
-    )
-    .ok()?;
+    std::io::Read::read_to_end(&mut std::io::Read::take(file, MAX_BYTES as u64 + 4), &mut bytes)
+        .ok()?;
     let text = String::from_utf8_lossy(&bytes).into_owned();
-    (!text.trim().is_empty()).then_some((text, meta.len()))
+    (!text.trim().is_empty()).then_some((text, size))
 }
 
 /// `parts` with the folder part for `cwd` in place of any earlier one: a fork
@@ -74,13 +121,14 @@ pub fn retarget(mut parts: Vec<ContextPart>, family: &str, cwd: &Path) -> Vec<Co
 /// harness reads its own file there or the folder carries no instructions.
 pub fn part(family: &str, cwd: &Path) -> Option<ContextPart> {
     let own = native(family);
-    if own.iter().any(|name| readable(&cwd.join(name)).is_some()) {
+    // The harness's own file, even an empty one, is what it reads: nothing else is sent.
+    if own.iter().any(|name| open_beneath(cwd, name).is_some()) {
         return None;
     }
     let (name, text, bytes) = CANDIDATES
         .iter()
         .filter(|name| !own.contains(name))
-        .find_map(|name| readable(&cwd.join(name)).map(|(text, bytes)| (*name, text, bytes)))?;
+        .find_map(|name| readable(cwd, name).map(|(text, bytes)| (*name, text, bytes)))?;
     let body = if text.len() > MAX_BYTES {
         let mut end = MAX_BYTES;
         while !text.is_char_boundary(end) {
@@ -189,6 +237,26 @@ mod tests {
         let folder = text.iter().find(|t| t.starts_with("<cmux-folder-context>")).unwrap();
         assert!(folder.contains("codeword KESTREL"));
         assert!(!folder.contains("later"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_folder_on_the_way_is_never_followed() {
+        let outside = folder(&[("copilot-instructions.md", "outside words")]);
+        let dir = folder(&[]);
+        std::os::unix::fs::symlink(outside.path(), dir.path().join(".github")).unwrap();
+        assert!(part("claude", dir.path()).is_none());
+        // A linked folder on the way to the harness's own file is not its own file either.
+        let claude = folder(&[("CLAUDE.md", "c")]);
+        let dir = folder(&[("AGENTS.md", "a")]);
+        std::os::unix::fs::symlink(claude.path(), dir.path().join(".claude")).unwrap();
+        assert_eq!(part("claude", dir.path()).unwrap().label, "Folder instructions (AGENTS.md)");
+    }
+
+    #[test]
+    fn an_empty_file_of_the_harnesses_own_still_counts_as_its_own() {
+        let dir = folder(&[("CLAUDE.md", ""), ("AGENTS.md", "a")]);
+        assert!(part("claude", dir.path()).is_none());
     }
 
     #[test]
