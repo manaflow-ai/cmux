@@ -611,6 +611,42 @@ html[data-cmux-page="changelog"] {
   font-weight: 600;
   letter-spacing: var(--text-detail--letter-spacing);
 }
+/* "Versions" (SheetPage SheetBuilds) sits at the header's end at the header's own line height, so
+   a day's header is as tall with it as without it and nothing under it moves. */
+.cls-date .cls-versions-toggle {
+  display: inline-flex;
+  gap: var(--ds-space-1);
+  height: auto;
+  margin-inline-start: auto;
+  padding-block: 0;
+  color: var(--page-text-3);
+  font-weight: 400;
+  line-height: inherit;
+}
+.cls-versions-toggle[aria-expanded="true"] { color: var(--page-text-2); }
+.cls-builds {
+  display: grid;
+  gap: 0;
+  margin: 0 0 var(--ds-space-2);
+  padding: 0;
+  padding-inline-start: calc(var(--cls-line) + var(--ds-space-2));
+  list-style: none;
+}
+/* One line per build: version, commit, changes, then its action in a fixed end column, so a row
+   whose button changes (Install, Restart into it, Checking…) moves nothing beside it. */
+.cls-build {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) auto auto 1fr;
+  align-items: center;
+  column-gap: var(--ds-space-3);
+  min-height: var(--cls-line);
+  font-variant-numeric: tabular-nums;
+}
+.cls-build-version { overflow: hidden; color: var(--page-text); text-overflow: ellipsis; white-space: nowrap; }
+.cls-build-link { color: var(--page-text-2); font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--text-caption); }
+.cls-build-link:hover { color: var(--cmux-accent, var(--page-text)); }
+.cls-build-action { display: flex; justify-content: flex-end; grid-column: 4; }
+.cls-build-failed { grid-column: 1 / -1; color: var(--page-text-2); font-size: var(--text-caption); }
 .cls-area { margin-top: var(--ds-space-2); }
 .cls-area-head {
   display: grid;

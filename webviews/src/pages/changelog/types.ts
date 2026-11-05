@@ -6,6 +6,12 @@ export const ChangelogOps = {
   list: "cmux.changelog.list",
   get: "cmux.changelog.get",
   reel: "cmux.changelog.reel",
+  /** `{ installs }`: whether this app can restart into another listed build (a release build
+      that follows a feed). */
+  installable: "cmux.changelog.installable",
+  /** Restarts into a listed build (`build`): downloaded, its signature checked, kept, swapped. The
+      host takes it only from the person's own click and answers a refusal as an error. */
+  install: "cmux.changelog.install",
 } as const;
 /** Runs a highlight's "Try it" (the host admits only allow-listed actions). */
 export const ACTION_RUN = "cmux.app.action.run";

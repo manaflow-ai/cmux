@@ -82,12 +82,12 @@ nonisolated enum ChangelogPageStrings {
 }
 
 extension PageFactory {
-    /// The changelog page: `cmux.changelog.` to verified notes, `cmux.app.` to the native ops
-    /// (Try it runs only the descriptor's allow-listed actions).
+    /// The changelog page: Install first (routes match in order), `cmux.changelog.` to verified notes,
+    /// `cmux.app.` to the native ops (Try it runs only the descriptor's allow-listed actions).
     func changelogPage(route: String? = nil) -> PageWebView? {
         let provider = changelogNotes(media: services.updater.releaseMedia)
         let native = AppPageNativeProvider(services: services, page: .changelog)
-        let routes = [PageRoute(prefix: "cmux.changelog.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
+        let routes = [ChangelogInstallProvider.route(services.updater), PageRoute(prefix: "cmux.changelog.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
         let page = PageWebView(descriptor: .changelog, routes: routes, route: route)
         native.anchor = { [weak page] in page }
         provider.anchor = { [weak page] in page }
