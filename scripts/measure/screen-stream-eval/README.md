@@ -69,7 +69,7 @@ A console worker, and the grants: the hosts capture with ScreenCaptureKit and in
 CGEvent, and macOS gives them the Screen Recording and Accessibility grants of their responsible
 app. A step's own processes usually hold neither, and the hosts are rebuilt at every commit, so a
 grant on them would not last. So when `preflight.swift` finds no grants, the harness installs
-`launcher/` as `~/Applications/CmuxScreenEvalLauncher.app` (once; `install.sh` never replaces it,
+`launcher/` as `CmuxScreenEvalLauncher.app` in the user's real `~/Applications` (a step's `$HOME` is scratch) (once; `install.sh` never replaces it,
 since the grant is keyed to that exact binary) and runs the whole eval again inside it through
 `open`. Every child of the app, the hosts included, then has its grants.
 
