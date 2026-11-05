@@ -85,8 +85,9 @@ public enum CloudLinkError: Error, Equatable, Sendable, CustomStringConvertible,
     private static func because(_ reason: String) -> String { reason.isEmpty ? "" : " (\(reason))" }
 
     /// Why a dropped link ended, as a person reads it: a `.disconnected`'s reason, or another error's
-    /// description. Nil for none, or only the state word (`disconnected`), which adds nothing to the
-    /// sentence. A NEXT Nightly's Cloud chat read only "Disconnected" with nothing logged (2026-11-05).
+    /// description. Nil for none, or only a state word (`disconnected`, or the `down` a reasonless
+    /// `cloud.link.changed` carries), which adds nothing to the sentence. A NEXT Nightly's Cloud chat
+    /// read only "Disconnected" with nothing logged (2026-11-05).
     public static func droppedReason(_ error: any Error) -> String? {
         var reason: String
         switch error as? CloudLinkError {
@@ -96,8 +97,11 @@ public enum CloudLinkError: Error, Equatable, Sendable, CustomStringConvertible,
         }
         reason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
         while reason.hasSuffix(".") { reason.removeLast() }
-        return reason.isEmpty || reason.caseInsensitiveCompare("disconnected") == .orderedSame ? nil : reason
+        return reason.isEmpty || stateWords.contains(reason.lowercased()) ? nil : reason
     }
+
+    /// The words a drop carries when it has no reason of its own.
+    static let stateWords: Set<String> = ["disconnected", CloudLinkChange.State.down.rawValue]
 }
 
 /// An app server op failure, as the daemon answered it (`error_code`). It

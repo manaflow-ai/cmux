@@ -32,7 +32,7 @@ struct CloudLinkErrorTextTests {
         #expect(CloudAppLinks.endedMessage(CloudLinkError.disconnected(reason: "connection ended.")) == CloudStrings.linkDisconnected(because: "connection ended"))
     }
 
-    @Test(arguments: ["", "  ", "disconnected", "Disconnected."])
+    @Test(arguments: ["", "  ", "disconnected", "Disconnected.", "down"])
     func aDropWithNoReasonReadsAsBefore(reason: String) {
         #expect(CloudAppLinks.endedMessage(CloudLinkError.disconnected(reason: reason)) == CloudStrings.linkDisconnected)
     }
