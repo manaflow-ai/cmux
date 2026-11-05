@@ -134,6 +134,15 @@ struct CloudRelayChatLoginTests {
         #expect(fields["command"].map { "\($0)".contains("cmux cloud start-session --target machine:") } == true)
     }
 
+    /// The Keychain did not answer (#36834): the machine still has no login, so nothing is sent, the same as none cached.
+    @Test func anUnreadableKeychainSendsNothing() async throws {
+        let unreadable = try #require(CloudCredentialTransfer.CachedLogin.unreadable.startOutcome)
+        let run = try await Self.relayChat(Self.decision(outcome: unreadable))
+        #expect(run.steps == ["login"], "the relay sent to a machine with no login")
+        let fields = try Self.fields(run.result)
+        #expect(fields["delivered"] == .bool(false) && fields["error_code"] == .string("cloud.relay.login_missing"))
+    }
+
     /// The copy failed: nothing is sent, and the answer carries the copy's fixed text only.
     @Test func aFailedCopySendsNothing() async throws {
         let run = try await Self.relayChat(Self.decision(outcome: CloudStartChat.loginFailed + "The login copy failed."))
