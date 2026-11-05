@@ -223,6 +223,51 @@ fn a_key_to_a_failed_link_is_refused_until_a_live_route_is_published() {
     assert_eq!(frame.payload, b"y", "the refused key must not reach the host");
 }
 
+/// A hosted terminal publishes its input route when its runtime is made and at every runtime swap
+/// (`PtyTerminalRuntime::replace_runtime`), so its keys and pastes go through its input port. A hosted terminal
+/// with no route breaks that rule: its input must fail with a typed error (`cmux send` exits non-zero, the
+/// creating-input flush gives the bytes back), never go to the host connection around the port (with no reconnect
+/// wait and out of order with the port's frames), and never panic (plans/cmux-next/rust-panic-free.md rule 1).
+#[cfg(unix)]
+#[test]
+fn input_to_a_hosted_terminal_with_no_input_route_fails_and_does_not_panic() {
+    let (mux, surface, mut host) = hosted_typing_surface("hosted-input-no-route");
+    let pty = surface.as_pty().expect("a terminal");
+    pty.input_route.store(None);
+    let key = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| surface.write_bytes(b"k")));
+    let paste =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| surface.write_paste(b"p")));
+    let written: Vec<MessageKind> = frames_until_quiet(&mut host, Duration::from_millis(300))
+        .into_iter()
+        .map(|frame| frame.kind)
+        .filter(|kind| matches!(kind, MessageKind::Input | MessageKind::Paste))
+        .collect();
+    let outcome = |what: &str, result: std::thread::Result<std::io::Result<()>>| match result {
+        Ok(Err(error)) if error.kind() == std::io::ErrorKind::NotConnected => None,
+        Ok(Err(error)) => {
+            Some(format!("the {what} failed with another error: {error} ({:?})", error.kind()))
+        }
+        Ok(Ok(())) => Some(format!("the {what} was answered ok")),
+        Err(_) => Some(format!("the {what} panicked")),
+    };
+    let paste_panicked = paste.is_err();
+    let mut wrong: Vec<String> =
+        [outcome("key", key), outcome("paste", paste)].into_iter().flatten().collect();
+    if !written.is_empty() {
+        wrong.push(format!("input reached the host around the input port: {written:?}"));
+    }
+    if paste_panicked {
+        // The panic poisoned the terminal's runtime lock, so the surface's teardown would panic a second time.
+        std::mem::forget(surface);
+        std::mem::forget(mux);
+    }
+    assert!(
+        wrong.is_empty(),
+        "input to a hosted terminal with no input route: {}",
+        wrong.join("; ")
+    );
+}
+
 /// R-DAEMON-STATE S1.6b: a frame another writer sends to a hosted terminal's host connection (a viewer size, cell
 /// pixels, receipted input, a clear history, Kitty limits, a clipboard reply, a terminate) after a key the input port
 /// took reaches the host after that key, though the port has not written it yet.
