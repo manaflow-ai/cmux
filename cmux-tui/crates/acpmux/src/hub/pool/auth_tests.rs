@@ -176,3 +176,14 @@ fn pool_auth_codex_and_opencode_refresh_switch_and_logout_use_file_identity() {
         assert_ne!(after, files.fingerprint(&cache, family), "{family} logout");
     }
 }
+
+/// Every harness login in the fingerprint list is one an agent of another
+/// family loses (`agent/foreign_login.rs`), so the two lists cannot drift.
+#[test]
+fn every_harness_login_has_an_owner_family() {
+    let owned: Vec<_> =
+        crate::agent::foreign_login::LOGIN_ENV_OWNERS.iter().map(|login| login.key).collect();
+    for key in AUTH_ENV.iter().filter(|k| **k != "XDG_DATA_HOME") {
+        assert!(owned.contains(key), "{key} has no owner in LOGIN_ENV_OWNERS");
+    }
+}
