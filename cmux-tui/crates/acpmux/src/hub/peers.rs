@@ -431,6 +431,8 @@ impl Hub {
                 s
             })
             .collect();
+        // The machines only the mesh hub reaches (`mesh_book.rs`): never an ssh peer's name.
+        v.extend(self.mesh_book_hosts());
         v.sort_by_key(|p| p.get("name").and_then(Value::as_str).unwrap_or("").to_owned());
         v
     }
@@ -489,7 +491,7 @@ impl Hub {
     /// Prefix a peer session's summary so it reads as `<peer>/<name>`. A display line the peer
     /// put on a pending ask never reaches a client (`drop_display_lines`): every row a peer's
     /// list or `session_changed` adds goes through here.
-    pub(super) fn remote_summary(peer: &str, mut summary: Value) -> Value {
+    pub(crate) fn remote_summary(peer: &str, mut summary: Value) -> Value {
         super::drop_display_lines(&mut summary);
         let generation = summary
             .get("sessionReceipt")
@@ -543,7 +545,7 @@ impl Hub {
     }
 
     /// Tell watching clients that a peer session appeared, changed or left.
-    fn announce_remote(&self, peer: &str, summary: Value, kind: &str) {
+    pub(super) fn announce_remote(&self, peer: &str, summary: Value, kind: &str) {
         let Some(id) = summary.get("sessionId").and_then(Value::as_str).map(str::to_owned) else {
             return;
         };
@@ -1232,6 +1234,8 @@ impl Hub {
             .filter(|r| keep(r))
             .cloned()
             .collect();
+        // The hub's rows of this person's other machines (`mesh_book.rs`), after the peers'.
+        let rows = rows.into_iter().chain(self.mesh_book_rows(&keep));
         for r in rows {
             let mut summary = r.summary.clone();
             summary.set("stale", Value::Bool(summary["stale"] == true));

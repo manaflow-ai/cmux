@@ -94,6 +94,7 @@ mod live_models;
 mod locate;
 pub mod media_handles;
 pub mod media_read;
+mod mesh_book;
 mod mesh_rows;
 pub(crate) mod native_history;
 pub(crate) mod subagent_transcript;
@@ -581,6 +582,8 @@ pub struct Hub {
     pub started_at: u64,
     pub(super) peers: StdMutex<HashMap<String, Arc<crate::peer::Peer>>>,
     pub(super) remote_sessions: StdMutex<remote_rows::RemoteRows>,
+    /// The same person's machines and sessions the mesh hub lists (`mesh_book.rs`).
+    pub(super) mesh_book: StdMutex<mesh_book::MeshBook>,
     /// Each parent's children by tag, for an approval card's label (`permissions/display.rs`).
     pub(super) child_tags: permissions::ChildTags,
     /// Leased peers by name, with the generation of the peer each lease
@@ -919,6 +922,7 @@ impl Hub {
             started_at: now_ms(),
             peers: StdMutex::new(HashMap::new()),
             remote_sessions: Default::default(),
+            mesh_book: Default::default(),
             child_tags: Default::default(),
             peer_leases: StdMutex::new(HashMap::new()),
             peer_config_gen: std::sync::atomic::AtomicU64::new(0),

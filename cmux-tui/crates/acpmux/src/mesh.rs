@@ -34,6 +34,43 @@ pub struct SessionRow {
     pub team_address: Option<String>,
 }
 
+/// The hub's address book (`GET /v1/mesh/sessions`): the team's live daemons and sessions.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct AddressBook {
+    #[serde(default)]
+    pub daemons: Vec<BookDaemon>,
+    #[serde(default)]
+    pub sessions: Vec<BookSession>,
+}
+
+/// One live daemon in the address book: whose it is, on which host.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BookDaemon {
+    pub daemon_id: String,
+    pub host: String,
+    #[serde(default)]
+    pub user: String,
+    #[serde(default)]
+    pub last_seen_at: u64,
+}
+
+/// One live session in the address book, as its daemon's heartbeat listed it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BookSession {
+    pub name: String,
+    pub session_id: String,
+    pub host: String,
+    pub daemon_id: String,
+    #[serde(default)]
+    pub harness: String,
+    #[serde(default)]
+    pub state: String,
+    #[serde(default)]
+    pub last_seen_at: u64,
+}
+
 /// A heartbeat: it replaces this daemon's sessions in the address book.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -369,6 +406,10 @@ pub trait MeshHub: Send + Sync {
     ) -> BoxFuture<'a, Result<HeartbeatReply, HubError>>;
     fn send<'a>(&'a self, message: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>>;
     fn receipt<'a>(&'a self, message_id: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>>;
+    /// The team's address book. A hub without one lists nothing.
+    fn sessions(&self) -> BoxFuture<'_, Result<AddressBook, HubError>> {
+        Box::pin(async { Err(HubError::unavailable("the address book is unavailable")) })
+    }
     /// The receipt of a message this daemon sent, waiting up to `wait` (at most 25 s) for the
     /// receiver's answer; a read's `result` is in it. A hub without the wait answers at once.
     fn answer<'a>(

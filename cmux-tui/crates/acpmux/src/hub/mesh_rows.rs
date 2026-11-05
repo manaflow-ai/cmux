@@ -162,7 +162,7 @@ impl Hub {
 }
 
 /// Whether `host` is this machine's name (never the "host" stand-in for an unusable one).
-fn is_own_host(host: &str) -> bool {
+pub(super) fn is_own_host(host: &str) -> bool {
     let own = crate::pairing::machine_name();
     own != "host" && host.eq_ignore_ascii_case(&own)
 }

@@ -214,6 +214,20 @@ fn heartbeat_wait(options: &RelayOptions, ttl_seconds: u64) -> Duration {
     if third.is_zero() { options.heartbeat_every } else { third.min(options.heartbeat_every) }
 }
 
+/// Read the hub's address book into the hub's rows of this person's machines, within `budget`.
+/// Kept as it was when the read fails; nothing is listed before this machine knows its person.
+async fn read_book(hub: &Weak<Hub>, client: &dyn MeshHub, own_daemon: Option<&str>, budget: Duration) {
+    let Some(own_user) = crate::cli::cloud_join::machine_user_id() else {
+        return;
+    };
+    let Ok(Ok(book)) = tokio::time::timeout(budget, client.sessions()).await else {
+        return;
+    };
+    if let Some(hub) = hub.upgrade() {
+        hub.apply_mesh_book(book, &own_user, own_daemon);
+    }
+}
+
 /// Stops both loops: what one loop does when the mesh hub refuses it for good, so the other
 /// neither waits nor heartbeats on for a daemon that takes nothing.
 #[derive(Clone)]
@@ -240,6 +254,7 @@ async fn heartbeats(
     let mut backoff = Backoff::new(options.backoff_first, options.backoff_cap);
     let mut failing = false;
     loop {
+        let mut beat_taken = false;
         if hub_ended(&hub) {
             break;
         }
@@ -255,6 +270,7 @@ async fn heartbeats(
                         tracing::info!("mesh relay: the hub takes heartbeats again");
                     }
                     backoff.reset();
+                    beat_taken = true;
                     if !reply.daemon_id.is_empty() {
                         daemon.send_if_modified(|d| {
                             let new = d.as_deref() != Some(reply.daemon_id.as_str());
@@ -275,6 +291,9 @@ async fn heartbeats(
                         );
                     }
                     halt.all();
+                    if let Some(hub) = hub.upgrade() {
+                        hub.set_mesh_book(Default::default(), Vec::new());
+                    }
                     return;
                 }
                 Err(e) => {
@@ -294,10 +313,22 @@ async fn heartbeats(
                     .await;
             }
         };
+        // This person's other machines and their sessions, after a heartbeat the hub took
+        // (`hub/mesh_book.rs`): at most one address book read per heartbeat.
+        let own_daemon = daemon.borrow().clone();
+        let book = async {
+            if beat_taken {
+                let budget = wait.min(Duration::from_secs(5));
+                read_book(&hub, client.as_ref(), own_daemon.as_deref(), budget).await;
+            }
+        };
         tokio::select! {
-            () = async { tokio::join!(tokio::time::sleep(wait), read_receipts); } => {}
+            () = async { tokio::join!(tokio::time::sleep(wait), read_receipts, book); } => {}
             () = ended(&mut stop, &hub) => break,
         }
+    }
+    if let Some(hub) = hub.upgrade() {
+        hub.set_mesh_book(Default::default(), Vec::new());
     }
     let last = Heartbeat { host, sessions: Vec::new() };
     let _ = tokio::time::timeout(Duration::from_secs(5), client.heartbeat(&last)).await;
