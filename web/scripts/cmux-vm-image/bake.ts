@@ -835,6 +835,17 @@ export function layerFlags(options: BakeOptions): string[] {
   return [options.agentTools && "agent-tools", options.teamVm && "team-vm", options.devTree && "dev-tree", options.nativeReceiver && "native-receiver"].filter((f): f is string => Boolean(f));
 }
 
+/** Every snapshot on the account, page by page (one default page can miss a cached layer's slug). */
+async function allSnapshots(fs: ReturnType<typeof freestyleClient>): Promise<Array<{ id: string; slug?: string | null }>> {
+  const all: Array<{ id: string; slug?: string | null }> = [];
+  for (let offset = 0; ; offset += SNAPSHOT_PAGE) {
+    const page = await fs.vms.snapshots.list({ limit: SNAPSHOT_PAGE, offset });
+    all.push(...page.snapshots);
+    if (page.snapshots.length < SNAPSHOT_PAGE || all.length >= (page.totalCount ?? Infinity)) return all;
+  }
+}
+const SNAPSHOT_PAGE = 100;
+
 /** One builder from `from`, `steps` on it, its snapshot slugged `name`; the builder is deleted unless kept. */
 async function bakeOn(
   fs: ReturnType<typeof freestyleClient>,
@@ -884,7 +895,7 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
       // parent and kept (its builder is on a ledger of its own, which the run's cleanup never reads).
       const keys = layerKeys(lockText, layerFlags(options), baseInputTree(REPO_ROOT));
       const layerLedger = new Ledger(path.join(options.outDir, "layers", "resources.tsv"));
-      const { snapshots } = await fs.vms.snapshots.list();
+      const snapshots = await allSnapshots(fs);
       const layers: Array<Record<string, unknown>> = [];
       result.layers = layers;
       let parent = lock.base.snapshot;
