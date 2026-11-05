@@ -86,6 +86,10 @@ if "--suite=cef-tab" in sys.argv:
 if "--suite=budgets" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "perf-budgets.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=budgets"])
+# `--suite=workspace-scaling`: the warning-only 1/100/1000 workspace trend budget.
+if "--suite=workspace-scaling" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "workspace-scaling-bench.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=workspace-scaling"])
 # `--suite=config-parity`: is the bench build (split-spring.sh --config=bench builds --app) as fast as Release?
 # Builds a Release app of this checkout (tag cfgparity-rel), then scripts/cmux-next/bench-config-parity.py
 # runs the same actions on both, interleaved (--runs, --rounds, --idle pass through).

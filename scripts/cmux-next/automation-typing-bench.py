@@ -92,7 +92,7 @@ def pct(values):
         return None
     s = sorted(values)
     pick = lambda p: s[min(len(s) - 1, int(round((len(s) - 1) * p)))]
-    return {"n": len(s), "p50": round(pick(0.5), 2), "p95": round(pick(0.95), 2), "max": round(s[-1], 2),
+    return {"n": len(s), "p50": round(pick(0.5), 2), "p95": round(pick(0.95), 2), "p99": round(pick(0.99), 2), "max": round(s[-1], 2),
             "mean": round(statistics.fmean(s), 2)}
 
 
