@@ -71,6 +71,10 @@ if [[ -n "$stop" ]]; then
   else
     echo "no side instance for #$pr"
   fi
+  # Its port reservations go too (by the PR each names: remove has deleted its saved port).
+  for held in "$side_root/ports/"*; do
+    if [[ -d "$held" && "$(cat "$held/pr" 2>/dev/null)" == "$pr" ]]; then run rm -rf "$held"; fi
+  done
   # The fleet builds this script downloaded for the PR go too.
   for build in "$side_root/builds/pr-$pr-"*; do
     if [[ -d "$build" ]]; then run rm -rf "$build"; fi
@@ -130,7 +134,18 @@ case "$verdict" in
       if [[ -z "$port" && -f "$saved" ]]; then port="$(cat "$saved")"; fi
       if [[ -z "$port" ]]; then
         port=$((20000 + pr % 10000))
-        while nc -z 127.0.0.1 "$port" 2>/dev/null; do port=$((port + 1)); done
+        # A port is this PR's once it holds the port's reservation (an atomic mkdir under the side
+        # root, naming the PR), so two tries started together never pick the same free port.
+        while :; do
+          held="$side_root/ports/$port"
+          if ! nc -z 127.0.0.1 "$port" 2>/dev/null; then
+            if [[ -n "$dry" ]]; then break; fi
+            mkdir -p "$side_root/ports"
+            if mkdir "$held" 2>/dev/null; then echo "$pr" >"$held/pr"; break; fi
+            if [[ "$(cat "$held/pr" 2>/dev/null)" == "$pr" ]]; then break; fi
+          fi
+          port=$((port + 1))
+        done
       fi
       if [[ -z "$dry" ]]; then echo "$port" >"$saved"; fi
     fi

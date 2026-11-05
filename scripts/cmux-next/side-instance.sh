@@ -13,8 +13,9 @@
 #   side-instance.sh path NAME      the copy's .app
 #   side-instance.sh list           the side instances and whether each runs
 #   side-instance.sh remove NAME    stop it, then delete the folder make wrote and the state the copy
-#                                   kept under its own bundle id (App Support, ~/.acpmux, ~/.cmux/chief,
-#                                   its preferences, caches and web data)
+#                                   kept under its build key (App Support, ~/.acpmux, ~/.cmux/chief:
+#                                   the bundle id plus --<CMUX_TAG>, BuildIdentity.key) and its bundle
+#                                   id (its preferences, caches and web data)
 #
 # NAME is lower case letters, digits and dashes (try-pr.sh uses pr-N). The copy is
 # $CMUX_SIDE_ROOT/NAME (default ~/Library/Application Support/cmux-side/NAME) and holds:
@@ -145,7 +146,25 @@ sys.stdout.buffer.write(plistlib.dumps(kept))' >"$entitlements"
     # Launch Services learns the new bundle id now, so the first open finds it.
     /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$app" 2>/dev/null || true
     version="$("$buddy" -c "Print :CFBundleVersion" "$from/Contents/Info.plist" 2>/dev/null || true)"
-    printf 'app=%s\nbundle=%s\nfrom=%s\nversion=%s\n' "$app" "$bundle" "$from" "$version" >"$marker"
+    # The key the app names its state roots by (BuildIdentity.key, CmuxNextCompat): the bundle id,
+    # plus --<tag> when the bundle ships a CMUX_TAG (cmux NEXT ships cmux-next) other than the
+    # tag its id ends in. The id here is already a path component, so no hash is added.
+    shipped_tag="$("$buddy" -c "Print :LSEnvironment:CMUX_TAG" "$plist" 2>/dev/null || true)"
+    key="$(python3 - "$bundle" "$shipped_tag" <<'PY'
+import re, sys
+bundle, shipped = sys.argv[1:]
+def slug(raw):
+    s = re.sub(r"[^a-z0-9]+", "-", raw.lower()).strip("-")
+    return s or None
+suffix = None
+for prefix in ("com.cmuxterm.app.nightly", "com.cmuxterm.app.staging", "com.cmuxterm.app.debug", "com.cmuxterm.app.rc", "com.cmuxterm.app"):
+    if bundle == prefix: break
+    if bundle.startswith(prefix + "."): suffix = bundle[len(prefix) + 1:]; break
+tag, own = slug(shipped), suffix and slug(suffix)
+print(bundle + ("--" + tag if tag and tag != own else ""))
+PY
+)"
+    printf 'app=%s\nbundle=%s\nkey=%s\nfrom=%s\nversion=%s\n' "$app" "$bundle" "$key" "$from" "$version" >"$marker"
     echo "$name: $app ($bundle)"
     ;;
   launch)
@@ -215,10 +234,14 @@ sys.stdout.buffer.write(plistlib.dumps(kept))' >"$entitlements"
     app_of >/dev/null
     "$0" stop "$name"
     bundle="$(sed -n 's/^bundle=//p' "$marker")"
-    # The state the copy kept, all named by its own bundle id (BuildIdentity: the key is the id).
-    [[ "$bundle" == *.side-"$name"-* ]] || die "unexpected bundle id $bundle"
+    # The app's own roots go by its build key (make recorded it; an older marker has none, and the
+    # bare id is tried too), the system's by the bundle id.
+    key="$(sed -n 's/^key=//p' "$marker")"; key="${key:-$bundle}"
+    [[ "$bundle" == *.side-"$name"-* && "$key" == "$bundle"* ]] || die "unexpected bundle id $bundle or key $key"
     defaults delete "$bundle" >/dev/null 2>&1 || true
-    for path in "$HOME/Library/Application Support/cmux/builds/$bundle" "$HOME/.acpmux/builds/$bundle" \
+    for path in "$HOME/Library/Application Support/cmux/builds/$key" "$HOME/.acpmux/builds/$key" \
+      "$HOME/.cmux/chief/$key" "$HOME/.cmux/chief/$key@"* \
+      "$HOME/Library/Application Support/cmux/builds/$bundle" "$HOME/.acpmux/builds/$bundle" \
       "$HOME/.cmux/chief/$bundle" "$HOME/.cmux/chief/$bundle@"* "$HOME/Library/Preferences/$bundle.plist" \
       "$HOME/Library/Caches/$bundle" "$HOME/Library/HTTPStorages/$bundle" "$HOME/Library/WebKit/$bundle" \
       "$HOME/Library/Saved Application State/$bundle.savedState" "$HOME/Library/Application Support/$bundle" \
