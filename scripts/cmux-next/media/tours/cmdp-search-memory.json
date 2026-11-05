@@ -50,13 +50,25 @@
       "shot": false
     },
     {
-      "title": "Open Go to Workspace (Cmd-P)",
+      "title": "Open Go to Workspace (Cmd-P) via the palette's # prefix",
       "cmux": [
         "action",
         "run",
-        "goToWorkspace"
+        "commandPalette"
       ],
       "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "Type '#' (Workspaces scope, Cmd-P's page)",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "#",
+          "target": "palette"
+        }
+      },
+      "wait": 0.8,
       "shot": false
     },
     {
@@ -136,13 +148,25 @@
       "shot": false
     },
     {
-      "title": "Open Go to Workspace again",
+      "title": "Open Go to Workspace again via the palette's # prefix",
       "cmux": [
         "action",
         "run",
-        "goToWorkspace"
+        "commandPalette"
       ],
       "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "Type '#' (Workspaces scope, Cmd-P's page)",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "#",
+          "target": "palette"
+        }
+      },
+      "wait": 0.8,
       "shot": false
     },
     {
