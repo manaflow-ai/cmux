@@ -10,7 +10,7 @@ until a patch's signer is checked (cmux#13742).
 |---|---|
 | A live code build of your checkout (once) | `scripts/live-code/build.sh ~/live-code-build mine` (Debug; add `bench` after the tag for the bench configuration) |
 | Turn it on | Settings > Advanced > Labs > Live Code, or `cmux settings set labs.liveCode true`, then relaunch |
-| Apply your edits | `scripts/live-code/patch.py --log ~/live-code-build/xcodebuild.log --module CmuxNextApp --live ~/Library/Caches/cmux-next/live-code FILE.swift` |
+| Apply your edits | `scripts/live-code/patch.py --log ~/live-code-build/xcodebuild.log --live ~/Library/Caches/cmux-next/live-code FILE.swift` |
 | Undo the newest patch | `touch ~/Library/Caches/cmux-next/live-code/undo-1.rollback` (each rollback a new name) |
 | See what applied | `~/Library/Caches/cmux-next/live-code/live-code.log` |
 | Back to normal | Turn Live Code off and relaunch, or install a regular build |
@@ -22,15 +22,17 @@ measurement, `scripts/measure/live-code-app.sh`, does this).
 ## How it works
 
 - **The build** (`scripts/live-code/build.sh`), in two passes. The first, `CMUX_LIVE_CODE_BUILD=1`,
-  compiles `CmuxNextApp` unoptimized, testable and a file at a time, and links the app with classic
-  binds and its symbols exported. The second links it again with the `CmuxNextApp` symbols in its export trie made
+  compiles every CmuxNext module (all link into the one app executable) unoptimized, testable and a
+  file at a time, and links the app with classic binds and its symbols exported. Third-party packages
+  keep the configuration's optimization. The second links it again with the Swift symbols in its export
+  trie that name a CmuxNext module made
   interposable (`CMUX_LIVE_CODE_INTERPOSABLE_LIST`), so the app's calls to its own functions go
   through pointers dyld can repoint. The first pass alone builds an app no patch can repoint, and a
   blanket `-interposable` stops the app at launch (a private type's symbol dyld cannot bind). The
   first pass's log, `xcodebuild.log`, is the one `patch.py` reads. That costs some speed and size,
   which is why only this build has it.
-- **The patch.** `patch.py` compiles the edited files with the frontend command the build logged for
-  their module, links their objects into a dylib, signs it ad hoc and moves it into the live folder.
+- **The patch.** `patch.py` compiles each edited file with the frontend command the build logged for
+  its module (its folder under `Sources/`), links their objects into a dylib, signs it ad hoc and moves it into the live folder.
 - **The app** (`CmuxNextLiveCode`). It loads each new patch once and refuses it when a type changed
   size (a stored property added or removed). It repoints every function the patch defines, then
   invalidates and draws every window. A new `*.rollback` file in the folder undoes the newest patch:
@@ -39,7 +41,7 @@ measurement, `scripts/measure/live-code-app.sh`, does this).
 
 ## What applies, and what needs a rebuild
 
-Applies: changes inside functions and computed properties of `CmuxNextApp`, and AppKit drawing and
+Applies: changes inside functions and computed properties of any CmuxNext module, and AppKit drawing and
 layout code, which runs again at once. Needs a rebuild: stored properties, enum cases, protocols,
 resources, strings and `Package.swift`. leo-workspace `research/2026-11-04-hot-swap-architecture.md`
 has the numbers and what would make more of them live.
