@@ -133,4 +133,17 @@ import Testing
             #expect(Self.hasToolRow(rows), "no card draws, so the call's row stays")
         }
     }
+
+    @Test func codexTitleFormsWithDirectArguments() throws {
+        // A replayed Codex call (acpmux adopt_tools.rs) and a live one (`Tool: <server>/<tool>`).
+        for title in ["acpmux: wrap_up", "Tool: acpmux/wrap_up", "cmux: acpmux_wrap_up", "Tool: cmux/acpmux_wrap_up"] {
+            let call = Self.wrapUpCall(["recap": .string("Fixed it."), "ask": .string("Merge?")], title: title)
+            #expect(NextStepAsk.isWrapUp(call), "\(title)")
+            #expect(NextStepAsk.wrapUp(call)?.recap == "Fixed it.", "\(title)")
+        }
+        #expect(!NextStepAsk.isWrapUp(Self.wrapUpCall([:], title: "Tool: other/wrap_up")))
+        let rows = Self.rows(answer: "Done.", call: Self.wrapUpCall(["recap": .string("Fixed it.")], title: "acpmux: wrap_up"))
+        #expect(try #require(NewMacRowsTests.nextStep(rows)).0.recap == "Fixed it.")
+        #expect(!Self.hasToolRow(rows))
+    }
 }
