@@ -89,6 +89,8 @@ public final class GroupJoinRows {
 
     public func hold(_ id: String, group: String) { state.hold(id, group: group) }
     public func release(_ id: String) { state.release(id) }
+    /// Whether `id` is a grouped create still held.
+    public func holds(_ id: String) -> Bool { state.holds(id) }
     /// See ``GroupJoinHold/claim(_:)``.
     public func claim(_ id: String) -> Bool { state.claim(id) }
 

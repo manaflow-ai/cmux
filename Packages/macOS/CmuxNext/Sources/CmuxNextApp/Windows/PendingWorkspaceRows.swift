@@ -109,7 +109,7 @@ final class PendingWorkspaceRows {
     /// stand-in, or a workspace the sidebar document does not place yet): the sidebar lists the pending row for them.
     func ids(in window: String, unplaced: (String) -> Bool) -> Set<String> { Set(rows.filter { $0.window == window && unplaced($0.id) }.map(\.id)) }
 
-    func rows(in window: String) -> [Row] { rows.filter { $0.window == window } }
+    func rows(in window: String) -> [Row] { rows.filter { $0.window == window && !groupJoins.holds($0.id) } } // a held grouped create: no slot, so no stand-in
 
     /// An app's `WindowManager.pendingPlacements` went from slots for `old` to slots for `new` (per id: apps share this).
     func placements(from old: [String: PendingPlacement].Keys, to new: [String: PendingPlacement].Keys) {

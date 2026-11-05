@@ -100,6 +100,18 @@ import Testing
         #expect(pass.sent.isEmpty && Self.loose(pass.drawn).contains("n"))
     }
 
+    /// A held grouped create draws no stand-in row: a stand-in has no group slot and would draw loose for a frame.
+    @MainActor @Test func aHeldGroupedCreateDrawsNoStandIn() {
+        let rows = PendingWorkspaceRows.shared
+        rows.add(creating: "held-n", window: "w-hold", machine: .local, name: "n", opensPage: true, slot: nil, byDefault: nil, unpinned: true)
+        defer { rows.remove("held-n"); rows.groupJoins.release("held-n") }
+        #expect(rows.rows(in: "w-hold").map(\.id) == ["held-n"])
+        rows.groupJoins.hold("held-n", group: "lanes")
+        #expect(rows.rows(in: "w-hold").isEmpty, "a held grouped create drew its stand-in")
+        rows.groupJoins.release("held-n")
+        #expect(rows.rows(in: "w-hold").map(\.id) == ["held-n"])
+    }
+
     /// The join reads the window's rows, which leave the held row out: the named group takes it by its machine.
     @Test func theNamedGroupTakesAHeldRowByItsMachine() {
         let sections = [
