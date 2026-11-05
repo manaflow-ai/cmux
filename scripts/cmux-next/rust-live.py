@@ -64,6 +64,7 @@ SKIPPED_DIRS = {"target", ".git", "node_modules", "dist", "vendor"}
 POLL_SECS = 0.05
 SETTLE_SECS = 0.08
 KEEP_BUILDS = 3
+START_TIMEOUT_SECS = 300  # the first sync of a whole tree to a build host
 # package -> (binary cargo builds, the name the app bundles it under)
 DAEMONS = {"cmux-tui": ("cmux-tui", "cmux-tui"), "acpmux": ("acpmux", "cmux-tui-acpmux")}
 # The measurement's one-line edit: a field in the daemon's `identify` answer,
@@ -370,8 +371,10 @@ class Swapper:
         try:
             exe = Path(os.readlink(f"/proc/{pid}/exe"))
         except OSError:
-            out = run(["ps", "-o", "comm=", "-p", pid])  # macOS: the full path it was started by
-            exe = Path(out.stdout.strip())
+            # macOS has no /proc: lsof names the process's executable (its "txt" file) by full path.
+            out = run(["lsof", "-a", "-p", pid, "-d", "txt", "-Fn"])
+            names = [line[1:] for line in out.stdout.splitlines() if line.startswith("n/")]
+            exe = Path(names[0]) if names else Path("")
         return exe if exe.is_absolute() and exe.is_file() else None
 
     def swap(self, built: dict[str, Path]) -> dict:
@@ -437,7 +440,10 @@ class Loop:
 
     def prune(self) -> None:
         builds = sorted((self.state / "builds").glob("*"), key=lambda p: p.stat().st_mtime)
+        rollback = self.swapper.previous.parent if self.swapper.previous else None
         for old in builds[:-KEEP_BUILDS]:
+            if old == rollback:
+                continue  # the cmux-tui a failed swap goes back to, however many acpmux builds came since
             shutil.rmtree(old, ignore_errors=True)  # only folders this loop made
 
     def once(self, changed: list[str], removed: list[str], saved_at: float, detected_at: float) -> dict:
@@ -488,6 +494,7 @@ class Loop:
         files = scan(self.root)  # before the sync: a save during a slow first sync is still seen
         self.builder.sync([], [])
         self.watching.set()
+        (self.state / "watch.ready").write_text(f"{os.getpid()}\n")
         while not self.stop_event.is_set():
             time.sleep(POLL_SECS)
             now = scan(self.root)
@@ -557,10 +564,30 @@ def command_start(args) -> int:
         for flag in ("build_host", "target", "session", "socket"):
             if getattr(args, flag):
                 argv += [f"--{flag.replace('_', '-')}", getattr(args, flag)]
+        ready = state / "watch.ready"
+        ready.unlink(missing_ok=True)
         with open(state / "watch.log", "ab") as out:
+            log_start = out.tell()
             proc = subprocess.Popen(argv, stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                                     start_new_session=True)
         pid_file(state).write_text(f"{proc.pid} {tree}\n")
+        # Say "watching" only once it is: the crate graph read and the first sync to a build host done.
+        deadline = time.monotonic() + START_TIMEOUT_SECS
+        while proc.poll() is None and time.monotonic() < deadline:
+            if ready.is_file() and ready.read_text().strip() == str(proc.pid):
+                break
+            time.sleep(0.1)
+        if proc.poll() is not None:
+            pid_file(state).unlink(missing_ok=True)
+            with open(state / "watch.log", "rb") as log_file:
+                log_file.seek(log_start)
+                tail = log_file.read().decode(errors="replace").strip().splitlines()[-10:]
+            print("rust-live: the watcher could not start:\n  " + "\n  ".join(tail), file=sys.stderr)
+            return 1
+        if not ready.is_file():
+            print(f"rust-live: still setting up after {START_TIMEOUT_SECS} s (pid {proc.pid}); "
+                  f"see {state / 'watch.log'}")
+            return 0
         where = args.build_host or "this machine"
         print(f"rust-live: watching {tree}/cmux-tui; a saved .rs swaps the running daemon "
               f"(builds on {where}; log {state / 'watch.log'}). `cmux live status` shows the last swap.")
@@ -573,6 +600,13 @@ def command_start(args) -> int:
         loop.run()
     except KeyboardInterrupt:
         pass
+    except subprocess.CalledProcessError as error:
+        detail = (error.stderr or "").strip().splitlines()[-1:] or [f"exit {error.returncode}"]
+        print(f"rust-live: `{' '.join(map(str, error.cmd[:1] + error.cmd[-1:]))}` failed: {detail[0]}")
+        return 1
+    except RuntimeError as error:
+        print(f"rust-live: {error}")
+        return 1
     return 0
 
 
