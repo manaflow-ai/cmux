@@ -223,8 +223,12 @@ final class HomePictureViewer: NSView {
         loading = Task { [weak self] in
             await previous?.value
             for index in missing {
-                guard let self, let item = self.gallery.items[checked: index], self.images[index] == nil else { continue }
-                if let image = await self.load(item) { self.images[index] = image } else { self.failed.insert(index) }
+                // A closed viewer (close() cancels this task) stops loading and drops its reference at once.
+                guard !Task.isCancelled, let self, !self.closed else { return }
+                guard let item = self.gallery.items[checked: index], self.images[index] == nil else { continue }
+                let image = await self.load(item)
+                guard !Task.isCancelled, !self.closed else { return }
+                if let image { self.images[index] = image } else { self.failed.insert(index) }
                 if index == self.gallery.index || index == self.gallery.partner(of: self.gallery.index) { self.show() }
             }
         }

@@ -153,6 +153,7 @@ import UniformTypeIdentifiers
         let viewer = HomePictureViewer(frame: CGRect(x: 0, y: 0, width: 900, height: 700), gallery: gallery, load: { _ in picture })
         var closed = 0
         viewer.onClose = { closed += 1 }
+        await viewer.loaded()
         #expect(viewer.handle(.right))
         #expect(viewer.gallery.index == 1)
         #expect(viewer.handle(.left))
@@ -164,6 +165,7 @@ import UniformTypeIdentifiers
         #expect(closed == 0)
         #expect(viewer.handle(.escape))
         #expect(closed == 1)
+        await viewer.loaded()
     }
 
     // MARK: Annotate
@@ -203,6 +205,8 @@ import UniformTypeIdentifiers
         var sent: URL?
         viewer.onReply = { sent = $0 }
         viewer.reply()
+        viewer.close()
+        await viewer.loaded()
         let url = try #require(sent)
         #expect(url.pathExtension == "png")
         let src = try #require(CGImageSourceCreateWithURL(url as CFURL, nil))
