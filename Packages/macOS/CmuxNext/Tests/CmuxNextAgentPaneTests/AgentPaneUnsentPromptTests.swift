@@ -11,6 +11,27 @@ import CmuxNextDesign
 /// memory is left, as after a crash. The pane's own storage does not survive a relaunch, so the
 /// host keeps the prompt; acpmux runs the resent prompt id at most once (`hub/turns.rs`, its
 /// ledger and `logged_prompt`, covered by `a_resend_after_a_restart_is_answered_from_the_log`).
+/// While the next record writes, another thread forgets `promptId` (acpmux acknowledged it): the
+/// change is in memory before the record goes on, and its own write waits behind the record's. The
+/// group is left once that write is done. Off the suite's main actor: the forget runs on its own
+/// thread, as a real acknowledgement does.
+private nonisolated func forgetWhileARecordWrites(_ journal: AgentPanePromptJournal, daemon: String,
+                                                  promptId: String) -> DispatchGroup {
+    let group = DispatchGroup()
+    let forget: @Sendable () -> Void = { journal.forget(daemon: daemon, promptId: promptId) }
+    let whileWriting: @Sendable () -> Void = {
+        DispatchQueue.global().async(group: group, execute: forget)
+        let deadline = Date().addingTimeInterval(10)
+        while journal.entries().contains(where: { $0.promptId == promptId }), Date() < deadline { usleep(1_000) }
+    }
+    journal.whileRecordWrites.withLock { $0 = whileWriting }
+    return group
+}
+
+private nonisolated func finished(_ group: DispatchGroup) async {
+    await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in group.notify(queue: .global()) { done.resume() } }
+}
+
 @Suite(.serialized)
 @MainActor
 struct AgentPaneUnsentPromptTests {
@@ -68,25 +89,6 @@ struct AgentPaneUnsentPromptTests {
 
     /// Waits until the page's later request on `pane` is answered: every frame the host sent on
     /// that connection before it (a resend goes right after `initialize`) reached the daemon.
-    /// While the next record writes, another thread forgets `promptId` (acpmux acknowledged it):
-    /// the change is in memory before the record goes on, and its own write waits behind the
-    /// record's. The group is left once that write is done.
-    nonisolated static func forgetWhileARecordWrites(_ journal: AgentPanePromptJournal, promptId: String) -> DispatchGroup {
-        let group = DispatchGroup()
-        journal.whileRecordWrites.withLock {
-            $0 = {
-                DispatchQueue.global().async(group: group) { journal.forget(daemon: Self.daemon, promptId: promptId) }
-                let deadline = Date().addingTimeInterval(10)
-                while journal.entries().contains(where: { $0.promptId == promptId }), Date() < deadline { usleep(1_000) }
-            }
-        }
-        return group
-    }
-
-    static func done(_ group: DispatchGroup) async {
-        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in group.notify(queue: .global()) { done.resume() } }
-    }
-
     static func barrier(_ pane: Pane, id: Int) async {
         #expect(await pane.transport.send(connection: pane.id, frames: [#"{"jsonrpc":"2.0","id":\#(id),"method":"_acpmux/status","params":{}}"#]) == nil)
         _ = await pane.inbox.frame(containing: #""id":\#(id)"#)
@@ -339,10 +341,10 @@ struct AgentPaneUnsentPromptTests {
         }
         let other = UUID()
         #expect(try journal.record(entry("p-b"), owner: other))
-        let forgot = Self.forgetWhileARecordWrites(journal, promptId: "p-b")
+        let forgot = forgetWhileARecordWrites(journal, daemon: Self.daemon, promptId: "p-b")
         let kept = try journal.record(entry("p-a"), owner: UUID())
         journal.whileRecordWrites.withLock { $0 = nil }
-        await Self.done(forgot)
+        await finished(forgot)
         #expect(kept)
         #expect(journal.entries().map(\.promptId) == ["p-a"])
         #expect(AgentPanePromptJournal(url: url).entries().map(\.promptId) == ["p-a"],
@@ -365,14 +367,14 @@ struct AgentPaneUnsentPromptTests {
         }
         let other = UUID()
         #expect(try journal.record(entry("p-b"), owner: other))
-        let forgot = Self.forgetWhileARecordWrites(journal, promptId: "p-b")
+        let forgot = forgetWhileARecordWrites(journal, daemon: Self.daemon, promptId: "p-b")
         journal.afterRecordWrite.withLock {
             $0 = { try? FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: folder.path) }
         }
         #expect(try journal.record(entry("p-a"), owner: UUID()), "the record is on disk; a later write's failure is not its own")
         journal.whileRecordWrites.withLock { $0 = nil }
         journal.afterRecordWrite.withLock { $0 = nil }
-        await Self.done(forgot)
+        await finished(forgot)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
         #expect(journal.recordPendingTrust(daemon: Self.daemon, folder: "/tmp/cmux-unsent-prompt-test/next-write"))
         #expect(AgentPanePromptJournal(url: url).entries().map(\.promptId) == ["p-a"],
