@@ -54,7 +54,7 @@ nonisolated public struct UpdateTransfer: Equatable, Sendable {
     /// 2026-11-05: "why is it that as the left number grows, it just keeps shifting?").
     public var bytesText: String? {
         guard stage == .downloading, let received = receivedBytes else { return nil }
-        guard let expected = expectedBytes, fraction != nil else { return Self.bytes(received, unit: Self.unit(for: received)) }
+        guard let expected = expectedBytes, expected > 0, fraction != nil else { return Self.bytes(received, unit: Self.unit(for: received)) }
         let unit = Self.unit(for: expected)
         let total = Self.bytes(expected, unit: unit)
         let got = Self.padded(Self.bytes(min(received, expected), unit: unit), toWidthOf: total)

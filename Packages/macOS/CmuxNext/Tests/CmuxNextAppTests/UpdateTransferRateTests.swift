@@ -72,4 +72,10 @@ struct UpdateTransferRateTests {
             #expect(text.hasSuffix(shown), "\(received) of \(expected) reads \(text)")
         }
     }
+
+    /// A transfer built by hand with a zero size reads its bytes alone, never divides by it.
+    @Test func aZeroSizeReadsTheBytesAlone() {
+        let transfer = UpdateTransfer(stage: .downloading, receivedBytes: 1_000_000, expectedBytes: 0, fraction: 0.5)
+        #expect(transfer.bytesText == "1.0 MB", "\(String(describing: transfer.bytesText))")
+    }
 }
