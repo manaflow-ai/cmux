@@ -269,7 +269,8 @@ test("Session Info Sources navigate mixed targets and preserve expansion during 
   expect(files).toEqual(["/project/.claude/worktrees/a/app.ts", "/project/.claude/worktrees/a/README.md"]);
   await click(fold());
   expect(list()).toHaveLength(8);
-  expect(container.querySelectorAll("ul[data-section=sources] button.acpmux-session-info-source__link")).toHaveLength(2);
+  const fileButtons = "ul[data-section=sources] button.acpmux-session-info-source__link";
+  expect(container.querySelectorAll(fileButtons)).toHaveLength(2);
   expect(fold().textContent).toContain("Show fewer");
   await draw([{ ...assistant("stream", 1), streaming: true }]);
   expect(list()).toHaveLength(8);
