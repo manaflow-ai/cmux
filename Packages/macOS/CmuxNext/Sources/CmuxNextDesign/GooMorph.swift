@@ -159,7 +159,8 @@ public nonisolated struct GooField: Sendable {
     /// The field at a point, less 1: positive inside the surface.
     @inline(__always)
     public func value(_ x: CGFloat, _ y: CGFloat) -> CGFloat {
-        var sums = SIMD4<Double>(repeating: 0)
+        // Four scalar group sums: a SIMD vector is a generic call per lane in a Debug build.
+        var s0: CGFloat = 0, s1: CGFloat = 0, s2: CGFloat = 0, s3: CGFloat = 0
         let reach = self.reach
         for index in midX.indices {
             let r = corner[index]
@@ -177,50 +178,62 @@ public nonisolated struct GooField: Sendable {
                 let t = 1 - d / reach
                 add = t * t * t
             }
-            sums[groups[index]] += Double(add * weights[index])
+            switch groups[index] {
+            case 0: s0 += add * weights[index]
+            case 1: s1 += add * weights[index]
+            case 2: s2 += add * weights[index]
+            default: s3 += add * weights[index]
+            }
         }
         if let wall, wallStrength > 0 {
             // Past the wall, group 0 falls off linearly with the distance (2 per point), so the traced edge lands on
             // the wall exactly, between samples too.
-            let qx = abs(x - wall.midX) - wall.halfW + wall.r, qy = abs(y - wall.midY) - wall.halfH + wall.r
-            let ox = max(qx, 0), oy = max(qy, 0)
-            let d = (ox * ox + oy * oy).squareRoot() + min(max(qx, qy), 0) - wall.r
-            let capped = min(sums[0], Double(1 - 2 * d))
-            sums[0] += Double(wallStrength) * (capped - sums[0])
+            let d = Self.distance(x, y, wall.midX, wall.midY, wall.halfW, wall.halfH, wall.r)
+            s0 += wallStrength * (min(s0, 1 - 2 * d) - s0)
         }
-        let strongest = sums.max()
-        return CGFloat(strongest + Double(crossBlend) * (sums.sum() - strongest)) - 1
+        let strongest = max(s0, s1, s2, s3)
+        return strongest + crossBlend * (s0 + s1 + s2 + s3 - strongest) - 1
+    }
+
+    /// Signed distance from a rounded rect's outline (negative inside).
+    @inline(__always)
+    static func distance(_ x: CGFloat, _ y: CGFloat, _ midX: CGFloat, _ midY: CGFloat, _ halfW: CGFloat, _ halfH: CGFloat, _ r: CGFloat) -> CGFloat {
+        let qx = abs(x - midX) - halfW + r, qy = abs(y - midY) - halfH + r
+        let ox = max(qx, 0), oy = max(qy, 0)
+        return (ox * ox + oy * oy).squareRoot() + min(max(qx, qy), 0) - r
     }
 }
 
 public nonisolated extension GooField {
     /// The surface: see `GooContour.surface`.
-    func surface(plain: [GooShape], windows: [CGRect], step: CGFloat = 1) -> CGPath {
+    func surface(plain: [GooShape], windows: [CGRect], step: CGFloat = 2) -> CGPath {
         GooContour.surface(self, plain: plain, windows: windows, step: step)
     }
 }
 
 /// Traces a `GooField`'s surface.
 nonisolated enum GooContour {
-    /// The surface: `plain` shapes, whose outline the field leaves as is (no other shape within reach), joined with
-    /// the field's traced region inside each of `windows` (where shapes pull on each other). A window must reach
-    /// past every interaction it holds by the field's reach, so its edge crosses only plain outlines: `windows`
-    /// that overlap are merged first. The plain shapes must not overlap each other.
-    static func surface(_ field: GooField, plain: [GooShape], windows: [CGRect], step: CGFloat = 1) -> CGPath {
-        let base = CGMutablePath()
+    /// The surface: `plain` shapes, whose outline the field leaves as is (no other shape within reach), and the
+    /// field's region outside them inside each of `windows` (where shapes pull on each other). A window must reach
+    /// past every interaction it holds by the field's reach; `windows` that overlap are merged first. The plain
+    /// shapes must not overlap each other. Every piece is disjoint from the others (a traced region stops on a
+    /// plain outline, exactly), so the path needs no boolean op: even-odd or nonzero fill it the same.
+    static func surface(_ field: GooField, plain: [GooShape], windows: [CGRect], step: CGFloat = 2) -> CGPath {
+        let path = CGMutablePath()
+        var masks: [(CGFloat, CGFloat, CGFloat, CGFloat, CGFloat)] = []
         for shape in plain where shape.rect.width > 0.5 && shape.rect.height > 0.5 && shape.weight >= 1 {
-            let corner = min(shape.radius, shape.rect.width / 2, shape.rect.height / 2)
-            base.addRoundedRect(in: shape.rect, cornerWidth: corner, cornerHeight: corner)
+            let rect = shape.rect.standardized
+            let corner = min(shape.radius, rect.width / 2, rect.height / 2)
+            path.addRoundedRect(in: rect, cornerWidth: corner, cornerHeight: corner)
+            masks.append((rect.midX, rect.midY, rect.width / 2, rect.height / 2, corner))
         }
-        var surface: CGPath = base
         for window in merged(windows) {
-            let loops = self.loops(field, in: window, step: step)
-            guard !loops.isEmpty else { continue }
-            let traced = CGMutablePath()
-            for loop in loops where loop.count > 2 { traced.addLines(between: loop); traced.closeSubpath() }
-            surface = surface.isEmpty ? traced : surface.union(traced, using: .evenOdd)
+            for loop in loops(field, masks: masks, in: window, step: step) where loop.count > 2 {
+                path.addLines(between: loop)
+                path.closeSubpath()
+            }
         }
-        return surface
+        return path
     }
 
     /// `rects` with every pair that overlaps replaced by their union, until none overlap.
@@ -241,25 +254,37 @@ nonisolated enum GooContour {
         return out
     }
 
-    /// Marching squares over `window` every `step` points: the closed loops around where the field is positive. The
-    /// grid's border samples count as outside, so every loop closes inside the window.
-    static func loops(_ field: GooField, in window: CGRect, step: CGFloat) -> [[CGPoint]] {
+    /// Marching squares over `window` every `step` points: the closed loops around where the field is positive and
+    /// outside every mask (the plain shapes: past a mask's outline the value falls linearly, so a loop runs on it
+    /// exactly). The grid's border samples count as outside, so every loop closes inside the window.
+    static func loops(_ field: GooField, masks: [(CGFloat, CGFloat, CGFloat, CGFloat, CGFloat)] = [], in window: CGRect,
+                      step: CGFloat) -> [[CGPoint]] {
         let x0 = (window.minX / step).rounded(.down) * step, y0 = (window.minY / step).rounded(.down) * step
         let nx = Int(((window.maxX - x0) / step).rounded(.up)) + 1, ny = Int(((window.maxY - y0) / step).rounded(.up)) + 1
-        guard nx > 2, ny > 2, nx * ny < 4_000_000 else { return [] }
+        guard nx > 2, ny > 2, nx * ny < 1_000_000 else { return [] }
         var values = [CGFloat](repeating: -1, count: nx * ny)
         for j in 1..<(ny - 1) {
             let y = y0 + CGFloat(j) * step, row = j * nx
-            for i in 1..<(nx - 1) { values[row + i] = field.value(x0 + CGFloat(i) * step, y) }
+            for i in 1..<(nx - 1) {
+                let x = x0 + CGFloat(i) * step
+                var value = field.value(x, y)
+                if value > 0 {
+                    for mask in masks {
+                        value = min(value, 2 * GooField.distance(x, y, mask.0, mask.1, mask.2, mask.3, mask.4))
+                    }
+                }
+                values[row + i] = value
+            }
         }
         // Each crossed grid edge (horizontal: 2 * index, vertical: 2 * index + 1, by its lower-left sample) joins
-        // the two segments that end on it.
-        var links: [Int32: (Int32, Int32)] = [:]
-        links.reserveCapacity(512)
-        @inline(__always) func link(_ a: Int32, _ b: Int32) {
-            if let pair = links[a] { links[a] = (pair.0, b) } else { links[a] = (b, -1) }
-            if let pair = links[b] { links[b] = (pair.0, a) } else { links[b] = (a, -1) }
+        // the two segments that end on it: flat arrays, -1 for none.
+        var first = [Int32](repeating: -1, count: 2 * nx * ny), second = first
+        var crossed: [Int32] = []
+        @inline(__always) func attach(_ a: Int32, _ b: Int32) {
+            let i = Int(a)
+            if first[i] < 0 { first[i] = b; crossed.append(a) } else { second[i] = b }
         }
+        @inline(__always) func link(_ a: Int32, _ b: Int32) { attach(a, b); attach(b, a) }
         for j in 0..<(ny - 1) {
             for i in 0..<(nx - 1) {
                 let ia = j * nx + i, ib = ia + 1, id = ia + nx, ic = id + 1
@@ -295,18 +320,15 @@ nonisolated enum GooContour {
             let t = va / (va - values[sample + nx])
             return CGPoint(x: x0 + CGFloat(i) * step, y: y0 + (CGFloat(j) + t) * step)
         }
-        var visited = Set<Int32>()
-        visited.reserveCapacity(links.count)
+        var visited = [Bool](repeating: false, count: first.count)
         var loops: [[CGPoint]] = []
-        for start in links.keys where !visited.contains(start) {
+        for start in crossed where !visited[Int(start)] {
             var loop: [CGPoint] = []
             var previous: Int32 = -1, current = start
-            while !visited.contains(current) {
-                visited.insert(current)
+            while current >= 0, !visited[Int(current)] {
+                visited[Int(current)] = true
                 loop.append(point(current))
-                guard let pair = links[current] else { break }
-                let next = pair.0 == previous ? pair.1 : pair.0
-                if next < 0 { break }
+                let next = first[Int(current)] == previous ? second[Int(current)] : first[Int(current)]
                 previous = current
                 current = next
             }

@@ -178,7 +178,8 @@ public final class GooMorphEngine: MotionAnimating {
         let field = GooField(shapes: shapes, reach: reach, crossBlend: scene.crossBlend, wall: scene.wall, wallStrength: 1 - scene.crossBlend)
         // A card the cross blend reshapes (the sidebar's, budding or melting) is traced, not drawn as is.
         let plain = scene.crossBlend > 0 ? scene.cards.filter { card in !(scene.crossWindow?.contains(card.rect) ?? false) } : scene.cards
-        let path = field.surface(plain: plain, windows: windows)
+        // A slide traces the sidebar's whole height while it melts: a coarser grid there, in motion.
+        let path = field.surface(plain: plain, windows: windows, step: scene.crossBlend > 0 ? 3 : 2)
         lastDrawn = path
         draw?(path)
         costs.record(nanoseconds: DispatchTime.now().uptimeNanoseconds - start)
