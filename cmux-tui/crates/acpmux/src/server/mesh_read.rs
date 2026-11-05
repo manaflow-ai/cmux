@@ -237,7 +237,9 @@ pub(crate) async fn read(
             .map_err(|e| hub_error(host, key, e))?;
     }
     let text = receipt.result.ok_or_else(|| {
-        RpcError::internal(format!("{host} answered the read with no result; is it on a build that reads?"))
+        RpcError::internal(format!(
+            "{host} answered the read with no result; is it on a build that reads?"
+        ))
     })?;
     let mut reply: Value = serde_json::from_str(&text)
         .map_err(|_| RpcError::internal(format!("{host}'s answer to the read is not JSON")))?;

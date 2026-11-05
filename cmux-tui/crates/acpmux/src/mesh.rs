@@ -277,7 +277,12 @@ impl Ack {
     }
 
     pub fn refused(detail: impl Into<String>) -> Self {
-        Self { state: AckState::Refused, prompt_id: None, detail: Some(detail.into()), result: None }
+        Self {
+            state: AckState::Refused,
+            prompt_id: None,
+            detail: Some(detail.into()),
+            result: None,
+        }
     }
 
     /// A read control's answer.

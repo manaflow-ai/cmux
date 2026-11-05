@@ -29,8 +29,7 @@
 
 use super::*;
 use crate::mesh::{
-    Ack, Backoff, ControlHook, Heartbeat, HubError, InMessage, Kind, MeshHub, Mode,
-    StartWork,
+    Ack, Backoff, ControlHook, Heartbeat, HubError, InMessage, Kind, MeshHub, Mode, StartWork,
 };
 use crate::mesh_http::MeshControlFrom;
 use std::collections::HashSet;

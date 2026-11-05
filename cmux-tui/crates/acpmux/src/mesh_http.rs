@@ -517,7 +517,11 @@ impl MeshHub for HttpHub {
         })
     }
 
-    fn answer<'a>(&'a self, id: &'a str, wait: Duration) -> BoxFuture<'a, Result<Receipt, HubError>> {
+    fn answer<'a>(
+        &'a self,
+        id: &'a str,
+        wait: Duration,
+    ) -> BoxFuture<'a, Result<Receipt, HubError>> {
         Box::pin(async move {
             if !crate::mesh::is_message_id(id) {
                 return Err(HubError::refused("the message id is not valid"));

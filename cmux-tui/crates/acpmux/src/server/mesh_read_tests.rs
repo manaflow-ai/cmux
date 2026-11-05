@@ -92,7 +92,11 @@ impl MeshHub for Loopback {
                 op: m.op.clone(),
                 mode: m.mode,
                 // The hub resolved the host: the inbox names only the session.
-                to: Target { session_id: m.to.session_id.clone(), name: m.to.name.clone(), ..Target::default() },
+                to: Target {
+                    session_id: m.to.session_id.clone(),
+                    name: m.to.name.clone(),
+                    ..Target::default()
+                },
                 from: Sender {
                     daemon_id: Some("inst_a".into()),
                     user: Some(self.user.into()),
@@ -133,7 +137,10 @@ fn a_key_names_a_session_id_or_a_name_on_its_host() {
     let by_id = recipient("machine-b", id);
     assert_eq!((by_id.session_id.as_deref(), by_id.name), (Some(id), None));
     let by_name = recipient("machine-b", "own-e2e");
-    assert_eq!((by_name.name.as_deref(), by_name.host.as_deref()), (Some("own-e2e"), Some("machine-b")));
+    assert_eq!(
+        (by_name.name.as_deref(), by_name.host.as_deref()),
+        (Some("own-e2e"), Some("machine-b"))
+    );
     // Only the params a read takes go across, never a session or host the asker names.
     let sent: Value = serde_json::from_str(&body(
         method::MUX_EVENTS,
@@ -141,25 +148,41 @@ fn a_key_names_a_session_id_or_a_name_on_its_host() {
     ))
     .unwrap();
     assert_eq!(sent["params"], json!({"limit": 5, "maxBytes": 9, "kinds": ["transcript"]}));
-    assert_eq!(serde_json::from_str::<Value>(&body(method::MUX_INFO, &json!({"x": 1}))).unwrap()["params"], json!({}));
+    assert_eq!(
+        serde_json::from_str::<Value>(&body(method::MUX_INFO, &json!({"x": 1}))).unwrap()["params"],
+        json!({})
+    );
 }
 
 #[tokio::test]
 async fn the_same_persons_machine_reads_a_reply_through_the_hub_and_no_one_else_does() {
     let b = machine_b();
     let meta = json!({"acpmux": {"harness": "fake", "name": "own-e2e"}});
-    let made = call(&b, "session/new", json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": meta})).await;
+    let made = call(
+        &b,
+        "session/new",
+        json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": meta}),
+    )
+    .await;
     let session = made["sessionId"].as_str().unwrap().to_owned();
-    call(&b, method::SESSION_PROMPT, json!({"sessionId": session, "prompt": [{"type": "text", "text": "pong from b"}]}))
-        .await;
+    call(
+        &b,
+        method::SESSION_PROMPT,
+        json!({"sessionId": session, "prompt": [{"type": "text", "text": "pong from b"}]}),
+    )
+    .await;
     let dir = tempfile::tempdir().unwrap();
     let hub = Loopback::new(&b, dir.path(), "person-1");
 
     // `acpmux last machine-b/own-e2e`: info names the session, then its events page.
     let info = read(&hub, "machine-b", "own-e2e", method::MUX_INFO, &json!({})).await.unwrap();
-    assert_eq!((info["sessionId"].as_str(), info["peer"].as_str()), (Some(session.as_str()), Some("machine-b")));
+    assert_eq!(
+        (info["sessionId"].as_str(), info["peer"].as_str()),
+        (Some(session.as_str()), Some("machine-b"))
+    );
     assert_eq!(info["via"], "hub");
-    let page = json!({"limit": 5000, "kinds": ["transcript"], "maxBytes": 4 << 20, "beforeSeq": u64::MAX});
+    let page =
+        json!({"limit": 5000, "kinds": ["transcript"], "maxBytes": 4 << 20, "beforeSeq": u64::MAX});
     let events = read(&hub, "machine-b", &session, method::MUX_EVENTS, &page).await.unwrap();
     let mut transcript = crate::transcript::Transcript::default();
     for event in events["events"].as_array().unwrap() {
@@ -184,13 +207,16 @@ async fn the_same_persons_machine_reads_a_reply_through_the_hub_and_no_one_else_
 
     // Another person is refused by B itself, whatever the hub let through.
     let other = Loopback::new(&b, dir.path(), "person-2");
-    let refused = read(&other, "machine-b", "own-e2e", method::MUX_INFO, &json!({})).await.unwrap_err();
+    let refused =
+        read(&other, "machine-b", "own-e2e", method::MUX_INFO, &json!({})).await.unwrap_err();
     assert!(refused.message.contains("mesh.control_not_allowed"), "{refused:?}");
     // A session B does not have, or one the hub does not know, is `no session`.
-    let missing = read(&hub, "machine-b", "nobody", method::MUX_INFO, &json!({})).await.unwrap_err();
+    let missing =
+        read(&hub, "machine-b", "nobody", method::MUX_INFO, &json!({})).await.unwrap_err();
     assert_eq!(missing.code, RpcError::not_found("").code, "{missing:?}");
     let unknown = Loopback { unknown: true, ..Loopback::new(&b, dir.path(), "person-1") };
-    let unknown = read(&unknown, "machine-c", "own-e2e", method::MUX_INFO, &json!({})).await.unwrap_err();
+    let unknown =
+        read(&unknown, "machine-c", "own-e2e", method::MUX_INFO, &json!({})).await.unwrap_err();
     assert_eq!(unknown.code, RpcError::not_found("").code, "{unknown:?}");
 }
 
@@ -199,6 +225,7 @@ async fn a_read_runs_only_a_read_method() {
     let b = machine_b();
     let dir = tempfile::tempdir().unwrap();
     let hub = Loopback::new(&b, dir.path(), "person-1");
-    let refused = read(&hub, "machine-b", "own-e2e", method::SESSION_PROMPT, &json!({})).await.unwrap_err();
+    let refused =
+        read(&hub, "machine-b", "own-e2e", method::SESSION_PROMPT, &json!({})).await.unwrap_err();
     assert!(refused.message.contains("mesh.read_unsupported"), "{refused:?}");
 }
