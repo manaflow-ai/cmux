@@ -487,6 +487,9 @@ export type AcpmuxRow = {
   /// A turn summary of the chat's last turn, which a failed turn's Retry asks acpmux to retry
   /// (turns.ts), even when its prompt is an attempt acpmux sent and draws nothing.
   retryable?: boolean;
+  /// The turn's completed edit diff proves it changed files. Retry keeps this hint in its tooltip;
+  /// missing or incomplete checkpoint data stays neutral (conversation/turns.ts).
+  changedFiles?: true;
   /// A turn footer's answer row (turns.ts), whose right-click menu the footer's More opens.
   answerId?: string;
   /// A turn footer's whole turn for its Copy (conversation/turnCopy.ts): the agent's replies and each
@@ -940,6 +943,15 @@ export type AcpmuxSnapshot = {
   autoResume?: AutoResumeStatus;
   protocolVersion: number;
   rows: AcpmuxRow[];
+  /// The chat's latest TodoWrite/update_plan checklist (liveProgress.ts), beside the rows so Session
+  /// Info's Progress updates without rescanning the transcript on every streamed token. `ended` once
+  /// its turn stopped or a later prompt came in.
+  progress?: {
+    plan: AcpmuxPlanEntry[];
+    completed?: number;
+    total?: number;
+    ended?: boolean;
+  };
   /// Each subagent's own view by subagent id: its rows, opened from its line in a group
   /// (subagents/childRows.ts).
   subagentViews?: Record<string, AcpmuxRow[]>;

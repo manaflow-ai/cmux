@@ -255,12 +255,15 @@ impl Inner {
     }
 
     /// Runs `sync`, a sync of the store's files that freezes the store when it fails (a request's
-    /// `flush_session`, a chat's `session.json` from the overlay, the folder syncer), so that a
-    /// checkpoint never writes an LSN past its failure: the sync is under way until its failure,
-    /// if any, froze the store, and a checkpoint waits for the syncs under way before it writes
-    /// (`checkpoint_once`). Counted: the sync, then its freeze, which never waits (one lock and a
-    /// copy of the `frozen` record into the journal's queue). Not counted: a wait before them (a
-    /// settle's wait for its record). So a checkpoint's wait is bounded by syncs.
+    /// `flush_session`, a chat's `session.json` from the overlay or a kept-aside image, the folder
+    /// syncer), or a step that makes its own changes durable with such syncs (a retention
+    /// rewrite's commit: its record, the renames of the rewritten segments under the writers'
+    /// lock, the folder's sync after them). So a checkpoint never writes an LSN past its failure:
+    /// it is under way until its failure, if any, froze the store, and a checkpoint waits for the
+    /// syncs under way before it writes (`checkpoint_once`). Counted: the sync, then its freeze,
+    /// which never waits (one lock and a copy of the `frozen` record into the journal's queue).
+    /// Not counted: a wait before them (a settle's wait for its record) or a fallback marker after
+    /// them. So a checkpoint's wait is bounded by disk work on the store's own files.
     pub(super) fn counted_sync<T>(
         &self,
         what: &str,

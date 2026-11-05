@@ -1,6 +1,5 @@
 import { composerPickerEntries } from "./composerPickerEntries";
-import React, { useCallback, useContext, useEffect, useId, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import React, { useCallback, useContext, useEffect, useRef, useState } from "react";
 import type { SignIn } from "./signIn";
 import { useChatAccounts } from "./chatAccounts";
 import type { QuickMenuExtras } from "./QuickModelMenu";
@@ -49,8 +48,6 @@ import type { PickerCatalog } from "./modelCatalogData";
 import { catalogProfiles } from "./pickerProfiles";
 import { continueTargets } from "./cmuxCommands";
 import { useModelCatalogState } from "./modelCatalogHost";
-import { backdropLayer } from "./backdropLayer";
-import { focusWithRing } from "../../ui/focusWithRing";
 import { AnchoredCard } from "../../ui/Tooltip";
 import { HOVER_INTENT } from "../../ui/hoverIntent";
 import { useHoverCard } from "./chips/useHoverCard";
@@ -61,16 +58,18 @@ import { contextBreakdown } from "./session-info/ContextSection";
 import { ContextMenu } from "../../ui/ContextMenu";
 import { useComposerSettings } from "./composerSettings";
 import { compactingUsage } from "./usageStats";
-import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
+import {
+  Menu,
+  MenuButton,
+  MenuGroup,
+  MenuItem,
+  MenuPopup,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuSeparator,
+} from "../../ui/Menu";
+import { cx } from "../../ui/cx";
 import { registerPicker } from "./pickerOpeners";
-import { scrollActiveMenuRow } from "./scrollActiveMenuRow";
-import { useScrollEdges } from "./summary/scrollEdges";
-import { UI_ANCHOR_GAP, useUiAnchor } from "../../ui/anchor";
-import { useEscapingPopup } from "../../ui/popupHost";
-import { usePopupHost } from "../../ui/UiProvider";
-import { usePopoverTrigger } from "../../ui/popoverTrigger";
-import { isMousePress } from "../../ui/pressRelease";
-import { focusAfterEscape } from "../../ui/escapeFocus";
 import { experimentArm } from "../../experiments/experiment";
 import { contextRingLook } from "./contextRingLook.experiment";
 import {
@@ -1707,10 +1706,8 @@ export function Picker({
   sections,
   align,
   warnUnrestricted = false,
-  returnFocus = true,
   heading,
   tooltip,
-  overBackdrop = false,
   onOpen,
 }: {
   label: string;
@@ -1719,269 +1716,129 @@ export function Picker({
   sections: Section[];
   align: "start" | "end";
   warnUnrestricted?: boolean;
-  /// An action menu hands focus to whatever its pick focuses, not back to the button.
-  returnFocus?: boolean;
-  /// A question over the choices, as an approval menu asks it.
   heading?: string;
-  /// What the menu holds, as the trigger's tooltip: only a trigger that draws an icon and no text
-  /// passes one (a picker showing its choice's name needs none).
   tooltip?: string;
-  /// Draws the menu outside every backdrop root around its button (backdropLayer), so its glass
-  /// frosts what is behind the composer instead of letting it show through sharp.
-  overBackdrop?: boolean;
-  /// Runs as the menu opens, before its rows draw (the + menu reads its recent commands again).
   onOpen?: () => void;
 }) {
-  const [open, setOpen] = useState(false);
-  // Where the menu draws when it must leave the composer's glass (overBackdrop): found on open.
-  const [layer, setLayer] = useState<HTMLElement | null>(null);
-  const [active, setActive] = useState(0);
-  const root = useRef<HTMLSpanElement>(null);
-  const trigger = useRef<HTMLButtonElement>(null);
-  const menu = useRef<HTMLDivElement | null>(null);
-  const menuId = useId();
-  const menuStyle = useUiAnchor(trigger, menu, open, { side: "above", align: "start" });
-  // No room above or below its button in the pane: past the window's edge (popupHost.ts).
-  const host = usePopupHost();
-  const [shown, setShown] = useState<HTMLDivElement | null>(null);
-  // Marks the menu's edges that rows scroll past (data-fade-top, data-fade-bottom); the composer's
-  // + styles them as the shared scroll-edge fade (styles.css). It stops when the menu unmounts.
-  const edges = useScrollEdges();
-  const attach = useCallback(
-    (node: HTMLDivElement | null) => {
-      menu.current = node;
-      edges(node);
-      if (host) setShown(node);
-    },
-    [host, edges],
-  );
-  useEscapingPopup(host, shown, () => trigger.current, {
-    side: "top",
-    align,
-    gap: UI_ANCHOR_GAP,
-    kind: "list",
-    active: ".acpmux-menu-active",
-  });
-  const rows = sections.flatMap((section, s) => section.choices.map((choice) => ({ section: s, choice })));
-  // A live update can shrink the list under the highlight.
-  const selected = Math.min(active, Math.max(rows.length - 1, 0));
-  useEffect(() => {
-    if (open && rows.length) scrollActiveMenuRow(menu.current, `${menuId}-${selected}`);
-  }, [open, rows.length, menuId, selected]);
-
-  useEffect(() => {
-    if (!open) return;
-    const away = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (!root.current?.contains(target) && !menu.current?.contains(target)) setOpen(false);
-    };
-    const blur = () => setOpen(false);
-    // In the capture phase, as Base UI's menus close: a press outside only closes the menu, and
-    // nothing under it sees the press (menuPressGuard.ts).
-    document.addEventListener("pointerdown", away, true);
-    window.addEventListener("blur", blur);
-    return () => {
-      document.removeEventListener("pointerdown", away, true);
-      window.removeEventListener("blur", blur);
-    };
-  }, [open]);
-
-  // A mouse press is opening it (cg-composer click polish): the focus it moves here is not drawn.
-  const byPointer = useRef(false);
-  const show = () => {
-    const current = rows.findIndex((row) => row.choice.id === sections[row.section].current);
-    setActive(Math.max(current, 0));
-    setLayer(overBackdrop ? backdropLayer(root.current) : null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const trigger = useRef<HTMLButtonElement | null>(null);
+  const open = useCallback(() => {
     onOpen?.();
-    setOpen(true);
-    // WebKit doesn't focus a clicked button; the keys must reach the menu, not the prompt. After a
-    // key was typed WebKit draws a programmatic focus as keyboard focus, so a press says it is not.
-    focusWithRing(trigger.current, byPointer.current ? { focusVisible: false } : undefined);
-  };
-  const showRef = useRef(show);
-  showRef.current = show;
-  // Like a click, which takes focus off the prompt first: that closes the slash menu and restores the draft.
-  useEffect(
-    () =>
-      registerPicker(label, () => {
-        if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-        showRef.current();
-      }),
-    [label],
+    setMenuOpen(true);
+  }, [onOpen]);
+  const onMenuOpenChange = useCallback(
+    (next: boolean) => {
+      if (next) open();
+      else setMenuOpen(false);
+    },
+    [open],
   );
-  const close = () => {
-    setOpen(false);
-    trigger.current?.focus();
-  };
-  const press = usePopoverTrigger(open, setOpen, show);
-  const pick = (index: number) => {
-    const row = rows[index];
-    if (!row) return;
-    if (sections[row.section].onPick(row.choice.id) === "keep") return;
-    if (returnFocus) close();
-    else setOpen(false);
-  };
-  const keyDown = (event: React.KeyboardEvent) => {
-    if (!open) {
-      if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-        event.preventDefault();
-        show();
-      }
-      return;
-    }
-    if (event.key === "Escape") {
-      event.preventDefault();
-      event.stopPropagation();
-      setOpen(false);
-      // Back on the button with its ring, though a press opened the menu without one: the button
-      // already has the focus, so it takes it again (escapeFocus.ts).
-      trigger.current?.blur();
-      focusAfterEscape(trigger.current);
-    } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      event.preventDefault();
-      const step = event.key === "ArrowDown" ? 1 : -1;
-      if (rows.length > 0) setActive((selected + step + rows.length) % rows.length);
-    } else if (event.key === "Home" || event.key === "End") {
-      event.preventDefault();
-      if (rows.length > 0) setActive(event.key === "Home" ? 0 : rows.length - 1);
-    } else if (event.key === "Enter") {
-      event.preventDefault();
-      pick(selected);
-    }
-    // A button clicks on Space's keyup; pick there and cancel that click, or it would reopen the menu.
-    else if (event.key === " ") event.preventDefault();
-    else if (event.key === "Tab") setOpen(false);
-  };
-  const keyUp = (event: React.KeyboardEvent) => {
-    if (open && event.key === " ") {
-      event.preventDefault();
-      pick(selected);
-    }
-  };
+  useEffect(() => registerPicker(label, open), [label, open]);
 
-  let index = -1;
-  // Out of the backdrop root (overBackdrop): in a box-less wrapper that carries the picker's classes,
-  // so its rules (`.acpmux-composer-plus .acpmux-menu`) and its rows' selectors still reach the menu.
-  const placeMenu = (popup: React.ReactElement) =>
-    layer
-      ? createPortal(
-          <div className={`acpmux-picker-layer ${className}`} style={{ display: "contents" }}>
-            {popup}
-          </div>,
-          layer,
-        )
-      : popup;
   return (
-    <span
-      ref={root}
-      className={`acpmux-picker ${className}`}
-      style={{ position: "relative" }}
-      onBlur={(event) => {
-        if (open && !root.current?.contains(event.relatedTarget as Node | null)) setOpen(false);
+    <span className={cx("acpmux-picker", className)}>
+      <Menu open={menuOpen} onOpenChange={onMenuOpenChange}>
+        <MenuButton
+          buttonRef={trigger}
+          className="acpmux-picker-button"
+          label={label}
+          title={tooltip}
+          aria-haspopup="menu"
+          data-menu={label}
+        >
+          {button}
+        </MenuButton>
+        <MenuPopup
+          label={heading ?? label}
+          side="top"
+          align={align}
+          // Pointer closes return to the opener (the prompt). If an action deliberately focuses a
+          // different field, Menu's focusAfterClose detects that and leaves it there; keeping the
+          // shared policy here also preserves prompt focus when a native capture is cancelled.
+          finalFocus={undefined}
+          className={cx("acpmux-menu acpmux-picker-menu", className)}
+        >
+          {heading && (
+            <div className="acpmux-menu-heading" aria-hidden="true">
+              {heading}
+            </div>
+          )}
+          {sections.map((section, sectionIndex) => (
+            <React.Fragment key={`section-${sectionIndex}`}>
+              {sectionIndex > 0 && <MenuSeparator />}
+              <div className="acpmux-menu-section">
+                {section.title ? (
+                  <MenuGroup label={section.title}>
+                    {section.choices.map((choice) => (
+                      <PickerMenuItem
+                        key={choice.id}
+                        choice={choice}
+                        section={section}
+                        current={choice.id === section.current}
+                        warnUnrestricted={warnUnrestricted}
+                        close={() => setMenuOpen(false)}
+                      />
+                    ))}
+                  </MenuGroup>
+                ) : (
+                  section.choices.map((choice) => (
+                    <PickerMenuItem
+                      key={choice.id}
+                      choice={choice}
+                      section={section}
+                      current={choice.id === section.current}
+                      warnUnrestricted={warnUnrestricted}
+                      close={() => setMenuOpen(false)}
+                    />
+                  ))
+                )}
+              </div>
+            </React.Fragment>
+          ))}
+        </MenuPopup>
+      </Menu>
+    </span>
+  );
+}
+
+function PickerMenuItem({
+  choice,
+  section,
+  current,
+  warnUnrestricted,
+  close,
+}: {
+  choice: Choice;
+  section: Section;
+  current: boolean;
+  warnUnrestricted: boolean;
+  close(): void;
+}) {
+  return (
+    <MenuItem
+      closeOnClick={false}
+      data-value={choice.id}
+      className={cx(
+        "acpmux-menu-item",
+        warnUnrestricted && unrestricted(choice.id) ? "acpmux-unrestricted" : undefined,
+      )}
+      onSelect={() => {
+        if (section.onPick(choice.id) !== "keep") close();
       }}
     >
-      <button
-        ref={trigger}
-        type="button"
-        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-        role="combobox"
-        className="acpmux-picker-button"
-        data-menu={label}
-        aria-label={label}
-        // tooltip-allow: only an icon-only trigger (the composer's +) passes a tooltip.
-        title={tooltip}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-controls={open ? menuId : undefined}
-        aria-activedescendant={open && rows.length > 0 ? `${menuId}-${selected}` : undefined}
-        onKeyDown={keyDown}
-        onKeyUp={keyUp}
-        {...press}
-        onPointerDown={(event) => {
-          byPointer.current = isMousePress(event);
-          press.onPointerDown(event);
-          byPointer.current = false;
-        }}
-      >
-        {button}
-      </button>
-      {/* A native select cannot hold descriptions, sections or the pane's styling. */}
-      {open &&
-        placeMenu(
-          <div
-            ref={attach}
-            style={menuStyle}
-            className={`ui-popup ui-glass acpmux-menu acpmux-menu-${align}`}
-            data-side="above"
-          >
-            {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-            <div id={menuId} role="listbox" aria-label={heading ?? label}>
-              {heading && (
-                <div className="acpmux-menu-heading" aria-hidden="true">
-                  {heading}
-                </div>
-              )}
-              {sections.map((section, s) => {
-                const titled = section.title && sections.length > 1;
-                return (
-                  <div
-                    key={s}
-                    className="acpmux-menu-section"
-                    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-                    role="group"
-                    aria-labelledby={titled ? `${menuId}-group-${s}` : undefined}
-                    aria-label={titled ? undefined : label}
-                  >
-                    {titled && (
-                      <div className="acpmux-menu-header" id={`${menuId}-group-${s}`}>
-                        {section.title}
-                      </div>
-                    )}
-                    {section.choices.map((choice) => {
-                      index += 1;
-                      const at = index;
-                      const current = choice.id === section.current;
-                      return (
-                        <div
-                          key={choice.id}
-                          id={`${menuId}-${at}`}
-                          data-value={choice.id}
-                          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-                          role="option"
-                          tabIndex={-1}
-                          // `aria-selected` is the option's value; the combobox's
-                          // `aria-activedescendant` carries the keyboard highlight.
-                          aria-selected={section.current === undefined ? false : current}
-                          className={`acpmux-menu-item${at === selected ? " acpmux-menu-active" : ""}${warnUnrestricted && unrestricted(choice.id) ? " acpmux-unrestricted" : ""}`}
-                          onMouseMove={() => {
-                            if (at !== selected) setActive(at);
-                          }}
-                          onMouseDown={(event) => {
-                            event.preventDefault();
-                            pick(at);
-                          }}
-                        >
-                          {choice.icon}
-                          <span className="acpmux-menu-text">
-                            <span className="acpmux-menu-label">{choice.name}</span>
-                            {choice.description && (
-                              <span className="acpmux-menu-description" data-popup-detail="">
-                                {choice.description}
-                              </span>
-                            )}
-                          </span>
-                          {choice.hint && <kbd className="acpmux-menu-hint">{choice.hint}</kbd>}
-                          {current && <CheckIcon />}
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
-              })}
-            </div>
-          </div>,
+      <span className="acpmux-menu-hit-area" aria-hidden="true" />
+      {choice.icon}
+      <span className="acpmux-menu-text">
+        <span className="acpmux-menu-label">{choice.name}</span>
+        {choice.description && (
+          <span className="acpmux-menu-description" data-popup-detail="">
+            {choice.description}
+          </span>
         )}
-    </span>
+      </span>
+      {choice.hint && <kbd className="acpmux-menu-hint">{choice.hint}</kbd>}
+      {current && <CheckIcon />}
+    </MenuItem>
   );
 }
 

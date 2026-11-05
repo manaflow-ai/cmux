@@ -58,7 +58,7 @@ public struct FeedItem: Identifiable, Hashable, Sendable {
     public var error: String?
     /// Bumps with each inline answer, so a late refusal never reverts a newer answer.
     public var attempt = 0
-    /// An answer on its way that is not decided yet ("Waiting for Face ID…"):
+    /// An answer on its way that is not decided yet ("Sending…"):
     /// the card shows it instead of its buttons, and never claims "Allowed"
     /// before the signed answer went out (review m10).
     public var pending: String?
@@ -294,7 +294,7 @@ public final class FeedStore {
     /// Whether the Feed knows the ask with acpmux permission `permissionID` from `mac` closed:
     /// answered here, on the Mac or on another device, or marked done. Nil `mac` (a push from an
     /// older Worker) matches the ask on any Mac. False for an ask the Feed has not read yet (a
-    /// reconnect that has not reloaded it); an Allow still waiting for Face ID has no resolution
+    /// reconnect that has not reloaded it); an Allow still on its way has no resolution
     /// yet, so it stays open.
     public func isClosedAsk(permissionID: String, mac: String?) -> Bool {
         guard let item = item(id: "ask-\(permissionID)") else { return false }
@@ -649,18 +649,18 @@ public final class FeedStore {
         }
     }
 
-    /// Shown on a permission card while its Allow waits for Face ID and the Mac.
-    public static let waitingForFaceID = "Waiting for Face ID…"
+    /// Shown on a permission card while its Allow is signed and sent to the Mac.
+    public static let sendingAllow = "Sending…"
 
     public func respond(_ id: String, option: ACPPermissionOption) {
         if let actions, let item = item(id: id), case .permission(let request) = item.kind {
             guard item.pending == nil else { return }
             let attempt = item.attempt + 1
             mutate(id) { $0.error = nil; $0.attempt = attempt }
-            // An Allow is signed after Face ID: it says "Allowed" only once it went
-            // out. A Deny needs no Face ID and shows at once.
+            // An Allow is signed and says "Allowed" only once it went
+            // out. A Deny is not signed and shows at once.
             if option.isAllow {
-                mutate(id) { $0.pending = Self.waitingForFaceID }
+                mutate(id) { $0.pending = Self.sendingAllow }
             } else {
                 applyRespond(id, option: option)
             }
@@ -687,10 +687,10 @@ public final class FeedStore {
             return
         }
         guard answersLocally else { return failUnsent(id) }
-        let delay = DeveloperOptions.mockFaceIDDelay
+        let delay = DeveloperOptions.mockApprovalDelay
         if option.isAllow, delay > .zero {
             guard item(id: id)?.pending == nil else { return }
-            mutate(id) { $0.pending = Self.waitingForFaceID }
+            mutate(id) { $0.pending = Self.sendingAllow }
             Task {
                 try? await Task.sleep(for: delay)
                 mutate(id) { $0.pending = nil }

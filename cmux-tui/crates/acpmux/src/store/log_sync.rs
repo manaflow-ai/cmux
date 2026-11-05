@@ -11,6 +11,10 @@ thread_local! {
     /// Tests: the next sync of this folder on this thread (`sync_directory`) fails.
     pub(crate) static FAIL_DIR_SYNC: std::cell::RefCell<Option<std::path::PathBuf>> =
         const { std::cell::RefCell::new(None) };
+    /// Tests: the next sync of this folder on this thread for which the test's condition holds
+    /// (it reads the folder) fails: a test names a sync by the state it runs in, not by its rank,
+    /// which differs between two versions of the code.
+    pub(crate) static FAIL_DIR_SYNC_WHEN: DirSyncWhen = const { std::cell::RefCell::new(None) };
     /// Tests: the checkpoint's `sync_log` on this thread stops right after it cloned the open
     /// log, before its own sync of it.
     pub(crate) static HOLD_AFTER_LOG_CLONE: HoldSlot = const { std::cell::RefCell::new(None) };
@@ -52,17 +56,30 @@ pub(super) fn hold(slot: &'static std::thread::LocalKey<HoldSlot>) {
     }
 }
 
+/// Tests: a folder and the condition under which its next sync fails ([`FAIL_DIR_SYNC_WHEN`]).
+#[cfg(test)]
+pub(crate) type DirSyncWhen = std::cell::RefCell<Option<(std::path::PathBuf, fn(&Path) -> bool)>>;
+
 /// Tests: whether this sync of the folder at `path` fails ([`FAIL_DIR_SYNC`]).
 #[cfg(test)]
 pub(super) fn fail_dir_sync(path: &Path) -> bool {
-    FAIL_DIR_SYNC.with(|fail| {
+    let plain = FAIL_DIR_SYNC.with(|fail| {
         let mut fail = fail.borrow_mut();
         let hit = fail.as_deref() == Some(path);
         if hit {
             *fail = None;
         }
         hit
-    })
+    });
+    plain
+        || FAIL_DIR_SYNC_WHEN.with(|fail| {
+            let mut fail = fail.borrow_mut();
+            let hit = fail.as_ref().is_some_and(|(folder, when)| folder == path && when(path));
+            if hit {
+                *fail = None;
+            }
+            hit
+        })
 }
 
 /// Tests: the syncs that flush the drive's cache (on macOS every `sync_all`/`sync_data` is an

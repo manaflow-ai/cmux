@@ -56,7 +56,7 @@ extension AppControl {
             if let refusal = ControlError.policyRefusal("vm.agent_key.create", disabled: services.registry.disabledFeatures) { throw refusal }
             guard services.cloud.mayCallCloud else { throw ControlError(code: "cloud_disabled", message: Self.vmText(.cloudUnavailable)) }
             guard services.cloud.isSignedIn else { throw ControlError(code: "not_signed_in", message: Self.vmText(.notSignedIn)) }
-            guard let baseURL = Self.vmBaseURL(services.cloud.configuration.backend) else {
+            guard let baseURL = services.cloud.configuration.runtimeSelection?.vmOrigin ?? Self.vmBaseURL(services.cloud.configuration.backend) else {
                 throw ControlError(code: "internal", message: "the cmux VM API address is invalid")
             }
             return (services.cloud, baseURL)

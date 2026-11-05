@@ -1258,7 +1258,6 @@ impl Hub {
                         notice: false,
                         // As logged (`turn_started` `persons`); an older record's takes notices.
                         persons: work.turn_persons,
-                        from_agents: false,
                     });
                     if work.turn_trigger {
                         self.restore_trigger_background(session, &turn_id);

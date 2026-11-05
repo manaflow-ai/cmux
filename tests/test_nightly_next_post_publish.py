@@ -5,9 +5,13 @@ The signed arm64 artifact is the user-facing readiness boundary. The
 NIGHTLY-identity compatibility lane must not become a dependency of
 ``publish-nightly``. Its target and the release signer pool (hosted Linux and
 one secret-free Mac job) start from this run's prepared app beside cmux NEXT's
-own signers; the macOS signer, the only part that holds an owned signing Mac,
-runs after the NEXT publication (#25957), and the old feed publishes only the
-build ``publish-nightly`` published.
+own signers. This run's own new build is signed as cmux NIGHTLY at the end of
+build-sign-notarize-nightly, on the same runner (Leo, 2026-11-05: "THERE
+SHOULDN'T BE 2"; it takes back #25957's sign after publication for that build,
+each copy step bounded by its own timeout and continuing on error). The separate
+macOS signer, for a continued submission or another run's build, still runs
+after the NEXT publication, and the old feed publishes only the build
+``publish-nightly`` published.
 """
 
 import re

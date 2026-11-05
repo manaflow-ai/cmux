@@ -116,6 +116,7 @@ import os
 import platform
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -676,13 +677,23 @@ def new_records(base_out: str, head_out: str, base_tree: Path, head_tree: Path) 
 
 
 def run(cmd: list[str], cwd: Path, timeout: int = 120) -> tuple[int, str]:
+    """CMD's exit code and output, or 124 and "timed out" past TIMEOUT seconds.
+
+    A timed-out command is stopped with stop(), not subprocess.run's SIGKILL, so a `git` under it clears
+    the lock it holds (see stop())."""
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")} | CI_ENV
-    try:
-        result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout, env=env,
-                                stdin=subprocess.DEVNULL)
-    except subprocess.TimeoutExpired:
-        return 124, f"timed out after {timeout}s"
-    return result.returncode, result.stdout + result.stderr
+    with subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
+                          stdin=subprocess.DEVNULL) as process:
+        try:
+            out, err = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            stop([process.pid, *_descendants(process.pid)])
+            try:
+                process.communicate(timeout=GRACE_SECONDS + 5)
+            except subprocess.TimeoutExpired:  # not even SIGKILL got it reaped (an unkillable disk wait)
+                process.kill()
+            return 124, f"timed out after {timeout}s"
+    return process.returncode, out + err
 
 
 def fill(cmd: list[str], tree: Path) -> list[str]:
@@ -1796,6 +1807,40 @@ def _descendants(pid: int) -> list[int]:
     return out
 
 
+GRACE_SECONDS = 2.0  # how long a stopped process has to clean up before it is killed outright
+
+
+def stop(pids: list[int], grace: float = GRACE_SECONDS) -> None:
+    """Stop PIDS: SIGTERM, then SIGKILL whatever is still alive GRACE seconds later.
+
+    Not SIGKILL first. A `git` that reads the working tree (`git diff --quiet HEAD`) takes `.git/index.lock`
+    to write back the index it refreshed, and on SIGKILL that lock stays behind with no process left to blame,
+    so the developer's next git command refuses ("Another git process seems to be running"). On SIGTERM git
+    removes its own lock files. Measured on a checkout with stale index times (which is what a fresh checkout
+    or a fetch leaves): SIGKILL left the lock in 3 of 3 runs, SIGTERM in 0 of 3 (live-apply-nightly saw this
+    three times, 2026-11-04)."""
+    def alive(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return False
+        return True
+
+    for signum in (signal.SIGTERM, signal.SIGKILL):
+        for pid in pids:
+            try:
+                os.kill(pid, signum)
+            except OSError:
+                pass
+        if signum is signal.SIGKILL:
+            return
+        deadline = time.monotonic() + grace
+        while time.monotonic() < deadline:
+            if not any(alive(pid) for pid in pids):
+                return
+            time.sleep(0.02)
+
+
 def start_watchdog(limit: float) -> None:
     """Past LIMIT seconds, print every thread's stack, stop the processes this gate started, and refuse the push.
 
@@ -1808,11 +1853,7 @@ def start_watchdog(limit: float) -> None:
                          "push refused. Where each thread was:\n")
         sys.stderr.flush()
         faulthandler.dump_traceback(file=sys.stderr, all_threads=True)
-        for pid in _descendants(os.getpid()):
-            try:
-                os.kill(pid, 9)
-            except OSError:
-                pass
+        stop(_descendants(os.getpid()))
         sys.stdout.flush()
         os._exit(1)
 
