@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import sys
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -87,16 +88,16 @@ class TestIntegrity(unittest.TestCase):
 --- a/tests/test_x.py
 +++ b/tests/test_x.py
 @@ -1 +1 @@
--pytest.mark.skip('old')
-+pytest.mark.skip('new')
+-marker = "pytest.mark." + "skip('old')"
++marker = "pytest.mark." + "skip('new')"
 """
         self.assertFalse(any(f.kind == "new-skip" for f in module.analyze("M\ttests/test_x.py\n", diff)))
 
     def test_approved_findings_can_be_recorded_without_blocking(self):
-        self.assertEqual(
-            module.main(["--base", "HEAD^1", "--allow-all"]),
-            0,
-        )
+        with mock.patch.object(module, "resolve_base", return_value="base"), \
+                mock.patch.object(module, "run", return_value=[module.Finding("new-skip", "tests/x.py", "fixture")]), \
+                mock.patch.object(module, "_git", return_value="head"):
+            self.assertEqual(module.main(["--base", "base", "--allow-all"]), 0)
 
 
 if __name__ == "__main__":

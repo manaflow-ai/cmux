@@ -4,6 +4,7 @@ on:
   # This workflow is evaluated from the default branch, so a pull request
   # cannot remove or weaken the guard it is asking us to run.
   pull_request_target:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   push:
     branches: [main]
 
@@ -32,7 +33,7 @@ jobs:
       - name: Flag deleted or weakened tests
         env:
           TEST_INTEGRITY_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
-          TEST_INTEGRITY_APPROVED: ${{ contains(github.event.pull_request.labels.*.name, 'test-integrity-approved') }}
+          TEST_INTEGRITY_APPROVED: ${{ github.event.action == 'labeled' && github.event.label.name == 'test-integrity-approved' }}
         run: |
           set -euo pipefail
           base="${TEST_INTEGRITY_BASE_SHA:-HEAD^1}"
@@ -52,9 +53,10 @@ jobs:
           merge_base="$(git merge-base "$base" HEAD)"
           git show "$base:scripts/ci/test_integrity.py" > "$RUNNER_TEMP/test_integrity.py"
           args=(--base "$merge_base")
-          # pull_request_target is the authoritative PR gate.  A maintainer-added
-          # label is the only explicit override; pushes to main stay report-only
-          # so an intended, already-reviewed test retirement cannot strand main.
+          # pull_request_target is the authoritative PR gate. A maintainer-added
+          # label event is a one-head override; synchronize returns to strict so
+          # approval cannot silently cover later test changes. Pushes to main stay
+          # report-only so an intended, already-reviewed retirement cannot strand main.
           if [[ "${{ github.event_name }}" == "pull_request_target" && "$TEST_INTEGRITY_APPROVED" != "true" ]]; then
             args+=(--strict)
           fi
