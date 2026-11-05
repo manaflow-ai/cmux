@@ -7,10 +7,14 @@ public import Foundation
 /// a new tab is a new page, with none, so every page hands its tails here (`chat.tail`) and asks
 /// for one before it attaches (`chat.tail.get`, acpmux/tailCache.ts).
 ///
-/// This tier is memory only; a miss is forwarded to acpmux's bounded disk snapshot store for
-/// peer chats (``AgentPaneHostProviding/peerSnapshot(sessionId:)``). Leo's 2026-11-03 instant-open
-/// requirement replaces the earlier memory-only transcript policy. Quitting forgets this tier,
-/// and sign-out clears it with ``clear()``. What is held is bounded three ways here, so the
+/// Under this memory tier is a disk tier (``disk``, ``AgentPaneTailDisk``): each tail kept here is
+/// also saved there off the main thread, and a memory miss reads it there, also off the main
+/// thread, so a chat opened from the sidebar or a link in a new tab, or after a restart, draws its
+/// rows before its attach (Leo, 2026-11-05: "There's no reason for them to have a delay, even under
+/// load."). A miss there is forwarded to acpmux's bounded disk snapshot store for peer chats
+/// (``AgentPaneHostProviding/peerSnapshot(sessionId:)``). Leo's 2026-11-03 instant-open
+/// requirement replaces the earlier memory-only transcript policy. Sign-out clears both tiers
+/// with ``clear()``. What is held is bounded three ways here, so the
 /// bound holds whatever a page sends: the most recent ``chats`` chats, ``events`` records of each,
 /// and ``bytes`` of each (``holds(_:)``) — at most about 20 MiB in the worst case, and a small
 /// fraction of that for ordinary chats, which are far under the per-chat bound.
@@ -27,17 +31,19 @@ public import Foundation
 @MainActor
 public final class AgentPaneTailCache {
     public static let shared = AgentPaneTailCache()
+    /// The disk tier; nil keeps tails in memory only (a test host, the gallery).
+    public var disk: AgentPaneTailDisk?
     /// Chats whose tail is kept, as the page keeps the same number.
-    static let chats = 20
+    public nonisolated static let chats = 20
     /// Most records one chat's tail may carry, as many as an attach page holds. A tail over this
     /// is refused whole, never cut: a cut tail that still called its history exhausted would hide
     /// the chat's older turns (webviews/test/reopened-chat-history.test.ts).
-    static let events = 400
+    nonisolated static let events = 400
     /// Most bytes one chat's tail may carry, as its compact JSON in UTF-8. Four times the page's
     /// own 256 KiB, for the reason in this type's documentation: enough that a correct page is
     /// never refused in any language, small enough that a page that bounds nothing cannot grow
     /// this without limit. A tail over it is refused whole, as an over-long one is.
-    static let bytes = 1024 * 1024
+    public nonisolated static let bytes = 1024 * 1024
 
     private struct Entry {
         var sessionId: String
@@ -65,9 +71,29 @@ public final class AgentPaneTailCache {
     /// because the page has read on since and this one is what it now stands behind.
     public func remember(_ tail: JSONValue?, for sessionId: String) {
         guard acceptsTails else { return }
+        let held = tail.flatMap { Self.holds($0) ? $0 : nil }
+        hold(held, for: sessionId)
+    }
+
+    /// Keeps `tail` in memory only: what the disk tier read back, which it already holds.
+    private func hold(_ tail: JSONValue?, for sessionId: String) {
         var kept = entries.filter { $0.sessionId != sessionId }
-        if let tail, Self.holds(tail) { kept.append(Entry(sessionId: sessionId, tail: tail)) }
+        if let tail { kept.append(Entry(sessionId: sessionId, tail: tail)) }
         entries = Array(kept.suffix(Self.chats))
+    }
+
+    /// The tail the disk tier holds for `sessionId`, read off the main thread, and then held in
+    /// memory too; nil when it holds none, or when the memory tier or the lifecycle changed while
+    /// it read (a newer tail was handed over, or sign-out cleared both tiers).
+    func diskTail(for sessionId: String) async -> JSONValue? {
+        guard let disk, acceptsTails else { return nil }
+        let generation = generation
+        let read: JSONValue? = nil
+        _ = disk
+        guard let read, generation == self.generation, acceptsTails else { return nil }
+        if let kept = tail(for: sessionId) { return kept }
+        hold(read, for: sessionId)
+        return read
     }
 
     /// Keeps `tail` for chat `sessionId` only when it ends on a newer record than the tail kept now
@@ -100,7 +126,7 @@ public final class AgentPaneTailCache {
     /// The byte bound is measured over the whole tail and not only its records, because the rest of
     /// it is not bounded by a record count — a chat's `queue` carries the full text of every
     /// prompt waiting to be sent, so a queued paste is what would grow this.
-    private static func holds(_ tail: JSONValue) -> Bool {
+    nonisolated static func holds(_ tail: JSONValue) -> Bool {
         guard case .object(let fields) = tail, case .array(let events)? = fields["events"] else { return false }
         guard !events.isEmpty, events.count <= Self.events else { return false }
         var text = ""
