@@ -7,6 +7,7 @@ import { DEFAULT_LOCK_PATH } from "../scripts/cmux-vm-image/lock";
 import {
   agentProgramsText,
   baseInputTree,
+  bakeScriptClosure,
   cachedInstallCommand,
   isBaseInput,
   layerKeys,
@@ -82,6 +83,44 @@ describe("layered bake keys", () => {
     const tree = baseInputTree(repoRoot);
     expect(tree).toContain("web/scripts/cmux-vm-image/bake.ts");
     expect(tree).not.toContain("inputs.lock.json");
+  });
+
+  test("an image script is an input only when the bake runs it; the smoke, GC and probes are not", () => {
+    const read = (file: string) => {
+      try {
+        return readFileSync(path.join(repoRoot, file), "utf8");
+      } catch {
+        return undefined;
+      }
+    };
+    const scripts = bakeScriptClosure(read);
+    for (const f of ["bake.ts", "lock.ts", "layers.ts", "dev-tree.ts", "sshd.ts", "host-agent.ts", "browser-probe.ts", "apt-update.ts", "dns.ts"]) {
+      expect(scripts.has(`web/scripts/cmux-vm-image/${f}`)).toBe(true);
+    }
+    for (const f of ["smoke.ts", "gc-layers.ts", "inventory.ts", "first-session.ts", "cleanup.ts", "daemon-uptime.ts", "repro.ts"]) {
+      expect(scripts.has(`web/scripts/cmux-vm-image/${f}`)).toBe(false);
+      expect(isBaseInput(`web/scripts/cmux-vm-image/${f}`, scripts)).toBe(false);
+    }
+    expect(isBaseInput("images/cmux-vm/bake.ts", scripts)).toBe(true);
+    expect(isBaseInput("images/cmux-vm/smoke.ts", scripts)).toBe(false);
+    // Guest files, other trees and non-script files stay inputs whatever the closure says.
+    expect(isBaseInput("images/cmux-vm/guest/sampler.py", scripts)).toBe(true);
+    expect(isBaseInput("web/scripts/cmux-vm-image/acpmux_person_key_e2e.py", scripts)).toBe(true);
+    expect(isBaseInput("web/services/vms/images/workUser.ts", scripts)).toBe(true);
+    expect(isBaseInput("web/scripts/cmux-vm-image/smoke.ts")).toBe(true);
+    const tree = baseInputTree(repoRoot);
+    expect(tree).toContain("web/scripts/cmux-vm-image/sshd.ts");
+    expect(tree).not.toContain("web/scripts/cmux-vm-image/smoke.ts");
+    expect(tree).not.toContain("web/scripts/cmux-vm-image/gc-layers.ts");
+  });
+
+  test("the closure follows re-exports and dynamic imports", () => {
+    const files: Record<string, string> = {
+      "web/scripts/cmux-vm-image/bake.ts": 'import { a } from "./a";\nexport { b } from "./b.ts";\nconst c = await import("./c");',
+      "web/scripts/cmux-vm-image/a.ts": "import { d } from './d';",
+    };
+    const scripts = bakeScriptClosure((f) => files[f]);
+    expect([...scripts].sort()).toEqual(["images/cmux-vm/bake.ts", ...["a", "b", "bake", "c", "d"].map((x) => `web/scripts/cmux-vm-image/${x}.ts`)]);
   });
 
   test("flags come from the options; --layered refuses promotion, production copies and the dev tree", () => {

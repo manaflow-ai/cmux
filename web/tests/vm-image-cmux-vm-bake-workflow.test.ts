@@ -39,6 +39,7 @@ function evaluate(value: string, ctx: { inputs: Inputs; out: string; snapshot: s
     if (presence) return ctx.missing === presence[1] ? "" : "yes";
     const plan = expr.match(/^steps\.plan\.outputs\.(\w+)$/);
     if (plan) return ctx.plan[plan[1]!] ?? "";
+    if (expr === "(inputs.layered && !inputs.dev_tree) && '60' || '120'") return ctx.inputs.layered && !ctx.inputs.dev_tree ? "60" : "120";
     const ternary = expr.match(/^inputs\.(\w+) && '([^']*)' \|\| '([^']*)'$/);
     if (ternary) return ctx.inputs[ternary[1] as keyof Inputs] ? ternary[2]! : ternary[3]!;
     const input = expr.match(/^inputs\.(\w+)$/);
@@ -131,6 +132,8 @@ describe("cloud-vm-image-bake.yml", () => {
     dirs.push(dir2);
     const devTree = await runStep("Bake", { ...inputs, dev_tree: true }, dir2);
     expect(devTree.argv.at(-1)).toBe(`../images/cmux-vm/bake.ts --tag ci-4242-1 --out-dir ${devTree.out} --agent-tools --dev-tree`);
+    const devTreeSmoke = await runStep("Smoke", { ...inputs, dev_tree: true }, dir2);
+    expect(devTreeSmoke.argv.some((a) => a.startsWith("../images/cmux-vm/smoke.ts") && a.includes("--idle-seconds 120 "))).toBe(true);
   });
 
   test("team_vm is a boolean input that defaults to off", () => {
