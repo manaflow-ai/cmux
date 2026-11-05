@@ -84,15 +84,21 @@ export function railPlacement(
 /// 2026-11-04: "the left side session rail should just be having a nicer max height instead of going
 /// all the way up and down. make it look like codex's size." and "the height of the left scroll rail
 /// should never be affected by anything"). Only a view too short to hold it still clips it
-/// (railRoom). `fixed-480` ships at twice the original height and pitch; the gallery compares the arms.
-/// A `fixed` arm is one height whatever the chat, window or bottom stack (Leo, 2026-11-04: "the height
-/// of the left scroll rail should never be affected by anything"): only a view too short for it clips it.
+/// (railRoom). A `fixed` arm is one height whatever the chat, window or bottom stack (Leo, 2026-11-04:
+/// "the height of the left scroll rail should never be affected by anything"): only a view too short
+/// for it clips it. `fixed-480` (twice the height and pitch) spread a short chat's ticks 20 px apart;
+/// a `fit` arm keeps the 240 px maximum as a slot and the rail as tall as its ticks at the 10 px
+/// pitch inside it, so a short chat has a short rail as dense as before (Leo, 2026-11-05). `fit` says
+/// where the rail sits in its slot: at the slot's top it only grows down, so it never shifts as a chat
+/// grows (Leo, 2026-11-03: "i just don't like it when the thing shifts"). `fit-240` ships; the
+/// gallery compares the arms.
 export type RailHeightConfig = {
   initial: number;
   maxRows: number;
   maxShare: number;
   fixed?: boolean;
   pitch?: number;
+  fit?: "top" | "center" | "bottom";
 };
 export const RAIL_HEIGHTS = {
   "fixed-200": { initial: 200, maxRows: 20, maxShare: 1, fixed: true },
@@ -100,13 +106,16 @@ export const RAIL_HEIGHTS = {
   "fixed-360": { initial: 360, maxRows: 24, maxShare: 1, fixed: true, pitch: ROW_PITCH * 1.5 },
   "fixed-480": { initial: 480, maxRows: 24, maxShare: 1, fixed: true, pitch: ROW_PITCH * 2 },
   "fixed-280": { initial: 280, maxRows: 28, maxShare: 1, fixed: true },
+  "fit-240": { initial: 240, maxRows: 24, maxShare: 1, fixed: true, fit: "top" },
+  "fit-240-center": { initial: 240, maxRows: 24, maxShare: 1, fixed: true, fit: "center" },
+  "fit-240-bottom": { initial: 240, maxRows: 24, maxShare: 1, fixed: true, fit: "bottom" },
   "initial-240-max-80": { initial: 240, maxRows: 96, maxShare: 0.8 },
   "initial-320-max-92": { initial: 320, maxRows: 128, maxShare: 0.92 },
   "initial-400-max-96": { initial: 400, maxRows: 160, maxShare: 0.96 },
   "initial-480-max-full": { initial: 480, maxRows: 200, maxShare: 1 },
 } as const satisfies Record<string, RailHeightConfig>;
 export type RailHeightArm = keyof typeof RAIL_HEIGHTS;
-export const DEFAULT_RAIL_HEIGHT: RailHeightArm = "fixed-480";
+export const DEFAULT_RAIL_HEIGHT: RailHeightArm = "fit-240";
 /// The fisheye by row distance from the hovered (or scrubbed) row: 26, 20, 14, 10, then 6 px.
 const PROGRESS = [1, 0.7, 0.4, 0.2] as const;
 /// Space kept free above and below the card inside the transcript's viewport.
@@ -314,7 +323,8 @@ export function railRoom(viewportHeight: number, foot = viewportHeight): { top: 
 /// 70% of the window, after which the rows scroll. It fits the room the transcript gives it
 /// (railRoom: its viewport less the mask's bands), so a short pane's rows all scroll into view and no
 /// tick sits under the transcript's fades (Leo 2026-10-22: "it wouldn't show the highlighted bottom
-/// ... it just didn't go to the bottom"). A `fixed` arm is its one height, clipped only by that room.
+/// ... it just didn't go to the bottom"). A `fixed` arm is its one height, clipped only by that room
+/// (railSlot); a `fit` one is as tall as its rows, up to that slot.
 /// The others are never shorter than the band, the `band` prompts on screen: in a pane too short for
 /// both, the mask's clearance gives way first, up to the whole view.
 export function railHeight(
@@ -328,10 +338,10 @@ export function railHeight(
   if (count <= 0) return 0;
   const room = railRoom(viewportHeight, foot);
   // A fixed rail does not grow for the band: its list scrolls to keep the band in view (railScrollTop).
-  if (config.fixed)
-    return viewportHeight > 0
-      ? Math.max(0, Math.min(config.initial, Math.floor(room.bottom - room.top)))
-      : config.initial;
+  if (config.fixed) {
+    const slot = railSlot(config, viewportHeight, foot);
+    return config.fit ? Math.min(count * (config.pitch ?? ROW_PITCH), slot) : slot;
+  }
   const height = Math.min(
     Math.max(count * ROW_PITCH, config.initial),
     config.maxRows * ROW_PITCH,
@@ -342,6 +352,29 @@ export function railHeight(
   const need = Math.min(count, Math.max(1, band)) * ROW_PITCH;
   const view = viewportHeight > 0 ? Math.floor(Math.min(viewportHeight, foot)) : Infinity;
   return Math.max(0, height >= need ? height : Math.min(need, view));
+}
+
+/// A fixed arm's box: its one height, clipped only by the room the view gives the rail (railRoom).
+export function railSlot(config: RailHeightConfig, viewportHeight: number, foot = viewportHeight): number {
+  const room = railRoom(viewportHeight, foot);
+  return viewportHeight > 0
+    ? Math.max(0, Math.min(config.initial, Math.floor(room.bottom - room.top)))
+    : config.initial;
+}
+
+/// The top of a rail `height` tall: a `fit` arm's rail sits in its slot, placed as the slot of its
+/// full height would be (railTop), so the rows it adds never move it; every other rail is its box.
+export function railFitTop(
+  height: number,
+  viewportHeight: number,
+  foot = viewportHeight,
+  config: RailHeightConfig = RAIL_HEIGHTS[DEFAULT_RAIL_HEIGHT],
+): number {
+  if (!config.fixed || !config.fit) return railTop(height, viewportHeight, foot);
+  const slot = railSlot(config, viewportHeight, foot);
+  const top = railTop(slot, viewportHeight, foot);
+  const spare = Math.max(0, slot - height);
+  return config.fit === "top" ? top : config.fit === "bottom" ? top + spare : top + Math.round(spare / 2);
 }
 
 /// The rail's top in the transcript's viewport: centered on it, as the Codex rail is, then moved as
