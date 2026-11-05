@@ -317,7 +317,8 @@ final class SidebarNoticeCardView: NSView {
         content.frame = b
         eyebrowLabel.font = Typography.caption
         titleLabel.font = Typography.bodyEmphasized
-        detailLabel.font = Typography.caption
+        // A loading card's detail counts (bytes, seconds): tabular digits keep each count's width.
+        detailLabel.font = notice?.progress != nil ? Typography.captionDigits : Typography.caption
         shortcutLabel.font = Typography.caption
         let dismissWidth = dismissButton.fittingWidth, dismissHeight = SidebarCardTextButton.height
         let titleY = pad + (eyebrowLabel.isHidden ? 0 : line.caption)
@@ -325,9 +326,10 @@ final class SidebarNoticeCardView: NSView {
                                      width: dismissWidth, height: dismissHeight)
         let width = max(0, b.width - 2 * pad)
         // The right-hand control, vertically centred in the whole card; the text and the bar stop
-        // a grid step short of it.
+        // a grid step short of it. A loading card keeps that room in every stage, so the bar and the
+        // text never widen or narrow when the cancel comes and goes (Starting to Downloading to Preparing).
         let trailingSide = Self.trailingSide
-        let trailingRoom = trailingButton.isHidden ? 0 : trailingSide + Metrics.space4
+        let trailingRoom = trailingButton.isHidden && notice?.progress == nil ? 0 : trailingSide + Metrics.space4
         trailingButton.frame = NSRect(x: b.width - pad - trailingSide, y: ((b.height - trailingSide) / 2).rounded(),
                                       width: trailingSide, height: trailingSide)
         let closeRoom = !dismissButton.isHidden ? dismissWidth + Metrics.space1 : closeButton.isHidden ? trailingRoom : close

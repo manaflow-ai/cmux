@@ -51,6 +51,13 @@
   takes `RowBadgeView.spinnerSide` (`SidebarStyle.statusGlyphSize`: 10 pt compact, 12 comfortable) on the same cell
   center; the red warning and needs-you marks keep 14 pt. Regression: `RowBadgeSpinnerDensityTests` (every density and
   minimal mode), `RowBadgeMarkSizeTests.theSpinnerIsSmallerThanTheWarning`.
+- 2026-11-05: the Downloading Update card's bytes line stops shifting as it counts. Leo, verbatim: "insane layout
+  shift with the downloading update. Like, why is it that as the left number grows, it just keeps shifting?". Both
+  counts read in the size's unit with one decimal ("115.0 MB of 265.3 MB"), the received count and the percent pad
+  with figure spaces to the total's and 100%'s widths (`UpdateTransfer.bytesText`), and a loading card's detail uses
+  `Typography.captionDigits` (tabular digits). A loading card keeps the cancel's column in every stage, so the bar and
+  text no longer widen when Starting turns into Downloading or narrow again at Preparing. Regression:
+  `UpdateDownloadLineTests`.
 - 2026-11-04: a download the person asked for (Download, Update) shows its progress on the notice card again until it
   is staged; a background download stays quiet (replaces half of the 2026-11-03 entry below, #33176; last good commit
   before it 1d7eb3fd486). Leo, verbatim: "the weird thing is that there's no more updating downloading progress bar for
