@@ -367,6 +367,32 @@ test("the rail is twice its original height, whatever the prompt count or the pa
   for (const band of [1, 24, 50, 1000]) expect(railHeight(1000, 1000, 1000, 1000, band)).toBe(480);
 });
 
+test("the rail keeps one tick pitch at every prompt count, as tall as its ticks up to 240 px, at one top", async () => {
+  // Leo, 2026-11-05, on a rail whose ticks sat 20 px apart in a fixed box: the 240 px maximum stays, the
+  // ticks go back to the pitch they had before (10 px), a short chat gets a short rail, and the rail
+  // never shifts as it grows ("i just don't like it when the thing shifts").
+  const drawn: { count: number; pitch: number; height: number; top: number }[] = [];
+  for (const count of [3, 13, 24, 100]) {
+    const view = await mount(count);
+    try {
+      const rail = document.querySelector<HTMLElement>(".acpmux-minimap__rail")!;
+      const list = document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+      drawn.push({
+        count,
+        pitch: Number.parseFloat(list.style.getPropertyValue("--acpmux-minimap-pitch")),
+        height: Number.parseFloat(rail.style.height),
+        top: Number.parseFloat(rail.style.top),
+      });
+    } finally {
+      await view.unmount();
+    }
+  }
+  expect(drawn.map(({ count, pitch, height }) => ({ count, pitch, height }))).toEqual(
+    [3, 13, 24, 100].map((count) => ({ count, pitch: 10, height: Math.min(count * 10, 240) })),
+  );
+  expect(new Set(drawn.map(({ top }) => top)).size).toBe(1);
+});
+
 test("wheel browsing belongs to the rail and is not snapped back by transcript scrolling", async () => {
   const view = await mount(70);
   try {
