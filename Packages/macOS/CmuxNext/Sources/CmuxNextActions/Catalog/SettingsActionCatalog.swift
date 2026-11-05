@@ -92,14 +92,14 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.palette.installCLI", defaultValue: "Install cmux CLI in PATH", bundle: .module),
                 keywords: ["command line", "shell"], category: .settings, symbol: "terminal", surfaces: [.palette],
                 // Another app's `cmux` at /usr/local/bin is never replaced
-                // silently: `--replace` replaces it, `--cmux_next` installs
+                // silently: `--replace` replaces it, `--cmux-next` installs
                 // /usr/local/bin/cmux-next beside it; without either the app
                 // installs cmux-next beside it and its toast offers Replace.
                 arguments: [
                     ActionArgument(name: "replace",
                                    title: String(localized: "argument.installCLI.replace", defaultValue: "Replace Another App's cmux", bundle: .module),
                                    kind: .bool, isRequired: false),
-                    ActionArgument(name: "cmux_next",
+                    ActionArgument(name: "cmuxNext",
                                    title: String(localized: "argument.installCLI.cmuxNext", defaultValue: "Install as cmux-next", bundle: .module),
                                    kind: .bool, isRequired: false),
                 ],
