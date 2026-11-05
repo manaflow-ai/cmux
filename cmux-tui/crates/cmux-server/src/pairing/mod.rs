@@ -243,7 +243,7 @@ pub fn enroll_with_invite(
         if let Some(uri) = verification_uri(&response, &begun) {
             public_progress.set("verification_uri", uri.into());
         }
-        if response["invited"] == true {
+        if response.get("invited").and_then(Value::as_bool) == Some(true) {
             public_progress.set("invited", true.into());
             if let Some(inviter) = invite::inviter(&response) {
                 public_progress.set("inviter", inviter.into());

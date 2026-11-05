@@ -19,12 +19,16 @@ fn path(ctx: &Context<'_>, mutating: bool) -> Result<std::path::PathBuf> {
 
 fn output(value: Value, invited_as: Option<&str>) -> Output {
     let messages = messages::current();
-    let human = match value["state"].as_str() {
+    let human = match value.get("state").and_then(Value::as_str) {
         Some("paired") if invited_as.is_some() => {
             format!("{} {}\n", messages.paired_as, invited_as.unwrap_or_default())
         }
         Some("paired") => {
-            format!("{} {}\n", messages.paired, value["host"].as_str().unwrap_or_default())
+            format!(
+                "{} {}\n",
+                messages.paired,
+                value.get("host").and_then(Value::as_str).unwrap_or_default()
+            )
         }
         Some("pending") => format!("{}\n", messages.pending),
         Some("network_pending") => format!("{}\n", messages.network_pending),
@@ -67,8 +71,9 @@ pub(super) fn begin(ctx: &Context<'_>, args: &Args) -> Result<Output> {
             if args.json {
                 writeln!(stderr, "{progress}")
             } else {
-                let words = progress["words"]
-                    .as_array()
+                let words = progress
+                    .get("words")
+                    .and_then(Value::as_array)
                     .map(|values| {
                         values.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" ")
                     })
@@ -91,8 +96,8 @@ fn progress_text(
     words: &str,
     out: &mut impl Write,
 ) -> std::io::Result<()> {
-    if progress["invited"] == true {
-        let who = match progress["inviter"].as_str() {
+    if progress.get("invited").and_then(Value::as_bool) == Some(true) {
+        let who = match progress.get("inviter").and_then(Value::as_str) {
             Some(inviter) => messages.invite_confirm.replace("{inviter}", inviter),
             None => messages.invite_confirm_anyone.to_owned(),
         };
@@ -102,7 +107,7 @@ fn progress_text(
         out,
         "{} {}\n{} {}\n{}",
         messages.code,
-        progress["code"].as_str().unwrap_or_default(),
+        progress.get("code").and_then(Value::as_str).unwrap_or_default(),
         messages.words,
         words,
         messages.approve
