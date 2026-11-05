@@ -682,6 +682,11 @@ lane = "manual"
 reason = "Run by the lane that changes scripts/measure/live-code-cost.* (no new CI tests): python3 tests/test_live_code_cost.py; needs only python3."
 
 [[test]]
+path = "tests/test_live_code_patch_tree.py"
+lane = "manual"
+reason = "Run by the lane that changes scripts/live-code/patch.py's --tree mapping (no new CI tests): python3 tests/test_live_code_patch_tree.py; needs only python3 and git."
+
+[[test]]
 path = "tests/test_live_code_two_pass.py"
 lane = "manual"
 reason = "Run by the lane that changes scripts/live-code/lib/two-pass.sh (no new CI tests): python3 tests/test_live_code_two_pass.py; needs only python3 and bash."
