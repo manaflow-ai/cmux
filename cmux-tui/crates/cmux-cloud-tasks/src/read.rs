@@ -106,7 +106,7 @@ pub(crate) fn base64(bytes: &[u8]) -> String {
         let bits = chunk.iter().enumerate().fold(0u32, |bits, (index, byte)| bits | u32::from(*byte) << (16 - 8 * index));
         for index in 0..4 {
             if index <= chunk.len() {
-                text.push(char::from(ALPHABET[(bits >> (18 - 6 * index) & 63) as usize]));
+                text.push(ALPHABET.get((bits >> (18 - 6 * index) & 63) as usize).map_or('=', |c| char::from(*c)));
             } else {
                 text.push('=');
             }
