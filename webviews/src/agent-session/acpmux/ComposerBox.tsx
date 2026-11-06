@@ -29,7 +29,10 @@ export type ComposerBoxHandle = {
   plainPaste(): void;
   place(chips: readonly PendingAttachment[]): void;
   /// Attachments `ids` went with a prompt: gone from the text for good (composer/inlineAttachments.tsx).
+  /// The draft's remembered pastes went with it too.
   sent(ids: Iterable<string>): void;
+  /// The pastes that went into the draft as text, newest last (composer/pasteMarks.ts).
+  pastes(): readonly string[];
 };
 
 export type ComposerBoxProps = {
@@ -197,7 +200,11 @@ export function ComposerBox({
         prompt.current?.plainPaste();
       },
       place: (chips) => inline.place(chips, "paste"),
-      sent: (ids) => inline.sent(ids),
+      sent: (ids) => {
+        inline.sent(ids);
+        pastedChips.pastes.current = [];
+      },
+      pastes: () => pastedChips.pastes.current,
     }),
     [inline],
   );
