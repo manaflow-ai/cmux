@@ -104,7 +104,8 @@ extension SidebarListView {
         // A height change lays the list out again (outside the timed patch: `reload` times itself), with no
         // motion unless the user asked for it, and not under the pointer (`showModelChange`, calm-sidebar-movement);
         // provisional rows swap in place, as on any reload (`SidebarView.animatesReload`).
-        if SidebarPerfCounters.timed({ patchRowsNow(patched) }) { showModelChange(animates: !model.sections.contains(where: \.hasProvisionalRows)) }
+        // A changed height leaves the shown layout behind the model until that reload: no insert splices onto it.
+        if SidebarPerfCounters.timed({ patchRowsNow(patched) }) { spliceBase = nil; showModelChange(animates: !model.sections.contains(where: \.hasProvisionalRows)) }
     }
 
     /// Patches each row in place; true when one row's height changed.

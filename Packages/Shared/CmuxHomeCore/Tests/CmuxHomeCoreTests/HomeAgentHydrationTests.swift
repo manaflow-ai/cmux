@@ -118,6 +118,49 @@ import CmuxHomeCoreTestSupport
         await refresh.value
         #expect(store.transcript(for: conversation).contains { $0.plainText.hasSuffix("Updated receipt after reconnect") })
     }
+
+    /// An agent the spawn answer queued behind the cap starts later with no word in the chat (a1019's open
+    /// item, 2026-11-06): once the Chief's acpmux lists its session, its pill and its chat say Working at once,
+    /// with no tell, report or session read. Its session ending later leaves it started.
+    @Test func aQueuedAgentThatStartsSilentlySaysWorkingOnceItsSessionShows() async throws {
+        let source = DeferredAgentSnapshotSource()
+        let store = HomeStore(source: source)
+        store.start()
+        defer { store.stop() }
+        await waitUntil { store.isOnline && !store.rows.isEmpty }
+        let conversation = ConversationID("conv_aziz")
+        await store.open(conversation)
+        await waitUntil { store.agentMessageReads[conversation] == nil }
+        let question = try #require(store.transcript(for: conversation).first?.messageID)
+        let chief = ParticipantID("agent_mux")
+        let spawn = HomeAgentRun(conversation: conversation, id: "spawn", author: chief, turn: nil, answers: [question],
+                                 revision: 1, messages: [
+                                     .init(id: "spawn:a1017:1", sequence: 1, revision: 1, peer: "a1017", outgoing: true,
+                                           text: "Chief teleport indicator", date: Date(timeIntervalSince1970: 100), queued: true)
+                                 ])
+        await source.prepare([spawn], deferred: false)
+        store.requestAgentMessages(conversation)
+        let read = try #require(store.agentMessageReads[conversation])
+        await read.value
+        func pillStates() -> [HomeAgentMessageRow.PeerState] {
+            store.transcript(for: conversation).compactMap(\.agentMessage).flatMap(\.peerStates)
+        }
+        #expect(store.agentThread("a1017", in: conversation)?.state == .queued)
+        #expect(pillStates() == [.queued])
+
+        let before = store.transcriptVersion[conversation, default: 0]
+        #expect(store.agentsStarted(["a1017", "a3"]) == true)
+        #expect(store.transcriptVersion[conversation, default: 0] > before)
+        #expect(store.agentThread("a1017", in: conversation)?.state == .told)
+        #expect(pillStates() == [.told])
+
+        // Its session ends (the list no longer names it): it stays started, and nothing redraws.
+        let after = store.transcriptVersion[conversation, default: 0]
+        #expect(store.agentsStarted([]) == false)
+        #expect(store.agentsStarted(["a3"]) == false)
+        #expect(store.transcriptVersion[conversation, default: 0] == after)
+        #expect(pillStates() == [.told])
+    }
 }
 
 private actor DeferredAgentSnapshotSource: HomeSource {

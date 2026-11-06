@@ -145,8 +145,8 @@ final class AgentTabStore {
     /// Takes back a closed, untouched new tab page as the pool's spare
     /// (NewTabSparePool.recycle); false when the pool already has one.
     var recycle: ((AgentPaneView) -> Bool)?
-    /// The prewarmed New Tab page, for a first page that has no view yet (NewTabSparePool).
-    var takeSpare: (() -> AgentPaneView?)?
+    /// The prewarmed New Tab page, for a first page that has no view yet (NewTabSparePool); the next one follows as `refill` says.
+    var takeSpare: ((AgentPaneSpareRefill) -> AgentPaneView?)?
     /// The prewarmed page once it is connected and drawn, for a tab opening an existing chat of
     /// this Mac (``AgentPaneSpareAdoption``); nil leaves the spare in the pool.
     var takeConnectedSpare: (() -> AgentPaneView?)?
@@ -402,10 +402,10 @@ final class AgentTabStore {
     /// The tab's pane view, made on first show. A tab whose session runs on another machine is
     /// carried by that tab's own session daemon (``remoteHost``); nil when it cannot be (the
     /// pane then shows the "runs on" notice).
-    func view(for key: String) -> AgentPaneView? {
+    func view(for key: String, known: (record: AgentSessionRef, store: DaemonStore)? = nil) -> AgentPaneView? { // known: a tab no store lists (a reserved Cmd-N page)
         let key = resolve(key)
         if let view = views[key] { return view }
-        guard let (record, store) = lookup(key) else { return nil }
+        guard let (record, store) = known ?? lookup(key) else { return nil }
         let kind = hostKind(record, listedHere: daemonForTab(key)?.isLocal != false)
         // A Chief subagent runs on this Mac too, in the Chief home's acpmux.
         let local = kind != .remote
@@ -444,7 +444,7 @@ final class AgentTabStore {
         // (Its folder rides on the page context, `newTab.cwd`; a first page's seed holds only that.)
         // A page with a kept composer (``wakeStates``) gets its own page: the spare's handshake is past.
         if local, kind == .local, sessions[key] == nil, record.session == nil, let newTab = newTabPages[key],
-           seed?.holdsOnlyFolder ?? true, wakeStates[key] == nil, !relaunchWake.mayHold(key), let spare = takeSpare?() {
+           seed?.holdsOnlyFolder ?? true, wakeStates[key] == nil, !relaunchWake.mayHold(key), let spare = takeSpare?(.now) {
             adoptSpare(spare, key: key, page: newTab.page)
             track(key, in: store)
             onPageBuilt?(key)

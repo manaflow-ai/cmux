@@ -60,7 +60,7 @@ extension SettingsSchema {
         "sidebar.minimalMode", "sidebar.minimal", "sidebar.density", "sidebar.textSize", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.showColors",
         "sidebar.showLocalMachine", "workspaceColors.indicatorStyle",
         "sidebar.controlsOnHover", // sidebar control visibility (looks only)
-        "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount",
+        "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background",
         "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps",
         "sidebar.side", "sidebar.style",
         "sidebar.spacesPosition", "sidebar.spacesVisibility",
@@ -250,6 +250,9 @@ extension SettingsSchema {
         // box types only what the person writes.
         "home.chiefPetEnabled",
         "home.chiefPetMascot",
+        // Where the docked Chief sits and where its links open (layout choices, like pane placement).
+        "home.chiefDock.edge",
+        "home.chiefDock.openBeside",
         // Needs you in the agent chat header (an App Store item): a display the person can hide again.
         "agentPane.needsYou.enabled",
         // Start New Chats In (This Mac or Cloud): the person asks an agent to set it (Leo, 2026-10-31);
@@ -293,6 +296,9 @@ extension SettingsSchema {
         "workspaces.autoArchive.style": .userOnly, "workspaces.autoArchive.idleDays": .userOnly,
         "workspaces.hibernation.enabled": .userOnly, "workspaces.hibernation.idleMinutes": .userOnly,
         "workspaces.hibernation.hiddenSpaceMinutes": .userOnly,
+        // Freeing ends shells (sidebar-recents-and-freeing-DESIGN.md): an agent must not turn it on to end the person's work.
+        "workspaces.freeing.enabled": .destructive, "workspaces.freeing.idleMinutes": .destructive,
+        "workspaces.freeing.agents": .destructive, "workspaces.freeing.runningCommands": .destructive,
         // Which of the person's folders the Screenshots page reads.
         "screenshots.findTools": .privacy, "screenshots.folders": .privacy,
         // A pin leads the empty palette and an alias wins its word: an agent could put Close Window

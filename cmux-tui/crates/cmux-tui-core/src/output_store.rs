@@ -41,6 +41,7 @@
 //! so an idle session wakes nothing.
 
 mod memory_budget;
+mod parked_trim;
 pub(crate) mod segments;
 pub(crate) mod snapshot;
 mod tail;
@@ -154,6 +155,10 @@ pub(crate) struct PersistencePolicy {
     /// Total scrollback RAM across terminals
     /// (`terminal.scrollback.maxTotalMemoryBytes`).
     pub(crate) memory_total_bytes: u64,
+    /// Parked snapshots' disk budget (`terminal.persistence.parkedMaxTotalBytes`, `parked_trim.rs`).
+    pub(crate) parked_max_total_bytes: u64,
+    /// Free disk under which no parked trim rewrites a file (`terminal.persistence.minFreeDiskBytes`).
+    pub(crate) min_free_disk_bytes: u64,
 }
 
 impl PersistencePolicy {
@@ -179,18 +184,27 @@ impl PersistencePolicy {
                 max_bytes_per_terminal: 0,
                 max_total_bytes: 0,
                 memory_total_bytes,
+                parked_max_total_bytes: parked_trim::DEFAULT_PARKED_MAX_TOTAL_BYTES,
+                min_free_disk_bytes: parked_trim::DEFAULT_MIN_FREE_DISK_BYTES,
             };
         }
         let max_total_bytes = total.unwrap_or(default_total).max(MIN_CAP_BYTES);
         let max_bytes_per_terminal =
             per_terminal.unwrap_or(default_per_terminal).max(MIN_CAP_BYTES).min(max_total_bytes);
-        Self { mode, max_bytes_per_terminal, max_total_bytes, memory_total_bytes }
+        Self {
+            mode,
+            max_bytes_per_terminal,
+            max_total_bytes,
+            memory_total_bytes,
+            parked_max_total_bytes: parked_trim::DEFAULT_PARKED_MAX_TOTAL_BYTES,
+            min_free_disk_bytes: parked_trim::DEFAULT_MIN_FREE_DISK_BYTES,
+        }
     }
 
     /// The policy from the environment override, else the settings owner.
     pub(crate) fn current(mux: &Arc<Mux>) -> Self {
         let env_mode = std::env::var(PERSISTENCE_MODE_ENV).ok();
-        let (mode, per_terminal, total, memory) = mux.with_settings(|state| {
+        let (mode, per_terminal, total, memory, parked) = mux.with_settings(|state| {
             let value = |key: &str| {
                 state.get(&cmux_config::Target::Key(key.to_string())).row.and_then(|row| row.value)
             };
@@ -199,6 +213,10 @@ impl PersistencePolicy {
                 value(PERSISTENCE_MAX_PER_TERMINAL_SETTING).as_ref().and_then(byte_count),
                 value(PERSISTENCE_MAX_TOTAL_SETTING).as_ref().and_then(byte_count),
                 value(memory_budget::MEMORY_TOTAL_SETTING).as_ref().and_then(byte_count),
+                (
+                    value(parked_trim::PARKED_MAX_TOTAL_SETTING).as_ref().and_then(byte_count),
+                    value(parked_trim::MIN_FREE_DISK_SETTING).as_ref().and_then(byte_count),
+                ),
             )
         });
         let mut policy =
@@ -208,6 +226,12 @@ impl PersistencePolicy {
             .and_then(|value| value.parse::<u64>().ok());
         if let Some(memory) = env_memory.or(memory) {
             policy.memory_total_bytes = memory;
+        }
+        if let Some(bytes) = parked.0 {
+            policy.parked_max_total_bytes = bytes;
+        }
+        if let Some(bytes) = parked.1 {
+            policy.min_free_disk_bytes = bytes;
         }
         policy
     }

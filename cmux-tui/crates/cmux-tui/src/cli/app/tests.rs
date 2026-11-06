@@ -310,6 +310,21 @@ fn unknown_words_run_the_action_with_that_cli_name() {
     );
 }
 
+/// `cmux app remote-views` reads the app's release remote view state, all tabs
+/// or one; it is a read, never an `action.run`, and takes no other word.
+#[test]
+fn remote_views_reads_the_release_remote_view_state() {
+    let (method, params) = call(parse(&args(&["app", "remote-views"])).unwrap().unwrap());
+    assert_eq!(method, "remote_view.state");
+    assert_eq!(params, json!({}));
+    let (method, params) =
+        call(parse(&args(&["app", "remote-views", "--tab", "tab_1"])).unwrap().unwrap());
+    assert_eq!(method, REMOTE_VIEWS_METHOD);
+    assert_eq!(params, json!({ "tab": "tab_1" }));
+    assert!(parse(&args(&["app", "remote-views", "connect"])).is_err());
+    assert!(parse(&args(&["app", "remote-views", "--mode", "control"])).is_err());
+}
+
 #[test]
 fn action_describe_accepts_an_unquoted_cli_name() {
     let (_, params) =
