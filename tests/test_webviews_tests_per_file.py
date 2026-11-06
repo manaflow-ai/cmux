@@ -98,9 +98,10 @@ case "$file" in
       *then-fail*) echo "(fail) still broken alone"; exit 1 ;;
       *overrun-retry*)
         # Its retry runs to its limit and past it: it waits for the runner's TERM at the limit, not
-        # for a clock, then holds 1.5 s of the kill grace, so the retry costs at least limit + 1.5 s
-        # however loaded the host is.
-        trap 'sleep 1.5; exit 0' TERM
+        # for a clock, then holds 3 s of the 10 s kill grace. The perl stand-in's whole-second deadline
+        # can send TERM about 1 s early, so the retry costs at least 4 s, two 2 s limits, however
+        # loaded the host is.
+        trap 'sleep 3; exit 0' TERM
         sleep 60 &
         wait
         exit 0 ;;
@@ -302,19 +303,18 @@ class PerFileRunner(unittest.TestCase):
 
     def test_a_retry_running_to_its_limit_costs_the_next_file_nothing(self):
         """A retry's kill grace and upkeep run past its limit; a budget summed from the limits then
-        had too little left for the last file's retry. The first file's retry runs to its limit and
-        1.5 s into the kill grace (it waits for the runner's TERM, so no wall-clock race decides it:
-        a 1.9 s sleep inside the 2 s limit timed out on loaded glaeda Macs); the next file still
-        gets its retry and passes alone."""
-        files = ["test/a-timed-out-overrun-retry.test.ts", "test/b-timed-out-once.test.ts"]
+        had too little left for the last file's retry. Each file's retry runs to its limit and 3 s
+        into the kill grace (it waits for the runner's TERM, so no wall-clock race decides it: a 1.9 s
+        sleep inside the 2 s limit timed out on loaded glaeda Macs). Both overrun, so whichever
+        retries first, the other still gets its retry."""
+        files = ["test/a-timed-out-overrun-retry.test.ts", "test/b-timed-out-overrun-retry.test.ts"]
         result, _, calls = self.run_runner(files, extra_env={"CMUX_WEB_TEST_RETRIES": "60"})
         output = result.stdout + result.stderr
         for file in files:
             self.assertEqual(calls.count(f"./{file}"), 2, output)
+            self.assertIn(f"TIMEOUT {file} (limit 2s)", output)
         self.assertNotIn("cannot fit", output)
-        self.assertIn("TIMEOUT test/a-timed-out-overrun-retry.test.ts (limit 2s)", output)
-        self.assertIn("  test/b-timed-out-once.test.ts (first run: TIMEOUT)", output)
-        self.assertNotRegex(output, r"(FAIL|TIMEOUT) test/b-timed-out-once\.test\.ts \(limit")
+        self.assertEqual(output.count("RETRY "), 2, output)
 
     def test_no_retry_runs_past_the_retry_deadline(self):
         """CMUX_WEB_TEST_RETRY_DEADLINE keeps the step inside its job's timeout-minutes: a timeout
