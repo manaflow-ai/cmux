@@ -157,6 +157,8 @@ pub fn dispatch(ctx: &Context<'_>, args: &Args) -> Result<Output> {
         ["install"] => lifecycle::install(ctx, args),
         ["uninstall"] => lifecycle::uninstall(ctx, args),
         ["status"] => lifecycle::status(ctx, args),
+        ["up"] => lifecycle::up(ctx, args),
+        ["down"] => lifecycle::down(ctx, args),
         ["upgrade"] => lifecycle::upgrade(ctx, args),
         ["rollback"] => lifecycle::rollback(ctx, args),
         ["pin"] => lifecycle::pin(ctx, args),

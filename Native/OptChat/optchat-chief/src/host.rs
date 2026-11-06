@@ -824,7 +824,13 @@ fn start(
     // (and compactions') system text after everything above; subagents keep
     // the text without it (they are not this Chief). Its grant limits the
     // turn's tools (chief_profile.rs).
-    let chief_tools = Arc::new(load_chief_tools(&source, daemon_socket, &membership)?);
+    // `chiefs` create_channel goes through the app's control socket
+    // (chief_channel.rs): the daemon holds no cloud session.
+    let chief_tools = Arc::new(
+        load_chief_tools(&source, daemon_socket, &membership)?.with_channels(
+            crate::chief_channel::ChannelMaker::from_env(&|k: &str| env(k)),
+        ),
+    );
     let sub_instructions = instructions.clone();
     let instructions = chief_tools.instructions(instructions);
     // The optional coordinator contact belongs only to this Chief's turns;
