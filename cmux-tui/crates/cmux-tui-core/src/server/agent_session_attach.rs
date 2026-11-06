@@ -1376,7 +1376,9 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
             // The fork's id is this machine's acpmux answer, never the request's: follow and
             // remember it like a listed child, so `new-conversation-tab` admits its sibling tab
             // (a fork carries `parentId`, which the children walk does not read).
-            if let Some(id) = forked.get("sessionId").and_then(Value::as_str).filter(|id| !id.is_empty()) {
+            if let Some(id) =
+                forked.get("sessionId").and_then(Value::as_str).filter(|id| !id.is_empty())
+            {
                 attachment.follow_children(&[id.to_owned()]);
             }
             Ok(forked)
