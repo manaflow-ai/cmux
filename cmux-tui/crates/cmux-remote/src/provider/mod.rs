@@ -138,7 +138,9 @@ pub struct LinkRequest {
 ///
 /// Device authentication includes enrolled devices and invitation enrollment.
 /// Carrier authentication is restricted to transports whose local endpoint
-/// verifies the peer independently, currently Unix sockets and SSH.
+/// verifies the peer independently, currently Unix sockets and SSH. A carrier
+/// grant proves itself (a signed token bound to the client's Noise key), so
+/// every transport may carry one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SupportedClientAuthModes {
     DeviceOnly,
@@ -149,11 +151,11 @@ impl SupportedClientAuthModes {
     pub fn supports(self, auth: AuthKind) -> bool {
         // Keep both enums exhaustive so new modes require an explicit trust-boundary decision.
         match (self, auth) {
-            (Self::DeviceOnly, AuthKind::Enrolled | AuthKind::Invitation) => true,
+            (Self::DeviceOnly, AuthKind::Enrolled | AuthKind::Invitation | AuthKind::Grant) => true,
             (Self::DeviceOnly, AuthKind::Carrier) => false,
             (
                 Self::DeviceOrCarrier,
-                AuthKind::Enrolled | AuthKind::Invitation | AuthKind::Carrier,
+                AuthKind::Enrolled | AuthKind::Invitation | AuthKind::Carrier | AuthKind::Grant,
             ) => true,
         }
     }
@@ -315,6 +317,7 @@ impl fmt::Display for ProviderError {
                     AuthKind::Enrolled => "enrolled-device",
                     AuthKind::Invitation => "invitation",
                     AuthKind::Carrier => "carrier",
+                    AuthKind::Grant => "carrier-grant",
                 };
                 write!(
                     formatter,
