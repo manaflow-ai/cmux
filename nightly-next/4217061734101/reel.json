@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "build": "4217061734101",
+  "notes": "notes/4217061734101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 36974,
+      "title": "base red: nightly.yml parses again (a colon-space in the notary_test_import_part description)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36977,
+      "title": "fix(focus): a queued focus event keeps the menu-pick mark of the run that sent it (#36896)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36982,
+      "title": "fix(window-opacity): theme-setting tests use their own Ghostty values and run one at a time among themselves (#36891)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36360,
+      "title": "Agent chat: a link or name of another chat right-clicks and hovers like its sidebar row",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36948,
+      "title": "perf flags cleanup: Chromium pages always hosted, follow their pane every frame, never waited for (delete 8 browser resize switches)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36461,
+      "title": "docs: one link between your machines and phones (send a build, run, move)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36017,
+      "title": "cmux NEXT: a Command column-edge drag keeps the edge under the pointer; the strip camera no longer springs back after a change it cannot keep",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36991,
+      "title": "cmux-server pairing app_view: read the status and offer JSON with get, not index (panic-ratchet tip red since 2a0e7b815f8)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36989,
+      "title": "measure: hover preload bench shows each page it opens (tab.focus) and waits for it to load; refuses to time pages that never mounted",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36985,
+      "title": "cmux NEXT: a drag's mouse-up sends each terminal's newest grid to its program in that turn",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36984,
+      "title": "Cloud VM image: cloud-native-0bf7c32-rd022, cmux-tui 0bf7c32c with the desktop link and the updater holds, approved for every environment",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36935,
+      "title": "acpmux: plan checklist follow-ups from review",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36972,
+      "title": "cmux-host: the updater waits while a relay chat runs, so a fresh machine's first chat is never cut by its restart",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36956,
+      "title": "A hidden WebKit tab resizes once when it shows, not in every key-resize frame",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36957,
+      "title": "base red: bundled AppPlatform scopes.json catches up, and the base autofix syncs the bundled copies itself",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36959,
+      "title": "Sidebar row oracle: a no-intent press (film mode noswitch) is judged as instant; reports name their values' source",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36942,
+      "title": "cmux-vm: approve cloud-native-0e017c6-rd022 (golden cmux-tui + desktop link, cmux-rd 0.2.2) for development, staging and production",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36157,
+      "title": "cmux-next: an iPhone allowed once stays allowed (refused seal, expired session)",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    }
+  ]
+}
