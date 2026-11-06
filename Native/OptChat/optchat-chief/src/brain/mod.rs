@@ -55,6 +55,7 @@ mod spawn_text;
 pub use spawn_text::{NO_TEXT_TAG, no_text_note};
 mod spawns;
 mod steer;
+mod subagent_settings;
 mod transcript;
 mod turn_actions;
 mod turns;
@@ -212,8 +213,7 @@ pub enum Input {
         /// Its public id (`ws_…`), when the place can name it.
         ws: Option<String>,
     },
-    /// Workspace `key` is gone (it could not open, or a short task's idle
-    /// close closed it): the subagent stays hidden until `control show`.
+    /// Workspace `key` is gone (it could not open): the subagent stays hidden until `control show`.
     SubagentWorkspaceFailed {
         id: String,
         key: String,
@@ -934,9 +934,12 @@ pub struct Brain {
     /// Each running subagent's folded events (sub_watch.rs), by id: kept
     /// between ticks so each tick reads only the new events.
     watches: HashMap<String, crate::sub_watch::Watch>,
-    /// A finished subagent's workspace closes instead of taking the done
-    /// mark (`OPTCHAT_SUBAGENT_ON_FINISH=close`).
-    sub_close_on_finish: bool,
+    /// The user's cmux settings document for tests (`set_user_settings`);
+    /// None: read the user's file at each use (subagent_settings.rs).
+    user_settings: Option<Option<serde_json::Value>>,
+    /// The last `subagents.showWorkspaces` value and its source seen, so a
+    /// change is traced once (`setting.changed`).
+    last_show_workspaces: Option<(bool, &'static str)>,
     /// Auto-resume of subagents that stopped on an error (auto_resume.rs);
     /// None: off (`OPTCHAT_AUTO_RESUME=off`).
     resume_policy: Option<crate::auto_resume::ResumePolicy>,
@@ -1177,7 +1180,8 @@ impl Brain {
             max_live: None,
             clock: Arc::new(now_ms),
             watches: HashMap::new(),
-            sub_close_on_finish: false,
+            user_settings: None,
+            last_show_workspaces: None,
             resume_policy: Some(crate::auto_resume::ResumePolicy::default()),
             reach: Arc::new(crate::auto_resume::TcpProbe::from_env(
                 |k| std::env::var(k).ok(),
@@ -1326,10 +1330,10 @@ impl Brain {
         self.sign_ins.open_keys()
     }
 
-    /// Finished subagents' workspaces close (true) or stay with the done
-    /// mark (false, the default).
-    pub fn set_sub_close_on_finish(&mut self, close: bool) {
-        self.sub_close_on_finish = close;
+    /// The user's cmux settings document the subagent settings read
+    /// (tests); None: no file. Without this call the user's file is read.
+    pub fn set_user_settings(&mut self, doc: Option<serde_json::Value>) {
+        self.user_settings = Some(doc);
     }
 
     /// Moves subagent `id`'s run start back by `by` (tests of how long a run
@@ -1774,7 +1778,10 @@ impl Brain {
                 let _ = reply.send(self.set_setting(&key, &value));
             }
             Input::Settings { reply } => {
-                let _ = reply.send(self.chief.to_json());
+                let mut settings = self.chief.to_json();
+                settings["subagents"]["showWorkspaces"] =
+                    serde_json::Value::Bool(self.show_subagent_workspaces());
+                let _ = reply.send(settings);
             }
             Input::SpawnPolicy { reply } => {
                 let _ = reply.send(self.spawn_policy().map(str::to_owned));
@@ -2141,6 +2148,12 @@ impl Brain {
                 .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
             self.chief = next;
             (self.log)(&format!("setting {key} = {on}"));
+            let effective = self.show_subagent_workspaces();
+            if effective != on {
+                return Ok(format!(
+                    "{key} = {on} saved for this Chief, but the cmux settings file sets it to {effective}, which wins (Settings > Home > Subagents, or `cmux settings set {key} {on}`)"
+                ));
+            }
             return Ok(format!("{key} = {on}"));
         }
         if key == REPLY_THREADS {

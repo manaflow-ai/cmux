@@ -268,7 +268,8 @@ extension SettingsSchema {
     /// Keys an agent may not set or reset, with the reason.
     public static let agentRefusedKeys: [String: AgentRefusal] = Dictionary(uniqueKeysWithValues: OmnibarSettingsSchema.privacyKeys.map { ($0, AgentRefusal.privacy) })
         .merging(refusedTable) { first, _ in first }
-        // Which agents the Chief's subagents may run on (and so whose usage they spend): the person decides.
+        // Which agents the Chief's subagents may run on (and so whose usage they spend), and whether their
+        // workspaces show and close: the person decides.
         .merging(ChiefRoutingSettingsSchema.keys.map { ($0, AgentRefusal.userOnly) }) { first, _ in first }
         // Which subagents show in the sidebar is the person's to shape, not an agent's.
         .merging(ChiefSidebarSettingsSchema.keys.map { ($0, AgentRefusal.userOnly) }) { first, _ in first }

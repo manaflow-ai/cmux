@@ -48,13 +48,13 @@ pub trait Workspaces: Send + Sync {
     ) -> Result<String, String>;
     /// Renames the workspace `key`.
     fn rename(&self, key: &str, name: &str) -> Result<(), String>;
-    /// Closes the workspace `key` (`OPTCHAT_SUBAGENT_ON_FINISH=close`): it
+    /// Closes the workspace `key` (`subagents.closeFinishedWorkspaces`, `control hide`): it
     /// goes to the closed history; the agent session stays.
     fn close(&self, _key: &str) -> Result<(), String> {
         Err("closing is not supported here".into())
     }
     /// Closes workspace `key` only when none of its terminals runs a command:
-    /// Ok(true) closed, Ok(false) kept (a busy terminal). A short task's close.
+    /// Ok(true) closed, Ok(false) kept (a busy terminal).
     fn close_idle(&self, _key: &str) -> Result<bool, String> {
         Ok(false)
     }

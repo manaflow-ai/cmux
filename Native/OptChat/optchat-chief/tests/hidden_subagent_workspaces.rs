@@ -268,6 +268,38 @@ fn the_setting_opts_back_into_a_workspace_per_subagent() {
     assert_eq!(workspace(&h, "a2"), None);
 }
 
+/// The Settings window, `cmux settings set` and the palette write
+/// `subagents.showWorkspaces` to the user's cmux settings file. Before
+/// 2026-11-05 the host read only its own `optchat/settings.json`, so a value
+/// set there was never read and subagents ran hidden "on their own".
+#[test]
+fn the_cmux_settings_file_value_shows_workspaces_and_wins() {
+    let recorder = Arc::new(Recorder::default());
+    let (mut h, sp) = setup(&recorder, None);
+    h.brain.set_user_settings(Some(
+        serde_json::json!({"subagents": {"showWorkspaces": true}}),
+    ));
+    let answer = spawn(&mut h, &sp, "Title: Sidebar row gap\nsay hello");
+    assert_eq!(recorder.opened.lock().unwrap().len(), 1, "{answer}");
+    assert!(workspace(&h, "a1").is_some());
+
+    // The per-Chief value saying false does not hide it: the user file wins,
+    // and the answer says so.
+    let said = h
+        .brain
+        .set_setting("subagents.showWorkspaces", "false")
+        .unwrap();
+    assert!(said.contains("wins"), "{said}");
+    let answer = spawn(&mut h, &sp, "Title: Feed chip taps\nsay hello");
+    assert_eq!(recorder.opened.lock().unwrap().len(), 2, "{answer}");
+
+    // Removed from the user file: the per-Chief value applies again.
+    h.brain.set_user_settings(Some(serde_json::json!({})));
+    let answer = spawn(&mut h, &sp, "Title: Toolbar sizes\nsay hello");
+    assert!(answer.contains("hidden"), "{answer}");
+    assert_eq!(recorder.opened.lock().unwrap().len(), 2);
+}
+
 #[test]
 fn a_late_automatic_workspace_open_cannot_undo_hide() {
     for (policy, show) in [("approve-all", Some("true")), ("ask", None)] {
