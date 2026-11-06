@@ -226,13 +226,24 @@ export type LoadTickOptions = {
   /// Scroll speed in points per second, and how far up it goes before it turns back, in viewports.
   scroll_speed?: number;
   scroll_depth?: number;
+  /// What scrolls: the transcript (`chat`, the default) or Session Info's own body (`session-info`).
+  scroll_target?: "chat" | "session-info";
 };
+
+/// The Session Info parts counted while `loadTick` runs (SessionInfo.tsx `useCountedRender`): its
+/// presence (placement and lists), its panel frame and its memoized sections.
+const SESSION_INFO_PARTS = ["presence", "panel", "sections"] as const;
 
 /// `debug.agent_pane load_tick`: the reader scrolls up into the history and back while one tool call
 /// runs (its output and the live line tick) and another chat in the list changes, with no reply text.
 /// A history row's content never changes over the run, so each of its renders past its mount is
 /// waste, and a remount (unmounted and mounted in one commit) redraws it from nothing: what the
 /// reader sees as a flicker. Reports both per second, with the busiest history rows.
+///
+/// With Session Info shown it counts the panel's committed renders and its DOM mutations over the
+/// run too: a scroll changes nothing the panel shows, so a frame that draws it again is waste.
+/// `tick_ms: 0` runs no tool call and changes no chat (the scroll alone, for `seconds`), and
+/// `scroll_target: "session-info"` scrolls the panel's body instead of the transcript.
 export async function loadTick(
   host: { sessionId(): string | undefined; rowIds(): string[] },
   options: LoadTickOptions = {},
@@ -240,26 +251,48 @@ export async function loadTick(
   const mock = MockAcpmuxSocket.live;
   const session = host.sessionId();
   if (!mock || !session) return { error: "no load session (run load_seed first)" };
-  const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
-  if (!scroller) return { error: "no transcript" };
+  const transcript = document.querySelector<HTMLElement>(".acpmux-scroll");
+  if (!transcript) return { error: "no transcript" };
+  const panel = document.querySelector<HTMLElement>("aside.acpmux-session-info");
+  const panelTarget = options.scroll_target === "session-info";
+  const scroller = panelTarget ? panel?.querySelector<HTMLElement>(".acpmux-session-info__body") : transcript;
+  if (!scroller) return { error: "no Session Info body to scroll" };
+  if (panelTarget && scroller.scrollHeight <= scroller.clientHeight)
+    return { error: "Session Info's body does not scroll (open more sections)" };
   acpmuxPerf.enable();
   const seconds = Math.max(1, options.seconds ?? 6);
   const speed = Math.max(0, options.scroll_speed ?? 2400);
   const depth = Math.max(0.5, options.scroll_depth ?? 12);
   const initial = new Set(host.rowIds());
-  const requested = userScrollIntent(scroller).request();
+  const requested = panelTarget ? () => true : userScrollIntent(scroller).request();
   scroller.scrollTop = scroller.scrollHeight;
   for (let index = 0; index < 30; index += 1) await frame();
   acpmuxPerf.resetRenders();
-  const started = performance.now();
-  const ticking = mock.tickLoadTurn(session, {
-    seconds,
-    tickMs: Math.max(16, options.tick_ms ?? 100),
-    sidebarMs: Math.max(0, options.sidebar_ms ?? 250),
+  // DOM changes in the panel over the run, and how many of them were the scroll mark (scrollers.ts
+  // `data-cmux-scrolling`), which a scroll of the panel's own body sets.
+  let mutations = 0;
+  let scrollMarks = 0;
+  const watch = new MutationObserver((records) => {
+    mutations += records.length;
+    for (const record of records) if (record.attributeName === "data-cmux-scrolling") scrollMarks += 1;
   });
+  if (panel) watch.observe(panel, { subtree: true, childList: true, attributes: true, characterData: true });
+  const started = performance.now();
+  const tickMs = options.tick_ms ?? 100;
+  const ticking =
+    tickMs > 0
+      ? mock.tickLoadTurn(session, {
+          seconds,
+          tickMs: Math.max(16, tickMs),
+          sidebarMs: Math.max(0, options.sidebar_ms ?? 250),
+        })
+      : new Promise<{ ticks: number; sidebar: number }>((resolve) =>
+          setTimeout(() => resolve({ ticks: 0, sidebar: 0 }), seconds * 1000),
+        );
   let done = false;
   void ticking.then(() => (done = true));
-  const span = depth * scroller.clientHeight;
+  // The panel's body scrolls its whole height and back; the transcript `depth` viewports.
+  const span = panelTarget ? scroller.scrollHeight - scroller.clientHeight : depth * scroller.clientHeight;
   let offset = 0;
   let direction = speed > 0 ? 1 : 0;
   let previous: number | undefined;
@@ -282,6 +315,18 @@ export async function loadTick(
   }
   const elapsed = (performance.now() - started) / 1000;
   const ticked = await ticking;
+  for (const record of watch.takeRecords()) {
+    mutations += 1;
+    if (record.attributeName === "data-cmux-scrolling") scrollMarks += 1;
+  }
+  watch.disconnect();
+  const sessionInfo = panel
+    ? {
+        ...Object.fromEntries(SESSION_INFO_PARTS.map((part) => [part, acpmuxPerf.renders.get(`session-info:${part}`) ?? 0])),
+        mutations,
+        scroll_marks: scrollMarks,
+      }
+    : undefined;
   const count = (prefix: string, only?: Set<string>) => {
     let total = 0;
     const byRow = new Map<string, number>();
@@ -316,6 +361,9 @@ export async function loadTick(
     ...ticked,
     seconds: round2(elapsed),
     frames,
+    scroll_target: panelTarget ? "session-info" : "chat",
+    scrolled_px: Math.round(span),
+    session_info: sessionInfo,
     history_rows: history.size,
     history_mounts: mounts.total,
     history_mounts_per_s: perSecond(mounts.total),

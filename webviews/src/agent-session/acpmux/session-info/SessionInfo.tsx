@@ -53,6 +53,7 @@ import { useChatCut } from "./chatCut";
 import { chatGlass, chatUnderGlass } from "../chatUnderGlass";
 import { usePresence, type Presence } from "../../../ui/presence";
 import { useChatDisplay } from "../chatDisplay";
+import { useCountedRender } from "../perfRender";
 import { CHAT_LAYOUT_EVENT, chatColumnOf, useChatSizing, type ChatColumn } from "../chatWidth";
 import { FIND_HIDE_EVENT, FIND_OPEN_EVENT } from "../conversation/chatFind";
 import { PanelToggle } from "../header/PanelToggle";
@@ -1007,6 +1008,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   scope?: SubagentScope;
 }) {
   onRender?.();
+  useCountedRender("session-info:presence");
   const { width, sections } = useSessionInfoState(chat);
   const native = useNativeSessionInfoHost();
   const t = useT();
@@ -1613,6 +1615,7 @@ export function SessionInfoPanel({
   chrome?: "title" | "close" | "compact-close";
   children: ReactNode;
 }) {
+  useCountedRender("session-info:panel");
   const t = useT();
   const frame = useRef<HTMLElement | null>(null);
   const drag = useRef<{ right: number } | undefined>(undefined);
@@ -1768,6 +1771,7 @@ const toolCallIds = (rows: readonly AcpmuxRow[]): ReadonlySet<string> =>
 /// same lists while they hold the same things, so a streamed token, a tool call that makes nothing or a
 /// usage tick draws nothing here.
 const SessionInfoSections = memo(function SessionInfoSections(props: Parameters<typeof SessionInfo>[0]) {
+  useCountedRender("session-info:sections");
   return <SessionInfo {...props} />;
 });
 
