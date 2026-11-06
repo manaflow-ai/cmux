@@ -38,7 +38,7 @@ final class HomeChiefReactionRows: NSStackView {
         canWake.action = #selector(pickedWake(_:))
         canWake.font = Typography.body
         canWake.setAccessibilityLabel(HomeEngineStrings.reactionsCanWake)
-        add(Self.stacked(HomeEngineStrings.reactionsCanWake, canWake, width: width))
+        add(HomeChiefSettingsView.row(HomeEngineStrings.reactionsCanWake, canWake))
         add(disclosureRow())
         for (field, title, action) in [(harness, HomeEngineStrings.reactionHarness, #selector(editedHarness(_:))),
                                        (model, HomeEngineStrings.reactionModel, #selector(editedModel(_:))),
@@ -50,7 +50,7 @@ final class HomeChiefReactionRows: NSStackView {
             field.font = Typography.body
             field.setAccessibilityLabel(title)
             let box = ThemedFieldBox(field: field, height: Metrics.controlHeight)
-            let row = Self.stacked(title, box, width: width)
+            let row = HomeChiefSettingsView.row(title, box)
             row.translatesAutoresizingMaskIntoConstraints = false
             classifierRows.append(row)
         }
@@ -82,8 +82,8 @@ final class HomeChiefReactionRows: NSStackView {
         }
     }
 
-    /// The closed disclosure over the classifier's fields: a triangle and its title, one click target,
-    /// as the card's Diagnostics.
+    /// The closed disclosure over the classifier's fields: its title at the column's edge, then the
+    /// triangle, one click target, as the card's Diagnostics.
     private func disclosureRow() -> NSView {
         classifierToggle.setButtonType(.pushOnPushOff)
         classifierToggle.bezelStyle = .disclosure
@@ -98,7 +98,7 @@ final class HomeChiefReactionRows: NSStackView {
         title.refusesFirstResponder = true
         title.ink = .secondary
         title.textFont = Typography.body
-        let row = NSStackView(views: [classifierToggle, title])
+        let row = NSStackView(views: [title, classifierToggle])
         row.orientation = .horizontal
         row.alignment = .centerY
         row.spacing = Metrics.space1
@@ -111,24 +111,6 @@ final class HomeChiefReactionRows: NSStackView {
 
     @objc func clickedClassifierTitle() {
         showsClassifier.toggle()
-    }
-
-    /// A title over its control, both the block's whole width: the card's label column (beside a
-    /// 188 pt picker) cut these titles off ("Can Wake the…"), and longer locales more so. The title
-    /// wraps instead of truncating.
-    static func stacked(_ title: String, _ control: NSView, width: CGFloat) -> NSView {
-        let label = ThemedLabel(wrappingLabelWithString: title)
-        label.font = Typography.body
-        label.preferredMaxLayoutWidth = width
-        label.translatesAutoresizingMaskIntoConstraints = false
-        control.translatesAutoresizingMaskIntoConstraints = false
-        let column = NSStackView(views: [label, control])
-        column.orientation = .vertical
-        column.alignment = .leading
-        column.spacing = Metrics.space1
-        label.widthAnchor.constraint(equalTo: column.widthAnchor).isActive = true
-        control.widthAnchor.constraint(equalTo: column.widthAnchor).isActive = true
-        return column
     }
 
     @available(*, unavailable)

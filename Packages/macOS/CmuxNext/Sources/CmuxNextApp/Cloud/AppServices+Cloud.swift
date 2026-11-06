@@ -4,6 +4,7 @@ import CmuxNextCloud
 import CmuxNextCloudUI
 import CmuxNextDaemon
 import CmuxNextHomeEngine
+import CmuxNextHostedChief
 import CmuxNextPhone
 import CmuxNextMobile
 import CmuxNextMobileHost
@@ -38,19 +39,9 @@ extension AppServices {
         }
     }
 
-    /// Open Desktop's native viewer: Cloud machine `machine`'s websockify port (6901, next to its
-    /// noVNC) over this Mac's own Cloud tunnel, with the hub's client token; no port opens on this
-    /// Mac. Nil when the tunnel cannot reach it (signed out, the machine without an address).
+    /// Cloud machine `machine`'s desktop over this Mac's own Cloud tunnel (``RemoteViewPageSession/cloudDesktopTransport(hub:address:)``).
     func cloudDesktopTransport(machine: String) -> (@Sendable () async throws -> RemoteViewPageSession.CloudDesktopStream)? {
-        guard let hub = remoteLocalhost.cloudTunnelSocket, let address = machines.cloudTunnelAddress(machine: machine),
-              let opener = HubLoopbackOpener(hub: hub, address: address) else { return nil }
-        return {
-            let tunnel = try await opener.openTunnel(host: "localhost", port: 6901)
-            let reader = LoopbackTunnelReader(tunnel)
-            return RemoteViewPageSession.CloudDesktopStream(read: { try await reader.read() },
-                                                            write: { try await tunnel.write($0) },
-                                                            close: { tunnel.close() })
-        }
+        RemoteViewPageSession.cloudDesktopTransport(hub: remoteLocalhost.cloudTunnelSocket, address: machines.cloudTunnelAddress(machine: machine))
     }
 
     /// The daemon handlers command: while an action runs, the machine that
@@ -216,5 +207,30 @@ extension AppServices {
         // An account transition during either actor hop invalidates the whole answer.
         guard cloud.auth.isSignedIn, cloud.auth.user?.id == user, cloud.auth.teamID == selectedTeam else { return MobileHostCloudLinks() }
         return MobileHostCloudLinks(paid: machines.cloudLimits?.paysForCloud ?? false, desktops: settings?.snapshot.sessions.phoneSeesCloudDesktop == true, links: result)
+    }
+}
+
+// The profile's Computer tab's control source (Chief computer take-over): who drives the Chief's
+// computer and the person's Take Over / Give Back. The view never talks to a transport itself.
+extension AppServices {
+    /// `agent` (a Cloud Chief's `agent_…` id): its own sandbox, whose lease the Worker owns. Else
+    /// `machine` (a Cloud machine id attached to a Chief on this Mac): its lease in the app's
+    /// ``ChiefComputerControlStore``, driven through Open Desktop. Nil when neither names one.
+    @MainActor
+    func chiefComputerControlSource(agent: String?, machine: String?) -> HomeChiefComputerControlSource? {
+        if let agent, ChiefComputerControlClient.isAgentID(agent) {
+            return .sandbox(agent: agent, store: cloud.computerControl, client: ChiefComputerControlClient(send: home.hostedChief.brainRoute))
+        }
+        guard let machine, let id = ChiefComputerControlStore.machineKey(machine) else { return nil }
+        return .machine(id, store: cloud.computerControl, openInteractive: { [weak self] in self?.openChiefComputerDesktop(machine: machine) })
+    }
+
+    /// Open Desktop (`cloudOpenDesktop`) as the person's own run: the native viewer (the app's VNC
+    /// client, input-capable) where this build has it, else the browser viewer.
+    @MainActor
+    func openChiefComputerDesktop(machine: String) {
+        let viewer = RemoteViewAvailability().isAvailable ? "native" : "web"
+        _ = registry.perform("cloudOpenDesktop", invocation: ActionInvocation(
+            target: ActionTargetRef(kind: .machine, id: machine), arguments: ["viewer": .string(viewer)], origin: .user))
     }
 }

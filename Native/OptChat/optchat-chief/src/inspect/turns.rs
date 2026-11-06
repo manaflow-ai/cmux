@@ -97,9 +97,11 @@ pub fn turn_prompt(chat: &OptChat, start: &Value, system_text: &str) -> TurnProm
     }
     // The turn's subagents-at-work line and its Home workspace block went before its messages.
     let at_work = start["layout"]["at_work"].as_str();
+    let computer = start["layout"]["computer"].as_str();
     let home = start["layout"]["home_workspace"].as_str();
     let tail = at_work
         .into_iter()
+        .chain(computer)
         .chain(home)
         .chain(messages.iter().map(|m| m.2.as_str()))
         .collect::<Vec<_>>()
@@ -157,6 +159,7 @@ pub fn turn_prompt(chat: &OptChat, start: &Value, system_text: &str) -> TurnProm
     let input_tail = || {
         at_work
             .into_iter()
+            .chain(computer)
             .chain(home)
             .chain(
                 start["layout"]["resumes"]

@@ -12,7 +12,9 @@ import UniformTypeIdentifiers
 /// and a picture or GIF dropped anywhere on the grid is uploaded (`onDrop`).
 @MainActor
 final class ChiefPetMascotGrid: NSStackView {
-    static let columns = 5
+    /// Six fill the settings card's control column (6 × 28 + 5 × 2 = 178 of 188 pt): the characters and
+    /// the upload cell make three full rows.
+    static let columns = 6
     /// The upload cell's id, never a character's.
     static let uploadID = "upload"
     /// What a click on a character runs, with the character's id (a `ChiefPetMascot` raw value).

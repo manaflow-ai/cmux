@@ -54,6 +54,26 @@ extension HomeNativeTranscriptView {
         transcript.rowsTopClearance = shown > 0 ? max(0, frame.maxY - transcript.headerHeight + 4) : 0
     }
 
+    /// Shows `view` floating at the chat's top right, over the transcript, under the header and any
+    /// pinned section, so no message moves. It keeps its own hidden state; nil removes it.
+    public func setFloatingAccessory(_ view: NSView?) {
+        floatingAccessory?.removeFromSuperview()
+        floatingAccessory = view
+        if let view {
+            view.translatesAutoresizingMaskIntoConstraints = true
+            addSubview(view, positioned: .below, relativeTo: noticeLabel)
+        }
+        needsLayout = true
+    }
+
+    func layoutFloatingAccessory() {
+        guard let view = floatingAccessory else { return }
+        let size = view.fittingSize
+        let top = (pinned?.view.frame.maxY ?? transcript.headerHeight) + 8
+        let frame = CGRect(x: bounds.width - size.width - 12, y: top, width: size.width, height: size.height)
+        if view.frame != frame { view.frame = frame }
+    }
+
     /// The pinned section's widest.
     static let pinnedSectionMaxWidth: CGFloat = 640
 }

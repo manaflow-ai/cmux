@@ -319,8 +319,8 @@ final class ShellModel {
             }
             StreamedBrowserDirectory.shared.opener = { [weak live] in await live?.browserLink() }
             StreamedBrowserDirectory.shared.macOpener = { [weak live] macID in await live?.browserLink(macID: macID) }
-            // Chief info's Computer card reads the connected Mac's Cloud directory.
-            ChiefComputer.shared.source = live
+            // Chief info's Computer card reads the Cloud Chief's computer as the signed-in owner.
+            ChiefComputer.shared.source = ChiefSources.shared
             creator.onTabResolved = { from, to in StreamedBrowserDirectory.shared.rename(tab: from, to: to) }
             // Browser tabs opened on this iPhone follow the Macs' tab lists.
             StreamedBrowserDirectory.shared.tabsRetained = { NativeBrowserTabs.shared.retain(tabs: $0) }

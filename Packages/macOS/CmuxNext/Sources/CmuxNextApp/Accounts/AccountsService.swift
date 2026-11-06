@@ -17,6 +17,8 @@ final class AccountsService: AccountsServices {
     unowned let services: AppServices
     private(set) lazy var model = AccountsModel(services: self)
     private(set) lazy var github = GitHubConnections.live(auth: services.cloud.auth, ownerAPI: services.cloud.configuration.ownerAPIBaseURL(), preview: services.environment.showcase || fixtureHome != nil)
+    /// The Chief's Gmail and Google Calendar connections (cmux issue 34263), on the same sign-in and owner API.
+    private(set) lazy var chiefConnections = ChiefConnections.live(auth: services.cloud.auth, ownerAPI: services.cloud.configuration.ownerAPIBaseURL(), preview: services.environment.showcase || fixtureHome != nil)
     let keys: any ProviderKeyStoring
     /// The per-user salt behind every `acct_…` handle (Keychain, read once off the main actor).
     let labels: AccountLabelerStore
