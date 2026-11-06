@@ -666,9 +666,15 @@ function settleNextSteps(out: AcpmuxRow[], cards: NextStepAt[], from: number): n
     if (!row.nextStep!.ask.question) continue;
     const claim = answerClaim(askKey(row));
     if (!claim) continue;
+    let before = claim.seen ?? 0;
     for (let later = at + 1; later < out.length; later += 1) {
-      if (claimed.has(later) || personPrompt(out[later]!) !== claim.text) continue;
-      if (out[later]!.at < claim.at - CLAIM_SLACK_MS) continue;
+      if (personPrompt(out[later]!) !== claim.text) continue;
+      if (before > 0) {
+        before -= 1;
+        continue;
+      }
+      if (claimed.has(later)) continue;
+      if (claim.seen === undefined && out[later]!.at < claim.at - CLAIM_SLACK_MS) continue;
       claimed.set(later, index);
       own.set(index, later);
       break;
@@ -737,9 +743,8 @@ export function waitingAsks(view: Pick<TurnView, "nextSteps" | "rows">): readonl
     const card = rows[at];
     const step = card?.nextStep;
     if (!card || !step) continue;
-    if (step.superseded) break;
-    // Answered, or the person said something after it: it leaves the pin, its card stays answerable.
-    if (!step.ask.question || step.answer !== undefined || spoke) continue;
+    // Answered, taken over, or the person said something after it: it leaves the pin, its card stays answerable.
+    if (!step.ask.question || step.answer !== undefined || step.superseded || spoke) continue;
     waiting.push(card);
   }
   if (!waiting.length) return NO_ASKS;
