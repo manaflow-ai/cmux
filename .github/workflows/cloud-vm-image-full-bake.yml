@@ -33,7 +33,7 @@ jobs:
             const { owner, repo } = context.repo;
             const source = 'feat-cmux-next';
             const workflow = 'cloud-vm-image-bake.yml';
-            for (const status of ['queued', 'in_progress']) {
+            for (const status of ['requested', 'waiting', 'pending', 'queued', 'in_progress']) {
               const { data } = await github.rest.actions.listWorkflowRuns({
                 owner, repo, workflow_id: workflow, branch: source, status, per_page: 5,
               });
