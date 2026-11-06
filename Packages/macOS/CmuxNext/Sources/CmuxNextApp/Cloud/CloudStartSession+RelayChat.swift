@@ -146,11 +146,9 @@ extension CloudStartSession {
     static func relayFields(_ answer: CloudRelayChat.Answer, machineID: String) -> [String: ActionResultValue] {
         var fields: [String: ActionResultValue] = ["machine_id": .string(machineID), "reply": .string(answer.reply), "queued": .bool(answer.queued),
                                                    "ended": .bool(answer.ended), "delivered": .bool(answer.delivered)]
-        let texts = ["session_id": answer.session, "prompt_id": answer.promptID, "stop_reason": answer.stopReason,
-                     "error_code": answer.errorCode, "error_message": answer.errorMessage]
+        let texts = ["session_id": answer.session, "prompt_id": answer.promptID, "stop_reason": answer.stopReason, "error_code": answer.errorCode, "error_message": answer.errorMessage]
         for case let (key, text?) in texts { fields[key] = .string(text) }
-        if let first = answer.firstText { fields["first_text_ms"] = .int(Int(first / .milliseconds(1))) }
-        if let total = answer.total { fields["total_ms"] = .int(Int(total / .milliseconds(1))) }
+        for case let (key, time?) in ["first_text_ms": answer.firstText, "total_ms": answer.total] { fields[key] = .int(Int(time / .milliseconds(1))) }
         return fields
     }
 }
