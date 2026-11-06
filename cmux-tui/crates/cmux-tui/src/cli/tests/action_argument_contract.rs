@@ -834,6 +834,13 @@ fn open_remote_focus_reaches_the_action() {
         assert_eq!(params["args"]["focus"], serde_json::json!(want), "{tail:?}: {params}");
         assert_eq!(params["focus"], serde_json::json!(want), "{tail:?}: {params}");
     }
+    // `--focus=no` is refused, never read as true.
+    let refused = super::super::app::run_action(
+        "open-remote",
+        &["--host".to_owned(), "h".to_owned(), "--focus=no".to_owned()],
+        super::super::app::ActionName::Cli,
+    );
+    assert!(refused.is_err(), "--focus=no must be a usage error");
     // An action without a `focus` argument keeps `--focus` as the run's focus only.
     let params = encoded(&[
         "workspace".to_owned(),

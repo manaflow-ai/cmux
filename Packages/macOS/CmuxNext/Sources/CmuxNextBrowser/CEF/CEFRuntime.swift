@@ -138,7 +138,6 @@ final class CEFRuntime {
     }
     /// The one display-change observer (`CEFLayerHosting.displaysChanged` caps each resize wait). Made when CEF is ready.
     private var displayObservation: MainActorObservation?
-    let hostingSwitch = CEFHostingSwitch() // takes a hosting switch flip to the shown pages at once
     /// True when `--load-extension` is in use (development, verification).
     private(set) var loadsUnpackedExtensions = false
     /// `browser.builtInAdBlocker`, asked at start (the App supplies it).
@@ -431,7 +430,7 @@ final class CEFRuntime {
             builtInExtensions: builtInPlan.folders, keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled,
             // Debug Settings (DEV and NIGHTLY), read when Chromium starts: on the first page, well after
             // the override file loaded; Release keeps the default.
-            asyncLiveResize: BrowserResizeTunables.dragResizeAtLaunch != .synced
+            asyncLiveResize: true
         )
         builtInAdBlockerLoaded = !switchSet.builtInExtensions.isEmpty
         logger.notice("built-in extensions: \(switchSet.builtInExtensions.count, privacy: .public)")

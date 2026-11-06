@@ -610,8 +610,20 @@ pub(super) fn run_action(
                 arguments.insert(key.into(), json!(value));
             }
             // `--focus=false` for an action with a `focus` argument: the argument, and the run's own focus.
+            // Any other value is a usage error, never a silent `true`.
             "focus" if super::action_hint::action_takes_argument(action, "focus") => {
-                let on = value.as_str().is_none_or(|text| !text.eq_ignore_ascii_case("false"));
+                let on = match value.as_str() {
+                    None | Some("true") => true,
+                    Some("false") => false,
+                    Some(text) => {
+                        return Err(UsageError::new(
+                            messages
+                                .flag_bool
+                                .replace("{flag}", "--focus")
+                                .replace("{value}", text),
+                        ));
+                    }
+                };
                 params.insert("focus".into(), json!(on));
                 arguments.insert("focus".into(), json!(on));
             }

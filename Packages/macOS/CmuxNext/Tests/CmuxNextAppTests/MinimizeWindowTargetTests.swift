@@ -2,13 +2,14 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextActions
 @testable import CmuxNextDaemon
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
 /// `minimizeWindow --target window:<id>` (an agent's `cmux` call, the hidden-tab matrix) minimizes
 /// the window it names, not the active one: it minimized whichever window was in front, so a
 /// background window never minimized and the person's own window went to the Dock.
-@MainActor @Suite(.serialized) struct MinimizeWindowTargetTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct MinimizeWindowTargetTests {
     @Test func minimizeWindowMinimizesItsTargetNotTheActiveWindow() async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
