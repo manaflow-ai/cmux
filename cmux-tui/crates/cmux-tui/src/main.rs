@@ -3127,7 +3127,7 @@ fn start_detached_owner_session(
         match staged_update::run_installed(binary) {
             Ok(code) => client_log::exit(code),
             Err(error) => {
-                client_log::warn("staged-update", &format!("run the installed build: {error}"))
+                client_log::warn("staged-update", &format!("run the installed build: {error}"));
             }
         }
     }
