@@ -62,6 +62,14 @@ work: `acpmux host` (and `hosts`, `peer`), `host place`, `host vm-host` and the 
 | The shadow admission verdict for host readings given as JSON on stdin; defers nothing (inputs: `cmux-host-budget/testdata/shadow-verdict-v2.json`) | `acpmux machine verdict --json` |
 | Add one muted line to every live chat here | `acpmux machine notice --text TEXT` |
 
+Every placement (`new --machine auto`, `dispatch --machine auto`, `machine pick`, a sub-session's
+host `auto`) and every session create also logs the shadow admission verdict (cmuxterm-hq#7342)
+next to its pick: one info line `shadow-admission {JSON}` in the daemon's log (`daemon.log`, or
+`journalctl --user -u acpmux.service` under systemd). The JSON has `ts`, `site`, `pick`, the
+pick's `would_defer`, `reason`, `inputs_digest`, `formula_version`, and `hosts`. Nothing is
+deferred on it. `daemon status --json` lists each host's last verdict as `shadowAdmission`, and
+`acpmux ls` ends with a `HOST: would-defer: REASON` line for each host whose verdict would defer.
+
 Screen and control consent, an allow, and turning Full access on are the person's: the daemon takes
 them only from the cmux app, never from a shell or an agent.
 
