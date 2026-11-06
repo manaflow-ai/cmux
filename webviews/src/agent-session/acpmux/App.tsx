@@ -7739,13 +7739,18 @@ function AcpmuxPane() {
             harnessSwitch.cancel();
             const target = await client.continueIn(String(harness));
             if (!target) return target;
-            if (typeof model === "string" && model)
-              void harnessSwitch.pickModel(model, { sessionId: target }).then(async (landed) => {
-                if (!landed || client.selectedSession !== target) return;
+            // Landed before the review is ready, so Start never runs the message on the new chat's
+            // default model; a model that did not land keeps the pick and the message in the
+            // composer (review of #37196, F1). The pick's own notice says why.
+            if (typeof model === "string" && model) {
+              // l10n-allow: the composer's promise only; the person sees the pick's own notice.
+              if (!(await harnessSwitch.pickModel(model, { sessionId: target }))) throw new Error("model not set");
+              if (client.selectedSession === target) {
                 if (typeof effort === "string" && effort)
                   await client.setConfig(HELD_EFFORT_ID, effort).catch(() => undefined);
                 if (fast === true) await client.setConfig(HELD_FAST_ID, HELD_FAST_ON).catch(() => undefined);
-              });
+              }
+            }
             const record = client.handoff.state.record;
             if (typeof message === "string" && message.trim() && record?.target.sessionId === target) {
               await client.saveHandoff({

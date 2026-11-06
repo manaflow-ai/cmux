@@ -476,16 +476,15 @@ export function ComposerPickers({
   const switching = snapshot.switching !== undefined;
   // A started chat that can fork holds a pick of another harness's model as its next message's
   // target (forkHold.ts; Leo 2026-11-06: "it should only need to necessarily fork when you enter a
-  // message on that new model"). Leaving the chat drops its held pick.
+  // message on that new model"). Leaving the chat, the composer closing, or the chat losing its
+  // fork drops its held pick, so none comes back when the chat shows again (review of #37196, F2).
   const sessionId = summary?.sessionId;
   const forks = locked && fork !== undefined && sessionId !== undefined;
   const held = useHeldFork(forks ? sessionId : undefined);
-  const heldFor = useRef(sessionId);
   useEffect(() => {
-    const left = heldFor.current;
-    heldFor.current = sessionId;
-    if (left !== sessionId) clearHeldFork(left);
-  }, [sessionId]);
+    if (!forks || !sessionId) return;
+    return () => clearHeldFork(sessionId);
+  }, [forks, sessionId]);
   const hold = (picked: { harness: string; model?: string; effort?: string; fast?: boolean }) => {
     if (!forks || !sessionId || (fork?.targets && !fork.targets.includes(picked.harness))) return;
     holdFork({

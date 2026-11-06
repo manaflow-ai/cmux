@@ -288,6 +288,19 @@ test("picking the chat's own model again drops the held pick", async () => {
   expect(forkMark()).toBeNull();
 });
 
+test("a held pick goes with the composer: none comes back when the chat shows again", async () => {
+  await mount(1, {});
+  await open();
+  await showTab("Codex");
+  await act(async () => menu()!.querySelector<HTMLElement>('.acpmux-quick-list [role="menuitemradio"]')!.click());
+  await settle();
+  expect(await heldHarness()).toBe("codex");
+  // Review of #37196, F2: the hold outlived the composer that drew it.
+  await act(async () => root!.unmount());
+  root = undefined;
+  expect(await heldHarness()).toBeUndefined();
+});
+
 test("a harness Continue In… can't take is never held", async () => {
   await mount(1, { targets: ["claude-work"] });
   await open();
