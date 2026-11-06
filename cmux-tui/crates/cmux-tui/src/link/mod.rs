@@ -172,14 +172,7 @@ fn run_link(args: &[String]) -> anyhow::Result<()> {
         "peer" => run_peer(rest),
         "serve" => run_serve(&flags(
             rest,
-            &[
-                "--state-dir",
-                "--session-socket",
-                "--server-config",
-                // Accepted and unused: the app's launcher still passes it.
-                "--credential-socket",
-                "--ready-fd",
-            ],
+            &["--state-dir", "--session-socket", "--server-config", "--ready-fd"],
         )?),
         "ensure" => {
             // `--handoff` is the one flag without a value.
@@ -189,15 +182,7 @@ fn run_link(args: &[String]) -> anyhow::Result<()> {
             ensure::run_ensure(
                 &flags(
                     &rest,
-                    &[
-                        "--state-dir",
-                        "--install",
-                        "--port",
-                        "--session-socket",
-                        "--server-config",
-                        // Accepted and unused: the app's launcher still passes it.
-                        "--credential-socket",
-                    ],
+                    &["--state-dir", "--install", "--port", "--session-socket", "--server-config"],
                 )?,
                 handoff,
             )
