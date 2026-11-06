@@ -57,6 +57,31 @@ export const OPS = {
   copy: "cmux.app.clipboard.write",
 } as const;
 export const ORIGINS: Origin[] = ["grok-bot", "muse", "dots", "instinct"];
+/** One row per provider: its local sources are sub-checkboxes under one checkbox for the provider. */
+export interface ProviderGroup {
+  id: "claude-local" | "codex-local";
+  agent: "claude" | "codex";
+  members: readonly RowID[];
+}
+export const PROVIDER_GROUPS: readonly ProviderGroup[] = [
+  { id: "claude-local", agent: "claude", members: ["claude-code", "claude-memory"] },
+  { id: "codex-local", agent: "codex", members: ["codex", "codex-sessions"] },
+];
+/** The group whose first member is `id`; the group draws there, in place of all its members. */
+export function groupStartingAt(id: RowID): ProviderGroup | undefined {
+  return PROVIDER_GROUPS.find((group) => group.members[0] === id);
+}
+export function inGroup(id: RowID): boolean {
+  return PROVIDER_GROUPS.some((group) => group.members.includes(id));
+}
+/** A local source can be picked only once this Mac has it. */
+export const isAvailable = (row: HistoryRow): boolean => row.kind !== "local" || Boolean(row.source);
+/** "on", "off" or "mixed" over the group's sources that this Mac has. */
+export function groupState(rows: readonly HistoryRow[], group: ProviderGroup): "on" | "off" | "mixed" {
+  const available = rows.filter((row) => group.members.includes(row.id) && isAvailable(row));
+  const on = available.filter((row) => row.selected).length;
+  return on === 0 ? "off" : on === available.length ? "on" : "mixed";
+}
 export const initialRows = (): HistoryRow[] => [
   ...(["claude-code", "codex", "codex-sessions", "claude-memory"] as const).map((id) => ({
     id,
@@ -226,6 +251,19 @@ export class ImportHistoryStore {
     if (this.busy) return;
     this.row(id, { selected, report: undefined, phase: "idle", error: undefined });
     this.set({ phase: this.detecting ? "detecting" : "ready", error: undefined });
+  }
+  /** The provider's checkbox: checks or clears every source of `group` this Mac has, in one change. */
+  selectGroup(group: ProviderGroup, selected: boolean): void {
+    if (this.detecting || this.busy) return;
+    this.set({
+      rows: this.snapshot.rows.map((row) =>
+        group.members.includes(row.id) && isAvailable(row)
+          ? { ...row, selected, report: undefined, phase: "idle", error: undefined }
+          : row,
+      ),
+      phase: this.detecting ? "detecting" : "ready",
+      error: undefined,
+    });
   }
   expand(id: RowID): void {
     if (!this.busy) this.row(id, { expanded: !this.snapshot.rows.find((row) => row.id === id)?.expanded });

@@ -240,3 +240,22 @@
   justify-content: space-between;
   gap: var(--ds-space-2);
 }
+
+/* A provider's sources sit under its name, their checkboxes in line with the name after the provider's mark. */
+.history-provider-sources {
+  /* A fieldset: no border, and its margin and padding are only the indent and the gap under the provider. */
+  border: 0;
+  min-inline-size: 0;
+  margin: var(--ds-space-2) 0 0;
+  padding: 0;
+  padding-inline-start: calc(28px + 12px + 12px + 13px);
+  display: grid;
+  gap: var(--ds-space-1);
+}
+.history-provider-source .history-source-label {
+  gap: var(--ds-space-2);
+}
+/* Cards draw a larger provider mark, so the indent grows with it. */
+.layout-cards .history-provider-sources {
+  padding-inline-start: calc(var(--ds-control-primary) + 12px + 12px + 13px);
+}

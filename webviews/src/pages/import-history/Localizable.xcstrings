@@ -1056,127 +1056,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude Code"
+            "value": "Claude Code chats"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Claude Code"
+            "value": "محادثات Claude Code"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Claude Code"
+            "value": "Claude Code razgovori"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Claude Code"
+            "value": "Claude Code-chats"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Claude Code"
+            "value": "Claude Code-Chats"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Claude Code"
+            "value": "Chats de Claude Code"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Claude Code"
+            "value": "Discussions Claude Code"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Claude Code"
+            "value": "Chat di Claude Code"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Claude Code"
+            "state": "needs_review",
+            "value": "Claude Code のチャット"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Claude Code"
+            "value": "ការជជែក Claude Code"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Claude Code"
+            "value": "Claude Code 채팅"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Claude Code"
+            "value": "Claude Code-chatter"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Claude Code"
+            "value": "Czaty Claude Code"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Claude Code"
+            "value": "Conversas do Claude Code"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Claude Code"
+            "value": "Чаты Claude Code"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Claude Code"
+            "value": "แชต Claude Code"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Claude Code"
+            "value": "Claude Code sohbetleri"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Claude Code"
+            "value": "Чати Claude Code"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Claude Code"
+            "value": "Cuộc trò chuyện Claude Code"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Claude Code"
+            "value": "Claude Code 对话"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Claude Code"
+            "value": "Claude Code 對話"
           }
         }
       }
@@ -1187,127 +1187,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codex"
+            "value": "Codex memories"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Codex"
+            "value": "ذكريات Codex"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Codex"
+            "value": "Codex sjećanja"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Codex"
+            "value": "Codex-minder"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Codex"
+            "value": "Codex-Erinnerungen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Codex"
+            "value": "Recuerdos de Codex"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Codex"
+            "value": "Souvenirs Codex"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Codex"
+            "value": "Ricordi di Codex"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Codex"
+            "state": "needs_review",
+            "value": "Codex のメモリー"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Codex"
+            "value": "អនុស្សាវរីយ៍ Codex"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Codex"
+            "value": "Codex 메모리"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Codex"
+            "value": "Codex-minner"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Codex"
+            "value": "Wspomnienia Codex"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Codex"
+            "value": "Memórias do Codex"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Codex"
+            "value": "Воспоминания Codex"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Codex"
+            "value": "ความจำของ Codex"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Codex"
+            "value": "Codex anıları"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Codex"
+            "value": "Спогади Codex"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Codex"
+            "value": "Ký ức Codex"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Codex"
+            "value": "Codex 记忆"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Codex"
+            "value": "Codex 記憶"
           }
         }
       }
@@ -5893,6 +5893,399 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "尋找匯出檔案"
+          }
+        }
+      }
+    },
+    "history.source.codex-sessions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex chats"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "محادثات Codex"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex razgovori"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex-chats"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex-Chats"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chats de Codex"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Discussions Codex"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chat di Codex"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex のチャット"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការជជែក Codex"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex 채팅"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex-chatter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Czaty Codex"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conversas do Codex"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Чаты Codex"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แชต Codex"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex sohbetleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Чати Codex"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuộc trò chuyện Codex"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex 对话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex 對話"
+          }
+        }
+      }
+    },
+    "history.group.claude": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        }
+      }
+    },
+    "history.group.codex": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
           }
         }
       }

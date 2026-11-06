@@ -9,6 +9,7 @@ type Props = {
   empty?: boolean;
   paste?: boolean;
   autodetected?: boolean;
+  partial?: boolean;
 };
 
 export default componentEntry<Props>({
@@ -46,6 +47,10 @@ export default componentEntry<Props>({
     done: { props: { phase: "done" } },
     error: { props: { phase: "error" } },
     "paste-summary": { props: { paste: true } },
+    "provider-partial": {
+      note: "One row per provider: Claude's memory is unchecked, so Claude reads partly checked; Codex chats are not on this Mac.",
+      props: { partial: true },
+    },
     autodetected: {
       note: "Archives found in the usual export folders are checked inline; manual pick remains available on each archive row.",
       props: { autodetected: true },

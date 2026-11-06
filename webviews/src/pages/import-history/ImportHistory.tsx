@@ -2,7 +2,17 @@ import { useSyncExternalStore } from "react";
 import { AgentMark } from "../../agent-session/shared/AgentMark";
 import { DialogButton } from "../../ui/DialogButton";
 import type { Strings } from "../shared/i18n";
-import { canImport, type HistoryRow, type ImportHistoryStore, type Origin } from "./model";
+import {
+  canImport,
+  groupStartingAt,
+  groupState,
+  inGroup,
+  isAvailable,
+  type HistoryRow,
+  type ImportHistoryStore,
+  type Origin,
+  type ProviderGroup,
+} from "./model";
 
 export type HistoryLayout = "list" | "cards" | "compact";
 export interface ImportHistoryProps {
@@ -44,15 +54,30 @@ export function ImportHistory({ store, strings, layout = "list" }: ImportHistory
         </button>
       </div>
       <div className="history-sources" aria-label={t("history.sources")}>
-        {snapshot.rows.map((row) => (
-          <SourceRow
-            key={row.id}
-            row={row}
-            store={store}
-            strings={strings}
-            busy={busy || snapshot.phase === "detecting"}
-          />
-        ))}
+        {snapshot.rows.map((row) => {
+          const group = groupStartingAt(row.id);
+          if (group)
+            return (
+              <ProviderRow
+                key={group.id}
+                group={group}
+                rows={snapshot.rows.filter((member) => group.members.includes(member.id))}
+                store={store}
+                strings={strings}
+                busy={busy || snapshot.phase === "detecting"}
+              />
+            );
+          if (inGroup(row.id)) return null;
+          return (
+            <SourceRow
+              key={row.id}
+              row={row}
+              store={store}
+              strings={strings}
+              busy={busy || snapshot.phase === "detecting"}
+            />
+          );
+        })}
       </div>
       {(snapshot.error || snapshot.phase === "error") && (
         <div className="history-error" role="alert">
@@ -103,16 +128,86 @@ export function ImportHistory({ store, strings, layout = "list" }: ImportHistory
   );
 }
 
+/** One provider (Claude, Codex): its checkbox checks every source this Mac has; each source is a sub-checkbox. */
+function ProviderRow({
+  group,
+  rows,
+  store,
+  strings,
+  busy,
+}: {
+  group: ProviderGroup;
+  rows: HistoryRow[];
+  store: ImportHistoryStore;
+  strings: Strings;
+  busy: boolean;
+}) {
+  const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const t = strings.t;
+  const title = t(`history.group.${group.agent}`);
+  const state = groupState(rows, group);
+  const available = rows.some(isAvailable);
+  const phase = rows.find((row) => row.phase !== "idle")?.phase ?? "idle";
+  return (
+    <section className={`history-source history-provider phase-${phase}`}>
+      <div className="history-source-line">
+        <div className="history-source-label">
+          <input
+            type="checkbox"
+            id={`history-select-${group.id}`}
+            aria-label={title}
+            checked={state === "on"}
+            ref={(input) => {
+              // `indeterminate` is a DOM property only: some of the provider's sources are checked.
+              if (input) input.indeterminate = state === "mixed";
+            }}
+            disabled={busy || !available}
+            onChange={(event) => store.selectGroup(group, event.target.checked)}
+          />
+          <span className="history-source-icon">
+            <AgentMark
+              agent={group.agent}
+              size={24}
+              label={title}
+              fallback={<span aria-hidden="true">{title.charAt(0)}</span>}
+            />
+          </span>
+          <label htmlFor={`history-select-${group.id}`}>{title}</label>
+        </div>
+        <div className="history-source-action">
+          <span className="history-muted">
+            {t(
+              snapshot.phase === "detecting"
+                ? "history.row.planning"
+                : available
+                  ? "history.detected"
+                  : "history.notFound",
+            )}
+          </span>
+        </div>
+      </div>
+      <fieldset className="history-provider-sources" aria-label={title}>
+        {rows.map((row) => (
+          <SourceRow key={row.id} row={row} store={store} strings={strings} busy={busy} nested />
+        ))}
+      </fieldset>
+    </section>
+  );
+}
+
 function SourceRow({
   row,
   store,
   strings,
   busy,
+  nested = false,
 }: {
   row: HistoryRow;
   store: ImportHistoryStore;
   strings: Strings;
   busy: boolean;
+  /** A source under its provider's row: no card and no mark; only a source this Mac lacks says so (the provider says found). */
+  nested?: boolean;
 }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const t = strings.t;
@@ -121,7 +216,7 @@ function SourceRow({
   const unavailable = row.kind === "local" && !row.source;
   const expanded = Boolean(row.expanded);
   return (
-    <section className={`history-source phase-${row.phase}`}>
+    <section className={`${nested ? "history-provider-source" : "history-source"} phase-${row.phase}`}>
       <div className="history-source-line">
         <div className="history-source-label">
           <input
@@ -136,14 +231,16 @@ function SourceRow({
               if (row.kind === "text" && Boolean(row.expanded) !== checked) store.expand(row.id);
             }}
           />
-          <span className="history-source-icon">
-            <AgentMark
-              agent={markFor(row.id, row.title)}
-              size={24}
-              label={title}
-              fallback={<span aria-hidden="true">{title.charAt(0)}</span>}
-            />
-          </span>
+          {!nested && (
+            <span className="history-source-icon">
+              <AgentMark
+                agent={markFor(row.id, row.title)}
+                size={24}
+                label={title}
+                fallback={<span aria-hidden="true">{title.charAt(0)}</span>}
+              />
+            </span>
+          )}
           {row.kind === "zip" && !row.detected ? (
             <button
               type="button"
@@ -158,7 +255,7 @@ function SourceRow({
           )}
         </div>
         <div className="history-source-action">
-          {(row.kind === "local" || row.detected) && (
+          {(row.kind === "local" || row.detected) && !(nested && (row.source || snapshot.phase === "detecting")) && (
             <span className="history-muted">
               {t(
                 snapshot.phase === "detecting"
