@@ -20,8 +20,11 @@ extension CloudStartSession {
         /// Runs ``passHarnessLogin(_:agent:login:still:)`` on the machine; it leaves its decision on `harnessLogin`.
         var login: @MainActor (CloudMachineSession, Request, _ still: () throws -> Void) async throws -> Void
         var relay: @MainActor () -> CloudRelayChat?
-        /// How long a CLI or MCP run waits for `login` before it answers without sending.
+        /// How long a CLI or MCP run waits for `link` and `login` before it answers without sending.
         var loginWithin: Duration = CloudStartSession.loginWithin
+        /// Brings the machine's app link up before the login, as start-session connects first, so the login reads the
+        /// link's owner answer (a cold machine has none). False: no link came up. A machine with no app link goes on.
+        var link: @MainActor (CloudMachineSession) async -> Bool = { $0.appLink == nil ? true : await $0.linkHop(origin: .script) }
 
         static func live(_ services: AppServices) -> RelaySteps {
             RelaySteps(login: { try await CloudStartSession(services: services).passHarnessLogin($0, agent: $1.agent, login: $1.login, still: $2) }, relay: { services.cloud.relayChat })
@@ -55,12 +58,16 @@ extension CloudStartSession {
             let promptID = (invocation["promptId"]?.stringValue?.trimmingCharacters(in: .whitespaces)).flatMap { $0.isEmpty ? nil : $0 }
             // The machine takes the login first; the account that asked is checked after its wait, as start-session's is.
             let login: @MainActor () async throws -> (code: String, message: String)? = {
+                // The link first, as start-session's connect: a link that never came up sends nothing and runs no login.
+                guard await steps.link(machine) else {
+                    return ("cloud.relay.login_not_connected", CloudStartSessionStrings.notConnected(machine.machine.title, id: machineID, agent: started.agent))
+                }
                 try await steps.login(machine, started) { try Self.checked(account, now: cloud.account, started.asked(machine: machine.machine.title)) }
-                let link = machine.appLink, ownership = await link?.callerOwnership ?? .unknown, decision = machine.harnessLogin // no link: unknown
+                let link = machine.appLink, ownership = await link?.callerOwnership ?? .unknown, state = await link?.stateWord ?? "none", decision = machine.harnessLogin
                 let refusal = relayLoginRefusal(decision, started, machine: machine.machine.title, ownership: ownership)
                 // Verdicts only (no id, token, path or provider output); `cached` says when the step never read the cache.
                 let cached = decision.map { $0.machineProbe == nil && $0.machineLogin == nil ? "unqueried" : $0.cached ? "yes" : "no" } ?? "unqueried"
-                cloud.logger.info("cloud relay chat: harness login \(refusal?.code ?? "ready", privacy: .public): link \(await link?.stateWord ?? "none", privacy: .public), owner \(ownership.rawValue, privacy: .public), guest \(decision?.guestKind ?? "-", privacy: .public), cached \(cached, privacy: .public) (\(decision?.summary ?? "no step", privacy: .public))")
+                cloud.logger.info("cloud relay chat: harness login \(refusal?.code ?? "ready", privacy: .public): link \(state, privacy: .public), owner \(ownership.rawValue, privacy: .public), guest \(decision?.guestKind ?? "-", privacy: .public), cached \(cached, privacy: .public) (\(decision?.summary ?? "no step", privacy: .public))")
                 return refusal
             }
             // A person's run waits for the whole turn and shows the reply, or why there is none.

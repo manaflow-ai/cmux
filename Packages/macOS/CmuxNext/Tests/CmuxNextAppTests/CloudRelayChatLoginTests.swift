@@ -99,7 +99,7 @@ struct CloudRelayChatLoginTests {
                                             machine.harnessLogin = decision
                                             if accountChanges { throw ActionFailure(message: "account changed") }
                                             try still()
-                                        }, relay: { Self.relay }, loginWithin: loginWithin))
+                                        }, relay: { Self.relay }, loginWithin: loginWithin, link: { _ in true }))
         if link != nil { _ = try await #require(f.machine.appLink).connect(origin: .script) }
         let invoke = try #require(f.services.registry.action(for: "cloudRelayChat")?.invoke)
         var run: (work: [ActionWork], results: [ActionResultWork]) = ([], [])
@@ -330,6 +330,52 @@ struct CloudRelayChatLoginTests {
         rerun.requestedByPerson = true
         #expect(rerun.step == .skip && rerun.reason == .choseNone && rerun.refusal == nil && !rerun.readsMachine)
         #expect(Self.decision(requested: nil, outcome: nil).refusal == .needsLoginChoice, "the bare rerun is refused again")
+    }
+
+    /// A cold machine: running, no start-session first, no link up. The relay chat's own link step connects it, the login
+    /// step then reads the link's owner answer (the app's ownership check, not a stand-in), and only then is the prompt sent.
+    static func cold(connect: @escaping @Sendable () throws -> Void) -> (services: AppServices, machine: CloudMachineSession) {
+        let services = MachineIconTests.services()
+        AppActions.bind(services)
+        let id = "vm_" + UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "").prefix(20)
+        let machine = CloudTestLink.session(id: id, status: .running, name: "Cold VM", mainWork: services.mainWork, opened: connect)
+        services.machines.add(machine)
+        return (services, machine)
+    }
+
+    static func coldRun(_ f: (services: AppServices, machine: CloudMachineSession)) async throws -> (fields: [String: ActionResultValue], steps: [String]) {
+        _ = Steps.shared.take()
+        CloudStartSession.bindRelayChat(into: f.services.registry, context: AppActionContext(services: f.services), reason: { nil },
+                                        steps: .init(login: { [cloud = f.services.cloud] machine, _, still in
+                                            let owns = try await cloud.callerOwnsVM(machine.machineID)
+                                            Steps.shared.append(owns ? "login as owner" : "login unverified")
+                                            machine.harnessLogin = Self.decision(outcome: owns ? "installed" : nil, callerOwns: owns)
+                                            try still()
+                                        }, relay: { Self.relay }))
+        let invoke = try #require(f.services.registry.action(for: "cloudRelayChat")?.invoke)
+        let run = f.services.registry.capturingRun { invoke(Self.invocation(f.machine)) }
+        let fields = try Self.fields(await run.results.first?.value)
+        return (fields, Steps.shared.take())
+    }
+
+    @Test func aColdMachineConnectsThenLogsInAsItsOwnerThenSends() async throws {
+        let f = Self.cold { Steps.shared.append("connect") }
+        defer { f.machine.disconnect() }
+        #expect(await f.machine.appLink?.currentLinkSocket == nil && f.machine.harnessLogin == nil, "not cold")
+        let run = try await Self.coldRun(f)
+        #expect(run.steps == ["connect", "login as owner", "send"])
+        #expect(run.fields["delivered"] == .bool(true) && f.machine.harnessLogin?.callerOwns == true)
+    }
+
+    /// A cold machine whose link never comes up: no login step, nothing sent, a typed terminal code with its recovery.
+    @Test func aColdMachineThatDoesNotConnectSendsNothing() async throws {
+        let f = Self.cold { Steps.shared.append("connect"); throw CloudLinkError.disconnected(reason: "link down") }
+        defer { f.machine.disconnect() }
+        let run = try await Self.coldRun(f)
+        #expect(run.steps == ["connect"])
+        #expect(run.fields["delivered"] == .bool(false) && run.fields["error_code"] == .string("cloud.relay.login_not_connected"))
+        guard case .string(let command) = run.fields["command"] else { Issue.record("no recovery command"); return }
+        #expect(command.hasPrefix("cmux cloud start-session --target machine:"))
     }
 
     /// The person's own run (the palette) sees the same refusal, and nothing is sent.

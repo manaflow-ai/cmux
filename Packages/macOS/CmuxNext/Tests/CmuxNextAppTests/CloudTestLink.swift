@@ -10,8 +10,9 @@ import Foundation
 @MainActor
 enum CloudTestLink {
     static func session(id: String, status: CloudMachine.Status = .unknown, name: String, socket: String? = nil, owns: Bool = true,
-                        teammate: Bool = false, mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget())) -> CloudMachineSession {
-        let resolver = SocketLinkResolver(path: socket ?? "/tmp/cn-test-link-\(id).sock", owns: owns, teammate: teammate)
+                        teammate: Bool = false, mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
+                        opened: (@Sendable () throws -> Void)? = nil) -> CloudMachineSession {
+        let resolver = SocketLinkResolver(path: socket ?? "/tmp/cn-test-link-\(id).sock", owns: owns, teammate: teammate, opened: opened)
         return CloudMachineSession(machine: CloudMachine(id: id, status: status, displayName: name),
                                    appLink: CloudLinkSession(key: CloudLinkKey(machine: id), resolver: resolver),
                                    localIdentity: { nil }, mainWork: mainWork)
@@ -22,9 +23,12 @@ private struct SocketLinkResolver: CloudLinkResolver {
     let path: String
     let owns: Bool
     var teammate = false
+    /// Runs at each connect (a test records it, or throws to fail the connect).
+    var opened: (@Sendable () throws -> Void)?
 
     func open(_ key: CloudLinkKey, intent: String, origin: CloudLinkOrigin) async throws -> CloudLinkSocket {
-        CloudLinkSocket(key: key, path: path, generation: 1, callerOwnsVM: owns, callerIsTeammate: teammate)
+        try opened?()
+        return CloudLinkSocket(key: key, path: path, generation: 1, callerOwnsVM: owns, callerIsTeammate: teammate)
     }
 
     func close(_ key: CloudLinkKey) async {}
