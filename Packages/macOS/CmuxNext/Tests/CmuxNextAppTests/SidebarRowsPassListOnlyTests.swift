@@ -76,9 +76,8 @@ import Testing
         /// The window's structural pass under observation tracking, then its rows filled outside it.
         func run() {
             woke = false
-            var sections: [SidebarRowSection] = []
-            withObservationTracking {
-                sections = SidebarBridge.passSections(services, window: state, feed: feed, rows: feed.rowSource).0
+            let sections = withObservationTracking {
+                SidebarBridge.passSections(services, window: state, feed: feed, rows: feed.rowSource).0
             } onChange: { [weak self] in
                 MainActor.assumeIsolated { self?.woke = true }
             }
