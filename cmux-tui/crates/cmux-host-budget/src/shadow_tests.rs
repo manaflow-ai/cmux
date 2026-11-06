@@ -143,7 +143,10 @@ fn an_unknown_input_field_is_an_error() {
         assert!(serde_json::from_value::<ShadowInputs>(ok).is_ok(), "{level}");
     }
     let null = json!({"host": "h", "mem_pressure": null});
-    assert_eq!(serde_json::from_value::<ShadowInputs>(null).map(|i| i.mem_pressure).ok(), Some(None));
+    assert_eq!(
+        serde_json::from_value::<ShadowInputs>(null).map(|i| i.mem_pressure).ok(),
+        Some(None)
+    );
     let partial = json!({"host": "h", "previous": {"cpu": {"state": "saturated"}}});
     let inputs: ShadowInputs = serde_json::from_value(partial).expect("partial state parses");
     assert_eq!(inputs.previous.map(|p| p.cpu.state), Some(SignalState::Saturated));
