@@ -70,14 +70,14 @@ mod tests {
 
     #[test]
     fn machine_verdict_judges_one_object_or_an_array() {
-        let one = r#"{"host":"h","health_at_ms":1000,"cores":32,"load1":205.0,
-            "previous":{"sample_at_ms":1,"cpu":{"state":"pressured","hot":1}}}"#;
-        let v = verdicts_for(one, 2_000).expect("judged");
+        let one = r#"{"host":"h","health_at_ms":100000,"cores":32,"load1":205.0,
+            "previous":{"sample_at_ms":40000,"cpu":{"state":"pressured","hot":1}}}"#;
+        let v = verdicts_for(one, 101_000).expect("judged");
         assert_eq!(v["reason"], "saturated:cpu");
         assert_eq!(v["would_defer"], true);
         assert_eq!(v["health_age_s"], 1);
         let many = format!("[{one}, {{\"host\":\"g\"}}]");
-        let v = verdicts_for(&many, 2_000).expect("judged");
+        let v = verdicts_for(&many, 101_000).expect("judged");
         assert_eq!(v[0]["host"], "h");
         assert_eq!(v[1]["reason"], "unknown:stale");
         assert!(verdicts_for("{\"lod1\": 1}", 0).is_err());

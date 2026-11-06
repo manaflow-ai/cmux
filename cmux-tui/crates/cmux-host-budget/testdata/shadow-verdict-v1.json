@@ -217,6 +217,55 @@
       }
     },
     {
+      "name": "sample-10s-after-last-moves-nothing",
+      "note": "A reading 10 s after the last one counted (under the 30 s gap) keeps the streak, so a burst of reads is one sample.",
+      "input": {
+        "host": "lane-host",
+        "now_ms": 1762400000000,
+        "health_at_ms": 1762399980000,
+        "cores": 32,
+        "load1": 205.0,
+        "mem_pressure": "normal",
+        "available_fraction": 0.42,
+        "ram_total_bytes": 137438953472,
+        "swap_used_bytes": 2147483648,
+        "swap_total_bytes": 34359738368,
+        "swap_growth_mb_per_min": 0.0,
+        "previous": {
+          "sample_at_ms": 1762399970000,
+          "cpu": {
+            "state": "pressured",
+            "hot": 1,
+            "calm": 0
+          },
+          "mem": {
+            "state": "ok",
+            "hot": 0,
+            "calm": 0
+          }
+        }
+      },
+      "expect": {
+        "would_defer": false,
+        "reason": "ok",
+        "cpu": "pressured",
+        "mem": "ok",
+        "next": {
+          "sample_at_ms": 1762399970000,
+          "cpu": {
+            "state": "pressured",
+            "hot": 1,
+            "calm": 0
+          },
+          "mem": {
+            "state": "ok",
+            "hot": 0,
+            "calm": 0
+          }
+        }
+      }
+    },
+    {
       "name": "swap-30.8-of-31.7-gb-no-buffer",
       "note": "Swap 30.8 of 31.7 GB used with 11% available: memory saturated on one sample, CPU calm.",
       "input": {

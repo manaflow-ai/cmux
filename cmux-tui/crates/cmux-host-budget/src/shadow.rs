@@ -18,9 +18,11 @@
 //!
 //! A signal enters `saturated` on one severe sample or two hot samples in a row,
 //! and leaves it after three calm samples in a row. Outside `saturated`, a hot
-//! or warm sample is `pressured` and a calm one is `ok`. A state moves once per
-//! sample: the same `health_at_ms` judged again (two placements on one reading)
-//! keeps the streaks it had.
+//! or warm sample is `pressured` and a calm one is `ok`. A sample counts only
+//! [`MIN_SAMPLE_GAP_MS`] or more after the last one counted: the same reading
+//! judged again (two placements on one reading), or a host read more often than
+//! that, keeps the streaks it had. So a streak means the same span of time
+//! whichever caller reads the host and however often.
 //!
 //! A reading older than [`MAX_HEALTH_AGE_MS`], or none, is `unknown:stale`, and
 //! the states stay as they were. `would_defer` holds when the reading is stale
@@ -40,6 +42,10 @@ pub const SHADOW_FORMULA_VERSION: &str = "shadow-admission/1";
 
 /// A reading older than this is `unknown:stale`: three missed 60 s peer refreshes.
 pub const MAX_HEALTH_AGE_MS: u64 = 180_000;
+
+/// A sample this soon after the last one counted moves no state: half the 60 s
+/// peer refresh, so every peer refresh counts and a burst of local reads does not.
+pub const MIN_SAMPLE_GAP_MS: u64 = 30_000;
 
 const CPU_HOT_LOAD_PER_CORE: f64 = 1.25;
 const CPU_CALM_LOAD_PER_CORE: f64 = 0.90;
@@ -223,7 +229,9 @@ pub fn shadow_verdict(inputs: &ShadowInputs) -> ShadowVerdict {
 
     let next = if stale {
         previous
-    } else if previous.sample_at_ms.is_some() && previous.sample_at_ms == inputs.health_at_ms {
+    } else if let (Some(last), Some(at)) = (previous.sample_at_ms, inputs.health_at_ms)
+        && at < last.saturating_add(MIN_SAMPLE_GAP_MS)
+    {
         previous
     } else {
         ShadowState {
