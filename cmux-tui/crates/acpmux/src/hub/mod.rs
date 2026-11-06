@@ -550,6 +550,8 @@ pub struct Hub {
     /// Serialized summaries for closed sessions. Metadata commits replace the row before the
     /// next full list, so full callers do not rebuild closed-session projections.
     pub(super) closed_summary_cache: StdMutex<HashMap<String, ClosedSummaryCacheEntry>>,
+    /// The closed sessions' chat activity, built once for every chats reader (`chats/activity.rs`).
+    pub(crate) chat_activity_cache: crate::chats::ActivityCache,
     /// Closed rows built anew because their cached bytes were missing or stale (tests).
     #[cfg(test)]
     pub(super) closed_summary_builds: AtomicU64,
@@ -906,6 +908,7 @@ impl Hub {
             sessions: StdMutex::new(HashMap::new()),
             live_session_ids: StdMutex::new(std::collections::HashSet::new()),
             closed_summary_cache: StdMutex::new(HashMap::new()),
+            chat_activity_cache: Default::default(),
             #[cfg(test)]
             closed_summary_builds: AtomicU64::new(0),
             message_repairs: StdMutex::new(std::collections::HashSet::new()),
@@ -1469,6 +1472,8 @@ impl Hub {
 
     pub(super) fn remove_live_session_index(&self, id: &str) {
         self.live_session_ids.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
+        // A purged session leaves the map; a replacement may take its id.
+        self.chat_activity_cache.invalidate();
     }
 
     pub(super) fn cached_closed_summary(&self, session: &Session, with_tools: bool) -> Value {
@@ -1561,8 +1566,16 @@ impl Hub {
     // ------------------------------------------------------------ lookup
 
     pub fn sessions(&self) -> Vec<Arc<Session>> {
-        let v: Vec<_> = self.sessions.lock().unwrap().values().cloned().collect();
-        newest_first(v)
+        newest_first(self.session_handles())
+    }
+
+    /// Every session, in no order and with no metadata read.
+    pub(crate) fn session_handles(&self) -> Vec<Arc<Session>> {
+        self.sessions.lock().unwrap_or_else(|e| e.into_inner()).values().cloned().collect()
+    }
+
+    pub(crate) fn session_count(&self) -> usize {
+        self.sessions.lock().unwrap_or_else(|e| e.into_inner()).len()
     }
 
     /// This daemon's own session `key` names: its id, its whole name, then a unique prefix of
@@ -2053,6 +2066,10 @@ impl Hub {
                 | profile_respawn::RECORD_KIND
         ) {
             session.state_seq.fetch_add(1, Ordering::SeqCst);
+        }
+        if record.dir == "mux" {
+            let closed = session.status() == SessionStatus::Closed;
+            self.chat_activity_cache.note(&session.id, &record.kind, closed);
         }
         if notify {
             let event = HubEvent {

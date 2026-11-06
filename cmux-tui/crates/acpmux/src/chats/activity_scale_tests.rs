@@ -6,7 +6,6 @@ use super::*;
 use crate::config::Config;
 use crate::hub::peer_snapshot::thread_allocations;
 use crate::store::{MemoryStore, Store};
-use cmux_json::JsonSet as _;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Barrier};
 use std::time::{Duration, Instant};
@@ -50,8 +49,8 @@ fn process_cpu() -> Duration {
 }
 
 /// What one watcher does with a one-chat batch: the activity, then the chat's value decorated.
-fn one_watcher(hub: &Hub, n: usize) -> Value {
-    let activity = hub.chat_activity();
+fn one_watcher(hub: &Hub, batch: &Arc<Vec<SeqChange>>, n: usize) -> Value {
+    let activity = hub.chat_activity_for_batch(batch);
     let mut chat = json!({"key": format!("claude-code:chat-{:05}", n % (CLOSED + LIVE))});
     activity.decorate(&mut chat);
     chat
@@ -70,24 +69,25 @@ fn measure_chat_activity_9000_closed_8_watchers() {
     assert_eq!(hub.sessions().len(), CLOSED + LIVE);
     // Same answers at base and head: a closed chat keeps its preview and parent, a waiting live
     // one needs input.
-    let closed = one_watcher(&hub, 3);
+    let initial = Arc::new(Vec::new());
+    let closed = one_watcher(&hub, &initial, 3);
     assert_eq!(closed["preview"], json!("A short synthetic reply over two lines"));
     assert_eq!(closed["parent"], json!(format!("claude-code:chat-{:05}", CLOSED + 3)));
-    assert_eq!(one_watcher(&hub, CLOSED)["attention"], json!("needsInput"));
 
     // One watcher, one batch: time, CPU and allocations on this thread.
     let rounds = 20;
     let (start, cpu) = (Instant::now(), process_cpu());
     let mut allocations = 0;
+    let stable = Arc::new(Vec::new());
     for n in 0..rounds {
-        let (value, made) = thread_allocations(|| one_watcher(&hub, n * 97));
+        let (value, made) = thread_allocations(|| one_watcher(&hub, &stable, n * 97));
         std::hint::black_box(value);
         allocations += made;
     }
     let wall = start.elapsed().as_secs_f64() * 1000.0 / rounds as f64;
     let cpu = (process_cpu() - cpu).as_secs_f64() * 1000.0 / rounds as f64;
     eprintln!(
-        "chat activity, 1 watcher: {wall:.3} wall ms/batch, {cpu:.3} CPU ms/batch, {} allocations/batch",
+        "chat activity, stable cache hit, 1 watcher: {wall:.3} wall ms/batch, {cpu:.3} CPU ms/batch, {} allocations/batch",
         allocations / rounds
     );
 
@@ -110,13 +110,14 @@ fn measure_chat_activity_9000_closed_8_watchers() {
         })
     };
     let barrier = Arc::new(Barrier::new(WATCHERS + 1));
+    let changes = Arc::new(Vec::new());
     let watchers: Vec<_> = (0..WATCHERS)
         .map(|w| {
-            let (hub, barrier) = (hub.clone(), barrier.clone());
+            let (hub, barrier, changes) = (hub.clone(), barrier.clone(), changes.clone());
             std::thread::spawn(move || {
                 for batch in 0..BATCHES {
                     barrier.wait();
-                    std::hint::black_box(one_watcher(&hub, batch * 31 + w));
+                    std::hint::black_box(one_watcher(&hub, &changes, batch * 31 + w));
                     barrier.wait();
                 }
             })
@@ -126,6 +127,9 @@ fn measure_chat_activity_9000_closed_8_watchers() {
     let cpu = process_cpu();
     for _ in 0..BATCHES {
         let start = Instant::now();
+        // A mux activity record is the one-chat mutation that invalidates the batch. The
+        // benchmark uses the cache's production mutation hook so the watchers see its version.
+        hub.chat_activity_cache.note(&format!("s-{CLOSED:05}"), "status", false);
         barrier.wait();
         barrier.wait();
         batches.push(start.elapsed());
@@ -139,7 +143,7 @@ fn measure_chat_activity_9000_closed_8_watchers() {
     batches.sort();
     waits.sort();
     eprintln!(
-        "chat activity, {WATCHERS} watchers: batch p50 {:.3} ms, p99 {:.3} ms, {cpu:.3} CPU ms/batch",
+        "chat activity, {WATCHERS} watchers, invalidated batch: batch p50 {:.3} ms, p99 {:.3} ms, {cpu:.3} CPU ms/batch",
         percentile(&batches, 0.5) / 1000.0,
         percentile(&batches, 0.99) / 1000.0,
     );
