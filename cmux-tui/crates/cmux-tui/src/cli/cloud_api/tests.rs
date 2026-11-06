@@ -11,7 +11,9 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use super::http::{base_url, vm_error};
-use super::owner::{fork_children, github_app_state, handoff_turn, harness_login_copy};
+use super::owner::{
+    fork_children, github_app_state, handoff_turn, harness_login_copy, is_handoff_id,
+};
 use super::*;
 
 const VM: &str = "vm_abcdefghij0123456789";
@@ -1090,4 +1092,11 @@ fn a_preview_refresh_answers_the_catalog_and_a_refusal_its_code() {
         go(&request(&origin, Auth::Worker, "previews.refresh", json!({ "machine": "vm_abc" })))
             .unwrap_err();
     assert_eq!(failure, Failure::http(404, Some("machine.not_found".into()), Some("gone".into())));
+}
+
+#[test]
+fn only_store_handoff_ids_reach_the_path() {
+    assert!(is_handoff_id("ho_0123456789abcdef0123"));
+    assert!(!is_handoff_id("ho_../../v1/cloud"));
+    assert!(!is_handoff_id("ho_0123456789ABCDEF0123"));
 }

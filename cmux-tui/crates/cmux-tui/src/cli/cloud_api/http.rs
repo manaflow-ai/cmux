@@ -4,6 +4,7 @@
 use std::time::Duration;
 
 use serde_json::{Map, Value, json};
+use zeroize::Zeroizing;
 
 use super::Request;
 
@@ -67,7 +68,8 @@ impl Failure {
 pub(super) enum Body {
     Json(Value),
     /// Raw bytes and their content type (a keyed start's key line).
-    Bytes(Vec<u8>, &'static str),
+    /// Raw bytes (the keyed start's person key): the request's buffer is wiped when reqwest drops it.
+    Bytes(Zeroizing<Vec<u8>>, &'static str),
 }
 
 /// What came back.
@@ -172,9 +174,9 @@ impl Http {
         }
         builder = match body {
             Some(Body::Json(value)) => builder.json(&value),
-            Some(Body::Bytes(bytes, content_type)) => {
-                builder.header(reqwest::header::CONTENT_TYPE, content_type).body(bytes)
-            }
+            Some(Body::Bytes(bytes, content_type)) => builder
+                .header(reqwest::header::CONTENT_TYPE, content_type)
+                .body(bytes::Bytes::from_owner(bytes)),
             None => builder,
         };
         let response = match tokio::time::timeout(timeout, builder.send()).await {

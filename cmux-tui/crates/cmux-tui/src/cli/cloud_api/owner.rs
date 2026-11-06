@@ -147,8 +147,8 @@ pub(super) async fn keyed_start(
         return Err(Failure::Transport("the key did not reach the request body".into()));
     }
     let segments = ["v1", "cloud", "machines", machine, "acpmux", "keyed-start"];
-    // The request owns its copy of the key; this one is wiped when it drops.
-    let body = Body::Bytes(key.to_vec(), "application/octet-stream");
+    // The request owns the key's buffer (no copy), and it is wiped when reqwest drops it.
+    let body = Body::Bytes(key, "application/octet-stream");
     let value = post_value(http, &segments, body, Duration::from_secs(100)).await?;
     match value.get("personInstance").and_then(Value::as_str) {
         Some(instance) => Ok(json!({ "personInstance": instance })),

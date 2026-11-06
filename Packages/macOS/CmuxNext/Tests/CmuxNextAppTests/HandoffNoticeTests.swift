@@ -523,10 +523,4 @@ struct HandoffNoticeTests {
         #expect(!follower.knows(Self.id) && !follower.isPolling(Self.id))
         #expect(await store.afters.isEmpty)
     }
-
-    @Test func onlyStoreIDsReachThePath() {
-        #expect(CloudOwnerAPIClient.isHandoffID(Self.id))
-        #expect(!CloudOwnerAPIClient.isHandoffID("ho_../../v1/cloud"))
-        #expect(!CloudOwnerAPIClient.isHandoffID("ho_0123456789ABCDEF0123"))
-    }
 }
