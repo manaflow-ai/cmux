@@ -151,6 +151,9 @@ final class InternalPageTabStore {
     /// The provider key of store page tab `id`, nil for any other tab.
     func storeKey(of id: String) -> String? { storeKeys[id] }
 
+    /// The store page tab whose provider key is `key`, nil for an app-only tab or none.
+    func storeTab(forKey key: String) -> String? { storeKeys.first { $0.value == key }?.key }
+
     func existingView(_ key: String) -> InternalPageView? { views[key] ?? storeKeys[key].flatMap { views[$0] } }
 
     /// The page an app-only or store page tab shows.

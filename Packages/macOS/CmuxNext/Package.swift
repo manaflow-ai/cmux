@@ -1010,26 +1010,20 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: ["CmuxNextChiefMemory"],
             swiftSettings: uiSwiftSettings
         ),
-        // The GitHub page (webviews/src/pages/github): a pull request link clicked in a chat shows
-        // natively from the app's pull request cache, with its diff in the diff viewer. The App
-        // places its tab and opens what it asks to (GitHubPageTab).
+        // A chat's GitHub pull request links: a Files link (Session Info's View diff) opens the pull
+        // request's diff in the diff viewer, read from its commits on this Mac before GitHub's. The
+        // App opens what it reads (AgentTabContent.openPullRequestDiff).
         .target(
             name: "CmuxNextGitHubViewer",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextAgentPane",
                 "CmuxNextDaemon",
-                "CmuxNextDesign",
-                "CmuxNextPages",
-                "CmuxNextSettings",
-            ],
-            resources: [
-                .process("Resources"),
             ],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextGitHubViewerTests",
-            dependencies: ["CmuxNextAgentPane", "CmuxNextDaemon", "CmuxNextGitHubViewer", "CmuxNextPages", "CmuxNextSettings"],
+            dependencies: ["CmuxNextAgentPane", "CmuxNextDaemon", "CmuxNextGitHubViewer"],
             swiftSettings: uiSwiftSettings
         ),
         // The Chief view gallery (webviews/src/pages/chief-views): the page's provider over the

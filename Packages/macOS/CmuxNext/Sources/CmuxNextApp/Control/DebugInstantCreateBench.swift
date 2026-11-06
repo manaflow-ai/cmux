@@ -1,11 +1,9 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
-import CmuxNextAgentPane
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDiff
-import CmuxNextGitHubViewer
 import CmuxNextSettings
 import CmuxNextControl
 import os
@@ -42,7 +40,7 @@ enum DebugInstantCreateBench {
     private static let frames = BenchFrames()
 
     enum Command: String, CaseIterable {
-        case newWorkspace = "new_workspace", newTab = "new_tab", newTerminal = "new_terminal", splitRight = "split_right", splitDown = "split_down", newBrowser = "new_browser", linkRight = "link_right", githubRight = "github_right", diffRight = "diff_right", splitBrowser = "split_browser", dockRespawn = "dock_respawn"
+        case newWorkspace = "new_workspace", newTab = "new_tab", newTerminal = "new_terminal", splitRight = "split_right", splitDown = "split_down", newBrowser = "new_browser", linkRight = "link_right", diffRight = "diff_right", splitBrowser = "split_browser", dockRespawn = "dock_respawn"
 
         var key: (String, [String]) {
             switch self {
@@ -51,7 +49,7 @@ enum DebugInstantCreateBench {
             case .newTerminal: ("`", ["control"])
             case .splitRight: ("d", ["command"])
             case .splitDown: ("d", ["command", "shift"])
-            case .newBrowser, .linkRight, .githubRight, .diffRight, .splitBrowser, .dockRespawn: ("l", ["command", "shift"])
+            case .newBrowser, .linkRight, .diffRight, .splitBrowser, .dockRespawn: ("l", ["command", "shift"])
             }
         }
     }
@@ -67,11 +65,6 @@ enum DebugInstantCreateBench {
         BenchSpans.begin()
         services.cache.cef.benchMarks.arm { name, milliseconds in BenchSpans.mark(name, milliseconds: milliseconds) }
         defer { services.cache.cef.benchMarks.arm(nil) }
-        // The GitHub page's `shown` marks (`content` when it drew its pull request) and the open's answer, reported as `github`.
-        let githubShown = OSAllocatedUnfairLock(initialState: [String]()), githubURL = params["url"]?.stringValue
-        let githubTab = command == .githubRight ? WebPageTab.registerGitHub(services) : nil
-        githubTab?.onShown = { url, content in githubShown.withLock { $0.append(url == githubURL ? (content ? "content" : "empty") : "other") } }
-        defer { githubTab?.onShown = nil }
         // The diff tab's `cmux.diff.shown` (its first hunk on screen, with the page's timeline) and the host's steps.
         let diffShown = OSAllocatedUnfairLock<JSON?>(initialState: nil), timeline = command == .diffRight ? services.viewers.diffPages.timeline : nil
         timeline?.onShown = { params in diffShown.withLock { $0 = params } }
@@ -82,15 +75,6 @@ enum DebugInstantCreateBench {
             let placement = services.linkOpener.placement
             services.linkOpener.placement = { .splitRight }
             services.linkOpener.openWeb(url, from: controller.content?.focusedPane, background: false)
-            services.linkOpener.placement = placement
-        } else if command == .githubRight, let url = URL(string: params["url"]?.stringValue ?? ""), let pane = controller.content?.focusedPane {
-            // As a chat's link card left it: the pull request already in the app's cache, so the page draws it at once.
-            if params["seed"]?.boolValue == true, let fixture = AgentPanePullRequest(ghView: Data(GitHubPageProvider.benchFixture(url).utf8)) {
-                AgentReplyPullRequests.shared.seed(fixture, for: url)
-            }
-            let placement = services.linkOpener.placement
-            services.linkOpener.placement = { .splitRight }
-            githubShown.withLock { [opened = WebPageTab.openGitHub(url, from: pane, services: services)] in $0.append("opened:\(opened.map(String.init) ?? "nil")") }
             services.linkOpener.placement = placement
         } else if command == .diffRight, let folder = params["folder"]?.stringValue, let pane = controller.content?.focusedPane {
             // task-owner: one bench open of the folder's diff tab in the pane (as `openDiffViewer`); ends when it opens or is refused
@@ -107,14 +91,11 @@ enum DebugInstantCreateBench {
         let chrome = visible == nil || command != .newBrowser ? nil : await frames.settled(until: { Probe(controller).browser != nil }, start: start, window: 0, deadline: 5_000)
         // A link or browser opened to the right: its new pane's page (any shown pane of the window), first paint or load end.
         let opensRight = command == .linkRight || command == .splitBrowser
-        // The GitHub page: the frame after it drew the pull request (its `shown` mark, not its loading state), with or without `visible`.
-        let github = command == .githubRight ? params["url"]?.stringValue : nil
         // The diff tab: the frame after its page reported the first hunk drawn (`cmux.diff.shown`).
         let diff = command == .diffRight
-        let page = (visible == nil && github == nil && !diff) || (command != .newBrowser && !opensRight && github == nil && !diff) ? nil
+        let page = (visible == nil && !diff) || (command != .newBrowser && !opensRight && !diff) ? nil
             : await frames.settled(until: {
                 if diff { return diffShown.withLock { $0 != nil } }
-                if github != nil { return githubShown.withLock { $0.contains("content") } }
                 return opensRight ? Probe.anyPagePainted(controller, services, besides: shownBrowsers) : Probe(controller).pagePainted(services)
             },
                                    start: start, window: 0, deadline: diff ? 20_000 : 5_000)
@@ -130,7 +111,7 @@ enum DebugInstantCreateBench {
             "visible_ms": visible.map { .number($0) } ?? .null,
             "confirmed_ms": confirmed.map { .number($0) } ?? .null,
             "committed_ms": committed.map { .number($0) } ?? .null, "key_changes": .number(Double(spans.count(where: { $0.name.hasPrefix("key.") }))), "spans_full": .bool(spans.count >= BenchSpans.capacity),
-            "page_ms": page.map { .number($0) } ?? .null, "chrome_ms": chrome.map { .number($0) } ?? .null, "github": .array(githubShown.withLock { $0 }.map(JSON.string)), "diff": diffShown.withLock { $0 } ?? .null,
+            "page_ms": page.map { .number($0) } ?? .null, "chrome_ms": chrome.map { .number($0) } ?? .null, "diff": diffShown.withLock { $0 } ?? .null,
             "engine": .string(Probe(controller).browser.map { $0.tab.engineKind == .cef ? "cef" : "webkit" } ?? "none"),
             "spare_window": .string(services.cache.cef.spareWindowState),
             "frames_to_visible": visible.map { .number(($0 / refresh).rounded(.up)) } ?? .null,
@@ -194,7 +175,7 @@ enum DebugInstantCreateBench {
             case .newTab, .newTerminal, .diffRight: now.pane == pane && now.tab != nil && now.tab != tab
             case .newBrowser: now.pane == pane && now.tab != nil && now.tab != tab && now.tab == now.selected
             case .splitRight, .splitDown: now.workspace == workspace && now.pane != pane && now.paneCount > paneCount
-            case .linkRight, .githubRight, .splitBrowser, .dockRespawn: now.workspace == workspace && now.paneCount > paneCount
+            case .linkRight, .splitBrowser, .dockRespawn: now.workspace == workspace && now.paneCount > paneCount
             }
         }
 
@@ -202,7 +183,7 @@ enum DebugInstantCreateBench {
             let realTab = tab.map { !$0.hasPrefix(ProvisionalTab.idPrefix) } ?? false
             switch command {
             case .newWorkspace, .newTab, .newTerminal, .newBrowser, .diffRight: return realTab
-            case .splitRight, .splitDown, .linkRight, .githubRight, .splitBrowser, .dockRespawn: return realTab && (paneHandle ?? .max) < (1 << 62)
+            case .splitRight, .splitDown, .linkRight, .splitBrowser, .dockRespawn: return realTab && (paneHandle ?? .max) < (1 << 62)
             }
         }
     }

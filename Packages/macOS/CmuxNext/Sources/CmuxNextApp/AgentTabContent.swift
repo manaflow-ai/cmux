@@ -1,6 +1,9 @@
 import CmuxNextActions
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextDaemon
+import CmuxNextDiff
+import CmuxNextGitHubViewer
 import CmuxNextPages
 import CmuxNextWakeups
 import Foundation
@@ -118,14 +121,38 @@ struct AgentTabContent {
         }
     }
 
-    /// A link clicked in the chat, or its hover card's Open: as a link clicked in the chat (LinkOpener.openWeb).
+    /// A link clicked in the chat, or its hover card's Open: a web link's tab as a link clicked in the
+    /// chat (LinkOpener.openWeb), a pull request's github.com page included; only a pull request's Files
+    /// link opens its diff (``openPullRequestDiff(_:from:services:)``).
     static func openPreview(_ url: URL, from pane: PaneController) -> Bool {
-        if let opened = WebPageTab.openGitHub(url, from: pane, services: pane.services) { return opened }
+        if let opened = openPullRequestDiff(url, from: pane, services: pane.services) { return opened }
         if url.scheme == "http" || url.scheme == "https" { return pane.services.linkOpener.openWeb(url, from: pane, background: false, reusesTab: true) }
         return pane.services.registry.openAgentPreview(url, pane: pane.paneKey, machineID: pane.daemon.machineID)
     }
 
     private static func appearance(of view: NSView) -> NSAppearance.Name? {
         view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
+    }
+}
+
+extension AgentTabContent {
+    /// A pull request's Files link clicked in an agent chat (Session Info's View diff, a `/pull/N/files`
+    /// link in a reply) that the link rule sends to a cmux tab: its diff beside the chat, else that web
+    /// page (``GitHubPullRequestDiff``). Nil for any other link, the pull request's own page included,
+    /// which opens its web page. `source`: the chat's pane.
+    static func openPullRequestDiff(_ url: URL, from source: PaneController, services: AppServices) -> Bool? {
+        guard let link = GitHubLink(url), link.files,
+              LinkRouter.shared.target(for: url) == .cmuxBrowser, LinkRouter.shared.routing().browserEnabled,
+              source.daemon.supports(DaemonCapability.pageTabs.rawValue), case .connected = source.daemon.store.connectionState else { return nil }
+        let local = GitHubLocalDiff { [git = services.agentGit.local] in try? await git.read("git.diff", params: $0) }
+        GitHubPullRequestDiff.openFiles(link, localDiff: local, openDiff: { [weak source, weak services] text in
+            guard let source, let services else { return }
+            // Its tab is named `repo#N` (the folder's last part).
+            services.viewers.diffPages.open(chatPatch: DiffChatPatch(text: text, folder: "/" + link.reference), in: source, focus: true)
+        }, openWeb: { [weak source, weak services] url in
+            guard let source, let services else { return }
+            _ = services.linkOpener.openWeb(url, from: source, background: false, reusesTab: true)
+        })
+        return true
     }
 }
