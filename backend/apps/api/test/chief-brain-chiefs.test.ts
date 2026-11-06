@@ -123,7 +123,7 @@ describe("a Cloud Chief's chiefs tool", () => {
     expect((await chiefs(token)).length).toBe(before + 2)
   }, SLOW_DO)
   // Chief channels (plans/cmux-next/chief-channels-DESIGN.md): a Chief makes a channel with its own Chief and invites people.
-  it("creates a channel with its own scoped Chief and invites people in the person's name", async () => {
+  it("creates a channel with its own scoped Chief, whose invites are its own", async () => {
     const { token, user, lead } = await owner("chiefs-tool-channel")
     const out = await manageChiefs(testEnv, lead, user, { action: "create_channel", title: "Launch", role: "Launch lead", people: ["launch-guest@example.com"] }, "ch-1")
     expect(out).toContain('"state": "started"')
@@ -133,12 +133,17 @@ describe("a Cloud Chief's chiefs tool", () => {
     // The person owns the channel; the channel Chief is a member; the guest is invited.
     const snap = (await http("POST", "/v1/read", token, { op: "conversation.snapshot", params: { conversation: made.channel.conversation } })).json
     expect(snap.value.state).toMatchObject({ kind: "group", title: "Launch", channel_chief: made.id, created_by: user })
-    expect(snap.value.state.invites).toHaveLength(1)
+    // The channel's Chief invited the first guest, not the person (invites run as the inviting Chief).
+    expect(snap.value.state.invites).toMatchObject([{ invited_by: made.id }])
     await settle(user, token, made.id)
     expect(await brain(token, made.id)).toMatchObject({ enabled: true, role: "Launch lead", chiefs: true })
-    // invite by the channel Chief's name; a bad entry is reported, not thrown.
+    // Lead is not in the channel: its invite runs as Lead, so the channel refuses it; a bad entry is reported, not thrown.
     const again = JSON.parse(await manageChiefs(testEnv, lead, user, { action: "invite", chief: made.id, people: ["second@example.com", "nobody"] }, "ch-2"))
-    expect(again.invited).toEqual([{ who: "second@example.com", ok: true }, { who: "nobody", ok: false, code: "invalid_participant" }])
+    expect(again.invited).toEqual([{ who: "second@example.com", ok: false, code: "forbidden" }, { who: "nobody", ok: false, code: "invalid_participant" }])
+    // The channel's own Chief invites as itself.
+    expect(JSON.parse(await manageChiefs(testEnv, made.id, user, { action: "invite", people: ["third@example.com"] }, "ch-4")).invited).toEqual([{ who: "third@example.com", ok: true }])
+    const after = (await http("POST", "/v1/read", token, { op: "conversation.snapshot", params: { conversation: made.channel.conversation } })).json
+    expect(after.value.state.invites.map((i: { invited_by: string }) => i.invited_by)).toEqual([made.id, made.id])
     // A Chief that is not a channel Chief is no invite target.
     const refusal = await manageChiefs(testEnv, lead, user, { action: "invite", chief: lead, people: ["x@example.com"] }, "ch-3").then(() => "committed", (e: Error) => e.message)
     expect(refusal).toContain("selector.not_found")

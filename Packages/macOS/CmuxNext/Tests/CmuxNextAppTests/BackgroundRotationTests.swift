@@ -9,7 +9,7 @@ import Testing
 /// A rotating background like macOS's (Leo, 2026-10-20): Shuffle turns to its next picture on an
 /// interval (`appearance.backgroundRotation`: every 15 minutes, hour or day), through the
 /// paintings (`daily`) or the pictures in a folder (`folder:<absolute path>`).
-@MainActor @Suite(.serialized) struct BackgroundRotationTests {
+@MainActor @Suite(.serialized, .ghosttyOverrides) struct BackgroundRotationTests {
     struct Harness {
         let settings: SettingsController
         let terminal: TerminalThemeSetting

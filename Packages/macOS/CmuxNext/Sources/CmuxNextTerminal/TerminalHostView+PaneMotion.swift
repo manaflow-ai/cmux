@@ -11,6 +11,12 @@ extension TerminalHostView: PaneResizeGestureFollowing {
         current?.followResizeGesture(active)
     }
 
+    /// The pointer let go: the surface's newest drag grid goes to its program in this turn (``TerminalGridReporter/release()``).
+    public func paneResizeGestureReleased() {
+        guard followsResizeGesture else { return }
+        current?.gridReports.release()
+    }
+
     /// Out of its window no drag's end may reach it (its layout root can go first): a surface it shows later follows none.
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()

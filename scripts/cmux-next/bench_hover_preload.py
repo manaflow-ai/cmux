@@ -165,7 +165,14 @@ class Bench:
             if index:
                 self.app.run("splitRight")
             reply = self.app.run(f"openBrowser.{engine}", url=url)
-            tabs += [t for t in reply.get("created", []) if str(t).startswith("tab_")]
+            made_tabs = [t for t in reply.get("created", []) if str(t).startswith("tab_")]
+            for tab in made_tabs:
+                # A fresh profile starts on Home: a tab the daemon made has no page until it shows (as
+                # bench_hibernation.open_tab). Show it, then wait until its page loaded.
+                self.app.run("tab.focus", target=tab)
+                if not wait_for(lambda t=tab: self.live(t, set()), 30, 0.1):
+                    print(f"   {tab}: page did not load", file=sys.stderr)
+            tabs += made_tabs
         return created[0], tabs
 
     def live(self, tab: str, hibernated: set[str]) -> bool:
@@ -363,6 +370,12 @@ def main():
         bench.hover(None)
         bench.app.action("goToWorkspace", workspace=home)
         report["target"] = {"workspace": target, "tabs": target_tabs}
+        # Every bench page must exist in the app before anything is timed: a page that never mounted cannot sleep.
+        setup = bench.diagnose("setup", target_tabs + sweep_tabs)
+        report["setup"] = setup
+        if any(state.startswith("no_page") for state in setup["states"]):
+            print("PERF-HOVER-SETUP invalid=pages_not_mounted", flush=True)
+            raise SystemExit(3)
         # Which row centers the pointer really hovers, found once now, while every page is still live: a probe
         # step that rests past the dwell then wakes nothing, and any hover grace it starts (30 s) ends long before
         # the settle wait below. Row positions do not change after this (the bench adds no row).
