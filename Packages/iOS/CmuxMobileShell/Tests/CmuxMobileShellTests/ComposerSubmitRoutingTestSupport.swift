@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxAgentChat
 import CmuxMobileRPC
 import CmuxMobileShellModel
 import Foundation
@@ -34,6 +35,11 @@ struct RoutingTestRuntime: MobileSyncRuntime {
 /// surface_id (and the image format), in send order. Can be configured to reject
 /// the paste_image call so the composer's keep-on-failure path runs.
 actor RoutingHostRouter {
+    private var commandSession: ChatSessionDescriptor?
+
+    func setCommandSession(_ session: ChatSessionDescriptor) {
+        commandSession = session
+    }
     struct PasteImageRecord: Sendable {
         var surfaceID: String
         var format: String
@@ -283,6 +289,13 @@ actor RoutingHostRouter {
         let method = info.method
         let id = info.id
         switch method {
+        case "mobile.chat.session":
+            guard let commandSession,
+                  let data = try? ChatWireCoding().encode(commandSession),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return try? Self.errorFrame(id: id, message: "session unavailable")
+            }
+            return try? Self.resultFrame(id: id, result: ["session": object])
         case "feed.text":
             feedTextRequests.append((info.itemID, info.directoryOffset, info.feedTextVersion))
             guard !feedTextPages.isEmpty else {

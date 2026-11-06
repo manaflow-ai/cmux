@@ -22,6 +22,8 @@ struct TerminalTextSheetView: View {
     /// terminal selected in the workspace that opened it. Nil when the
     /// workspace has no terminal; the sheet then shows its empty state.
     let surfaceID: String?
+    let loadCommands: @MainActor () async throws -> [TerminalCommandSuggestion]
+    let runCommand: @MainActor (TerminalCommandSuggestion, String) async -> Bool
 
     @Environment(ToastCenter.self) private var toasts
     @Environment(\.dismiss) private var dismiss
@@ -34,11 +36,28 @@ struct TerminalTextSheetView: View {
     /// All label to a checkmark after a copy. Reset is the next presentation
     /// (fresh `@State`), so no timer is needed.
     @State private var didCopy = false
+    @State private var showsCommands = false
+    @State private var reviewedCommand: TerminalCommandSuggestion?
 
     var body: some View {
         NavigationStack {
-            content
-                .navigationTitle(L10n.string("mobile.textSheet.title", defaultValue: "Terminal Text"))
+            VStack(spacing: 0) {
+                Picker(L10n.string("mobile.textSheet.title", defaultValue: "Terminal Text"), selection: $showsCommands) {
+                    Text(L10n.string("mobile.commands.textTab", defaultValue: "Text")).tag(false)
+                    Text(L10n.string("mobile.commands.title", defaultValue: "Commands")).tag(true)
+                }
+                .pickerStyle(.segmented)
+                .padding()
+                .accessibilityIdentifier("MobileTerminalTextMode")
+                if showsCommands {
+                    TerminalCommandsView(load: loadCommands, copy: copyText) { reviewedCommand = $0 }
+                } else {
+                    content
+                }
+            }
+                .navigationTitle(showsCommands
+                    ? L10n.string("mobile.commands.title", defaultValue: "Commands")
+                    : L10n.string("mobile.textSheet.title", defaultValue: "Terminal Text"))
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
@@ -48,11 +67,14 @@ struct TerminalTextSheetView: View {
                         .accessibilityIdentifier("MobileTerminalTextSheetDone")
                     }
                     ToolbarItem(placement: .confirmationAction) {
-                        copyAllButton
+                        if !showsCommands { copyAllButton }
                     }
                 }
         }
         .task { await loadSnapshot() }
+        .sheet(item: $reviewedCommand) { command in
+            TerminalCommandReviewView(suggestion: command, run: runCommand) { dismiss() }
+        }
     }
 
     @ViewBuilder
@@ -129,13 +151,17 @@ struct TerminalTextSheetView: View {
 
     private func copyAll() {
         guard let text = snapshot?.text, !text.isEmpty else { return }
+        copyText(text)
+        if !toasts.isEnabled { didCopy = true }
+    }
+
+    private func copyText(_ text: String) {
         UIPasteboard.general.string = text
         if toasts.isEnabled {
             // The app-wide copy toast confirms (and supplies the haptic).
             toasts.present(.copied())
         } else {
             MobileHapticFeedback().notification(.success)
-            didCopy = true
         }
     }
 }

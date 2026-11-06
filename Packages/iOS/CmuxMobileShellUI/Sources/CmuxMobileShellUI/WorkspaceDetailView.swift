@@ -310,7 +310,25 @@ struct WorkspaceDetailView: View {
                     textSheetPresentation.didDismiss()
                 }
             ) {
-                TerminalTextSheetView(surfaceID: textSheetSurfaceID)
+                let surfaceID = textSheetSurfaceID ?? ""
+                let workspaceID = workspace.id
+                TerminalTextSheetView(
+                    surfaceID: textSheetSurfaceID,
+                    loadCommands: {
+                        try await store.loadSuggestedTerminalCommands(
+                            workspaceID: workspaceID,
+                            terminalID: .init(rawValue: surfaceID)
+                        )
+                    },
+                    runCommand: { command, text in
+                        await store.runSuggestedTerminalCommand(
+                            command,
+                            editedText: text,
+                            workspaceID: workspaceID,
+                            terminalID: .init(rawValue: surfaceID)
+                        )
+                    }
+                )
             }
             .sheet(
                 isPresented: workspaceChangesPresentation.isPresented,
