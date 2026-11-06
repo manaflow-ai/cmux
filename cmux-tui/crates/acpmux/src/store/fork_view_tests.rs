@@ -172,3 +172,33 @@ fn a_fork_of_a_fork_shows_both_histories() {
     want.push(25);
     assert_eq!(seqs(&view.events("grandchild", 0, usize::MAX).unwrap()), want);
 }
+
+/// Retention trims a chat's long tool output in place: a fork that shows it gets the history
+/// first, whole (review of #37020: the fork lost what a copy had kept).
+#[test]
+fn compacting_the_chat_writes_the_history_into_the_fork_first() {
+    let dir = tempfile::tempdir().unwrap().keep();
+    let view = ForkView::new(Box::new(LocalStore::new(dir, 64 * 1024).unwrap()));
+    let mut chat = meta("chat", None);
+    chat.status = SessionStatus::Closed;
+    view.save(&chat).unwrap();
+    let output = "line of build output\n".repeat(600);
+    let update = serde_json::json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "a", "update": {"sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "completed", "content": [{"type": "content", "content": {"type": "text", "text": output}}]}}});
+    view.append("chat", &record(1, "user_message")).unwrap();
+    let long = EventRecord { msg: update, ..record(2, "tool_call_update") };
+    view.append("chat", &long).unwrap();
+    view.append("chat", &record(3, "turn_result")).unwrap();
+    let reference = HistoryRef { session: "chat".into(), through_seq: 3 };
+    view.save(&meta("fork", Some(reference))).unwrap();
+    let shown = |view: &ForkView| -> usize {
+        view.events("fork", 0, usize::MAX).unwrap().iter().map(|r| r.msg.to_string().len()).sum()
+    };
+    let before = shown(&view);
+
+    let staged =
+        view.stage_compaction("chat", CompactMode::Write { archive: None }).unwrap().unwrap();
+    assert!(staged.stats.trimmed > 0, "the chat's long output is trimmed: {:?}", staged.stats);
+    assert!(view.commit_compaction("chat", staged).unwrap());
+    assert!(view.load("fork").unwrap().unwrap().history_from.is_none());
+    assert_eq!(shown(&view), before, "the fork shows its history as it was");
+}

@@ -367,7 +367,12 @@ impl Store for ForkView {
     fn stage_compaction(&self, id: &str, mode: CompactMode) -> Result<Option<Staged>> {
         self.inner.stage_compaction(id, mode)
     }
+    /// Retention trims a chat's records in place: the forks that show them get them first, as
+    /// they were (review of #37020: a fork lost the long tool output a copy had kept).
     fn commit_compaction(&self, id: &str, staged: Staged) -> Result<bool> {
+        for fork in self.forks_of(id) {
+            self.materialize(&fork)?;
+        }
         self.inner.commit_compaction(id, staged)
     }
     /// A chat that forks reference goes only once each holds its history itself.
