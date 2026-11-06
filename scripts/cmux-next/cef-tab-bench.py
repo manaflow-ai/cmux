@@ -64,7 +64,7 @@ parser.add_argument("--arms", default="warm,quick,cold",
                          "press), cold (the launch's first press, and a press right after the spare was dropped)")
 parser.add_argument("--budget-ms", type=float, default=10.0, help="visible p95 target (reported, not enforced)")
 parser.add_argument("--tunable", action="append", default=[], metavar="KEY=JSON",
-                    help="a Debug Settings value for this run (repeatable), e.g. browserPage.sparePage=true: the arms of an A/B")
+                    help="a Debug Settings value for this run (repeatable), e.g. browserPage.loadingBackground=false: the arms of an A/B")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json")
 opts = parser.parse_args()
