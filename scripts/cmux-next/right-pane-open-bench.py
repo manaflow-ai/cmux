@@ -377,7 +377,12 @@ def strip(run, chat, click, label, content="rightmost"):
     folder = os.path.join(tempfile.gettempdir(), f"right-pane-open-{os.getpid()}", label)
     params = {"action": "frame_strip", "gesture": "agent_click", "click": {**click, "pane": chat.pane}, "above": True,
               "content": content, "duration_ms": opts.strip_ms, "dir": folder, "tolerance": opts.strip_tolerance}
+    cef = {}
     if opts.motion:
+        # Whether Chromium had a spare window and page ready for this click (debug.cef), and every main-thread stall
+        # over the watchdog's threshold during it with its stack (debug.hangs), for the longest frame's cause.
+        cef = run.rpc("debug.cef") or {}
+        run.rpc("debug.hangs", {"clear": True})
         run.rpc("debug.frames", {"action": "start"})
     reply = run.rpc("debug.new_tab", params, timeout=opts.strip_ms / 1000 + 90) or {}
     if opts.strips and os.path.exists(os.path.join(folder, "strip.png")):
@@ -386,6 +391,13 @@ def strip(run, chat, click, label, content="rightmost"):
     if opts.motion:
         frames = run.rpc("debug.frames", {"action": "stop"}) or {}
         reply["main_frames"] = {k: frames.get(k) for k in ("missed", "max_ms", "p99_ms", "refresh_ms", "expected_ms") if k in frames}
+        reply["cef_before"] = {k: cef.get(k) for k in ("spare_window", "spare_page", "spare_pages_taken") if k in cef}
+        reply["hangs"] = [{"ms": round(h.get("duration_ms") or 0, 1), "kind": h.get("kind"),
+                           "frames": [str(f)[:90] for f in (h.get("frames") or [])[:30]]}
+                          for h in (run.rpc("debug.hangs") or {}).get("records") or []]
+        for hang in sorted(reply["hangs"], key=lambda h: -h["ms"])[:2]:
+            say(f"right-pane-open: {label}: main-thread stall {hang['ms']} ms ({hang['kind']}; cef {reply['cef_before']}): "
+                + " < ".join(hang["frames"][:24]))
     shutil.rmtree(folder, ignore_errors=True)
     return reply
 
@@ -479,6 +491,7 @@ def measure(run, chat, surface, label, round_index):
                    "frames": [[f.get("ms"), round(f.get("content_vs_before") or 0, 4), round(f.get("content_vs_final") or 0, 4),
                                round(f.get("flatness") or 0, 4), bool(f.get("blank"))] for f in reply.get("frames") or []],
                    "main_frames": reply.get("main_frames"), "motion": motion_stats(reply.get("frames")),
+                   "cef_before": reply.get("cef_before"), "hangs": reply.get("hangs"),
                    "frames_columns": ["ms", "content_vs_before", "content_vs_final", "flatness", "blank"]})
     if not record["opened_tabs"]:
         record["error"] = "the click opened no tab"
