@@ -512,6 +512,23 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     // 2. The relay-first chat (cmuxterm-hq#7086): the prompt goes over HTTPS and down the socket the machine
     // holds from boot, with no link to the machine. Whatever kept it from the machine (an app or a machine
     // without the relay) leaves the link path below, on the machine it found or made.
+    // A `--cwd` on a machine that already exists may be a repository its bootstrap is still cloning
+    // (`cloud new-machine --repo`): wait for it rather than fail "cwd is not a directory" (folder.rs).
+    let existing = match &request.machine {
+        Machine::Target(id) => Some(id.clone()),
+        Machine::Named(name) => at(&listed, "machines")
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|row| at(row, "title").as_str() == Some(name.as_str()))
+            .and_then(|row| at(row, "machine_id").as_str().map(str::to_owned)),
+        Machine::New => None,
+    };
+    if let (Some(machine), Some(cwd)) = (existing, &request.cwd)
+        && let Some(outcome) = folder::wait(runner, &machine, cwd, request.timeout)
+    {
+        return outcome;
+    }
     let mut wanted = request.machine.clone();
     if request.wait {
         match relay_chat(runner, request, &listed) {
@@ -1247,6 +1264,7 @@ fn at<'a>(value: &'a Value, key: &str) -> &'a Value {
 }
 
 mod cap;
+mod folder;
 
 #[cfg(test)]
 pub(in crate::cli) mod tests;
