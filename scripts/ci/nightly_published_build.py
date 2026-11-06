@@ -18,7 +18,7 @@ same record of that run's own jobs.
         from an older push run).
     nightly_published_build.py check-source
         SOURCE, GITHUB_REPOSITORY, SOURCE_RUN_FILE (that run attempt from the API): exits 1 unless it is a
-        push run of this repository's nightly.yml on nightly-next.
+        push or manual run of this repository's nightly.yml on nightly-next.
     nightly_published_build.py outputs
         SOURCE and RECORD_FILE (the checked run's artifact), or with no SOURCE: NEEDS, RUN_ID, RUN_ATTEMPT,
         SHA: writes the record to GITHUB_OUTPUT.
@@ -33,6 +33,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import secrets
 import sys
 
 # job -> (output prefix, outputs the post-publication jobs read)
@@ -128,7 +129,8 @@ def check_source() -> int:
     repo = os.environ["GITHUB_REPOSITORY"].lower()
     checks = {
         "the run named": ref is not None and str(run.get("id")) == ref[0] and str(run.get("run_attempt")) == ref[1],
-        "a push": run.get("event") == "push",
+        # Manual builds, unsigned resumes, continuations and republishes publish from a dispatched run.
+        "a push or manual run": run.get("event") in ("push", "workflow_dispatch"),
         "on nightly-next": run.get("head_branch") == "nightly-next",
         "of nightly.yml": run.get("path") == ".github/workflows/nightly.yml",
         "in this repository": str((run.get("repository") or {}).get("full_name", "")).lower() == repo
@@ -138,7 +140,7 @@ def check_source() -> int:
     if failed:
         print(f"published-build: the source run is not {', '.join(failed)}", file=sys.stderr)
         return 1
-    print(f"published-build: run {ref[0]} attempt {ref[1]} is a nightly.yml push on nightly-next")
+    print(f"published-build: run {ref[0]} attempt {ref[1]} is a nightly.yml {run.get('event')} run on nightly-next")
     return 0
 
 
@@ -162,11 +164,12 @@ def write_outputs() -> int:
     else:
         rec, cross_run = from_env(), ""
         comment = False
-    lines = [f"{name}={rec.get(name, '')}" for name in NAMES]
-    lines += [f"cross_run={cross_run}", f"comment={'true' if comment else 'false'}"]
-    if any("\n" in line or "\r" in line for line in lines):
-        print("published-build: an output holds a newline", file=sys.stderr)
-        return 1
+    values = {name: rec.get(name, "") for name in NAMES}
+    values.update(cross_run=cross_run, comment="true" if comment else "false")
+    # publish-nightly's downloads is a Markdown list: a value with a newline goes in a delimited block.
+    delimiter = f"EOF_{secrets.token_hex(16)}"
+    lines = [f"{name}<<{delimiter}\n{value}\n{delimiter}" if "\n" in value or "\r" in value else f"{name}={value}"
+             for name, value in values.items()]
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
         handle.write("".join(line + "\n" for line in lines))
     print("\n".join(lines))
