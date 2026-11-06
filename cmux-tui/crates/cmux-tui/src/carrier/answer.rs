@@ -24,6 +24,8 @@ const MAX_SECRET_BYTES: usize = 4096;
 pub(super) const FETCH_TIMEOUT: Duration = Duration::from_secs(20);
 /// A cached ticket is reused until this long before it expires.
 const TICKET_MARGIN_SECS: u64 = 30;
+/// The team selector cmux-platform reads (`TeamSelect.ts` `TEAM_HEADER`).
+const TEAM_HEADER: &str = "x-cmux-team";
 
 /// One checked carrier answer.
 #[derive(Clone)]
@@ -189,12 +191,18 @@ impl Credential {
 pub(super) struct HttpSource {
     api: String,
     credential: Credential,
+    /// Sent as `x-cmux-team` when set (a machine of a shared team).
+    team: Option<String>,
     client: reqwest::Client,
 }
 
 impl HttpSource {
     /// `api` is an origin checked by `secure_origin`.
-    pub(super) fn new(api: String, credential: Credential) -> Result<Self, String> {
+    pub(super) fn new(
+        api: String,
+        credential: Credential,
+        team: Option<String>,
+    ) -> Result<Self, String> {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
@@ -202,7 +210,7 @@ impl HttpSource {
             .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|_| "the HTTP client is unavailable".to_owned())?;
-        Ok(Self { api, credential, client })
+        Ok(Self { api, credential, team, client })
     }
 }
 
@@ -218,14 +226,16 @@ impl CarrierSource for HttpSource {
             Some(key) => json!({ "noise_key": key_text(key) }),
             None => json!({}),
         };
-        let response = self
+        let mut request = self
             .client
             .post(format!("{}/v1/cloud/machines/{machine}/carrier", self.api))
             .bearer_auth(credential.as_str())
-            .json(&body)
-            .send()
-            .await
-            .map_err(|_| SourceError::retry("cmux-platform did not answer"))?;
+            .json(&body);
+        if let Some(team) = &self.team {
+            request = request.header(TEAM_HEADER, team);
+        }
+        let response =
+            request.send().await.map_err(|_| SourceError::retry("cmux-platform did not answer"))?;
         let status = response.status().as_u16();
         let body: Value = response.json().await.unwrap_or(Value::Null);
         read_reply(status, &body)

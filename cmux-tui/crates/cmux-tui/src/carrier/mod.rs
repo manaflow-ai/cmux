@@ -15,10 +15,15 @@
 //! - Every connect attempt, and every resume attempt of the session after it,
 //!   writes one route line on stderr after the reply line:
 //!   `cloud.connect route=carrier machine=<vm_id> phase=<connect|reconnect|resume> outcome=<ok|error_code> ms=<n>`.
+//!   The same line is appended to `<workspace state dir>/carrier/connect.log`
+//!   (macOS `~/Library/Application Support/cmux-tui/sessions/carrier/connect.log`,
+//!   `CMUX_TUI_STATE_DIR` overrides the state dir), a file only the dial
+//!   writes and nothing empties ([`route_log`]). A resume happens inside the
+//!   same process, so its lines follow the connect's.
 //! - `--service desktop` carries the machine's desktop instead: raw
 //!   `cmux.rd/1` bytes on stdin and stdout, through cmux-remote's
 //!   `local-socket` to `/run/cmux-rd/desktop.sock`. The daemon opens it only
-//!   for the machine owner's grant (`vmk: "owner"`); a refusal is
+//!   for the machine owner's grant (`vmk: "owner"`); its refusal is
 //!   `error_code` `service_refused`.
 //! - Exit codes: 0 ok, 2 ticket, 3 relay, 4 parked_timeout, 5 handshake,
 //!   6 service_refused, 64 bad usage.
@@ -28,11 +33,18 @@
 //! (`POST /v1/cloud/machines/{id}/carrier`) with the person's credential:
 //! `--cloud-api URL` (or `CMUX_CLOUD_API_URL`) and `--cloud-token-file PATH`
 //! (or `CMUX_CLOUD_ACCESS_TOKEN`). Nothing here prints a credential.
+//!
+//! `--team team_…` (or `CMUX_CLOUD_TEAM`) names the machine's team: it goes
+//! out as the `x-cmux-team` header, without which the platform resolves the
+//! credential to the person's own team and refuses a machine of a shared
+//! one. It is `team_` and 20 lowercase hex digits; any other value is
+//! `bad_request`. Unset, no header is sent.
 
 mod answer;
 mod client;
 mod contract;
 mod noise_key;
+mod route_log;
 
 use std::io::Write as _;
 use std::path::PathBuf;
@@ -47,6 +59,7 @@ use zeroize::Zeroizing;
 const STDIO_SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(100);
 const API_ENV: &str = "CMUX_CLOUD_API_URL";
 const TOKEN_ENV: &str = "CMUX_CLOUD_ACCESS_TOKEN";
+const TEAM_ENV: &str = "CMUX_CLOUD_TEAM";
 
 /// One `cmux carrier dial` invocation.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,6 +69,7 @@ pub(crate) struct DialArgs {
     pub deadline: Duration,
     pub api: Option<String>,
     pub token_file: Option<PathBuf>,
+    pub team: Option<String>,
 }
 
 /// What the dial's stdio carries.
@@ -70,14 +84,14 @@ pub(crate) enum DialService {
 }
 
 /// `dial --machine vm_… [--service mux|desktop] [--deadline-ms N] [--cloud-api URL]
-/// [--cloud-token-file PATH]`, each once, nothing else.
+/// [--cloud-token-file PATH] [--team team_…]`, each once, nothing else.
 pub(crate) fn parse(args: &[String]) -> Option<DialArgs> {
     let (verb, rest) = args.split_first()?;
     if verb != "dial" {
         return None;
     }
-    let (mut machine, mut service, mut deadline, mut api, mut token_file) =
-        (None, None, None, None, None);
+    let (mut machine, mut service, mut deadline, mut api, mut token_file, mut team) =
+        (None, None, None, None, None, None);
     let mut words = rest.iter();
     while let Some(flag) = words.next() {
         let value = words.next()?.clone();
@@ -87,6 +101,7 @@ pub(crate) fn parse(args: &[String]) -> Option<DialArgs> {
             "--deadline-ms" => &mut deadline,
             "--cloud-api" => &mut api,
             "--cloud-token-file" => &mut token_file,
+            "--team" => &mut team,
             _ => return None,
         };
         if slot.replace(value).is_some() {
@@ -103,7 +118,30 @@ pub(crate) fn parse(args: &[String]) -> Option<DialArgs> {
         Some(text) => contract::parse_deadline(&text)?,
         None => DEFAULT_DEADLINE,
     };
-    Some(DialArgs { machine, service, deadline, api, token_file: token_file.map(PathBuf::from) })
+    if team.as_deref().is_some_and(|t| !contract::valid_team(t)) {
+        return None;
+    }
+    Some(DialArgs {
+        machine,
+        service,
+        deadline,
+        api,
+        token_file: token_file.map(PathBuf::from),
+        team,
+    })
+}
+
+/// `--team`, else a non-empty `CMUX_CLOUD_TEAM` (`env`), checked; `None`
+/// when the environment's value is not a team id.
+pub(crate) fn with_team_env(mut args: DialArgs, env: Option<String>) -> Option<DialArgs> {
+    if args.team.is_none() {
+        let env = env.map(|t| t.trim().to_owned()).filter(|t| !t.is_empty());
+        if env.as_deref().is_some_and(|t| !contract::valid_team(t)) {
+            return None;
+        }
+        args.team = env;
+    }
+    Some(args)
 }
 
 fn reply(line: &str) {
@@ -141,7 +179,7 @@ fn source(args: &DialArgs) -> Result<answer::HttpSource, Failure> {
             )));
         }
     };
-    answer::HttpSource::new(api, credential).map_err(ticket)
+    answer::HttpSource::new(api, credential, args.team.clone()).map_err(ticket)
 }
 
 /// Opens the machine's desktop stream on the dialed session by `deadline`.
@@ -173,8 +211,11 @@ async fn open_desktop(
 pub(crate) fn run(args: &[String]) -> i32 {
     let Some(args) = parse(args) else {
         return usage(
-            "usage: cmux carrier dial --machine vm_… [--service mux|desktop] [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH]",
+            "usage: cmux carrier dial --machine vm_… [--service mux|desktop] [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…]",
         );
+    };
+    let Some(args) = with_team_env(args, std::env::var(TEAM_ENV).ok()) else {
+        return usage(&format!("{TEAM_ENV} is not team_ and 20 lowercase hex digits"));
     };
     let source = match source(&args) {
         Ok(source) => Arc::new(source),
@@ -190,12 +231,16 @@ pub(crate) fn run(args: &[String]) -> i32 {
     let code = runtime.block_on(async {
         // Route lines wait until the reply line is out, so it stays first.
         let (lines, mut queued) = tokio::sync::mpsc::unbounded_channel::<String>();
+        let connect_log = route_log::default_path();
         let plan = client::DialPlan {
             machine: args.machine.clone(),
             source,
             identity,
             deadline: tokio::time::Instant::now() + args.deadline,
             log: Arc::new(move |line| {
+                if let Some(path) = &connect_log {
+                    route_log::append(path, &line);
+                }
                 let _ = lines.send(line);
             }),
         };
@@ -236,8 +281,10 @@ pub(crate) fn run(args: &[String]) -> i32 {
                 reply(&line);
             }
         });
+        let client::Dialed { connection, multiplexer, mux } = dialed;
         let _ = match desktop {
             Some(stream) => {
+                mux.close().await;
                 cmux_remote::bridge::bridge_raw_stream(
                     stream,
                     tokio::io::stdin(),
@@ -245,17 +292,10 @@ pub(crate) fn run(args: &[String]) -> i32 {
                 )
                 .await
             }
-            None => {
-                cmux_remote::bridge::bridge_mux_control(
-                    &dialed.multiplexer,
-                    tokio::io::stdin(),
-                    tokio::io::stdout(),
-                )
-                .await
-            }
+            None => mux.bridge(tokio::io::stdin(), tokio::io::stdout()).await,
         };
-        dialed.multiplexer.shutdown().await;
-        let _ = dialed.connection.close().await;
+        multiplexer.shutdown().await;
+        let _ = connection.close().await;
         writer.abort();
         0
     });

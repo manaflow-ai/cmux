@@ -12,7 +12,7 @@ use super::contract::{
     Backoff, Failure, INITIAL_BACKOFF, MAX_BACKOFF, Phase, Step, connected_line, failure_line,
     parse_deadline, route_line,
 };
-use super::{DialArgs, DialService, parse};
+use super::{DialArgs, DialService, parse, with_team_env};
 
 fn words(text: &str) -> Vec<String> {
     text.split_whitespace().map(str::to_owned).collect()
@@ -80,6 +80,7 @@ fn arguments_are_the_machine_and_one_deadline() {
             deadline: Duration::from_secs(180),
             api: None,
             token_file: None,
+            team: None,
         })
     );
     let full = parse(&words(&format!(
@@ -108,6 +109,10 @@ fn arguments_are_the_machine_and_one_deadline() {
         format!("dial --machine {VM} --host x"),
         format!("dial --machine {VM} --service ssh"),
         format!("dial --machine {VM} --service desktop --service desktop"),
+        format!("dial --machine {VM} --team team_0123"),
+        format!("dial --machine {VM} --team team_0123456789ABCDEF0123"),
+        format!("dial --machine {VM} --team user_0123456789abcdef0123"),
+        format!("dial --machine {VM} --team {TEAM} --team {TEAM}"),
     ] {
         assert_eq!(parse(&words(&bad)), None, "{bad}");
     }
@@ -252,4 +257,32 @@ fn a_ticket_is_reused_until_shortly_before_it_expires() {
     assert!(!TicketCache::usable(1_000, 970));
     assert!(!TicketCache::usable(1_000, 1_000));
     assert!(!TicketCache::usable(0, u64::MAX));
+}
+
+const TEAM: &str = "team_0123456789abcdef0123";
+
+#[test]
+fn the_team_comes_from_the_flag_else_the_environment_and_is_checked() {
+    let flagged = parse(&words(&format!("dial --machine {VM} --team {TEAM}"))).unwrap();
+    assert_eq!(flagged.team.as_deref(), Some(TEAM));
+    // The flag wins over the environment.
+    let other = "team_ffffffffffffffffffff".to_owned();
+    assert_eq!(with_team_env(flagged.clone(), Some(other.clone())), Some(flagged));
+    let bare = parse(&words(&format!("dial --machine {VM}"))).unwrap();
+    assert_eq!(with_team_env(bare.clone(), None).unwrap().team, None, "unset sends no team");
+    assert_eq!(with_team_env(bare.clone(), Some("  ".into())).unwrap().team, None);
+    assert_eq!(with_team_env(bare.clone(), Some(other.clone())).unwrap().team, Some(other));
+    assert_eq!(with_team_env(bare, Some("team_nothex".into())), None, "a bad value is refused");
+}
+
+#[test]
+fn the_connect_log_is_only_appended_and_stops_at_its_cap() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("carrier").join("connect.log");
+    super::route_log::append(&path, "a\n");
+    super::route_log::append(&path, "b\n");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "a\nb\n");
+    std::fs::write(&path, vec![b'x'; super::route_log::MAX_BYTES as usize - 1]).unwrap();
+    super::route_log::append(&path, "c\n");
+    assert_eq!(std::fs::metadata(&path).unwrap().len(), super::route_log::MAX_BYTES - 1);
 }
