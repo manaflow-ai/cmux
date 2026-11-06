@@ -95,14 +95,14 @@ extension CloudStartSession {
         }
     }
 
-    /// Why the relay sends nothing after the login step (`decision`, nil when none ran), in fixed text; nil sends. A teammate's
-    /// machine (`team`) never takes a chat from here (cmux#29214); then a refusal, a login this Mac lacks, declined or failed. A
-    /// Claude skip sends only on the machine's own login: an owner nobody read (`unknown`) is `login_unverified`, never team.
+    /// Why the relay sends nothing after the login step (`decision`, nil when none ran), in fixed text; nil sends. Ownership first, for every agent: `team` never takes a chat here (cmux#29214),
+    /// `unknown` (no link too) is `login_unverified`; only an `owner` goes on: a refusal, a login this Mac lacks, declined or failed, and a Claude skip without the machine's own login or `--login none`.
     static func relayLoginRefusal(_ decision: CloudHarnessLoginDecision?, _ started: Request, machine: String,
                                   ownership: CloudCallerOwnership) -> (code: String, message: String)? {
-        guard let decision else { return nil }
         let asked = started.asked(machine: machine)
         if ownership == .team { return ("cloud.relay.login_team_machine", AgentRemoteStartRefusal.teamMachine(machine: machine).userMessage) }
+        guard ownership == .owner else { return ("cloud.relay.login_unverified", CloudStartSessionStrings.relayLoginUnverified(asked)) }
+        guard let decision else { return nil }
         if let reason = decision.refusal { return ("cloud.relay.login_refused", CloudStartSessionStrings.loginRefused(reason, asked)) }
         // No login copied to a machine that needs one: none cached on this Mac, or the person said no to the copy of the
         // one it holds (the confirm, or Release's one-time consent: both come only after the cache check).

@@ -86,10 +86,11 @@ struct CloudRelayChatLoginTests {
         return decision
     }
 
-    /// Runs the relay chat bound with a login step that leaves `decision`, and answers its result and the steps' order.
-    static func relayChat(_ decision: CloudHarnessLoginDecision, origin: ActionOrigin = .cli, loginTakes: Duration = .zero,
+    /// Runs the relay chat bound with a login step that leaves `decision` (nil: no step decided), on a link that answers `link`
+    /// (nil: no link up), and answers its result and the steps' order.
+    static func relayChat(_ decision: CloudHarnessLoginDecision?, origin: ActionOrigin = .cli, loginTakes: Duration = .zero,
                           loginWithin: Duration = CloudStartSession.loginWithin, accountChanges: Bool = false,
-                          link: CloudCallerOwnership? = nil) async throws
+                          link: CloudCallerOwnership? = .owner) async throws
         -> (result: Result<[String: ActionResultValue], ActionWorkFailure>?, work: ActionWorkFailure??, steps: [String]) {
         let f = fixture(owns: link == .owner, teammate: link == .team)
         _ = Steps.shared.take()
@@ -216,7 +217,7 @@ struct CloudRelayChatLoginTests {
     @Test func aSkippedLoginWithNoLinkSendsNothing() async throws {
         let skipped = Self.decision(outcome: nil, callerOwns: false)
         try #require(skipped.step == .skip && skipped.reason == .callerNotOwner && skipped.provider == .claude)
-        let run = try await Self.relayChat(skipped)
+        let run = try await Self.relayChat(skipped, link: nil)
         #expect(run.steps == ["login"], "a skipped login was sent")
         let fields = try Self.fields(run.result)
         #expect(fields["delivered"] == .bool(false) && fields["error_code"] == .string("cloud.relay.login_unverified"))
@@ -233,6 +234,34 @@ struct CloudRelayChatLoginTests {
             #expect(fields["delivered"] == .bool(false) && fields["error_code"] == .string("cloud.relay.login_team_machine"))
             #expect(fields["error_message"] == .string(AgentRemoteStartRefusal.teamMachine(machine: "Icon VM").userMessage))
         }
+    }
+
+    /// Ownership comes before the login decision, for every agent and when no decision was made: pi (no transfer) and a login
+    /// step that decided nothing (the transfer gate off) send only to an owner's machine. A teammate's refuses as one, an
+    /// owner nobody read (`unknown`) or no link at all refuses unverified with its command (review21 F1 at 3e900167).
+    @Test func ownershipDecidesBeforeTheLoginForEveryAgent() async throws {
+        for decision in [nil, Self.decision(harness: "pi", outcome: nil)] {
+            let name = decision?.summary ?? "no decision"
+            for (link, code) in [(CloudCallerOwnership.team, "cloud.relay.login_team_machine"), (.unknown, "cloud.relay.login_unverified"), (nil, "cloud.relay.login_unverified")] {
+                let run = try await Self.relayChat(decision, link: link)
+                #expect(run.steps == ["login"], "\(name) on \(link?.rawValue ?? "no link") was sent")
+                let fields = try Self.fields(run.result)
+                #expect(fields["delivered"] == .bool(false) && fields["error_code"] == .string(code), "\(name) on \(link?.rawValue ?? "no link"): \(fields)")
+                #expect(fields["command"].map { "\($0)".contains("cmux cloud start-session --target machine:") } == true, "\(name): no recovery command")
+            }
+            let owned = try await Self.relayChat(decision, link: .owner)
+            #expect(owned.steps == ["login", "send"], "\(name) on its owner's machine")
+            #expect(try Self.fields(owned.result)["delivered"] == .bool(true))
+        }
+    }
+
+    /// A Claude skip that keeps the machine's own login sends only when the owner answered: on `unknown` it refuses unverified.
+    @Test func aKeptMachineLoginOnAnUnreadOwnerSendsNothing() async throws {
+        let kept = Self.decision(outcome: nil, guest: "team", machine: "working")
+        try #require(kept.step == .skip && kept.reason == .machineLoginKept)
+        let run = try await Self.relayChat(kept, link: .unknown)
+        #expect(run.steps == ["login"], "a kept login on an unread owner was sent")
+        #expect(try Self.fields(run.result)["error_code"] == .string("cloud.relay.login_unverified"))
     }
 
     /// A team machine the caller made (the link says owner, its guest says `team`) keeps a working sign-in of its own: sent.
@@ -299,7 +328,7 @@ struct CloudRelayChatLoginTests {
         let runs = [try await Self.relayChat(Self.decision(outcome: CloudCredentialTransfer.CachedLogin.none.startOutcome)),
                     try await Self.relayChat(Self.decision(outcome: "installed"), loginTakes: .seconds(1), loginWithin: .milliseconds(100)),
                     try await Self.relayChat(Self.decision(outcome: "installed"), accountChanges: true),
-                    try await Self.relayChat(Self.decision(outcome: nil, callerOwns: false)),
+                    try await Self.relayChat(Self.decision(outcome: nil, callerOwns: false), link: nil),
                     try await Self.relayChat(Self.decision(outcome: nil, callerOwns: false), link: .team)]
         var codes: Set<String> = []
         for run in runs {
