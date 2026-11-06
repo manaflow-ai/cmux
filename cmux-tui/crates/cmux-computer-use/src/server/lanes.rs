@@ -57,9 +57,8 @@ impl Lanes {
         if state.idle == 0 && state.threads < MAX_THREADS {
             state.threads += 1;
             let lanes = Arc::clone(self);
-            let spawned = std::thread::Builder::new()
-                .name("cmux-cu-call".into())
-                .spawn(move || lanes.run());
+            let spawned =
+                std::thread::Builder::new().name("cmux-cu-call".into()).spawn(move || lanes.run());
             if spawned.is_err() {
                 state.threads -= 1;
             }
@@ -129,7 +128,7 @@ mod tests {
         });
         let a2 = done_tx.clone();
         lanes.submit("a", move || a2.send("a2".into()).unwrap());
-        let b1 = done_tx.clone();
+        let b1 = done_tx;
         lanes.submit("b", move || b1.send("b1".into()).unwrap());
         // b runs while a's first job is still blocked.
         assert_eq!(done_rx.recv_timeout(Duration::from_secs(5)).unwrap(), "b1");

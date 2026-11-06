@@ -63,7 +63,9 @@ struct StdioApprover {
 
 impl StdioApprover {
     fn answer(&self, id: u64, answer: Answer) {
-        if let Some(waiting) = self.pending.lock().unwrap_or_else(PoisonError::into_inner).remove(&id) {
+        if let Some(waiting) =
+            self.pending.lock().unwrap_or_else(PoisonError::into_inner).remove(&id)
+        {
             let _ = waiting.send(answer);
         }
     }
@@ -167,7 +169,11 @@ fn parse_configure(v: &Value) -> Result<Configure, String> {
         }
         _ => PolicyConfig::default(),
     };
-    let socket = v.get("socket").and_then(Value::as_str).filter(|s| !s.is_empty()).ok_or("socket is required")?;
+    let socket = v
+        .get("socket")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .ok_or("socket is required")?;
     let secret = v
         .get("secret")
         .and_then(Value::as_str)
@@ -245,10 +251,17 @@ pub fn run(
     parts.approver = approver.clone();
     parts.machine_name = configure.machine;
     let engine = Arc::new(Engine::new(parts));
-    let server = match crate::server::serve(Arc::clone(&engine), &configure.socket, &configure.secret) {
+    let server = match crate::server::serve(
+        Arc::clone(&engine),
+        &configure.socket,
+        &configure.secret,
+    ) {
         Ok(server) => server,
         Err(error) => {
-            emit(&out, &json!({"type": "unavailable", "reason": format!("cannot serve {}: {error}", configure.socket)}));
+            emit(
+                &out,
+                &json!({"type": "unavailable", "reason": format!("cannot serve {}: {error}", configure.socket)}),
+            );
             return EXIT_UNAVAILABLE;
         }
     };
@@ -293,7 +306,10 @@ fn control(engine: &Engine, approver: &StdioApprover, out: &Out, message: &Value
         }
         "answer" => {
             if let Some(id) = message.get("id").and_then(Value::as_u64) {
-                let answer = message.get("answer").and_then(Value::as_str).map_or(Answer::Unavailable, parse_answer);
+                let answer = message
+                    .get("answer")
+                    .and_then(Value::as_str)
+                    .map_or(Answer::Unavailable, parse_answer);
                 approver.answer(id, answer);
             }
         }

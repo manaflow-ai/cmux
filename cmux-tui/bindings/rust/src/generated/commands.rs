@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR a8bf2d3326aa4ee4ca8db46cb9b69b3f29663cf614c1a9e776b2aae5751ab54b.
+// cmux-tui mux protocol 12, IR ee7c6f1c06086aab4e240884256ce374ab43f41d342040ba1556a7dfd720e807.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -932,6 +932,38 @@ pub struct CloudSessionStatusRequest {
 
 #[rustfmt::skip]
 pub type CloudSessionStatusResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ComputerUseApprovalsRequest {
+    pub action: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub answer: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub app_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub id: Optional<u64>,
+}
+
+#[rustfmt::skip]
+pub type ComputerUseApprovalsResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ComputerUseConfigRequest {
+    pub config: Nullable<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+pub type ComputerUseConfigResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ComputerUseEndpointRequest {
+}
+
+#[rustfmt::skip]
+pub type ComputerUseEndpointResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -4561,6 +4593,18 @@ impl CmuxClient {
 
     pub fn cloud_session_status(&mut self, request: CloudSessionStatusRequest) -> Result<CloudSessionStatusResult> {
         self.execute(&CLOUD_SESSION_STATUS_METADATA, &request)
+    }
+
+    pub fn computer_use_approvals(&mut self, request: ComputerUseApprovalsRequest) -> Result<ComputerUseApprovalsResult> {
+        self.execute(&COMPUTER_USE_APPROVALS_METADATA, &request)
+    }
+
+    pub fn computer_use_config(&mut self, request: ComputerUseConfigRequest) -> Result<ComputerUseConfigResult> {
+        self.execute(&COMPUTER_USE_CONFIG_METADATA, &request)
+    }
+
+    pub fn computer_use_endpoint(&mut self, request: ComputerUseEndpointRequest) -> Result<ComputerUseEndpointResult> {
+        self.execute(&COMPUTER_USE_ENDPOINT_METADATA, &request)
     }
 
     pub fn conversation_agent_token(&mut self, request: ConversationAgentTokenRequest) -> Result<ConversationAgentTokenResult> {

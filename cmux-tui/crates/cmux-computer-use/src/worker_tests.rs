@@ -29,7 +29,8 @@ impl Harness {
     fn start(tag: &str, platform: fn() -> Result<Platform, String>, timeout: Duration) -> Self {
         let (in_r, in_w) = std::io::pipe().unwrap();
         let (out_r, out_w) = std::io::pipe().unwrap();
-        let worker = std::thread::spawn(move || run(BufReader::new(in_r), out_w, platform, timeout));
+        let worker =
+            std::thread::spawn(move || run(BufReader::new(in_r), out_w, platform, timeout));
         let dir = PathBuf::from(format!("/tmp/cuw{tag}{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         Self { stdin: Some(in_w), stdout: BufReader::new(out_r), worker, dir }
@@ -87,8 +88,12 @@ fn configure_ready_ask_answer_and_exit_on_stdin_close() {
     assert_eq!(ready["type"], "ready", "{ready}");
     assert_eq!(ready["pid"], std::process::id());
     let (mut w, mut r) = agent(&h.socket());
-    writeln!(w, "{}", json!({"id": 1, "method": "tools/call", "name": "click", "session": "s",
-        "arguments": {"window_id": "1", "element_id": "e1"}, "call_id": "c1"}))
+    writeln!(
+        w,
+        "{}",
+        json!({"id": 1, "method": "tools/call", "name": "click", "session": "s",
+        "arguments": {"window_id": "1", "element_id": "e1"}, "call_id": "c1"})
+    )
     .unwrap();
     let ask = h.recv();
     assert_eq!(ask["type"], "ask", "{ask}");
@@ -98,15 +103,22 @@ fn configure_ready_ask_answer_and_exit_on_stdin_close() {
     assert_eq!(done["result"]["is_error"], false, "{done}");
     // Lowering the mode applies at once.
     h.send(json!({"type": "config", "config": {"mode": "lookOnly"}}));
-    writeln!(w, "{}", json!({"id": 2, "method": "tools/call", "name": "click", "session": "s",
-        "arguments": {"window_id": "1", "element_id": "e1"}, "call_id": "c2"}))
+    writeln!(
+        w,
+        "{}",
+        json!({"id": 2, "method": "tools/call", "name": "click", "session": "s",
+        "arguments": {"window_id": "1", "element_id": "e1"}, "call_id": "c2"})
+    )
     .unwrap();
     assert_eq!(recv(&mut r)["result"]["code"], "look_only");
     // Saved approvals through the control channel.
     h.send(json!({"type": "approvals", "action": "never", "app_id": "com.apple.Safari"}));
     h.send(json!({"type": "approvals", "action": "list", "id": 5}));
     let list = h.recv();
-    assert_eq!(list, json!({"type": "approvals", "id": 5, "saved": {"always": [], "never": ["com.apple.Safari"]}}));
+    assert_eq!(
+        list,
+        json!({"type": "approvals", "id": 5, "saved": {"always": [], "never": ["com.apple.Safari"]}})
+    );
     let socket = h.socket();
     let state = h.dir.join("state");
     assert!(state.join("approvals.json").exists());
@@ -120,8 +132,12 @@ fn an_unanswered_question_is_unavailable() {
     let mut h = Harness::start("timeout", fake, Duration::from_millis(50));
     assert_eq!(h.configure(json!({"mode": "askEveryTime"}))["type"], "ready");
     let (mut w, mut r) = agent(&h.socket());
-    writeln!(w, "{}", json!({"id": 1, "method": "tools/call", "name": "click", "session": "s",
-        "arguments": {"window_id": "1", "element_id": "e1"}}))
+    writeln!(
+        w,
+        "{}",
+        json!({"id": 1, "method": "tools/call", "name": "click", "session": "s",
+        "arguments": {"window_id": "1", "element_id": "e1"}})
+    )
     .unwrap();
     assert_eq!(h.recv()["type"], "ask");
     let done = recv(&mut r);

@@ -92,7 +92,10 @@ fn serve_on(
 ) -> io::Result<Server> {
     if secret.len() < 16 {
         listener.remove();
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, "the secret must be at least 16 bytes"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "the secret must be at least 16 bytes",
+        ));
     }
     let listener = Arc::new(listener);
     let shared = Arc::new(Shared {
@@ -260,9 +263,8 @@ fn connection(shared: &Arc<Shared>, stream: Arc<dyn Stream>, admitted: Result<()
 /// policy allows, and a missing one is a local agent.
 pub fn context(request: &Value) -> Result<CallContext, String> {
     let origin = match request.get("origin") {
-        Some(o) if !o.is_null() => {
-            serde_json::from_value::<OriginKind>(o.clone()).map_err(|e| format!("bad origin: {e}"))?
-        }
+        Some(o) if !o.is_null() => serde_json::from_value::<OriginKind>(o.clone())
+            .map_err(|e| format!("bad origin: {e}"))?,
         _ => OriginKind::Local,
     };
     let text = |key: &str| request.get(key).and_then(Value::as_str).filter(|s| !s.is_empty());

@@ -184,7 +184,7 @@ fn one_sessions_calls_stay_ordered_and_others_go_on() {
     let mut client = Client::connect(&f.path);
     let click = json!({"window_id": "1", "element_id": "e1"});
     // A1 acts and waits at the gate; A2 (discover) must wait behind it.
-    client.call(1, "a", "click", click.clone(), Some("a1"));
+    client.call(1, "a", "click", click, Some("a1"));
     f.gate.wait_for_waiters(1);
     client.call(2, "a", "list_apps", json!({}), None);
     // Session b is not held up by a.

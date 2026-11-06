@@ -70,7 +70,9 @@ fn token_user_sid(process: HANDLE) -> io::Result<Vec<u8>> {
     unsafe { GetTokenInformation(token.0, TokenUser, std::ptr::null_mut(), 0, &mut len) };
     let mut buf = vec![0u8; len as usize];
     // SAFETY: buffer of the size Windows asked for.
-    if unsafe { GetTokenInformation(token.0, TokenUser, buf.as_mut_ptr().cast(), len, &mut len) } == 0 {
+    if unsafe { GetTokenInformation(token.0, TokenUser, buf.as_mut_ptr().cast(), len, &mut len) }
+        == 0
+    {
         return Err(io::Error::last_os_error());
     }
     Ok(buf)
@@ -118,7 +120,10 @@ impl Drop for Listener {
 impl Listener {
     pub(super) fn bind(endpoint: &str) -> io::Result<Self> {
         if !endpoint.starts_with(r"\\.\pipe\") {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "a Windows endpoint is \\\\.\\pipe\\NAME"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "a Windows endpoint is \\\\.\\pipe\\NAME",
+            ));
         }
         // SAFETY: the pseudo handle of this process.
         let me = token_user_sid(unsafe { GetCurrentProcess() })?;
@@ -137,8 +142,7 @@ impl Listener {
         {
             return Err(io::Error::last_os_error());
         }
-        let listener =
-            Self { name: wide(endpoint), me, descriptor, first: AtomicBool::new(true) };
+        let listener = Self { name: wide(endpoint), me, descriptor, first: AtomicBool::new(true) };
         // Claim the name now (FILE_FLAG_FIRST_PIPE_INSTANCE fails if another process owns it).
         Ok(listener)
     }

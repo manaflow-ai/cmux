@@ -24,10 +24,9 @@ pub(super) struct Listener {
 impl Listener {
     pub(super) fn bind(endpoint: &str) -> io::Result<Self> {
         let path = PathBuf::from(endpoint);
-        let dir = path
-            .parent()
-            .filter(|d| !d.as_os_str().is_empty())
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "the socket path has no directory"))?;
+        let dir = path.parent().filter(|d| !d.as_os_str().is_empty()).ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "the socket path has no directory")
+        })?;
         private_dir(dir)?;
         match std::fs::symlink_metadata(&path) {
             Ok(meta) => {
@@ -77,7 +76,10 @@ pub fn private_dir(dir: &Path) -> io::Result<()> {
     std::fs::create_dir_all(dir)?;
     let meta = std::fs::symlink_metadata(dir)?;
     if !meta.is_dir() {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("{} is not a directory", dir.display())));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{} is not a directory", dir.display()),
+        ));
     }
     if meta.uid() != current_uid() {
         return Err(io::Error::new(

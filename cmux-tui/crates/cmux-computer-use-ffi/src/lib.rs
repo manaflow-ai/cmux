@@ -7,7 +7,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use cmux_computer_use::cursor::{CursorEvent, CursorSink};
-use cmux_computer_use::desktop::{CaptureTarget, DResult, DesktopError, HostServices, Point, RawFrame};
+use cmux_computer_use::desktop::{
+    CaptureTarget, DResult, DesktopError, HostServices, Point, RawFrame,
+};
 use cmux_computer_use::engine::{
     Answer, Approver, CallContext, Engine, EngineParts, PersonActivity, Question,
 };
@@ -102,7 +104,14 @@ impl HostServices for Host {
         let mut error = [0u8; 512];
         // SAFETY: the header's contract: valid pointers for the call's duration.
         let status = unsafe {
-            capture(self.0.context, request.as_ptr(), request.len(), &mut frame, error.as_mut_ptr(), error.len())
+            capture(
+                self.0.context,
+                request.as_ptr(),
+                request.len(),
+                &mut frame,
+                error.as_mut_ptr(),
+                error.len(),
+            )
         };
         if status != 0 {
             let end = error.iter().position(|b| *b == 0).unwrap_or(error.len());
@@ -254,9 +263,10 @@ pub unsafe extern "C" fn cmux_cu_engine_create(
     let host = Host(unsafe { *host });
     let host_arc: Arc<Host> = Arc::new(host);
     #[cfg(target_os = "macos")]
-    let desktop: Arc<dyn cmux_computer_use::Desktop> = Arc::new(
-        cmux_computer_use::platform::macos::MacDesktop::new(Some(host_arc.clone() as Arc<dyn HostServices>)),
-    );
+    let desktop: Arc<dyn cmux_computer_use::Desktop> =
+        Arc::new(cmux_computer_use::platform::macos::MacDesktop::new(Some(
+            host_arc.clone() as Arc<dyn HostServices>
+        )));
     #[cfg(not(target_os = "macos"))]
     let desktop: Arc<dyn cmux_computer_use::Desktop> = match cmux_computer_use::platform::open() {
         Ok(d) => d,
@@ -313,7 +323,9 @@ pub fn parse_request(v: &Value) -> Result<(CallContext, String, Value), String> 
     let name = v.get("name").and_then(Value::as_str).ok_or("name is required")?.to_string();
     let session = v.get("session").and_then(Value::as_str).unwrap_or("default").to_string();
     let origin = match v.get("origin") {
-        Some(o) if !o.is_null() => serde_json::from_value::<OriginKind>(o.clone()).map_err(|e| e.to_string())?,
+        Some(o) if !o.is_null() => {
+            serde_json::from_value::<OriginKind>(o.clone()).map_err(|e| e.to_string())?
+        }
         _ => OriginKind::Local,
     };
     Ok((
@@ -363,7 +375,9 @@ pub unsafe extern "C" fn cmux_cu_engine_end_session(
 pub unsafe extern "C" fn cmux_cu_engine_saved_approvals(engine: *mut CmuxCuEngine) -> CmuxCuBuffer {
     // SAFETY: from create.
     let Some(engine) = (unsafe { engine.as_ref() }) else { return CmuxCuBuffer::empty() };
-    CmuxCuBuffer::from_string(serde_json::to_string(&engine.engine.sessions().saved()).unwrap_or_default())
+    CmuxCuBuffer::from_string(
+        serde_json::to_string(&engine.engine.sessions().saved()).unwrap_or_default(),
+    )
 }
 
 #[unsafe(no_mangle)]
@@ -412,7 +426,8 @@ pub unsafe extern "C" fn cmux_cu_serve(
     // SAFETY: header contract.
     let path = unsafe { text(socket_path, socket_path_len) };
     // SAFETY: header contract.
-    let Some(secret) = cmux_computer_use::wire::unhex(unsafe { text(secret_hex, secret_hex_len) }) else {
+    let Some(secret) = cmux_computer_use::wire::unhex(unsafe { text(secret_hex, secret_hex_len) })
+    else {
         set_error(error, "the secret is not hex".into());
         return std::ptr::null_mut();
     };
@@ -489,7 +504,14 @@ mod tests {
         let mut error = CmuxCuBuffer::empty();
         // SAFETY: valid pointers for the call.
         let server = unsafe {
-            cmux_cu_serve(engine, path.as_ptr(), path.len(), secret.as_ptr(), secret.len(), &mut error)
+            cmux_cu_serve(
+                engine,
+                path.as_ptr(),
+                path.len(),
+                secret.as_ptr(),
+                secret.len(),
+                &mut error,
+            )
         };
         assert!(!server.is_null());
         let mut stream = std::os::unix::net::UnixStream::connect(&path).unwrap();
@@ -517,7 +539,14 @@ mod tests {
         }));
         // SAFETY: valid pointers for the call.
         let server = unsafe {
-            cmux_cu_serve(engine, path.as_ptr(), path.len(), short.as_ptr(), short.len(), &mut error)
+            cmux_cu_serve(
+                engine,
+                path.as_ptr(),
+                path.len(),
+                short.as_ptr(),
+                short.len(),
+                &mut error,
+            )
         };
         assert!(server.is_null() && !error.data.is_null());
         // SAFETY: from the library.
@@ -532,7 +561,9 @@ mod tests {
     fn buffers_round_trip() {
         let b = cmux_cu_tools_list();
         // SAFETY: from the library.
-        let s = unsafe { std::str::from_utf8(std::slice::from_raw_parts(b.data, b.len)) }.unwrap().to_string();
+        let s = unsafe { std::str::from_utf8(std::slice::from_raw_parts(b.data, b.len)) }
+            .unwrap()
+            .to_string();
         assert!(s.contains("\"screenshot\""));
         // SAFETY: from the library.
         unsafe { cmux_cu_buffer_free(b) };

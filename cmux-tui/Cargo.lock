@@ -1210,6 +1210,7 @@ dependencies = [
  "serde",
  "serde_json",
  "windows",
+ "windows-sys 0.61.2",
  "x11rb",
 ]
 
@@ -1878,6 +1879,7 @@ dependencies = [
  "cmux-cloud-client",
  "cmux-cloud-config",
  "cmux-cloud-environment",
+ "cmux-computer-use",
  "cmux-config",
  "cmux-conversation",
  "cmux-git",
@@ -1980,6 +1982,7 @@ dependencies = [
  "cmux-app-host",
  "cmux-app-manifest",
  "cmux-bookmarks-core",
+ "cmux-computer-use",
  "cmux-conductor-import",
  "cmux-config",
  "cmux-conversation",

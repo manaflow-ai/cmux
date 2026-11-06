@@ -134,6 +134,12 @@ ring.workspace = true
 acpmux = { path = "../acpmux", default-features = false }
 acpmux-build-id = { path = "../acpmux-build-id" }
 
+# The hidden `__computer-use-worker` mode (computer_use_worker.rs): the Linux
+# and Windows Computer Use worker the daemon supervises. macOS runs it in the
+# signed cmux Remote host instead.
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+cmux-computer-use = { workspace = true, features = ["desktop", "server"] }
+
 [target.'cfg(unix)'.dependencies]
 # `cmux automation` (cli/automation.rs, unix only): the store and the launchd runner use
 # unix files and processes, so the crate does not build for Windows.
