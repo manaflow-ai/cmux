@@ -155,19 +155,43 @@ fn splice(connection: UnixStream, dialed: Dialed, children: &Children) {
         return;
     };
     let upload = std::thread::Builder::new().name("cmux-link-up".into()).spawn(move || {
-        let _up = std::io::copy(&mut upload_from, &mut stdin);
+        let _up = pump(&mut upload_from, &mut stdin);
         stage!("upload ended: {}", copied(&_up));
         // Dropping stdin tells the dial the client is done writing.
     });
-    stage!("upload worker {}", if upload.is_ok() { "spawned" } else { "did not spawn" });
+    let Ok(upload) = upload else {
+        // No upload, no stream: the client sees end of stream, never a half-open one.
+        stage!("upload worker did not spawn");
+        end_child(&child, children);
+        return;
+    };
+    stage!("upload worker spawned");
     let mut download_to = connection;
-    let _down = std::io::copy(&mut stdout, &mut download_to);
+    let _down = pump(&mut stdout, &mut download_to);
     stage!("download ended: {}", copied(&_down));
     let _ = download_to.flush();
     let _ = download_to.shutdown(std::net::Shutdown::Both);
     end_child(&child, children);
-    if let Ok(upload) = upload {
-        let _ = upload.join();
+    let _ = upload.join();
+}
+
+/// Copies `from` to `to` until `from` ends, writing each read at once: a
+/// plain read and write loop, never `std::io::copy`, whose Linux fast path
+/// may splice a socket into the dial's pipe and hold a short line (one
+/// `identify`) back. Returns the bytes copied, or the first error.
+fn pump(from: &mut impl std::io::Read, to: &mut impl std::io::Write) -> std::io::Result<u64> {
+    let mut buffer = [0u8; 16 * 1024];
+    let mut total = 0u64;
+    loop {
+        let read = match from.read(&mut buffer) {
+            Ok(0) => return Ok(total),
+            Ok(read) => read,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        };
+        to.write_all(&buffer[..read])?;
+        to.flush()?;
+        total += read as u64;
     }
 }
 
