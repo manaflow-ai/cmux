@@ -73,6 +73,26 @@
       ],
       "confirm": [],
       "events": []
+    },
+    "feed": {
+      "description": "Feed (plans/cmux-next/feed-page.md): the person's feed read from the daemon's feed client (feed-client-v1), in the Inbox tab, the Feed panel and the right sidebar. It reads the view, items, the Reports basket and Find Work's GitHub lists; an answer, decline, read, archive, snooze or Mark All Read (feed.intent), a GitHub refresh and a report reply need the person's gesture. It hears feed-view-changed and feed-reports-changed, so an open page re-reads on each change without polling. Posting, withdrawing, the GitHub setting and the presence stay with the verified app connection.",
+      "read": [
+        "feed.view.read",
+        "feed.item.get",
+        "feed.items.list",
+        "feed.github.find_work",
+        "feed.reports.read"
+      ],
+      "gesture": [
+        "feed.intent",
+        "feed.github.refresh",
+        "feed.reports.reply"
+      ],
+      "confirm": [],
+      "events": [
+        "feed-view-changed",
+        "feed-reports-changed"
+      ]
     }
   },
   "namespaces": {
@@ -104,6 +124,26 @@
       ],
       "mutation": [
         "agent_session.trust.set"
+      ]
+    },
+    "feed": {
+      "owner": "feed",
+      "description": "The daemon's feed client (feed-client-v1, plans/cmux-next/feed-page.md section 2): the mirror of the person's FeedDO on the app's cloud lease, the in-memory integration owner (GitHub items, update cards), the GitHub poller and the acpmux Reports basket. Unix socket and authenticated WebSocket connections; mutations need origin user; feed.post, feed.withdraw, feed.github.configure and feed.presence.set need the verified app connection itself.",
+      "read": [
+        "feed.view.read",
+        "feed.item.get",
+        "feed.items.list",
+        "feed.github.find_work",
+        "feed.reports.read"
+      ],
+      "mutation": [
+        "feed.intent",
+        "feed.post",
+        "feed.withdraw",
+        "feed.github.configure",
+        "feed.github.refresh",
+        "feed.reports.reply",
+        "feed.presence.set"
       ]
     }
   }

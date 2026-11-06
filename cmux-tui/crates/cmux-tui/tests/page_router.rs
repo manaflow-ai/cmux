@@ -322,3 +322,57 @@ fn the_history_page_relay_hears_a_closed_workspace_as_history_changed() {
     let refused = channels.send(&json!({"id": 2, "cmd": "subscribe"}));
     assert_eq!(refused["error_code"], "origin.forbidden", "{refused}");
 }
+
+/// The routed `feed` namespace (`feed-client-v1`, plans/cmux-next/feed-page.md):
+/// the Feed page reads the daemon's feed view, an intent needs the person's
+/// gesture, another page reads no feed, and the integration owner's writes
+/// are the verified app's alone.
+#[test]
+fn the_feed_page_reads_the_daemons_feed_view() {
+    let fixture = Fixture::new("feed");
+    fixture.ensure(HISTORY_ORIGIN);
+    let read = v2("view", "feed.view.read", json!({"layout": "inbox", "tz_offset_min": 60}), None);
+
+    let mut feed = fixture.unix();
+    let hello =
+        feed.send(&json!({"id": 1, "cmd": "client-hello", "role": "page_relay", "page": "feed"}));
+    assert_eq!(hello["ok"], true, "{hello}");
+    assert_eq!(
+        hello["data"]["page_events"],
+        json!(["feed-view-changed", "feed-reports-changed"]),
+        "{hello}"
+    );
+    let view = feed.send(&read);
+    assert_eq!(view["ok"], true, "{view}");
+    let groups: Vec<&str> = view["result"]["groups"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{view}"))
+        .iter()
+        .filter_map(|group| group["id"].as_str())
+        .collect();
+    assert_eq!(groups, ["needs_you", "today", "earlier"], "{view}");
+    assert_eq!(view["result"]["counts"]["badge"], 0, "{view}");
+    assert_eq!(view["result"]["github"]["enabled"], false, "{view}");
+    let intent = v2("intent", "feed.intent", json!({"kind": "mark_all_read"}), Some("fd-1"));
+    assert_eq!(refusal_reason(&feed.send(&intent)), "gesture_required");
+    let post = v2(
+        "post",
+        "feed.post",
+        json!({"item": {"id": "fi_1", "title": "t", "poster": {"kind": "integration"}, "created_at": 1}}),
+        Some("fd-2"),
+    );
+    assert_eq!(feed.send(&post)["ok"], false);
+    let unknown = feed.send(&v2("bad", "feed.view.read", json!({"layout": "grid"}), None));
+    assert_eq!(unknown["ok"], false, "{unknown}");
+
+    // Another page reads no feed.
+    let mut history = fixture.unix();
+    history.send(&json!({"id": 1, "cmd": "client-hello", "role": "page_relay", "page": "history"}));
+    assert_eq!(refusal_reason(&history.send(&read)), "page_not_allowed");
+
+    // A script on the socket reads the view; posting is the app's alone.
+    let mut script = fixture.unix();
+    assert_eq!(script.send(&read)["ok"], true);
+    let refused = script.send(&post);
+    assert_eq!(refused["ok"], false, "{refused}");
+}

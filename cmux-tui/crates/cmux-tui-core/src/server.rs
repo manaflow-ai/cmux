@@ -199,6 +199,7 @@ mod api_revision_wire;
 mod conversation_tabs_wire;
 mod conversations;
 mod detached_terminals;
+mod feed_client_ops;
 mod feed_local;
 mod frontend_browser_history;
 mod history_search;
