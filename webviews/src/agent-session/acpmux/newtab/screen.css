@@ -142,6 +142,13 @@
 .nt-location[data-project-pending] .acpmux-location-leading > .acpmux-location-picker:first-child .acpmux-location-label {
   visibility: hidden;
 }
+/* New Tab's location and stage rows use the shared 20px project slot, but the folder is a plain
+   glyph. The row itself owns hover/pressed feedback; a second badge plate adds noise and makes the
+   folder look heavier than the other New Tab controls (Leo, 2026-11-06). */
+.nt-screen .acpmux-project-badge {
+  border-radius: 0;
+  background: none;
+}
 .nt-composer { --acpmux-strip-radius: 20px; }
 /* The strip is the box's fill (.nt-box below): the composer's surface, so the two stay one
    surface. Neither changes on hover (Leo 2026-10-18: a composer is quiet, like Claude's and

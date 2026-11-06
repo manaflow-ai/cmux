@@ -22,6 +22,9 @@ export function PanelToggle({
   className?: string;
   /// Gallery-only alternatives keep the design choice visible without changing the shipped default.
   icon?: string;
+  /// Gallery-only comparison for the old selected Solid glyph. Product toggles keep the Line
+  /// drawing in both states; the button's pressed surface carries the state.
+  selectedGlyph?: boolean;
 }) {
   return (
     <button
@@ -32,7 +35,7 @@ export function PanelToggle({
       {...tooltipProps(label, undefined)}
       onClick={onToggle}
     >
-      <HeaderIcon name={icon} size={HEADER_GLYPH} selected={shown} />
+      <HeaderIcon name={icon} size={HEADER_GLYPH} selected={selectedGlyph} />
     </button>
   );
 }

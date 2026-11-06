@@ -163,3 +163,21 @@ test("the compact chat tools use host SF Symbols, with overflow last and no dupl
     setHarnessSymbolHost(undefined);
   });
 });
+
+test("a pressed panel toggle keeps the list glyph's Line drawing", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { PanelToggle } = await import("../src/agent-session/acpmux/header/PanelToggle");
+  root ??= createRoot(host);
+  await act(async () => {
+    root!.render(<PanelToggle label="Session Info" shown={true} onToggle={() => {}} />);
+  });
+  const pressed = host.querySelector<SVGElement>('svg[data-icon="view.list.short"]')!;
+  const pressedMarkup = pressed.innerHTML;
+  const pressedStroke = pressed.querySelector("path[stroke]")?.getAttribute("stroke-width");
+  await act(async () => {
+    root!.render(<PanelToggle label="Session Info" shown={false} onToggle={() => {}} />);
+  });
+  const unpressed = host.querySelector<SVGElement>('svg[data-icon="view.list.short"]')!;
+  expect(pressedMarkup).toBe(unpressed.innerHTML);
+  expect(pressedStroke).toBe(unpressed.querySelector("path[stroke]")?.getAttribute("stroke-width"));
+});
