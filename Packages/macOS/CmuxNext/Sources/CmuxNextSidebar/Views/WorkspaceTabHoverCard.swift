@@ -131,7 +131,7 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
         let count = tabs.count
         while rowViews.count < count {
             let row = WorkspaceTabHoverCardRow(style: style)
-            row.onRelease = { [weak self, weak row] in
+            row.onActivate = { [weak self, weak row] in
                 guard let self, let row, let index = self.rowViews.firstIndex(where: { $0 === row }),
                       index < self.tabs.count else { return }
                 self.selectedIndex = index
