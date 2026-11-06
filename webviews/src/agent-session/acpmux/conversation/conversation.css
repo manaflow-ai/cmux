@@ -671,6 +671,30 @@
 .cv-user__paste-card[data-open] .cv-user__paste-chevron {
   transform: rotate(180deg);
 }
+/* A paste that reads as another agent's output (PromptText.tsx PasteChip, pastedAgentLook): its
+   label names the agent. The rule arm adds an accent rule down the card's left edge, inside its
+   padding, so the card keeps its height and width. */
+.cv-user__paste-card[data-agent="rule"] {
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--agent-accent) 70%, transparent);
+  background: color-mix(in srgb, var(--agent-accent) 7%, transparent);
+}
+.cv-user__paste-card[data-agent="rule"]:not([data-open]):hover {
+  background: color-mix(in srgb, var(--agent-accent) 11%, transparent);
+}
+.cv-user__paste-glyph {
+  flex: none;
+}
+.cv-user__paste-agent {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 var(--ds-space-2);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--agent-accent) 16%, transparent);
+  color: var(--cv-text);
+}
 
 /* A prompt queued behind a harness switch: one quiet line under its bubble ("Starting Codex…"). */
 .cv-user__status {
