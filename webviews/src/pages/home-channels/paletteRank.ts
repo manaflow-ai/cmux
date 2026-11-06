@@ -57,9 +57,7 @@ export function boundedRankRequest(request: PaletteRankRequest): PaletteRankRequ
     entries: request.entries.slice(0, MAX_RANK_ENTRIES).map((entry) => ({
       ...entry,
       title: clipUtf8(entry.title, MAX_TITLE_BYTES),
-      keywords: entry.keywords
-        ?.slice(0, MAX_KEYWORDS)
-        .map((keyword) => clipUtf8(keyword, MAX_KEYWORD_BYTES)),
+      keywords: entry.keywords?.slice(0, MAX_KEYWORDS).map((keyword) => clipUtf8(keyword, MAX_KEYWORD_BYTES)),
     })),
   };
 }

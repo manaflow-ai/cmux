@@ -80,8 +80,7 @@ const items = ["general", "Release train", "random"].map((title, index) => ({
 /** A rank function whose answers the test releases one by one, in any order. */
 function heldRanker() {
   const asked: Array<{ request: Request; answer(reply: Reply): void }> = [];
-  const rank = (request: Request) =>
-    new Promise<Reply>((resolve) => asked.push({ request, answer: resolve }));
+  const rank = (request: Request) => new Promise<Reply>((resolve) => asked.push({ request, answer: resolve }));
   return { asked, rank };
 }
 
@@ -107,11 +106,7 @@ const reply = (...indexes: number[]): Reply => ({
 test("the palette keeps the last answer until the next and drops an older query's", async () => {
   const ranker = heldRanker();
   root = createRoot(host);
-  await act(async () =>
-    root!.render(
-      createElement(Palette, { items, rank: ranker.rank, strings, onClose() {} }),
-    ),
-  );
+  await act(async () => root!.render(createElement(Palette, { items, rank: ranker.rank, strings, onClose() {} })));
   // Before any answer: the rows in their order, never an empty list.
   expect(shown()).toEqual(["general", "Release train", "random"]);
   expect(ranker.asked.map((ask) => ask.request.query)).toEqual([""]);
@@ -177,8 +172,7 @@ test("the fixture ranker keeps the rows in order, filtered by a case-insensitive
 test("a row that changes while an answer is on its way runs its current action", async () => {
   const ranker = heldRanker();
   const ran: string[] = [];
-  const rows = (label: string) =>
-    items.map((item) => ({ ...item, run: () => void ran.push(`${label}:${item.id}`) }));
+  const rows = (label: string) => items.map((item) => ({ ...item, run: () => void ran.push(`${label}:${item.id}`) }));
   root = createRoot(host);
   const render = (list: ReturnType<typeof rows>) =>
     act(async () => root!.render(createElement(Palette, { items: list, rank: ranker.rank, strings, onClose() {} })));
