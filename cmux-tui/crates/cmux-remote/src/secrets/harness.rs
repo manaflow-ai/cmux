@@ -157,8 +157,9 @@ eval "value=\${$auth:-}"
     if status.success() { Ok(()) } else { Err(LoginRefusal::Conflict) }
 }
 
-/// Write `value` (already validated) where `login`'s harness reads it, then
-/// mark the harness as using its own login.
+/// Write `value` (already validated) where `login`'s harness reads it and
+/// mark the harness as using its own login, as one change: every file or
+/// none.
 pub fn install(home: &Path, login: HarnessLogin, value: &[u8]) -> Result<(), LoginRefusal> {
     let marker = home.join(".config/cmux/agent-auth").join(login.name());
     match login {
@@ -185,23 +186,33 @@ pub fn install(home: &Path, login: HarnessLogin, value: &[u8]) -> Result<(), Log
                 )
                 .map_err(|_| LoginRefusal::Write)?,
             );
-            write(home, &settings_path, &settings)?;
-            write(home, &home.join(".claude/.credentials.json"), &credentials)?;
+            let credentials_path = home.join(".claude/.credentials.json");
+            write(
+                home,
+                &[
+                    (settings_path.as_path(), settings.as_slice()),
+                    (credentials_path.as_path(), credentials.as_slice()),
+                    (marker.as_path(), b"own\n".as_slice()),
+                ],
+            )
         }
         HarnessLogin::Codex => {
             check_codex_config(&home.join(".codex/config.toml"))?;
             let auth: serde_json::Value =
                 serde_json::from_slice(value).map_err(|_| LoginRefusal::InvalidCredential)?;
             let auth = Zeroizing::new(serde_json::to_vec(&auth).map_err(|_| LoginRefusal::Write)?);
-            write(home, &home.join(".codex/auth.json"), &auth)?;
+            let auth_path = home.join(".codex/auth.json");
+            write(
+                home,
+                &[(auth_path.as_path(), auth.as_slice()), (marker.as_path(), b"own\n".as_slice())],
+            )
         }
     }
-    write(home, &marker, b"own\n")
 }
 
-/// Only to a path [`HarnessLogin::paths`] lists.
-fn write(home: &Path, path: &Path, bytes: &[u8]) -> Result<(), LoginRefusal> {
-    super::files::write_allowed(home, path, bytes).map_err(|_| LoginRefusal::Write)
+/// All of them or none, only to paths [`HarnessLogin::paths`] lists.
+fn write(home: &Path, writes: &[(&Path, &[u8])]) -> Result<(), LoginRefusal> {
+    super::files::write_all_allowed(home, writes).map_err(|_| LoginRefusal::Write)
 }
 
 fn is_truthy(value: &serde_json::Value) -> bool {

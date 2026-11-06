@@ -10,6 +10,8 @@ use super::seal::{self, Purpose};
 use super::{MachineSecrets, files};
 use crate::crypto::StaticIdentity;
 
+mod partial_writes;
+
 const MACHINE: &str = "vm-secrets-test";
 
 fn random_hex(bytes: usize) -> String {
