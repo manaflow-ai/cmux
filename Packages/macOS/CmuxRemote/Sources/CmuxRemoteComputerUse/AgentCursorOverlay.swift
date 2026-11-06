@@ -7,8 +7,10 @@ import QuartzCore
 /// every Space and over full-screen apps, showing a cmux blue pointer with the agent's name. It
 /// glides to each point the agent acts on, ripples on a click, captions what it types, pulses
 /// when it looks, and hides after `idleHide` without events or on `hide`. The real pointer never
-/// moves. The panels are left out of every capture (`sharingType = .none` and ScreenCapture's
-/// own-process filter), so agents never see the cursor in their screenshots.
+/// moves. Agents never see the cursor in their screenshots: a display capture leaves out this
+/// process's windows (ScreenCapture's own-process filter) and a window capture shows only the
+/// target window. The person's own screen recordings and screen sharing do show it, as they
+/// show a person's pointer, so a recorded or shared session shows where the agent acted.
 ///
 /// Motion follows the app's cursor switches (``CursorMotionSettings``, from the host's config)
 /// and macOS Reduce Motion: with animation off every change applies at once and nothing pulses.
@@ -279,8 +281,9 @@ private final class SessionCursor {
         panel.hasShadow = false
         panel.animationBehavior = .none
         panel.isReleasedWhenClosed = false
-        // Never in a screen capture: an agent must not see (or click) its own cursor.
-        panel.sharingType = .none
+        // Visible to the person's screen recordings and sharing; agents' captures leave it out
+        // through ScreenCapture's own-process filter, not through sharingType.
+        panel.sharingType = .readOnly
         // A layer-hosting view: the layer first, then wantsLayer.
         let view = NSView()
         view.layer = root
