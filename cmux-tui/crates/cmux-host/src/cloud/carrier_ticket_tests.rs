@@ -56,7 +56,7 @@ fn a_bad_or_failed_answer_is_a_refusal_with_no_ticket() {
         Answer::Http { status: 404, body: json!({}) },
         Answer::Http { status: 429, body: json!({}) },
         Answer::Http { status: 503, body: json!({}) },
-        Answer::Http { status: 200, body: json!({"ok": false, "value": good.clone()}) },
+        Answer::Http { status: 200, body: json!({"ok": false, "value": good}) },
     ];
     for (field, bad) in [
         ("relay", json!("relay+wss://relay.cmux.dev")),
