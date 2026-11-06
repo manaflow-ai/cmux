@@ -41,15 +41,19 @@ bench = load("bench_launch", ROOT / "scripts/cmux-next/bench_launch.py")
 
 
 def control_socket(app_pid: int) -> str | None:
-    """The copy's control socket: a unix socket the app process holds under ~/.local/state/cmux (or
-    its /tmp name) that answers system.ping. A side copy names it by its key hash, so it is read
-    from the process, not computed."""
-    held = subprocess.run(["lsof", "-a", "-p", str(app_pid), "-U", "-Fn"], capture_output=True, text=True).stdout
-    for name in sorted({entry[1:] for entry in held.splitlines() if entry.startswith("n/")}):
-        if name.endswith(".sock") and ("/.local/state/cmux/" in name or name.startswith("/tmp/cmux")):
-            reply = bench.rpc_at(name, "system.ping", timeout=3)
-            if not (isinstance(reply, dict) and reply.get("unreachable")):
-                return name
+    """The copy's control socket. lsof does not show it (try-pr-live-code.sh), and a side copy names it
+    by its key hash, so every cmux control socket is asked system.identify and the one that answers
+    with the copy's pid is it. The step has its own HOME; the copy, opened through Launch Services,
+    keeps the account's, so both are searched."""
+    import glob
+    homes = dict.fromkeys([bench.account_home(), os.path.expanduser("~")])
+    socks = set(glob.glob("/tmp/cmux-*.sock"))
+    for home in homes:
+        socks.update(glob.glob(os.path.join(home, ".local/state/cmux/*.sock")))
+    for sock in sorted(socks):
+        reply = bench.rpc_at(sock, "system.identify", timeout=5)
+        if isinstance(reply, dict) and reply.get("pid") == app_pid:
+            return sock
     return None
 
 
@@ -100,7 +104,8 @@ def main() -> int:
     # A fresh copy starts its terminal daemon with its first terminal: open a workspace for one.
     control = wait_until("the copy's control socket", time.monotonic() + 120, lambda: control_socket(app_pid))
     opened = bench.rpc_at(control, "action.run", {"action": "workspace.newAtBottom"}, timeout=30)
-    receipt["opened_workspace"] = not (isinstance(opened, dict) and opened.get("error"))
+    receipt["checks"]["opened_workspace"] = not (isinstance(opened, dict) and "error" in opened)
+    receipt["opened_workspace_reply"] = opened
     try:
         sock = wait_until("the copy's daemon", time.monotonic() + 180, lambda: hot.find_socket(app, cli))
     except TimeoutError:
