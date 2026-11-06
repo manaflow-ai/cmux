@@ -95,8 +95,9 @@ export function withoutQuietThoughts(
   // a row follows it, that shape is stale: shape the old last row again.
   if (live && reuse > 0 && reuse >= previous!.length) reuse = previous!.length - 1;
   let changed = false;
-  const out: AcpmuxRow[] = reuse ? prior.rows.slice(0, prior.offsets[reuse]) : [];
-  const offsets = reuse ? prior.offsets.slice(0, reuse + 1) : [0];
+  const kept = reuse > 0 ? prior : undefined;
+  const out: AcpmuxRow[] = kept ? kept.rows.slice(0, kept.offsets[reuse]) : [];
+  const offsets = kept ? kept.offsets.slice(0, reuse + 1) : [0];
   for (let index = reuse; index < rows.length; index += 1) {
     const row = rows[index]!;
     const keepLast = row.live === true || (live && index === rows.length - 1);
@@ -111,11 +112,11 @@ export function withoutQuietThoughts(
     if (next) out.push(next);
     offsets.push(out.length);
   }
-  const result = changed || reuse > 0 ? out : rows;
+  const result = changed || kept ? out : rows;
   // The ordered snapshot's index is in the raw row list; `offsets` translates it to the
   // projected list after quiet thoughts are removed. Preserve the hint for layoutConversation
   // when this projection allocated a new array. An unchanged raw array already carries its hint.
-  if (result !== rows) markRowsChangedFrom(result, reuse ? prior.offsets[reuse]! : 0);
+  if (result !== rows) markRowsChangedFrom(result, kept ? kept.offsets[reuse]! : 0);
   const entry = projections.get(rows) ?? { live: { rows: [], offsets: [] }, settled: { rows: [], offsets: [] } };
   entry[live ? "live" : "settled"] = { rows: result, offsets };
   projections.set(rows, entry);

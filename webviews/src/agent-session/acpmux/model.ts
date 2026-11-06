@@ -2525,12 +2525,7 @@ export function layoutConversation(
     // identity check at the hint boundary: filtered/reordered projections conservatively
     // fall back to the exact prefix walk.
     const hint = rowsChangedFrom(rows);
-    if (
-      hint !== undefined &&
-      hint <= limit &&
-      (hint === 0 || rows[hint - 1] === previous.rows[hint - 1])
-    )
-      start = hint;
+    if (hint !== undefined && hint <= limit && (hint === 0 || rows[hint - 1] === previous.rows[hint - 1])) start = hint;
     else while (start < limit && rows[start] === previous.rows[start]) start += 1;
     // A row after the kept ones can change the height of the last kept row that draws (a footer
     // after a reply, a prompt after the last footer, past rows that draw nothing): place it again.

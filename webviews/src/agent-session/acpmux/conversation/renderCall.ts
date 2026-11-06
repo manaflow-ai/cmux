@@ -48,10 +48,8 @@ export function renderCall(tool: Tool): RenderCall | undefined {
 }
 
 function readCall(tool: Tool): RenderCall | undefined {
-  if (NOT_RENDERED.has(tool.status ?? "") || !NAME.test(tool.title.trim()))
-    return undefined;
-  if (tool.output && REFUSED.test(tool.output) && !RENDERED.test(tool.output))
-    return undefined;
+  if (NOT_RENDERED.has(tool.status ?? "") || !NAME.test(tool.title.trim())) return undefined;
+  if (tool.output && REFUSED.test(tool.output) && !RENDERED.test(tool.output)) return undefined;
   const input = parseInput(tool.inputSummary);
   const html = input?.html;
   if (typeof html !== "string" || !html.trim()) return undefined;
@@ -60,11 +58,8 @@ function readCall(tool: Tool): RenderCall | undefined {
     typeof input?.title === "string" && input.title.trim()
       ? input.title.trim()
       : documentName({ kind: "html", lang: "html", code: html }) || undefined;
-  const update =
-    typeof input?.id === "string" && input.id ? input.id : undefined;
-  return update
-    ? { html, title, id: update, update: true }
-    : { html, title, id: renderId(html) };
+  const update = typeof input?.id === "string" && input.id ? input.id : undefined;
+  return update ? { html, title, id: update, update: true } : { html, title, id: renderId(html) };
 }
 
 /// The id `cmux mcp`'s render returns for a page (cmux-tui render_tool.rs `render_id`): `r`, FNV-1a 32
@@ -93,9 +88,7 @@ type FoundRender = { index: number; id: string; call: RenderCall };
 /// its own, even for a page the chat showed before. A render with an id (an update, cx-ncc.94) joins
 /// the most recent card that answers to that id, which shows its last page; one that finds none is
 /// its own card.
-export function renderPages(
-  rows: readonly AcpmuxRow[],
-): Map<string, RenderPage> {
+export function renderPages(rows: readonly AcpmuxRow[]): Map<string, RenderPage> {
   const found: FoundRender[] = [];
   const limit = rows.length;
   const hint = rowsChangedFrom(rows);
@@ -125,9 +118,7 @@ export function renderPages(
     last.found.length === found.length &&
     last.found.every(
       (entry, index) =>
-        entry.index === found[index]!.index &&
-        entry.id === found[index]!.id &&
-        entry.call === found[index]!.call,
+        entry.index === found[index]!.index && entry.id === found[index]!.id && entry.call === found[index]!.call,
     )
   )
     return last.pages;
@@ -137,8 +128,7 @@ export function renderPages(
     const card = call.update ? latest.get(call.id!) : undefined;
     if (card) {
       // The same page again (a new title) replaces the last; another page is the next version.
-      if (card.calls.at(-1)!.html === call.html)
-        card.calls[card.calls.length - 1] = call;
+      if (card.calls.at(-1)!.html === call.html) card.calls[card.calls.length - 1] = call;
       else card.calls.push(call);
       pages.set(id, card);
       continue;
@@ -159,16 +149,11 @@ let last:
   | undefined;
 
 /// The open chat's render pages (`renderPages`); unset where there is no transcript (a gallery).
-export const RenderPages = createContext<Map<string, RenderPage> | undefined>(
-  undefined,
-);
+export const RenderPages = createContext<Map<string, RenderPage> | undefined>(undefined);
 
 /// The pages a render card's Open lists as its versions, oldest first (`render` is the card's key);
 /// nil for a document that is not a render card's (the fence versions apply, artifactVersions.ts).
-export function renderVersions(
-  pages: Map<string, RenderPage>,
-  artifact: Artifact,
-): Artifact[] | undefined {
+export function renderVersions(pages: Map<string, RenderPage>, artifact: Artifact): Artifact[] | undefined {
   const page = artifact.render ? pages.get(artifact.render) : undefined;
   if (!page) return undefined;
   return page.calls.map((call) => ({
@@ -179,15 +164,11 @@ export function renderVersions(
   }));
 }
 
-function parseInput(
-  summary: string | undefined,
-): Record<string, unknown> | undefined {
+function parseInput(summary: string | undefined): Record<string, unknown> | undefined {
   if (!summary) return undefined;
   try {
     const value: unknown = JSON.parse(summary);
-    return value && typeof value === "object" && !Array.isArray(value)
-      ? (value as Record<string, unknown>)
-      : undefined;
+    return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
   } catch {
     return undefined;
   }
@@ -197,10 +178,7 @@ function parseInput(
 export const RENDER_FENCE = "cmux-render";
 
 /// The page a reply's fence renders, or nil for every other fence. Its heading is the page's <title>.
-export function renderFence(
-  lang: string,
-  code: string,
-): RenderCall | undefined {
+export function renderFence(lang: string, code: string): RenderCall | undefined {
   if (lang.toLowerCase() !== RENDER_FENCE || !code.trim()) return undefined;
   const title = documentName({ kind: "html", lang: "html", code });
   return title ? { html: code, title } : { html: code };

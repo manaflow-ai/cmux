@@ -2538,12 +2538,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       rows === snapshot.rows && previous?.raw && previous.live === snapshot.isWorking
         ? (rowsChangedFrom(snapshot.rows) ?? 0)
         : 0;
-    const projected = withoutQuietThoughts(
-      rows,
-      snapshot.isWorking,
-      reuse > 0 ? previous?.input : undefined,
-      reuse,
-    );
+    const projected = withoutQuietThoughts(rows, snapshot.isWorking, reuse > 0 ? previous?.input : undefined, reuse);
     quietRows.current = { input: rows, live: snapshot.isWorking, raw: rows === snapshot.rows };
     return projected;
   }, [snapshot.rows, snapshot.permissionGroups, individualPermission, snapshot.isWorking]);
