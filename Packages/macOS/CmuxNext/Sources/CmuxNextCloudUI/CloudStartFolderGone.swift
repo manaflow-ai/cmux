@@ -25,7 +25,6 @@ public extension CloudMoveFailure {
     /// own, read by `text`. Wrapped as a copy error, the socket's failure showed as a Swift value (run 42157718918).
     @MainActor
     static func copying(_ error: any Error, machine: String, retry: CloudMoveRetries.Retry, text: (any Error) -> String) -> CloudMoveFailure {
-        if let failure = error as? CloudMoveFailure { return CloudMoveFailure(message: failure.message, retry: retry) }
         return CloudMoveFailure(message: CloudMoveStrings.syncFailed(machine, text(error)), retry: retry)
     }
 }
