@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextWakeups
 
 /// Where a Chromium focus request comes from (`cef_focus_source_t`).
 nonisolated enum CEFFocusSource: Int32, Sendable {
@@ -69,6 +70,14 @@ extension CEFTab {
     /// them here, in the grant every path uses (a direct grant, one after the browser exists, one after the page
     /// shows). Still one key change per request (#24913); never from another window or an inactive app.
     func grantFocus(_ browser: Int32) {
+        // A page detached for a resize motion (fork API 30) has no window on screen: a grant now moves no keys, and
+        // typed keys reach no view. It gets its window back first; the window is a child of this window again only
+        // after the next commit, so the grant waits for that commit. Every grant path comes here.
+        if host.hostView.layerHosting.pageTakesFocus() {
+            pendingFocus = true
+            AfterFrameCommit().run { [weak self] in self?.grantPendingFocusIfShown() }
+            return
+        }
         isGrantingFocus = true
         defer { isGrantingFocus = false }
         runtime.shim?.setFocus(browser, 1)

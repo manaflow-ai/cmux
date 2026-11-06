@@ -247,7 +247,7 @@ enum CloudHandlers {
     @MainActor static func openDesktop(_ session: CloudMachineSession, _ context: AppActionContext, viewer: String? = nil) throws {
         let services = context.services, title = session.machine.title
         guard session.machine.allows(.desktop) else { throw ActionFailure(message: CloudStrings.desktopUnavailable(title)) }
-        let viewer = viewer ?? session.machine.defaultDesktopViewer
+        let viewer = viewer ?? session.machine.defaultDesktopViewer(for: services.cloud.auth.user?.id)
         if viewer == "rd" {
             guard session.machine.capabilities.desktop,
                   let record = RemoteViewTabRecord(host: session.machineID.lowercased(), target: .virtual, mode: .view,

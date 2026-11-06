@@ -83,6 +83,13 @@ const configured = async (env: Env, agent: string, owner: string, patch: Record<
 export const manageChiefs = async (env: Env, agent: string, owner: string, args: ArgsT, key: string): Promise<string> => {
   const me = (await settings(env, agent).status()).config
   if (!me.chiefs) throw new ChiefsRefused("chief_manage_denied", "this Chief has no chiefs tool; the person grants it")
+  // A channel Chief (channel-scope.ts) invites to its own channel and does nothing else here.
+  if (me.channel !== null) {
+    if (args.action !== "invite") throw new ChiefsRefused("chief_channel_scope", `a channel Chief only invites people to its own channel [${args.action}]`)
+    const w = args.chief?.trim()
+    if (w && w !== agent && w !== me.channel) throw new ChiefsRefused("chief_channel_scope", "a channel Chief invites people to its own channel only [chief]")
+    return JSON.stringify({ channel: me.channel, invited: await invitePeople(env, owner, agent, me.channel, args.people ?? [], key) }, null, 2)
+  }
   const all = await listChiefs(env, owner)
   if (args.action === "list") return JSON.stringify(all.map((c) => ({ id: c.id, display_name: c.display_name, is_default: c.is_default, ...(c.channel ? { channel: c.channel } : {}) })), null, 2)
   if (args.action === "invite") {

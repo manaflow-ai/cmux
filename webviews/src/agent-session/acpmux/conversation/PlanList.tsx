@@ -6,7 +6,9 @@
 // i want this kind of feature in cmux-next too", on Claude Code desktop's pinned task list), and a
 // step's change fades in place. Once the turn ends the card folds, where it stood, to its one
 // "3 of 3 tasks done" line, which opens the list again; a step left in progress stops spinning. A
-// screen reader hears the progress and each state.
+// screen reader hears the progress and each state. An earlier turn's list with steps left, pinned
+// under a running turn that has none of its own yet, says it is from before the person's last
+// message, as Claude desktop's does, and nothing in it spins (turns.ts `earlierTurnPlan`).
 // Memoized on its immutable entries: tokens streaming elsewhere in the turn never redraw it.
 import { memo, useCallback, useState } from "react";
 import { useT, type StringKey } from "../i18n";
@@ -23,10 +25,13 @@ const STATUS: Record<AcpmuxPlanEntry["status"], StringKey> = {
 export const PlanList = memo(function PlanList({
   entries,
   ended = false,
+  earlier = false,
   id,
 }: {
   entries: readonly AcpmuxPlanEntry[];
   ended?: boolean;
+  /// An earlier turn's list, shown under the running turn until the agent writes a new one.
+  earlier?: boolean;
   /// The plan row's id: an ended list the reader opened stays open when its row draws again.
   id?: string;
 }) {
@@ -43,7 +48,16 @@ export const PlanList = memo(function PlanList({
     entries.length === 1 ? t("plan.progress.one", { done }) : t("plan.progress", { done, total: entries.length });
   const folded = ended && !open;
   return (
-    <div className="cv-plan" data-ended={ended ? "" : undefined} data-folded={folded ? "" : undefined}>
+    <div
+      className="cv-plan"
+      data-ended={ended ? "" : undefined}
+      data-earlier={earlier && !ended ? "" : undefined}
+      data-folded={folded ? "" : undefined}
+    >
+      {earlier && !ended && (
+        // Drawn and heard: the list is the agent's last plan, not the running turn's.
+        <div className="cv-plan__earlier">{t("plan.earlier")}</div>
+      )}
       {ended ? (
         // The finished list's one line: the progress, a chevron that opens the steps.
         <button type="button" className="cv-plan__summary" aria-expanded={open} onClick={toggle}>
@@ -68,7 +82,7 @@ export const PlanList = memo(function PlanList({
                 {/* icon-scale-allow: the check sits inside the 12 px plan mark */}
                 {entry.status === "completed" && <Check size={10} />}
                 {/* The step at work turns the one shared spinner (icons.tsx), never a ring of its own. */}
-                {entry.status === "in_progress" && !ended && <Spinner size={12} />}
+                {entry.status === "in_progress" && !ended && !earlier && <Spinner size={12} />}
               </span>
               <span className="cv-plan__text">{entry.content}</span>
               {/* The marks are drawn only; a screen reader hears the state. */}
