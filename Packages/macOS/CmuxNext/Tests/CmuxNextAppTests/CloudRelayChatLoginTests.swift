@@ -11,13 +11,13 @@ import Testing
 /// and answered "Claude is not signed in here".
 @MainActor @Suite(.serialized)
 struct CloudRelayChatLoginTests {
-    /// A fresh Cloud machine with nothing inherited: no start-session ran on it first.
+    /// A fresh running Cloud machine with nothing inherited: no start-session ran on it first, no link is up.
     /// `owns` and `teammate`: the link's connect answer once it is up.
     static func fixture(owns: Bool = true, teammate: Bool = false) -> (services: AppServices, machine: CloudMachineSession) {
         let services = MachineIconTests.services()
         AppActions.bind(services)
         let id = "vm_" + UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "").prefix(20)
-        let machine = CloudTestLink.session(id: id, name: "Icon VM", owns: owns, teammate: teammate, mainWork: services.mainWork)
+        let machine = CloudTestLink.session(id: id, status: .running, name: "Icon VM", owns: owns, teammate: teammate, mainWork: services.mainWork)
         services.machines.add(machine)
         return (services, machine)
     }
@@ -31,6 +31,7 @@ struct CloudRelayChatLoginTests {
     /// (its decision is on the machine's row) before the relay is asked. Red on a base that sends with no login step.
     @Test func aCLIRelayChatRunsTheHarnessLoginStepFirst() async throws {
         let f = Self.fixture()
+        defer { f.machine.disconnect() }
         #expect(f.machine.harnessLogin == nil)
         let invoke = try #require(f.services.registry.action(for: "cloudRelayChat")?.invoke, "cloudRelayChat is not bound")
         let run = f.services.registry.capturingRun { invoke(Self.invocation(f.machine)) }
@@ -174,7 +175,7 @@ struct CloudRelayChatLoginTests {
         #expect(message.contains("--login machine") && message.contains("claude on Icon VM"), "\(message)")
         // The command the refusal's `--login` words go with: one the CLI runs.
         guard case .string(let command) = fields["command"] else { Issue.record("no recovery command"); return }
-        #expect(command.hasPrefix("cmux cloud start-session --target machine:vm_") && command.hasSuffix(" --agent claude"), "\(command)")
+        #expect(command.hasPrefix("cmux cloud start-session --target machine:vm_") && command.hasSuffix(" --agent claude --login none"), "\(command)")
     }
 
     /// The person said no to the copy, on a machine with no login: nothing is sent.
