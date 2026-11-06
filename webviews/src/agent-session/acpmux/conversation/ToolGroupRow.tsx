@@ -213,7 +213,16 @@ function keepView(list: HTMLElement, before: ViewAnchor | undefined): ViewAnchor
   };
   if (before?.node.isConnected) {
     const moved = edge(before) - before.at;
-    if (Math.abs(moved) >= 0.5) scroller.scrollTop += moved;
+    if (Math.abs(moved) >= 0.5) {
+      const want = scroller.scrollTop + moved;
+      scroller.scrollTop = want;
+      // Cut short by the transcript's height (not yet as tall as the run): once more on the next
+      // frame, after it has grown. One try only.
+      if (Math.abs(scroller.scrollTop - want) >= 0.5)
+        list.ownerDocument.defaultView?.requestAnimationFrame(() => {
+          if (Math.abs(scroller.scrollTop - want) >= 0.5) scroller.scrollTop = want;
+        });
+    }
   }
   const view = scroller.getBoundingClientRect().top;
   if (list.getBoundingClientRect().top >= view) return undefined;
@@ -291,12 +300,14 @@ function StepList({
       slot.current ??= stepSlot(node.querySelectorAll<HTMLElement>(":scope > .cv-step"));
       if (spacer.current) spacer.current.style.height = `${rest * slot.current}px`;
     }
-    // The rows under the run are placed before each frame paints while its rows draw (VirtualTranscript).
+    // The rows under the run are placed before each frame paints while its rows draw (VirtualTranscript),
+    // so the transcript is as tall as the run when `keepView` (its size observer, below) moves the offset.
     markHeightFold(node, KEEP_MS);
-    anchor.current = keepView(node, anchor.current);
   }, [rest, keeping]);
-  // While rows draw and a little after: a size change inside the run, or the reader's scroll, keeps
-  // or picks again what is first in view. Stops KEEP_MS after the last rows drew, or on unmount.
+  // While rows draw and a little after: a size change inside the run (rows drawn, a late thumbnail)
+  // keeps what is first in view, and the reader's scroll picks it again. The size observer runs after
+  // the transcript's own (made first), which has made the transcript as tall as the run by then, so
+  // the offset it moves is not cut short. Stops KEEP_MS after the last rows drew, or on unmount.
   useEffect(() => {
     const node = list.current;
     const scroller = node?.closest<HTMLElement>(".acpmux-scroll");
