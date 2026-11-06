@@ -1,0 +1,11 @@
+--- !tapi-tbd
+tbd-version:     4
+targets:         [ x86_64-macos, arm64-macos ]
+install-name:    '/System/Library/Frameworks/CoreGraphics.framework/Versions/A/CoreGraphics'
+current-version: 1.600.0
+compatibility-version: 64.0.0
+exports:
+  - targets:         [ x86_64-macos, arm64-macos ]
+    symbols:         [
+                       '_CGSessionCopyCurrentDictionary' ]
+...
