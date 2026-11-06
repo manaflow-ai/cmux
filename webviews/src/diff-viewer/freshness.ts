@@ -79,7 +79,9 @@ export function useDiffFreshness(
     failedGeneration?: number | null;
   },
 ): boolean {
-  const [stale, setStale] = useState<number>();
+  // The generation found stale, and the reader (one per shown source) that found it: another source
+  // keeps the generation (reset-diff), so the reader tells its notice from the last source's.
+  const [stale, setStale] = useState<{ generation: number; read: typeof read }>();
   const baseline = useRef<string | undefined>(undefined);
   // A precomputed fingerprint is the baseline of one check only: a later load (the reconcile's own,
   // a Refresh) starts from what it read, so a generation change never reconciles again.
@@ -113,7 +115,7 @@ export function useDiffFreshness(
             // The reconcile's render is a new generation, whose first read is its baseline.
             reconcile();
           } else if (returning && latest.current.canRefresh()) latest.current.refresh();
-          else setStale(generation);
+          else setStale({ generation, read });
         }
       } catch (error) {
         // Keep the patch and drafts while the machine is unavailable; a successful read clears
@@ -155,5 +157,5 @@ export function useDiffFreshness(
       document.removeEventListener("visibilitychange", visible);
     };
   }, [read, generation, latest, precomputedFingerprint, precomputedKey, reconcileFailed]);
-  return stale === generation;
+  return stale?.generation === generation && stale.read === read;
 }
