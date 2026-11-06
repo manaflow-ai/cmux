@@ -5,6 +5,9 @@ import Foundation
 public nonisolated struct ConductorImportStrings: Sendable {
     public init() {}
 
+    /// The bundle that holds table `ImportSuggestions`, for tests that read every localization.
+    static var bundle: Bundle { .module }
+
     public static var previewTitle: String {
         String(localized: "conductorImport.preview.title", defaultValue: "Import these Conductor workspaces?", table: "ImportSuggestions", bundle: .module)
     }
