@@ -93,14 +93,15 @@ public struct MobileHostPairedDevice: Sendable, Equatable, Codable, Identifiable
         grants = try values.decodeIfPresent([String].self, forKey: .grants) ?? []
     }
 
-    /// The same device with the same keys.
+    /// The same device, of the same kind, with the same keys.
     public func sameKeys(as other: MobileHostPairedDevice) -> Bool {
-        transport == other.transport && id == other.id && identityKey == other.identityKey && approvalKey == other.approvalKey
+        transport == other.transport && kind == other.kind && id == other.id && identityKey == other.identityKey && approvalKey == other.approvalKey
     }
 
-    /// The request that allowed this device (its name and keys), to allow it again in another list.
+    /// The request that allowed this device (its name, kind and keys), to allow it again in another list.
     public var request: MobileHostPairRequest {
-        MobileHostPairRequest(phoneDeviceID: id, name: name, identityKey: identityKey, approvalKey: approvalKey, transport: transport)
+        MobileHostPairRequest(phoneDeviceID: id, name: name, identityKey: identityKey, approvalKey: approvalKey,
+                              transport: transport, kind: kind)
     }
 
     /// The first 8 bytes of the approval key's SHA-256 as hex, as acpmux lists it.

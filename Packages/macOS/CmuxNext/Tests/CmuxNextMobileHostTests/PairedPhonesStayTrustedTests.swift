@@ -1,4 +1,4 @@
-import CmuxNextMobile
+@testable import CmuxNextMobile
 import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
@@ -224,6 +224,36 @@ import Testing
         #expect(refused.trusts(Self.phone) && refused.trusts(Self.newPhone))
         let next = await Self.launch(directory, seal: seal)
         #expect(next.trusts(Self.phone) && next.trusts(Self.newPhone))
+    }
+
+    /// Review of #36157 after the merge with multi-machine pairing: a Mac allowed while the seal is refused
+    /// joins the stored list as a Mac, so the next launch trusts it and does not ask again.
+    @Test func aMacAllowedWhileTheSealIsRefusedStaysAMac() async throws {
+        let directory = Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let seal = MobileHostMemoryPairingSeal()
+        try await Self.allowed(directory, seal: seal)
+        let mac = MobileHostPairRequest(phoneDeviceID: "mac-b", name: "Mac", identityKey: "04" + String(repeating: "ee", count: 64),
+                                        approvalKey: "04" + String(repeating: "ff", count: 64), kind: "mac")
+        let refused = try await Self.refusedPastTheWaits(directory, seal: seal)
+        try await refused.change(for: "u") { $0.approve(mac, at: Date(timeIntervalSince1970: 8)) }
+        seal.answerAgain()
+        await refused.reload()
+        let next = await Self.launch(directory, seal: seal)
+        #expect(next.trusts(mac), "a Mac allowed while the Keychain refused was stored as a phone and is asked about again")
+        #expect(next.current?.devices.first { $0.id == "mac-b" }?.kind == "mac")
+    }
+
+    /// A change of a machine's grants while the seal is refused is written, never kept in memory only.
+    @Test func aGrantsChangeWhileTheSealIsRefusedIsWritten() {
+        var stored = MobileHostPairedDevices(userID: "u")
+        let mac = MobileHostPairRequest(phoneDeviceID: "mac-b", name: "Mac", identityKey: "04" + String(repeating: "ee", count: 64),
+                                        approvalKey: "04" + String(repeating: "ff", count: 64), kind: "mac")
+        stored.approve(mac, at: Date(timeIntervalSince1970: 8))
+        stored.setGrants(["view", "control"], for: "mac-b")
+        var narrowed = stored
+        narrowed.setGrants(["view"], for: "mac-b")
+        #expect(!MobileHostPairedStore.onlyAllows(from: stored, to: narrowed, stored: stored))
     }
 
     /// Review of #36157: an Allow, while the seal is refused, of a phone the stored list refuses is

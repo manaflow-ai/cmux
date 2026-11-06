@@ -194,7 +194,11 @@ public final class MobileHostPairedStore: Sendable {
                         state.refusedReads = 0
                         return (state.removals, state.memoryOnly ? state.list?.devices ?? [] : [])
                     }
-                    for device in remembered { list.approve(device.request, at: device.pairedAt) }
+                    // A device the stored list already holds with these keys keeps its stored entry (and grants).
+                    for device in remembered where !list.devices.contains(where: { $0.sameKeys(as: device) }) {
+                        list.approve(device.request, at: device.pairedAt)
+                        list.setGrants(device.grants, for: device.id)
+                    }
                     for removal in removals.keys { list.remove(removal.id, transport: removal.transport) }
                     // Even an empty/untrusted load must replace its seal after a removal.
                     if !removals.isEmpty || !remembered.isEmpty {
@@ -261,7 +265,9 @@ public final class MobileHostPairedStore: Sendable {
         let kept = Dictionary((stored?.devices ?? []).map { (key($0), $0) }) { $1 }
         // An Allow of a phone the stored list refuses must clear that refusal on disk.
         for device in next.devices where stored?.denied.contains(where: { $0.id == device.id }) == true { return false }
-        for (id, device) in before where after[id]?.sameKeys(as: device) != true { return false }
+        // A device whose kind, keys or grants changed is written: kept in memory, the stored list would
+        // grant the old ones again at the next launch.
+        for (id, device) in before where after[id].map({ $0.sameKeys(as: device) && $0.grants == device.grants }) != true { return false }
         for (id, device) in after where !before.keys.contains(id) {
             if let old = kept[id], !old.sameKeys(as: device) { return false }
         }
