@@ -251276,8 +251276,9 @@
         }
       }
     },
+    "fork.cancel": {"comment":"Agent pane: the button on the Forking… line above the composer; takes the pending fork back whole","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إلغاء"}},"bs":{"stringUnit":{"state":"needs_review","value":"Otkaži"}},"da":{"stringUnit":{"state":"needs_review","value":"Annuller"}},"de":{"stringUnit":{"state":"needs_review","value":"Abbrechen"}},"en":{"stringUnit":{"state":"translated","value":"Cancel"}},"es":{"stringUnit":{"state":"needs_review","value":"Cancelar"}},"fr":{"stringUnit":{"state":"needs_review","value":"Annuler"}},"it":{"stringUnit":{"state":"needs_review","value":"Annulla"}},"ja":{"stringUnit":{"state":"needs_review","value":"キャンセル"}},"km":{"stringUnit":{"state":"needs_review","value":"បោះបង់"}},"ko":{"stringUnit":{"state":"needs_review","value":"취소"}},"nb":{"stringUnit":{"state":"needs_review","value":"Avbryt"}},"pl":{"stringUnit":{"state":"needs_review","value":"Anuluj"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Cancelar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отменить"}},"th":{"stringUnit":{"state":"needs_review","value":"ยกเลิก"}},"tr":{"stringUnit":{"state":"needs_review","value":"İptal"}},"uk":{"stringUnit":{"state":"needs_review","value":"Скасувати"}},"vi":{"stringUnit":{"state":"needs_review","value":"Hủy"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"取消"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"取消"}}}},
     "notice.forking": {
-      "comment": "Agent pane: shown in the chat while Fork Conversation waits for acpmux to fork it",
+      "comment": "Agent pane: the line above the composer while Fork Conversation waits for acpmux to fork the chat",
       "extractionState": "manual",
       "localizations": {
         "ar": {

@@ -200,6 +200,7 @@ public final class HomeSidebarSource {
     }
 
     /// Pins or unpins `id`: with the owner when it lists `id`, else for this account on this Mac.
+    /// Pinning a conversation that is already pinned changes nothing: it keeps its place.
     public func setPinned(_ on: Bool, _ id: ConversationID) {
         if let inbox = owner(of: id) { return inbox.setPinned(on, id.rawValue) }
         guard let row = listed().first(where: { $0.id == id }) else { return }

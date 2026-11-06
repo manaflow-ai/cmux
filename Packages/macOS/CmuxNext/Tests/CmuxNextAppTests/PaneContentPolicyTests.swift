@@ -17,7 +17,9 @@ import Testing
 ///   pane shows it at, so its text follows the pane (S3 held it at one size per press: the text froze, then jumped;
 ///   Lawrence on dogfood 363e39f2). Each PTY gets the view's grid at most
 ///   once per 25 ms, the newest, and ends at the landing's grid (`TerminalGridReportCoalescer`; ``grids(_:_:)`` ends the
-///   window before it reads). These windows draw nothing, so each size shows at once.
+///   window before it reads). A window that draws nothing shows each size at once; one that draws (a display worker)
+///   shows a size only in the commit that presents the frame Ghostty drew at it (FRAME OWNER S4,
+///   ``TerminalFramePresenter``), so the size checks step whole refreshes (``refresh(_:)``), never bare frames.
 /// - S3c: a closing pane shows its ground as it was at the close, the same host comes back when a close is taken back,
 ///   and nothing of it is left in the view tree after the landing.
 @MainActor
@@ -40,6 +42,48 @@ struct PaneContentPolicyTests {
         }
         rig.commit()
         return frames
+    }
+
+    /// One refresh as the app runs it: the frame's step and layout pass, then its commit, before which the window's
+    /// ``TerminalFramePresenter`` gives each terminal its new bounds with the frame Ghostty drew at them. In a window that
+    /// draws (a display worker), a frame stepped with no commit (``Rig/frame()``) leaves each new size waiting for that
+    /// commit: the surface kept the size of the last commit, which came only at the test's next await (T-KEYS 2: 3 cases
+    /// red on display workers at 5840aea3a60 and 2296568ae00, every surface off its pane with the presenter at "request").
+    /// The refresh commits again while a terminal's frame is not drawn yet, at most 2 s: here the renderer keeps up with
+    /// the display; TerminalKeyResizeFrameTests counts the refreshes a terminal keeps its old size when it does not.
+    /// Whether the motion still moves.
+    static func refresh(_ rig: Rig) async -> Bool {
+        let moving = rig.frame()
+        await landDrawnFrames(rig)
+        return moving
+    }
+
+    /// ``run(_:frame:)`` in whole refreshes (``refresh(_:)``): `frame` runs after each frame's commit; the landing's
+    /// release and its commit come last. The frame count.
+    @discardableResult
+    static func runRefreshes(_ rig: Rig, frame: (Int) throws -> Void = { _ in }) async rethrows -> Int {
+        var frames = 0
+        while frames < 240, await refresh(rig) {
+            frames += 1
+            try frame(frames)
+        }
+        rig.commit()
+        await landDrawnFrames(rig)
+        return frames
+    }
+
+    /// Commits until the window's presenter holds no terminal's new size for its frame (at most 2 s).
+    static func landDrawnFrames(_ rig: Rig) async {
+        let presenter = TerminalFramePresenter.forWindow(rig.window)
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        repeat {
+            await TerminalKeyResizeFrameTests.commit()
+        } while ContinuousClock.now < deadline && terminals(in: rig.root).contains { presenter.isWaiting($0) }
+    }
+
+    /// The terminal surfaces under `view`, shown or parked.
+    static func terminals(in view: NSView) -> [TerminalSurfaceView] {
+        view.subviews.flatMap { ($0 as? TerminalSurfaceView).map { [$0] } ?? terminals(in: $0) }
     }
 
     // MARK: Note 2: the surface stays fixed at the pane edge that does not move
@@ -103,9 +147,9 @@ struct PaneContentPolicyTests {
 
     // MARK: Note 3: pixels per frame, one grid per press (cmux-ad m6)
 
-    /// One press: in every frame each terminal's surface has the size its pane shows it at, and it
-    /// takes a new size in most of them (its text follows the pane); no grid goes in the key's turn, and each PTY ends at
-    /// its final grid (the frames run in one 25 ms window here, so one grid; m6 sent the final grid by the first frame).
+    /// One press: in every refresh each terminal's surface has the size its pane shows it at, and it
+    /// takes a new size in most of them (its text follows the pane); no grid goes in the key's turn, and each PTY gets at
+    /// most one grid per 25 ms window, ending at its final grid (m6 sent the final grid by the first frame).
     @Test(arguments: [LayoutDirection.left, .right, .up, .down])
     func aKeyPressShowsEachSurfaceAtItsPanesSizeAndItsPTYEndsAtItsFinalGrid(direction: LayoutDirection) async throws {
         let vertical = direction == .up || direction == .down
@@ -125,28 +169,33 @@ struct PaneContentPolicyTests {
             }
         }
         let reportsBefore = TerminalSurfaceView.gridReports
+        let pressed = ContinuousClock.now
         #expect(PaneResize.press("p2", direction, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
         rig.root.layoutSubtreeIfNeeded()
-        try note("the key's turn")
         #expect(TerminalSurfaceView.gridReports == reportsBefore, "the key's turn sent \(TerminalSurfaceView.gridReports - reportsBefore) grids")
-        let frames = try Self.run(rig) { frame in try note("frame \(frame)") }
+        await Self.landDrawnFrames(rig)
+        try note("the key's turn")
+        let frames = try await Self.runRefreshes(rig) { frame in try note("frame \(frame)") }
         try note("after the landing")
         #expect(frames > 3, "the press did not spring (\(frames) frames)")
         #expect(off.isEmpty, "\(off.count) frames showed a surface off its pane's size: \(off.prefix(3))")
-        #expect(TerminalSurfaceView.gridReports - reportsBefore <= UInt64(panes.count), "more grid reports than terminals for one press")
+        let windows = TerminalKeyResizeFrameTests.coalescingWindows(since: pressed)
+        #expect(TerminalSurfaceView.gridReports - reportsBefore <= UInt64(panes.count * windows),
+                "more grid reports than one per terminal per 25 ms window (\(windows)) for one press")
         for pane in panes {
             let grids = try await Self.grids(pane, rig)
             let final = try #require(try Self.surface(pane, in: rig).fittedGrid)
-            #expect(grids == [final], "\(pane) asked its PTY for \(grids), not its final grid \(final) once")
+            #expect(grids.count <= windows && grids.last == final,
+                    "\(pane) asked its PTY for \(grids), not at most one grid per 25 ms window (\(windows)) ending at its final grid \(final)")
             #expect((sizes[pane] ?? []).count > 3, "\(pane)'s surface took \(sizes[pane]?.count ?? 0) sizes in a \(frames)-frame spring: its text did not follow its pane")
         }
     }
 
-    /// A held key (three Ctrl-Shift-H presses 4 frames apart retarget one spring): in every frame each terminal's
+    /// A held key (three Ctrl-Shift-H presses 4 refreshes apart retarget one spring): in every refresh each terminal's
     /// surface has the size its pane shows it at; each terminal's PTY gets at most one grid per read of its grids (each
-    /// read ends the coalescer's window, cmux-ad m18: m6 sent each press's final grid by its first frame), and the last is
-    /// the final grid.
+    /// read ends the coalescer's window) and per 25 ms window (cmux-ad m18: m6 sent each press's final grid by its first
+    /// frame), and the last is the final grid.
     @Test
     func aHeldKeyShowsEachSurfaceAtItsPanesSizeAndItsPTYEndsAtTheFinalGrid() async throws {
         let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
@@ -155,19 +204,21 @@ struct PaneContentPolicyTests {
         for pane in panes { _ = try await Self.grids(pane, rig) }
         var off: [String] = [], grids: [PaneID: [TerminalGridSize]] = [:]
         var frames = 0
+        let pressed = ContinuousClock.now
         for press in 1...3 {
             #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root), "press \(press) moved nothing")
             rig.root.syncWithModel()
             // The press's first frame is its own (S1B): its grid goes there.
-            if rig.frame() { frames += 1 }
+            if await Self.refresh(rig) { frames += 1 }
             off += try Self.offTheirPanes(panes, in: rig, "press \(press)")
             for pane in panes { grids[pane, default: []] += try await Self.grids(pane, rig) }
-            for _ in 1...3 where rig.frame() {
+            for _ in 1...3 {
+                guard await Self.refresh(rig) else { break }
                 frames += 1
                 off += try Self.offTheirPanes(panes, in: rig, "frame \(frames)")
             }
         }
-        try Self.run(rig) { _ in
+        try await Self.runRefreshes(rig) { _ in
             frames += 1
             off += try Self.offTheirPanes(panes, in: rig, "frame \(frames)")
         }
@@ -177,14 +228,17 @@ struct PaneContentPolicyTests {
         for pane in panes {
             let final = try #require(try Self.surface(pane, in: rig).fittedGrid)
             let sent = (grids[pane] ?? []) + (try await Self.grids(pane, rig))
-            #expect(sent.count <= 4 && sent.last == final, "\(pane) asked its PTY for \(sent) over 3 presses and the landing (final \(final))")
+            // One per read at each press (3) and one per window, the landing's flush included.
+            let most = 3 + TerminalKeyResizeFrameTests.coalescingWindows(since: pressed)
+            #expect(sent.count <= most && sent.last == final,
+                    "\(pane) asked its PTY for \(sent) over 3 presses and the landing (final \(final), at most \(most))")
         }
     }
 
     /// A press and its reverse in one key hold (Ctrl-Shift-H, then L 4 frames later, before the first lands): the panes
-    /// rest where they began. Each terminal's surface has its pane's size in every frame and rests at its start size; its
-    /// PTY gets at most one grid per read of its grids (m18: the view's grid coalesced; m6 sent each press's final grid
-    /// by its first frame), and ends at its start grid.
+    /// rest where they began. Each terminal's surface has its pane's size in every refresh and rests at its start size; its
+    /// PTY gets at most one grid per read of its grids and per 25 ms window (m18: the view's grid coalesced; m6 sent each
+    /// press's final grid by its first frame), and ends at its start grid.
     @Test
     func aPressAndItsReverseInOneHoldEndsAtTheStartGrid() async throws {
         let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
@@ -197,23 +251,24 @@ struct PaneContentPolicyTests {
             start[pane] = (surface.frame.size, surface.fittedGrid)
         }
         var off: [String] = []
+        let pressed = ContinuousClock.now
         #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
-        #expect(rig.frame(), "the first press did not spring")
+        #expect(await Self.refresh(rig), "the first press did not spring")
         off += try Self.offTheirPanes(panes, in: rig, "frame 1")
         var atPress: [PaneID: [TerminalGridSize]] = [:]
         for pane in panes { atPress[pane] = try await Self.grids(pane, rig) }
         for frame in 2...4 {
-            #expect(rig.frame(), "the first press landed after \(frame) frames")
+            #expect(await Self.refresh(rig), "the first press landed after \(frame) frames")
             off += try Self.offTheirPanes(panes, in: rig, "frame \(frame)")
         }
         #expect(PaneResize.press("p2", .right, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
-        #expect(rig.frame(), "the reverse press did not spring")
+        #expect(await Self.refresh(rig), "the reverse press did not spring")
         off += try Self.offTheirPanes(panes, in: rig, "the reverse press's first frame")
         var atReverse: [PaneID: [TerminalGridSize]] = [:]
         for pane in panes { atReverse[pane] = try await Self.grids(pane, rig) }
-        let frames = try Self.run(rig) { frame in off += try Self.offTheirPanes(panes, in: rig, "reverse frame \(frame)") }
+        let frames = try await Self.runRefreshes(rig) { frame in off += try Self.offTheirPanes(panes, in: rig, "reverse frame \(frame)") }
         #expect(frames > 3, "the reverse press did not spring (\(frames) frames)")
         #expect(off.isEmpty, "\(off.count) frames showed a surface off its pane's size: \(off.prefix(3))")
         for pane in panes {
@@ -221,7 +276,9 @@ struct PaneContentPolicyTests {
             let startGrid = try #require(was.grid, "SETUP: \(pane) fits no grid at rest")
             let landing = try await Self.grids(pane, rig)
             let sent = (atPress[pane] ?? []) + (atReverse[pane] ?? []) + landing
-            #expect(sent.count <= 3 && (sent.last ?? startGrid) == startGrid,
+            // One per read at each press (2) and one per window, the landing's flush included.
+            let most = 2 + TerminalKeyResizeFrameTests.coalescingWindows(since: pressed)
+            #expect(sent.count <= most && (sent.last ?? startGrid) == startGrid,
                     "\(pane): the presses sent \(atPress[pane] ?? []), \(atReverse[pane] ?? []) and \(landing): its PTY does not end at the start grid \(startGrid)")
             #expect(surface.frame.size == was.size, "\(pane)'s surface rests at \(surface.frame.size), not its start size \(was.size)")
         }
@@ -237,13 +294,17 @@ struct PaneContentPolicyTests {
     }
 
     /// The surfaces of `panes` whose size is not the one their pane shows them at now (their host's area,
-    /// ``TerminalHostView/surfaceSize(forHostSize:)``), labeled with `label`.
+    /// ``TerminalHostView/surfaceSize(forHostSize:)``), labeled with `label`, with what the window's presenter holds for
+    /// each ("request": a size waits for its drawn frame) and the size asked of Ghostty and not shown yet.
     static func offTheirPanes(_ panes: [PaneID], in rig: Rig, _ label: String) throws -> [String] {
-        try panes.compactMap { pane in
+        let presenter = TerminalFramePresenter.forWindow(rig.window)
+        return try panes.compactMap { pane in
             let surface = try Self.surface(pane, in: rig)
             let host = try #require(rig.provider.sessions[pane]?.session.view)
             let shown = host.surfaceSize(forHostSize: host.bounds.size)
-            return surface.frame.size == shown ? nil : "\(label): \(pane)'s surface \(surface.frame.size) in a \(shown) area"
+            guard surface.frame.size != shown else { return nil }
+            let waits = surface.frameOwnership.inFlight.map { "\($0)" } ?? "none"
+            return "\(label): \(pane)'s surface \(surface.frame.size) in a \(shown) area (presenter \(presenter.debugState(of: surface)), in flight \(waits))"
         }
     }
 
@@ -468,18 +529,20 @@ struct PaneContentPolicyTests {
         #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
         rig.root.layoutSubtreeIfNeeded()
-        for _ in 1...4 { _ = rig.frame() }
+        for _ in 1...4 { _ = await Self.refresh(rig) }
         // The tab switch back to the parked terminal, mid-spring.
         _ = pane.show(parked.view)
         rig.root.layoutSubtreeIfNeeded()
-        for _ in 1...2 { _ = rig.frame() }
+        for _ in 1...2 { _ = await Self.refresh(rig) }
         let atJoin = await marker()
         // A second press before the landing.
         #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
-        _ = rig.frame()
+        _ = await Self.refresh(rig)
         let atSecond = await marker()
-        let frames = try Self.run(rig)
+        let frames = try await Self.runRefreshes(rig)
+        let presenter = TerminalFramePresenter.forWindow(rig.window)
+        let atLanding = "presenter \(presenter.debugState(of: parked.surfaceView)), in flight \(parked.surfaceView.frameOwnership.inFlight.map { "\($0)" } ?? "none"), grid at landing \(String(describing: parked.surfaceView.fittedGrid))"
         let afterLanding = await marker()
         let final = try #require(parked.surfaceView.fittedGrid)
         #expect(frames > 3, "the second press did not spring (\(frames) frames)")
@@ -487,7 +550,7 @@ struct PaneContentPolicyTests {
         let windows = TerminalKeyResizeFrameTests.coalescingWindows(since: pressed)
         #expect(sent.count <= windows,
                 "the PTY got \(sent.count) grids, more than one per 25 ms window (\(windows)): join \(atJoin), second press \(atSecond), landing \(afterLanding)")
-        #expect(sent.last == final, "the PTY got \(sent), not ending at the final grid \(final)")
+        #expect(sent.last == final, "the PTY got \(sent), not ending at the final grid \(final) (\(atLanding))")
         let afterFinal = sent.drop(while: { $0 != final }).dropFirst()
         #expect(afterFinal.isEmpty, "the PTY got \(Array(afterFinal)) after the final grid \(final): \(sent)")
     }

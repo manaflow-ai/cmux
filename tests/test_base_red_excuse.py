@@ -1579,6 +1579,30 @@ class StatusOnlyChecks(unittest.TestCase):
         self.assertIn(self.DAEMON, text)
         self.assertIn("run 20", text)
 
+    def test_an_excused_status_red_is_named_by_its_status_context(self):
+        # merge_hold covers a red only by an audit line that starts with its own name (cmux#37038 at 1f4963c0 was
+        # refused: "never named 'cmux-next daemon tests (same-tree)'" while its job's line was excused).
+        lines = self.judge()
+        self.assertTrue(any(line.startswith(f"excused '{self.CONTEXT}'") for line in lines), lines)
+        self.assertTrue(any(line.startswith(f"excused '{self.DAEMON}'") for line in lines), lines)
+
+    def test_every_status_judged_by_one_job_is_named(self):
+        # Two contexts whose verdict is the same job: a later one must not drop the earlier one's name.
+        other = dict(self.status, context=self.DAEMON)
+        original = self.gh.json
+
+        def json(route, *, paginate=False):
+            found = original(route, paginate=paginate)
+            if route.endswith(f"commits/{HEAD}/status?per_page=100"):
+                found["statuses"].append(copy.deepcopy(other))
+            return found
+
+        self.gh.json = json
+        lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[self.CONTEXT, self.DAEMON])
+        for context in (self.CONTEXT, self.DAEMON):
+            self.assertTrue(any(line.startswith(f"excused '{context}': its status") for line in lines),
+                            (context, lines))
+
     def test_a_status_red_not_on_the_base_blocks_per_test(self):
         self.gh.logs[1] = log(self.DAEMON, self.STEP, OTHER.replace("palettePages", "somethingNew"))
         with self.assertRaisesRegex(excuse.Refused, "somethingNew"):

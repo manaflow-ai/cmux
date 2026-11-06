@@ -521,6 +521,12 @@ async fn an_agent_that_never_answers_its_start_fails_with_a_deadline() {
         .await
         .expect_err("a prompt whose agent never started succeeded");
     assert!(refused.contains("agent_start did not finish within"), "{refused}");
+    // Its start was tried again before the turn failed, and says how often (`start_retry.rs`).
+    assert!(refused.contains("its start was tried 4 times"), "{refused}");
+    let events = hub.events(&id, 0, 100_000).unwrap();
+    let count = |kind: &str| events.iter().filter(|e| e.kind == kind).count();
+    assert_eq!(count("agent_start_retrying"), 3);
+    assert_eq!(count("agent_start_timed_out"), 4);
     // The agent answers from now on: the same session prompts normally.
     std::fs::write(&gate, b"").unwrap();
     hub.config.write().await.agent_start_timeout_ms = None;

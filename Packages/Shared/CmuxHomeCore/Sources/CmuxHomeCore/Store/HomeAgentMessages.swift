@@ -55,8 +55,9 @@ struct HomeAgentMessages {
     /// keeps that row first and shows every message after it. `seen` is each agent's newest report time the
     /// person opened (``HomeStore/markAgentSeen(_:in:)``): a pill whose report is newer shows the unread dot.
     ///
-    /// `started` are the agents known to run (their session is in the Chief's spawn records,
-    /// ``HomeStore/followAgentSessions(_:in:)``): one queued at its newest message started since, so its pill says Working.
+    /// `started` are the agents known to have started (the Chief's acpmux listed their session,
+    /// ``HomeStore/agentsStarted(_:)``, or the spawn records name one, ``HomeStore/followAgentSessions(_:in:)``):
+    /// one queued at its newest message started since, so its pill says Working.
     func inserting(into items: [TranscriptItem], summary: ConversationSummary?,
                    expanded: Set<String> = [], seen: [String: Date] = [:], started: Set<String> = []) -> [TranscriptItem] {
         guard !runs.isEmpty else { return items }

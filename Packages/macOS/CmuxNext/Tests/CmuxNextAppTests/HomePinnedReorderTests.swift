@@ -156,6 +156,25 @@ import Testing
         #expect(relaunched.grid == order, "after a relaunch the grid is \(relaunched.grid), not \(order)")
     }
 
+    /// Pin on a tile that is already pinned (`home.togglePin` with `pinned: true`, the row's Pin) keeps
+    /// its place: an owner's pin, this Mac's pin, a default pin and the main Chief alike, after a relaunch too.
+    @Test(arguments: 0..<5)
+    func pinningAPinnedTileKeepsItsPlace(at index: Int) throws {
+        let defaults = Self.defaults()
+        let home = try Home(defaults: defaults, replies: HomeLaunchListTests.liveReplies())
+        let before = home.grid
+        try #require(before.count == 5, "five pinned tiles: \(before)")
+        home.source.setPinned(true, before[index])
+        home.show()
+        #expect(home.grid == before, "pinning tile \(index) again left \(home.grid), not \(before)")
+        #expect(home.drawn == before, "the list draws the same order")
+        let replies = try #require(home.replies)
+        home.window.close()
+        let relaunched = Home(defaults: defaults, replies: replies)
+        defer { relaunched.window.close() }
+        #expect(relaunched.grid == before, "after a relaunch the grid is \(relaunched.grid), not \(before)")
+    }
+
     @Test func pinsSavedBeforeThisChangeStillLoad() throws {
         let saved = Data(#"{"pinned":["conv_a","conv_b"],"unpinned":["conv_c"]}"#.utf8)
         let pins = try JSONDecoder().decode(HomePins.self, from: saved)

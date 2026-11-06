@@ -53,8 +53,9 @@ use std::sync::{Arc, Mutex as StdMutex, mpsc};
 use std::time::{Duration, Instant};
 
 mod disk;
-/// The test allocator's count for one closure on this thread (`disk_tests.rs`).
-#[cfg(test)]
+/// The test allocator's count for one closure on this thread (`disk_tests.rs`); only the
+/// Linux-only chat activity scale tests read it.
+#[cfg(all(test, target_os = "linux"))]
 pub(crate) use disk::tests::thread_allocations;
 use disk::{Head, Key, Writer, record_bytes, seq_of};
 

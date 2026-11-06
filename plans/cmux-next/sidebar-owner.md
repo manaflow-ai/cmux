@@ -1438,6 +1438,22 @@ An empty group now keeps only its header at rest. The header's existing + appear
   while it lists loose (`GroupJoinHold`, at most 2 s from its first loose listing, then it shows where it lists). No
   other row moves. #30583 removed the current-group stop; this removes the loose one. Test: `GroupJoinHoldTests`.
 
+## Projects and Recents, off by default (2026-11-05)
+
+- Lawrence 2026-11-05: "i think we should have similar thing in sidebar as chatgpt app, make it an option, basically u
+  have projects/groups at the top, and show more, and you have recents as well".
+- `sidebar.groupBy` = `recents` ("Projects and Recents"); the default stays `none`, so nothing changes unless chosen.
+  On: one quiet "Projects" header over every computer's groups (first 5, then "Show N more"; a group's first 5 rows),
+  then one "Recents" header over every workspace in no group, newest activity first. Headers draw in the group
+  header's quiet style (`ListHeaderRowView`, as Group by Folder's). Filter, session tree, Group by Status unchanged.
+- Design: [sidebar-recents-and-freeing-DESIGN.md](sidebar-recents-and-freeing-DESIGN.md). Tests:
+  `SidebarRecentsLayoutTests`. Tour: `scripts/cmux-next/media/tours/sidebar-recents.json`.
+- Review fixes: the opened Archive lists its rows whole in Projects and Recents (no Show more inside it, no blank gaps); Cmd-1...9 and Reveal in Sidebar reach projects past the first five.
+- A group whose workspace needs you lists above Show more, as a row past the row limit does.
+- A workspace whose idle terminals the freeing tier ended (`workspaces.freeing.*`, off by default) gets one hover
+  card line, "Freed terminals: N. They start again when you open this workspace." (snooze icon). Rows do not change.
+  Test: `SidebarRecentsLayoutTests.theHoverCardCountsTheFreedTerminals`.
+
 ## Pinned summary follows the density and text size (2026-11-03)
 
 - Lawrence 2026-11-03: "make sure size of the pinned summary thing reflect size of ui compactness i chose".
