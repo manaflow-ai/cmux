@@ -4,7 +4,7 @@
 // "way too discontinuous"). In his recording a row opened while the list reflowed under it, rows
 // regrouped mid-motion and the view jumped. Here a third command joins the opened group on the fold's
 // third frame, with frames coming steadily and with the main thread held in every frame. An open at
-// the very bottom grows down (Lucas, 2026-11-06, Codex parity; transcript-expand-at-bottom.test.ts),
+// the very bottom grows down (Lucas, 2026-11-06; transcript-expand-at-bottom.test.ts),
 // so on every painted frame the clicked line and the view's offset stay on their pixels, no row is
 // drawn over the next and the opened row only grows. Under load the fold still ends in bounded time.
 //
