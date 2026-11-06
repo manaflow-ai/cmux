@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDesign
 import CmuxNextDesignTokens
@@ -164,5 +165,52 @@ struct FocusRingEarnedTests {
         let on = design.togglePaneRings()
         #expect(design.focusRing.enabled && !design.attention.drawsAnyRing)
         #expect(on.map(\.1) == [.bool(true)])
+    }
+
+    /// A pane-navigation action the CLI, an agent or a script runs moves focus nobody keyed.
+    @Test func onlyThePersonsOwnRunOfAFocusKeyEarnsTheRing() {
+        #expect(ColumnFocusSource.keyMove(byPerson: ActionInvocation(origin: .user).isPersonsOwnRun) == .keyboard)
+        #expect(ColumnFocusSource.keyMove(byPerson: ActionInvocation(origin: .cli).isPersonsOwnRun) == .programmatic)
+    }
+
+    /// A screen switch that puts focus on the new screen's first pane: nobody keyed it.
+    @Test func aScreenSwitchStandInHasNoRing() {
+        let model = LayoutModel(screens: [
+            LayoutScreen(id: "s1", name: "s1", layout: .splits(.split("x", axis: .horizontal, ratio: 0.5, a: .leaf("a"), b: .leaf("b")))),
+            LayoutScreen(id: "s2", name: "s2", layout: .splits(.leaf("c"))),
+        ], activeScreenID: "s1", focusedPane: "a")
+        model.focus("b", source: .keyboard)
+        #expect(model.focusRingEarned)
+        model.selectScreen("s2")
+        #expect(model.focusedPane == "c")
+        #expect(!model.focusRingEarned, "the screen switch's stand-in pane kept the ring")
+    }
+
+    /// A press in a pane's child window (a Chromium page) clears the ring; one in another window does not.
+    @Test func aPressInAPagesChildWindowClearsTheRing() throws {
+        try Self.withRing {
+            let w = Window()
+            let child = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: [.borderless],
+                                 backing: .buffered, defer: false)
+            // A divider's mouse catcher or an overlay is a child panel, not a page.
+            let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 20, height: 200), styleMask: [.borderless, .nonactivatingPanel],
+                                backing: .buffered, defer: false)
+            defer {
+                w.window.removeChildWindow(child)
+                w.window.removeChildWindow(panel)
+                child.closeAfterTest()
+                panel.closeAfterTest()
+                w.window.closeAfterTest()
+            }
+            w.window.addChildWindow(child, ordered: .above)
+            w.window.addChildWindow(panel, ordered: .above)
+            w.model.focus("p2", source: .keyboard)
+            #expect(w.ring("p2") == true)
+            #expect(!w.root.handleMonitoredChildPress(from: w.window), "a press in the window itself is not a child's")
+            #expect(!w.root.handleMonitoredChildPress(from: panel), "a press in a child panel (a divider catcher) cleared the ring")
+            #expect(w.ring("p2") == true)
+            #expect(w.root.handleMonitoredChildPress(from: child))
+            #expect(w.ring("p2") == false, "a press in the page's child window left the ring")
+        }
     }
 }
