@@ -13,10 +13,13 @@ description = "cmux Computer Use: the platform-agnostic engine (tools, policy, s
 workspace = true
 
 [features]
-default = ["desktop"]
+default = ["desktop", "server"]
 # The real platform desktops. Without it the crate is the engine only
 # (acpmux links it for the tool catalog and the wire types).
 desktop = ["dep:x11rb", "dep:windows"]
+# The worker side: the agent socket server (server.rs) and the worker's
+# control channel (worker.rs). acpmux and the daemon leave it off.
+server = ["dep:windows-sys"]
 
 [dependencies]
 serde = { workspace = true }
@@ -41,5 +44,19 @@ windows = { version = "0.62", optional = true, features = [
     "Win32_UI_HiDpi",
     "Win32_Storage_Xps",
 ] }
+
+# The agent socket's named pipe (server/windows.rs).
+[target.'cfg(windows)'.dependencies.windows-sys]
+workspace = true
+optional = true
+features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+]
 
 [dev-dependencies]
