@@ -265,7 +265,7 @@ impl ColumnScrollState {
                     && recent().nth(1).is_some()
                 {
                     let sum = recent().fold(0., |sum, sample| sum + sample.delta);
-                    velocity = sum / super::swift_max(time - first.time, 1. / 120.);
+                    velocity = sum / swift_max(time - first.time, 1. / 120.);
                 }
                 self.samples.clear();
                 let Some(strip) = self.strip.as_ref() else { return effects };
