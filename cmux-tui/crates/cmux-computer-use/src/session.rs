@@ -231,7 +231,8 @@ mod tests {
     use super::*;
 
     fn tmpdir(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("cmux-cu-sessions-{name}-{}", std::process::id()));
+        let d =
+            std::env::temp_dir().join(format!("cmux-cu-sessions-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d

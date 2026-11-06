@@ -21,5 +21,4 @@ python3 tests/test_strings_output_encoding.py
 python3 tests/test_app_symbol_map.py
 python3 tests/test_cmux_tui_release_profile.py
 python3 tests/test_dead_code_stripping.py
-python3 tests/test_computer_use_helper_icon_depth.py
 stage end test

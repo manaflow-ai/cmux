@@ -103,7 +103,7 @@ APPLE_SIGNING_IDENTITY=stub CMUX_SKIP_NOTARIZATION=true CMUX_STAPLE_APP_IN_DMG=f
   CMUX_CREATE_DMG_TOOL="$stub" CMUX_CODESIGN_TOOL="$stub" CMUX_XCRUN_TOOL="$stub" \
   CMUX_HDIUTIL_TOOL="$stub" CMUX_SPCTL_TOOL="$stub" CMUX_SMOKE_TOOL="$stub" \
   CMUX_VERIFY_METADATA_TOOL="$stub" CMUX_VERIFY_LICENSES_TOOL="$stub" \
-  CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL="$stub" CMUX_SIGNING_KEYCHAIN_TOOL="$stub" \
+  CMUX_SIGNING_KEYCHAIN_TOOL="$stub" \
   "$PARSE_BASH" "$ROOT_DIR/scripts/ci/notarize-nightly-dmg.sh" "$work/stub.app" "$work/r.dmg" "$work/i.dmg" >"$work/trap.out" 2>&1
 status=$?
 set -e

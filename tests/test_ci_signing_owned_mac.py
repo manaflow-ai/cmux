@@ -82,7 +82,7 @@ SIGNING_JOBS = {
     ("nightly.yml", "build-sign-notarize-nightly"), ("nightly.yml", "recover-nightly-next-notarization"),
     ("nightly.yml", "generate-nightly-deltas"),
     ("nightly.yml", "publish-nightly"), ("nightly.yml", "publish-nightly-next-github"),
-    ("release.yml", "build-sign-notarize"), ("repair-v0-64-25-helper-rpaths.yml", "repair"),
+    ("release.yml", "build-sign-notarize"),
     ("cmux-next-dev-daily.yml", "sign"),
 }
 OWNED_PICKER = "scripts/ci/signing_runner.py"
@@ -136,8 +136,8 @@ ATTEMPT_OUTPUT = "${{ github.run_attempt }}"
 # step; signed_ok (true only when every step passed) says, unless the old feed already had the build (skip) or Apple
 # already holds its submission (pending: a second signer would submit it again). On
 # 2026-10-29 it failed codesign on a mini after its claim (errSecInternalComponent) and, its twin skipped, the run
-# published nothing to the old feed. The other twins sign only after a refused claim: release and the v0.64.25 repair
-# publish from inside the signing job, so a second signer after a failed one could publish twice.
+# published nothing to the old feed. The other twins sign only after a refused claim: release publishes
+# from inside the signing job, so a second signer after a failed one could publish twice.
 FALLBACK_ON_FAILURE: dict[tuple[str, str], str] = {}
 # Nightly workflows have no Blacksmith twin at all (twin_failures).
 NIGHTLY_WORKFLOW = re.compile(r"nightly|notarization")

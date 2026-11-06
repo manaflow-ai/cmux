@@ -109,15 +109,15 @@ pub fn downscale(frame: &RawFrame, max_edge: u32) -> (u32, u32, Vec<u8>) {
                 let row = (sy * w) as usize * 4;
                 for sx in sx0..sx1 {
                     let i = row + sx as usize * 4;
-                    for c in 0..4 {
-                        acc[c] += frame.rgba[i + c] as u64;
+                    for (slot, byte) in acc.iter_mut().zip(&frame.rgba[i..i + 4]) {
+                        *slot += *byte as u64;
                     }
                     n += 1;
                 }
             }
             let o = ((ny * nw + nx) * 4) as usize;
-            for c in 0..4 {
-                out[o + c] = (acc[c] / n.max(1)) as u8;
+            for (dst, sum) in out[o..o + 4].iter_mut().zip(acc) {
+                *dst = (sum / n.max(1)) as u8;
             }
         }
     }

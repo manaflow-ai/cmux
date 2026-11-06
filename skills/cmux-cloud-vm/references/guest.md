@@ -111,7 +111,7 @@ agent-desktop skills get desktop           # its own guide, for this exact versi
 ```
 
 `agent-desktop` (vercel-labs) works through the accessibility tree, so prefer it
-for app windows; use `agent-browser` for web pages and `cua-driver` for pixel-level
+for app windows; use `agent-browser` for web pages and cmux Computer Use for pixel-level
 work. It needs the desktop's session bus, which only `cmux` gets: from a root
 shell run `sudo -u cmux -i agent-desktop …`. Close only the apps you opened.
 

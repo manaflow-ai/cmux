@@ -4,7 +4,7 @@
     {
       "path": "Contents/MacOS/cmux",
       "what": "the app: Swift packages (CmuxNextIcons carries Chromium's vector icons, design/icons/chromium), GhosttyNextKit (static, Zig; its Termio inlines std.math.cbrt, ported from musl), iroh-ffi (Release merges Iroh.framework's Rust code here: rustc 1.91.0 std), Sparkle client",
-      "notices": ["first-party", "section:manual-swift-package-dependencies", "section:manual-ghostty", "section:manual-sparkle", "section:rust-iroh-ffi", "rust-std", "zig-std", "section:manual-rust-and-zig-standard-libraries", "section:manual-musl-in-the-zig-standard-library", "section:manual-freetype", "section:manual-chromium-vector-icons-browser-chrome-icons"]
+      "notices": ["first-party", "section:manual-swift-package-dependencies", "section:manual-ghostty", "section:manual-sparkle", "section:rust-iroh-ffi", "rust-std", "zig-std", "section:manual-rust-and-zig-standard-libraries", "section:manual-musl-in-the-zig-standard-library", "section:manual-freetype", "section:manual-chromium-vector-icons-browser-chrome-icons", "section:manual-agent-cursor-cmuxagentcursor"]
     },
     {
       "path": "Contents/Frameworks/Sparkle.framework/*",
@@ -55,11 +55,6 @@
       "path": "Contents/Helpers/cmux-remote-browser-host.app/Contents/Frameworks/cmux-remote-browser-host Helper*.app/Contents/MacOS/*",
       "what": "the remote browser host's CEF helper processes: copies of the same binary (remote-browser-host-layout.sh)",
       "notices": ["first-party", "section:rust-cmux-remote-browser-host", "rust-std", "section:manual-rust-and-zig-standard-libraries", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"]
-    },
-    {
-      "path": "Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua",
-      "what": "the Computer Use helper that onboarding grants Accessibility and Screen Recording to (manaflow-ai/cmux-cua at the scripts/build-cmux-cua.sh pin)",
-      "notices": ["section:manual-cmux-cua-engine", "section:rust-cmux-cua", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
     },
     {
       "path": "Contents/Resources/bin/cmux",

@@ -26,20 +26,47 @@ png = { workspace = true }
 libc = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-x11rb = { version = "0.14", optional = true, features = ["xtest", "randr", "composite"] }
+# Pure-Rust protocol crates only, so one binary runs on every distribution
+# (glibc or musl) with no libX11, libwayland, libdbus or libei at build time.
+x11rb = { version = "0.14", optional = true, features = ["xtest", "randr", "composite", "res", "shape", "screensaver", "damage"] }
+# AT-SPI2 accessibility, xdg-desktop-portal and the GNOME idle monitor.
+zbus = { version = "5", default-features = false, features = ["blocking-api", "async-io"] }
+# wlroots compositors: screencopy, virtual pointer and keyboard, foreign
+# toplevels, layer-shell (agent cursor) and ext-idle-notify.
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client", "staging", "unstable"] }
+wayland-protocols-wlr = { version = "0.3", features = ["client"] }
+wayland-protocols-misc = { version = "0.3", features = ["client"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# NSWorkspace / NSRunningApplication messages and the launch completion
+# block. CoreFoundation, CoreGraphics and Accessibility are plain C, declared
+# in src/platform/macos/sys.rs.
+objc2 = "0.6"
+block2 = "0.6"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", optional = true, features = [
     "Win32_Foundation",
+    "Win32_Graphics_Dwm",
     "Win32_Graphics_Gdi",
-    "Win32_System_Com",
-    "Win32_System_Threading",
-    "Win32_System_ProcessStatus",
-    "Win32_UI_Accessibility",
-    "Win32_UI_Input_KeyboardAndMouse",
-    "Win32_UI_WindowsAndMessaging",
-    "Win32_UI_HiDpi",
+    "Win32_Storage_FileSystem",
     "Win32_Storage_Xps",
+    "Win32_System_Com",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Ole",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Registry",
+    "Win32_System_RemoteDesktop",
+    "Win32_System_StationsAndDesktops",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+    "Win32_System_Variant",
+    "Win32_UI_Accessibility",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
 ] }
 
 [dev-dependencies]
