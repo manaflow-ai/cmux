@@ -122,7 +122,7 @@ async fn answer_once_written<T>(
 ) -> T {
     tokio::pin!(answer);
     let moving = async {
-        let _ = written;
+        written.notified().await;
         moving.await;
     };
     tokio::pin!(moving);
