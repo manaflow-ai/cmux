@@ -211,7 +211,8 @@ extension WhoElseCall {
         if pending {
             return String(localized: "mobile.agentChat.whoElse.looking", defaultValue: "Looking for who else works on these files…", bundle: .module)
         }
-        let count = answer?.sessions.count ?? 0
+        // Sessions acpmux left out (past its row cap) count here; no row shows them (`omittedNote`).
+        let count = (answer?.sessions.count ?? 0) + (answer?.more ?? 0)
         switch count {
         case 0: return String(localized: "mobile.agentChat.whoElse.none", defaultValue: "No other session works on these files", bundle: .module)
         case 1: return String(localized: "mobile.agentChat.whoElse.one", defaultValue: "1 other session works on these files", bundle: .module)
@@ -220,9 +221,16 @@ extension WhoElseCall {
         }
     }
 
-    /// The rows past the first `shown` plus those acpmux left out (the "N more" button's count).
+    /// The rows past the first `shown` (the "N more" button's count): only rows the answer holds,
+    /// since opening the card can show no other.
     public func hiddenCount(shown: Int) -> Int {
-        max(0, (answer?.sessions.count ?? 0) - shown + (answer?.more ?? 0))
+        max(0, (answer?.sessions.count ?? 0) - shown)
+    }
+
+    /// "N more not listed" for the sessions acpmux left out of its answer; nil when none were.
+    public var omittedNote: String? {
+        guard let more = answer?.more, more > 0 else { return nil }
+        return String(localized: "mobile.agentChat.whoElse.omitted", defaultValue: "\(more) more not listed", bundle: .module)
     }
 
     /// "+N more".

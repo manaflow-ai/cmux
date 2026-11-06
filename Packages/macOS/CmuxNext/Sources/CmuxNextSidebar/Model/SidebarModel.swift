@@ -334,9 +334,15 @@ public final class SidebarModel {
     @ObservationIgnored public var docDrag: SidebarDocDrag?
     /// The document's group sorts the last `setSections` arranged its groups in.
     @ObservationIgnored private var arrangedSorts: [String: SidebarGroupSort] = [:]
-    /// Whether the document lists each group in the sort the sections were arranged in: a sort-only change leaves the
-    /// App's live rows as they were, so a pass that would skip them sets them again when this is false.
-    public var arrangedSortsAreCurrent: Bool { (docDrag?.document?.shown?.groupSorts ?? [:]) == arrangedSorts }
+    /// The document's archived items the last `setSections` marked its rows by.
+    @ObservationIgnored private var arrangedArchived: Set<String> = []
+    /// Whether the document lists each group in the sort, and marks the rows archived, as the sections were arranged:
+    /// a sort-only or archive-only change (Archive Workspaces Below archives the last rows) leaves the App's live rows
+    /// as they were, so a pass that would skip them sets them again when this is false.
+    public var arrangementIsCurrent: Bool {
+        let shown = docDrag?.document?.shown
+        return (shown?.groupSorts ?? [:]) == arrangedSorts && (shown?.archived ?? []) == arrangedArchived
+    }
     /// The favicon at a page icon address, when the App has it (it fetches a missing one); link rows draw it. Set by
     /// the App's bridge from its own favicon store.
     @ObservationIgnored public var itemFavicon: ((String) -> SidebarFavicon?)?
@@ -443,6 +449,7 @@ public final class SidebarModel {
         // The sidebar document places every item: links in machine lists, Pinned and custom groups in their own list sections.
         let shown = docDrag.flatMap { drag in drag.document?.shown.map { $0.arrange(new, drag: drag) } } ?? new
         arrangedSorts = docDrag?.document?.shown?.groupSorts ?? [:]
+        arrangedArchived = docDrag?.document?.shown?.archived ?? []
         sections = Self.folding(Self.hidingItems(hiddenItemRefs, in: shown), collapsedSections) // the setter skips an unchanged list
     }
 
@@ -581,7 +588,8 @@ public final class SidebarModel {
         (showsColors, colorIndicator) = (preferences.showColors, preferences.workspaceColorIndicator)
         showsLocalMachine = preferences.showLocalMachine
         groupHeaderDetails = GroupHeaderDetails(memberCount: preferences.groupHeaderMemberCount,
-                                                unreadCount: preferences.groupHeaderUnreadCount)
+                                                unreadCount: preferences.groupHeaderUnreadCount,
+                                                background: preferences.groupHeaderBackground)
         hidesWorkspaces = !preferences.showProjects
         grouping.by = preferences.groupBy
         groupsByComputer = preferences.groupsByComputer
@@ -592,7 +600,9 @@ public final class SidebarModel {
     func listOptions() -> SidebarLayoutOptions {
         var o = SidebarLayoutOptions()
         o.filterMatches = filterMatches
-        (o.workspacesAsTabs, o.foldsDone, o.rowLimit) = (SidebarTunables.workspacesAsTabsOn, SidebarTunables.doneFold.value, SidebarTunables.rowLimit)
+        (o.workspacesAsTabs, o.foldsDone, o.rowLimit) = (SidebarTunables.workspacesAsTabsOn, true, SidebarTunables.rowLimit)
+        // Projects and Recents lists a group's first rows and "Show N more", as ChatGPT lists a project's chats.
+        if grouping.groupsByRecents && o.rowLimit == 0 { o.rowLimit = SidebarLayout.projectLimit }
         o.activeWorkspaceID = activeWorkspaceID
         // A group opened by a structural set (another client) forgets its revealed members.
         revealedMembers = revealedMembers.filter { group($0.key)?.isCollapsed == true }

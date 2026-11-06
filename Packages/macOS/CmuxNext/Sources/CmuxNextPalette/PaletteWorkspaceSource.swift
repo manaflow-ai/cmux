@@ -17,6 +17,8 @@ public struct PaletteWorkspace: Identifiable, Sendable, Hashable {
     /// More words that find the row: the title and session id of the one tab it holds, which
     /// Go to Workspace does not list on its own (a lone tab is its workspace).
     public var keywords: [String]
+    /// The row's place in the active window's sidebar, top first (0), nil when the sidebar does not draw it.
+    public var sidebarRank: Int?
 
     /// The words that find a workspace whose one tab Go to Workspace folds into its row (a lone
     /// tab is its workspace; Leo 2026-11-03: "some of these are way too duplicated"): the tab's
@@ -27,8 +29,10 @@ public struct PaletteWorkspace: Identifiable, Sendable, Hashable {
     }
 
     public init(id: String, title: String, directory: String? = nil, isSelected: Bool = false, unreadCount: Int = 0,
-                groupName: String? = nil, machineName: String? = nil, agentID: String? = nil, keywords: [String] = []) {
+                groupName: String? = nil, machineName: String? = nil, agentID: String? = nil, keywords: [String] = [],
+                sidebarRank: Int? = nil) {
         self.keywords = keywords
+        self.sidebarRank = sidebarRank
         self.machineName = machineName
         self.agentID = agentID
         self.id = id
