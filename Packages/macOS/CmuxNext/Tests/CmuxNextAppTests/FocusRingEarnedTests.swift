@@ -43,12 +43,7 @@ struct FocusRingEarnedTests {
             return root.convert(CGPoint(x: frame.midX, y: frame.midY), to: nil)
         }
 
-        func key(_ code: UInt16) {
-            let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
-                                         windowNumber: window.windowNumber, context: nil, characters: "\u{1b}",
-                                         charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: code)!
-            #expect(root.handleMonitored(event) === event, "the key still reaches the pane")
-        }
+        func key(_ code: UInt16, from source: NSWindow? = nil) { root.handleMonitoredKey(code, from: source ?? window) }
     }
 
     /// The ring draws only with the setting on and the border indicator (the SplitFocusRingTests setup).
@@ -113,6 +108,30 @@ struct FocusRingEarnedTests {
             w.key(53) // Escape
             #expect(w.model.focusedPane == "p2")
             #expect(w.ring("p2") == false, "Escape left the ring")
+        }
+    }
+
+    /// A Chromium page's keys come from its child window: Escape there clears the ring too, and
+    /// Escape in an unrelated window does not.
+    @Test func escapeInAPagesChildWindowClearsTheRing() throws {
+        try Self.withRing {
+            let w = Window()
+            let child = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: [.borderless],
+                                 backing: .buffered, defer: false)
+            let other = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: [.borderless],
+                                 backing: .buffered, defer: false)
+            defer {
+                w.window.removeChildWindow(child)
+                child.closeAfterTest()
+                other.closeAfterTest()
+                w.window.closeAfterTest()
+            }
+            w.window.addChildWindow(child, ordered: .above)
+            w.model.focus("p2", source: .keyboard)
+            w.key(53, from: other)
+            #expect(w.ring("p2") == true, "Escape in another window cleared this one's ring")
+            w.key(53, from: child)
+            #expect(w.ring("p2") == false, "Escape in a page's child window left the ring")
         }
     }
 

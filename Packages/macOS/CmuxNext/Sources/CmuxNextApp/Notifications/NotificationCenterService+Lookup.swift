@@ -178,8 +178,8 @@ extension NotificationCenterService {
         for screen in workspace.screens {
             for pane in screen.panes {
                 guard let id = shownTab(pane) ?? self.shownTab(of: pane), let shown = pane.tabs.first(where: { $0.id == id }) else { continue }
-                // A viewed tab reads its notifications at once: a ring there only blinked (Leo 2026-11-06).
-                if !shown.markedUnread, NotificationPolicy(prefs: preferences).clears(.focus, for: source(of: shown)), isViewed(shown.id) { continue }
+                // A viewed tab reads its notifications at once, so a ring only blinked (a mark or needs-you stays).
+                if shown.hasUnread, !shown.markedUnread, shown.attention == nil, NotificationPolicy(prefs: preferences).clears(.focus, for: source(of: shown)), isViewed(shown.id) { continue }
                 // An agent chat whose turn ended rings until the person goes into it, only with
                 // the opt-in agent chat ring (`notifications.attention.agentChats`).
                 let agentChat = shown.agentSession != nil
