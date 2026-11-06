@@ -36,7 +36,8 @@ import Testing
         var sections = sections(without: closed)
         let slot = try #require(slot, "keeps the daemon's place, the sidebar's end")
         let position = try #require(slot.position(moving: ["n"], section: section, in: sections), "\(slot) does not resolve")
-        #expect(SidebarEdits.apply(.reorder([WorkspaceID("n")], to: position), to: &sections))
+        // False when `n` already lists there (a no-op reorder): the order below says where it is.
+        _ = SidebarEdits.apply(.reorder([WorkspaceID("n")], to: position), to: &sections)
         var loose: [String] = [], group: [String] = []
         for node in sections[0].nodes {
             switch node {
