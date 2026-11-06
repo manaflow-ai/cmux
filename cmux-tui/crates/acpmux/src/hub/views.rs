@@ -6,7 +6,7 @@ use cmux_json::JsonSet as _;
 mod host_build;
 mod host_load;
 
-pub(crate) use host_build::{host_outdated, outdated_host_line, outdated_hosts_line};
+pub(crate) use host_build::{host_build_differs, other_build_host_line, other_build_hosts_line};
 
 /// The mux record of a change in how many subagents a session runs (`hub/tap.rs`), which
 /// watchers hear as `_acpmux/session_changed` with the new `subagentsRunning`.
@@ -631,10 +631,10 @@ impl Hub {
         summary.set("subagentsRunning", json!(work.subagents));
         summary.set("subagentNames", json!(work.names));
         summary.set("commandsRunning", json!(work.commands));
-        // The build its live agent host runs, and whether that is older than this daemon's: a
+        // The build its live agent host runs, and whether it differs from this daemon's: a
         // host that has not hibernated since an update (`views/host_build.rs`).
         let host_build = host_build::live_host_build(session);
-        summary.set("hostOutdated", json!(host_outdated(host_build.as_deref(), build())));
+        summary.set("hostBuildDiffers", json!(host_build_differs(host_build.as_deref(), build())));
         summary.set("hostBuild", json!(host_build));
         if notice && let Some(turn) = summary.get_mut("turn").and_then(Value::as_object_mut) {
             // A History of the person's prompts leaves it out (`turn.notice`).
@@ -737,12 +737,12 @@ impl Hub {
                 "stuckSince": since, "stuckError": error}))
             })
             .collect();
-        let (mut live, mut outdated) = (0, 0);
+        let (mut live, mut other_build) = (0, 0);
         for s in &sessions {
             if let Some(child) = s.child.lock().await.as_ref() {
                 live += 1;
-                if host_outdated(child.host_build().as_deref(), build()) {
-                    outdated += 1;
+                if host_build_differs(child.host_build().as_deref(), build()) {
+                    other_build += 1;
                 }
             }
         }
@@ -780,8 +780,8 @@ impl Hub {
             // pressure-aware admission would say. Nothing is deferred on it.
             "shadowAdmission": crate::shadow_admission::last_verdicts(),
             "liveAgents": live,
-            // Live agent hosts still on an older build than this one (`views/host_build.rs`).
-            "outdatedHosts": outdated,
+            // Live agent hosts still on another build than this one (`views/host_build.rs`).
+            "hostsOnOtherBuilds": other_build,
             "stuckSessions": stuck,
             "disk": disk,
             // macOS: whether this daemon's agents can read the login keychain
