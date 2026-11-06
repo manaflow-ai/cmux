@@ -118,6 +118,11 @@ impl ForkView {
     /// references none. A failure leaves the reference as it was.
     pub fn materialize(&self, id: &str) -> Result<()> {
         let _dropping = self.dropping.lock().unwrap_or_else(|e| e.into_inner());
+        self.materialize_locked(id)
+    }
+
+    /// [`ForkView::materialize`] under `dropping`.
+    fn materialize_locked(&self, id: &str) -> Result<()> {
         // Read under the lock: a write that ran first left none.
         let Some(reference) = self.reference(id) else { return Ok(()) };
         let Some(mut writer) = self.inner.history_writer(id)? else {
@@ -140,16 +145,17 @@ impl ForkView {
             return Err(e);
         }
         writer.commit()?;
-        {
-            let mut refs = self.refs.write().unwrap_or_else(|e| e.into_inner());
-            refs.dropped.insert(id.to_owned(), reference.through_seq);
-            refs.by_fork.remove(id);
-        }
+        // The meta first: if its save fails, the reference stands on disk and here, and the next
+        // write replaces segment `000000` whole (review of #37020: a failed save left the
+        // reference on disk and none here, so the written history was never read).
         if let Some(mut meta) = self.inner.load(id)? {
             meta.history_from = None;
             meta.history_kept_through = Some(reference.through_seq);
             self.inner.save(&meta)?;
         }
+        let mut refs = self.refs.write().unwrap_or_else(|e| e.into_inner());
+        refs.dropped.insert(id.to_owned(), reference.through_seq);
+        refs.by_fork.remove(id);
         Ok(())
     }
 
@@ -417,15 +423,18 @@ impl Store for ForkView {
     /// Retention trims a chat's records in place: the forks that show them get them first, as
     /// they were (review of #37020: a fork lost the long tool output a copy had kept).
     fn commit_compaction(&self, id: &str, staged: Staged) -> Result<bool> {
+        let _dropping = self.dropping.lock().unwrap_or_else(|e| e.into_inner());
         for fork in self.forks_of(id)? {
-            self.materialize(&fork)?;
+            self.materialize_locked(&fork)?;
         }
         self.inner.commit_compaction(id, staged)
     }
-    /// A chat that forks reference goes only once each holds its history itself.
+    /// A chat that forks reference goes only once each holds its history itself. Under
+    /// `dropping`, as a reservation is: a fork being made is either known here or refused.
     fn delete(&self, id: &str) -> Result<()> {
+        let _dropping = self.dropping.lock().unwrap_or_else(|e| e.into_inner());
         for fork in self.forks_of(id)? {
-            self.materialize(&fork)?;
+            self.materialize_locked(&fork)?;
         }
         self.inner.delete(id)?;
         self.refs.write().unwrap_or_else(|e| e.into_inner()).by_fork.remove(id);
@@ -455,6 +464,21 @@ impl Store for ForkView {
     }
     fn writes_history(&self) -> bool {
         self.inner.writes_history()
+    }
+    /// Under `dropping`, as a delete or compaction of the chat is: one that came first is seen
+    /// here (the chat is gone, or its records trimmed as a copy made now would read them), and
+    /// one after writes the history into the fork first (review of #37020: the reference was
+    /// known only once the fork's meta was saved, after a delete or compaction could pass it).
+    fn reserve_reference(&self, fork: &str, reference: &HistoryRef) -> Result<()> {
+        let _dropping = self.dropping.lock().unwrap_or_else(|e| e.into_inner());
+        anyhow::ensure!(self.inner.load(&reference.session)?.is_some(), "the chat is gone");
+        let mut refs = self.refs.write().unwrap_or_else(|e| e.into_inner());
+        refs.known.insert(fork.to_owned());
+        refs.by_fork.insert(fork.to_owned(), reference.clone());
+        Ok(())
+    }
+    fn forget_reference(&self, fork: &str) {
+        self.refs.write().unwrap_or_else(|e| e.into_inner()).by_fork.remove(fork);
     }
     fn history_writer(&self, id: &str) -> Result<Option<Box<dyn HistoryWriter + '_>>> {
         self.inner.history_writer(id)

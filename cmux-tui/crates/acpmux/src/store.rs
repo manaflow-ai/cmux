@@ -963,6 +963,14 @@ pub trait Store: Send + Sync {
     fn writes_history(&self) -> bool {
         false
     }
+    /// Names `fork` a fork of `reference` before its meta is saved, so a delete or compaction of
+    /// the chat from now on writes the history into it first (`store/fork_view.rs`). An error:
+    /// the chat is gone.
+    fn reserve_reference(&self, _fork: &str, _reference: &HistoryRef) -> Result<()> {
+        Ok(())
+    }
+    /// Takes back a [`Store::reserve_reference`] of a fork that was not made.
+    fn forget_reference(&self, _fork: &str) {}
     /// A writer of the history a fork referenced, as its log's first segment. None: this store
     /// writes none ([`Store::writes_history`]).
     fn history_writer(&self, _id: &str) -> Result<Option<Box<dyn HistoryWriter + '_>>> {

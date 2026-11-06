@@ -248,3 +248,71 @@ fn a_stale_meta_noted_after_the_write_names_no_reference() {
     assert!(view.reference("fork").is_none());
     assert_eq!(seqs(&view.events("fork", 0, usize::MAX).unwrap()), expected(20, 4));
 }
+
+/// A fork named before its meta is saved: deleting the chat then writes the history into it first,
+/// and the fork's meta, saved later naming the chat, names it no more; a chat already gone refuses
+/// the fork (review of #37020: a delete or compaction between the fork's seq and its meta passed
+/// it by, and the fork lost its history).
+#[test]
+fn a_fork_reserved_before_its_meta_keeps_the_history_of_a_chat_deleted_meanwhile() {
+    let dir = tempfile::tempdir().unwrap().keep();
+    let view = forked(Box::new(LocalStore::new(dir, 1 << 20).unwrap()), 30, 20, 0);
+    let reference = HistoryRef { session: "chat".into(), through_seq: 20 };
+    view.reserve_reference("late", &reference).unwrap();
+    view.delete("chat").unwrap();
+    view.save(&meta("late", Some(reference.clone()))).unwrap();
+    let saved = view.load("late").unwrap().unwrap();
+    assert!(saved.history_from.is_none(), "the fork names its deleted chat");
+    assert_eq!(seqs(&view.events("late", 0, usize::MAX).unwrap()), expected(20, 0));
+    assert!(view.reserve_reference("later", &reference).is_err(), "the chat is gone");
+}
+
+/// A store whose saves of a meta that names no reference fail while `failing` is set.
+struct FailingSave(LocalStore, std::sync::Arc<std::sync::atomic::AtomicBool>);
+
+impl Store for FailingSave {
+    fn list(&self) -> Result<Vec<SessionMeta>> {
+        self.0.list()
+    }
+    fn load(&self, id: &str) -> Result<Option<SessionMeta>> {
+        self.0.load(id)
+    }
+    fn save(&self, meta: &SessionMeta) -> Result<()> {
+        if meta.history_from.is_none() && self.1.load(std::sync::atomic::Ordering::SeqCst) {
+            anyhow::bail!("disk full");
+        }
+        self.0.save(meta)
+    }
+    fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
+        self.0.append(id, record)
+    }
+    fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
+        self.0.events(id, after, limit)
+    }
+    fn delete(&self, id: &str) -> Result<()> {
+        self.0.delete(id)
+    }
+    fn history_writer(&self, id: &str) -> Result<Option<Box<dyn HistoryWriter + '_>>> {
+        self.0.history_writer(id)
+    }
+}
+
+/// The history written in, then its meta's save failing: the reference stands, the chat is kept,
+/// and the next try finishes the job (review of #37020: the reference was dropped here but not on
+/// disk, so after a restart the written history was never read).
+#[test]
+fn a_failed_meta_save_leaves_the_reference_to_try_again() {
+    let dir = tempfile::tempdir().unwrap().keep();
+    let failing = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let store = FailingSave(LocalStore::new(dir, 1 << 20).unwrap(), failing.clone());
+    let view = forked(Box::new(store), 30, 20, 4);
+    let flag = |on: bool| failing.store(on, std::sync::atomic::Ordering::SeqCst);
+    flag(true);
+    assert!(view.delete("chat").is_err());
+    assert!(view.reference("fork").is_some(), "the reference was dropped");
+    assert!(view.load("chat").unwrap().is_some(), "the chat went without its fork's history");
+    flag(false);
+    view.delete("chat").unwrap();
+    assert!(view.load("fork").unwrap().unwrap().history_from.is_none());
+    assert_eq!(seqs(&view.events("fork", 0, usize::MAX).unwrap()), expected(20, 4));
+}

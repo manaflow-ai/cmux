@@ -308,19 +308,34 @@ impl Hub {
         // A fork through a turn copies through its `turn_result`, before which the log holds
         // nothing back. A fork of now copies the tool output the log holds back too
         // (`store/deferred.rs`), read with the seq it copies through.
-        let (fork_seq, held_output) = match cut {
-            Some(cut) => (cut, Vec::new()),
-            None => {
-                let _order = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
-                let held = session.log_deferral.lock().unwrap_or_else(|e| e.into_inner()).pending();
-                (session.seq.load(Ordering::SeqCst), held)
-            }
-        };
         // The fork shows the chat's history by reference: none of it is copied, so a fork costs
         // the same however long the chat (`store/fork_view.rs`). A fork before a prompt keeps its
         // copy and its durable journal (`fork_before.rs`); a store that cannot write a fork's
         // history later copies it too.
         let referenced = !empty && before.is_none() && self.store.writes_history();
+        let (fork_seq, held_output, reserved) = {
+            let _order = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
+            let (fork_seq, held) = match cut {
+                Some(cut) => (cut, Vec::new()),
+                None => (
+                    session.seq.load(Ordering::SeqCst),
+                    session.log_deferral.lock().unwrap_or_else(|e| e.into_inner()).pending(),
+                ),
+            };
+            // Named the chat's fork now, under the lock its records are appended under: a delete
+            // or compaction of the chat from here on writes the history into the fork first.
+            let reserved = if referenced {
+                let reference =
+                    crate::store::HistoryRef { session: session.id.clone(), through_seq: fork_seq };
+                self.store
+                    .reserve_reference(&id, &reference)
+                    .map_err(|e| RpcError::internal(e.to_string()))?;
+                Some(Reserved { store: &*self.store, fork: Some(id.clone()) })
+            } else {
+                None
+            };
+            (fork_seq, held, reserved)
+        };
         let name_given = name.is_some();
         let name = name.unwrap_or_else(|| self.unique_name(&format!("{}-fork", parent_meta.name)));
         let now = now_ms();
@@ -532,6 +547,10 @@ impl Hub {
         // Indexed again once published (`transfer.rs` `import_into`).
         self.child_tags.note(&new);
         let creation_guard = super::lifecycle::CreationGuard::new(self.clone(), new.clone(), 0);
+        // From here a failed fork is purged, and its reference with it.
+        if let Some(reserved) = reserved {
+            reserved.disarm();
+        }
         // Copy the transcript-relevant history so attach replays it.
         // Read one record at a time; only these kinds are parsed. The copies are stored under one
         // hold of the fork's append lock and sent to no client one by one: nothing is attached
@@ -768,5 +787,27 @@ mod same_folder_tests {
         let other = tempfile::tempdir().unwrap();
         assert!(same_folder(dir.path(), &dir.path().join(".")));
         assert!(!same_folder(dir.path(), other.path()));
+    }
+}
+
+/// A fork's reservation of its chat's history ([`Store::reserve_reference`]), taken back if the
+/// fork is not made before its creation guard takes over.
+struct Reserved<'a> {
+    store: &'a dyn crate::store::Store,
+    /// None once disarmed.
+    fork: Option<String>,
+}
+
+impl Reserved<'_> {
+    fn disarm(mut self) {
+        self.fork = None;
+    }
+}
+
+impl Drop for Reserved<'_> {
+    fn drop(&mut self) {
+        if let Some(fork) = &self.fork {
+            self.store.forget_reference(fork);
+        }
     }
 }
