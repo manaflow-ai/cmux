@@ -68,6 +68,7 @@ public final class Engine: @unchecked Sendable {
                 + "ax_window=\(focused != nil) ax_window_id=\(focused?.windowID.map(String.init) ?? "nil") "
                 + "private_symbol=\(AXPrivate.shared.getWindow != nil)"]
             let geometry = ScreenshotGeometry(windowFrame: window.frame, displayScale: 2, maxLongEdge: maxImageEdge)
+            monitor.watch(pid: app.pid)
             let clock = ContinuousClock()
             let start = clock.now
             guard let stream = await streams.stream(windowID: id, pixelWidth: geometry.pixelWidth,
@@ -75,9 +76,23 @@ public final class Engine: @unchecked Sendable {
                 return (lines + ["stream: none after \(ms(clock.now - start)) ms: \(streams.lastFailure ?? "?")"]).joined(separator: "\n")
             }
             lines.append("stream ready after \(ms(clock.now - start)) ms: \(stream.diagnostics)")
-            input.key(KeySpec(keyCode: 53), pid: app.pid)
             try? await Task.sleep(for: .seconds(1))
-            lines.append("after a key: \(stream.diagnostics)")
+            lines.append("after 1 s untouched: \(stream.diagnostics)")
+            let before = stream.frameCount
+            let pressed = clock.now
+            input.key(KeySpec(keyCode: 26), pid: app.pid) // "7"
+            var stamps: [Double] = []
+            var last = stream.lastFrameAt
+            while clock.now - pressed < .seconds(1) {
+                if let at = stream.lastFrameAt, at != last {
+                    stamps.append(ms(at - pressed))
+                    last = at
+                }
+                try? await Task.sleep(for: .milliseconds(1))
+            }
+            lines.append("after the 7 key: \(stream.frameCount - before) frames, at ms: \(stamps.prefix(40).map { String(Int($0)) }.joined(separator: " "))")
+            let axAt = monitor.lastEventTime(pid: app.pid).map { ms($0 - pressed) }
+            lines.append("last AX notification at ms: \(axAt.map { String($0) } ?? "none")")
             return lines.joined(separator: "\n")
         } catch {
             return "\(error)"
