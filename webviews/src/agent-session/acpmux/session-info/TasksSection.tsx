@@ -118,7 +118,7 @@ export function TasksSection({
     return (
       <li
         key={`scheduled:${entry.item.id}`}
-        className="acpmux-session-info-task"
+        className="acpmux-session-info-task acpmux-session-info-task--scheduled"
         data-kind={entry.item.kind}
         data-state={entry.status.state}
         title={entry.item.cron && !ended ? `${entry.item.text} (${entry.item.cron})` : entry.item.text}
