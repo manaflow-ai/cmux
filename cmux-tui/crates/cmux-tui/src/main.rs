@@ -35,6 +35,8 @@ mod cloud_environment;
 mod coderouter_usage;
 #[cfg(unix)]
 mod codex_wrapper;
+#[cfg(not(target_os = "macos"))]
+mod computer_use_worker;
 mod config;
 mod daemon_build;
 mod headless;

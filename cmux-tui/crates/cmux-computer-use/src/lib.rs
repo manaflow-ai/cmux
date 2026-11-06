@@ -31,6 +31,10 @@ pub mod wire;
 
 #[cfg(feature = "desktop")]
 pub mod platform;
+#[cfg(feature = "server")]
+pub mod server;
+#[cfg(feature = "server")]
+pub mod worker;
 
 pub use desktop::{Desktop, DesktopError};
 pub use engine::{CallContext, Engine, Origin, ToolOutput};

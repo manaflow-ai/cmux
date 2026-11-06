@@ -90,12 +90,21 @@ impl Mux {
         let mut store = self.settings_store().lock().unwrap_or_else(|poison| poison.into_inner());
         let applied = store.apply(op);
         let host_policy = host_policy_after(&store, &applied.changes);
+        let computer_use = touches_computer_use(&applied.changes);
         emit_changes(self, applied.changes);
         drop(store);
+        if computer_use {
+            self.computer_use_policy_changed();
+        }
         if let Some((policy, revision)) = host_policy {
             self.adopt_host_size_policy(policy, revision);
         }
         applied.result
+    }
+
+    /// The effective settings (every layer merged), as JSON.
+    pub(crate) fn settings_effective_root(self: &Arc<Self>) -> serde_json::Value {
+        self.with_settings(|state| state.effective().root.clone())
     }
 
     /// Reads the owner's state.
@@ -112,6 +121,15 @@ fn host_policy_after(store: &ConfigStore, changes: &[Change]) -> Option<(HostSiz
         .iter()
         .any(|change| touches_host_policy(&change.keys))
         .then(|| (host_policy_from_state(store.state()), store.state().revision()))
+}
+
+/// Whether `changes` touched a `computerUse.*` key (read after the store
+/// lock is released: the Computer Use host reads the settings again).
+fn touches_computer_use(changes: &[Change]) -> bool {
+    changes
+        .iter()
+        .flat_map(|change| &change.keys)
+        .any(|key| key == "computerUse" || key.starts_with("computerUse."))
 }
 
 fn emit_changes(mux: &Mux, changes: impl IntoIterator<Item = Change>) {
@@ -161,8 +179,12 @@ fn start_watcher(mux: Weak<Mux>, store: &Arc<Mutex<ConfigStore>>) -> Option<Watc
         let mut store = store.lock().unwrap_or_else(|poison| poison.into_inner());
         let change: Vec<Change> = store.reload().into_iter().collect();
         let host_policy = host_policy_after(&store, &change);
+        let computer_use = touches_computer_use(&change);
         emit_changes(&mux, change);
         drop(store);
+        if computer_use {
+            mux.computer_use_policy_changed();
+        }
         if let Some((policy, revision)) = host_policy {
             mux.adopt_host_size_policy(policy, revision);
         }

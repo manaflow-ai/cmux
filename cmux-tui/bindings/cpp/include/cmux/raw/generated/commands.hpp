@@ -106,6 +106,9 @@ public:
     [[nodiscard]] Result<JsonValue> cloud_session_clear(const CloudSessionClearRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_session_set(const CloudSessionSetRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_session_status(const CloudSessionStatusRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> computer_use_approvals(const ComputerUseApprovalsRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> computer_use_config(const ComputerUseConfigRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> computer_use_endpoint(const ComputerUseEndpointRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<ConversationAgentTokenResult> conversation_agent_token(const ConversationAgentTokenRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationAttachmentLinkResult> conversation_attachment_link(const ConversationAttachmentLinkRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationAttachmentReadResult> conversation_attachment_read(const ConversationAttachmentReadRequest& request, RequestOptions options = {});

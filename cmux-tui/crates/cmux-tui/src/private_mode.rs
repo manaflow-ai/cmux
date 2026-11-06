@@ -34,6 +34,11 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
         // What every daemon of this build advertises, with none running: the
         // app bundle records it for the web pages (daemon-capabilities.json).
         Some(DAEMON_CAPABILITIES) => Some(capabilities(&args[1..])),
+        // The Linux and Windows Computer Use worker the daemon supervises.
+        #[cfg(not(target_os = "macos"))]
+        Some(cmux_tui_core::computer_use_host::WORKER_MODE) => {
+            Some(crate::computer_use_worker::run(&args[1..]))
+        }
         _ => None,
     }
 }

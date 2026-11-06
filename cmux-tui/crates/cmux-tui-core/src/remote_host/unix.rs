@@ -629,6 +629,9 @@ impl crate::mux::Mux {
     /// Lets this daemon run cmux Remote (macOS): the host for the daemon on
     /// `daemon_socket`, with durable state beside the daemon's own.
     pub fn configure_remote_host(self: &Arc<Self>, daemon_socket: &Path) {
+        // Linux runs Computer Use in the daemon's own worker, not cmux Remote.
+        #[cfg(target_os = "linux")]
+        self.configure_computer_use(daemon_socket);
         let Some(state_root) = crate::platform::workspace_state_dir()
             .and_then(|sessions| sessions.parent().map(Path::to_path_buf))
         else {

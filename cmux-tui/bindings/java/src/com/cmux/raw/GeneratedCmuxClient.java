@@ -338,6 +338,21 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final Object computerUseApprovals(ComputerUseApprovalsRequest request) throws CmuxException {
+        Object result = execute(Commands.COMPUTER_USE_APPROVALS, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object computerUseConfig(ComputerUseConfigRequest request) throws CmuxException {
+        Object result = execute(Commands.COMPUTER_USE_CONFIG, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object computerUseEndpoint() throws CmuxException {
+        Object result = execute(Commands.COMPUTER_USE_ENDPOINT, Map.of());
+        return Wire.immutableJson(result);
+    }
+
     public final ConversationAgentTokenResult conversationAgentToken(ConversationAgentTokenRequest request) throws CmuxException {
         Object result = execute(Commands.CONVERSATION_AGENT_TOKEN, request.toWire());
         return ConversationAgentTokenResult.fromWire(result);

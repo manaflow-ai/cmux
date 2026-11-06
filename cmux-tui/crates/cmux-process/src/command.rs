@@ -38,6 +38,9 @@ pub struct Command {
     /// (descriptor, the number the child gets it at).
     #[cfg(unix)]
     pub(crate) inherit: Vec<(OwnedFd, RawFd)>,
+    /// Windows process creation flags ([`Command::creation_flags`]).
+    #[cfg(windows)]
+    pub(crate) creation_flags: u32,
 }
 
 impl Command {
@@ -60,6 +63,8 @@ impl Command {
             disclaim_responsibility: false,
             #[cfg(unix)]
             inherit: Vec::new(),
+            #[cfg(windows)]
+            creation_flags: 0,
         }
     }
 
@@ -183,6 +188,14 @@ impl Command {
         self
     }
 
+    /// Windows: the process creation flags (`CREATE_NO_WINDOW`, ...), as
+    /// `std::os::windows::process::CommandExt::creation_flags`.
+    #[cfg(windows)]
+    pub fn creation_flags(&mut self, flags: u32) -> &mut Self {
+        self.creation_flags = flags;
+        self
+    }
+
     /// Give the child a copy of `fd` at descriptor number `at` (3 or more:
     /// 0-2 are [`Command::stdin`], [`Command::stdout`], [`Command::stderr`]).
     /// The only way a descriptor other than 0-2 reaches the child.
@@ -263,6 +276,11 @@ impl Command {
         }
         if let Some(stdio) = self.stderr.take() {
             command.stderr(stdio.into_std());
+        }
+        #[cfg(windows)]
+        if self.creation_flags != 0 {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(self.creation_flags);
         }
         #[cfg(unix)]
         {
