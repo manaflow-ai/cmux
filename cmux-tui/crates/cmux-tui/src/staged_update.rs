@@ -22,8 +22,6 @@
 //! [`stale_notice`] is the line the TUI shows when it attaches to a session
 //! server older than itself, or while a staged build waits for that restart.
 
-#![allow(dead_code, unused_imports, unused_variables)]
-// Red step: the rules below are stubs until the fix commit.
 use cmux_process::Stdio;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -96,7 +94,41 @@ pub(crate) fn facts_of(probe: &Value) -> BuildFacts {
 /// `current` (the facts of the build at `binary`). Never fails: anything
 /// unexpected leaves the binary as it was.
 pub(crate) fn promote(binary: &Path, current: &BuildFacts) -> Outcome {
-    Outcome::NoStaged
+    let staged = staged_path(binary);
+    if !staged.is_file() {
+        return Outcome::NoStaged;
+    }
+    let discard = |reason: String| {
+        let _ = std::fs::remove_file(&staged);
+        Outcome::Discarded { reason }
+    };
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755));
+    }
+    let probe = match probe(&staged) {
+        Ok(probe) => probe,
+        Err(reason) => return discard(reason),
+    };
+    if probe.get("app").and_then(Value::as_str) != Some("cmux-tui") {
+        return discard("the staged file is not cmux-tui".into());
+    }
+    let staged_facts = facts_of(&probe);
+    // update_need(local, remote): the staged build must be the newer one.
+    let (need, reason) = update_need(current, &staged_facts);
+    if need != Need::Newer {
+        return discard(format!("the staged build is not newer ({reason:?})"));
+    }
+    let previous = previous_path(binary);
+    let _ = std::fs::remove_file(&previous);
+    if std::fs::hard_link(binary, &previous).is_err() {
+        let _ = std::fs::copy(binary, &previous);
+    }
+    match std::fs::rename(&staged, binary) {
+        Ok(()) => Outcome::Promoted { build: staged_facts.commit },
+        Err(error) => discard(format!("rename the staged build: {error}")),
+    }
 }
 
 /// Runs `<staged> remote-probe --json --build-facts` within [`PROBE_DEADLINE`].
@@ -201,7 +233,23 @@ pub(crate) fn stale_notice(
     client: &BuildFacts,
     staged_waiting: bool,
 ) -> Option<String> {
-    None
+    let messages = &crate::localization::catalog().update_notice;
+    let server_commit = server.get("build_commit").and_then(Value::as_str).unwrap_or("");
+    let short = |commit: &str| commit.chars().take(7).collect::<String>();
+    let different = !server_commit.is_empty() && client.commit.as_deref() != Some(server_commit);
+    let server_time = server.get("build_time").and_then(Value::as_u64);
+    let older = different
+        && client.time != 0
+        && server_time.is_none_or(|time| time == 0 || time < client.time);
+    if older {
+        return Some(
+            messages
+                .stale_server
+                .replace("{server}", &short(server_commit))
+                .replace("{client}", &short(client.commit.as_deref().unwrap_or(""))),
+        );
+    }
+    staged_waiting.then(|| messages.staged_waiting.to_string())
 }
 
 /// [`stale_notice`] for the owner at `socket`, asked once with a short budget.

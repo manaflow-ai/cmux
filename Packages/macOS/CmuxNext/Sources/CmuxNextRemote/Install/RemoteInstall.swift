@@ -194,11 +194,42 @@ public struct RemoteInstallPlan: Hashable, Sendable {
           echo "cmux-install-unrunnable $out" >&2
           exit \(RemoteInstallError.Code.unrunnable)
         fi
-        mv -f "$stage" "$dest"
-        echo "cmux-install-ok \(commit)"
+        \(stageOnly ? Self.stageAndSwapWhenIdle : "mv -f \"$stage\" \"$dest\"\n")echo "cmux-install-ok \(commit)"
 
         """
     }
+
+    /// The end of a stage-only install: the checked build becomes `$dest.staged`; it replaces
+    /// `$dest` (kept as `$dest.prev`) only when no session server (`--headless`) runs `$dest`.
+    /// A running server, its terminal hosts and its shells are never signalled. Without a way to
+    /// see processes (no /proc, no lsof) the build stays staged.
+    static let stageAndSwapWhenIdle = """
+        mv -f "$stage" "$dest.staged"
+        busy=""
+        if [ -e "$dest" ]; then
+          abs="$(cd "$dir" && pwd -P)/$(basename "$dest")"
+          if [ -r /proc/self/exe ]; then
+            for p in /proc/[0-9]*; do
+              [ "$(readlink "$p/exe" 2>/dev/null)" = "$abs" ] || continue
+              case " $(tr '\\000' ' ' < "$p/cmdline" 2>/dev/null) " in *" --headless "*) busy=1; break ;; esac
+            done
+          elif command -v lsof >/dev/null 2>&1; then
+            for p in $(lsof -t -- "$abs" 2>/dev/null); do
+              case " $(ps -o args= -p "$p" 2>/dev/null) " in *" --headless "*) busy=1; break ;; esac
+            done
+          else
+            busy=1
+          fi
+        fi
+        if [ -z "$busy" ]; then
+          [ -e "$dest" ] && { rm -f "$dest.prev"; ln -f "$dest" "$dest.prev" 2>/dev/null || cp -p "$dest" "$dest.prev"; }
+          mv -f "$dest.staged" "$dest"
+          echo "cmux-install-swapped"
+        else
+          echo "cmux-install-staged"
+        fi
+
+        """
 
     /// Fetches on the machine, resuming a partial file.
     public var fetchScript: String {
