@@ -97,12 +97,13 @@ public nonisolated enum TabTunables {
     public static let separatorHeight = points("separatorHeight", "Separator height", help: "Height of the line between tabs. Default: 55% of the tab height.") {
         (Metrics.tabHeight * 0.55).rounded()
     }
-    // @intent Leo 2026-10-14 asked for lines between tabs; Lawrence removed them in 7f9fc1ed, so they
-    // stay opt-in until the default call is made.
+    // @intent Lawrence 2026-11-05: "for horizontal tabs, we should have subtle border between all the
+    // tabs (and also between the last tab and plus button)". On by default; hidden only beside the
+    // selected tab, whose fill already makes that edge.
     public static let separators = Tunable<Bool>.toggle(
         "tabs.separators", .tabs, "Tab separators",
-        help: "A short line between tabs, hidden beside the selected and the hovered tab.",
-        default: false, code: "TabTunables.separators")
+        help: "A short line between tabs and before +, hidden beside the selected tab.",
+        default: true, code: "TabTunables.separators")
     public static let pinnedDivider = Tunable<Bool>.toggle(
         "tabs.pinnedDivider", .tabs, "Pinned group divider",
         help: "A short line between the pinned tabs and the other tabs.",

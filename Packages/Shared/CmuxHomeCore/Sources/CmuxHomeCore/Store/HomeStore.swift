@@ -288,7 +288,8 @@ public final class HomeStore {
         var items = (mirror.windows[id] ?? TranscriptWindow()).items(pending: log.sends(in: id), me: me)
         if !localFiles.isEmpty { items = items.map(decorated) }
         items = agentMessages[id]?.inserting(into: items, summary: summary(id),
-                                             expanded: expandedAgentMessages[id] ?? [], seen: agentSeen[id] ?? [:]) ?? items
+                                             expanded: expandedAgentMessages[id] ?? [], seen: agentSeen[id] ?? [:],
+                                             started: Set(agentSessions[id]?.values.map(\.peer) ?? [])) ?? items
         if let feed = feedRows, feed.conversation == id,
            let chief = summary(id)?.participants.first(where: \.isChief)?.id {
             // A window that does not reach the start shows no rows older than its first message.

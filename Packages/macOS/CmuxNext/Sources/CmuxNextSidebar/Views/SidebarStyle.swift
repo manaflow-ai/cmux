@@ -181,12 +181,13 @@ enum SidebarStyle {
     /// row (Lawrence 2026-10-19: "the height of the group headers is identical to the height of
     /// each workspace").
     static func groupHeaderContentHeight(rowHeight: CGFloat) -> CGFloat { rowHeight - 2 * (rowHeight * 0.09).rounded() }
-    /// The header's name: its rows' own face and size (`titleFont`, which follows `sidebar.textSize`), semibold so the
-    /// group reads above its members. It was 11 pt medium in the bare system face on the compact bar, smaller than the
-    /// rows under it (Leo 2026-11-05: "this strange f***ing font of the group on the side ... it just looks sad").
+    /// The header's name: its rows' own face, size and regular weight (`titleFont`, which follows `sidebar.textSize`);
+    /// the bar's color sets the group apart, not a heavier face (Lawrence 2026-11-05: "group fonts should not be bold").
+    /// It was 11 pt medium in the bare system face on the compact bar, smaller than the rows under it (Leo 2026-11-05:
+    /// "this strange f***ing font of the group on the side ... it just looks sad").
     /// `barHeight` is kept for callers; the name no longer scales with the bar.
     static func groupHeaderFont(barHeight _: CGFloat) -> NSFont {
-        Typography.system(.default, size: titleFont.pointSize, weight: TypeScale.emphasis)
+        Typography.system(.default, size: titleFont.pointSize, weight: TypeScale.regular)
     }
     /// The opt-in member count after a group's name (Lawrence 2026-10-20): a detail, not a title,
     /// so smaller than `name`, at the regular weight, in ``groupHeaderCountInkAlpha`` of the ink.

@@ -255,4 +255,4 @@ pub(super) fn remove(path: &Path) -> std::io::Result<()> {
 
 #[cfg(test)]
 #[path = "disk_tests.rs"]
-mod tests;
+pub(super) mod tests;

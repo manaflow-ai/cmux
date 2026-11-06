@@ -78,6 +78,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .cloudRepository: "cloudRepository"
         case .cloudEnvironment: "cloudEnvironment"
         case .cloudCredentialTransfer: "cloudCredentialTransfer"
+        case .tryAnotherApproach: "tryAnotherApproach"
         case .appAction: "appAction"
         case .paneAction, .moveToMachine, .diffTurn, .diffPatch: "paneAction"
         case .preview: "preview"
