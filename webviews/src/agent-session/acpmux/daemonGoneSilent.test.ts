@@ -67,9 +67,11 @@ async function connected(holds: string[]) {
     },
     () => socket as unknown as WebSocket,
   );
-  const request = (client as unknown as {
-    request(method: string, params: Record<string, unknown>, deadline: number): Promise<unknown>;
-  }).request.bind(client);
+  const request = (
+    client as unknown as {
+      request(method: string, params: Record<string, unknown>, deadline: number): Promise<unknown>;
+    }
+  ).request.bind(client);
   return { client, socket, request, lost: () => lost, mockHost };
 }
 
