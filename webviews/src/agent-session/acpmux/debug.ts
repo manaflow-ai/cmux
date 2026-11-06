@@ -278,6 +278,7 @@ export function createAcpmuxDebug(
         running,
         ...acpmuxPerf.stats(options.raw === true),
         agent: acpmuxPerf.agentLatency(),
+        start_state_shown: acpmuxPerf.startStateShown() ?? null,
         launch: acpmuxPerf.launchTimeline(),
       };
     },

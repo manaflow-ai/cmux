@@ -21,7 +21,6 @@ final class EmptyWorkspaceView: NSView, TitlebarPressDeciding {
     }
 
     private let titleLabel = ChromeLabel(labelWithString: EmptyWorkspaceStrings.title)
-    private let artLabel = NSTextField(wrappingLabelWithString: EmptyWorkspaceArt.wordmark)
     private let detailLabel = NSTextField(wrappingLabelWithString: "")
 
     override init(frame frameRect: NSRect) {
@@ -42,14 +41,6 @@ final class EmptyWorkspaceView: NSView, TitlebarPressDeciding {
     override var acceptsFirstResponder: Bool { true }
 
     private func build() {
-        let art = artLabel
-        art.font = Typography.system(.monospaced, size: Typography.title.pointSize, weight: TypeScale.emphasis)
-        art.alignment = .center
-        art.usesSingleLineMode = false
-        art.maximumNumberOfLines = 0
-        art.lineBreakMode = .byClipping
-        art.setAccessibilityLabel("cmux")
-
         let title = titleLabel
         title.font = Typography.header
         title.alignment = .center
@@ -62,7 +53,7 @@ final class EmptyWorkspaceView: NSView, TitlebarPressDeciding {
         detail.isHidden = true
         detail.preferredMaxLayoutWidth = 520
 
-        let stack = NSStackView(views: [art, title, detail])
+        let stack = NSStackView(views: [CmuxWordmarkLabel(), title, detail])
         stack.orientation = .vertical
         stack.spacing = Metrics.space3
         stack.alignment = .centerX
@@ -99,7 +90,6 @@ final class EmptyWorkspaceView: NSView, TitlebarPressDeciding {
     /// again when the theme or the window changes.
     private func applyColors() {
         performWithTheme {
-            artLabel.textColor = Palette.accent
             titleLabel.textColor = Palette.textPrimary
             detailLabel.textColor = Palette.textSecondary
         }

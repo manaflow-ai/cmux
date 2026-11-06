@@ -5,8 +5,9 @@
 // eight lines the output scrolls inside an eight-line box, its bottom edge fading while more lies
 // under it, with Show all N lines to drop the cap (BlockParts.tsx), so a long or streaming output
 // never pushes the transcript down; while the command runs the box follows its newest line unless
-// the reader scrolled up. Output wraps by default, each line hanging under its start; unwrapped,
-// its right edge fades while more lies past.
+// the reader scrolled up. Output keeps each printed line on its own row by default, so a table
+// reads with its columns aligned, and its right edge fades while more lies past; Wrap lines folds
+// the long rows back under their start (blockWrap.ts).
 import { memo, useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
 import { useT } from "../i18n";
 import { useBlockWrap } from "./blockWrap";
@@ -60,6 +61,12 @@ export function ShellBlock({
   const preview = usePreview(whole ? 0 : lineCount(raw.text), reveal);
   const shown = previewedOutput(raw, preview);
   const marked = shown.cut || Boolean(cut && shown.shown);
+  // `outputTail` returns a suffix, so keep the source line number alongside it. Without this,
+  // every memoized chunk appears to start at line zero whenever the live 400-line window slides.
+  const shownStartLine =
+    raw.text && shown.shown && shown.shown !== raw.text
+      ? raw.text.slice(0, raw.text.length - shown.shown.length).split("\n").length - 1
+      : 0;
   const body = useRef<HTMLPreElement>(null);
   useSidewaysEdge(body);
   // Following first, so the fade reads where the box ends up, not where it was.
@@ -113,7 +120,7 @@ export function ShellBlock({
         )}
         {shown.shown ? (
           <span className="cv-shell__output">
-            <Lines text={shown.shown} />
+            <Lines text={shown.shown} windowed={live && !preview.all} startLine={shownStartLine} />
           </span>
         ) : null}
       </pre>

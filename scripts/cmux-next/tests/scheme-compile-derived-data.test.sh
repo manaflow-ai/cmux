@@ -152,7 +152,9 @@ cmux_next_cas_failed "$TMP/caslog" && fail "a code error read as a cache failure
 # diagnostics that happen to mention CAS/cache must not trigger a second build.
 for line in "error: CAS error encountered during compilation" "error: CAS error: No such file or directory" "error: cannot create CAS filesystem: x" \
     "error: failed to load input '/x/a.swift' from CAS" "error: failed to replay cached diagnostics: x" \
-    "error: remote service unavailable" "error: cache plugin failed"; do
+    "error: remote service unavailable" "error: cache plugin failed" \
+    "<unknown>:0: error: module file '/dd/ModuleCache.noindex/ColorSync-5KVU.pcm' not found: unloadable casid 0~m-Qb==: corrupt object '009BE41B'" \
+    "error: corrupt object '008CE5D8'"; do
   printf '%s\n' "$line" > "$TMP/caslog"
   cmux_next_runtime_cas_failed "$TMP/caslog" || fail "runtime CAS failure was not recognized: $line"
 done

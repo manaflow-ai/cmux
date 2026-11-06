@@ -12,6 +12,8 @@ final class HomeAgentPaneView: NSView {
     /// Go to workspace: the host opens the Chief's link to the agent's session (its workspace tab).
     var onGoToWorkspace: ((URL) -> Void)?
     let side = HomeAgentSidePane()
+    /// The last Go to workspace click's place read and open (tests await it).
+    private(set) var pendingGo: Task<Void, Never>?
     /// What each open tab draws now.
     private var drawn: [String: HomeAgentChatContent?] = [:]
     // task-owner: this view; event-driven (Observation), cancelled by stop()
@@ -85,6 +87,8 @@ final class HomeAgentPaneView: NSView {
                 side.replace(selected, title: title, content: chat(shown.content, peer: selected))
             }
             pane.selectedChanged()
+            // task-owner: one place read for the open tabs; a move redraws through the store
+            Task { [weak pane] in await pane?.followSessions() }
         }
         side.select(selected)
     }
@@ -93,7 +97,17 @@ final class HomeAgentPaneView: NSView {
     private func chat(_ content: HomeAgentChatContent?, peer: String) -> NSView {
         let content = content ?? HomeAgentChatContent(peer: peer, title: peer, status: "", task: "", workedFor: "", details: [],
                                                       messages: [], workspaceLink: nil)
-        let go: (() -> Void)? = content.workspaceLink.map { url in { [weak self] in self?.onGoToWorkspace?(url) } }
+        // Go to workspace reads where the agent runs at that moment, so it opens the place it moved to.
+        let go: (() -> Void)? = content.workspaceLink.map { _ in
+            { [weak self, weak pane] in
+                guard let self else { return }
+                // task-owner: one place read, then one open; ends when the owner answers
+                pendingGo = Task { @MainActor [weak self] in
+                    guard let url = await pane?.goToWorkspace(peer) else { return }
+                    self?.onGoToWorkspace?(url)
+                }
+            }
+        }
         let sent: (String) -> Void = { [weak pane] text in pane?.send(text, to: peer) }
         return HomeAgentChatView(content: content, actions: HomeAgentChatView.Actions(goToWorkspace: go, sent: sent))
     }

@@ -11,13 +11,14 @@ struct SurfaceRoleTests {
         ReduceTransparency(system: { on }, changes: NotificationCenter())
     }
 
-    /// The roles' looks are the ones the toast, dialog and card drew before they moved to the roles.
+    /// The roles' looks are the ones the toast, dialog and card drew before they moved to the roles;
+    /// their corners are the one corner radius (depth 0), no longer a literal each.
     @Test func theNeutralLooksKeepTheirValues() {
-        #expect(FloatingGlassStyle.toast == FloatingGlassStyle(cornerRadius: 9, darkVeilAlpha: 0.42, lightVeilAlpha: 0.55,
+        #expect(FloatingGlassStyle.toast == FloatingGlassStyle(cornerDepth: 0, darkVeilAlpha: 0.42, lightVeilAlpha: 0.55,
                                                                darkRim: (0.30, 0.06), lightRim: (0.85, 0.10), castsShadow: true))
-        #expect(FloatingGlassStyle.dialog == FloatingGlassStyle(cornerRadius: 14, darkVeilAlpha: 0.48, lightVeilAlpha: 0.62,
+        #expect(FloatingGlassStyle.dialog == FloatingGlassStyle(cornerDepth: 0, darkVeilAlpha: 0.48, lightVeilAlpha: 0.62,
                                                                 darkRim: (0.28, 0.05), lightRim: (0.85, 0.10), castsShadow: true))
-        #expect(FloatingGlassStyle.card == FloatingGlassStyle(cornerRadius: 10, darkVeilAlpha: 0.42, lightVeilAlpha: 0.45,
+        #expect(FloatingGlassStyle.card == FloatingGlassStyle(cornerDepth: 0, darkVeilAlpha: 0.42, lightVeilAlpha: 0.45,
                                                               darkRim: (0.22, 0.04), lightRim: (0.80, 0.08), castsShadow: false))
     }
 
@@ -33,7 +34,9 @@ struct SurfaceRoleTests {
         #expect(SurfaceRole.toast.tone == .neutral)
         #expect(!SurfaceRole.card.castsShadow)
         #expect(SurfaceRole.toast.cornerRadius == FloatingGlassStyle.toast.cornerRadius)
-        #expect(SurfaceRole.popover.cornerRadius == nil)
+        // Every role is a level of the one corner radius: the surfaces are the outer radius, a tooltip two levels in.
+        #expect(SurfaceRole.popover.cornerRadius == Metrics.corners.outer)
+        #expect(SurfaceRole.tooltip.cornerRadius == Metrics.corners.radius(depth: 2))
     }
 
     /// No role's veil covers what is behind it as a solid card would, in either appearance.

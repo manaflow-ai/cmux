@@ -216,7 +216,8 @@ describe("one subtle elevation scale", () => {
   const surfaces: [file: string, selector: string, token: (typeof ELEVATIONS)[number]][] = [
     // A popup is liquid glass: its drop is the glass's --glass-elevation (ui/glass/glass.css draws it
     // into the box-shadow), set once on .ui-popup. The pane's menus and popovers (.nt-popover,
-    // .acpmux-menu) are .ui-popup and cast that one, as the History page menu (.page-menu) does.
+    // .acpmux-menu) are .ui-popup and cast that one, as the History page menu (.page-menu) and the
+    // diff toolbar's menus and base picker (.toolbar-menu, .base-picker-popover) do.
     ["ui/popupSurface.css", ".ui-popup", "--elevation-2"],
     ["ui/ui.css", ".ui-sheet", "--elevation-2"],
     // A tooltip is small and close to its control: elevation 1 (--tooltip-shadow, TooltipSurface.shadow).
@@ -230,7 +231,6 @@ describe("one subtle elevation scale", () => {
     ["pages/home-channels/styles.css", ".hc-msg-toolbar", "--elevation-2"],
     ["icon-picker/styles.css", ".icon-bar-pill", "--elevation-2"],
     ["viewer-empty/styles.css", ".ve-picker", "--elevation-2"],
-    ["styles.css", ".toolbar-menu", "--elevation-2"],
     ["styles.css", ".file-tree-context-menu", "--elevation-2"],
     ["styles.css", ".comment-card", "--elevation-1"],
     // The composer: --elevation-1 in a light theme, none in a dark one (newtab-quiet-focus.test.ts).

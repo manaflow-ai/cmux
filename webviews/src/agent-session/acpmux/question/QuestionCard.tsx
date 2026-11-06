@@ -117,7 +117,7 @@ function PendingAsk({ question, onReply }: { question: AgentQuestion; onReply: R
       >
         <span className="acpmux-question-status-dot" aria-hidden="true" />
         {t("question.needsInput")}
-        <ChevronDown size={12} strokeWidth={1.6} className="acpmux-question-status-chevron" />
+        <ChevronDown size={12} className="acpmux-question-status-chevron" />
       </button>
       <PendingQuestion id={cardId} hidden={!open} question={question} onReply={onReply} />
     </div>
@@ -788,7 +788,7 @@ function ChoiceMark({ multi, chosen }: { multi: boolean; chosen: boolean }) {
       data-chosen={chosen || undefined}
       aria-hidden="true"
     >
-      {multi && chosen && <Check size={12} strokeWidth={2} />}
+      {multi && chosen && <Check size={12} />}
     </span>
   );
 }

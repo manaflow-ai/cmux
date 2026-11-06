@@ -6,7 +6,7 @@
 // a control with no other name keeps it as its `aria-label`. Controls built on ./Tooltip keep theirs.
 // A `data-tooltip-shortcut` shows after the text in the secondary ink, like the native tooltip's;
 // a `data-tooltip-detail` on a line under it, also secondary (Fork from here, Claude's).
-// Above by default; `data-tooltip-side="bottom"` explicitly prefers below.
+// Above by default; `data-tooltip-side="bottom"` prefers below, "left" the side of its popup.
 // A `data-tooltip-anchor` (a selector) places it at that part of the element instead of the whole
 // element: a row as wide as the pane shows its tooltip at its words, not under its middle.
 // Text the element cuts off shows in full, wrapping in the same compact bubble.
@@ -52,15 +52,27 @@ export function tooltipPosition(
   anchor: Box,
   size: { width: number; height: number },
   view: { width: number; height: number },
-  side: "top" | "bottom" = "top",
+  side: "top" | "bottom" | "left" = "top",
   scale = 1,
 ) {
   const gap = UI_TOOLTIP_GAP * scale;
   const edge = UI_TOOLTIP_EDGE * scale;
+  if (side === "left") {
+    const before = anchor.left - gap - size.width;
+    const after = anchor.left + anchor.width + gap;
+    const left = before >= edge ? before : after + size.width + edge <= view.width ? after : undefined;
+    if (left !== undefined) {
+      const top = Math.min(
+        Math.max(edge, anchor.top + (anchor.height - size.height) / 2),
+        Math.max(edge, view.height - edge - size.height),
+      );
+      return { left: Math.round(left), top: Math.round(top) };
+    }
+  }
   const below = anchor.top + anchor.height + gap;
   const above = anchor.top - gap - size.height;
   const top =
-    side === "top"
+    side !== "bottom"
       ? above >= edge || below + size.height + edge > view.height
         ? Math.max(edge, above)
         : below
@@ -190,11 +202,20 @@ export function installTooltips(
     });
     tip.style.minWidth = `${width.min}px`;
     tip.style.maxWidth = `${width.max}px`;
+    const requestedSide = target.getAttribute("data-tooltip-side");
+    const side = requestedSide === "left" || requestedSide === "bottom" ? requestedSide : "top";
+    // A rail's hint sits outside the popup rim, centered on its hovered tab.
+    const surface = side === "left" ? target.closest(".ui-popup")?.getBoundingClientRect() : undefined;
     const position = tooltipPosition(
-      anchor,
+      {
+        left: surface?.left ?? anchor.left,
+        top: anchor.top,
+        width: surface?.width ?? anchor.width,
+        height: anchor.height,
+      },
       tip.getBoundingClientRect(),
       { width: doc.documentElement.clientWidth, height: doc.documentElement.clientHeight },
-      target.getAttribute("data-tooltip-side") === "bottom" ? "bottom" : "top",
+      side,
       scale,
     );
     tip.style.left = `${position.left}px`;

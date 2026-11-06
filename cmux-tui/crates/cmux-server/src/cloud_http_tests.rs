@@ -171,3 +171,42 @@ async fn vm_receiver_client_http_from_a_blocking_executor_thread() {
     assert_eq!(status, 200);
     assert_eq!(bytes, b"{}");
 }
+
+#[test]
+fn a_reset_drops_the_pooled_connection() {
+    // After a pause the pooled connection is dead and nothing says so: a request on it hangs to its 20 s bound.
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/test", listener.local_addr().unwrap());
+    let accepted = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = accepted.clone();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { return };
+            counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            // Keep-alive: answer each request on the connection until it closes.
+            std::thread::spawn(move || {
+                let mut request = Vec::new();
+                let mut byte = [0u8; 1];
+                while stream.read_exact(&mut byte).is_ok() {
+                    request.push(byte[0]);
+                    if request.ends_with(b"\r\n\r\n") {
+                        request.clear();
+                        let ok = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}";
+                        if stream.write_all(ok).is_err() {
+                            return;
+                        }
+                    }
+                }
+            });
+        }
+    });
+    let http = JsonPoster::allowing_http().unwrap();
+    let get = || http.request_until(&url, None, None, Instant::now() + Duration::from_secs(2));
+    assert_eq!(get().unwrap().0, 200);
+    assert_eq!(get().unwrap().0, 200);
+    let dials = || accepted.load(std::sync::atomic::Ordering::SeqCst);
+    assert_eq!(dials(), 1, "the pool reuses its connection");
+    http.reset();
+    assert_eq!(get().unwrap().0, 200);
+    assert_eq!(dials(), 2, "after a reset the next request dials a fresh connection");
+}
