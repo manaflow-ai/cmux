@@ -20,25 +20,30 @@ nonisolated struct RowAccessibilityHitTest: Sendable {
     /// `hit` (AppKit's answer at the screen `point`), or what stands in for it when it is a cleared control.
     func answer(_ hit: Any?, at point: NSPoint) -> Any? {
         guard Thread.isMainThread else { return hit }
+        // Only the view or cell crosses to the main actor (both are main-actor classes, so Sendable); any other
+        // element is no control.
+        let (view, cell) = (hit as? NSView, hit as? NSCell)
+        guard view != nil || cell != nil else { return hit }
         // main-proof: checked Thread.isMainThread above (AppKit asks accessibility on the main thread)
-        switch MainActor.assumeIsolated({ resolve(hit, at: point) }) {
+        switch MainActor.assumeIsolated({ resolve(view ?? cell?.controlView, at: point) }) {
         case .kept: return hit
         case .subview(let view): return view.accessibilityHitTest(point)
         case .element(let view): return view
         }
     }
 
-    @MainActor private func resolve(_ hit: Any?, at point: NSPoint) -> Answer {
+    /// `owner`: the view AppKit's hit stands for.
+    @MainActor private func resolve(_ owner: NSView?, at point: NSPoint) -> Answer {
         let clear = row.clearHoverControls
-        func isClear(_ element: Any?) -> Bool {
-            guard let owner = row.accessibilityView(of: element) else { return false }
+        func isClear(_ owner: NSView?) -> Bool {
+            guard let owner else { return false }
             return clear.contains { owner === $0 || owner.isDescendant(of: $0) }
         }
-        guard !clear.isEmpty, isClear(hit) else { return .kept }
+        guard !clear.isEmpty, isClear(owner) else { return .kept }
         if let window = row.window {
             let local = row.convert(window.convertPoint(fromScreen: point), from: nil)
             for sub in row.subviews.reversed() where !sub.isHidden && !clear.contains(where: { $0 === sub }) && sub.frame.contains(local) {
-                if !isClear(sub.accessibilityHitTest(point)) { return .subview(sub) }
+                if !isClear(row.accessibilityView(of: sub.accessibilityHitTest(point))) { return .subview(sub) }
             }
         }
         var element: NSView = row
