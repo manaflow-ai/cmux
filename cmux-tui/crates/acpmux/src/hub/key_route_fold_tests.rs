@@ -115,11 +115,13 @@ async fn resolve_finds_a_name_in_another_case_and_refuses_a_shared_prefix() {
 async fn resolve_takes_a_name_in_another_case_over_a_longer_name_here() {
     let hub = test_hub();
     named(&hub, "td2-alpha").await;
-    list(&hub, "lanevm-7", "0199aaaa-1111", "TD2-A", "idle");
-    assert_eq!(hub.key_route("td2-a").unwrap().as_deref(), Some("lanevm-7/0199aaaa-1111"));
+    let a = named(&hub, "TD2-A").await;
+    assert_eq!(hub.key_route("td2-a").unwrap().as_deref(), Some(a.id.as_str()));
+    // `locate` reads only configured peers' rows (this test hub has none), so both are here;
+    // its old case-sensitive prefix took `td2-alpha`.
     let found = hub.locate("td2-a", false, true).unwrap();
     assert_eq!(found["matches"].as_array().unwrap().len(), 1, "{found}");
-    assert_eq!(found["session"]["sessionId"], "0199aaaa-1111", "{found}");
+    assert_eq!(found["session"]["sessionId"], a.id.as_str(), "{found}");
 }
 
 /// Review of #36878 (F2): a sub-session's short name in another case or without separators
