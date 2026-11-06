@@ -265,6 +265,9 @@ def fork_stage(log, armed_wall):
     reply = next((e for e in entries if e.get("id") == sent.get("id") and e.get("dir") == "in"), None)
     at = round(sent["at"] - armed_wall * 1000, 1)
     out = {"fork_sent_ms": at}
+    if reply:
+        out["fork_reply_kind"] = reply.get("kind")
+        out["fork_reply_text"] = str(reply.get("text") or "")[:600]
     if reply and isinstance(reply.get("latencyMs"), (int, float)):
         out["fork_reply_ms"] = round(at + reply["latencyMs"], 1)
         out["fork_rpc_ms"] = round(reply["latencyMs"], 1)
@@ -286,7 +289,13 @@ def fork_once(run, placement, parent, before_sessions):
     usable = None
     fork_session = None
     deadline = began + opts.timeout
+    polls = 0
     while time.monotonic() < deadline:
+        polls += 1
+        # A fork acpmux refused opens nothing: stop waiting once its reply says so.
+        if polls % 25 == 0 and fork_stage(run.pane("acp_log", pane=parent["pane"], limit=80),
+                                          armed.get("armed_wall") or time.time()).get("fork_reply_kind") == "error":
+            break
         state = run.pane("chat_state")
         sid = state.get("sessionId")
         if sid and sid != parent["session"] and (state.get("rows") or 0) > 0:
@@ -316,6 +325,8 @@ def fork_once(run, placement, parent, before_sessions):
         "layout": {"workspace_same": workspace1 == workspace0, "panes": [len(panes0), len(panes1)],
                    "focused_same": focused1 == focused0, "workspaces": [workspaces0, workspaces1]},
     }
+    stages = record["stages"]
+    record["fork_reply"] = {"kind": stages.pop("fork_reply_kind", None), "text": stages.pop("fork_reply_text", None)}
     record["problems"] = problems(placement, record, parent)
     return record
 
@@ -422,7 +433,7 @@ def main():
                     record = fork_once(run, placement, parent, store_sessions(home))
                     records[size][placement].append(record)
                     say(size, placement, i, json.dumps({k: record.get(k) for k in
-                                                        ("error", "pane_ms", "content_ms", "usable_ms", "stages", "problems")}))
+                                                        ("error", "pane_ms", "content_ms", "usable_ms", "stages", "problems", "fork_reply")}))
                     after_ws, _, _ = shown_layout(run)
                     close_shown(run, [parent["key"]] + ([after_ws] if after_ws and after_ws != before_ws else []))
                     time.sleep(0.5)  # test script: the closes land
