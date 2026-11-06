@@ -145,10 +145,18 @@ def _continuity(records: list[object]) -> tuple[bool, dict[str, object]]:
                 round_values.append(False)
                 continue
             nested = [round_item]
+            resume_value = round_item.get("resume")
+            chat_value = round_item.get("chat")
+            resume_observed = _explicit_true(nested, resume_aliases) or (
+                isinstance(resume_value, dict) and _truthy(resume_value.get("running"))
+            )
+            reconnect_observed = _explicit_true(nested, reconnect_aliases) or (
+                isinstance(chat_value, dict) and _truthy(chat_value.get("reply_ok"))
+            )
             round_values.append(
                 _explicit_true(nested, pause_aliases)
-                and _explicit_true(nested, resume_aliases)
-                and _explicit_true(nested, reconnect_aliases)
+                and resume_observed
+                and reconnect_observed
             )
         if all(round_values):
             pause = resume = reconnect = True
@@ -187,6 +195,7 @@ def normalize(records: list[object]) -> dict[str, object]:
     request_id = _first_text(records, {"requestid", "probeid", "runid"})
     start = (
         _has_named_entry(records, ("startchat", "startsession", "newchat", "cloudchat"))
+        or any(isinstance(value, dict) for value in _field_values(records, {"firstchat", "startchat"}))
         or (bool(_first_text(records, {"route"})) and bool(machine_id))
     )
     session_discovery = (
@@ -197,6 +206,7 @@ def normalize(records: list[object]) -> dict[str, object]:
                 ("sessiondiscover", "sessionlist", "acpsession", "listsessions", "attachsession", "startsession"),
             )
             or bool(_first_text(records, {"sessiondiscovered", "sessiondiscovery", "acpsession"}))
+            or any(isinstance(value, dict) for value in _field_values(records, {"turn", "acpsession"}))
         )
     )
     first_reply = bool(reply) or _has_named_entry(records, ("firstreply", "reply", "assistantmessage"))
