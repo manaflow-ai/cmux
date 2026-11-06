@@ -1068,3 +1068,119 @@ fn only_a_cap_refusal_reads_as_a_cap() {
     assert_eq!(cap_of("cloud.provider.unavailable", "VM API: HTTP 429"), None);
     assert_eq!(cap_of("app.unreachable", "no app"), None);
 }
+
+/// A start on `vm-1` (an existing machine) in `cwd`, as the start matrix's repo rows run it after
+/// `cloud new-machine --repo URL`.
+fn repo_start(cwd: &str, timeout: &str) -> Request {
+    request(&[
+        "--prompt",
+        "ok?",
+        "--target",
+        "machine:vm-1",
+        "--cwd",
+        cwd,
+        "--wait",
+        "--timeout",
+        timeout,
+    ])
+}
+
+fn is_folder_check(args: &[String], cwd: &str) -> bool {
+    args[..4] == strings(&["cloud", "exec", "--target", "machine:vm-1"])
+        && args[5].contains(".cmux/bootstrap/status.json")
+        && args[5].contains(cwd)
+}
+
+/// cmuxterm-hq#7415 row 10: `new-machine --repo` answers once the bootstrap started, and the clone
+/// runs after it. A start that reached the machine first failed "cwd is not a directory"; it waits
+/// for the clone now, for every host and group depth (the folder is always `~/work/NAME`).
+#[test]
+fn a_start_in_a_folder_still_being_cloned_waits_for_the_clone() {
+    for cwd in [
+        "/home/cmux/work/Hello-World",
+        "/home/cmux/work/gitlab-test",
+        "/home/cmux/work/project",
+        "/home/cmux/work/tools.v2",
+    ] {
+        let mut fake = Fake::new(vec![
+            signed_in(),
+            exec_out("busy\n"),
+            exec_out("ready\n"),
+            relayed(json!({"session_id": "relay-1", "reply": "ok"})),
+        ]);
+        let Outcome::Done(answer) = run(&mut fake, &repo_start(cwd, "900")) else {
+            panic!("{cwd}: {:?}", fake.ran)
+        };
+        assert_eq!(answer["reply"], "ok", "{cwd}");
+        assert!(is_folder_check(&fake.ran[1], cwd), "{cwd}: {:?}", fake.ran[1]);
+        assert!(is_folder_check(&fake.ran[2], cwd), "{cwd}: {:?}", fake.ran[2]);
+        assert_eq!(fake.ran[3][..2], strings(&["cloud", "relay-chat"]), "{cwd}");
+        assert_eq!(fake.ran.len(), 4, "{cwd}");
+    }
+}
+
+/// A folder that is there (a GitHub clone that won the race, or any folder) costs one check.
+#[test]
+fn a_folder_that_is_there_or_a_machine_with_no_bootstrap_starts_as_before() {
+    for check in [
+        exec_out("ready\n"),
+        exec_out("none\n"),
+        exec_out("ended\n{\"state\":\"done\",\"exit_code\":0}\n"),
+        Ran {
+            code: 1,
+            stderr: json!({"code": "vm_busy", "message": "busy"}).to_string(),
+            ..Ran::default()
+        },
+    ] {
+        let mut fake = Fake::new(vec![
+            signed_in(),
+            check,
+            relayed(json!({"session_id": "relay-1", "reply": "ok"})),
+        ]);
+        let Outcome::Done(answer) =
+            run(&mut fake, &repo_start("/home/cmux/work/Hello-World", "900"))
+        else {
+            panic!("{:?}", fake.ran)
+        };
+        assert_eq!(answer["reply"], "ok");
+        assert_eq!(fake.ran[2][..2], strings(&["cloud", "relay-chat"]));
+        assert_eq!(fake.ran.len(), 3);
+    }
+}
+
+/// A clone that failed says so, with the bootstrap's status and log, and starts nothing.
+#[test]
+fn a_bootstrap_that_failed_to_clone_the_folder_says_why() {
+    let status = r#"{"state":"failed","exit_code":1,"repo":{"status":"failed","url":"https://gitlab.com/g/sub/r.git"},"step":"repo"}"#;
+    let mut fake = Fake::new(vec![signed_in(), exec_out(&format!("ended\n{status}\n"))]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &repo_start("/home/cmux/work/r", "900"))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["code"], "cloud.folder_missing");
+    assert_eq!(exit, 1);
+    let message = error["message"].as_str().unwrap();
+    assert!(
+        message.contains("/home/cmux/work/r") && message.contains("repository failed"),
+        "{message}"
+    );
+    assert!(message.contains("bootstrap.log"), "{message}");
+    assert_eq!(error["details"]["bootstrap"]["step"], "repo");
+    assert_eq!(fake.ran.len(), 2);
+}
+
+/// A clone that outlasts `--timeout` answers retryable, naming the folder, and starts nothing.
+#[test]
+fn a_clone_longer_than_the_timeout_answers_pending() {
+    let mut fake = Fake::new((0..20).map(|_| exec_out("busy\n")).collect::<Vec<_>>());
+    fake.answers.push_front(signed_in());
+    let Outcome::Failed { error, exit } =
+        run(&mut fake, &repo_start("/home/cmux/work/gitlab-test", "30"))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["code"], "cloud.folder_pending");
+    assert_eq!(exit, 75);
+    assert!(fake.ran[1..].iter().all(|args| is_folder_check(args, "/home/cmux/work/gitlab-test")));
+    assert!(fake.ran.len() <= 8, "bounded by --timeout: {}", fake.ran.len());
+}
