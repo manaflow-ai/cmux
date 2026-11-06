@@ -114,6 +114,7 @@ final class CEFSpareWindow {
     func take(for key: CEFPaneKey, runtime: CEFRuntime) -> CEFPaneHost? {
         guard let spare = host, key.profile == spare.key.profile, key.machineKey == nil, !key.offTheRecord,
               !key.pane.rawValue.hasPrefix(Self.panePrefix), !key.pane.rawValue.hasPrefix(CEFPaneHost.popupPrefix),
+              !key.pane.rawValue.hasPrefix(CEFPaneHost.agentPrefix),
               spare.placeholder != nil, spare.isLive || spare.isCreatingWindow else { return nil }
         host = nil
         #if DEBUG || CMUX_BENCH_HOOKS
@@ -177,7 +178,7 @@ final class CEFSpareWindow {
         }
         guard host.visibleTab === tab, !tab.isAgentDriven, !tab.awaitsWindowMove, tab.pendingRestore == nil,
               tab.machineStore == nil, host.key.profile == .default, host.key.machineKey == nil,
-              !host.key.offTheRecord, !host.isPopupHost, !host.isSpare else { return nil }
+              !host.key.offTheRecord, !host.holdsOwnTab, !host.isSpare else { return nil }
         let runtime = host.runtime
         defer { if runtime.acceptsNewBrowsers { onNeeded?() } }
         guard let page, let shim = runtime.shim else { return nil }
@@ -296,7 +297,7 @@ final class CEFSpareWindow {
     /// so a Chromium a tab started, not the warm start, gets a spare too. The spare window itself
     /// coming up asks for its spare page.
     func windowCameUp(_ live: CEFPaneHost) {
-        guard !live.isPopupHost else { return }
+        guard !live.holdsOwnTab else { return }
         if host == nil || (live === host && page == nil && Self.makesPages) { onNeeded?() }
     }
 
@@ -334,7 +335,7 @@ extension CEFPaneHost {
     /// adopted with `tab` as their opener. A popup host closes its own
     /// placeholder in `movePopupsIn`.
     func closeSparePlaceholder(joined tab: CEFTab) {
-        guard !isPopupHost, !isSpare, placeholder != nil, placeholder !== tab, tab.browserID != nil else { return }
+        guard !holdsOwnTab, !isSpare, placeholder != nil, placeholder !== tab, tab.browserID != nil else { return }
         Task { @MainActor [weak self, weak tab] in
             guard let self, let tab, let blank = self.placeholder, self.tabs.contains(where: { $0 === tab }) else { return }
             // A spare page no tab took goes first: never the active tab, so Chromium's activation stays.

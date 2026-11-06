@@ -44,16 +44,25 @@ shell still running; FAKE_CLAUDE_BACKGROUND_ERROR=<text> refuses that
 request with the text instead. FAKE_CLAUDE_BACKGROUND_SILENT_MS=<ms> never
 answers it: <ms> later Claude Code moves the shell by itself, then ends the
 turn (with FAKE_CLAUDE_BACKGROUND_SILENT_END=1 the turn ends at once and the
-shell moves <ms> after). FAKE_CLAUDE_BACKGROUND_TWICE waits for two requests,
+shell moves <ms> after; with FAKE_CLAUDE_BACKGROUND_LATE=1 it answers the
+request `backgrounded: false` <ms> late, as Claude Code 2.1.312 answered bg-8
+195.9 s after a 10 s wait). FAKE_CLAUDE_BACKGROUND_TWICE waits for two requests,
 answers the first `backgrounded: true` and the second false, and moves the
 shell before the second answer ("moved") or after it ("answered"); the
-shell's tool result then names its output file. FAKE_CLAUDE_FG_WAIT_S (20
+shell's tool result then names its output file. FAKE_CLAUDE_FG_TIMEOUT_MS gives the
+Bash call that `timeout` (a wait the agent declared). FAKE_CLAUDE_FG_WAIT_S (20
 by default) is how long the shell waits for a control request before the
 turn ends by itself. With FAKE_CLAUDE_FLOOD_GATE=<fifo>, the shell first
 says "before-flood", reads the fifo, then streams FAKE_CLAUDE_FLOOD (8000)
 text deltas and writes <fifo>.done: output the agent's host buffers while no
 daemon reads it; once <fifo>.done exists it floods no more. "flood" is that
 backlog alone, then the turn ends.
+"fg-work KIND MS" (KIND bash or agent) is one foreground Bash or Agent call (toolu_work, task
+w1) that runs MS ms, as Claude Code 2.1.310 runs one: user lines written meanwhile wait for the
+step. A background_tasks for it (or for every task) moves it: its task_updated, then its tool
+result says it runs in the background, and each waiting line, and every later one, is echoed and
+answered ("read: TEXT") at once. At MS the call ends: a foreground one's result comes and then the
+waiting lines are read; a moved one's task_notification says it completed. Then the turn ends.
 FAKE_CLAUDE_AUTH=1 looks for a sign-in the way Claude Code does (the
 environment, then `env` and `apiKeyHelper` in <Claude home>/settings.json,
 then <Claude home>/.credentials.json; the home is CLAUDE_CONFIG_DIR or
@@ -473,11 +482,85 @@ def flood():
         f.write("done")
 
 
+def fg_work(kind, ms):
+    """The "fg-work" turn (module doc)."""
+    import time
+    agent = kind == "agent"
+    call = ({"description": "Long review", "prompt": "review it", "subagent_type": "general-purpose"}
+            if agent else {"command": "make long", "description": "Long build"})
+    send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_work",
+          "name": "Agent" if agent else "Bash", "input": call}]}})
+    send({"type": "system", "subtype": "task_started", "task_id": "w1", "tool_use_id": "toolu_work",
+          "description": call["description"], "task_type": "local_agent" if agent else "local_bash",
+          "is_backgrounded": False})
+
+    def read(msg):
+        said = "".join(b.get("text", "") for b in (msg.get("message") or {}).get("content") or []
+                       if isinstance(b, dict))
+        send({"type": "user", "isReplay": True, "uuid": msg.get("uuid"), "message": msg.get("message")})
+        send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                                 "delta": {"type": "text_delta", "text": "read: " + said}}})
+
+    ends = time.monotonic() + ms / 1000
+    waiting = []
+    moved = False
+    while True:
+        left = ends - time.monotonic()
+        if left <= 0:
+            break
+        try:
+            got = LINES.get(timeout=left)
+        except queue.Empty:
+            break
+        if got is None:
+            sys.exit(0)
+        msg = json.loads(got)
+        if msg.get("type") == "user":
+            if moved:
+                read(msg)
+            else:
+                waiting.append(msg)
+            continue
+        if msg.get("type") != "control_request":
+            continue
+        request = msg.get("request") or {}
+        rid = msg.get("request_id")
+        if request.get("subtype") != "background_tasks":
+            send({"type": "control_response", "response": {"subtype": "success", "request_id": rid,
+                  "response": {}}})
+            continue
+        move = not moved and request.get("tool_use_id") in (None, "toolu_work")
+        send({"type": "control_response", "response": {"subtype": "success", "request_id": rid,
+              "response": {"backgrounded": move}}})
+        if move:
+            moved = True
+            send({"type": "system", "subtype": "task_updated", "task_id": "w1",
+                  "patch": {"is_backgrounded": True}})
+            send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_work",
+                  "content": "Running in the background with ID: w1"}]}})
+            for line in waiting:
+                read(line)
+            waiting = []
+    if moved:
+        send({"type": "system", "subtype": "task_notification", "task_id": "w1", "tool_use_id": "toolu_work",
+              "status": "completed", "summary": "work done"})
+    else:
+        send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_work",
+              "content": "work done"}]}})
+        for line in waiting:
+            read(line)
+    send({"type": "result", "subtype": "success", "result": "work done", "num_turns": 1,
+          "duration_api_ms": 5, "usage": {"input_tokens": 1, "output_tokens": 1}})
+
+
 def fg_shell():
     """The "fg-shell" turn (module doc). Like Claude Code 2.1.305, background_tasks
     answers `backgrounded`: false when its tool_use_id names no foreground task."""
+    shell = {"command": "npm run build", "description": "Build"}
+    if os.environ.get("FAKE_CLAUDE_FG_TIMEOUT_MS"):
+        shell["timeout"] = int(os.environ["FAKE_CLAUDE_FG_TIMEOUT_MS"])
     send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_fg", "name": "Bash",
-          "input": {"command": "npm run build", "description": "Build"}}]}})
+          "input": shell}]}})
     send({"type": "system", "subtype": "task_started", "task_id": "f1", "tool_use_id": "toolu_fg",
           "description": "Build", "task_type": "local_bash", "is_backgrounded": False})
     flood()
@@ -525,6 +608,8 @@ def fg_shell():
                     move()
                     return
                 time.sleep(int(silent) / 1000)
+                if os.environ.get("FAKE_CLAUDE_BACKGROUND_LATE"):
+                    answer(rid, False)
                 move()
                 send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_fg",
                       "content": "Command was moved to the background with ID: f1"}]}})
@@ -858,9 +943,26 @@ while True:
         if said.strip() == "fg-shell":
             fg_shell()
             continue
+        if said.startswith("fg-work "):
+            _, kind, ms = said.split()
+            fg_work(kind, int(ms))
+            continue
         if said.strip() == "flood":
             flood()
             send({"type": "result", "subtype": "success", "result": "flooded", "num_turns": 1,
+                  "duration_api_ms": 5, "usage": {"input_tokens": 1, "output_tokens": 1}})
+            continue
+        # "burst: N" streams N text deltas, a Read call and its result after every 20th, then
+        # ends the turn: a long chat's log in one prompt (the fork_latency bench).
+        if said.startswith("burst: "):
+            for i in range(int(said[len("burst: "):])):
+                send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                                         "delta": {"type": "text_delta", "text": f"word {i} "}}})
+                if i % 20 == 19:
+                    use = {"type": "tool_use", "id": f"toolu_b{i}", "name": "Read", "input": {"file_path": f"/tmp/f{i}.txt"}}
+                    send({"type": "assistant", "message": {"content": [use]}})
+                    send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": f"toolu_b{i}", "content": "read"}]}})
+            send({"type": "result", "subtype": "success", "result": "burst", "num_turns": 1,
                   "duration_api_ms": 5, "usage": {"input_tokens": 1, "output_tokens": 1}})
             continue
         # "/compact" runs Claude Code 2.1.303's compaction: the compacting status, the

@@ -119,7 +119,8 @@ function AccountRow({
           </form>
         )}
         <div className="accounts-buttons">
-          {!account.default && (
+          {/* A disabled account is no default: new chats would keep running on an account turned off. */}
+          {!account.default && account.enabled && (
             <Button
               type="button"
               className="button"

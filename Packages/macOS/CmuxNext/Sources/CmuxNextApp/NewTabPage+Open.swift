@@ -160,8 +160,8 @@ extension NewTabPage {
             if docksChat, let pane { MainPaneLayout.dockChat(of: pane, keeping: surface, focus: true, services: services) }
         }
         if case .terminal = request.kind, request.run, command(request.text) == nil { return } // opens nothing
-        // The pick takes the page's place, like a browser's new tab (Leo 2026-10-20); the Debug toggle
-        // `newTab.picksFollowLinks` lands it where links do (Lawrence 2026-10-19).
+        // The pick lands where links do, in the pane on the right (Lawrence 2026-10-19); the Debug toggle
+        // `newTab.picksFollowLinks` off keeps it in the page's place, like a browser's new tab (Leo 2026-10-20).
         // A page in the chat dock, the main pane: the pick opens in the strip beside it, whatever else the dock
         // holds (Leo 2026-10-30: "not to fucking open it up in the main fucking pane"). A setup action's `keep`
         // (Log In, Update, Open in Terminal) goes there too and leaves the page or chat in place.
@@ -332,7 +332,7 @@ extension NewTabPage {
         NativeNewTabActions(
             submit: { [weak pane] text, kind, search in
                 guard let pane else { return }
-                guard submitNative(text, kind: kind, search: search, cwd: cwd, in: pane) else { return }
+                guard submitNative(text, kind: kind, search: search, cwd: cwd, in: pane, page: key) else { return }
                 closingPage(key, in: pane)()
             },
             jump: { [weak pane] target, id in if let services = pane?.services { jump(target, id: id, services: services) } },
@@ -342,8 +342,8 @@ extension NewTabPage {
 
     /// What a native submit opens: an empty field makes the kind as it is; a terminal runs the text; a
     /// browser opens an address or searches; an agent's text goes through `newTab.submit` (a prompt, or a
-    /// URL or `!command` typed there).
-    static func submitNative(_ text: String, kind: AgentPaneTabKind, search: Bool, cwd: String?, in page: PaneController) -> Bool {
+    /// URL or `!command` typed there). With the page's tab `key`, a pick beside another tab goes where links do (``opensBeside``).
+    static func submitNative(_ text: String, kind: AgentPaneTabKind, search: Bool, cwd: String?, in page: PaneController, page key: String? = nil) -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if let refusal = MacScreenPages.pairingLinkRefusal(for: trimmed) {
             page.services.registry.refuse(refusal)
@@ -351,8 +351,8 @@ extension NewTabPage {
         }
         guard let request = NewTabSubmit.nativeRequest(text: trimmed, kind: kind, search: search, cwd: cwd,
                                                        resolver: page.services.cache.suggestionEngine.resolver) else { return false }
-        let chatPlacement = ChatColumnPlacement.keepsNewTabPage(in: page) || Self.docksChat(page)
-        if request.kind.opensBesideChat && chatPlacement { return servicesOpenNativeTool(request, from: page) }
+        let besidePage = ChatColumnPlacement.keepsNewTabPage(in: page) || Self.docksChat(page) || key.map { Self.opensBeside($0, in: page, kind: request.kind) } == true
+        if request.kind.opensBesideChat && besidePage { return servicesOpenNativeTool(request, from: page) }
         switch (request.kind, request.text.isEmpty) {
         case (.terminal, _): page.newTerminalTab(cwd: cwd, typing: nativeTerminalTyping(request))
         case (.browser, true): return page.newBrowserTab()

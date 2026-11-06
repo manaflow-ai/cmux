@@ -12,7 +12,6 @@ import CmuxNextWakeupsTestSupport
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct WebKitSpareTabTests {
     private final class Input {
         var count: UInt64 = 0
-        var enabled = true
     }
 
     private struct Rig {
@@ -36,7 +35,7 @@ import CmuxNextWakeupsTestSupport
         pressure.level = startLevel
         let events = MemoryPressureEvents(source: pressure)
         let spare = WebKitSpareTab(clock: clock, activity: { input.count }, isTrackingMenu: { false },
-                                   isEnabled: { input.enabled }, memoryPressure: events)
+                                   memoryPressure: events)
         return Rig(engine: WebKitEngine(fileInput: NoFileInput(), stores: .inMemory(), spareTab: spare),
                    clock: clock, input: input, pressure: pressure, events: events)
     }
@@ -118,18 +117,5 @@ import CmuxNextWakeupsTestSupport
         rig.pressure.send(.normal)
         try await rig.idle()
         #expect(rig.spare.tab != nil, "back to normal: the next idle moment makes the spare")
-    }
-
-    @Test func switchedOffEveryTabBuildsItsOwnViewAndAWaitingSpareCloses() async throws {
-        let rig = rig()
-        defer { rig.spare.drop() }
-        rig.spare.noteLikely()
-        try await rig.idle()
-        let made = try #require(rig.spare.tab)
-        rig.input.enabled = false
-        let tab = rig.engine.makeWebKitTab()
-        defer { tab.close() }
-        #expect(tab !== made)
-        #expect(rig.spare.tab == nil && rig.spare.state == "none")
     }
 }

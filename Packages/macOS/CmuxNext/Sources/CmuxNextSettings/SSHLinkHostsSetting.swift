@@ -27,7 +27,8 @@ public nonisolated struct SSHLinkHostsSetting: Sendable {
             help: SettingsText.keyed("settings.machines.sshLinkHosts.help",
                                      "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and acpmux peers never ask."),
             kind: .stringList, default: .array([]),
-            keywords: ["ssh", "link", "url", "host", "trust", "allow", "always", "machine", "security"]
+            keywords: ["ssh", "link", "url", "host", "trust", "allow", "always", "machine", "security"],
+            placeholder: SettingText(key: nil, text: "devbox.local")
         )
     }
 }
