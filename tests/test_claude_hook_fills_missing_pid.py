@@ -51,14 +51,14 @@ def payload_for(subcommand: str, session_id: str, cwd: str) -> dict[str, object]
     return payload
 
 
-def recorded_pid(state_path: Path, session_id: str) -> object:
+def recorded_record(state_path: Path, session_id: str) -> "dict[str, object] | str":
     if not state_path.exists():
         return "no state file"
     state = json.loads(state_path.read_text(encoding="utf-8"))
     record = state.get("sessions", {}).get(session_id)
     if record is None:
         return "no record"
-    return record.get("pid")
+    return record
 
 
 def main() -> int:
@@ -114,9 +114,19 @@ def run(cli_path: str, agent_pid: int, other_pid: int) -> int:
                         env["CMUX_CLAUDE_PID"] = str(pid)
                     env.update(extra_env or {})
                     run_claude_hook(cli_path, server.socket_path, subcommand, payload_for(subcommand, session_id, str(root)), env)
-                pid = recorded_pid(state_path, session_id)
-                if pid != expected and not (expected is None and pid == "no record"):
+                record = recorded_record(state_path, session_id)
+                if isinstance(record, str):
+                    failures.append(f"{label}: expected a record, got {record}")
+                    return
+                pid = record.get("pid")
+                if pid != expected:
                     failures.append(f"{label}: expected pid {expected}, got {pid!r}")
+                # A filled pid carries its process start identity, as SessionStart's does.
+                has_identity = record.get("pidStartSeconds") is not None and record.get("pidStartMicroseconds") is not None
+                if expected is not None and not has_identity:
+                    failures.append(f"{label}: pid {pid!r} recorded without its start identity: {record!r}")
+                if expected is None and has_identity:
+                    failures.append(f"{label}: start identity recorded without a pid: {record!r}")
 
             for first in ("pre-tool-use", "stop", "notification"):
                 run_case(f"{first} without SessionStart", [(first, agent_pid)], agent_pid)
@@ -136,6 +146,13 @@ def run(cli_path: str, agent_pid: int, other_pid: int) -> int:
                 [("pre-tool-use", None), ("stop", agent_pid)],
                 None,
                 extra_env={"CMUX_AGENT_HOOK_RELAY_ORIGIN": "1"},
+            )
+            # A spooled event can be replayed after its pid was reused.
+            run_case(
+                "a replayed event leaves the pid empty",
+                [("pre-tool-use", None), ("stop", agent_pid)],
+                None,
+                extra_env={"CMUX_AGENT_HOOK_ROUTE_SNAPSHOT": "1"},
             )
             run_case(
                 "a recorded pid is kept",
