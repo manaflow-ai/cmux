@@ -28,8 +28,7 @@ pub fn install_harness_login(
     machine_id: &str,
     harness: &str,
     login: &[u8],
-    allow_team_guest: bool,
 ) -> Result<WorkspaceRequest, SealError> {
     let item = seal::seal(daemon_key, machine_id, Purpose::HarnessLogin, harness, login)?;
-    Ok(WorkspaceRequest::InstallHarnessLogin { item, allow_team_guest })
+    Ok(WorkspaceRequest::InstallHarnessLogin { item })
 }

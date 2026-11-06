@@ -7,6 +7,8 @@
 //! [`files::allowed_paths`], an item that doesn't open and a replayed nonce
 //! are each refused. No value reaches a log line or an error.
 
+#[cfg(unix)]
+mod commit;
 pub mod files;
 pub mod harness;
 pub mod request;
@@ -53,6 +55,12 @@ impl SeenNonces {
         self.set.contains(nonce)
     }
 
+    fn remove(&mut self, nonce: &str) {
+        if self.set.remove(nonce) {
+            self.order.retain(|seen| seen != nonce);
+        }
+    }
+
     fn insert(&mut self, nonce: &str) {
         if self.set.insert(nonce.to_owned()) {
             self.order.push_back(nonce.to_owned());
@@ -61,6 +69,32 @@ impl SeenNonces {
             if let Some(oldest) = self.order.pop_front() {
                 self.set.remove(&oldest);
             }
+        }
+    }
+}
+
+/// Nonces held for one request while it writes; released on drop unless
+/// [`Self::keep`] ran.
+struct Reservation<'a> {
+    seen: &'a Mutex<SeenNonces>,
+    nonces: Vec<String>,
+    kept: bool,
+}
+
+impl Reservation<'_> {
+    fn keep(mut self) {
+        self.kept = true;
+    }
+}
+
+impl Drop for Reservation<'_> {
+    fn drop(&mut self) {
+        if self.kept {
+            return;
+        }
+        let mut seen = self.seen.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        for nonce in &self.nonces {
+            seen.remove(nonce);
         }
     }
 }
@@ -112,7 +146,7 @@ impl MachineSecrets {
     }
 
     /// Open `item` for `purpose`, refusing a malformed or already seen nonce.
-    /// The nonce is not recorded here: [`Self::remember`] does that once a
+    /// The nonce is not recorded here: [`Self::reserve`] does that once a
     /// whole request has opened.
     fn open(&self, purpose: Purpose, item: &SealedSecret) -> Result<Zeroizing<Vec<u8>>, RpcError> {
         if !seal::is_nonce(&item.nonce) {
@@ -126,9 +160,12 @@ impl MachineSecrets {
             .map_err(|error| refused(error.code(), &item.name))
     }
 
-    /// Record `items`' nonces as seen, all or none: one already seen (a
-    /// concurrent request with the same item) refuses the whole request.
-    fn remember(&self, items: &[SealedSecret]) -> Result<(), RpcError> {
+    /// Reserve `items`' nonces, all or none: one already seen (a concurrent
+    /// request with the same item, or one that succeeded) refuses the whole
+    /// request. The nonces stay seen only once [`Reservation::keep`] says
+    /// the write succeeded; a failed write releases them, so the same sealed
+    /// request can be sent again.
+    fn reserve(&self, items: &[SealedSecret]) -> Result<Reservation<'_>, RpcError> {
         let mut seen = self.seen.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(item) = items.iter().find(|item| seen.contains(&item.nonce)) {
             return Err(refused("replay", &item.name));
@@ -136,7 +173,8 @@ impl MachineSecrets {
         for item in items {
             seen.insert(&item.nonce);
         }
-        Ok(())
+        let nonces = items.iter().map(|item| item.nonce.clone()).collect();
+        Ok(Reservation { seen: &self.seen, nonces, kept: false })
     }
 
     /// Replace `~/.config/cmux/machine-secrets.env` with exactly `items`:
@@ -182,11 +220,14 @@ impl MachineSecrets {
         if rendered.len() > files::MAX_ENV_FILE_BYTES {
             return Err(refused("too-large", "machine-secrets.env"));
         }
-        self.remember(items)?;
+        let count =
+            u32::try_from(values.len()).map_err(|_| refused("too-large", "machine-secrets.env"))?;
+        let reservation = self.reserve(items)?;
         let path = self.home.join(files::MACHINE_SECRETS_FILE);
         files::write_allowed(&self.home, &path, rendered.as_bytes())
             .map_err(|_| refused("write", "machine-secrets.env"))?;
-        u32::try_from(values.len()).map_err(|_| refused("too-large", "machine-secrets.env"))
+        reservation.keep();
+        Ok(count)
     }
 
     /// The names the machine's config declares; `None` while it has not
@@ -197,13 +238,11 @@ impl MachineSecrets {
         files::declared_names(&bytes).map(|names| names.into_iter().collect())
     }
 
-    /// Install one harness login (`claude` or `codex`).
-    pub fn install_harness_login(
-        &self,
-        item: &SealedSecret,
-        allow_team_guest: bool,
-    ) -> Result<String, RpcError> {
-        let result = self.install_inner(item, allow_team_guest);
+    /// Install one harness login (`claude` or `codex`), on an owner guest
+    /// only: a team guest's Unix user is every member's, and the daemon can't
+    /// tell the guest's creator from a teammate.
+    pub fn install_harness_login(&self, item: &SealedSecret) -> Result<String, RpcError> {
+        let result = self.install_inner(item);
         match &result {
             Ok(name) => self.log(&format!("secrets-v1: installed the {name} login")),
             Err(error) => self.log(&format!("secrets-v1: harness login refused ({error})")),
@@ -211,24 +250,17 @@ impl MachineSecrets {
         result
     }
 
-    fn install_inner(
-        &self,
-        item: &SealedSecret,
-        allow_team_guest: bool,
-    ) -> Result<String, RpcError> {
+    fn install_inner(&self, item: &SealedSecret) -> Result<String, RpcError> {
         let login =
             HarnessLogin::from_name(&item.name).ok_or_else(|| refused("bad-name", &item.name))?;
         let value = self.open(Purpose::HarnessLogin, item)?;
         login.validate(&value).map_err(|error| refused(error.code(), &item.name))?;
-        // A team guest's Unix user is every member's, and the daemon can't
-        // tell its creator from a teammate: only a DEV daemon build honors
-        // the DEV creator allowance. Every other build takes owner guests only.
-        let allow_team_guest = allow_team_guest && cfg!(debug_assertions);
-        harness::check_guest(&self.etc, login, allow_team_guest)
+        harness::check_guest(&self.etc, login)
             .map_err(|error| refused(error.code(), &item.name))?;
-        self.remember(std::slice::from_ref(item))?;
+        let reservation = self.reserve(std::slice::from_ref(item))?;
         harness::install(&self.home, login, &value)
             .map_err(|error| refused(error.code(), &item.name))?;
+        reservation.keep();
         Ok(login.name().to_owned())
     }
 }

@@ -2165,7 +2165,10 @@ async fn run_daemon(
             SessionLimits::default(),
             DaemonSessionPolicy { resume_lease: options.resume_lease },
         )?;
+        #[cfg(unix)]
         let workspace = crate::machine_secrets::daemon_workspace_service(&auth);
+        #[cfg(not(unix))]
+        let workspace = cmux_remote::workspace::WorkspaceService::new();
         // The admin proof and service forwarding must use the same resolved
         // destination, including when the configured path is a symlink.
         let mux_binding = MuxBinding::new(&mux_socket, &link_socket)?;
