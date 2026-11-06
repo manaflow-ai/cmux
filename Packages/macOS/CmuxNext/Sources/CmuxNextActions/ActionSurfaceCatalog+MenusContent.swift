@@ -65,6 +65,7 @@ nonisolated extension ActionSurfaceCatalog {
         "resetTerminal": [p(.terminalSelection, .reset, 301, folder: .options)],
         "reconnectPane": [p(.pane, .connection, 201, folder: .connection)],
         "palette.terminalOpenDirectory": [p(.terminalSelection, .inspect, 0, folder: .tools)],
+        "terminal.runLastCommandAgain": [p(.terminalSelection, .edit, 5, folder: .tools)],
         "browserBack": [p(.browserPage, .navigate, 0)],
         "browserForward": [p(.browserPage, .navigate, 1)],
         "browserReload": [p(.browserPage, .navigate, 2)],

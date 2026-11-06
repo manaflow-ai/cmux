@@ -270,7 +270,13 @@ reaches `linux-b/review` when no other live session is called `review`. A sub-se
 `PARENT/SHORT`) also answers to its short name: `acpmux send lane-3` reaches
 `coord/lane-3` when no session on any host has that name or id and none here has a
 name starting with it; `HOST/SHORT` looks on that host only. A name nothing matches is
-refused with the close matches. Closed sessions count
+refused with the close matches. A name typed loosely still finds its one session
+(`src/name_match.rs`): failing an exact name, the same name in another case (`td2-a` for
+`td2-A`), then a unique prefix (here, or on the host `HOST/…` names), then the name without
+case or `-`, `_` and spaces (`td2_a`). `HOST` in `HOST/NAME`, `new --host` and
+`dispatch --host` read a machine the same way (`LANE-VM-2` for `lane-vm-2`, or a unique prefix of it).
+Only the first step that matches counts; several matches there are refused with each one,
+never guessed. Closed sessions count
 only when no live one matches. Several live matches are refused (exit 2,
 `session_ambiguous`), never picked; a session here does not win over a peer's. The refusal
 lists each choice and the exact command for it:
@@ -388,7 +394,13 @@ produces one notice without resolving. Failed deliveries remain visible in the l
 on a relevant session/peer change or restart. A one-shot watch is removed after delivery.
 Unreadable watch state is preserved as `watches.json.bad-<timestamp>`; the daemon starts
 with no watches. Older cursor fields default safely. Peer replay uses eight workers.
-The CLI and MCP watch tools are not exposed yet; `acpmux wait` remains the script interface.
+The same three are `acpmux watch add|ls|rm` and the `acpmux` MCP server's `watch_add`,
+`watch_ls` and `watch_rm` tools, on the local socket only; inside an agent session the recipient
+defaults to that session. A wake counts as delivered when the recipient's daemon accepts it
+(queued or steered into its turn), not when its agent has read it; `watch ls` lists every wake
+not accepted yet with its outbox state. Removing a watch stops new wakes, and wakes it already
+owes are still delivered (`watch_rm` answers how many). `acpmux wait` remains the blocking
+script interface.
 
 Agents spawned by acpmux get `ACPMUX_ENV=1`, `ACPMUX_SESSION_ID`, `ACPMUX_SESSION_NAME` and
 `ACPMUX_SOCKET`, and `@` names that session (`acpmux last @`), so an agent can drive its own
@@ -430,8 +442,12 @@ unattended, with `ACPMUX_EVENT`, `ACPMUX_SESSION_NAME` and `ACPMUX_TEXT` set.
 `agentStartTimeoutMs` (default 90000) bounds a cold agent start (spawn, `initialize`,
 session load or new, config replay): past it the request fails with code -32000 and
 `data.reason` `deadline_exceeded` (`data.wait` `agent_start`), the agent is ended, the
-session stays open, and the log gets `agent_start_timed_out`. A person's start has no such
-bound. Neither has a `session/new` with `_meta.acpmux.waitStart` from a local connection that is
+session stays open, and the log gets `agent_start_timed_out`. A prompt whose start misses it is
+not failed: its turn stays open, the log gets `agent_start_retrying` `{turnId, promptId, attempt,
+of, delayMs, error}`, the row reads `starting`, and the start is tried again after 10, 20 and
+40 s (a ninth of the budget, doubling). A Stop, a stop of the session, its move or the daemon's
+shutdown ends that wait; when the 4 tries run out the turn fails with the deadline error, which
+says how many tries it took. A person's start has no such bound. Neither has a `session/new` with `_meta.acpmux.waitStart` from a local connection that is
 no agent's or lane's (the Chief's own sessions): its log gets `agent_start_waiting` as it starts,
 and it fails the same way only once its harness has used no CPU, with no thread ready, for 5
 minutes.

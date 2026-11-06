@@ -71,7 +71,7 @@ declare namespace Cmux {
   type CloudEnvironmentVariable = unknown
   type CloudGroup = { id: Cmux.GroupId; name: string; created_by: Cmux.UserId; created_at: number; archived: boolean; default_placement: "local" | "mini" | "cloud_vm"; item_count: number; role: "owner" | "edit" | "view" }
   type CloudGroupItem = { workspace: Cmux.GroupWorkspaceId; title?: string; placement: Cmux.GroupPlacement; position: number; added_by: Cmux.UserId; added_at: number }
-  type CloudMachine = { id: Cmux.MachineId; team: Cmux.TeamId; creator: Cmux.UserId; name: string | null; size: Cmux.CloudMachineSize; status: Cmux.CloudMachineStatus; image: { id: string; daemon_version: string | null }; host: Cmux.HostId | null; classic: boolean; created_at: number; last_active_at: number | null; idle_policy: { idle_seconds: number }; error: { code: string; message: string; at: number } | null; pause_reason?: "idle" | "no_report" | "provider_stopped" | "provider_paused" | null; hourly_rate_usd?: unknown | null; running_since?: number | null; revision: Cmux.Revision }
+  type CloudMachine = { id: Cmux.MachineId; team: Cmux.TeamId; creator: Cmux.UserId; name: string | null; size: Cmux.CloudMachineSize; status: Cmux.CloudMachineStatus; image: { id: string; daemon_version: string | null }; host: Cmux.HostId | null; classic: boolean; created_at: number; last_active_at: number | null; idle_policy: { idle_seconds: number }; error: { code: string; message: string; at: number } | null; pause_reason?: "idle" | "no_report" | "provider_stopped" | "provider_paused" | null; hourly_rate_usd?: unknown | null; running_since?: number | null; desktop?: boolean; revision: Cmux.Revision }
   type CloudMachineSize = { cpu?: number; memory_mb?: number; disk_mb?: number }
   type CloudMachineStatus = "provisioning" | "starting" | "running" | "pausing" | "paused" | "deleting" | "failed"
   type CloudPlan = { plan_id: string; upgrade_plan: string | null; limits: { max_active: number; max_saved: number; memory_options_mb: Array<number>; locked_memory_options_mb: Array<number>; vm_hours_included: unknown | null }; usage: { active: number; saved: number; vm_hours_used: unknown | null; period_end: number } }
@@ -196,10 +196,10 @@ declare namespace Cmux {
   type HistoryVisitTitleResult = { updated: number }
   type HomeAttachmentPoster = { hash: Cmux.HomeSha256; mime_type: "image/jpeg" | "image/webp"; byte_count: number }
   type HomeAttachmentPreview = { hash: Cmux.HomeSha256; mime_type: "image/jpeg" | "image/webp"; byte_count: number }
-  type HomeChief = { id: Cmux.ChiefId; owner_user: string; display_name: string; is_default: boolean; brain: "cloud"; brain_place?: Cmux.ChiefBrainPlace | null; main_conversation: Cmux.ConversationId | null; harness: string | null; rev: unknown; created_at: Cmux.Timestamp; updated_at: Cmux.Timestamp; archived_at: Cmux.Timestamp | null }
+  type HomeChief = { id: Cmux.ChiefId; owner_user: string; display_name: string; is_default: boolean; brain: "cloud"; brain_place?: Cmux.ChiefBrainPlace | null; main_conversation: Cmux.ConversationId | null; harness: string | null; rev: unknown; created_at: Cmux.Timestamp; updated_at: Cmux.Timestamp; archived_at: Cmux.Timestamp | null; channel?: { conversation: Cmux.ConversationId; title: string } }
   type HomeConversationCommit = { rev: number; seq?: number; message_id?: Cmux.MessageId; change: string }
   type HomeConversationSettings = { wake_policy: "auto" | "mentions" | "all"; agent_budget: { turns: number; gap_ms: number }; history_visible: "all" | "since_join" }
-  type HomeConversationSummary = { id: Cmux.ConversationId; owner: string; title: string; participants: Array<Cmux.HomeParticipant>; last_seq: number; rev: number; created_at: Cmux.Timestamp; updated_at: Cmux.Timestamp; last_message?: Cmux.HomeMessage; read_cursors: Record<string, number>; kind?: Cmux.ConversationKind; team?: string; created_by?: string; state?: "active" | "archived"; settings?: Cmux.HomeConversationSettings; invites?: Array<Cmux.HomeInvite>; retention_days?: number; member_count?: number }
+  type HomeConversationSummary = { id: Cmux.ConversationId; owner: string; title: string; participants: Array<Cmux.HomeParticipant>; last_seq: number; rev: number; created_at: Cmux.Timestamp; updated_at: Cmux.Timestamp; last_message?: Cmux.HomeMessage; read_cursors: Record<string, number>; kind?: Cmux.ConversationKind; channel_chief?: string; team?: string; created_by?: string; state?: "active" | "archived"; settings?: Cmux.HomeConversationSettings; invites?: Array<Cmux.HomeInvite>; retention_days?: number; member_count?: number }
   type HomeDeliveryState = "queued" | "sent" | "delivered" | "bounced" | "complained" | "failed" | "suppressed" | "refused_env"
   type HomeGrantableRole = "admin" | "member" | "read_only"
   type HomeInboxEntry = { conversation: Cmux.ConversationId; rev: number; kind: Cmux.ConversationKind; title: string; last_seq: number; last_at: Cmux.Timestamp; preview: string; preview_attachments?: { kind: "photo" | "video" | "audio" | "file"; count: number }; dm_peer?: Cmux.ParticipantId; removed: boolean; large?: boolean; member_count?: number; unread: number; mentions: number; counts_rev: number; pinned: boolean; pin_position?: number; muted: boolean; muted_until?: unknown; archived: boolean; archived_seq: number; marked_unread: boolean }
@@ -666,6 +666,10 @@ interface CmuxGlobal {
       list: CmuxOp<{ connection: Cmux.ConnectionId; calendar_id?: string; time_min?: string; time_max?: string; query?: string; max_results?: number; page_token?: string }, string>
     }
   }
+  channel: {
+    /** `channel.create` (mutation, scope `channel:write`): Create a channel: a group conversation you own with its own Chief, scoped to it (it is woken only by that conversation and keeps its own memory, instructions, personality and avatar). Answers the channel Chief; its channel.conversation is the channel. display_name defaults to "<title> Chief". Invite people with participants.add or invite.create on the channel. */
+    create: CmuxOp<{ title: string; display_name?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeChief>>
+  }
   chief: {
     /** `chief.continue` (mutation, scope `chief:write`) */
     continue: CmuxOp<{ machine?: string; session?: string; chief?: string }, Cmux.MutationResult<Cmux.ChiefContinueResult>>
@@ -759,7 +763,7 @@ interface CmuxGlobal {
     }
     machine: {
       /** `cloud.machine.connect` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Open the one private link (carrier) to a machine and return it. A second call while the link is up returns the same carrier and starts no new link. A paused machine is started first. Not a focus change. When the link goes down nothing reconnects by itself and nothing queues: call connect again, also with the same key: connect is never replayed from the ledger. */
-      connect: CmuxOp<{ machine: string }, { machine: string; carrier: string; generation: number; state: "up"; socket: string; vm_kind: "owner" | "team" }>
+      connect: CmuxOp<{ machine: string }, { machine: string; carrier: string; generation: number; state: "up"; socket: string; vm_kind: "owner" | "team" | "unknown" }>
       /** `cloud.machine.connect_info` (read, scope `cloud:read`): How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. A read never mints a credential: the dial token comes from cloud.machine.link_token. vm_kind is the caller's kind on this machine (owner for its creator on any team, never an agent token; every other member is team). */
       connect_info: CmuxOp<{ machine?: Cmux.MachineId; host?: Cmux.HostId }, Cmux.CloudConnectInfo>
       /** `cloud.machine.disconnect` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): End the link to a machine and forget it, also after a revocation. Every terminal of that machine on this Mac shows the disconnected state. The machine keeps running. */

@@ -225,8 +225,26 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
         }
     }
 
+    /// A browser profile the page can open an address in (Open in Profile…, Lawrence 2026-11-05).
+    public struct Profile: Codable, Sendable, Equatable {
+        /// `default` or the profile's UUID, as `tab.open`'s `profile` names it.
+        public var id: String
+        /// The name the person gave it.
+        public var name: String
+        /// Its color name (`blue`), nil without one.
+        public var color: String?
+
+        public init(id: String, name: String, color: String? = nil) {
+            self.id = id
+            self.name = name
+            self.color = color
+        }
+    }
+
     /// Bound for newly introduced recent project suggestions.
     public static let maximumEntries = 40
+    /// Bound for the browser profiles the page lists.
+    public static let maximumProfiles = 200
     /// Bound for the action rows: every Commands palette action fits (hundreds), a runaway list does not.
     public static let maximumActions = 2000
 
@@ -248,8 +266,13 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
     /// Bound for ``uses``: the most-used keys only.
     public static let maximumUses = 200
 
+    /// This Mac's browser profiles, Default first; nil where the host opens no address in a named
+    /// profile (the page then offers no profile rows).
+    public var profiles: [Profile]?
+
     public init(tabs: [Tab] = [], workspaces: [Workspace] = [], folders: [String] = [], projects: [String] = [],
-                actions: [Action] = [], commands: [String] = [], history: [Page] = [], uses: [String: Double] = [:]) {
+                actions: [Action] = [], commands: [String] = [], history: [Page] = [], uses: [String: Double] = [:],
+                profiles: [Profile]? = nil) {
         let cap = Self.maximumEntries
         self.tabs = tabs
         self.workspaces = workspaces
@@ -261,9 +284,10 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
         self.uses = uses.count > Self.maximumUses
             ? Dictionary(uniqueKeysWithValues: uses.sorted { $0.value > $1.value }.prefix(Self.maximumUses).map { ($0.key, $0.value) })
             : uses
+        self.profiles = profiles.map { Array($0.prefix(Self.maximumProfiles)) }
     }
 
-    private enum CodingKeys: String, CodingKey { case tabs, workspaces, folders, projects, actions, commands, history, uses }
+    private enum CodingKeys: String, CodingKey { case tabs, workspaces, folders, projects, actions, commands, history, uses, profiles }
 
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -275,7 +299,8 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
             actions: try values.decodeIfPresent([Action].self, forKey: .actions) ?? [],
             commands: try values.decodeIfPresent([String].self, forKey: .commands) ?? [],
             history: try values.decodeIfPresent([Page].self, forKey: .history) ?? [],
-            uses: try values.decodeIfPresent([String: Double].self, forKey: .uses) ?? [:]
+            uses: try values.decodeIfPresent([String: Double].self, forKey: .uses) ?? [:],
+            profiles: try values.decodeIfPresent([Profile].self, forKey: .profiles)
         )
     }
 
@@ -299,7 +324,7 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
             "commands": commands,
             "history": history.map { optional([("url", $0.url), ("title", $0.title), ("icon", $0.icon)]) },
             "uses": uses,
-        ]
+        ].merging(profiles.map { ["profiles": $0.map { optional([("id", $0.id), ("name", $0.name), ("color", $0.color)]) }] } ?? [:]) { left, _ in left }
     }
 }
 

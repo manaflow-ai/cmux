@@ -54,8 +54,10 @@ while IFS= read -r module; do
   wmo="$(grep -c -- "-whole-module-optimization" <<<"$commands" || true)"
   onone="$(grep -c -- "-Onone" <<<"$commands" || true)"
   testing="$(grep -c -- "-enable-testing" <<<"$commands" || true)"
-  if [[ "$module" == CmuxNextApp || "$wmo" != 0 || "$onone" != "$total" || "$testing" != "$total" ]]; then
-    echo "live-code build: $module frontend commands: $total, whole-module: $wmo, -Onone: $onone, -enable-testing: $testing" >&2
+  # The engine's `#if DEBUG || CMUX_BENCH_HOOKS || CMUX_LIVE_CODE`: without one, it compiles to nothing.
+  defined="$(grep -cE -- "-D (DEBUG|CMUX_BENCH_HOOKS|CMUX_LIVE_CODE)( |$)|-D(DEBUG|CMUX_BENCH_HOOKS|CMUX_LIVE_CODE)( |$)" <<<"$commands" || true)"
+  if [[ "$module" == CmuxNextApp || "$module" == CmuxNextLiveCode || "$wmo" != 0 || "$onone" != "$total" || "$testing" != "$total" ]]; then
+    echo "live-code build: $module frontend commands: $total, whole-module: $wmo, -Onone: $onone, -enable-testing: $testing, live code defined: $defined" >&2
   fi
 done < <(live_code_targets)
 live_code_check "$bin" "$out" || exit 1

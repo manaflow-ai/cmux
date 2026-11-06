@@ -54,9 +54,9 @@ export function editedPaths(tool: Tool): string[] {
 /// Paths come from the same harness-aware reader as edited-file cards, so a Write whose content
 /// precedes `file_path` still reads as `Write gen.py`. A file inside `cwd` reads by its path from there.
 ///
-/// A shell call reads as what it says it does (Claude Code's Bash `description`) when it says, else
-/// as its command (`commandLabel`). One that has neither yet reads as `unnamedCommand` ("Ran a
-/// command"), never as the bare tool name ("Bash").
+/// A shell call reads as its command (`commandLabel`), never as Claude Code's Bash `description`
+/// (Lucas, 2026-11-06: the command, as Codex draws it). One with no command yet reads as
+/// `unnamedCommand` ("Ran a command"), never as the bare tool name ("Bash").
 export function toolLabel(
   tool: Tool,
   fallback: string,
@@ -68,7 +68,6 @@ export function toolLabel(
   const fallbackName = readableName(fallback, tool.kind) || "Tool";
   const paths = editedPaths(tool);
   const command = tool.command?.trim();
-  if (tool.kind === "execute" && tool.description) return tool.description;
   // Without its setup, a leading `cd <folder> &&` included: the opened Shell block names the folder (#20456).
   // Never cut by length: the line it draws on ends in a CSS ellipsis at its right edge.
   if (tool.kind === "execute" && command) return commandLabel(shortCommand(command, ROW_WIDTH));

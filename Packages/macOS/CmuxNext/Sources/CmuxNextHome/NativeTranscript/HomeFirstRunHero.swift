@@ -7,7 +7,6 @@ import MessagesLabHome
 /// itself, hands longer work to agents in workspaces of their own, and reports back here. Leo
 /// 2026-10-19: the old screen did not say what was there. The face is the header's (the
 /// profile's picture or text, else the name's iMessage-style monogram, `MonogramAvatar`), set by the host.
-/// `HomeTunables.firstRunHero` (Debug Settings > Home) hides it, for the rows-only panel.
 final class HomeFirstRunHero: NSView {
     /// The profile's picture, drawn as the layer's contents.
     let picture = NSView()
