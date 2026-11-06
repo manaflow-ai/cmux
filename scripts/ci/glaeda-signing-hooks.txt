@@ -33,3 +33,4 @@ bcdd1aacb203ac7ea9cbc2ecbd82b6bf552b65d99d0a2341609d5c4f281be0a4 glaeda 5ba90d7a
 6d4ee21b17a0e12783022c35b91fe7f4344e3e63c311e02de07272bb9e0df760 glaeda d5ffd1c8: runner-hook: the job share writes no git config over a partial GIT_CONFIG_* env (#1873); the hook before #1862, kept so a forward revert of #1862 can still sign
 87e9ffc863384bb892c67ac0eafaee918c8b2a45fa72a9ca998f00676df9c749 glaeda #1862 (1297173f): one-mini nightly signing and main's classic auto-resume notarization admitted on the trusted signing runner
 7430aae2e88ee40ebe760349388ca02fb183ac1489e0c786bcc0c14c95a8c84a glaeda #1883 (182e1a7b): runner hook: the auto-resume tier comes from the signing and light allowlists
+5836275a0e05566b11a120996d96904ba60ac906353698cc58c2ca6c70949b10 glaeda #1886 (fcf9b094): runner hook: the trusted signing runner spends the nightly builder's disk reserve (carries #1885 9b2b2be3)

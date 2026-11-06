@@ -24829,6 +24829,60 @@
         }
       }
     },
+    "settings.browser.wakeTabsOnHover": {
+      "comment": "Settings > Browser > Memory toggle: hover preload (browser.wakeTabsOnHover).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Wake Tabs on Hover"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تنشيط علامات التبويب عند التمرير"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Probudi kartice pri prelasku"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Væk faner ved hover"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Tabs beim Darüberfahren aufwecken"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Activar pestañas al pasar el puntero"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Réveiller les onglets au survol"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Riattiva le schede al passaggio del puntatore"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ホバーでタブを起こす"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ដាស់ផ្ទាំងពេលដាក់ទស្សន៍ទ្រនិចលើ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "마우스를 올리면 탭 깨우기"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Vekk faner ved peker over"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Wybudzaj karty po najechaniu"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Despertar abas ao passar o ponteiro"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Пробуждать вкладки при наведении"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ปลุกแท็บเมื่อชี้เมาส์"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Üzerine gelince sekmeleri uyandır"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Пробуджувати вкладки під час наведення"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Đánh thức tab khi di chuột"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "悬停时唤醒标签页"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "懸停時喚醒分頁"}}
+      }
+    },
+    "settings.browser.wakeTabsOnHover.help": {
+      "comment": "Help under the Wake Tabs on Hover setting.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "When the pointer rests on a tab or a workspace, its sleeping pages start to load before you click. Uses more memory."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "عندما يستقر المؤشر على علامة تبويب أو مساحة عمل، تبدأ صفحاتها النائمة في التحميل قبل أن تنقر. يستخدم ذاكرة أكثر."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Kada pokazivač miruje na kartici ili radnom prostoru, njegove uspavane stranice počinju se učitavati prije klika. Koristi više memorije."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Når markøren hviler på en fane eller et arbejdsområde, begynder dets sovende sider at indlæse, før du klikker. Bruger mere hukommelse."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Ruht der Zeiger auf einem Tab oder Workspace, laden dessen schlafende Seiten schon vor dem Klick. Braucht mehr Speicher."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Cuando el puntero se detiene en una pestaña o un espacio de trabajo, sus páginas en reposo empiezan a cargarse antes de hacer clic. Usa más memoria."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Quand le pointeur s’arrête sur un onglet ou un espace de travail, ses pages en veille commencent à se charger avant le clic. Utilise plus de mémoire."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Quando il puntatore si ferma su una scheda o un workspace, le sue pagine sospese iniziano a caricarsi prima del clic. Usa più memoria."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ポインタがタブやワークスペースの上で止まると、スリープ中のページがクリック前に読み込みを始めます。メモリを多く使います。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ពេលទស្សន៍ទ្រនិចឈប់លើផ្ទាំង ឬកន្លែងធ្វើការ ទំព័រដែលកំពុងដេករបស់វាចាប់ផ្ដើមផ្ទុកមុនពេលអ្នកចុច។ ប្រើអង្គចងចាំច្រើនជាង។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "포인터가 탭이나 작업 공간 위에 머무르면 잠든 페이지가 클릭하기 전에 로드를 시작합니다. 메모리를 더 사용합니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Når pekeren hviler på en fane eller et arbeidsområde, begynner de sovende sidene å laste før du klikker. Bruker mer minne."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Gdy wskaźnik zatrzyma się na karcie lub obszarze roboczym, jego uśpione strony zaczynają się wczytywać przed kliknięciem. Zużywa więcej pamięci."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Quando o ponteiro para sobre uma aba ou um espaço de trabalho, suas páginas em repouso começam a carregar antes do clique. Usa mais memória."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Когда указатель задерживается на вкладке или рабочем пространстве, его спящие страницы начинают загружаться до щелчка. Использует больше памяти."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เมื่อตัวชี้หยุดอยู่บนแท็บหรือพื้นที่ทำงาน หน้าที่หลับอยู่จะเริ่มโหลดก่อนที่คุณจะคลิก ใช้หน่วยความจำมากขึ้น"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "İşaretçi bir sekmenin veya çalışma alanının üzerinde durduğunda, uyuyan sayfaları siz tıklamadan yüklenmeye başlar. Daha fazla bellek kullanır."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Коли вказівник зупиняється на вкладці або робочому просторі, його сплячі сторінки починають завантажуватися до клацання. Використовує більше пам’яті."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Khi con trỏ dừng trên một tab hoặc không gian làm việc, các trang đang ngủ của nó bắt đầu tải trước khi bạn nhấp. Dùng nhiều bộ nhớ hơn."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "指针停在标签页或工作区上时，其休眠页面会在你点击前开始加载。会占用更多内存。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "指標停在分頁或工作區上時，其休眠頁面會在你點按前開始載入。會使用更多記憶體。"}}
+      }
+    },
     "settings.browser.hibernatePinnedTabs": {
       "extractionState": "manual",
       "localizations": {
