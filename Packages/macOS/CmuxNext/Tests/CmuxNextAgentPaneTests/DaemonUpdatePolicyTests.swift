@@ -541,7 +541,8 @@ import Testing
         let fixture = try PolicyFixture()
         defer { fixture.remove() }
         let target = fixture.target("vm", build: Self.older, outcomes: [.failed(reason: "network"), .updated(build: Self.bundled)])
-        let policy = fixture.policy([])
+        // No background retry: the failure is final for the build, as after its retries.
+        let policy = fixture.policy([], failureRetries: 0)
         await policy.offer(target)
         await policy.drained()
         #expect(fixture.ledger.targets == ["vm": "failed"])
@@ -587,7 +588,8 @@ import Testing
         let target = fixture.target("vm", build: Self.older,
                                     outcomes: [.failed(reason: "disk full"), .updated(build: Self.bundled)],
                                     started: started, release: release)
-        let policy = fixture.policy([])
+        // No background retry: only the join is under test.
+        let policy = fixture.policy([], failureRetries: 0)
         await policy.offer(target)
         await started.wait()
         // task-owner: this test; awaited below
@@ -700,7 +702,7 @@ nonisolated final class PolicyFixture: Sendable {
     func policy(_ targets: [FakeUpdateTarget], bundled: String = DaemonUpdatePolicyTests.bundled, clock: any Clock<Duration> = PolicyTestClock(),
                 enabled: Bool = true, isEnabled: (@Sendable () -> Bool)? = nil,
                 board: (@Sendable (DaemonUpdateEvent) async -> Void)? = nil,
-                updateBusyAfter: Duration? = nil, directory: URL? = nil) -> DaemonUpdatePolicy {
+                updateBusyAfter: Duration? = nil, directory: URL? = nil, failureRetries: Int? = nil) -> DaemonUpdatePolicy {
         var dependencies = DaemonUpdatePolicy.Dependencies(
             bundledBuild: { bundled },
             targets: {
@@ -716,6 +718,7 @@ nonisolated final class PolicyFixture: Sendable {
             clock: clock
         )
         if let updateBusyAfter { dependencies.updateBusyAfter = updateBusyAfter }
+        if let failureRetries { dependencies.failureRetries = failureRetries }
         return DaemonUpdatePolicy(dependencies)
     }
 }

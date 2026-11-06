@@ -304,7 +304,7 @@ struct CloudMachineUpdateTargetTests {
     @Test func aFailureIsRetriedQuietlyAndNotInALoop() async throws {
         let rolledBack = CloudMoveCLI.Answer(ok: false, errorCode: "machine_update_rolled_back",
                                              error: "the new daemon did not serve, so the machine runs its old build again")
-        let machine = FakeCloudMachine(build: Self.older, level: .limited, answers: [rolledBack])
+        let machine = FakeCloudMachine(build: Self.older, level: .limited, answers: Array(repeating: rolledBack, count: 6))
         let fixture = try CloudUpdateFixture()
         defer { fixture.remove() }
         await fixture.run(machine)
