@@ -1,5 +1,16 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-05: every sidebar group draws a visible background, glass or solid. Lawrence, verbatim: "invariant: groups
+  must always have a visible bg color, groups should support both glassy and solid bgs too". New setting
+  `sidebar.groupHeader.background`: Automatic (default: cmux's own group look, Leo's glass, or solid when Debug `sidebar.groupGlass` is solid), Glass,
+  Solid. Glass is Leo's tinted pane with its rim (#36225, Debug `sidebar.groupGlass`; under Glass a Debug solid
+  draws vivid; the wash, line and tinted looks stay a solid wash unless the setting is Glass); a no-color glass pane is the solid bar's calm neutral at 0.3, not the ink at the tint (`aNoColorGlassPaneStaysCalm`), and a group with no color is the same pane untinted. Every header, at rest, hovered and dropped, keeps
+  at least 1.2:1 against the sidebar (`GroupBackground.minimumVisibleContrast`): a too-faint pane is pushed away
+  from the sidebar at its own opacity (`GroupGlassPaint`); the solid band with no color is a neutral step of the
+  theme's text (`GroupBackground`). Under glass the rail stays the pane's vivid tint (Leo's
+  `theRailIsThePanesTint`); under the solid band it is the bar's rest color, no color too. The no-color block behind
+  the members is unchanged. Gallery: Sidebar States Playground > Group backgrounds. Regression:
+  `GroupHeaderAlwaysVisibleTests`, `GroupBackgroundEveryThemeTests`. Capture tour: `sidebar-group-background`.
 - 2026-11-05: every workspace row's trailing glyph box ends the row inset before its fill's end, as its leading glyph
   box starts the row inset after the fill's start. Lawrence, verbatim: "too much padding on right. padding on left/right
   of every workspace needs to be even." The trailing column centers `horizontalInset + statusGlyphSize / 2` inside the
