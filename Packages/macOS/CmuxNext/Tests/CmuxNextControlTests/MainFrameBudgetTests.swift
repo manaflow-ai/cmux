@@ -306,8 +306,10 @@ import Testing
         let palette = FrameBatchQueue(owner: "NewTab.paletteActions", budgeted: .background, on: scheduler)
         let rows = FrameBatchQueue(owner: "SidebarRows", budgeted: .visible, on: scheduler)
         var listed = 0, shown = 0, time = 10.0
+        // A sidebar update every frame keeps the link running (each one queues the next).
+        func update() { rows.enqueue { shown += 1; update() } }
+        update()
         func frame() {
-            rows.enqueue { shown += 1 }
             clock.advance(ms: 16.7)
             time += 1.0 / 60
             scheduler.frameDidFire(timestamp: time, refreshInterval: 1.0 / 60)
