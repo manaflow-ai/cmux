@@ -184,7 +184,7 @@ async fn dial(
         caller.read_line(&mut reply).await.unwrap();
         reply
     };
-    let ((), reply) = tokio::time::timeout(std::time::Duration::from_secs(60), async {
+    let ((), reply) = tokio::time::timeout(Duration::from_secs(60), async {
         tokio::join!(serve, read)
     })
     .await
