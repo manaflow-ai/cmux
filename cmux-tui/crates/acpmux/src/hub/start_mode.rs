@@ -547,10 +547,14 @@ impl Hub {
         if self.is_start_full_access(meta, mode).await {
             return true;
         }
+        // A Claude chat: its family, or (a profile under another name) Claude Code's own modes.
+        let offered = available(meta);
+        let claude = crate::web_modes::family_of(meta) == "claude"
+            || crate::claude_stdio::MODES.iter().all(|(id, ..)| offered.iter().any(|m| m == id));
         if meta.remote_origin
             || mode != crate::claude_stdio::OWN_MODE
-            || crate::web_modes::family_of(meta) != "claude"
-            || !available(meta).iter().any(|m| m == mode)
+            || !claude
+            || !offered.iter().any(|m| m == mode)
         {
             return false;
         }
