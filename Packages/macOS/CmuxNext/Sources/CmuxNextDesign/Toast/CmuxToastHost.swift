@@ -23,6 +23,8 @@ extension CmuxToastHosting {
 @MainActor
 public final class CmuxToastOverlayHost: CmuxToastHosting, CmuxToastReanchoring {
     private var handles: [ObjectIdentifier: (handle: OverlayHandle, window: NSWindow, view: CmuxToastView, slot: Int)] = [:]
+    /// Toasts fading out, still drawn: the room under them is kept until their fade ends.
+    private var fading: [ObjectIdentifier: (window: NSWindow, view: CmuxToastView)] = [:]
 
     public init() {}
 
@@ -69,8 +71,11 @@ public final class CmuxToastOverlayHost: CmuxToastHosting, CmuxToastReanchoring 
     /// Tells every view in `window` that reserves room for toasts where this host's toasts now
     /// rest (nil: none), with the toasts' move time.
     public func settled(in window: NSWindow) {
+        settled(in: window, duration: Motion.overlays.animatesMovement ? Motion.overlays.duration(.move) : 0)
+    }
+
+    private func settled(in window: NSWindow, duration: TimeInterval) {
         let rect = toastsRect(in: window)
-        let duration = Motion.overlays.animatesMovement ? Motion.overlays.duration(.move) : 0
         Self.reservingViews(in: window).forEach { $0.toastsSettled(in: rect, duration: duration) }
     }
 
@@ -78,11 +83,13 @@ public final class CmuxToastOverlayHost: CmuxToastHosting, CmuxToastReanchoring 
         view.toastsSettled(in: toastsRect(in: window), duration: 0)
     }
 
-    /// The union of this host's toast frames in `window` (window coordinates); nil when none shows.
-    private func toastsRect(in window: NSWindow) -> NSRect? {
+    /// The union of this host's drawn toast frames in `window` (window coordinates), fading ones
+    /// included; nil when none shows.
+    func toastsRect(in window: NSWindow) -> NSRect? {
         // The overlay panel's coordinates are the window's own (WindowOverlayHost.layout).
-        let frames = handles.values.filter { $0.window === window && $0.view.window != nil }
-            .map { $0.view.convert($0.view.bounds, to: nil) }
+        let views = handles.values.filter { $0.window === window }.map(\.view)
+            + fading.values.filter { $0.window === window }.map(\.view)
+        let frames = views.filter { $0.window != nil }.map { $0.convert($0.bounds, to: nil) }
         return frames.dropFirst().reduce(frames.first) { $0?.union($1) }
     }
 
@@ -108,7 +115,16 @@ public final class CmuxToastOverlayHost: CmuxToastHosting, CmuxToastReanchoring 
         let handle = WindowOverlayHost.host(for: window).present(toast, options: options)
         handle.onDismiss = windowGone
         // The window's host observes its geometry once; the toast re-caps its shown detail from it.
-        handle.onWindowGeometryChange = { [weak toast] in toast?.windowGeometryDidChange() }
+        // The toasts were laid out again for the window's new size: the views under them follow at once.
+        handle.onWindowGeometryChange = { [weak self, weak toast] in
+            guard let toast else { return }
+            toast.windowGeometryDidChange()
+            // Bottom-center of the window's new size (the anchor was the old one's), at once as the
+            // window moves; the views under the toasts follow in the same frame.
+            guard let self, let entry = self.handles[ObjectIdentifier(toast)] else { return }
+            entry.handle.update(anchor: self.anchor(for: toast, slot: entry.slot, in: entry.window))
+            self.settled(in: entry.window, duration: 0)
+        }
         handles[ObjectIdentifier(toast)] = (handle, window, toast, slot)
         // This window's avoided views now move this host's toasts there (and no other window's).
         CmuxToastAvoidance.register(self, in: window)
@@ -130,8 +146,15 @@ public final class CmuxToastOverlayHost: CmuxToastHosting, CmuxToastReanchoring 
         if !handles.values.contains(where: { $0.window === window }) {
             CmuxToastAvoidance.unregister(self, from: window)
         }
-        // While it fades, the page under it gets the next click.
+        // While it fades, the page under it gets the next click; the room under it stays until it
+        // is gone (with no fade, in this frame), then the views under it take that room back.
         handle.stopTakingMouse()
-        CmuxToastMotion.disappear(toast, animated: animated) { handle.dismiss() }
+        let key = ObjectIdentifier(toast)
+        fading[key] = (window, toast)
+        CmuxToastMotion.disappear(toast, animated: animated) { [weak self, weak window] in
+            handle.dismiss()
+            guard let self, self.fading.removeValue(forKey: key) != nil, let window else { return }
+            self.settled(in: window)
+        }
     }
 }
