@@ -41,8 +41,8 @@ public struct CloudMachineListFacts: Sendable, Hashable {
 
     private struct Inputs: Encodable {
         var isSignedIn: Bool, isRestoring: Bool
-        var hasLoadedMachines = false, loadedFor: [String?]? = nil, account: [String?] = []
-        var hasLoadedCurrentMachines: Bool? = nil
+        var hasLoadedMachines = false, loadedFor: [String?]?, account: [String?] = []
+        var hasLoadedCurrentMachines: Bool?
     }
 
     private struct Read: Decodable {
