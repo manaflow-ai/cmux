@@ -204,7 +204,22 @@ button.cv-subagent > :last-child {
 /* The child view's first line (model.ts: 44px): a 28px "Subagent of" chip centred on a rule,
    8px above and below. Its text goes back to the parent's view; its × closes the subagent's view
    (an icon-only control: the --ds-control-icon box, 12px glyph, its hover on the × alone). */
-.cv-subagent-of {
+/* The pill pinned over the transcript's top in a subagent's view (App.tsx VirtualTranscript): the
+   stage's width, as the scroller's, so the pill sits on the rows' column; the rows under it are masked
+   out (conversation.css --acpmux-view-top). The row in the transcript keeps only its room. */
+.acpmux-pinned-top {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: var(--layer-sticky, 10);
+  pointer-events: none;
+}
+.acpmux-pinned-top > .cv-subagent-of {
+  margin-inline: var(--cv-inset) var(--cv-inset-end, var(--cv-inset));
+  pointer-events: auto;
+}
+.cv-subagent-of,
+.cv-subagent-of-slot {
   box-sizing: border-box;
   height: 44px;
   padding: var(--ds-space-2) 0;
