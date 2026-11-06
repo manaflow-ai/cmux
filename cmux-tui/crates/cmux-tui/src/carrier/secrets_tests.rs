@@ -73,12 +73,11 @@ fn a_login_request_decodes_its_base64_and_seals_it() {
         "login_base64": base64::engine::general_purpose::STANDARD.encode(&token),
     }))
     .unwrap();
-    let WorkspaceRequest::InstallHarnessLogin { item, allow_team_guest } =
+    let WorkspaceRequest::InstallHarnessLogin { item } =
         sealed(&daemon.public_key(), MACHINE, request.op).unwrap()
     else {
         panic!("not a login")
     };
-    assert!(!allow_team_guest);
     assert_eq!(item.name, "claude");
     let opened = cmux_remote::secrets::seal::open(
         daemon.private_key(),

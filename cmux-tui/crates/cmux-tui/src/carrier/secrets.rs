@@ -10,8 +10,7 @@
 //! {"api": "https://…", "credential": "…", "team": "team_…"?,
 //!  "op": "replace-machine-secrets", "values": [{"name": "NAME", "value": "…"}]}
 //! {"api": "https://…", "credential": "…",
-//!  "op": "install-harness-login", "harness": "claude", "login_base64": "…",
-//!  "allow_team_guest": false}
+//!  "op": "install-harness-login", "harness": "claude", "login_base64": "…"}
 //! ```
 //!
 //! This dials the carrier (one deadline), asks the daemon for `secrets-v1`,
@@ -98,8 +97,6 @@ enum Op {
         harness: String,
         #[serde(deserialize_with = "zeroizing")]
         login_base64: Zeroizing<String>,
-        #[serde(default)]
-        allow_team_guest: bool,
     },
 }
 
@@ -158,18 +155,14 @@ fn sealed(daemon_key: &[u8; 32], machine: &str, op: Op) -> Result<WorkspaceReque
             cmux_remote::secrets::request::replace_machine_secrets(daemon_key, machine, &values)
                 .map_err(sealing)
         }
-        Op::InstallHarnessLogin { harness, login_base64, allow_team_guest } => {
+        Op::InstallHarnessLogin { harness, login_base64 } => {
             let login = Zeroizing::new(
                 base64::engine::general_purpose::STANDARD
                     .decode(login_base64.trim().as_bytes())
                     .map_err(|_| failure("bad_request", None, false))?,
             );
             cmux_remote::secrets::request::install_harness_login(
-                daemon_key,
-                machine,
-                &harness,
-                &login,
-                allow_team_guest,
+                daemon_key, machine, &harness, &login,
             )
             .map_err(sealing)
         }

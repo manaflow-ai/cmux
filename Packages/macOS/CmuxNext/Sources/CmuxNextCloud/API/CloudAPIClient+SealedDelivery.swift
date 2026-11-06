@@ -24,11 +24,11 @@ extension CloudAPIClient {
         ])
     }
 
-    /// Installs `harness`'s login (`claude` or `codex`) where the machine's harness reads it.
-    public func installSealedLogin(_ id: String, harness: String, login: Data, allowTeamGuest: Bool) async throws -> SealedDelivery {
+    /// Installs `harness`'s login (`claude` or `codex`) where the machine's harness reads it. The daemon
+    /// installs on an owner guest only: a team guest's Unix user is every member's.
+    public func installSealedLogin(_ id: String, harness: String, login: Data) async throws -> SealedDelivery {
         try await sealed(id, [
-            "op": "install-harness-login", "harness": harness,
-            "login_base64": login.base64EncodedString(), "allow_team_guest": allowTeamGuest,
+            "op": "install-harness-login", "harness": harness, "login_base64": login.base64EncodedString(),
         ])
     }
 

@@ -104,9 +104,8 @@ public import Foundation
                 pause: Self.guestCheckPause,
                 // Sealed on this Mac to the machine's daemon key and opened only there (`cmux carrier secrets`,
                 // `secrets-v1`): the login never crosses an exec, a file API or the platform.
-                install: { [provider, machineID, allowsCreatorTeamGuest] login in
-                    try await pinned.installSealedLogin(machineID, harness: provider.rawValue, login: login,
-                                                        allowTeamGuest: allowsCreatorTeamGuest)
+                install: { [provider, machineID] login in
+                    try await pinned.installSealedLogin(machineID, harness: provider.rawValue, login: login)
                 },
             // Codex auth.json is never reused as a seed: its refresh token is VM-bound and may
             // rotate. A new device login is required for every transfer; a broker can supersede this.
