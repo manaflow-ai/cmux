@@ -261,6 +261,7 @@ export interface AcpmuxRequests {
   "_acpmux/peer_remove": { params: unknown; result: unknown };
   "_acpmux/peer_snapshot": { params: PeerSnapshotParams; result: unknown };
   "_acpmux/peer_snapshots_clear": { params: unknown; result: unknown };
+  "_acpmux/journal_restore": { params: unknown; result: unknown };
   "_acpmux/pair_ticket_new": { params: unknown; result: unknown };
   "_acpmux/pair_list": { params: unknown; result: unknown };
   "_acpmux/pair_revoke": { params: unknown; result: unknown };
@@ -584,6 +585,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/peer_remove", kind: "request", acp: false, typed: false },
   { name: "_acpmux/peer_snapshot", kind: "request", acp: false, typed: true },
   { name: "_acpmux/peer_snapshots_clear", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/journal_restore", kind: "request", acp: false, typed: false },
   { name: "_acpmux/pair_ticket_new", kind: "request", acp: false, typed: false },
   { name: "_acpmux/pair_list", kind: "request", acp: false, typed: false },
   { name: "_acpmux/pair_revoke", kind: "request", acp: false, typed: false },

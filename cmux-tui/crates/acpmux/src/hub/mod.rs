@@ -108,6 +108,7 @@ pub use native_history::FEATURE as NATIVE_HISTORY_FEATURE;
 pub use subagent_transcript::FEATURE as SUBAGENT_TRANSCRIPT_FEATURE;
 mod adopt_retry;
 mod hosts;
+pub mod journal_restore;
 mod lifecycle;
 mod log_deferral;
 mod log_load;

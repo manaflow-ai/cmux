@@ -2101,6 +2101,14 @@ async fn dispatch_request_with_identity(
                 .await
                 .map_err(|e| RpcError::internal(e.to_string()))?
         }
+        // A machine started from an older disk takes back what its owner's daemon kept of a
+        // chat (`hub/journal_restore.rs`): that daemon's peer link, or this machine's socket.
+        "_acpmux/journal_restore" if !matches!(conn.origin, Origin::Peer | Origin::Local) => {
+            Err(RpcError::invalid_params(
+                "_acpmux/journal_restore answers the owner's peer link and the unix socket only",
+            ))
+        }
+        "_acpmux/journal_restore" => hub.journal_restore(&params).await,
         "_acpmux/peer_snapshots_clear" if conn.origin != Origin::Local => Err(
             RpcError::invalid_params("peer snapshots clear requires this machine's unix socket"),
         ),

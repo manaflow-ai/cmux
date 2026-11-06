@@ -85,6 +85,13 @@ pub struct Delivery {
     /// well. Cleared when the hub refuses it outright (`server/outbox.rs` `relay_attempt`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub relay_post: Option<crate::mesh::OutMessage>,
+    /// Delivered to a peer's session, and not yet seen in that peer's journal after a later
+    /// link: the machine may have lost it with its disk (a session moved to a fresh machine,
+    /// a VM back on an older snapshot), so every full list of the peer delivers it again under
+    /// its own prompt id (`server/outbox.rs` `redeliver_open`) until the peer answers that its
+    /// journal holds it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub open_on_peer: bool,
     #[serde(default)]
     pub error: Option<String>,
     /// The target's `_acpmux/prompt_accepted` (or its reply) once delivered.
@@ -286,6 +293,7 @@ impl Outbox {
             attempts: 0,
             never_sent: false,
             relay_post: None,
+            open_on_peer: false,
             error: None,
             accepted: None,
             created_at: now,
@@ -324,6 +332,16 @@ impl Outbox {
         });
         out.truncate(limit);
         (out, waiting)
+    }
+
+    /// Deliveries a peer accepted and its journal was not seen to hold yet (`open_on_peer`), of
+    /// every peer, oldest first.
+    pub fn open_on_peers(&self) -> Vec<Delivery> {
+        let book = self.book();
+        let mut out: Vec<Delivery> =
+            book.deliveries.values().filter(|d| d.open_on_peer).cloned().collect();
+        out.sort_by(|a, b| a.created_at.cmp(&b.created_at).then_with(|| a.id.cmp(&b.id)));
+        out
     }
 
     pub fn get(&self, id: &str) -> Option<Delivery> {
@@ -517,6 +535,7 @@ mod tests {
             attempts: 0,
             never_sent: false,
             relay_post: None,
+            open_on_peer: false,
             error: None,
             accepted: None,
             created_at: now,
@@ -753,6 +772,7 @@ mod tests {
             attempts: 0,
             never_sent: false,
             relay_post: None,
+            open_on_peer: false,
             error: None,
             accepted: None,
             created_at: 0,

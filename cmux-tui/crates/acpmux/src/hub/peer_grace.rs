@@ -121,7 +121,18 @@ impl Hub {
                         drops.remove(&key);
                         current.outage_ended.store(false, Ordering::SeqCst);
                     }
+                    // Each session's journal end, for the copies ahead of it (a machine back
+                    // on an older disk, `peer_snapshot/restore.rs`).
+                    let ends = match &notice {
+                        PeerNotice::Sessions(list) => {
+                            Some(super::peer_snapshot::journal_ends(list))
+                        }
+                        _ => None,
+                    };
                     self.apply_peer_notice(&peer, generation, notice);
+                    if let Some(ends) = ends {
+                        self.restore_peer_journals(&peer, generation, ends);
+                    }
                     if warms {
                         self.warm_peer_copies(&peer);
                     }

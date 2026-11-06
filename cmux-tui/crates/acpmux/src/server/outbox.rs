@@ -138,6 +138,7 @@ pub(super) async fn handle(
         attempts: 0,
         never_sent: true,
         relay_post: None,
+        open_on_peer: false,
         error: None,
         accepted: None,
         created_at: now,
@@ -233,6 +234,7 @@ pub(super) async fn remember_forward(
         attempts: 0,
         never_sent: false,
         relay_post: None,
+        open_on_peer: false,
         error: None,
         accepted: None,
         created_at: now,
@@ -604,8 +606,14 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         };
         match outcome {
             Ok(accepted) => {
+                // A peer's session may lose it with the machine's disk until its journal is
+                // seen holding it after a later link (`redeliver_open`).
+                let open = hub.resolve(&delivery.target).is_err()
+                    && hub.resolve_remote(&delivery.target).is_some()
+                    && !duplicate(&accepted);
                 hub.outbox.update(id, |d| {
                     d.state = State::Delivered;
+                    d.open_on_peer = open;
                     d.error = None;
                     d.accepted = Some(accepted);
                     // Settled: its record keeps no attachment bytes (`attach.rs`).
@@ -680,6 +688,60 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
             }
         }
     }
+}
+
+/// Whether an acceptance is the answer to a prompt id the target took before: its journal or
+/// its ledger holds it.
+fn duplicate(accepted: &Value) -> bool {
+    accepted.get("duplicate") == Some(&Value::Bool(true))
+        || accepted.pointer("/_meta/acpmux/duplicate") == Some(&Value::Bool(true))
+}
+
+/// Peer `peer` listed its sessions on a new link, after its journals took back what this daemon
+/// kept of them (`hub/peer_snapshot/restore.rs`): every delivery it accepted and was not seen to
+/// keep (`Delivery::open_on_peer`) goes again, in the order it was sent, as a resend of its own
+/// prompt id. A machine that kept it (its journal, or the records given back) answers with its
+/// first outcome, which closes it; one that lost it with its disk (a session moved to a fresh
+/// machine, a VM back on an older snapshot) runs it now, once. A delivery past its day closes
+/// unsent. One task per call; each resend waits at most [`ATTEMPT_WAIT`].
+pub(crate) fn redeliver_open(hub: &Arc<Hub>, peer: &str) {
+    let now = crate::store::now_ms();
+    let open: Vec<Delivery> = hub
+        .outbox
+        .open_on_peers()
+        .into_iter()
+        .filter(|d| hub.resolve_remote(&d.target).is_some_and(|(p, _, _)| p.name == peer))
+        .collect();
+    if open.is_empty() {
+        return;
+    }
+    let hub = hub.clone();
+    tokio::spawn(async move {
+        for d in open {
+            if expired(&d, now) {
+                hub.outbox.update(&d.id, |d| d.open_on_peer = false);
+                continue;
+            }
+            let mut request = d.request.clone();
+            if let Some(mux) = request.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
+                mux.insert("resend".into(), json!(true));
+            }
+            match attempt_once(&hub, d.caller.as_deref(), request, Origin::Local).await {
+                Ok(accepted) if duplicate(&accepted) => {
+                    hub.outbox.update(&d.id, |d| d.open_on_peer = false);
+                }
+                Ok(accepted) => {
+                    tracing::info!(delivery = %d.id, "a peer that had lost a delivery took it again");
+                    hub.outbox.update(&d.id, |d| d.accepted = Some(accepted));
+                }
+                // Refused for good (the session is gone there): nothing more to keep open.
+                Err((_, Next::Fail | Next::NoSession | Next::Held)) => {
+                    hub.outbox.update(&d.id, |d| d.open_on_peer = false);
+                }
+                Err(_) => {}
+            }
+        }
+    });
 }
 
 /// How long `delivery` sleeps before its next attempt, given the schedule's `secs`: a message
@@ -913,6 +975,7 @@ mod retry_delay_tests {
             attempts: 0,
             never_sent: true,
             relay_post: None,
+            open_on_peer: false,
             error: None,
             accepted: None,
             created_at,

@@ -211,6 +211,22 @@ impl Hub {
         }
     }
 
+    /// A loaded chat's log after records its owner kept were put back (`journal_restore.rs`):
+    /// read again as after a restart, so a turn the old machine was running is settled as cut
+    /// and continued, and what it had queued waits here again. The caller holds `log_load`.
+    pub(super) fn settle_restored(self: &Arc<Self>, session: &Arc<Session>) {
+        let continued = self.mark_unknown_outcome(session);
+        self.restore_queue(session);
+        self.drop_unsent_subagent_retries(session);
+        super::message_events::recover_message_events(self, session);
+        if let Some(prompt_id) = continued {
+            let _ = self.move_queued(session, &prompt_id, 0, None);
+        }
+        if self.queues_resumed.load(Ordering::SeqCst) {
+            self.resume_restored(std::slice::from_ref(session));
+        }
+    }
+
     /// After adoption: every chat whose agent host ran at the start and has no agent now. Its
     /// host ended before adoption reached it (or adoption failed): it shows idle, and when its
     /// host is gone its log is read as a chat without one (a lost wait, a cut turn and its

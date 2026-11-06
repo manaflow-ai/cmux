@@ -3,8 +3,9 @@
 //! from the peer with `afterSeq` (cmuxterm-hq#4381; Lawrence: "decouple persistence of acp
 //! trajectories from the VM itself, in case the VM is resuming"). The peer's journal stays the
 //! authority: this is what this daemon saw of it (its clients' pages, the pages it read ahead of
-//! an open, `warm.rs`, the peer's live records), never a write lease, an execution checkpoint or a
-//! backup. The files are `disk.rs`'s.
+//! an open, `warm.rs`, the peer's live records), never a write lease or an execution checkpoint;
+//! but what it holds past a peer back on an older disk goes back to that peer (`restore.rs`).
+//! The files are `disk.rs`'s.
 //!
 //! One thread owns every copy and every file (`Store`); the hub only sends it what it saw, in
 //! the order it saw it, so no capture, listing, purge or write ever runs beside another. Sending
@@ -24,7 +25,10 @@
 //!   names none (`_acpmux/events`) only continues one. A page joins a copy only next to or inside
 //!   what it covers; a newer page that does not replaces it, an older one is left out. A peer whose
 //!   `lastSeq` is behind what the copy saw of it, on a link no page joined the copy on (a VM back
-//!   on an older disk, this daemon restarted), replaces it too. A journal that went back and then
+//!   on an older disk, a session moved to a fresh machine), does not replace a copy that holds
+//!   every record past that `lastSeq`: the newer copy stays, and the hub gives the peer those
+//!   records back (`restore.rs`, `hub/journal_restore.rs`); a peer that refuses them, or a copy
+//!   with a gap there, is replaced as before. A journal that went back and then
 //!   ran past where the copy was cannot be told by seq; only a new `createdAt` would tell.
 //! - A live record continues only a copy a page joined on the link it came on, and only at most
 //!   one past what it covers; when the link drops notifications (`_acpmux/lagged`) no record is
@@ -53,11 +57,13 @@ use std::sync::{Arc, Mutex as StdMutex, mpsc};
 use std::time::{Duration, Instant};
 
 mod disk;
+mod restore;
 /// The test allocator's count for one closure on this thread (`disk_tests.rs`); only the
 /// Linux-only chat activity scale tests read it.
 #[cfg(all(test, target_os = "linux"))]
 pub(crate) use disk::tests::thread_allocations;
 use disk::{Head, Key, Writer, record_bytes, seq_of};
+pub(crate) use restore::journal_ends;
 
 /// Records and bytes one peer session keeps; more than an attach page (400).
 pub(crate) const SESSION_EVENTS: usize = if cfg!(test) { 40 } else { 1000 };
@@ -194,6 +200,18 @@ enum Op {
         peer: Option<String>,
         done: Option<mpsc::SyncSender<()>>,
     },
+    /// The records past each row's `lastSeq` its copy holds (`restore.rs`).
+    Ahead {
+        peer: String,
+        rows: Vec<restore::Row>,
+        reply: mpsc::SyncSender<Vec<restore::Ahead>>,
+    },
+    /// How the peer took a copy's records back: its journal's new end, or None (refused, the
+    /// copy goes).
+    Restored {
+        key: Key,
+        last: Option<u64>,
+    },
 }
 
 /// The peers whose ops did not fit the queue (with whether a removal of the peer was among
@@ -257,6 +275,8 @@ pub struct PeerSnapshots {
     untaken: Untaken,
     /// The reads ahead of an open (`warm.rs`).
     warm: warm::Warm,
+    /// The peers whose journals are being given back their records (`restore.rs`).
+    restoring: restore::Gate,
 }
 
 impl PeerSnapshots {
@@ -271,6 +291,7 @@ impl PeerSnapshots {
             dropped: Arc::default(),
             untaken: Arc::default(),
             warm: warm::Warm::default(),
+            restoring: restore::Gate::default(),
         }
     }
 
@@ -704,6 +725,10 @@ impl Store {
             Op::Covers { peer, reply } => {
                 let _ = reply.send(self.covers(&peer));
             }
+            Op::Ahead { peer, rows, reply } => {
+                let _ = reply.send(self.ahead(&peer, rows));
+            }
+            Op::Restored { key, last } => self.restored(&key, last),
             Op::Flush { peer, done } => {
                 if done.is_none() {
                     self.dropped.lock().unwrap_or_else(|e| e.into_inner()).flushes.remove(&peer);
@@ -730,7 +755,7 @@ impl Store {
             }
             Op::Flush { .. } => return,
             // Its reader is answered at once that there is nothing (its reply went with it).
-            Op::Read { .. } | Op::Covers { .. } => return,
+            Op::Read { .. } | Op::Covers { .. } | Op::Ahead { .. } => return,
             Op::LostPeer(_) => return self.take(op),
             Op::Clear(_) => {
                 self.clear();
@@ -738,7 +763,10 @@ impl Store {
             }
             Op::ForgetPeer(peer) => (peer, true),
             Op::Listed { peer, .. } | Op::Lagged { peer, .. } => (peer, false),
-            Op::Page { key, .. } | Op::Record { key, .. } | Op::Gone { key, .. } => (key.0, false),
+            Op::Page { key, .. }
+            | Op::Record { key, .. }
+            | Op::Gone { key, .. }
+            | Op::Restored { key, .. } => (key.0, false),
         };
         self.lose_peer(peer, forget);
     }
@@ -895,8 +923,11 @@ impl Store {
     fn fate(&self, key: &Key, page: &Page, (from, to): (u64, u64), generation: u64) -> Fate {
         let Some(c) = self.copies.get(key) else { return Fate::Restart };
         let h = &c.head;
-        if h.generation != Some(generation) || Self::behind(c, page, Some(to)) {
+        if h.generation != Some(generation) {
             Fate::Restart
+        } else if Self::behind(c, page, Some(to)) {
+            // The newer copy stays while the peer can take its records back (`restore.rs`).
+            if Self::keeps_ahead(c, page) { Fate::Ignore } else { Fate::Restart }
         } else if to + 1 < h.first_seq {
             Fate::Ignore
         } else if from > h.last_seq + 1 {
@@ -942,7 +973,11 @@ impl Store {
         let covered = page.covers().or(empty.then_some((1, 0)));
         let Some((from, to)) = covered else {
             // Nothing to keep, but a peer behind the copy still says it is not this journal.
-            if self.copies.get(key).is_some_and(|c| Self::behind(c, &page, None)) {
+            if self
+                .copies
+                .get(key)
+                .is_some_and(|c| Self::behind(c, &page, None) && !Self::keeps_ahead(c, &page))
+            {
                 self.remove(key);
             }
             return;
