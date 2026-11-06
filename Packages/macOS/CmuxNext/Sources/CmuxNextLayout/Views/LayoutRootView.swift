@@ -672,6 +672,11 @@ public final class LayoutRootView: NSView {
                 // No frames run while parked or away: a resize drag's pages lay out now (`ScreenContentView+ResizeGesture`).
                 view.finishResizeGesture()
             }
+            // Settled: the motion ended for its observers (the window's divider catchers and page geometry, the still
+            // work), as a landing frame ends it. Without this the flag stayed set through the park, nothing landed
+            // after it, and the catchers never moved off the old dividers (Leo 2026-11-06: a closed split's pane
+            // stayed unclickable).
+            setLayoutInMotion(false)
         }
         if !live, let planeHost {
             planeHost.releasePlane(overlayPlane)
