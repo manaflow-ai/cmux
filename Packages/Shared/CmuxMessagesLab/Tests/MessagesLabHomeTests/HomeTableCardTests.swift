@@ -26,7 +26,6 @@ import UniformTypeIdentifiers
 
     init() {
         HomeMarkdownPolicy.install()
-        HomeTableRowProvider.isOn = true
         HomePlanRowProvider.plan = .empty
         CustomRows.unregister(HomeTableRowProvider.kind)
         CustomRows.unregister(HomePlanRowProvider.kind)
@@ -144,13 +143,6 @@ import UniformTypeIdentifiers
         // Copy reads the table as written.
         let card = parts.compactMap { part -> CustomPart? in if case .custom(let c) = part { return c } else { return nil } }.first
         #expect(card.flatMap { HomePlanRowProvider.payload($0)?.raw }?.contains("| 3 | A map from changed files") == true)
-    }
-
-    @Test func withRichTablesOffTheTableStaysInTheBubble() {
-        HomeTableRowProvider.isOn = false
-        defer { HomeTableRowProvider.isOn = true }
-        let parts = HomeMapping.parts(.text(Self.reply), markdown: true)
-        #expect(!parts.contains { if case .custom = $0 { return true } else { return false } })
     }
 
     @Test func peoplesTablesStayText() {

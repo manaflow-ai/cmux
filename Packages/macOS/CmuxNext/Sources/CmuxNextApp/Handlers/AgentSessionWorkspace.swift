@@ -145,7 +145,7 @@ enum AgentSessionWorkspace {
             // placement does when it runs first: one join, and the row draws in its group from its first frame.
             PendingWorkspaceRows.shared.groupJoins.hold(id, group: group)
             join = { id, sidebar in
-                guard let sidebar = sidebar as? SidebarBridge, PendingWorkspaceRows.shared.groupJoins.claim(id) else { return }
+                guard let sidebar = sidebar as? SidebarBridge, case let joins = PendingWorkspaceRows.shared.groupJoins, joins.holds(id), joins.claim(id) else { return } // released or joined: none
                 AgentSessionWorkspace.join(id, group: group, sidebar: sidebar)
             }
         }

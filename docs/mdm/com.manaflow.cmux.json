@@ -92,6 +92,9 @@
         "plex",
         "source-sans",
         "geist",
+        "cmux-sans",
+        "hanken",
+        "atkinson",
         "system-ui",
         "system-ui-tight"
       ],
@@ -387,6 +390,30 @@
       ],
       "title" : "Permission Mode for New Chats",
       "type" : "string"
+    },
+    "agents.guidance.claude" : {
+      "default" : true,
+      "description" : "New Claude Code chats are told how cmux shows their work: the plan checklist, side sessions, session links and the closing recap.",
+      "title" : "cmux Guidance for Claude Code",
+      "type" : "boolean"
+    },
+    "agents.guidance.codex" : {
+      "default" : true,
+      "description" : "New Codex chats are told how cmux shows their work: the plan checklist, side sessions, session links and the closing recap.",
+      "title" : "cmux Guidance for Codex",
+      "type" : "boolean"
+    },
+    "agents.guidance.otherAgents" : {
+      "default" : true,
+      "description" : "Other agents (Gemini, OpenCode and the ones you added) get the same guidance about how cmux shows their work.",
+      "title" : "cmux Guidance for Other Agents",
+      "type" : "boolean"
+    },
+    "agents.guidance.userSkills" : {
+      "default" : true,
+      "description" : "Skills you put in ~/.config/cmux/skills, one folder each with a SKILL.md, reach every new agent chat.",
+      "title" : "Your Skills in Every Chat",
+      "type" : "boolean"
     },
     "agents.modelRouter.model" : {
       "default" : "deepseek/deepseek-v4.1-flash-1017",
@@ -2042,7 +2069,7 @@
       "type" : "boolean"
     },
     "computerUse.driver" : {
-      "default" : "legacy",
+      "default" : "upstream",
       "description" : "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately.",
       "enum" : [
         "legacy",
@@ -2754,6 +2781,24 @@
       "title" : "Bubble Style",
       "type" : "string"
     },
+    "home.chiefDock.edge" : {
+      "default" : "left",
+      "description" : "The window edge the Chief docks to when you press Cmd-I or open a workspace from the Chief. The rest of the window shows the workspace you pick.",
+      "enum" : [
+        "left",
+        "right",
+        "top",
+        "bottom"
+      ],
+      "title" : "Dock Edge",
+      "type" : "string"
+    },
+    "home.chiefDock.openBeside" : {
+      "default" : true,
+      "description" : "A workspace, tab or agent link clicked in the Chief opens beside it. The Chief stays docked with your draft and scroll position.",
+      "title" : "Keep Chief Docked When Opening Workspaces",
+      "type" : "boolean"
+    },
     "home.chiefEngine" : {
       "default" : "auto",
       "description" : "Which Chief Home opens. Auto uses this Mac's Chief while it runs here, else the Hosted Chief in the cloud.",
@@ -2823,12 +2868,6 @@
       "title" : "Connect iMessage",
       "type" : "boolean"
     },
-    "labs.classicHome" : {
-      "default" : false,
-      "description" : "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts.",
-      "title" : "Classic Home",
-      "type" : "boolean"
-    },
     "labs.liveCode" : {
       "default" : false,
       "description" : "In a live code build of cmux, Swift changes you compile from your own checkout apply to the running app without waiting for a new build. Turn it off to go back to normal. Takes effect after cmux restarts.",
@@ -2837,8 +2876,8 @@
     },
     "labs.machineJoin" : {
       "default" : false,
-      "description" : "Add Device shows a line to paste on any Mac or Linux computer; it joins your team's machines. Screen sharing and control stay off until that machine allows them.",
-      "title" : "Join Any Machine with One Line",
+      "description" : "Shows this Mac's Screen sharing and Control switches in Settings > Devices once it has joined your machines. Both stay off until you turn them on.",
+      "title" : "Screen Sharing for Joined Machines",
       "type" : "boolean"
     },
     "labs.previewFeatures" : {
@@ -3021,7 +3060,7 @@
       "type" : "number"
     },
     "layout.paneCornerRadius" : {
-      "description" : "One radius for panes and tabs. Shapes inside a pane use this radius minus the corner padding.",
+      "description" : "One radius for panes, tabs, panels, popovers, cards and toasts. Shapes inside them use this radius minus the corner padding.",
       "maximum" : 20,
       "minimum" : 0,
       "title" : "Corner Radius",
@@ -3771,6 +3810,12 @@
       "title" : "Workspaces Prefix",
       "type" : "string"
     },
+    "palette.searchHistory" : {
+      "default" : true,
+      "description" : "The row you pick for what you typed comes first the next time you type it, and rows you use often rank higher. Off, the palette records nothing and ranks by match and sidebar order only.",
+      "title" : "Remember Palette Searches",
+      "type" : "boolean"
+    },
     "phone.allowConnections" : {
       "default" : false,
       "description" : "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers. Exception: while “Show This Mac's Workspaces on Your Phone While It's Off” is on, cmux servers store each workspace's ID, resource ID, short ID, name, name revision, group, color, icon, pinned state, unread mark, unread count and whether it is active.",
@@ -3816,12 +3861,6 @@
       },
       "title" : "Pinned Folders",
       "type" : "array"
-    },
-    "remote.enabled" : {
-      "default" : false,
-      "description" : "cmux Remote holds Accessibility and Screen Recording for Computer Use (Upstream driver) and Screen Sharing, so a grant never needs a relaunch. Applies when cmux restarts.",
-      "title" : "Use cmux Remote",
-      "type" : "boolean"
     },
     "remote.endSharingOnQuit" : {
       "default" : false,
@@ -5076,6 +5115,16 @@
       "title" : "Program Link Rules",
       "type" : "array"
     },
+    "terminal.term" : {
+      "default" : "xterm-256color",
+      "description" : "The TERM new terminals start with. xterm-256color works on every host you ssh to. xterm-ghostty needs Ghostty's terminfo on each of those hosts, and applies only when it is installed on this Mac.",
+      "enum" : [
+        "xterm-256color",
+        "xterm-ghostty"
+      ],
+      "title" : "Terminal Type (TERM)",
+      "type" : "string"
+    },
     "ui.animations.bounce" : {
       "default" : "none",
       "description" : "None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce.",
@@ -5269,6 +5318,12 @@
       "title" : "Keep Previous Versions",
       "type" : "number"
     },
+    "updates.liveWebReload" : {
+      "default" : true,
+      "description" : "Edits to cmux's web UI from your own checkout show up in this app as you save, with no build and no relaunch. Start it with scripts/cmux-next/web-overlay.sh server --local. Off: cmux ignores ~/.config/cmux/web-dev.json and shows the web UI it shipped with.",
+      "title" : "Live Web Reload",
+      "type" : "boolean"
+    },
     "updates.meteredNetwork" : {
       "default" : "defer-low-data",
       "description" : "While downloads wait, a found update shows on Settings and one click downloads it.",
@@ -5318,6 +5373,12 @@
       ],
       "title" : "Web UI Updates",
       "type" : "string"
+    },
+    "updates.whatsNewInstall" : {
+      "default" : false,
+      "description" : "Each day in What's New lists its versions with an Install button. cmux checks the download's signature, then restarts into that version with your terminals and agents.",
+      "title" : "Install Versions from What's New",
+      "type" : "boolean"
     },
     "window.titlebar" : {
       "default" : "minimal",

@@ -226,7 +226,7 @@ const longCommandRows = [
 /// sent to the in-page mock daemon (mock.ts).
 type GalleryCall = {
   method: string;
-  params?: { id?: string; sessionId?: string; archived?: unknown };
+  params?: { id?: string; sessionId?: string; archived?: unknown; throughSeq?: unknown };
 };
 /// The pane's client attached the mock daemon's chat (the menu can show before, from the stage's
 /// snapshot), and its header offers the chat menu.
@@ -1026,10 +1026,11 @@ const loneToolMetaAtRest = async (ctx: PlayContext) => {
   const view = ctx.document.defaultView!;
   for (const node of ctx.document.querySelectorAll(".cv-tool .cv-command__ok, .cv-tool .cv-command__time"))
     if (view.getComputedStyle(node).opacity !== "0") throw new Error("a finished call's check or time shows at rest");
+  // For Codex parity a failure draws no word: it stays for screen readers, clipped away whole.
   const failed = ctx.find({ selector: ".cv-tool__failed" });
   const style = view.getComputedStyle(failed);
-  if (style.opacity !== "1" || style.color === view.getComputedStyle(failed.parentElement!).color)
-    throw new Error("the failed call's mark is not red at rest");
+  if (style.position !== "absolute" || style.clipPath !== "inset(50%)")
+    throw new Error("the failed call's word is drawn");
 };
 
 /// A quiet turn under a second with no answer, a sub-second answer, then a 5s one (sub-second-turns).
@@ -1494,8 +1495,47 @@ export default agentPaneEntry({
   },
   covers: [
     "page:cmux.agent",
-    "agent-session/acpmux/App.tsx#VirtualTranscript",
+    "agent-session/acpmux/VirtualTranscript.tsx#VirtualTranscript",
     "agent-session/acpmux/App.tsx#AcpmuxApp",
+    "agent-session/acpmux/rows/ActivityLineRow.tsx",
+    "agent-session/acpmux/rows/AgentPairRow.tsx",
+    "agent-session/acpmux/rows/BackgroundTaskRow.tsx",
+    "agent-session/acpmux/rows/BackgroundTurnRow.tsx",
+    "agent-session/acpmux/rows/CompactionRow.tsx",
+    "agent-session/acpmux/rows/DateRow.tsx",
+    "agent-session/acpmux/rows/EditedFilesRow.tsx",
+    "agent-session/acpmux/rows/FailoverRow.tsx",
+    "agent-session/acpmux/rows/LaneNoticeBatchRow.tsx",
+    "agent-session/acpmux/rows/MessageRow.tsx",
+    "agent-session/acpmux/rows/MessageRunRow.tsx",
+    "agent-session/acpmux/rows/NextStepRow.tsx",
+    "agent-session/acpmux/rows/NoticeRow.tsx",
+    "agent-session/acpmux/rows/OfferResultRow.tsx",
+    "agent-session/acpmux/rows/PendingMessagesRow.tsx",
+    "agent-session/acpmux/rows/PermissionAsk.tsx",
+    "agent-session/acpmux/rows/PermissionRecordRow.tsx",
+    "agent-session/acpmux/rows/PermissionRow.tsx",
+    "agent-session/acpmux/rows/PlanRow.tsx",
+    "agent-session/acpmux/rows/PolicyUnenforcedRow.tsx",
+    "agent-session/acpmux/rows/PreviewRow.tsx",
+    "agent-session/acpmux/rows/QuestionRecordRow.tsx",
+    "agent-session/acpmux/rows/QueuedMessageRow.tsx",
+    "agent-session/acpmux/rows/RecapRow.tsx",
+    "agent-session/acpmux/rows/RenderRow.tsx",
+    "agent-session/acpmux/rows/SessionOfferRow.tsx",
+    "agent-session/acpmux/rows/SessionStartRow.tsx",
+    "agent-session/acpmux/rows/StartedSessionsRow.tsx",
+    "agent-session/acpmux/rows/SubagentDoneRow.tsx",
+    "agent-session/acpmux/rows/SubagentGroupRow.tsx",
+    "agent-session/acpmux/rows/SubagentOfPillRow.tsx",
+    "agent-session/acpmux/rows/SubagentRow.tsx",
+    "agent-session/acpmux/rows/SummaryRow.tsx",
+    "agent-session/acpmux/rows/TaskLineRow.tsx",
+    "agent-session/acpmux/rows/ThinkingRow.tsx",
+    "agent-session/acpmux/rows/ToolActivityRow.tsx",
+    "agent-session/acpmux/rows/WorkedRow.tsx",
+    "agent-session/acpmux/rows/WorkflowCardRow.tsx",
+    "agent-session/acpmux/rows/WorkingRow.tsx",
     "agent-session/acpmux/SecretCard.tsx#SecretCard",
     "agent-session/acpmux/conversation/ChatFindScope.tsx#ChatFindScope",
     "agent-session/acpmux/conversation/MessageCard.tsx",
@@ -1758,6 +1798,49 @@ export default agentPaneEntry({
         );
       },
     },
+    "try-another-approach-cloud": {
+      note: "Cloud's latest completed turn offers Try another approach. It snapshots the machine now, copies the transcript through that turn, and opens one sibling labelled with its parent; the parent stays selected.",
+      // This action is host-owned; keep the preview transport so the fixture's transcript remains
+      // the selected parent's latest turn while the native call is recorded by the gallery bridge.
+      ready: { cloudMachineID: "vm_gallery_cloud" },
+      native: {
+        "chat.tryAnotherApproach": {
+          childId: "child-gallery",
+          parentLabel: "Try another approach · Add retries to the fetch helper",
+        },
+      },
+      snapshot: forkTurns(undefined),
+      play: async (ctx) => {
+        const page = ctx.document.defaultView as unknown as { cmuxGalleryLog: GalleryCall[] };
+        await ctx.focus({ selector: "[contenteditable='true']" });
+        await ctx.waitFor(
+          () =>
+            ctx.document.querySelectorAll('.cv-turn-actions button[aria-label="Try another approach"]').length === 1,
+        );
+        const buttons = ctx.document.querySelectorAll<HTMLButtonElement>(
+          '.cv-turn-actions button[aria-label="Try another approach"]',
+        );
+        buttons[0]!.click();
+        await ctx.waitFor(() =>
+          page.cmuxGalleryLog.some(
+            ({ method, params }) => method === "chat.tryAnotherApproach" && params?.throughSeq === 6,
+          ),
+        );
+        if (ctx.document.querySelectorAll('.cv-turn-actions button[aria-label="Try another approach"]').length !== 1)
+          throw new Error("parent action changed");
+      },
+    },
+    "try-another-approach-child": {
+      note: "Sibling chat opened by Try another approach, with the parent label visible in its title.",
+      ready: { cloudMachineID: "vm_gallery_cloud" },
+      snapshot: forkTurns(undefined, "Try another approach · Add retries to the fetch helper"),
+      play: async (ctx) => {
+        await ctx.focus({ selector: "[contenteditable='true']" });
+        await ctx.waitFor(() =>
+          ctx.document.querySelector('[aria-label="Try another approach · Add retries to the fetch helper"]'),
+        );
+      },
+    },
     "mark-unread-menu": {
       note: "Play: the chat menu's Mark as Unread (cx-ncc.78, Codex parity) asks acpmux on the pane's own connection (cx-jlzsf), never the host.",
       // The whole chat menu fits, so its last rows are on screen for the click.
@@ -1834,23 +1917,28 @@ export default agentPaneEntry({
       },
     },
     "thought-row": {
-      note: 'Play: a finished thought is one quiet row, "Thought for 12s" with none of its text inline and no tooltip, as Claude Desktop and Codex draw it (Leo 2026-10-20: "Thought <first line>" read weird). Debug Settings agentPane.debug.thoughtFoldThreshold "Taller than the transcript" brings back the short thought in full after Thought.',
+      note: 'Play: a finished thought is one quiet row, for Codex parity: the brain glyph and its words on one line, cut with an ellipsis, with no tooltip. Opened, it reads Thought for 12s over its text. Debug Settings agentPane.debug.thoughtFoldThreshold "Taller than the transcript" brings back the short thought in full after Thought.',
       snapshot: thoughtChat([thought(SHORT_THOUGHT, { startedAt: 0, endedAt: 12_000 })]),
       play: async (ctx) => {
         const row = () => ctx.document.querySelector<HTMLElement>(".cv-thought");
-        await ctx.waitFor(() => row()?.textContent === "Thought for 12s");
+        // Its words on one line, its paragraphs joined with spaces (ThoughtRow.tsx thoughtLine).
+        const line = SHORT_THOUGHT.split("\n").filter(Boolean).join(" ");
+        await ctx.waitFor(() => row()?.textContent === line);
         await ctx.hover({ selector: ".cv-thought" });
         if (!row()!.matches("button") || row()!.getAttribute("aria-expanded") !== "false")
           throw new Error("a finished thought is a closed toggle");
+        if (!row()!.querySelector(".cv-tool__icon svg")) throw new Error("a folded thought draws the brain glyph");
         if (Math.round(row()!.getBoundingClientRect().height) !== 22)
           throw new Error("a finished thought uses the compact 22px tool-row rhythm");
-        if (ctx.document.querySelector(".cv-thought__text") || ctx.document.body.textContent?.includes("jittered"))
-          throw new Error("a folded thought shows none of its text");
+        const preview = row()!.querySelector<HTMLElement>(".cv-thought__preview");
+        if (!preview || preview.getBoundingClientRect().height > 22)
+          throw new Error("a folded thought's words are one line");
+        if (ctx.document.querySelector(".cv-thought__text")) throw new Error("a folded thought draws no body");
         if (row()!.closest("[title]") || row()!.querySelector("[title]")) throw new Error("a thought shows no tooltip");
       },
     },
     "thought-expanded": {
-      note: "Play: the folded thought opens to its full text under one left rule; the line still reads Thought for 12s.",
+      note: "Play: the folded thought opens to its full text under its label, which reads Thought for 12s.",
       checks: {
         layoutShiftMax: {
           value: 0.02,
@@ -1865,6 +1953,8 @@ export default agentPaneEntry({
         await ctx.waitFor(() => body()?.textContent?.includes("jittered backoff capped at three attempts") ?? false);
         if (ctx.document.querySelector("button.cv-thought")?.getAttribute("aria-expanded") !== "true")
           throw new Error("the opened thought is not expanded");
+        const label = ctx.document.querySelector("button.cv-thought .cv-thought__label")?.textContent;
+        if (label !== "Thought for 12s") throw new Error(`the opened thought reads ${label}, not Thought for 12s`);
       },
     },
     "thoughts-merged": {
@@ -1884,11 +1974,13 @@ export default agentPaneEntry({
       ]),
       play: async (ctx) => {
         const rows = () => [...ctx.document.querySelectorAll<HTMLElement>(".cv-thought")];
-        await ctx.waitFor(() => rows()[0]?.textContent === "Thought for 12s");
+        await ctx.waitFor(() => rows()[0]?.textContent?.includes("parses errors first") ?? false);
         if (rows().length !== 1) throw new Error(`two thoughts side by side draw ${rows().length} rows, not one`);
         await ctx.click({ selector: "button.cv-thought" });
         const body = () => ctx.document.querySelector<HTMLElement>(".cv-thought__body")?.textContent ?? "";
         await ctx.waitFor(() => body().includes("parses errors first") && body().includes("On second thought"));
+        const label = ctx.document.querySelector("button.cv-thought .cv-thought__label")?.textContent;
+        if (label !== "Thought for 12s") throw new Error(`the opened thoughts read ${label}, not Thought for 12s`);
       },
     },
     "thought-quiet": {
@@ -1954,7 +2046,7 @@ export default agentPaneEntry({
       }),
     },
     "long-thought-done": {
-      note: 'A long thought followed by a step folds to "Thought for 12s" (with Debug Settings agentPane.debug.thoughtHeader preview, "Thought" and its first line).',
+      note: "A long thought followed by a step folds to its brain glyph and its words on one line; opened, it reads Thought for 12s.",
       snapshot: chat(
         [
           user(prompt, 2),
@@ -2181,7 +2273,7 @@ export default agentPaneEntry({
       play: runningLineStill(/^Thinking/, true),
     },
     "worked-tokens": {
-      note: "A finished Claude turn: its Worked for line says the turn's tokens from its result, output first (↓ 9.8K out ↑ 1.4M in), with its time and tokens in the line's quieter color.",
+      note: "A finished Claude turn whose result named its tokens: its Worked for line says its time alone, Worked for 1m 18s, as Codex does (Codex parity). The tokens show on the running line only.",
       snapshot: chat([
         user(prompt, 5.9),
         activity(
@@ -2654,7 +2746,7 @@ export default agentPaneEntry({
       },
     },
     "tool-hover-meta": {
-      note: "A finished command's check and run time show only while it is pointed at; a failed one keeps its red exit mark at rest. Play: hover the first command.",
+      note: "A finished command's check and run time show only while it is pointed at; a failed one draws no word (Codex parity), which a screen reader still reads. Play: hover the first command.",
       snapshot: chat([
         user("Run the checks", 3),
         activity(
@@ -2670,9 +2762,11 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await openGroupedRun(ctx);
         const ok = () => ctx.find({ selector: ".cv-command .cv-command__ok" });
-        const failed = ctx.find({ selector: ".cv-command .cv-command__failed" });
-        if (ctx.document.defaultView!.getComputedStyle(failed).opacity !== "1")
-          throw new Error("the failure mark hides at rest");
+        const failed = ctx.document.defaultView!.getComputedStyle(
+          ctx.find({ selector: ".cv-command .cv-command__failed" }),
+        );
+        if (failed.position !== "absolute" || failed.clipPath !== "inset(50%)")
+          throw new Error("the failure word is drawn");
         if (ctx.document.defaultView!.getComputedStyle(ok()).opacity !== "0")
           throw new Error("the check shows at rest");
         await ctx.hover({ selector: ".cv-command" });
@@ -2680,12 +2774,12 @@ export default agentPaneEntry({
       },
     },
     "tool-hover-meta-lone": {
-      note: "Calls that are not shells, at rest: a finished fetch shows no check or time, a failed one says failed in red. Play: open Worked for and its run.",
+      note: "Calls that are not shells, at rest: a finished fetch shows no check or time, a failed one draws no word (Codex parity). Play: open Worked for and its run.",
       snapshot: loneToolCalls(),
       play: loneToolMetaAtRest,
     },
     "tool-hover-meta-lone-hovered": {
-      note: "The same calls with the finished fetch pointed at: its green check and run time fade in; the failure stays as it was. Play: open Worked for and its run, hover the fetch.",
+      note: "The same calls with the finished fetch pointed at: its green check and run time fade in; the failed call stays as it was. Play: open Worked for and its run, hover the fetch.",
       snapshot: loneToolCalls(),
       play: async (ctx) => {
         await loneToolMetaAtRest(ctx);
@@ -3803,7 +3897,7 @@ async function forkEarlierTurn(ctx: PlayContext) {
   );
 }
 
-function forkTurns(family: string | undefined) {
+function forkTurns(family: string | undefined, title = "Add retries to the fetch helper") {
   const snapshot = chat([
     user("Add retry with backoff to the uploader", 9, { seq: 1 }),
     assistant("Done: three tries, doubling from 200 ms, only on 5xx and timeouts.", 8.5),
@@ -3812,5 +3906,9 @@ function forkTurns(family: string | undefined) {
     assistant("Added `uploader.retry.test.ts`; it passes and fails without the retry.", 5),
     summary(5, { seq: 6, status: "completed" }),
   ]);
-  return { ...snapshot, summary: snapshot.summary && { ...snapshot.summary, family } };
+  return {
+    ...snapshot,
+    summary: snapshot.summary && { ...snapshot.summary, family, title },
+    sessions: snapshot.sessions.map((entry) => ({ ...entry, displayTitle: title })),
+  };
 }

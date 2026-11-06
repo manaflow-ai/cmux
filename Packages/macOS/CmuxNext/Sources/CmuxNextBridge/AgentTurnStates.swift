@@ -361,6 +361,9 @@ public final class AgentTurnStateStore {
     /// end). The app rings the chat's pane until the person goes into it, as a terminal agent's
     /// notification does: acpmux reads a turn that ends in a shown chat at once (cx-n8ou).
     @ObservationIgnored public var onTurnEnded: ((String) -> Void)?
+    /// Also told when a session's running turn ends, with its folder (`cwd`, when known): the diff
+    /// viewer precomputes that repository's diff before anyone clicks (DiffPageRuntime+Warm.swift).
+    @ObservationIgnored public var turnEndedObservers: [(_ session: String, _ folder: String?) -> Void] = []
 
     public init() {}
 
@@ -399,7 +402,10 @@ public final class AgentTurnStateStore {
                       source: String = AgentTurnStateStore.localSource) {
         let held = record(session)
         held.source = source
-        if recordsTimeline, held.state == .working, state != .working { onTurnEnded?(session) }
+        if recordsTimeline, held.state == .working, state != .working {
+            onTurnEnded?(session)
+            for observer in turnEndedObservers { observer(session, (detail ?? held.detail)?.cwd) }
+        }
         if recordsTimeline {
             let nowMs = UInt64((Date().timeIntervalSince1970 * 1000).rounded())
             for event in AgentTimeline.chatEvents(from: held.state, held.detail, to: state, detail, nowMs: nowMs) {

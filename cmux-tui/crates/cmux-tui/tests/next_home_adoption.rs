@@ -395,6 +395,55 @@ fn next_launch_adopts_both_homes_and_keeps_post_update_state() {
     assert!(wrong.is_empty(), "NEXT's launch lost state:\n{}\n{}", wrong.join("\n"), text(&launch));
 }
 
+/// A post-update home whose daemon stopped without a shutdown while the event journal was on (a
+/// crash or a kill): a chat made after the update is in that home's journal past its checkpoint,
+/// and its `session.json` is written only by a checkpoint, which never ran. The adoption must
+/// replay that journal before it moves the chat (R-DURABILITY, the build-adoption journal): else
+/// the adopted home has the chat's log but no `session.json`, and no daemon lists the chat again.
+#[test]
+fn a_post_update_chat_that_only_its_journal_holds_is_adopted_whole() {
+    let home = temp_home("journal");
+    old_acpmux(&home);
+    let new = home.join(".acpmux/builds").join(NEXT);
+    fs::create_dir_all(&new).unwrap();
+    let id = "01a10000-0000-7000-8000-0000000000e1";
+    {
+        let config = acpmux::config::StoreConfig { journal: true, ..Default::default() };
+        let store = acpmux::store::open(&config, &new).unwrap();
+        let meta: acpmux::store::SessionMeta = serde_json::from_value(serde_json::json!({
+            "schema": acpmux::store::META_SCHEMA, "id": id, "name": "journal-only",
+            "harness": "codex", "cwd": "/tmp", "status": "idle",
+            "createdAt": 1_760_000_000_000u64, "updatedAt": 1_760_000_000_000u64,
+        }))
+        .unwrap();
+        store.save(&meta).unwrap();
+        let line = acpmux::store::EventRecord {
+            seq: 1,
+            at: 1_760_000_000_001,
+            dir: "mux".into(),
+            kind: "note".into(),
+            msg: serde_json::json!({"text": "kept"}),
+            host_seq: None,
+        };
+        store.append(id, &line).unwrap();
+        assert!(store.wait_durable(std::time::Duration::from_secs(10)).unwrap(), "never durable");
+        // A kill: no shutdown, so no checkpoint.
+        drop(store);
+    }
+    let saved = new.join("sessions").join(id).join("session.json");
+    assert!(!saved.exists(), "a checkpoint ran before the kill: the test shows nothing");
+
+    let launch = cli_as(NEXT, Some("cmux-next"), &home, &["__adopt-build-homes"]);
+    let meta: Value = serde_json::from_str(&read(&saved)).unwrap_or(Value::Null);
+    let _ = fs::remove_dir_all(&home);
+    assert_eq!(
+        meta["name"],
+        "journal-only",
+        "the adopted home has no session.json for a chat only the post-update journal held\n{}",
+        text(&launch)
+    );
+}
+
 /// NIGHTLY and DEV builds never adopt NEXT's old homes, through the launch
 /// step or `cmux acp`.
 #[test]

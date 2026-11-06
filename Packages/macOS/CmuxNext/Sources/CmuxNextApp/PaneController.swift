@@ -115,7 +115,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
 
         view.onResize = { [weak services, weak paneView = view] in
             services?.surfaceInvariant.noteChange()
-            services?.newTabSpares.paneLayoutDidChange(in: paneView?.window) // the parked New Tab spare follows
+            services?.newTabSpares.paneLayoutDidChange(in: paneView?.window) // the parked New Tab spare draws the context Cmd-T gives
         }
         #if DEBUG
         DebugLayoutCounters.note("pane mount", #fileID, #line)
@@ -247,7 +247,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // The Home Chief pane (a pinned dock) shows no tab bar while it holds only Home (Lawrence
         // 2026-10-23: "home chief should have no tabbar"); a tab dragged in brings it back while it
         // is there (plans/cmux-next/home-chief-pane.md H1).
-        let homeChief = dock.map { LayoutMapping.dock($0).hidesTabBar(shownTabs: tabs.count + local.count) } ?? false
+        let homeChief = (dock.map { LayoutMapping.dock($0).hidesTabBar(shownTabs: tabs.count + local.count) } ?? false)
+            // A window dock in the same no-tab-bar mode (Show or Hide Dock Tab Bar, user 2026-11-05).
+            || (LayoutTunables.dockedWorkspaces.value && ownWorkspace.map { state?.docks.hidesTabBar(of: $0.id, shownTabs: tabs.count + local.count) ?? false } ?? false)
         return Snapshot(tabs: tabs, items: local, groups: groups,
                          defaultIndex: pane.defaultTabIndex, generation: store.generation?.rawValue,
                          // An app workspace's one pane shows its app without a strip (`app-screens-v1`).
