@@ -2,6 +2,7 @@ import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextSettings
 import CmuxNextHistory
+import CmuxNextHistoryPages
 import Foundation
 
 /// `history.list {kind?, text?, limit?, range?}` for `cmux history list`

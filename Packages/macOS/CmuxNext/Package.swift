@@ -320,6 +320,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextImportSuggestions",
                 "CmuxNextAgentPane",
                 "CmuxNextHistory",
+                "CmuxNextHistoryPages",
                 "CmuxNextPages",
                 "CmuxNextRemoteView",
                 "CmuxNextRemoteBrowser",
@@ -407,7 +408,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: ["CmuxNextActions", "CmuxNextAgentPane", "CmuxNextBrowser", "CmuxNextCompat", "CmuxNextSettings", "CmuxNextSidebar", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
-        // Stash (a native OneTab, cx-rws36): the Stashed page's source on this Mac's daemon.
+        // Stash (a native OneTab, cx-rws36): Save and Close, and the Stashed Tabs page's restore and delete, on this Mac's daemon.
         // The App only answers `StashHost`.
         // The daemon history module's client (`history-v1`): visits, entries, clearing.
         .target(
@@ -417,7 +418,19 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextStash",
-            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextHistory"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDaemonService"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // The app's native ops for the React History and Stashed Tabs pages
+        // (webviews/src/pages/history, webviews/src/pages/stash): Cookie Backups (Keychain-encrypted
+        // app data) and stash restore and delete with the Undo toast.
+        .target(
+            name: "CmuxNextHistoryPages",
+            dependencies: ["CmuxNextBrowserAutomation", "CmuxNextDaemonService", "CmuxNextDesign", "CmuxNextPages", "CmuxNextSettings",
+                           "CmuxNextStash"],
+            resources: [
+                .process("Resources"),
+            ],
             swiftSettings: uiSwiftSettings
         ),
         // Agent pane (plans/cmux-next roadmap Phase 1): hosts the React pane
@@ -1819,6 +1832,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextHangReports",
                 "CmuxNextHibernation",
                 "CmuxNextHistory",
+                "CmuxNextHistoryPages",
                 "CmuxNextHistoryDaemon",
                 "CmuxNextHome",
                 "CmuxNextHomeEngine",

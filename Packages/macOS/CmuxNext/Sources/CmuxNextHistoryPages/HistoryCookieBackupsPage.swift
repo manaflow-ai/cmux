@@ -1,9 +1,9 @@
-import AppKit
-import CmuxNextActions
-import CmuxNextBrowserAutomation
-import CmuxNextDesign
-import CmuxNextPages
-import CmuxNextSettings
+public import AppKit
+public import CmuxNextBrowserAutomation
+import CmuxNextDaemonService
+public import CmuxNextDesign
+public import CmuxNextPages
+public import CmuxNextSettings
 import Foundation
 import os
 
@@ -17,21 +17,21 @@ import os
 ///   click in the page, and only after they confirm in the app's dialog (page script cannot answer
 ///   it): an agent can no longer undo those clears.
 @MainActor
-final class HistoryCookieBackupsPageProvider: PageProvider {
-    static let prefix = "cmux.history.cookie_backups."
+public final class HistoryCookieBackupsPageProvider: PageProvider {
+    public static let prefix = "cmux.history.cookie_backups."
     private let backups: () -> CookieBackups?
     /// The page view the dialog attaches to.
-    var anchor: () -> NSView? = { nil }
+    public var anchor: () -> NSView? = { nil }
     /// The person's answer to the delete question (tests answer it).
-    var confirm: (CmuxDialogSpec, NSWindow?) async -> Bool = { spec, window in
+    public var confirm: (CmuxDialogSpec, NSWindow?) async -> Bool = { spec, window in
         await CmuxDialogCenter.shared.present(spec, in: window.map { .window($0) } ?? .app).button == "confirm"
     }
 
-    init(backups: @escaping () -> CookieBackups?) {
+    public init(backups: @escaping () -> CookieBackups?) {
         self.backups = backups
     }
 
-    func call(_ op: String, params: CmuxNextSettings.JSONValue, context: PageCallContext) async throws -> CmuxNextSettings.JSONValue {
+    public func call(_ op: String, params: CmuxNextSettings.JSONValue, context: PageCallContext) async throws -> CmuxNextSettings.JSONValue {
         switch op {
         case Self.prefix + "list":
             return ["backups": .array(await list().map(Self.json))]
@@ -50,7 +50,7 @@ final class HistoryCookieBackupsPageProvider: PageProvider {
     }
 
     /// The backups, newest first, read off the main actor (the files are decrypted with the Keychain key).
-    func list() async -> [CookieBackups.Summary] {
+    public func list() async -> [CookieBackups.Summary] {
         guard let backups = backups() else { return [] }
         return await Task.detached {
             backups.pruneExpired()
@@ -59,7 +59,7 @@ final class HistoryCookieBackupsPageProvider: PageProvider {
     }
 
     /// Deletes `ids` for good; answers how many went.
-    func delete(_ ids: [String]) async -> Int {
+    public func delete(_ ids: [String]) async -> Int {
         guard let backups = backups() else { return 0 }
         let deleted = await Task.detached { ids.filter { (try? backups.remove($0)) != nil }.count }.value
         Self.logger.info("deleted \(deleted, privacy: .public) of \(ids.count, privacy: .public) cookie backups at the person's request")
@@ -84,10 +84,10 @@ final class HistoryCookieBackupsPageProvider: PageProvider {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cookie-backups")
 }
 
-/// The delete question's strings (table History.xcstrings); the panel's own are the page's.
+/// The delete question's strings (this target's Localizable.xcstrings); the panel's own are the page's.
 nonisolated enum HistoryCookieBackupStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "History", bundle: .module)
+        String(localized: key, defaultValue: value, bundle: .module)
     }
 
     static var confirmTitle: String { t("cookieBackups.confirm.title", "Delete these cookie backups?") }

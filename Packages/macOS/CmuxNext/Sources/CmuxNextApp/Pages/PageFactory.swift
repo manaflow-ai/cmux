@@ -7,6 +7,7 @@ import CmuxNextCloud
 import CmuxNextCloudUI
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHistoryPages
 import CmuxNextHomeEngine
 import CmuxNextMacScreen
 import CmuxNextPages

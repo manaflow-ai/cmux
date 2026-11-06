@@ -1,9 +1,9 @@
-import AppKit
-import CmuxNextActions
+public import AppKit
+import CmuxNextDaemonService
 import CmuxNextDesign
-import CmuxNextPages
-import CmuxNextSettings
-import CmuxNextStash
+public import CmuxNextPages
+public import CmuxNextSettings
+public import CmuxNextStash
 import Foundation
 
 /// The Stashed Tabs page's `cmux.stash.*` (webviews/src/pages/stash). The daemon owns the stashes:
@@ -16,18 +16,18 @@ import Foundation
 ///   the app's Undo toast is up; the delete goes to the daemon when the toast ends without Undo.
 ///   Answers `{deleted}` then (false: Undo).
 @MainActor
-final class StashPageProvider: PageProvider {
+public final class StashPageProvider: PageProvider {
     private let stash: StashService
     private let relay: any PageProvider
     /// The page view whose window shows the Undo toast.
-    var anchor: () -> NSView? = { nil }
+    public var anchor: () -> NSView? = { nil }
 
-    init(stash: StashService, relay: any PageProvider) {
+    public init(stash: StashService, relay: any PageProvider) {
         self.stash = stash
         self.relay = relay
     }
 
-    func call(_ op: String, params: CmuxNextSettings.JSONValue, context: PageCallContext) async throws -> CmuxNextSettings.JSONValue {
+    public func call(_ op: String, params: CmuxNextSettings.JSONValue, context: PageCallContext) async throws -> CmuxNextSettings.JSONValue {
         switch op {
         case "cmux.stash.restore":
             let id = try Self.stashID(params)
@@ -51,7 +51,7 @@ final class StashPageProvider: PageProvider {
         }
     }
 
-    func subscribe(_ stream: String, filter: CmuxNextSettings.JSONValue, context: PageCallContext,
+    public func subscribe(_ stream: String, filter: CmuxNextSettings.JSONValue, context: PageCallContext,
                    onEvent: @escaping @MainActor (CmuxNextSettings.JSONValue) -> Void) async throws -> PageSubscription {
         try await relay.subscribe(stream, filter: filter, context: context, onEvent: onEvent)
     }
@@ -83,10 +83,10 @@ final class StashPageProvider: PageProvider {
     }
 }
 
-/// The Undo toast's strings (table Stash.xcstrings); the page's own are webviews/src/pages/stash.
+/// The Undo toast's strings (this target's Localizable.xcstrings); the page's own are webviews/src/pages/stash.
 nonisolated enum StashPageStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "Stash", bundle: .module)
+        String(localized: key, defaultValue: value, bundle: .module)
     }
 
     static var deletedTab: String { t("stash.deleted.tab", "Stashed tab deleted") }
