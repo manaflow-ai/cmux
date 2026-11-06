@@ -5,6 +5,7 @@
 // the list for the folder explainer; with passwords checked, Import first swaps it for the Keychain
 // explainer. The list keeps four row slots mounted while browsers are looked for, and the explainers
 // take the same body area, so the status line and the links never move.
+import type { MouseEvent } from "react";
 import { Button } from "../../ui/Button";
 import { Select } from "../../ui/Select";
 import { StatusGlyph } from "../../ui/StatusGlyph";
@@ -19,6 +20,9 @@ import { importRowDetail, importStatus, keychainLine, kindLabel } from "./text";
 export const IMPORT_ROW_SLOTS = 4;
 /** The target menu's value for the row's own new matching profile. */
 const NEW_PROFILE = "";
+/** The row's own controls: a click on one is that control's, never the row's toggle. */
+const ROW_CONTROLS =
+  "input, button, select, a, [role='button'], [role='combobox'], [role='menu'], [role='listbox'], .onb-import-target";
 
 function ProfileRow({ row, importer }: { row: Extract<ImportRow, { kind: "profile" }>; importer: ImportState }) {
   const { strings, store } = useOnboarding();
@@ -34,11 +38,18 @@ function ProfileRow({ row, importer }: { row: Extract<ImportRow, { kind: "profil
   const toggle = () => {
     if (editable) store.call(OPS.toggleProfile, { id: row.id });
   };
+  // A click on the row's own surface checks it; its controls (the checkbox, the target menu, Open
+  // System Settings) act alone, so picking a target never also unchecks the profile.
+  const rowClick = (event: MouseEvent<HTMLDivElement>) => {
+    if (!showsBox || (event.target as Element).closest(ROW_CONTROLS)) return;
+    toggle();
+  };
   const glyph = row.state.kind === "done" ? "done" : row.state.kind === "failed" ? "error" : null;
   return (
-    // A label: a click anywhere on the row presses its checkbox (not its menu or button).
-    <label
+    <div
       className="onb-import-row"
+      role="presentation"
+      onClick={rowClick}
       data-row={row.id}
       data-state={row.state.kind}
       data-editable={editable && showsBox ? "" : undefined}
@@ -104,7 +115,7 @@ function ProfileRow({ row, importer }: { row: Extract<ImportRow, { kind: "profil
           </span>
         </span>
       </span>
-    </label>
+    </div>
   );
 }
 
