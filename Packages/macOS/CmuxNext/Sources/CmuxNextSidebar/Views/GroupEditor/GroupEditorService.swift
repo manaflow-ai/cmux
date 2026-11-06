@@ -30,10 +30,17 @@ public final class GroupEditorService: SidebarGroupEditorSurface {
         weak var parent: NSWindow?
         weak var themeAnchor: NSView?
         let events: SidebarGroupEditorEvents
-        /// The name the field holds (the page's last draft).
-        var draft: String
+        /// The name the person typed (the page's last draft); nil while the field is untouched, so a name
+        /// changed elsewhere meanwhile is never written back.
+        var draft: String?
         /// The card shows (the page painted, or the deadline passed).
         var shown = false
+
+        /// The typed name to commit: trimmed, not empty and not the group's name now.
+        var typedName: String? {
+            guard let name = draft?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty, name != group.name else { return nil }
+            return name
+        }
     }
 
     private struct Warm {
@@ -85,7 +92,7 @@ public final class GroupEditorService: SidebarGroupEditorSurface {
         guard let warm = warmed() else { return }
         sessions += 1
         let opened = Open(session: "group-editor-\(sessions)", revision: 1, group: group, items: items, anchor: anchor,
-                          parent: parent, themeAnchor: themeAnchor, events: events, draft: group.name)
+                          parent: parent, themeAnchor: themeAnchor, events: events)
         open = opened
         warm.provider.openSession = opened.session
         push(opened)
@@ -110,8 +117,7 @@ public final class GroupEditorService: SidebarGroupEditorSurface {
         guard let open else { return }
         self.open = nil
         warm?.provider.openSession = nil
-        let name = open.draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !name.isEmpty, name != open.group.name { open.events.rename(name) }
+        if let name = open.typedName { open.events.rename(name) }
         if let panel = warm?.panel {
             if open.shown { fade.close(panel, toward: open.anchor.rect) } else { panel.park() }
         }
@@ -149,10 +155,9 @@ public final class GroupEditorService: SidebarGroupEditorSurface {
             dismiss()
         case let .item(id):
             // The typed name commits before the row runs (a rename then New Workspace in Group).
-            let name = open.draft.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !name.isEmpty, name != open.group.name {
+            if let name = open.typedName {
                 open.events.rename(name)
-                open.group.name = name
+                open.draft = nil
                 self.open = open
             }
             open.events.item(id)
