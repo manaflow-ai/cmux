@@ -81,6 +81,7 @@ impl Drop for Ended {
     fn drop(&mut self) {
         let panicked = std::thread::panicking();
         self.0.listeners.lock().unwrap_or_else(PoisonError::into_inner).clear();
+        self.0.written_listeners.lock().unwrap_or_else(PoisonError::into_inner).clear();
         {
             let mut state = self.0.lock();
             state.ended = true;
@@ -194,7 +195,8 @@ impl Writer {
             }
             let took = self.take(&mut state);
             let owed = !self.retained.is_empty() || self.durable > self.full_durable;
-            if took || (state.closed && owed) || self.sync_due(now) || self.full_due(now) {
+            let asked = self.take_sync_ask(&mut state);
+            if took || asked || (state.closed && owed) || self.sync_due(now) || self.full_due(now) {
                 return Job { close: state.closed, last: false };
             }
             let deadline = self.deadline();
@@ -238,6 +240,19 @@ impl Writer {
         state.pending_last = 0;
         state.pending_records = 0;
         state.pending_ack = false;
+        true
+    }
+
+    /// A waiter asked for a sync ([`crate::Journal::wait_durable`]): the records held now are
+    /// synced in the next job, as an acked batch is. An ask with nothing held is spent.
+    fn take_sync_ask(&mut self, state: &mut State) -> bool {
+        if !std::mem::take(&mut state.sync_asked) {
+            return false;
+        }
+        if self.retained.is_empty() {
+            return false;
+        }
+        self.retained_ack = true;
         true
     }
 
@@ -303,6 +318,15 @@ impl Writer {
             }
             let last = self.retained_last;
             self.publish(|stats| stats.written_lsn = last);
+            let listeners = self
+                .shared
+                .written_listeners
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone();
+            for listener in listeners {
+                listener(last);
+            }
         }
         let segment_bytes = self.shared.config.segment_bytes;
         let full_segment = self.active.as_ref().is_some_and(|active| active.size >= segment_bytes);

@@ -19,7 +19,6 @@ import { composerPlusSearchExtensions, PLUS_SEARCH_ACTIONS } from "./composerPlu
 import { CONNECT_ACTIONS, type ConnectKind, type OffloadKind, thisMacName } from "./environments";
 import { restoreForkSource } from "./handoff/restoreForkSource";
 import { QueryClientProvider, useIsFetching, useQueryClient } from "@tanstack/react-query";
-import { applyAgentTheme } from "../shared/theme";
 import { agentKey } from "../shared/agentKey";
 import {
   paneHeader,
@@ -52,7 +51,8 @@ import { CloudEnvironmentEditor } from "./CloudEnvironmentEditor";
 import { NativeError } from "./nativeError";
 import { errorMessage, isStartCancelled, startCancelled } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
-import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabChat, type NewTabHost } from "./NewTabPage";
+import { NewTabPage } from "./NewTabPage";
+import { FOCUS_LOCATION_EVENT, newTabHost, type NewTabChat, type NewTabHost } from "./newTabModel";
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
@@ -248,14 +248,13 @@ import { runRetry, type RetryTarget } from "./subagents/retryState";
 import { configureWorkflowCardOpen, configureWorkflowCardSideTab } from "./summary/WorkflowCard";
 import {
   type DoneLineCache,
-  configureSubagentTray,
   finishedTrayItems,
   trayItems,
   useSubagentTray,
   withSubagentLines,
 } from "./subagents/runningTray";
-import { configureSubagentTrayPlacement, useSubagentTrayPlacement } from "./subagents/subagentTrayPlacement";
-import { configureSelectionReply, SelectionReplyChip, setQuoteReplySink } from "./conversation/SelectionReply";
+import { useSubagentTrayPlacement } from "./subagents/subagentTrayPlacement";
+import { SelectionReplyChip, setQuoteReplySink } from "./conversation/SelectionReply";
 import { AgentTonesContext, agentTone, agentTones } from "./subagents/agentTones";
 import { useSummaryCard, useSummaryColumn } from "./summary/cardState";
 import { chatHasSummaryContent } from "./summary/summaryContent";
@@ -450,7 +449,6 @@ import { harnessLabel } from "./subagents/agentRuns";
 import { cloudStartBegun, cloudStartEnded, cloudStartPushed, type CloudStartProgress } from "./cloudStartProgress";
 import { CloudStartView } from "./CloudStartView";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
-import { configureChatWidth } from "./chatWidth";
 import {
   registerChatDisplayHost,
   useChatDisplay,
@@ -466,19 +464,13 @@ import { messagesRows } from "./conversation/messagesRows";
 import { PresentationContext } from "./conversation/PresentationContext";
 import { thinkingVerbsFor, ThinkingVerbsContext } from "./conversation/thinkingVerbs";
 import { useStatusVerbConfig } from "./statusVerbs";
-import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
-import { configureLiveLineBelow, useLiveLineBelow } from "./liveLineBelow";
-import { configureToolRunLook } from "./toolRunLook";
-import { configureSentLook } from "./conversation/SentMessageLine";
-import { configureInboxNoticeLook } from "./conversation/inboxNoticeLook";
-import { configureMessageLineLook } from "./conversation/messageLineLook";
-import { configureNoticeLook } from "./conversation/noticeLook";
+import { useCodexToolRuns } from "./codexToolRuns";
+import { useLiveLineBelow } from "./liveLineBelow";
 import { mergeInboxNotices } from "./conversation/inboxNotice";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
 import { cloudCredentialRecovery } from "./cloudCredentialRecovery";
 import { cloudAgentLogin, localApiKeyLogin, SIGN_IN_ON_MACHINE } from "./cloudAgentLogin";
 import { handoffTurns } from "./cloudHandoffTurn";
-import { configureTurnActionsPlacement } from "./turnActionsPlacement";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { archiveClosesTab, deleteClosesTab } from "./header/archiveClose";
 import { afterDeleteDismiss } from "./header/deleteDismiss";
@@ -615,9 +607,10 @@ import { PermissionAsk } from "./rows/PermissionAsk";
 
 import { defaultRegistry } from "./rows/registry";
 import { NO_ROWS, type ScrollAnchor, VirtualTranscript, rowKind } from "./VirtualTranscript";
-export { FOLLOW_BOTTOM_DEADBAND_PX, SCROLL_ANCHOR_SETTLE_MS, VirtualTranscript } from "./VirtualTranscript";
+import { turnEndedBetween, saveSnapshot, emptySnapshot, cachedSnapshot } from "./snapshotCache";
+import { applyPaneTheme, applyPaneThemeCSS } from "./paneTheme";
+export { VirtualTranscript } from "./VirtualTranscript";
 export type { ScrollAnchor } from "./VirtualTranscript";
-export { readOnlyRegistry } from "./rows/registry";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -709,132 +702,9 @@ declare global {
   }
 }
 
-function emptySnapshot(): AcpmuxSnapshot {
-  return {
-    type: "snapshot",
-    protocolVersion: 1,
-    rows: [],
-    sessions: [],
-    connection: "connecting",
-    isWorking: false,
-    queue: [],
-    catalog: [],
-    canLoadOlder: false,
-  };
-}
-
-/// The latest snapshot, kept for a reload of the page (`cachedSnapshot`). A streaming reply sends
-/// one a display frame, and serializing the whole transcript each frame took main-thread time that
-/// grew with the chat: it is written at most every SNAPSHOT_SAVE_MS, and at once as the page hides
-/// or unloads, so a reload still finds the latest one.
-const SNAPSHOT_SAVE_MS = 250;
-const snapshotSave: {
-  next?: AcpmuxSnapshot;
-  timer?: ReturnType<typeof setTimeout>;
-  hooked?: boolean;
-} = {};
-function writeSnapshot(): void {
-  clearTimeout(snapshotSave.timer);
-  snapshotSave.timer = undefined;
-  const next = snapshotSave.next;
-  snapshotSave.next = undefined;
-  if (!next) return;
-  try {
-    sessionStorage.setItem("cmux.acpmux.snapshot", JSON.stringify({ ...next, sessions: savedSessions(next) }));
-  } catch {
-    // Painting remains live when storage is unavailable or full.
-  }
-}
-
-/// Whether the shown chat's turn ended between two renders (App.tsx `pane.tabState`): the same chat
-/// went idle, or its client counted an end. Only the same chat counts; switching away from a working
-/// chat is no turn end. A turn that started and ended between two renders (a hidden page's batch,
-/// drawn as one render) shows in `turnsEnded` alone; a new client counts from 0, so any change to a
-/// count above 0 is an end.
-export type TurnState = { session?: string; working: boolean; turnsEnded?: number };
-export function turnEndedBetween(last: TurnState, next: TurnState): boolean {
-  if (last.session !== next.session) return false;
-  if (last.working && !next.working) return true;
-  return next.turnsEnded !== undefined && next.turnsEnded > 0 && next.turnsEnded !== last.turnsEnded;
-}
-
-/// The reload copy keeps the newest SAVED_SESSIONS chats of the list, and the shown chat with its
-/// parent and its own sub-sessions and forks at any age. The whole list (3,055 chats on a busy
-/// Mac) was serialized on every write and went past sessionStorage's 5 MB, so the copy was lost;
-/// the live list replaces this one as soon as the watch reads it.
-export const SAVED_SESSIONS = 200;
-const savedList: { sessions?: readonly AcpmuxSessionEntry[]; shown?: string; saved: AcpmuxSessionEntry[] } = {
-  saved: [],
-};
-export function savedSessions(snapshot: AcpmuxSnapshot): AcpmuxSessionEntry[] {
-  const { sessions, sessionId: shown } = snapshot;
-  if (sessions.length <= SAVED_SESSIONS) return sessions;
-  // A streaming reply writes with the list unchanged: it is chosen again only when it changes. Each
-  // snapshot maps the list into a new array of the same cached entries (direct.ts `sessionEntries`),
-  // so the entries are compared, not the array.
-  const last = savedList.sessions;
-  if (
-    savedList.shown === shown &&
-    last?.length === sessions.length &&
-    (last === sessions || sessions.every((entry, index) => entry === last[index]))
-  )
-    return savedList.saved;
-  const at = (entry: AcpmuxSessionEntry) => entry.activityAt ?? entry.updatedAt ?? 0;
-  const newest = new Set(
-    sessions
-      .map((entry, index) => ({ at: at(entry), index }))
-      .sort((a, b) => b.at - a.at)
-      .slice(0, SAVED_SESSIONS)
-      .map(({ index }) => index),
-  );
-  const own = sessions.find((entry) => entry.sessionId === shown);
-  const kin = new Set([own?.parentId, own?.spawnedBy, own?.startedBy]);
-  const related = (entry: AcpmuxSessionEntry) =>
-    shown !== undefined &&
-    (entry.sessionId === shown ||
-      kin.has(entry.sessionId) ||
-      entry.parentId === shown ||
-      entry.spawnedBy === shown ||
-      entry.startedBy === shown);
-  const saved = sessions.filter((entry, index) => newest.has(index) || related(entry));
-  Object.assign(savedList, { sessions, shown, saved });
-  return saved;
-}
-export function saveSnapshot(next: AcpmuxSnapshot): void {
-  snapshotSave.next = next;
-  if (!snapshotSave.hooked && typeof window !== "undefined") {
-    snapshotSave.hooked = true;
-    window.addEventListener("pagehide", writeSnapshot);
-    document.addEventListener("visibilitychange", () => document.visibilityState === "hidden" && writeSnapshot());
-  }
-  snapshotSave.timer ??= setTimeout(writeSnapshot, SNAPSHOT_SAVE_MS);
-}
-
-function cachedSnapshot(): AcpmuxSnapshot {
-  try {
-    const value = JSON.parse(sessionStorage.getItem("cmux.acpmux.snapshot") ?? "null");
-    if (value?.type === "snapshot" && Array.isArray(value.rows) && Array.isArray(value.sessions)) {
-      acpmuxPerf.markAgent("snapshotPaint");
-      // `connection`, `drewKeptTail`, `chatRead` and `turnsEnded` are facts about a live client, and this one is
-      // restored: no client has drawn anything yet, so this document's first paint is its own to report.
-      return {
-        ...emptySnapshot(),
-        ...value,
-        connection: "connecting",
-        drewKeptTail: undefined,
-        chatRead: undefined,
-        turnsEnded: undefined,
-      };
-    }
-  } catch {
-    // A corrupt or unavailable session store must never block the pane.
-  }
-  return emptySnapshot();
-}
-
 /// A page action: the connected client's (chat actions run against acpmux), else the native host.
 /** Saves the inspector's export through the host's save panel (`pane.saveLog`): true is saved, false a cancelled panel. A host without it, or one that refuses the log, leaves the inspector to copy it. */
-export async function saveLogNatively(text: string, suggestedName: string): Promise<ExportOutcome> {
+async function saveLogNatively(text: string, suggestedName: string): Promise<ExportOutcome> {
   try {
     return (await callNative<boolean>("pane.saveLog", { text, suggestedName })) === true ? "saved" : "cancelled";
   } catch {
@@ -1093,7 +963,7 @@ const postOpenInWindow = (sessionId: string) =>
 const QUICK_NAME_LIMIT = 80;
 
 /// A started chat's workspace name: the prompt's first non-empty line, or none.
-export function quickChatName(text: string): string | undefined {
+function quickChatName(text: string): string | undefined {
   const line = text
     .split("\n")
     .map((part) => part.trim())
@@ -1340,34 +1210,6 @@ function DefaultComposerChips({
       onHarnessHint={(harness) => void window.cmuxAcpmuxActions?.["chat.harness.hint"]?.({ harness })}
     />
   );
-}
-
-/** The same host theme before mount and on subsequent bridge pushes. */
-export function applyPaneTheme(theme: Record<string, unknown>): void {
-  applyAgentTheme(theme as never);
-  configureChatWidth(theme.chatWidth);
-  configureCodexToolRuns(theme.codexToolRuns);
-  configureLiveLineBelow(theme.liveLineBelow);
-  configureToolRunLook(theme.toolRunLook);
-  configureSentLook(theme.sentLook);
-  configureInboxNoticeLook(theme.inboxNoticeLook);
-  configureMessageLineLook(theme.messageLineLook);
-  configureNoticeLook(theme.noticeLook);
-  configureTurnActionsPlacement(theme.turnActionsPlacement);
-  configureSubagentTray(theme.subagentTray);
-  configureSubagentTrayPlacement(theme.subagentTrayPlacement);
-  configureSelectionReply(theme.selectionReply);
-}
-
-/** Install the user font/layout stylesheet before the first render when already known. */
-export function applyPaneThemeCSS(themeCSS: string): void {
-  let style = document.getElementById("acpmux-user-theme") as HTMLStyleElement | null;
-  if (!style) {
-    style = document.createElement("style");
-    style.id = "acpmux-user-theme";
-    document.head.append(style);
-  }
-  style.textContent = themeCSS;
 }
 
 /** Static preview boot state, not a production host handshake. The gallery still delivers the
@@ -9459,8 +9301,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         return result.cwd;
       })
       .catch((error: unknown) => {
-        setFolderError(errorMessage(error) || undefined);
+        // A deferred ask's caller (the folder menu) shows the failure with its Retry; one notice, not two.
         if (request?.deferPick) throw error;
+        setFolderError(errorMessage(error) || undefined);
         return undefined;
       });
   };

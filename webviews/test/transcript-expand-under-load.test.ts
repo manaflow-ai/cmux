@@ -13,6 +13,7 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { FOLD_DROP_MS } from "../src/agent-session/acpmux/conversation/fold";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
@@ -177,8 +178,11 @@ await requireBrowserLane("transcript-expand-under-load.test.ts", async () => {
   };
 
   /// Holds the main thread JANK_MS in every frame's callbacks, as a page under heavy load does: no
-  /// frame comes sooner than that after the one before.
-  const JANK_MS = 60;
+  /// frame comes sooner than that after the one before. A frame's time is the display tick it started
+  /// on, not when its callbacks ran, so two frames' times can lie up to two ticks closer than the hold
+  /// (a 60 ms hold can leave them about 44 ms apart, under the fold's drop threshold, so the fold
+  /// plays a second frame). Held this long, every gap is a dropped frame on any runner.
+  const JANK_MS = FOLD_DROP_MS + 50;
   const jank = (page: Page, on: boolean) =>
     page.evaluate(
       ({ on, ms }) => {
@@ -261,7 +265,9 @@ await requireBrowserLane("transcript-expand-under-load.test.ts", async () => {
       // most one painted frame shows it mid-flight, never a run of partial heights a frame apart.
       if (load === "jank") {
         const midFlight = frames.filter((frame) => frame.folding).length;
-        expect({ load, midFlight, oneStep: midFlight <= 1 }).toEqual({ load, midFlight, oneStep: true });
+        // The painted frames' times, `*` where the fold is mid-flight: a slow page or a missed drop.
+        const seen = frames.map((frame) => `${Math.round(frame.at)}${frame.folding ? "*" : ""}`).join(" ");
+        expect({ load, midFlight, seen, oneStep: midFlight <= 1 }).toEqual({ load, midFlight, seen, oneStep: true });
       }
       await page.close();
     });

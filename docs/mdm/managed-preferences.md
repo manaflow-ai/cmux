@@ -533,6 +533,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `browser.hibernatePinnedTabs` | boolean | `false` |  | Hibernate Pinned Tabs |
 | `browser.freezeHiddenTabs` | string | `30` | `off` | Freeze Hidden Tabs. Saves power: a hidden Chromium tab stops running until you show it. Pinned tabs and Never Hibernate hosts stay awake. Also accepts a number from 5 to 3600 in a raw profile. |
 | `browser.keepNeighborTabsAwake` | real | `1` | 0 to 3 | Keep Neighbor Tabs Awake. Tabs on each side of the shown tab stay loaded and running, so switching to them is instant. 0 turns it off. Memory pressure and Low Power Mode turn it off. |
+| `browser.wakeTabsOnHover` | boolean | `false` |  | Wake Tabs on Hover. When the pointer rests on a tab or a workspace, its sleeping pages start to load before you click. Uses more memory. |
 | `browser.remoteLocalhost` | boolean | `true` |  | Open localhost on the Workspace's Machine |
 | `browser.searchEngine` | string | `"google"` | `google`, `duckduckgo`, `bing`, `brave`, `kagi`, `custom` | Search Engine. The address bar searches here and asks it for suggestions. |
 | `browser.customSearchEngine.search` | string | `""` |  | Custom Search Address. Used when Search Engine is Custom. Put {searchTerms} where the typed text goes. |

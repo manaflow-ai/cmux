@@ -11,8 +11,6 @@ import GhosttyNextKit
 @MainActor
 final class TerminalGridReporter {
     private weak var view: TerminalSurfaceView?
-    /// The report going out now is a layout spring's final grid (the PTY owner sends it in the caller's turn).
-    private var sendingFinal = false
     /// Its window also ends at the first refresh of the view's window at or after 25 ms (T-KEYS B3: that window's presenter
     /// ticks it); its timer stays the backstop.
     private(set) lazy var coalescer = TerminalGridReportCoalescer(clock: clock, ticks: { [weak self] in
@@ -83,12 +81,10 @@ final class TerminalGridReporter {
         coalescer.viewSized(grid)
     }
 
-    /// `grid` goes now; a grid that waits is older and is dropped. `final`: a layout spring's final grid.
-    func now(_ grid: TerminalGridSize, final: Bool = false) {
+    /// `grid` goes now; a grid that waits is older and is dropped.
+    func now(_ grid: TerminalGridSize) {
         awaitingShown = nil // a size that waits to show is older than this grid; its landing sends nothing after it
         sendsAwaitedNow = false
-        sendingFinal = final
-        defer { sendingFinal = false }
         coalescer.reportNow(grid)
     }
 
@@ -104,6 +100,6 @@ final class TerminalGridReporter {
         let metrics = TerminalGridMetrics(cellWidth: Int(size.cell_width_px), cellHeight: Int(size.cell_height_px),
                                           paddingWidth: 0, paddingHeight: 0)
         let cells = metrics.cellPixels(of: grid)
-        view.session?.surfaceDidReport(grid: grid, pixelWidth: cells.width, pixelHeight: cells.height, final: sendingFinal)
+        view.session?.surfaceDidReport(grid: grid, pixelWidth: cells.width, pixelHeight: cells.height)
     }
 }
