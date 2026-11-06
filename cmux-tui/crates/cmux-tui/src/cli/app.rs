@@ -77,6 +77,9 @@ pub(super) const APP_SCOPES: &[&str] = &[
 /// network action the app bounds itself (`ActionDescriptor.resultDeadline`,
 /// 40 s, Connect to CodeRouter), so the CLI gives the app longer than that.
 pub(super) const READ_TIMEOUT: Duration = Duration::from_secs(5);
+/// The app method `cmux app remote-views` reads; the app registers it in every
+/// build (RemoteViewTabsControl.releaseMethods, whose test reads this line).
+pub(super) const REMOTE_VIEWS_METHOD: &str = "remote_view.state";
 pub(super) const WAITING_RUN_TIMEOUT: Duration = Duration::from_secs(45);
 /// `errors.list` reads the app's logs first (the app bounds it at 12 s).
 const ERRORS_TIMEOUT: Duration = Duration::from_secs(15);
@@ -279,6 +282,17 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         ("app", Some("identify")) => call("system.identify", json!({})),
         ("app", Some("capabilities")) => call("system.capabilities", json!({})),
         ("app", Some("renderers")) => renderers::parse(rest)?,
+        // The Cloud desktop tabs (`remote_view.state`, every build): per tab its
+        // viewer, whether it is connected and who has control; never a credential
+        // or a pixel of the screen.
+        ("app", Some("remote-views")) => {
+            let options = Options::parse(&rest[1..], &["tab"], &[])?;
+            let mut params = Map::new();
+            if let Some(tab) = options.value("tab") {
+                params.insert("tab".into(), json!(tab));
+            }
+            call(REMOTE_VIEWS_METHOD, Value::Object(params))
+        }
         ("window", Some("list")) => AppCommand::Call {
             method: "snapshot.get",
             params: json!({}),
