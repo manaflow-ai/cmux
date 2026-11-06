@@ -561,7 +561,11 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     if at(&started, "pending").as_bool() == Some(true) {
         let again = again_command(request, &machine);
         let stage = start_stage(runner, &started);
-        let capped = stage.reason.as_deref().filter(|_| stage.is_final()).and_then(|why| cap::cap_of("", why));
+        let capped = stage
+            .reason
+            .as_deref()
+            .filter(|_| stage.is_final())
+            .and_then(|why| cap::cap_of("", why));
         if let Some(found) = capped {
             let why = stage.reason.as_deref().unwrap_or_default();
             let (message, details) = cap::at_cap(found, why, &listed, |id| {

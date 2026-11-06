@@ -48,7 +48,10 @@ pub(super) fn at_cap(
         .into_iter()
         .flatten()
         .filter(|row| {
-            !matches!(at(row, "status").as_str(), Some("failed" | "deleting" | "deleted" | "destroyed"))
+            !matches!(
+                at(row, "status").as_str(),
+                Some("failed" | "deleting" | "deleted" | "destroyed")
+            )
         })
         .filter_map(|row| {
             let id = at(row, "machine_id").as_str()?;
@@ -64,8 +67,13 @@ pub(super) fn at_cap(
         })
         .collect();
     let (what, verb) = match cap {
-        Cap::Running => ("every running machine of yours is busy; pause one or chat on one", "pause"),
-        Cap::Held => ("your account holds its most machines; delete one or chat on one (it resumes)", "delete"),
+        Cap::Running => {
+            ("every running machine of yours is busy; pause one or chat on one", "pause")
+        }
+        Cap::Held => (
+            "your account holds its most machines; delete one or chat on one (it resumes)",
+            "delete",
+        ),
     };
     let mut lines = vec![format!("{refusal}: {what}.")];
     for machine in machines.iter().take(NAMED) {
@@ -78,7 +86,10 @@ pub(super) fn at_cap(
         ));
     }
     if machines.len() > NAMED {
-        lines.push(format!("  and {} more: `cmux cloud list-machines`", machines.len().saturating_sub(NAMED)));
+        lines.push(format!(
+            "  and {} more: `cmux cloud list-machines`",
+            machines.len().saturating_sub(NAMED)
+        ));
     }
     let cap = match cap {
         Cap::Running => "running",

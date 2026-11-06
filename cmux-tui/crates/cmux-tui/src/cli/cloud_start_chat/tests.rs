@@ -1021,7 +1021,10 @@ fn a_start_the_plans_running_cap_refuses_names_the_machines_and_how_to_make_room
     // A failed machine is no room: never named.
     assert!(!message.contains("broken"), "{message}");
     assert_eq!(error["details"]["cap"], "running");
-    assert_eq!(error["details"]["machines"][1]["delete"], "cmux cloud kill-machine --target machine:vm-b --confirm");
+    assert_eq!(
+        error["details"]["machines"][1]["delete"],
+        "cmux cloud kill-machine --target machine:vm-b --confirm"
+    );
 }
 
 #[test]
@@ -1056,7 +1059,10 @@ fn only_a_cap_refusal_reads_as_a_cap() {
     assert_eq!(cap_of("cloud.quota.exceeded", "x"), Some(Cap::Running));
     assert_eq!(cap_of("", "this plan allows 5 active machines"), Some(Cap::Running));
     assert_eq!(
-        cap_of("cloud.provider.unavailable", "VM API: this team has its limit of 20 machines (paused ones count); delete one to make another"),
+        cap_of(
+            "cloud.provider.unavailable",
+            "VM API: this team has its limit of 20 machines (paused ones count); delete one to make another"
+        ),
         Some(Cap::Held)
     );
     assert_eq!(cap_of("cloud.provider.unavailable", "VM API: HTTP 429"), None);
