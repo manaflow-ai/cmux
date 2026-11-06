@@ -41,6 +41,7 @@
     "chat.tail": "chat.tail",
     "chat.tail.get": "chat.tail.get",
     "chat.toolCard.respond": "chat.toolCard.respond",
+    "chat.tryAnotherApproach": "chat.tryAnotherApproach",
     "chat.unsentDraft": "chat.unsentDraft",
     "chat.upload": "chat.upload",
     "chat.upload.begin": "chat.upload.begin",

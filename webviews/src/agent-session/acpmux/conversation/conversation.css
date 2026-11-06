@@ -4664,7 +4664,7 @@ a.cv-sha:focus-visible {
   color: var(--cv-footer-ink);
 }
 /* Continue is a labelled button (its own width, .cv-turn-continue below) and keeps its small arrow. */
-.cv-turn-actions:not(.cv-turn-actions--empty) .cv-iconbtn:not(.cv-turn-retry-menu, .cv-turn-continue) {
+.cv-turn-actions:not(.cv-turn-actions--empty) .cv-iconbtn:not(.cv-turn-retry-menu, .cv-turn-continue, .cv-turn-try-another) {
   width: var(--cv-footer-button);
 }
 .cv-turn-actions:not(.cv-turn-actions--empty) .cv-message-footer-row .cv-iconbtn:not(.cv-turn-continue) > svg {
@@ -4742,6 +4742,13 @@ a.cv-sha:focus-visible {
   gap: 4px;
   padding-inline: 6px;
   margin-inline-start: -2px;
+  white-space: nowrap;
+}
+/* Try another approach (a Cloud chat's latest turn) is a labelled button too: its own width, never
+   the 24 square the icon buttons take, so its label never runs over Copy, Fork or Pin. */
+.cv-turn-actions .cv-iconbtn.cv-turn-try-another {
+  width: auto;
+  padding-inline: calc(var(--ds-space-1) * 1.5);
   white-space: nowrap;
 }
 /* A stopped turn's one muted word (TurnRows.tsx `stoppedWord`), in the time's caption size and the
