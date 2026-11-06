@@ -36,10 +36,8 @@ import Testing
             (view as? CmuxToastView).map { [$0] } ?? view.subviews.flatMap(walk)
         }
         let views = WindowOverlayHost.host(for: window).panel.contentView.map(walk) ?? []
-        return views.compactMap { toast in
-            guard let panel = toast.window else { return nil }
-            return window.convertFromScreen(panel.convertToScreen(toast.convert(toast.bounds, to: nil)))
-        }
+        // The overlay panel's coordinates are the window's own (WindowOverlayHost.layout).
+        return views.map { $0.convert($0.bounds, to: nil) }
     }
 
     /// Every drawn row clear of every toast; returns the newest row's bottom (window y, up).
@@ -48,6 +46,7 @@ import Testing
                              sourceLocation: SourceLocation = #_sourceLocation) throws -> CGFloat {
         let rows = view.transcript.debugRowFrames()
         let toasts = toastFrames(in: window)
+        print("toast-clear \(step): toasts=\(toasts) newest=\(rows.min { $0.balloon.minY < $1.balloon.minY }.map { "\($0.key) \($0.balloon)" } ?? "none")")
         #expect(!rows.isEmpty, "\(step): no rows drawn", sourceLocation: sourceLocation)
         for toast in toasts {
             for row in rows where row.balloon.intersects(toast.insetBy(dx: 0, dy: 1)) {
@@ -63,6 +62,8 @@ import Testing
         TunableStore.shared.register(HomeTunables.all)
         var options = MockHomeSource.Options.immediate
         options.chiefHistory = 60
+        // No reply comes: the message sent below stays the newest row, still on its way (Leo's queued prompt).
+        options.replyDelay = .seconds(3_600)
         let store = HomeStore(source: MockHomeSource(options: options))
         store.start()
         defer { store.stop() }
@@ -89,6 +90,11 @@ import Testing
         container.addSubview(view)
         container.layoutSubtreeIfNeeded()
         await until { !store.transcript(for: Self.conversation).isEmpty }
+        await settle()
+        pass(window, view)
+        // A message of mine, just sent, waits under the Chief's history as the newest row.
+        view.transcript.setDraft("what's going on here")
+        #expect(view.transcript.sendDraft() == nil, "the draft was not sent")
         await settle()
         pass(window, view)
         let rest = try expectClear(window, view, "no toast")

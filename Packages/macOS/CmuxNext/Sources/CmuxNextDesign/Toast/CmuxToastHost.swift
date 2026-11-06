@@ -80,10 +80,9 @@ public final class CmuxToastOverlayHost: CmuxToastHosting, CmuxToastReanchoring 
 
     /// The union of this host's toast frames in `window` (window coordinates); nil when none shows.
     private func toastsRect(in window: NSWindow) -> NSRect? {
-        let frames = handles.values.filter { $0.window === window }.compactMap { entry -> NSRect? in
-            guard let panel = entry.view.window else { return nil }
-            return window.convertFromScreen(panel.convertToScreen(entry.view.convert(entry.view.bounds, to: nil)))
-        }
+        // The overlay panel's coordinates are the window's own (WindowOverlayHost.layout).
+        let frames = handles.values.filter { $0.window === window && $0.view.window != nil }
+            .map { $0.view.convert($0.view.bounds, to: nil) }
         return frames.dropFirst().reduce(frames.first) { $0?.union($1) }
     }
 
