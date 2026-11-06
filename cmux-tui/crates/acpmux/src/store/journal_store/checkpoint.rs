@@ -114,10 +114,20 @@ impl Inner {
         self.order.lock_or_recover().sealed = true;
     }
 
-    /// A checkpoint and its count of failures in a row; the caller holds `checkpointing`.
+    /// A checkpoint and its count of failures in a row; the caller holds `checkpointing`. A sealed
+    /// store runs none (its home is the next daemon's) and answers as its last checkpoint did: an
+    /// error while that one left work undone (a frozen store, a failed sync), so a flush after the
+    /// seal never says the logs are durable when they are not.
     fn checkpoint_counted(&self) -> Result<()> {
-        if self.order.lock_or_recover().sealed {
-            return Ok(());
+        {
+            let order = self.order.lock_or_recover();
+            if order.sealed {
+                anyhow::ensure!(
+                    !order.frozen && !order.has_work(),
+                    "the event journal's last checkpoint did not complete: the next start replays the journal"
+                );
+                return Ok(());
+            }
         }
         let result = self.checkpoint_once();
         let mut order = self.order.lock_or_recover();

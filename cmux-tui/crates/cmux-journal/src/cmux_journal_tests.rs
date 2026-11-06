@@ -316,9 +316,12 @@ fn a_sealed_journal_is_handed_to_the_next_open_at_once() {
     let storage = SimStorage::new(35);
     let config = Config { segment_bytes: 600, ..quick() };
     let (first, _, _) = open_at(&storage, config.clone(), 0).unwrap_or_else(|e| panic!("{e}"));
+    // One batch per record, so the segments rotate: a retirement would delete some.
     for lsn in 1..=40 {
-        first.append(3, Class::Ack, &payload(lsn)).unwrap_or_else(|e| panic!("{e}"));
+        let got = first.append(3, Class::Ack, &payload(lsn)).unwrap_or_else(|e| panic!("{e}"));
+        first.wait_durable(got, WAIT).unwrap_or_else(|e| panic!("{e}"));
     }
+    assert!(first.stats().segments_created >= 3, "{:?}", first.stats());
     assert_eq!(first.seal(WAIT), Ok(40));
     let (second, _, seen) = open_at(&storage, config, 0)
         .unwrap_or_else(|e| panic!("the sealed journal kept its folder: {e}"));
