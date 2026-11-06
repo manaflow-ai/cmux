@@ -49,7 +49,7 @@ extension WindowController {
     }
 }
 
-/// The progress page reads a creation through plain values (CmuxNextCloudUI knows no App type).
+/// The progress page reads a creation as plain values (CloudUI knows no App type); its actions carry the App's copy.
 extension CloudMachineCreation: CloudProgressSource {
     var progressStage: String { stage.name }
     var progressStepIndex: Int? { stage.stepIndex }
@@ -63,7 +63,6 @@ extension CloudMachineCreation: CloudProgressSource {
 }
 
 extension CloudProgressPageProvider.Actions {
-    /// The page's actions with the App's copy and its words for a refused action.
     static func progress(retry: @escaping @MainActor () -> Void, dismiss: @escaping @MainActor () -> Void) -> Self {
         Self(retry: retry, dismiss: dismiss, copy: CloudPresenter.copy, personOnlyMessage: RefusalStrings.personOnlyFromPage)
     }
