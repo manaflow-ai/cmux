@@ -10,7 +10,7 @@
 //! retryable `daemon-offline` error an offline slot gave before, so a client
 //! that expects an immediate answer behaves as it did.
 
-use cmux_remote_protocol::{LaneToken, RelayRole};
+use cmux_remote_protocol::{LaneToken, RelayControl, RelayRole};
 use serde::{Deserialize, Serialize};
 
 use crate::abuse::{MAX_PENDING_CIRCUITS_PER_SLOT, websocket_counts_toward_capacity};
@@ -56,6 +56,17 @@ pub(crate) fn connect_disposition(
     } else {
         ConnectDisposition::Offline
     }
+}
+
+/// The `Parked` notice a client gets when its Connect waits. Only a client
+/// that set `accepts_parked` gets one: an older client fails on a control
+/// type it does not know, and keeps waiting for `Allocated` without it.
+pub(crate) fn parked_notice(
+    accepts_parked: bool,
+    lane: &LaneToken,
+    generation: u64,
+) -> Option<RelayControl> {
+    accepts_parked.then(|| RelayControl::Parked { lane: lane.clone(), generation })
 }
 
 /// Whether this socket holds a Connect that a newly registered daemon on
@@ -196,6 +207,23 @@ mod tests {
         assert!(!expired_while_parked(&client(None), attachment.idle_deadline_ms));
         assert!(!parked_and_live(&attachment, OPEN, "slot", attachment.idle_deadline_ms));
         assert_eq!(DAEMON_OFFLINE_CODE, "daemon-offline");
+    }
+
+    #[test]
+    fn parked_notice_goes_only_to_clients_that_ask_for_it() {
+        let lane = LaneToken("lane-a".into());
+        assert_eq!(
+            parked_notice(true, &lane, 3),
+            Some(RelayControl::Parked { lane: lane.clone(), generation: 3 })
+        );
+        assert_eq!(parked_notice(false, &lane, 3), None);
+
+        let legacy = r#"{"type":"connect","protocol":1,"slot":"slot","ticket":"t","lane":"lane-a","generation":3}"#;
+        let RelayControl::Connect { accepts_parked, .. } = serde_json::from_str(legacy).unwrap()
+        else {
+            panic!("expected connect");
+        };
+        assert!(!accepts_parked, "an older client's Connect never gets Parked");
     }
 
     #[test]

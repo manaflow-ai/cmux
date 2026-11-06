@@ -1002,6 +1002,8 @@ async fn request_allocation(
             ticket: credential.expose().to_owned(),
             lane: lane.clone(),
             generation,
+            // `read_until_allocation` reads past `Parked` to the answer.
+            accepts_parked: true,
         },
     )
     .await
@@ -1041,6 +1043,9 @@ async fn read_until_allocation(
                     .await
                     .map_err(AllocationError::Reconnect)?;
             }
+            // The relay holds the request until its daemon registers; keep
+            // reading for `Allocated` inside this call's timeout.
+            RelayControl::Parked { .. } => {}
             _ => {}
         }
     }
@@ -2476,6 +2481,90 @@ mod tests {
         link.send(Bytes::from_static(b"after-reconnect")).await.unwrap();
         assert_eq!(link.receive().await.unwrap().unwrap(), &b"after-reconnect"[..]);
         assert_eq!(calls.load(AtomicOrdering::SeqCst), 4);
+        link.close().await.unwrap();
+        group.close().await.unwrap();
+        tokio::time::timeout(Duration::from_secs(10), server).await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn parked_connect_is_answered_on_the_same_request() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let (mut control, _) = accept_with_authorization(stream).await;
+            let RelayControl::Connect { lane, generation, accepts_parked, .. } =
+                receive_test_control(&mut control).await
+            else {
+                panic!("expected client connect");
+            };
+            assert!(accepts_parked, "the client must ask for Parked before a relay sends it");
+            send_test_control(
+                &mut control,
+                &RelayControl::Parked { lane: lane.clone(), generation },
+            )
+            .await;
+            let circuit = CircuitId("parked-circuit".into());
+            send_test_control(
+                &mut control,
+                &RelayControl::Allocated {
+                    circuit: circuit.clone(),
+                    lane: lane.clone(),
+                    generation,
+                    join_ticket: "parked-join-ticket".into(),
+                },
+            )
+            .await;
+
+            let (stream, _) = tokio::time::timeout(Duration::from_secs(10), listener.accept())
+                .await
+                .expect("the client opened no circuit after Parked")
+                .unwrap();
+            let (mut circuit_socket, authorization) = accept_with_authorization(stream).await;
+            assert_eq!(authorization, "Bearer parked-join-ticket");
+            assert!(matches!(
+                receive_test_control(&mut circuit_socket).await,
+                RelayControl::Join { .. }
+            ));
+            send_test_control(
+                &mut circuit_socket,
+                &RelayControl::Ready { circuit, lane, generation },
+            )
+            .await;
+            let message = circuit_socket.next().await.unwrap().unwrap();
+            let Message::Binary(payload) = message else {
+                panic!("expected circuit payload, got {message:?}");
+            };
+            circuit_socket.send(Message::Binary(payload)).await.unwrap();
+            let _ = circuit_socket.next().await;
+            let _ = control.next().await;
+        });
+
+        let provider = RelayProvider::new(RelayClientConfig {
+            slot: "test-slot".into(),
+            ticket: "client-ticket".into(),
+            maximum_frame_bytes: 64,
+            control_timeout: Duration::from_secs(5),
+        })
+        .unwrap();
+        let group = provider
+            .connect(ConnectRequest {
+                endpoint: Url::parse(&format!("relay+ws://{address}/v1/relay")).unwrap(),
+                session: SessionId::ZERO,
+                lane_policy: LanePolicy::Isolated,
+                routing: BTreeMap::new(),
+            })
+            .await
+            .unwrap();
+        let link = tokio::time::timeout(
+            Duration::from_secs(10),
+            group.open(LinkRequest { lane: Lane::Interactive, generation: 3 }),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        link.send(Bytes::from_static(b"after-park")).await.unwrap();
+        assert_eq!(link.receive().await.unwrap().unwrap(), &b"after-park"[..]);
         link.close().await.unwrap();
         group.close().await.unwrap();
         tokio::time::timeout(Duration::from_secs(10), server).await.unwrap().unwrap();

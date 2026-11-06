@@ -18,7 +18,7 @@ use crate::attachment::{SlotAttachment, SlotPhase};
 use crate::auth::{DEFAULT_TICKET_ISSUER, TicketExpectation, issue_ticket, verify_ticket};
 use crate::park::{
     ConnectDisposition, DAEMON_OFFLINE_CODE, DAEMON_OFFLINE_MESSAGE, ParkedConnect,
-    connect_disposition, expired_while_parked, pairing_order, parked_and_live,
+    connect_disposition, expired_while_parked, pairing_order, parked_and_live, parked_notice,
 };
 use crate::wire::{
     close, decode_control, send_control, upgrade_required, valid_circuit_id,
@@ -46,6 +46,7 @@ struct ConnectRequest {
     ticket: String,
     lane: LaneToken,
     generation: u64,
+    accepts_parked: bool,
 }
 
 impl RelaySlot {
@@ -394,7 +395,13 @@ impl RelaySlot {
                 )
                 .await?;
             }
-            (ConnectDisposition::Park, _) => {}
+            (ConnectDisposition::Park, _) => {
+                if let Some(notice) =
+                    parked_notice(request.accepts_parked, &request.lane, request.generation)
+                {
+                    send_control(socket, &notice)?;
+                }
+            }
             _ => Self::capacity(socket, DAEMON_OFFLINE_CODE, DAEMON_OFFLINE_MESSAGE),
         }
         Ok(())
@@ -568,13 +575,13 @@ impl RelaySlot {
             RelayControl::Register { protocol, slot, ticket } => {
                 self.handle_register(socket, attachment, protocol, slot, ticket).await
             }
-            RelayControl::Connect { protocol, slot, ticket, lane, generation }
+            RelayControl::Connect { protocol, slot, ticket, lane, generation, accepts_parked }
                 if matches!(attachment.phase, SlotPhase::Pending | SlotPhase::ClientControl) =>
             {
                 self.handle_connect(
                     socket,
                     attachment,
-                    ConnectRequest { protocol, slot, ticket, lane, generation },
+                    ConnectRequest { protocol, slot, ticket, lane, generation, accepts_parked },
                 )
                 .await
             }
