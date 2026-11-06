@@ -256,10 +256,11 @@
     > .acpmux-composer-box.ui-glass-material {
     --acpmux-composer-rim: var(--glass-material-rim);
   }
-}
-:root[data-cmux-see-through]:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency])
-  .acpmux-composer > .acpmux-composer-box.ui-glass-material {
-  --glass-backdrop: var(--glass-material-backdrop);
+  :root[data-cmux-see-through]:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency])
+    .acpmux-composer
+    > .acpmux-composer-box.ui-glass-material {
+    --glass-backdrop: var(--glass-material-backdrop);
+  }
 }
 /* In the dock no transcript row is ever under the card (conversation.css masks rows out under the
    bottom stack), so Chromium's underlay (glass.css, "CHROMIUM OVER THE WINDOW GLASS"), which is

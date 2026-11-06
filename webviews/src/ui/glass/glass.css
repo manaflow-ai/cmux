@@ -184,10 +184,13 @@
     0 12px 32px -12px light-dark(color-mix(in srgb, black 22%, transparent), color-mix(in srgb, black 55%, transparent)),
     0 2px 6px -2px light-dark(color-mix(in srgb, black 12%, transparent), color-mix(in srgb, black 35%, transparent));
 }
-:root:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency]) .ui-glass.ui-glass-material {
-  --glass-rim-shadow: var(--glass-material-rim), inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge);
-  --glass-elevation: var(--glass-material-depth);
-  --glass-backdrop: var(--glass-material-backdrop);
+/* Under the system's Reduce Transparency as under the host's: none of the material, the solid card. */
+@media not (prefers-reduced-transparency: reduce) {
+  :root:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency]) .ui-glass.ui-glass-material {
+    --glass-rim-shadow: var(--glass-material-rim), inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge);
+    --glass-elevation: var(--glass-material-depth);
+    --glass-backdrop: var(--glass-material-backdrop);
+  }
 }
 
 /* SVG REFRACTION (svgRefraction.ts; the gallery's and the latency harness's comparison, never set by a

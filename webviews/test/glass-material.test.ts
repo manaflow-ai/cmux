@@ -159,6 +159,26 @@ await requireBrowserLane("glass-material.test.ts", async () => {
       await page.close();
     });
 
+  // The system's Reduce Transparency (prefers-reduced-transparency), with no host attribute: the
+  // same solid card, for the floating and the docked card alike.
+  for (const colorScheme of ["light", "dark"] as const)
+    test(`${colorScheme}, the system's Reduce Transparency: a solid card, no specular band, no frost, no depth`, async () => {
+      const page = await open(colorScheme, { "data-cmux-see-through": "", "data-glass": "plain" });
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send("Emulation.setEmulatedMedia", {
+        features: [{ name: "prefers-reduced-transparency", value: "reduce" }],
+      });
+      for (const id of ["composer", "docked-composer"]) {
+        const { fill, backdrop, shadow } = await look(page, id);
+        expect(fill, `${id} fill`).toBe(1);
+        expect(backdrop, `${id} backdrop`).toBe("none");
+        expect(layerAlpha(shadow, SPECULAR_BAND), `${id} specular band`).toBe(-1);
+        expect(layerAlpha(shadow, SHEEN), `${id} sheen`).toBe(-1);
+        expect(layerAlpha(shadow, DEPTH), `${id} depth`).toBe(-1);
+      }
+      await page.close();
+    });
+
   test("appearance.borders none clears the rim's light and keeps the depth", async () => {
     const page = await open("dark", { "data-borders": "none", "data-theme": "dark" });
     const { shadow } = await look(page);
