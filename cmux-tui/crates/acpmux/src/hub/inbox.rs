@@ -415,8 +415,13 @@ pub(crate) fn thread_key(explicit: Option<&str>, sender: &str, text: &str) -> St
     if let Some(key) = explicit.filter(|k| !k.is_empty()) {
         return key.to_owned();
     }
-    let prefix =
-        if sender.starts_with("declared:") { sender.to_owned() } else { format!("from:{sender}") };
+    let prefix = if let Some(sender) = sender.strip_prefix("declared:") {
+        format!("declared:{sender}")
+    } else if let Some(sender) = sender.strip_prefix("session:") {
+        format!("from:{sender}")
+    } else {
+        format!("from:{sender}")
+    };
     match first_pr(text.lines().next().unwrap_or_default()) {
         Some(n) => format!("{prefix}/pr:{n}"),
         None => prefix,
@@ -536,6 +541,11 @@ fn thread_sender(provenance: Option<&Value>, sender: &str) -> String {
             return format!("declared:{label}");
         }
     }
+    if identity.get("authenticated") == Some(&Value::Bool(true))
+        && sender.starts_with("declared:")
+    {
+        return format!("session:{sender}");
+    }
     sender.to_owned()
 }
 
@@ -550,12 +560,12 @@ fn legacy_thread_key(provenance: Option<&Value>, from: &str, thread: String) -> 
 
 /// A client may retain the old `from:<label>` key after a declared-only thread was re-keyed in
 /// memory. Keep that handle readable without merging it with an authenticated session thread.
-fn thread_matches(item: &Item, requested: &str) -> bool {
+fn thread_matches(item: &Item, requested: &str, allow_declared_fallback: bool) -> bool {
     item.thread == requested
-        || item
+        || (allow_declared_fallback && item
             .thread
             .strip_prefix("declared:")
-            .is_some_and(|rest| requested == format!("from:{rest}"))
+            .is_some_and(|rest| requested == format!("from:{rest}")))
 }
 
 /// Whether a message reports work this chat gave: a lane's report (`lane_reports.rs`) or a task's
@@ -1012,10 +1022,25 @@ impl Hub {
         provenance: &Value,
     ) {
         let from = provenance.get("fromName").and_then(Value::as_str).unwrap_or(lane);
-        let sender_identity =
-            crate::prompt_provenance::sender_record(Some(provenance), Some(lane), None);
         let thread = thread_key(None, &thread_sender(Some(provenance), from), text);
         let at = now_ms();
+        let mut opts = PromptOptions {
+            provenance: Some(provenance.clone()),
+            agent: Some(from.to_owned()),
+            message_id: Some(prompt_id.to_owned()),
+            ..PromptOptions::default()
+        };
+        let blocks = vec![json!({"type": "text", "text": text})];
+        // Rebuild the projection before deriving the sender record: embedding adds the durable
+        // author/forwarder context to the provenance used by the inbox projection.
+        let message =
+            super::message_events::message_context(self, session, &blocks, &opts, prompt_id);
+        super::message_events::embed_message_context(&mut opts, message.as_ref(), &session.id);
+        let sender_identity = crate::prompt_provenance::sender_record(
+            opts.provenance.as_ref(),
+            Some(lane),
+            None,
+        );
         let fresh = {
             let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
             if inbox.items.iter().any(|i| i.prompt_id == prompt_id)
@@ -1048,20 +1073,6 @@ impl Hub {
         if !fresh {
             return;
         }
-        let mut opts = PromptOptions {
-            provenance: Some(provenance.clone()),
-            agent: Some(from.to_owned()),
-            message_id: Some(prompt_id.to_owned()),
-            ..PromptOptions::default()
-        };
-        let blocks = vec![json!({"type": "text", "text": text})];
-        // Rebuild the projection from the removed prompt's id. The queued acceptance path may
-        // already have written this message; using the canonical prompt id here lets the journal
-        // index deduplicate the read archive instead of creating a second projection when the
-        // transcript page races the queue removal.
-        let message =
-            super::message_events::message_context(self, session, &blocks, &opts, prompt_id);
-        super::message_events::embed_message_context(&mut opts, message.as_ref(), &session.id);
         let msg = json!({
             "promptId": prompt_id, "threadId": thread, "from": from, "fromSession": lane,
             "sender": sender_identity,
@@ -1781,13 +1792,20 @@ impl Hub {
             let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
             let mut marked = Vec::new();
             let mut messages = Vec::new();
+            let allow_declared_fallback = thread.starts_with("from:")
+                && !inbox.items.iter().any(|item| item.thread == thread);
             let label_key = inbox
                 .items
                 .iter()
-                .find(|item| thread_matches(item, thread))
+                .find(|item| thread_matches(item, thread, allow_declared_fallback))
                 .map(|item| item.thread.clone())
                 .unwrap_or_else(|| thread.to_owned());
-            for item in inbox.items.iter_mut().rev().filter(|i| thread_matches(i, thread)) {
+            for item in inbox
+                .items
+                .iter_mut()
+                .rev()
+                .filter(|i| thread_matches(i, thread, allow_declared_fallback))
+            {
                 messages.push(json!({
                     "promptId": item.prompt_id, "from": display_sender(&item.sender, &item.from), "fromSession": item.from_session,
                     "sender": item.sender,
@@ -1819,7 +1837,13 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         let to = {
             let inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
-            let newest = inbox.items.iter().rev().filter(|i| thread_matches(i, thread));
+            let allow_declared_fallback = thread.starts_with("from:")
+                && !inbox.items.iter().any(|item| item.thread == thread);
+            let newest = inbox
+                .items
+                .iter()
+                .rev()
+                .filter(|i| thread_matches(i, thread, allow_declared_fallback));
             newest.filter_map(|i| i.from_session.clone()).next()
         };
         let Some(to) = to else {

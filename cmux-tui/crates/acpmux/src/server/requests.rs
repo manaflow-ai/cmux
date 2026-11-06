@@ -1782,8 +1782,13 @@ async fn dispatch_request_with_identity(
                 steer_now: steer && flag("steerNow") == Some(true),
                 interrupt_turn: None,
                 provenance,
-                human_authenticated: conn.is_person()
-                    || (conn.origin == super::Origin::Peer && person_message),
+                human_authenticated: person_message
+                    && (conn.is_person()
+                        || (conn.origin == super::Origin::Peer
+                            && mux_meta(&params)
+                                .and_then(|meta| meta.get(crate::prompt_provenance::PERSON_VERIFIED))
+                                .and_then(Value::as_bool)
+                                == Some(true))),
                 agent,
                 class,
                 after_turn: None,

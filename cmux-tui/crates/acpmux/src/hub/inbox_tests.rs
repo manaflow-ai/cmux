@@ -59,9 +59,9 @@ fn a_self_declared_label_has_a_distinct_thread_key_and_display() {
         "declared:dot/pr:7"
     );
     let mut old = item("old", "declared:dot", "dot", PromptClass::Result, 1, "hello");
-    assert!(thread_matches(&old, "from:dot"));
+    assert!(thread_matches(&old, "from:dot", true));
     old.thread = "from:other".into();
-    assert!(!thread_matches(&old, "from:dot"));
+    assert!(!thread_matches(&old, "from:dot", true));
     let authenticated = crate::prompt_provenance::stamp_declared(
         crate::prompt_provenance::stamp_sender(
             crate::prompt_provenance::session_message("dot", "dot", "target"),
@@ -73,6 +73,19 @@ fn a_self_declared_label_has_a_distinct_thread_key_and_display() {
         Some("other"),
     );
     assert_eq!(thread_sender(Some(&authenticated), "dot"), "dot");
+}
+
+#[test]
+fn an_authenticated_session_named_declared_does_not_collide_with_a_declared_label() {
+    assert_eq!(thread_key(None, "declared:dot", "hello"), "declared:dot");
+    assert_eq!(thread_key(None, "session:declared:dot", "hello"), "from:declared:dot");
+}
+
+#[test]
+fn an_old_from_key_falls_back_only_when_no_exact_session_thread_exists() {
+    let declared = item("declared", "declared:dot", "dot", PromptClass::Result, 1, "old");
+    assert!(thread_matches(&declared, "from:dot", true));
+    assert!(!thread_matches(&declared, "from:dot", false));
 }
 
 #[test]

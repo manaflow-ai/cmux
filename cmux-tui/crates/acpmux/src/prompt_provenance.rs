@@ -278,6 +278,8 @@ pub fn named_sender(name: &str, to: &str) -> Value {
 
 /// The provenance kind of a tool's notice ([`notice`]).
 pub const NOTICE_KIND: &str = "notice";
+/// A peer-carried proof that the originating connection was a verified person.
+pub const PERSON_VERIFIED: &str = "personVerified";
 /// Longest notice title, in characters.
 pub const MAX_NOTICE_TITLE_CHARS: usize = 200;
 /// Most links one notice carries.
@@ -772,7 +774,7 @@ pub fn sender_record_with_auth(
     let has_parent = meta.is_some_and(|m| m.lineage.is_some() || m.subsession.is_some());
     let actor_kind = if human_authenticated {
         "authenticated_human"
-    } else if authenticated && !has_parent {
+    } else if authenticated && meta.is_some() && !has_parent {
         "root_assistant"
     } else if authenticated && family.as_deref().is_some_and(|f| f.eq_ignore_ascii_case("codex")) {
         "codex_worker"
