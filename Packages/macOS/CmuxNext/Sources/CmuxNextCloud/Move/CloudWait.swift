@@ -125,6 +125,13 @@ extension CloudWait {
     /// `redialable` says the link's last end is one another dial can help, `again` dials and the wait runs once more. A
     /// just-resumed machine's tunnel peer may not answer the first dials (prod, 2026-11-05: "no handshake within 5 s",
     /// then "the tunnel peer setup failed: no route to this host", state running), and the start failed at 59 s.
+    ///
+    /// Not a second copy of `linkUp`'s own redial (``holds(within:redialing:clock:redial:until:)``), which dials only an
+    /// app link that ended on a running machine and stops at its deadline. This one dials as the person's Retry does,
+    /// with no app link or on a machine not yet shown running; it catches a link that came up but dropped before the
+    /// start read it (`held`); and it gives that dial a wait of its own. Nothing in Rust waits on the Mac's link
+    /// (cmux-tui serving proves its daemon up, not this Mac's socket to it). `redialable` must also check that the
+    /// start's account is still the one signed in, since `again` may resume the machine.
     public static func linkedAgain(_ wait: () async -> Bool, held: () -> Bool, redialable: () -> Bool,
                                    again: () -> Void) async -> Bool {
         if await wait(), held() { return true }

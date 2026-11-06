@@ -1418,6 +1418,9 @@ impl Hub {
                 self.save_meta(session);
             }
         }
+        // Its todo calls still held go with it, however the turn ends or is handed off
+        // (`acp_todo_plan.rs`): a late result passes through as any other tool's.
+        crate::acp_todo_plan::forget(&session.id);
         // Quit Everything already recorded this turn as cancelled. It ends the lane's parent too and
         // no agent starts after it, so the lane reports nothing (`lane_reports.rs`). A restart
         // handed it to the next daemon, which continues it: its end is that daemon's to write.
@@ -1539,8 +1542,6 @@ impl Hub {
             }
             // The turn's wrap-up answer, taken whatever the turn's end (`wrap_up_suggestion.rs`).
             let wrap_up_answer = crate::wrap_up_suggestion::take(&session.id);
-            // Its todo calls still held go with it (`acp_todo_plan.rs`).
-            crate::acp_todo_plan::forget(&session.id);
             match &result {
                 Ok(v) => {
                     self.note_reply_refusal(session);

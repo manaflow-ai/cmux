@@ -16580,7 +16580,7 @@
         }
       }
     },
-    "plan.earlier": {"comment":"Agent pane: line over an earlier turn's todo list, shown while the running turn has no list of its own yet (Claude desktop's pinned task list)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"From before your last message"}},"ar":{"stringUnit":{"state":"needs_review","value":"من قبل رسالتك الأخيرة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Od prije vaše posljednje poruke"}},"da":{"stringUnit":{"state":"needs_review","value":"Fra før din seneste besked"}},"de":{"stringUnit":{"state":"needs_review","value":"Von vor deiner letzten Nachricht"}},"es":{"stringUnit":{"state":"needs_review","value":"De antes de tu último mensaje"}},"fr":{"stringUnit":{"state":"needs_review","value":"D’avant votre dernier message"}},"it":{"stringUnit":{"state":"needs_review","value":"Da prima del tuo ultimo messaggio"}},"ja":{"stringUnit":{"state":"needs_review","value":"最後のメッセージより前のもの"}},"km":{"stringUnit":{"state":"needs_review","value":"ពីមុនសារចុងក្រោយរបស់អ្នក"}},"ko":{"stringUnit":{"state":"needs_review","value":"마지막 메시지 이전의 계획"}},"nb":{"stringUnit":{"state":"needs_review","value":"Fra før den siste meldingen din"}},"pl":{"stringUnit":{"state":"needs_review","value":"Sprzed Twojej ostatniej wiadomości"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"De antes da sua última mensagem"}},"ru":{"stringUnit":{"state":"needs_review","value":"До вашего последнего сообщения"}},"th":{"stringUnit":{"state":"needs_review","value":"จากก่อนข้อความล่าสุดของคุณ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Son mesajınızdan önceki"}},"uk":{"stringUnit":{"state":"needs_review","value":"Ще до вашого останнього повідомлення"}},"vi":{"stringUnit":{"state":"needs_review","value":"Từ trước tin nhắn gần nhất của bạn"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"来自你上一条消息之前"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"來自你上一則訊息之前"}}}},
+    "plan.earlier": {"comment":"Agent pane: line over an earlier turn's todo list, shown while the running turn has no list of its own yet","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"From before your last message"}},"ar":{"stringUnit":{"state":"needs_review","value":"من قبل رسالتك الأخيرة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Od prije vaše posljednje poruke"}},"da":{"stringUnit":{"state":"needs_review","value":"Fra før din seneste besked"}},"de":{"stringUnit":{"state":"needs_review","value":"Von vor deiner letzten Nachricht"}},"es":{"stringUnit":{"state":"needs_review","value":"De antes de tu último mensaje"}},"fr":{"stringUnit":{"state":"needs_review","value":"D’avant votre dernier message"}},"it":{"stringUnit":{"state":"needs_review","value":"Da prima del tuo ultimo messaggio"}},"ja":{"stringUnit":{"state":"needs_review","value":"最後のメッセージより前のもの"}},"km":{"stringUnit":{"state":"needs_review","value":"ពីមុនសារចុងក្រោយរបស់អ្នក"}},"ko":{"stringUnit":{"state":"needs_review","value":"마지막 메시지 이전의 계획"}},"nb":{"stringUnit":{"state":"needs_review","value":"Fra før den siste meldingen din"}},"pl":{"stringUnit":{"state":"needs_review","value":"Sprzed Twojej ostatniej wiadomości"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"De antes da sua última mensagem"}},"ru":{"stringUnit":{"state":"needs_review","value":"До вашего последнего сообщения"}},"th":{"stringUnit":{"state":"needs_review","value":"จากก่อนข้อความล่าสุดของคุณ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Son mesajınızdan önceki"}},"uk":{"stringUnit":{"state":"needs_review","value":"Ще до вашого останнього повідомлення"}},"vi":{"stringUnit":{"state":"needs_review","value":"Từ trước tin nhắn gần nhất của bạn"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"来自你上一条消息之前"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"來自你上一則訊息之前"}}}},
     "plan.earlier.short": {"comment":"Agent pane: the hat over the composer names an earlier turn's todo list before its progress, as in 'Earlier plan · 2 of 5'","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Earlier plan"}},"ar":{"stringUnit":{"state":"needs_review","value":"الخطة السابقة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Raniji plan"}},"da":{"stringUnit":{"state":"needs_review","value":"Tidligere plan"}},"de":{"stringUnit":{"state":"needs_review","value":"Früherer Plan"}},"es":{"stringUnit":{"state":"needs_review","value":"Plan anterior"}},"fr":{"stringUnit":{"state":"needs_review","value":"Plan précédent"}},"it":{"stringUnit":{"state":"needs_review","value":"Piano precedente"}},"ja":{"stringUnit":{"state":"needs_review","value":"以前のプラン"}},"km":{"stringUnit":{"state":"needs_review","value":"ផែនការមុន"}},"ko":{"stringUnit":{"state":"needs_review","value":"이전 계획"}},"nb":{"stringUnit":{"state":"needs_review","value":"Tidligere plan"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wcześniejszy plan"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Plano anterior"}},"ru":{"stringUnit":{"state":"needs_review","value":"Прежний план"}},"th":{"stringUnit":{"state":"needs_review","value":"แผนก่อนหน้า"}},"tr":{"stringUnit":{"state":"needs_review","value":"Önceki plan"}},"uk":{"stringUnit":{"state":"needs_review","value":"Попередній план"}},"vi":{"stringUnit":{"state":"needs_review","value":"Kế hoạch trước"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"之前的计划"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"先前的計畫"}}}},
     "plan.hat": {"comment":"Agent pane: the running turn's todo list progress in the hat over the composer, before the step at work; {done} and {total} are numbers","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"{done} of {total}"}},"ar":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}},"bs":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}},"da":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}},"de":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}},"es":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}},"fr":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}},"it":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}},"km":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}},"nb":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}},"pl":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}},"ru":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}},"th":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}},"uk":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}},"vi":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}}}},
     "plan.progress": {
@@ -255248,7 +255248,703 @@
     "whoElse.minutes": {"comment":"Agent pane: who else works on these files","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"قبل {count} د"}},"bs":{"stringUnit":{"state":"needs_review","value":"prije {count} min"}},"da":{"stringUnit":{"state":"needs_review","value":"{count} min siden"}},"de":{"stringUnit":{"state":"needs_review","value":"vor {count} Min."}},"en":{"stringUnit":{"state":"translated","value":"{count}m ago"}},"es":{"stringUnit":{"state":"needs_review","value":"hace {count} min"}},"fr":{"stringUnit":{"state":"needs_review","value":"il y a {count} min"}},"it":{"stringUnit":{"state":"needs_review","value":"{count} min fa"}},"ja":{"stringUnit":{"state":"needs_review","value":"{count} 分前"}},"km":{"stringUnit":{"state":"needs_review","value":"{count} នាទីមុន"}},"ko":{"stringUnit":{"state":"needs_review","value":"{count}분 전"}},"nb":{"stringUnit":{"state":"needs_review","value":"{count} min siden"}},"pl":{"stringUnit":{"state":"needs_review","value":"{count} min temu"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"há {count} min"}},"ru":{"stringUnit":{"state":"needs_review","value":"{count} мин назад"}},"th":{"stringUnit":{"state":"needs_review","value":"{count} นาทีที่แล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"{count} dk önce"}},"uk":{"stringUnit":{"state":"needs_review","value":"{count} хв тому"}},"vi":{"stringUnit":{"state":"needs_review","value":"{count} phút trước"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{count} 分钟前"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{count} 分鐘前"}}}},
     "whoElse.hours": {"comment":"Agent pane: who else works on these files","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"قبل {count} س"}},"bs":{"stringUnit":{"state":"needs_review","value":"prije {count} h"}},"da":{"stringUnit":{"state":"needs_review","value":"{count} t siden"}},"de":{"stringUnit":{"state":"needs_review","value":"vor {count} Std."}},"en":{"stringUnit":{"state":"translated","value":"{count}h ago"}},"es":{"stringUnit":{"state":"needs_review","value":"hace {count} h"}},"fr":{"stringUnit":{"state":"needs_review","value":"il y a {count} h"}},"it":{"stringUnit":{"state":"needs_review","value":"{count} h fa"}},"ja":{"stringUnit":{"state":"needs_review","value":"{count} 時間前"}},"km":{"stringUnit":{"state":"needs_review","value":"{count} ម៉ោងមុន"}},"ko":{"stringUnit":{"state":"needs_review","value":"{count}시간 전"}},"nb":{"stringUnit":{"state":"needs_review","value":"{count} t siden"}},"pl":{"stringUnit":{"state":"needs_review","value":"{count} godz. temu"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"há {count} h"}},"ru":{"stringUnit":{"state":"needs_review","value":"{count} ч назад"}},"th":{"stringUnit":{"state":"needs_review","value":"{count} ชั่วโมงที่แล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"{count} sa önce"}},"uk":{"stringUnit":{"state":"needs_review","value":"{count} год тому"}},"vi":{"stringUnit":{"state":"needs_review","value":"{count} giờ trước"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{count} 小时前"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{count} 小時前"}}}},
     "whoElse.days": {"comment":"Agent pane: who else works on these files","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"قبل {count} ي"}},"bs":{"stringUnit":{"state":"needs_review","value":"prije {count} d"}},"da":{"stringUnit":{"state":"needs_review","value":"{count} d siden"}},"de":{"stringUnit":{"state":"needs_review","value":"vor {count} T."}},"en":{"stringUnit":{"state":"translated","value":"{count}d ago"}},"es":{"stringUnit":{"state":"needs_review","value":"hace {count} d"}},"fr":{"stringUnit":{"state":"needs_review","value":"il y a {count} j"}},"it":{"stringUnit":{"state":"needs_review","value":"{count} g fa"}},"ja":{"stringUnit":{"state":"needs_review","value":"{count} 日前"}},"km":{"stringUnit":{"state":"needs_review","value":"{count} ថ្ងៃមុន"}},"ko":{"stringUnit":{"state":"needs_review","value":"{count}일 전"}},"nb":{"stringUnit":{"state":"needs_review","value":"{count} d siden"}},"pl":{"stringUnit":{"state":"needs_review","value":"{count} dni temu"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"há {count} d"}},"ru":{"stringUnit":{"state":"needs_review","value":"{count} д назад"}},"th":{"stringUnit":{"state":"needs_review","value":"{count} วันที่แล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"{count} gün önce"}},"uk":{"stringUnit":{"state":"needs_review","value":"{count} дн тому"}},"vi":{"stringUnit":{"state":"needs_review","value":"{count} ngày trước"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{count} 天前"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{count} 天前"}}}},
-    "sessionInfo.alsoHere": {"comment":"Agent pane: who else works on these files","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"يعمل هنا أيضًا"}},"bs":{"stringUnit":{"state":"needs_review","value":"Takođe radi ovdje"}},"da":{"stringUnit":{"state":"needs_review","value":"Arbejder også her"}},"de":{"stringUnit":{"state":"needs_review","value":"Arbeitet auch hier"}},"en":{"stringUnit":{"state":"translated","value":"Also working here"}},"es":{"stringUnit":{"state":"needs_review","value":"También trabajan aquí"}},"fr":{"stringUnit":{"state":"needs_review","value":"Travaille aussi ici"}},"it":{"stringUnit":{"state":"needs_review","value":"Lavorano anche qui"}},"ja":{"stringUnit":{"state":"needs_review","value":"ここで作業中の他のセッション"}},"km":{"stringUnit":{"state":"needs_review","value":"ក៏កំពុងធ្វើការនៅទីនេះ"}},"ko":{"stringUnit":{"state":"needs_review","value":"여기서 함께 작업 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"Jobber også her"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pracują tu także"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Também trabalhando aqui"}},"ru":{"stringUnit":{"state":"needs_review","value":"Также работают здесь"}},"th":{"stringUnit":{"state":"needs_review","value":"ทำงานที่นี่ด้วย"}},"tr":{"stringUnit":{"state":"needs_review","value":"Burada da çalışıyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Також працюють тут"}},"vi":{"stringUnit":{"state":"needs_review","value":"Cũng đang làm việc ở đây"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"也在这里工作"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"也在這裡工作"}}}}
+    "sessionInfo.alsoHere": {"comment":"Agent pane: who else works on these files","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"يعمل هنا أيضًا"}},"bs":{"stringUnit":{"state":"needs_review","value":"Takođe radi ovdje"}},"da":{"stringUnit":{"state":"needs_review","value":"Arbejder også her"}},"de":{"stringUnit":{"state":"needs_review","value":"Arbeitet auch hier"}},"en":{"stringUnit":{"state":"translated","value":"Also working here"}},"es":{"stringUnit":{"state":"needs_review","value":"También trabajan aquí"}},"fr":{"stringUnit":{"state":"needs_review","value":"Travaille aussi ici"}},"it":{"stringUnit":{"state":"needs_review","value":"Lavorano anche qui"}},"ja":{"stringUnit":{"state":"needs_review","value":"ここで作業中の他のセッション"}},"km":{"stringUnit":{"state":"needs_review","value":"ក៏កំពុងធ្វើការនៅទីនេះ"}},"ko":{"stringUnit":{"state":"needs_review","value":"여기서 함께 작업 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"Jobber også her"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pracują tu także"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Também trabalhando aqui"}},"ru":{"stringUnit":{"state":"needs_review","value":"Также работают здесь"}},"th":{"stringUnit":{"state":"needs_review","value":"ทำงานที่นี่ด้วย"}},"tr":{"stringUnit":{"state":"needs_review","value":"Burada da çalışıyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Також працюють тут"}},"vi":{"stringUnit":{"state":"needs_review","value":"Cũng đang làm việc ở đây"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"也在这里工作"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"也在這裡工作"}}}},
+    "toolRun.and": {
+      "comment": "Agent pane: joins the two phrases of a folded tool run's summary, e.g. \"Read 3 files and ran 2 commands\" (conversation/toolRunSummary.ts). Keep the spaces where the language uses them.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " و"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " i "
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " og "
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " und "
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " and "
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " y "
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " et "
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " e "
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "、"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " និង "
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": ", "
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " og "
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " i "
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " e "
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " и "
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " และ "
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " ve "
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " і "
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " và "
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "，"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "，"
+          }
+        }
+      }
+    },
+    "toolRun.serialAnd": {
+      "comment": "Agent pane: joins the last of three phrases of a folded tool run's summary, e.g. \"Ran 2 commands, changed 1 file, and performed 2 other actions\" (conversation/toolRunSummary.ts). Keep the spaces where the language uses them.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " و"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " i "
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " og "
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " und "
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": ", and "
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " y "
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " et "
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " e "
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "、"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " និង "
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": ", "
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " og "
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " i "
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " e "
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " и "
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " และ "
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " ve "
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " і "
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " và "
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "，"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "，"
+          }
+        }
+      }
+    },
+    "toolRun.otherActions": {
+      "comment": "Agent pane; {n} is how many calls a folded tool run's first two phrases leave out, the end of its summary: \"Ran 2 commands, edited a file, and performed 2 other actions\" (conversation/toolRunSummary.ts)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "نفّذ {n} إجراء آخر"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "نفّذ إجراءً آخر ({n})"
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "نفّذ إجراءين آخرين ({n})"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "نفّذ {n} إجراءات أخرى"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "نفّذ {n} إجراءً آخر"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "نفّذ {n} إجراء آخر"
+                }
+              }
+            }
+          }
+        },
+        "bs": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "izvršio još {n} radnju"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "izvršio još {n} radnje"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "izvršio još {n} radnji"
+                }
+              }
+            }
+          }
+        },
+        "da": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "udførte {n} anden handling"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "udførte {n} andre handlinger"
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} weitere Aktion ausgeführt"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} weitere Aktionen ausgeführt"
+                }
+              }
+            }
+          }
+        },
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "performed {n} other action"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "performed {n} other actions"
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "realizó {n} acción más"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "realizó {n} acciones más"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "realizó {n} acciones más"
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "a effectué {n} autre action"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "a effectué {n} autres actions"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "a effectué {n} autres actions"
+                }
+              }
+            }
+          }
+        },
+        "it": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "ha eseguito {n} altra azione"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "ha eseguito altre {n} azioni"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "ha eseguito altre {n} azioni"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "その他 {n} 件の操作を実行"
+                }
+              }
+            }
+          }
+        },
+        "km": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "បានធ្វើសកម្មភាពផ្សេងទៀត {n}"
+                }
+              }
+            }
+          }
+        },
+        "ko": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "기타 작업 {n}개 수행"
+                }
+              }
+            }
+          }
+        },
+        "nb": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "utførte {n} annen handling"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "utførte {n} andre handlinger"
+                }
+              }
+            }
+          }
+        },
+        "pl": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "wykonano {n} inną akcję"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "wykonano {n} inne akcje"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "wykonano {n} innych akcji"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "wykonano {n} innej akcji"
+                }
+              }
+            }
+          }
+        },
+        "pt-BR": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "realizou {n} outra ação"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "realizou {n} outras ações"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "realizou {n} outras ações"
+                }
+              }
+            }
+          }
+        },
+        "ru": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "выполнено ещё {n} действие"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "выполнено ещё {n} действия"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "выполнено ещё {n} действий"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "выполнено ещё {n} действия"
+                }
+              }
+            }
+          }
+        },
+        "th": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "ดำเนินการอื่นอีก {n} รายการ"
+                }
+              }
+            }
+          }
+        },
+        "tr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} başka işlem yaptı"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} başka işlem yaptı"
+                }
+              }
+            }
+          }
+        },
+        "uk": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "виконано ще {n} дію"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "виконано ще {n} дії"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "виконано ще {n} дій"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "виконано ще {n} дії"
+                }
+              }
+            }
+          }
+        },
+        "vi": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "đã thực hiện {n} thao tác khác"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "执行了 {n} 个其他操作"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "執行了 {n} 個其他操作"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
   },
   "version": "1.0"
 }
