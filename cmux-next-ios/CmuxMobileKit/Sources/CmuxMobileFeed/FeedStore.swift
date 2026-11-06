@@ -226,6 +226,8 @@ public final class FeedStore {
     /// The window now: `memoryLimit`, raised while the person reads rows brought back from the
     /// spill (`loadOlder`), back to `memoryLimit` when they return to the top (`restoreWindow`).
     @ObservationIgnored private var windowLimit = FeedStore.memoryLimit
+    /// How many events a filtered Feed holds at most while it reads older ones from disk.
+    public static let filteredReachLimit = 2000
     /// What a memory warning trims the Feed to (`relieveMemoryPressure`).
     public static let pressureLimit = 100
     /// Where events that leave the window go, while the app runs: scrolling to the end brings
@@ -237,6 +239,10 @@ public final class FeedStore {
     /// Ids in the spill: the Mac re-reports its ledger on every tree change, and an event the
     /// window already spilled is not written again.
     @ObservationIgnored private var spilledIDs: Set<String> = []
+    /// Spilled events the source withdrew (`remove`): they do not come back.
+    @ObservationIgnored private var removedWhileSpilled: Set<String> = []
+    /// Mark All as Read covered every event up to then, the spilled ones too.
+    @ObservationIgnored private var allReadThrough: Date?
     public private(set) var isLoadingOlder = false
 
     /// An older event the window keeps: an open ask, one with an answer on its way or a refusal
@@ -307,6 +313,8 @@ public final class FeedStore {
         self.spill = spill
         olderOnDisk = 0
         spilledIDs = []
+        removedWhileSpilled = []
+        allReadThrough = nil
     }
 
     /// The person reached the end of the Feed: the newest page of spilled events comes back
@@ -319,11 +327,14 @@ public final class FeedStore {
     /// `loadOlder`, returning once the page is in the Feed (tests).
     func loadOlderPage() async {
         guard let spill, olderOnDisk > 0, !isLoadingOlder else { return }
+        // A filter with few matches reaches its end at once: it reads at most this far back.
+        guard filter == .all || items.count < Self.filteredReachLimit else { return }
         isLoadingOlder = true
         defer { isLoadingOlder = false }
         while olderOnDisk > 0 {
             let page = await spill.pop()
-            guard self.spill != nil else { return }
+            // Another account's spill (sign-out, then sign-in) never takes this page.
+            guard self.spill?.directory == spill.directory else { return }
             guard !page.isEmpty else {
                 olderOnDisk = 0
                 spilledIDs = []
@@ -331,20 +342,28 @@ public final class FeedStore {
             }
             olderOnDisk = max(0, olderOnDisk - page.count)
             spilledIDs.subtract(page.map(\.id))
-            // A newer copy already in memory (the Mac re-reported it) wins.
-            let back = page.filter { itemIndex[$0.id] == nil }
+            // A newer copy already in memory (the Mac re-reported it) wins; one the source
+            // withdrew stays gone; what the person read while it was on disk comes back read.
+            let back = page.filter { itemIndex[$0.id] == nil && !removedWhileSpilled.contains($0.id) }.map { item in
+                var item = item
+                if readSet.contains(item.id) || allReadThrough.map({ item.createdAt <= $0 }) == true { item.isRead = true }
+                return item
+            }
             guard !back.isEmpty else { continue }
             windowLimit = max(windowLimit, items.count + back.count)
+            // Below the rows shown, in the order they left: the rows on screen do not move.
             var next = items
             next.append(contentsOf: back)
-            setItems(next.sorted { $0.createdAt > $1.createdAt })
+            setItems(next)
             return
         }
     }
 
     /// The person is back at the top: the rows brought back for scrolling go back to disk.
     public func restoreWindow() {
-        guard windowLimit != Self.memoryLimit else { return }
+        // A filtered Feed is short: its top and its end are the same rows, and the window grows
+        // while a filter looks for older matches. It goes back once the whole Feed shows.
+        guard windowLimit != Self.memoryLimit, filter == .all else { return }
         windowLimit = Self.memoryLimit
         setItems(items)
     }
@@ -445,7 +464,8 @@ public final class FeedStore {
     public private(set) var unseenNewIDs: [String] = []
     private var liveIndex = 0
 
-    public init(items: [FeedItem], answersLocally: Bool = false, readMarks: FeedReadMarks? = nil) {
+    public init(items: [FeedItem], answersLocally: Bool = false, readMarks: FeedReadMarks? = nil,
+                memoryPressure: MemoryPressure = .shared) {
         self.readMarks = readMarks
         let readIDs = readMarks?.load() ?? []
         self.readIDs = readIDs
@@ -459,7 +479,7 @@ public final class FeedStore {
         self.answersLocally = answersLocally
         reindex()
         refreshDerived()
-        MemoryPressure.shared.register(self) { [weak self] in self?.relieveMemoryPressure() }
+        memoryPressure.register(self) { [weak self] in self?.relieveMemoryPressure() }
     }
 
     /// Pull to refresh: re-reads the Mac's sessions and open asks through
@@ -527,6 +547,11 @@ public final class FeedStore {
         var next = items
         var changed = false
         for id in ids {
+            if itemIndex[id] == nil, spilledIDs.contains(id), !readSet.contains(id) {
+                // On disk: it comes back read (`loadOlderPage`), and stays read on a relaunch.
+                readIDs.append(id)
+                readMarks?.save(readIDs)
+            }
             guard let index = itemIndex[id], !next[index].isRead else { continue }
             next[index].isRead = true
             changed = true
@@ -536,6 +561,7 @@ public final class FeedStore {
 
     /// Mark All Notifications as Read: every event in the Feed, in one write.
     public func markAllRead() {
+        if olderOnDisk > 0 { allReadThrough = Date() }
         guard items.contains(where: { !$0.isRead }) else { return }
         items = items.map { item in
             var item = item
@@ -639,6 +665,7 @@ public final class FeedStore {
 
     /// Drops an item the source withdrew (a duplicate of another event).
     public func remove(_ id: String) {
+        if spilledIDs.contains(id) { removedWhileSpilled.insert(id) }
         if items.contains(where: { $0.id == id }) { items.removeAll { $0.id == id } }
         if unseenNewIDs.contains(id) { unseenNewIDs.removeAll { $0 == id } }
     }

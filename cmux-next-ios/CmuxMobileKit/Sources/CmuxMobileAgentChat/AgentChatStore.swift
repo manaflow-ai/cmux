@@ -338,7 +338,7 @@ public final class AgentChatStore {
         if editsBeforeLast.count != earlier || (!lastTurnOnly && !editsBeforeLast.any) {
             editsBeforeLast = (earlier, turns.dropLast().contains(where: \.hasEdits))
         }
-        assign(\.hasAgentEdits, spilledHadEdits || editsBeforeLast.any || last?.hasEdits == true)
+        assign(\.hasAgentEdits, editsBeforeLast.any || last?.hasEdits == true)
     }
 
     private func assign<Value: Equatable>(_ keyPath: ReferenceWritableKeyPath<AgentChatStore, Value>, _ value: Value) {
@@ -667,7 +667,12 @@ public final class AgentChatStore {
     /// chats fork through an earlier turn (acpmux `fork_through.rs`).
     public func editForkSeq(for turn: AgentTurn) -> Int? {
         guard ["claude", "codex"].contains(Self.family(of: summary.harness)),
-              let index = turns.firstIndex(where: { $0.id == turn.id }), index > 0, !turn.prompt.isEmpty else { return nil }
+              let index = turns.firstIndex(where: { $0.id == turn.id }), !turn.prompt.isEmpty else { return nil }
+        guard index > 0 else {
+            // The turn before it is on disk (`spillOlder`).
+            guard turnsOnDisk > 0, let spilled = spilledTurns.last, spilled.completed else { return nil }
+            return turnSeqs[spilled.id]
+        }
         let before = turns[index - 1]
         guard before.status == .completed else { return nil }
         return turnSeqs[before.id]
@@ -746,6 +751,7 @@ public final class AgentChatStore {
     }
 
     private func applyEvent(_ event: AgentSessionEvent) {
+        if !spilledTurnIDs.isEmpty, replaysSpilledTurn(event) { return }
         revision &+= 1
         lastChangeWasReplay = false
         placeBottomStackInstantly = false
@@ -772,7 +778,9 @@ public final class AgentChatStore {
             reached(promptId)
             // A steer into a running turn shares its id: only the message that opened the turn is its prompt.
             promptedTurnID = nil
-            if !turns.contains(where: { $0.id == turnId }) {
+            // A turn on disk (`spillOlder`) is not new: a replay that brings its prompt again
+            // must not add it a second time, at the bottom.
+            if !turns.contains(where: { $0.id == turnId }), !spilledTurnIDs.contains(turnId) {
                 promptedTurnID = turnId
                 startsNewAttempt = false
                 turns.append(AgentTurn(id: turnId, prompt: text, attachments: Self.sentAttachments(sentAttachments[promptId], recorded: attachments),
@@ -934,6 +942,7 @@ public final class AgentChatStore {
             applySubagent(change)
         case .batch(let events):
             for event in events { applyEvent(event) }
+            inSpilledTurn = false
             markReplayed()
             lastChangeWasReplay = true
 
@@ -985,10 +994,34 @@ public final class AgentChatStore {
     @ObservationIgnored private(set) var spill: RowSpill<AgentTurn>?
     /// Turns in the spill.
     public private(set) var turnsOnDisk = 0
-    /// What the derived state keeps from the spilled turns: the untitled chat's title and
-    /// "Agent Edits".
+    /// A replay is going through a turn on disk: its records (a source that replays the whole
+    /// log, a reattach) are not applied to the turn shown last.
+    @ObservationIgnored private var inSpilledTurn = false
+
+    /// Whether `event` belongs to a turn on disk, which a replay brings again: it is skipped,
+    /// so the turn is neither added a second time at the bottom nor written into another.
+    private func replaysSpilledTurn(_ event: AgentSessionEvent) -> Bool {
+        switch event {
+        case .userMessage(_, _, let turnId, _, _):
+            inSpilledTurn = spilledTurnIDs.contains(turnId)
+            return inSpilledTurn
+        case .turnStarted(let turnId, _), .turnResult(let turnId, _, _, _), .turnSeq(let turnId, _),
+             .promptSeq(let turnId, _), .promptFrom(let turnId, _):
+            return spilledTurnIDs.contains(turnId)
+        case .update:
+            return inSpilledTurn
+        default:
+            return false
+        }
+    }
+    /// Their ids.
+    @ObservationIgnored private var spilledTurnIDs: Set<String> = []
+    /// The untitled chat's title, when its first turn is on disk. ("Agent Edits" covers the
+    /// turns in memory, as it covers only the pages read from the Mac.)
     @ObservationIgnored private var spilledFirstPrompt: String?
-    @ObservationIgnored private var spilledHadEdits = false
+    /// Each turn on disk, oldest first, with whether it completed: Edit and Resend of the
+    /// oldest turn in memory forks through the newest of them.
+    @ObservationIgnored private var spilledTurns: [(id: String, completed: Bool)] = []
     /// Makes the spill (tests put it in their own folder).
     @ObservationIgnored public var makeSpill: @MainActor () -> RowSpill<AgentTurn> = {
         // Turns are heavy (tool output, diffs): small pages. The cap is far above any chat, so
@@ -1005,6 +1038,9 @@ public final class AgentChatStore {
     /// ask, and every turn after it, stay. Scrolling up brings them back (`loadEarlier`).
     @discardableResult
     public func spillOlder(keeping: Int, protecting: String? = nil) -> Int {
+        // A page on its way (from disk or the Mac) goes in front of the turns shown: spilling
+        // now would put newer turns on disk below it, and bring them back above it.
+        guard !isLoadingEarlier else { return 0 }
         var end = turns.count - keeping
         if let protecting, let index = turns.firstIndex(where: { $0.id == protecting }) { end = min(end, index) }
         if let live = turns.prefix(max(end, 0)).firstIndex(where: { turn in
@@ -1017,9 +1053,10 @@ public final class AgentChatStore {
         self.spill = spill
         let older = Array(turns.prefix(end))
         if turnsOnDisk == 0, !sourceHasEarlier { spilledFirstPrompt = older.first?.prompt }
-        spilledHadEdits = spilledHadEdits || older.contains(where: \.hasEdits)
+        spilledTurns += older.map { ($0.id, $0.status == .completed) }
         spill.push(older.reversed())
         diffs.forget(older)
+        spilledTurnIDs.formUnion(older.map(\.id))
         turnsOnDisk += older.count
         turns.removeFirst(end)
         revision &+= 1
@@ -1032,9 +1069,12 @@ public final class AgentChatStore {
     private func restoreSpilled(_ page: [AgentTurn]) {
         isLoadingEarlier = false
         turnsOnDisk = page.isEmpty ? 0 : max(0, turnsOnDisk - page.count)
+        spilledTurnIDs.subtract(page.map(\.id))
+        spilledTurns.removeLast(min(page.count, spilledTurns.count))
         if turnsOnDisk == 0 {
+            spilledTurnIDs = []
+            spilledTurns = []
             spilledFirstPrompt = nil
-            spilledHadEdits = false
         }
         let shown = Set(turns.map(\.id))
         let back = page.reversed().filter { !shown.contains($0.id) }

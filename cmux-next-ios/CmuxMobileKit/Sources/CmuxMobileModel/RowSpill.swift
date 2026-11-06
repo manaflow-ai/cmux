@@ -101,6 +101,11 @@ public struct RowSpill<Row: Codable & Sendable>: Sendable {
         }
     }
 
+    /// Returns once every push made before it is written (tests and measurements).
+    public func flush() {
+        queue.sync {}
+    }
+
     /// How many rows are on disk (tests and measurements; reads every page).
     public func storedCount() -> Int {
         queue.sync { tail.rows.count + pages().reduce(0) { $0 + (load($1)?.count ?? 0) } }
