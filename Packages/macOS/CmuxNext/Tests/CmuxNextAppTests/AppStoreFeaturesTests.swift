@@ -57,9 +57,9 @@ import Testing
             // a default-on toggle (Now Playing on New Tab) is written false instead.
             if case .choice = feature.on {
                 let defaultOn = descriptor.effectiveValue(in: .object([:])) == SettingsAppFeatures.onValue(feature)
-                // Compact density is the appearance default. It is still listed as a card so the
-                // complete built-in density family is discoverable; clearing it keeps that default.
-                #expect(!defaultOn || feature.id == "appearance.compact",
+                // Default density (`cozy`) is the appearance default. It is still listed as a card so
+                // the complete built-in density family is discoverable; clearing it keeps that default.
+                #expect(!defaultOn || feature.id == "appearance.cozy",
                         "\(feature.id) is on by default, so Remove could not turn it off")
             }
         }

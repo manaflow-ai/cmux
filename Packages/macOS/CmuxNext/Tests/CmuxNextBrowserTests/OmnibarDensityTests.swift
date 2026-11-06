@@ -38,7 +38,7 @@ import Testing
         #expect(standard.iconPointSize == 13 && standard.toolbarIconSize == 20 && standard.trailingIconSize == 18)
     }
 
-    @Test func comfortableIsChromesRoomierBar() {
+    @Test func levelOneIsChromesRoomierBar() {
         let comfortable = OmnibarMetrics(tokens: DensityTokens(id: "comfortable", name: "Comfortable", level: 1))
         #expect(comfortable.barHeight == 34 && comfortable.buttonSize == 34)
         #expect(comfortable.fontSize == TypeScale.title)
@@ -85,7 +85,7 @@ import Testing
     }
 
     @Test func overridesBeatDensity() {
-        let metrics = OmnibarMetrics(tokens: DensityPreset.comfortable.tokens, height: 30, fontSize: 13)
+        let metrics = OmnibarMetrics(tokens: DensityTokens(id: "comfortable", name: "Comfortable", level: 1), height: 30, fontSize: 13)
         #expect(metrics.barHeight == 30)
         #expect(metrics.fontSize == 13)
         // The buttons keep the density's size.

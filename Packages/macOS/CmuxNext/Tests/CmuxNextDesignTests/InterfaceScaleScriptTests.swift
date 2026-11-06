@@ -1,4 +1,5 @@
 @testable import CmuxNextDesign
+import CoreGraphics
 import Testing
 
 /// The page sizing token must receive the host's complete page zoom, including Agent Chat Zoom.
@@ -34,11 +35,11 @@ import Testing
         design.densityTokens = DensityPreset.cozy.tokens
         #expect(Typography.pageScale == 1)
         design.densityTokens = DensityPreset.spacious.tokens
-        #expect(Typography.pageScale == DensityPreset.spacious.tokens.bodySize / 13)
+        #expect(abs(Typography.pageScale - DensityPreset.spacious.tokens.bodySize / CGFloat(13)) < 0.0001)
         #expect(Typography.pageScale > 1)
         #expect(design.interfaceScaleScript().contains("--cmux-interface-scale', '\(Typography.pageScale)'"))
         design.setOverride(.chromeFontSize, 15)
-        #expect(Typography.pageScale == 15 / 13)
+        #expect(abs(Typography.pageScale - CGFloat(15) / CGFloat(13)) < 0.0001)
         design.setOverride(.chromeFontSize, 11)
         #expect(Typography.pageScale == 1)
     }
