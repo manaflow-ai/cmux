@@ -68,7 +68,7 @@ impl Mux {
     /// terminal `terminal_id` (the stable host id) finished, for Run Last
     /// Command Again. None for an incognito terminal, a terminal with no
     /// live runtime, and while recording is off.
-    pub fn terminal_last_command(
+    pub(crate) fn terminal_last_command(
         &self,
         terminal_id: &str,
     ) -> Option<crate::state::kept_tab_store::LastCommand> {

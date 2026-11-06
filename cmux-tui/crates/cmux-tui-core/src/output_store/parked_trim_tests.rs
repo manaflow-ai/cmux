@@ -3,7 +3,7 @@ use super::*;
 const MIB: u64 = 1024 * 1024;
 
 fn id(n: u8) -> TerminalPublicId {
-    TerminalPublicId::parse(&format!("term_{n:032x}")).unwrap()
+    TerminalPublicId::parse(format!("term_{n:032x}")).unwrap()
 }
 
 fn parked(n: u8, days_ago: u64, kept_lines: Option<usize>, bytes: u64) -> Parked {
@@ -52,7 +52,7 @@ fn over_the_budget_the_oldest_step_down_first() {
         parked(3, 0, None, 100 * MIB),
     ];
     // 300 MiB over a 256 MiB budget: the oldest (by written_at, then order) steps to 500 lines (counted as half).
-    let mut older = files.clone();
+    let mut older = files;
     older[2].written_at_ms -= 1;
     assert_eq!(plan(&older, NOW, 256 * MIB, false), [(id(3), Keep::Lines(WEEK_LINES))]);
     // A tight budget: every file steps down, then the oldest go.
