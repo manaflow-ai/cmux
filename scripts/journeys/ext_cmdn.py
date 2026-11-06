@@ -274,12 +274,18 @@ def refill_probe(j, step):
             reserved[s["name"]] = reserved.get(s["name"], 0) + 1
         typed = None
         if nonce:
+            # pane_frame_text reads the journey's current pane (a `pane` value is a name_pane name): the new
+            # pane is current only for this check, then the base terminal is again.
+            keep = (j.term, j.pane, j.host_pid)
+            j.term, j.pane = None, pane
             try:
                 j.step_expect({"title": "typed at once after Cmd-N", "timeout": 10,
-                               "all": [{"pane_frame_text": {"text": nonce, "pane": pane}}]})
+                               "all": [{"pane_frame_text": nonce}]})
                 typed = True
             except StepError as error:
                 typed = str(error)[:300]
+            finally:
+                j.term, j.pane, j.host_pid = keep
         rows.append({"run": index, "visible_ms": reply.get("visible_ms"), "key_ms": reply.get("key_ms"),
                      "committed_ms": reply.get("committed_ms"), "frames_to_visible": reply.get("frames_to_visible"),
                      "key_changes": reply.get("key_changes"), "reserved": reserved,
