@@ -576,6 +576,15 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists())
 
+    def test_a_startup_failure_cmux_next_run_is_no_result(self):
+        """A cmux-next run whose newest attempt ended in startup_failure ran nothing: no verdict, never green."""
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, cmux_next_runs=[("completed", "startup_failure", 3)])
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("startup_failure", result.stderr)
+
     def test_a_finished_cmux_next_run_merges(self):
         with tempfile.TemporaryDirectory() as directory:
             marker = Path(directory) / "merged"
@@ -855,7 +864,7 @@ class WorkflowPresenceRegression(unittest.TestCase):
     """Repositories without the aggregate workflow use all exact-head verdicts."""
 
     def run_case(self, *, workflow=False, probe_status=404, checks=None, statuses=None, app_workflow=False, files=None, workflow_body=None,
-                 raw_content=None, app_workflow_body=None, extra_args=()):
+                 raw_content=None, app_workflow_body=None, extra_args=(), rest_checks_fail=False):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
             marker = directory / "merged"
@@ -863,7 +872,8 @@ class WorkflowPresenceRegression(unittest.TestCase):
             payload = {"head": HEAD, "workflow": workflow, "probe_status": probe_status,
                        "checks": checks if checks is not None else [{"id": 1, "name": "tests", "status": "completed", "conclusion": "success"}],
                        "statuses": statuses or [], "app_workflow": app_workflow, "files": files or [],
-                       "workflow_body": workflow_body, "raw_content": raw_content, "app_workflow_body": app_workflow_body}
+                       "workflow_body": workflow_body, "raw_content": raw_content, "app_workflow_body": app_workflow_body,
+                       "rest_checks_fail": rest_checks_fail}
             fixture = directory / "fixture.json"
             fixture.write_text(__import__("json").dumps(payload))
             gh = directory / "gh"
@@ -896,7 +906,22 @@ class WorkflowPresenceRegression(unittest.TestCase):
                 elif a[0] == 'api' and '--paginate' in a:
                     sys.exit(3)
                 elif a[0] == 'api' and any('/check-runs' in arg for arg in a):
-                    print(json.dumps({'total_count': len(x['checks']), 'check_runs': x['checks']}))
+                    if x.get('rest_checks_fail'):
+                        sys.exit(1)
+                    every = any('filter=all' in arg for arg in a)
+                    shown = [{k: v for k, v in c.items() if k != 'hidden_by_latest'} for c in x['checks']
+                             if every or not c.get('hidden_by_latest')]
+                    print(json.dumps({'total_count': len(shown), 'check_runs': shown}))
+                elif a[:2] == ['api', 'graphql'] and x.get('rest_checks_fail'):
+                    query = next(arg for arg in a if arg.startswith('query='))
+                    every = 'checkType:ALL' in query.replace(' ', '')
+                    runs = [{'databaseId': c['id'], 'name': c['name'], 'status': c['status'].upper(),
+                             'conclusion': (c.get('conclusion') or '').upper() or None}
+                            for c in x['checks'] if every or not c.get('hidden_by_latest')]
+                    print(json.dumps({'data': {'repository': {'object': {'checkSuites': {
+                        'pageInfo': {'hasNextPage': False},
+                        'nodes': [{'id': 'S1', 'app': {'slug': 'github-actions'},
+                                   'checkRuns': {'nodes': runs, 'pageInfo': {'hasNextPage': False}}}]}}}}}))
                 elif a[0] == 'api' and any('/statuses' in arg for arg in a):
                     print(json.dumps(x['statuses']))
                 elif a[0] == 'api' and any('/files' in arg for arg in a):
@@ -954,6 +979,39 @@ class WorkflowPresenceRegression(unittest.TestCase):
             result, merged, _ = self.run_case(probe_status=code)
             self.assertNotEqual(result.returncode, 0)
             self.assertFalse(merged)
+
+    # cmux#35906 merged as 633d5e38 pinned at e1d1894a with its 'publish tree-addressed cmux-tui' red in run
+    # 41931705470 unexcused: two reruns ended in startup_failure with no jobs, and GitHub's default check-runs list
+    # (each suite's newest attempt only) dropped the red. An attempt that ran nothing is no result: a check reads as
+    # its last real attempt left it, over REST (filter=all) and over the GraphQL fallback (checkType:ALL) alike.
+    PUBLISH = "publish tree-addressed cmux-tui"
+
+    def test_a_red_under_startup_failure_reruns_still_refuses(self):
+        checks = [{"id": 1, "name": "tests", "status": "completed", "conclusion": "success"},
+                  {"id": 2, "name": self.PUBLISH, "status": "completed", "conclusion": "failure", "hidden_by_latest": True}]
+        for rest_checks_fail in (False, True):
+            with self.subTest(graphql=rest_checks_fail):
+                result, merged, _ = self.run_case(checks=checks, rest_checks_fail=rest_checks_fail)
+                self.assertNotEqual(result.returncode, 0, result.stderr)
+                self.assertFalse(merged)
+                self.assertIn(self.PUBLISH, result.stderr)
+
+    def test_a_red_then_a_real_green_rerun_merges(self):
+        checks = [{"id": 1, "name": "tests", "status": "completed", "conclusion": "success"},
+                  {"id": 2, "name": self.PUBLISH, "status": "completed", "conclusion": "failure", "hidden_by_latest": True},
+                  {"id": 3, "name": self.PUBLISH, "status": "completed", "conclusion": "success"}]
+        for rest_checks_fail in (False, True):
+            with self.subTest(graphql=rest_checks_fail):
+                result, merged, _ = self.run_case(checks=checks, rest_checks_fail=rest_checks_fail)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(merged)
+
+    def test_a_startup_failure_alone_is_no_result_not_green(self):
+        # Its only attempt ran no jobs, so it created no check run: nothing reported, never a green.
+        result, merged, _ = self.run_case(checks=[])
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(merged)
+        self.assertIn("no checks have reported", result.stderr)
 
     def test_present_ci_workflow_still_requires_ci_status(self):
         result, merged, _ = self.run_case(workflow=True)

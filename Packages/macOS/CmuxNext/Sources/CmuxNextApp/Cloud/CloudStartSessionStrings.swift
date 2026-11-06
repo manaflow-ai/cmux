@@ -12,6 +12,12 @@ enum CloudStartSessionStrings {
         var command: String
     }
 
+    // `cmux cloud relay-chat` (``CloudStartSession/bindRelayChat(into:context:reason:)``).
+    static var relayPromptRequired: String { String(localized: "cloud.relayChat.promptRequired", defaultValue: "Give the chat a prompt with --prompt.", table: "CloudSessions", bundle: .module) }
+    static var relayAgentRun: String { String(localized: "cloud.relayChat.agentRun", defaultValue: "An agent starts a Cloud chat with `cmux cloud start-session`, which asks the person first.", table: "CloudSessions", bundle: .module) }
+    static var relayUnavailable: String { String(localized: "cloud.relayChat.unavailable", defaultValue: "This Cloud sign-in has no relay chat. Use `cmux cloud start-session` instead.", table: "CloudSessions", bundle: .module) }
+    static var relayReplyTitle: String { String(localized: "cloud.relayChat.replyTitle", defaultValue: "Cloud Chat Reply", table: "CloudSessions", bundle: .module) }
+
     static var start: String { String(localized: "cloud.startSession.start", defaultValue: "Start", table: "CloudSessions", bundle: .module) }
     static var openChat: String { String(localized: "cloud.startSession.openChat", defaultValue: "Open Chat", table: "CloudSessions", bundle: .module) }
 
@@ -57,7 +63,7 @@ enum CloudStartSessionStrings {
     }
 
     static var cwdInvalid: String {
-        String(localized: "cloud.startSession.cwdInvalid", defaultValue: "Pass --cwd as an absolute folder on the machine, for example `cmux cloud start-session --target machine:<id> --agent claude --cwd /home/cmux/work`.", table: "CloudSessions", bundle: .module)
+        String(localized: "cloud.startSession.cwdInvalid", defaultValue: "Pass --cwd as an absolute folder on the machine, for example `cmux cloud start-session --target machine:<id> --agent claude --cwd /home/cmux/FOLDER`.", table: "CloudSessions", bundle: .module)
     }
 
     /// The machine to create (`--name`) could not be created; `reason` says why. `quoted` is the
@@ -82,7 +88,7 @@ enum CloudStartSessionStrings {
 
     /// The start found no folder it may use (none in the workspace, or the home folder).
     static func needsFolder(_ name: String, id: String, agent: String) -> String {
-        String(format: String(localized: "cloud.startSession.needsFolder", defaultValue: "Machine `%1$@` started but its agent didn't: it needs a folder on that machine to start in. Run `cmux cloud start-session --target machine:%2$@ --agent %3$@ --cwd /home/cmux/work` again with a folder there.", table: "CloudSessions", bundle: .module), name, id, agent)
+        String(format: String(localized: "cloud.startSession.needsFolder", defaultValue: "Machine `%1$@` started but its agent didn't: it needs a folder on that machine to start in. Run `cmux cloud start-session --target machine:%2$@ --agent %3$@ --cwd FOLDER` again with a folder that exists there.", table: "CloudSessions", bundle: .module), name, id, agent)
     }
 
     // MARK: The card's text and what an agent's run says

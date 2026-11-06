@@ -39,7 +39,7 @@ enum SessionInfoMetrics {
     /// A line's highlight's right end to its trailing column's right edge.
     static let trail: CGFloat = LayoutGrid.gap
     static let rowHeight: CGFloat = LayoutGrid.row
-    static let rowRadius: CGFloat = 6
+    static var rowRadius: CGFloat { Metrics.insetCornerRadius }
     static let indent: CGFloat = LayoutGrid.sidebarDepthIndent
     static let groupGap: CGFloat = LayoutGrid.gapInner
     static let padding: CGFloat = LayoutGrid.gap
@@ -53,6 +53,7 @@ struct SessionInfoLine: Equatable {
     var symbol: String?
     var symbolColor: String?
     var harness: String?
+    var identityTone: Int?
     var working = false
     var wave: AgentPaneSessionInfoModel.Wave?
     var spins = false
@@ -133,7 +134,7 @@ extension AgentPaneSessionInfoModel {
             guard section.open || bare else { continue }
             for (index, row) in section.rows.enumerated() {
                 items.append(.line(SessionInfoLine(
-                    id: section.bare == true && index == 0 ? section.id : "row:\(section.id):\(row.id)", kind: .row, symbol: row.symbol, symbolColor: row.symbolColor, harness: row.harness,
+                    id: section.bare == true && index == 0 ? section.id : "row:\(section.id):\(row.id)", kind: .row, symbol: row.symbol, symbolColor: row.symbolColor, harness: row.harness, identityTone: row.identityTone,
                     working: row.working == true, wave: row.wave, spins: false, title: row.title,
                     titleInk: row.tone == .failed ? .danger : .primary, detail: row.detail, subtitle: row.subtitle, progress: row.progress,
                     trailing: row.trailing, trailingTone: row.tone, meter: row.meter, segments: row.segments, buttons: row.buttons ?? [],
@@ -637,14 +638,16 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         glyph?.removeFromSuperview()
         glyph = nil
         let colors = ink.colors
+        let identity = colors.identity(line.identityTone)
         if line.working {
             let spinner = StatusIndicatorView.spinner()
+            spinner.spinnerColor = identity
             spinner.spin(true)
             glyph = spinner
         } else if let wave = line.wave {
-            glyph = SessionInfoWaveView(wave: wave, color: colors.secondary)
+            glyph = SessionInfoWaveView(wave: wave, color: identity ?? colors.secondary)
         } else if let harness = line.harness {
-            glyph = Self.image(HarnessSymbolImages.isSymbolName(harness) ? harness : "person.crop.circle", font: Typography.body, tint: colors.secondary)
+            glyph = Self.image(HarnessSymbolImages.isSymbolName(harness) ? harness : "person.crop.circle", font: Typography.body, tint: identity ?? colors.secondary)
         } else if line.symbol == "terminal.prompt" {
             let prompt = ChromeLabel(labelWithString: ">_")
             prompt.font = Typography.caption
@@ -657,7 +660,7 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
             glyph = spinner
         } else if let symbol = line.symbol {
             let font = line.discloses ? Typography.caption : Typography.body
-            glyph = Self.image(symbol, font: font, tint: colors.symbol(line.symbolColor, fallback: line.titleInk == .danger ? colors.danger : colors.secondary))
+            glyph = Self.image(symbol, font: font, tint: identity ?? colors.symbol(line.symbolColor, fallback: line.titleInk == .danger ? colors.danger : colors.secondary))
         }
         if let glyph { addSubview(glyph) }
     }
@@ -1018,7 +1021,7 @@ final class SessionInfoButtonView: NSView {
         }
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = 4
+        layer?.cornerRadius = Metrics.controlCornerRadius
         addSubview(content)
         themedToolTip = button.label
         setAccessibilityElement(true)
@@ -1062,7 +1065,7 @@ final class SessionInfoButtonView: NSView {
     override var acceptsFirstResponder: Bool { enabled }
     override var canBecomeKeyView: Bool { enabled && NSApp.isFullKeyboardAccessEnabled }
     override var focusRingMaskBounds: NSRect { bounds }
-    override func drawFocusRingMask() { NSBezierPath(roundedRect: bounds, xRadius: 4, yRadius: 4).fill() }
+    override func drawFocusRingMask() { NSBezierPath(roundedRect: bounds, xRadius: Metrics.controlCornerRadius, yRadius: Metrics.controlCornerRadius).fill() }
     override func keyDown(with event: NSEvent) {
         if SessionInfoKeys.presses(event), press() { return }
         super.keyDown(with: event)

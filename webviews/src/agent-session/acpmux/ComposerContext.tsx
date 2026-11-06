@@ -157,6 +157,7 @@ export function ComposerContext({
   onRepick,
   cloudMachines,
   onCloudMachine = (machine) => void runCloudMachine(machine),
+  onCloudMachinePicked,
   runMode,
   closeOnTrustAsk = false,
   showMachineLoadWarnings,
@@ -239,6 +240,9 @@ export function ComposerContext({
   cloudMachines?: readonly CloudMachine[];
   /// A pick of one acpmux does not list: it resumes (paused) or opens; by default through the app.
   onCloudMachine?(machine: CloudMachine): void;
+  /// Reports the selected account machine to the pane before its resume/open hint runs. `undefined`
+  /// clears a draft target when the picker moves back to a non-Cloud environment.
+  onCloudMachinePicked?(machine: CloudMachine | undefined): void;
   /// A new chat's Run as in the environment picker (Persistent or Sandboxed, hq#3367).
   runMode?: RunModeRows;
   /// A trust question takes precedence over an open destination picker.
@@ -507,6 +511,7 @@ export function ComposerContext({
   const pickCloudMachine = (id: string) => {
     const machine = computers.find((computer) => computer.id === id)?.cloudMachine;
     if (machine && !readOnly) {
+      onCloudMachinePicked?.(machine);
       // Folders are the machine's: the pick drops this machine's at once, not when (or if) it arrives (cmux#34527).
       if (extraFolders?.draft) extraFolders.onChange(undefined);
       onCloudMachine(machine);
@@ -516,6 +521,7 @@ export function ComposerContext({
   };
   const pickComputer = (id: string) => {
     if (pickCloudMachine(id)) return;
+    onCloudMachinePicked?.(undefined);
     if (waiting) setWaiting(undefined);
     if (!readOnly && id !== selectedComputer) {
       // Folders are the machine's: another machine starts with none.
@@ -550,6 +556,7 @@ export function ComposerContext({
   // A folder pick is always the folder (the page's project, which Cloud sends and recent projects
   // record), then the saved environment that is only that folder, if there is one.
   const pickFolder = (cwd: string) => {
+    onCloudMachinePicked?.(undefined);
     onProject?.(cwd);
     const environment = savedRows && savedFolders.find((candidate) => normalizeCwd(candidate.folder) === cwd);
     if (environment) savedRows.onPick(environment.id);
@@ -1126,7 +1133,7 @@ function LocationFace({
       )}
       {live !== undefined && sleep === "resuming" && (
         <span className="acpmux-env-live" data-sleep="resuming">
-          <Spinner size={10} loading className="acpmux-env-live-spinner" />
+          <Spinner size={12} loading className="acpmux-env-live-spinner" />
           <span className="acpmux-env-status-text">{t("composer.envResuming")}</span>
         </span>
       )}

@@ -82,6 +82,12 @@ impl Mux {
             self.emit(MuxEvent::SurfaceExited(id, None));
             return;
         }
+        // Its last output's publications commit before the exit does (an
+        // ended terminal commits none), and before the creation fences, which a
+        // registry wait here must not hold.
+        if let Some(surface) = self.surface(id) {
+            self.settle_terminal_publications(&surface);
+        }
         let _creation_handoff = self.resource_creation_handoff.write().unwrap();
         let _creation_fence = self.resource_creation_execution.lock().unwrap();
         if let Some(surface) = self.surface(id)
@@ -377,6 +383,15 @@ impl Mux {
             .filter(|_| has_host_root)
             .map(|slot| (slot, self.plan_user_restart_locked(&registry, &mut state, slot)));
         drop(state);
+        // A signal exit whose detach waits out the shutdown lead is
+        // scheduled under the registry lock, as the respawn above is planned:
+        // from the commit on, it keeps an app session's owner until it
+        // settles (`kept_terminal_count` reads both under this lock), so a
+        // stop never begins a shutdown that would make the person's kill a
+        // host loss.
+        if let Some(until_ms) = settle_until_ms {
+            self.schedule_exit_settle(terminal_id, until_ms);
+        }
         drop(registry);
         #[cfg(unix)]
         match restart {
@@ -449,9 +464,6 @@ impl Mux {
                     None => self.emit(MuxEvent::TreeChanged),
                 }
             }
-        }
-        if let Some(until_ms) = settle_until_ms {
-            self.schedule_exit_settle(terminal_id, until_ms);
         }
         Ok(!replayed)
     }

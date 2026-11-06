@@ -229,6 +229,10 @@
       "scope": "calendar:read",
       "class": "read"
     },
+    "channel.create": {
+      "scope": "channel:write",
+      "class": "mutation"
+    },
     "chief.continue": {
       "scope": "chief:write",
       "class": "mutation"
@@ -1821,6 +1825,10 @@
       "scope": "title:write",
       "class": "mutation"
     },
+    "toast.show": {
+      "scope": "none",
+      "class": "mutation"
+    },
     "usage_app.cycle_variant": {
       "scope": "usage_app:write",
       "class": "mutation"
@@ -2009,6 +2017,8 @@
     "cloud.snapshot.create",
     "cloud.snapshot.delete",
     "cloud.snapshot.restore",
+    "conductor_import.plan",
+    "conductor_import.record",
     "conversation.events",
     "credential.mint",
     "credential.rotate",
@@ -2071,6 +2081,7 @@
     "request.dismiss",
     "screen.close",
     "server.pair.approve",
+    "server.pair.invite",
     "server.pair.preview",
     "server.revoke",
     "session.creation.resolve",

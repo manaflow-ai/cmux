@@ -253,8 +253,15 @@ extension SidebarListViewComponents {
                 recycle(view)
             }
         }
-        for row in layout.rows {
+        // Only the rows this apply can draw get a frame: the ones the realization rect holds (found by y, O(log n)), the
+        // realized ones (they move to their new slots) and the reopened ones (their view goes). Any other row skips
+        // here as before, with no frame computed: frame(for:) over every listed row was O(rows) on each change (m23).
+        var framesComputed = 0
+        defer { SidebarPerfCounters.add(.rowFrames, framesComputed) }
+        for index in drawnRowIndices(of: layout, in: realize, reopened: reopened) {
+            let row = layout.rows[index]
             let target = frame(for: row)
+            framesComputed += 1
             if reopened.contains(row.key) { rowViews.removeValue(forKey: row.key)?.removeFromSuperview() }
             let existing = rowViews[row.key]
             guard existing != nil || target.intersects(realize) else { continue }
@@ -312,7 +319,9 @@ extension SidebarListViewComponents {
             return group
         })
         var leaving: [(SidebarRowView, NSRect)] = []
+        var folding: [SidebarRowView] = []
         let removeRuns = SidebarRowTransition.runTops(of: old, missingFrom: layout)
+        let cards = flyingCardFrames
         for (key, view) in rowViews where !keep.contains(key) {
             if key == hoveredKey {
                 hoveredKey = nil
@@ -322,10 +331,12 @@ extension SidebarListViewComponents {
             rowViews[key] = nil
             let placeholder = switch key { case .emptySection, .emptyGroup: true; default: false }
             let replaced = old.row(for: key).map { returning.contains($0.section) || $0.group.map(emptied.contains) == true } ?? false
-            if adopting, !suppressed.contains(key) {
+            // Under a dropped card on its way to its slot, a leaving row goes at once (`isUnderCard`).
+            let underCard = isUnderCard(view.frame, cards)
+            if adopting, !suppressed.contains(key), !underCard {
                 // A row the drop or the model took away fades where it is (its slot closes on the rows' spring).
                 leaving.append((view, view.frame))
-            } else if suppressed.contains(key) || !animate || placeholder || replaced {
+            } else if suppressed.contains(key) || !animate || placeholder || replaced || underCard {
                 recycle(view)
             } else {
                 // A leaving row fades out without the selection fill: the
@@ -333,7 +344,9 @@ extension SidebarListViewComponents {
                 view.isSelected = false
                 // A collapsed row slides up under its header; another leaving row closes its slot.
                 let current = view.frame
-                let end = old.row(for: key).map { SidebarRowTransition.removeFrame($0, current: current, runTop: removeRuns[key], from: old, to: layout) }
+                let was = old.row(for: key)
+                let end = was.map { SidebarRowTransition.removeFrame($0, current: current, runTop: removeRuns[key], from: old, to: layout) }
+                if let was, SidebarRowTransition.isFolded(was, from: old, to: layout) { folding.append(view) }
                 view.clipsToBounds = true
                 leaving.append((view, end ?? NSRect(x: current.minX, y: current.minY, width: current.width, height: 0)))
             }
@@ -351,9 +364,19 @@ extension SidebarListViewComponents {
             return adoptRows(targets: targets, leaving: leaving, lines: lines)
         }
         RowMotion(targets: targets, appearing: appearing, leaving: leaving, lines: lines, companions: history, insert: insertMotion,
-                  travel: insertTravel)
+                  travel: insertTravel, folding: folding)
             .run(in: self, from: old, to: layout, animated: animate)
     }
+    /// The indices into `layout.rows`, in order, of the rows an apply can draw: the rows `realize` holds (by y), the
+    /// realized rows and the `reopened` ones. Rows outside these never pass the apply's draw test (no view, a frame
+    /// outside `realize`). O(realized + log rows).
+    func drawnRowIndices(of layout: SidebarLayout, in realize: NSRect, reopened: Set<SidebarRowKey>) -> [Int] {
+        var indices = Set(realize.isNull ? 0..<0 : layout.rowIndices(from: realize.minY, to: realize.maxY))
+        for key in rowViews.keys { if let index = layout.position(of: key) { indices.insert(index) } }
+        for key in reopened { if let index = layout.position(of: key) { indices.insert(index) } }
+        return indices.sorted()
+    }
+
     /// The rows of `keys` (still opening) that `layout` moved by themselves, not with the rows around them: both
     /// rows beside each, among the rows of both layouts, changed (as `ListViewport.movedByItself`). A row an insert or
     /// a removal near it only pushes, or one whose neighbour moved away, keeps at least one of its neighbours.

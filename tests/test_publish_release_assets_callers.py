@@ -85,12 +85,13 @@ class PublishReleaseAssetsCallers(unittest.TestCase):
 
     def test_names_job_passes_the_versioned_dmg(self):
         text = expand((WORKFLOW_DIR / "nightly.yml").read_text(encoding="utf-8"))
-        job = text[text.index("\n  publish-nightly-next-github-names:\n"):]
+        job = text[text.index("\n  publish-nightly-next-github:\n"):]
         step = job[job.index("- name: Publish the rolling DMG name and the feed copy"):]
         step = step[:step.index("\n      - name:")]
-        self.assertIn('--immutable "nightly-out/${CHANNEL_DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg"', step)
-        # The job reads that file from the same variant artifacts the upload job published.
-        self.assertIn("- *download-nightly-variant-artif", job[:job.index(step)])
+        self.assertIn('dmg="nightly-out/${CHANNEL_DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg"', step)
+        self.assertIn('--immutable "$dmg" --alias "$rolling"', step)
+        # The job reads that file from the same variant artifacts its upload step published.
+        self.assertIn("- &download-nightly-variant-artif", job[:job.index(step)])
 
     def test_finder_refuses_the_alias_and_feed_only_call(self):
         text = """

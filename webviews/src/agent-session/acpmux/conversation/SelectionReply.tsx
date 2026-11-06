@@ -1,5 +1,6 @@
 // Reply to a part of a message: selecting transcript text shows a small Reply chip above the
-// selection's end, as Claude and ChatGPT do; clicking it quotes the selection into the composer,
+// selection's end, as Claude and ChatGPT do, moved aside wherever that spot holds text (a "Sent to"
+// line over the reply); clicking it quotes the selection into the composer,
 // the same Quote in Reply the selection's right-click menu runs (AgentPaneContextMenu.swift
 // `quote`, App.tsx `chat.quoteReply`). Leo, 2026-11-03: "would it make sense to have a direct
 // reply button? or would you mostly just re-read your own thing anyways? what makes sense here?"
@@ -16,6 +17,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../i18n";
+import { Quote } from "./icons";
 
 export type SelectionReplyLook = "chip" | "icon" | "none" | "row";
 const LOOKS: readonly SelectionReplyLook[] = ["chip", "icon", "none", "row"];
@@ -95,6 +97,77 @@ export function selectionReplyTarget(doc: Document): SelectionReplyTarget | unde
   return { text, left: backward ? rect.left : rect.right, top: rect.top, bottom: rect.bottom };
 }
 
+export type PlaceRect = { left: number; top: number; right: number; bottom: number };
+const PLACE_GAP = 6;
+
+/// The boxes of the transcript's text in rows that cross `band` (viewport px, top to bottom): what
+/// the chip must not cover. Read only when a chip is placed, and only for the rows near it.
+export function transcriptTextRects(doc: Document, band: { top: number; bottom: number }): PlaceRect[] {
+  const rects: PlaceRect[] = [];
+  const range = doc.createRange();
+  for (const row of Array.from(doc.querySelectorAll("[data-row-id]"))) {
+    if (row.parentElement?.closest("[data-row-id]")) continue;
+    const box = row.getBoundingClientRect();
+    if (box.bottom < band.top || box.top > band.bottom) continue;
+    const walker = doc.createTreeWalker(row, 4);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (!node.textContent?.trim()) continue;
+      range.selectNodeContents(node);
+      for (const rect of Array.from(range.getClientRects?.() ?? [])) {
+        if (rect.width && rect.height && rect.bottom >= band.top && rect.top <= band.bottom) rects.push(rect);
+      }
+    }
+  }
+  return rects;
+}
+
+const overlap = (a: PlaceRect, b: PlaceRect) =>
+  Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) *
+  Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+
+/// Where the chip goes: the first of these that covers no text, else the one covering least.
+/// Above the selection's end and centred on it (as Claude and ChatGPT), then above but past the
+/// text on that line, then on the end's own line past its text, then the same two below. The
+/// chip never sits on a label or a line it does not belong to (Leo, 2026-11-05, on the chip drawn
+/// over a "Sent to" line: "this is a bad reply").
+export function selectionReplyPlace(
+  target: SelectionReplyTarget,
+  size: { width: number; height: number },
+  pane: { width: number; height: number },
+  text: readonly PlaceRect[],
+): { left: number; top: number } {
+  const { width, height } = size;
+  const gap = PLACE_GAP;
+  const centred = Math.max(gap, Math.min(target.left - width / 2, pane.width - width - gap));
+  // Past every piece of text the chip's row would cross, or nowhere when that runs out of the pane.
+  const after = (top: number, from: number) => {
+    const right = text
+      .filter((rect) => rect.bottom > top && rect.top < top + height)
+      .reduce((most, rect) => Math.max(most, rect.right), from);
+    const left = right + gap;
+    return left + width + gap <= pane.width ? left : undefined;
+  };
+  const above = target.top - height - gap;
+  const line = (target.top + target.bottom - height) / 2;
+  const below = target.bottom + gap;
+  const candidates: { left: number | undefined; top: number }[] = [
+    { left: centred, top: above },
+    { left: after(above, -Infinity), top: above },
+    { left: after(line, target.left), top: line },
+    { left: centred, top: below },
+    { left: after(below, -Infinity), top: below },
+  ];
+  let best: { left: number; top: number; covered: number } | undefined;
+  for (const { left, top } of candidates) {
+    if (left === undefined || top < gap || (pane.height > 0 && top + height > pane.height - gap)) continue;
+    const box = { left, top, right: left + width, bottom: top + height };
+    const covered = text.reduce((sum, rect) => sum + overlap(box, rect), 0);
+    if (covered === 0) return { left, top };
+    if (!best || covered < best.covered) best = { left, top, covered };
+  }
+  return best ?? { left: centred, top: above >= gap ? above : below };
+}
+
 /// A Reply button for a message's action row (`row` look only), its glyph the row's 16 px
 /// (MessageActions.tsx ROW_ICON).
 export function RowReplyButton({ text }: { text: string }) {
@@ -109,22 +182,8 @@ export function RowReplyButton({ text }: { text: string }) {
       title={label}
       onClick={() => quoteInReply(text)}
     >
-      <QuoteGlyph size={16} />
+      <Quote size={16} />
     </button>
-  );
-}
-
-function QuoteGlyph({ size }: { size: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path
-        d="M6.5 4.5 3 8l3.5 3.5M3.5 8h6a3.5 3.5 0 0 1 3.5 3.5v0"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
   );
 }
 
@@ -173,16 +232,16 @@ export function SelectionReplyChip({ doc = document }: { doc?: Document }) {
     };
   }, [doc, enabled]);
 
-  // Above the selection's end, centred on it and kept inside the pane; below it near the top.
+  // Where no transcript text is under it (selectionReplyPlace), read once per shown selection.
   useLayoutEffect(() => {
     if (!target) return setPlaced(undefined);
-    const width = chip.current?.offsetWidth ?? 0;
-    const height = chip.current?.offsetHeight ?? 0;
-    const pane = doc.documentElement.clientWidth || doc.defaultView?.innerWidth || 0;
-    const gap = 6;
-    const left = Math.max(gap, Math.min(target.left - width / 2, pane - width - gap));
-    const above = target.top - height - gap;
-    setPlaced({ left, top: above >= gap ? above : target.bottom + gap });
+    const size = { width: chip.current?.offsetWidth ?? 0, height: chip.current?.offsetHeight ?? 0 };
+    const pane = {
+      width: doc.documentElement.clientWidth || doc.defaultView?.innerWidth || 0,
+      height: doc.documentElement.clientHeight || doc.defaultView?.innerHeight || 0,
+    };
+    const band = { top: target.top - 2 * size.height - PLACE_GAP, bottom: target.bottom + 2 * size.height + PLACE_GAP };
+    setPlaced(selectionReplyPlace(target, size, pane, transcriptTextRects(doc, band)));
   }, [doc, target]);
 
   const quote = useCallback(() => {
@@ -212,7 +271,7 @@ export function SelectionReplyChip({ doc = document }: { doc?: Document }) {
       onMouseDown={(event) => event.preventDefault()}
       onClick={quote}
     >
-      <QuoteGlyph size={14} />
+      <Quote size={14} />
       {current === "chip" && <span>{label}</span>}
     </button>,
     doc.body,

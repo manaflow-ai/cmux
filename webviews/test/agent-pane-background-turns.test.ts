@@ -118,9 +118,14 @@ test("a background turn with something to say draws its rows as today, with no l
   try {
     const view = drawn(rows());
     expect(view.some((row) => row.kind === BACKGROUND_TURN)).toBe(false);
-    expect(view.at(-1)?.text).toBe("The deploy failed: see https://example.com/run/1. Should I roll back?");
-    // No "Worked for" and no footer of its own: the turn before it keeps its one footer.
-    expect(view.filter((row) => row.kind === "turnSummary")).toHaveLength(1);
+    expect(view.at(-2)?.text).toBe("The deploy failed: see https://example.com/run/1. Should I roll back?");
+    // No "Worked for"; acpmux sends it no turn_result, yet its reply ends on its own footer (copy,
+    // fork, read aloud), as the turn before it does (conversation/backgroundTurnFooter.test.ts).
+    expect(view.filter((row) => row.kind === "turnSummary")).toHaveLength(2);
+    expect(view.at(-1)).toMatchObject({
+      kind: "turnSummary",
+      text: "The deploy failed: see https://example.com/run/1. Should I roll back?",
+    });
     expect(view.some((row) => row.kind === "worked")).toBe(false);
   } finally {
     client.close();

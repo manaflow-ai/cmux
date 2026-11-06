@@ -278,3 +278,39 @@ fn after_a_lag_a_session_at_work_is_unknown_until_its_turn_ends() {
     t.observe(&[turn("b")], 7);
     assert_eq!(phases(&t.line(1, false, 7).unwrap()), [("model-wait".to_owned(), 7)]);
 }
+
+/// A person's prompt (cmux-platform's post-chat warm window) goes at once, rides along on every
+/// line after, and never moves backwards; a line the agent did not take carries it again.
+#[test]
+fn a_persons_prompt_time_goes_at_once_and_never_moves_back() {
+    let mut t = Tracker::default();
+    assert_eq!(t.line(0, true, 0).unwrap(), json!({"acp_activity": {"turns": 0}}));
+    assert!(t.line(0, false, 0).is_none());
+
+    t.person_prompted(7_000);
+    assert_eq!(
+        t.line(0, false, 0).unwrap(),
+        json!({"acp_activity": {"turns": 0, "last_person_prompt_at": 7_000}}),
+        "a new prompt time goes without waiting for the renewal"
+    );
+    assert!(t.line(0, false, 0).is_none(), "an unchanged time sends nothing");
+
+    t.person_prompted(6_000);
+    t.person_prompted(0);
+    assert!(t.line(0, false, 0).is_none(), "an older time changes nothing");
+    assert_eq!(t.line(0, true, 0).unwrap()["acp_activity"]["last_person_prompt_at"], 7_000);
+
+    t.person_prompted(9_000);
+    assert!(t.line(0, false, 0).is_some());
+    t.unsent();
+    assert_eq!(t.line(0, false, 0).unwrap()["acp_activity"]["last_person_prompt_at"], 9_000);
+}
+
+/// An agent's action alone never sets the person's prompt time.
+#[test]
+fn an_agents_action_is_no_persons_prompt() {
+    let mut t = Tracker::default();
+    t.acted(1_000);
+    let line = t.line(1, false, 0).unwrap();
+    assert!(line["acp_activity"].get("last_person_prompt_at").is_none(), "{line}");
+}

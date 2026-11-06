@@ -25,6 +25,15 @@ struct CloudStartCoreTests {
         #expect(!CloudStartCore().startsAsPerson(byPerson: false, delegated: false))
     }
 
+    /// Only a personal send on a non-production sign-in copies through the content-addressed store (moved from the App, #34604).
+    @Test func onlyAPersonalSendOnANonProductionSignInCopiesThroughTheStore() {
+        #expect(CloudStartCore().copiesThroughStore(account: [], productionAuth: false))
+        #expect(CloudStartCore().copiesThroughStore(account: ["user", nil], productionAuth: false))
+        #expect(!CloudStartCore().copiesThroughStore(account: ["user", nil], productionAuth: true))
+        #expect(!CloudStartCore().copiesThroughStore(account: ["user", "team"], productionAuth: false))
+        #expect(!CloudStartCore().copiesThroughStore(account: ["user", "team"], productionAuth: true))
+    }
+
     /// A plain name stays one bare shell word; anything else is single-quoted, its quotes escaped.
     @Test func aStartCommandWordIsOneShellWord() {
         #expect(CloudStartCore.shellQuoted("dev-1") == "dev-1")

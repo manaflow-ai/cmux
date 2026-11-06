@@ -21,10 +21,18 @@ struct Launcher {
 }
 
 const LAUNCHERS: [Launcher; 2] = [
-    Launcher { words: ["dev", "ui-host"], script: "Prototypes/UiLayerHost/launch.sh", dev_only: true },
+    Launcher {
+        words: ["dev", "ui-host"],
+        script: "Prototypes/UiLayerHost/launch.sh",
+        dev_only: true,
+    },
     // The view shell: the UI in real windows on the mock host (Prototypes/ViewShell/README.md). It
     // reads nothing of the person's data but their theme, so any build may open it.
-    Launcher { words: ["preview", "open"], script: "Prototypes/ViewShell/launch.sh", dev_only: false },
+    Launcher {
+        words: ["preview", "open"],
+        script: "Prototypes/ViewShell/launch.sh",
+        dev_only: false,
+    },
 ];
 
 /// Handles `cmux dev ui-host` and `cmux preview open` before the normal daemon/resource parser.
@@ -35,9 +43,9 @@ pub(super) fn run_if_requested(args: &[String], surface: Surface) -> Option<i32>
     if surface != Surface::Cmux {
         return None;
     }
-    LAUNCHERS
-        .iter()
-        .find_map(|launcher| requested_rest(args, launcher).map(|rest| run_launcher(launcher, rest)))
+    LAUNCHERS.iter().find_map(|launcher| {
+        requested_rest(args, launcher).map(|rest| run_launcher(launcher, rest))
+    })
 }
 
 /// The words after the launcher's two words, when `args` start with them.

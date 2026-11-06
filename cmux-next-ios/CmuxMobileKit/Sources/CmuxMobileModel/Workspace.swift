@@ -148,6 +148,9 @@ public struct WorkspaceTab: Identifiable, Hashable, Sendable, Codable {
     /// What a cmux link can name this tab by (CmuxLink): the Mac's public ids.
     /// Nil when the Mac's tree did not carry them (mock data, an older Mac).
     public var linkIDs: LinkIDs?
+    /// The person named the tab (Rename Tab…, the Mac's `name`): Clear Tab Name brings back
+    /// the title the program or page gives it. Optional so older saved copies still decode.
+    public var hasCustomName: Bool?
 
     /// A tab's public ids on its Mac, as the Mac's Copy Link writes them.
     public struct LinkIDs: Hashable, Sendable, Codable {
@@ -160,12 +163,17 @@ public struct WorkspaceTab: Identifiable, Hashable, Sendable, Codable {
         /// The harness's own session id of the agent running in it (`list-agents`
         /// `agent_session_id`), which an `agent/<harness>/<session>` link names.
         public var harnessSession: String?
+        /// An agent chat tab's acpmux session (`agent_session.session`): what the Mac's Copy
+        /// Tab Link writes (`cmux://session/<id>`) and Copy Session ID copies.
+        public var agentSession: String?
 
-        public init(tab: String? = nil, pane: String? = nil, isPaneSelected: Bool = false, harnessSession: String? = nil) {
+        public init(tab: String? = nil, pane: String? = nil, isPaneSelected: Bool = false, harnessSession: String? = nil,
+                    agentSession: String? = nil) {
             self.tab = tab
             self.pane = pane
             self.isPaneSelected = isPaneSelected
             self.harnessSession = harnessSession
+            self.agentSession = agentSession
         }
     }
 

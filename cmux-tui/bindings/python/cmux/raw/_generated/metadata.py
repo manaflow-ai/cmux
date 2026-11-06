@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '6f37208dc82e6a7dc146e40a18c300a49a824470d73b8e6e650d9e9e6cf175ea'
+IR_SHA256 = 'a8bf2d3326aa4ee4ca8db46cb9b69b3f29663cf614c1a9e776b2aae5751ab54b'
 
 
 @dataclass(frozen=True)
@@ -102,6 +102,7 @@ COMMANDS = {
             'expected_generation': CommandFieldMetadata(None, 'attach-identity-v1'),
             'expected_terminal_id': CommandFieldMetadata(None, 'attach-identity-v1'),
             'mode': CommandFieldMetadata(7, None),
+            'replay_history_rows': CommandFieldMetadata(None, 'attach-replay-history-rows-v1'),
             'rows': CommandFieldMetadata(None, 'attach-initial-size'),
             'snapshot': CommandFieldMetadata(None, 'terminal-snapshot-v1'),
             'snapshot_images': CommandFieldMetadata(None, 'terminal-snapshot-images-v1'),
@@ -2693,6 +2694,51 @@ COMMANDS = {
         6,
         None,
         ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+        },
+    ),
+    'remote-host-app': CommandMetadata(
+        'remote-host-app',
+        'local-admin',
+        12,
+        'remote-host-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
+    'remote-host-call': CommandMetadata(
+        'remote-host-call',
+        'local-admin',
+        12,
+        'remote-host-v1',
+        ('local-admin',),
+        None,
+        {
+            'method': CommandFieldMetadata(None, None),
+            'params': CommandFieldMetadata(None, None),
+        },
+    ),
+    'remote-host-config': CommandMetadata(
+        'remote-host-config',
+        'local-admin',
+        12,
+        'remote-host-v1',
+        ('local-admin',),
+        None,
+        {
+            'computer_use': CommandFieldMetadata(None, None),
+            'headless': CommandFieldMetadata(None, None),
+            'screen_sharing': CommandFieldMetadata(None, None),
+        },
+    ),
+    'remote-host-status': CommandMetadata(
+        'remote-host-status',
+        'local-admin',
+        12,
+        'remote-host-v1',
+        ('local-admin',),
         None,
         {
         },
