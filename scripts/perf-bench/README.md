@@ -10,7 +10,7 @@ the same way. The goal: every cmux cell at a tenth of the best other browser.
 ## Run it (fleet mini only, never a laptop)
 
 ```sh
-cmux-ci run --class exclusive --measurement --label measure \
+cmux-ci run --class exclusive --measurement --pool perf-lead --label measure \
   --script scripts/measure/perf-bench.sh --ref <40-char sha> \
   --artifact artifacts/perf-bench/results.json \
   [--arg=rounds=3] [--arg=launches=2] [--arg=idle=60] [--arg=active=30] \

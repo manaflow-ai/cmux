@@ -50,6 +50,10 @@ jobs:
       # job needs only the feat-cmux-next tip's sha. The bench mini checks the tree out itself.
       - name: xbench on a fleet mini
         env:
+          # A run on feat-cmux-next (the daily dispatcher's, a manual dispatch) is at its tip already; any other
+          # ref (main's cron) reads the tip from the API. git ls-remote from the mini timed out (run 42187585623).
+          RUN_SHA: ${{ github.ref == 'refs/heads/feat-cmux-next' && github.sha || '' }}
+          GH_TOKEN: ${{ github.token }}
           ROUNDS: ${{ inputs.rounds || '3' }}
           BROWSERS: ${{ inputs.browsers || 'cmux-chromium,cmux-webkit,cmux-terminal,cmux-budget,chrome,helium,ardia,dia,safari' }}
           WORKER: ${{ inputs.worker || '' }}
@@ -63,9 +67,13 @@ jobs:
             echo "::error title=Build fleet client missing::$client is not installed on runner $RUNNER_NAME; the bench did not run."
             exit 127
           fi
-          sha="$(git ls-remote "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" refs/heads/feat-cmux-next | cut -f1)"
+          sha="$RUN_SHA"
+          if [[ -z "$sha" ]]; then
+            sha="$(curl -fsS --retry 2 --max-time 30 -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github.sha" \
+              "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/commits/feat-cmux-next" || true)"
+          fi
           if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "::error title=No feat-cmux-next tip::git ls-remote gave '$sha'; the bench did not run."
+            echo "::error title=No feat-cmux-next tip::could not read the feat-cmux-next tip ('$sha'); the bench did not run."
             exit 1
           fi
           target=()
