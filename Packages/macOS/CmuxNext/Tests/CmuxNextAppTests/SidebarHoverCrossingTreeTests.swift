@@ -111,6 +111,12 @@ struct SidebarHoverCrossingTreeTests {
                     "a cleared control stayed in the accessibility tree")
             #expect(control.isHiddenOrHasHiddenAncestor || TooltipPresenter.isClear(control), "a cleared control would show its tooltip")
         }
+        // The row's own tooltip (a clipped title, calm mode's crumb) still shows over its cleared controls.
+        a.themedToolTip = "Row tip"
+        let rowTip = try #require(TooltipTracker.whole(of: a))
+        let controlTips = [close, more].compactMap { TooltipTracker.whole(of: $0) }
+        #expect(!controlTips.isEmpty, "the row's controls have no tooltip to test")
+        #expect(TooltipPresenter.pick([rowTip] + controlTips) === rowTip, "a cleared control hid the row's tooltip under it")
         let shownClose = try #require(b.closeSlot.made)
         let center = b.convert(NSPoint(x: shownClose.frame.midX, y: shownClose.frame.midY), to: b.superview)
         #expect(b.hitTest(center) === shownClose, "the hovered row's x takes no click")

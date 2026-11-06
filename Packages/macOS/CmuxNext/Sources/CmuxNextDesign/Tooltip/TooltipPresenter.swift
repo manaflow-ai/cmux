@@ -108,7 +108,7 @@ public final class TooltipPresenter {
         // (not an ancestor's instead, as pages do). AppKit can report a view's visible rect past
         // its bounds, so its area is entered far from the view (the sidebar's bottom item, over the
         // whole sidebar): only those whose view is under the pointer compete, when it is known.
-        let target = Self.underPointer(inside).max { $0.depth < $1.depth }.flatMap { $0.repeatsVisibleLabel ? nil : $0 }
+        let target = Self.pick(inside)
         candidate = target
         if target != nil { watch() }
         let timing = self.timing ?? .current
@@ -197,6 +197,13 @@ public final class TooltipPresenter {
             return anchor.insetBy(dx: -1, dy: -1).contains(window.convertPoint(toScreen: pointer))
         }
         return under.isEmpty ? trackers : under
+    }
+
+    /// The deepest tooltip under the pointer whose view draws; nil when its control's label already names it. A clear
+    /// view's area takes no part (`isClear`): a hover control cleared by paint over a row must not hide the row's own
+    /// tooltip under it, as a hidden one did not.
+    static func pick(_ trackers: [TooltipTracker]) -> TooltipTracker? {
+        return underPointer(trackers).max { $0.depth < $1.depth }.flatMap { $0.repeatsVisibleLabel ? nil : $0 }
     }
 
     /// The view or an ancestor draws nothing (opacity 0): a hover control cleared by paint (the sidebar row's x and ⋮,
