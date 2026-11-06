@@ -24,6 +24,7 @@ import { EmojiPicker, loadEmoji } from "../../home-channels/EmojiPicker";
 import { HomeIcon } from "../../home-channels/icons";
 import type { HomeAttachment } from "../../home-channels/types";
 import type { Strings } from "../../shared/i18n";
+import { useWebSwapHold } from "../../shared/useWebSwapHold";
 import { ComposerHistory, historyTakesArrow } from "./history";
 import { intakeProblem, textBeside, transferFiles, type TransferLike } from "./intake";
 
@@ -84,6 +85,9 @@ export function MessageComposer({
   const ready = files.filter((item) => item.part).map((item) => item.part as HomeAttachment);
   const uploading = files.some((item) => !item.part && !item.error);
   const empty = !value.trim() && ready.length === 0;
+  // WEB-SWAP: staged files live only in this composer (an upload aborts on unmount), so a web
+  // update's reload waits for them to be sent or removed (pages/shared/webSwap.ts).
+  useWebSwapHold(uploading ? "home.uploading" : files.length ? "home.attachments" : null);
   const canSend = sendEnabled && !empty && !uploading;
 
   const patchFile = (id: string, patch: Partial<PendingAttachment>) =>
@@ -146,24 +150,29 @@ export function MessageComposer({
     }
     if (uploading || (!markdown.trim() && ready.length === 0)) return;
     const sending = ready;
+    const sentItems = files.filter((item) => item.part && sending.includes(item.part));
     browse.end();
     setNotice(undefined);
     setText("");
     editor.current?.reset("");
     if (sending.length) setFiles((current) => current.filter((item) => !item.part || !sending.includes(item.part)));
-    void onSend(markdown, sending.length ? sending : undefined).then(
-      (taken) => {
-        if (taken) return;
-        // Refused before it was logged: the text comes back to an empty field.
-        setValue((current) => {
-          if (current) return current;
-          onDraftChange?.(markdown);
-          return markdown;
-        });
-        setNotice({ text: t("home.send.refused.generic"), alert: true });
-      },
-      () => setNotice({ text: t("home.send.refused.generic"), alert: true }),
-    );
+    // Refused before it was logged: the text comes back to an empty field and the files to the tray.
+    const giveBack = () => {
+      setValue((current) => {
+        if (current) return current;
+        onDraftChange?.(markdown);
+        return markdown;
+      });
+      if (sentItems.length)
+        setFiles((current) => [
+          ...sentItems.filter((item) => !current.some((kept) => kept.id === item.id)),
+          ...current,
+        ]);
+      setNotice({ text: t("home.send.refused.generic"), alert: true });
+    };
+    void onSend(markdown, sending.length ? sending : undefined).then((taken) => {
+      if (!taken) giveBack();
+    }, giveBack);
   };
 
   const recall = (direction: "older" | "newer"): boolean => {

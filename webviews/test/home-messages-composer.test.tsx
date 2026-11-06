@@ -115,6 +115,38 @@ test("a send the owner refuses gives the text back with a notice", async () => {
   expect(container.querySelector('[role="alert"]')?.textContent).toBe(strings.t("home.send.refused.generic"));
 });
 
+test("a refused send gives its files back to the tray", async () => {
+  const container = installDom();
+  let handle: import("../src/pages/home-messages/transcript/MessageComposer").MessageComposerHandle | null = null;
+  const sent: number[] = [];
+  const service = {
+    upload: async (_conversation: string, file: File) => ({
+      type: "attachment" as const,
+      hash: "h1",
+      name: file.name,
+      mimeType: "text/plain",
+      byteCount: file.size,
+    }),
+  };
+  await renderComposer(container, {
+    attachments: { service: service as never, conversation: "c1" },
+    ref: (value) => void (handle = value),
+    onSend: async (_text, files) => {
+      sent.push(files?.length ?? 0);
+      return false;
+    },
+  });
+  await act(async () => handle!.addFiles([new File(["notes"], "notes.txt", { type: "text/plain" })]));
+  await settle();
+  expect(container.querySelectorAll(".hc-tray-item.done")).toHaveLength(1);
+  await act(async () => sendButton(container)!.click());
+  await settle();
+  expect(sent).toEqual([1]);
+  // The owner refused it: the file is staged again, ready to send.
+  expect(container.querySelectorAll(".hc-tray-item.done")).toHaveLength(1);
+  expect(container.querySelector('[role="alert"]')?.textContent).toBe(strings.t("home.send.refused.generic"));
+});
+
 test("offline, Send is off and the draft stays", async () => {
   const container = installDom();
   const sent: string[] = [];
