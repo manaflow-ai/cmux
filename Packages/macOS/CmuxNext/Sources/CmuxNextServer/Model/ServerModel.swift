@@ -1,16 +1,6 @@
 import Foundation
 public import Observation
 
-/// The overall line the panel shows, most important state first.
-public nonisolated enum ServerOverall: Sendable, Equatable {
-    case unavailable
-    case off
-    case unpaired
-    case pairing
-    case serving
-    case attention(HealthSeverity)
-}
-
 /// The approver sheet's draft (client view state, never sent until Approve).
 public nonisolated struct ServerApprovalDraft: Sendable, Equatable {
     /// What the code field shows (`XXXX-XXXX` while typing).
@@ -25,8 +15,10 @@ public nonisolated struct ServerApprovalDraft: Sendable, Equatable {
 }
 
 /// The app's projection of one server: the owner's last snapshot, the
-/// intents in flight, and client view state (the approver draft). Every
-/// server change arrives as an owner snapshot; intents never edit it.
+/// intents in flight, and the Add Server draft (shared by the Add Server and
+/// Pair Another Machine cards). Every server change arrives as an owner
+/// snapshot; intents never edit it. The pages draw it
+/// (webviews/src/pages/server-cards/server, `ServerPageProvider`).
 @Observable
 @MainActor
 public final class ServerModel {
@@ -63,33 +55,8 @@ public final class ServerModel {
 
     // MARK: - Derived state
 
-    public var overall: ServerOverall {
-        guard connection == .connected, let snapshot else { return .unavailable }
-        guard snapshot.enabled else { return .off }
-        switch snapshot.pairing {
-        case .unpaired: return .unpaired
-        case .pairing: return .pairing
-        case .paired: break
-        }
-        if let worst = HealthOrdering.worst(snapshot.alerts), worst != .info { return .attention(worst) }
-        return .serving
-    }
-
-    public var openAlerts: [HealthAlert] { HealthOrdering.open(snapshot?.alerts ?? []) }
-
-    public var checklist: [HealthChecklistRow] {
-        guard let snapshot else { return [] }
-        return HealthOrdering.checklist(checks: snapshot.checks, alerts: snapshot.alerts)
-    }
-
-    public var timeline: [HealthAlert] { HealthOrdering.timeline(snapshot?.alerts ?? []) }
-
     public func isPending(_ match: (ServerIntentKind) -> Bool) -> Bool {
         pending.contains { match($0.kind) }
-    }
-
-    public func isFixing(_ check: HealthCheckID) -> Bool {
-        isPending { $0 == .fixCheck(check) }
     }
 
     /// Whether Approve can go: a complete code, a known candidate, a team
@@ -118,16 +85,6 @@ public final class ServerModel {
         source.send(intent)
         return true
     }
-
-    public func toggleServer() {
-        guard let snapshot else { return }
-        send(.setEnabled(!snapshot.enabled))
-    }
-
-    public func showPairingCode() { send(.showPairingCode) }
-    public func fix(_ check: HealthCheckID) { send(.fixCheck(check)) }
-    public func openHealth() { send(.openHealth) }
-    public func revoke(device: String) { send(.revokeDevice(device)) }
 
     /// The code field changed: keep the edit form, and look the code up
     /// once it is complete.

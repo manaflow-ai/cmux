@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextPages
 import SwiftUI
 
 /// Add Machine and Check Machine (plans/cmux-next/add-machine-DESIGN.md): one model and one
@@ -47,7 +48,7 @@ public final class AddMachineCard {
     }
 }
 
-/// The card's panel: the Add Server card's floating glass (``AddServerCardPanel``), near the top
+/// The card's panel: the Add Server card's floating glass (``WebCardPanel``), near the top
 /// center of the cmux window, on every Space and over full screen, never activating the app. It
 /// takes the keys (Add Machine is always opened by hand); Return and Escape run the footer's buttons.
 @MainActor
@@ -86,7 +87,7 @@ final class AddMachineCardPanel: NSPanel {
         let size = host.fittingSize
         let screen = window?.screen ?? NSScreen.main
         let visible = screen?.visibleFrame ?? NSRect(origin: .zero, size: size)
-        setFrame(AddServerCardPanel.placement(size: size, over: window?.frame, in: visible), display: false)
+        setFrame(WebCardPanel.placement(size: size, over: window?.frame, in: visible), display: false)
         WindowActivation.show(self, .raise)
     }
 
