@@ -32,9 +32,9 @@ public struct OnboardingAgent: Sendable, Equatable {
     public var installPage: URL? { Self.installPages[id] }
 
     public static let installPages: [String: URL] = [
-        "claude": URL(string: "https://docs.anthropic.com/en/docs/claude-code/setup")!,
-        "codex": URL(string: "https://developers.openai.com/codex/cli")!,
-    ]
+        "claude": "https://docs.anthropic.com/en/docs/claude-code/setup",
+        "codex": "https://developers.openai.com/codex/cli",
+    ].compactMapValues(URL.init(string:))
 }
 
 /// The installed agent CLIs and their sign-ins (the App's acpmux harnesses): what the Agents
@@ -140,7 +140,8 @@ public final class AgentsStepModel {
     /// Install: the agent's vendor installer, then its row reads again and its Sign In runs,
     /// so the person goes straight from Install to the login. A failure stays beside the button.
     public func install(_ id: String) {
-        guard installable.contains(where: { $0.id == id }), installs[id] != .installing else { return }
+        // One install at a time: a second could finish first and its read would skip this one's sign-in.
+        guard installable.contains(where: { $0.id == id }), !installs.values.contains(.installing) else { return }
         installs[id] = .installing
         // task-owner: one install the person asked for; it ends with the installer (acpmux bounds it).
         Task { [weak self, source] in

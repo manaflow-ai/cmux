@@ -258,6 +258,8 @@ import Testing
         #expect(services.installsRun.isEmpty, "an installed agent has no Install")
         model.agents.install("claude")
         #expect(model.agents.installs["claude"] == .installing)
+        model.agents.install("claude")
+        #expect(services.installsRun.count <= 1, "a second press while one runs starts nothing")
         await Self.until { services.signIns == ["claude"] }
         #expect(services.installsRun == ["claude"])
         #expect(model.agents.installs["claude"] == nil)
