@@ -1,5 +1,16 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-05: every sidebar group draws a visible background, glass or solid. Lawrence, verbatim: "invariant: groups
+  must always have a visible bg color, groups should support both glassy and solid bgs too". New setting
+  `sidebar.groupHeader.background`: Automatic (default: cmux's own group look, Leo's glass, or solid when Debug `sidebar.groupGlass` is solid), Glass,
+  Solid. Glass is Leo's tinted pane with its rim (#36225, Debug `sidebar.groupGlass`; under Glass a Debug solid
+  draws vivid; the wash, line and tinted looks stay a solid wash unless the setting is Glass); a no-color glass pane is the solid bar's calm neutral at 0.3, not the ink at the tint (`aNoColorGlassPaneStaysCalm`), and a group with no color is the same pane untinted. Every header, at rest, hovered and dropped, keeps
+  at least 1.2:1 against the sidebar (`GroupBackground.minimumVisibleContrast`): a too-faint pane is pushed away
+  from the sidebar at its own opacity (`GroupGlassPaint`); the solid band with no color is a neutral step of the
+  theme's text (`GroupBackground`). Under glass the rail stays the pane's vivid tint (Leo's
+  `theRailIsThePanesTint`); under the solid band it is the bar's rest color, no color too. The no-color block behind
+  the members is unchanged. Gallery: Sidebar States Playground > Group backgrounds. Regression:
+  `GroupHeaderAlwaysVisibleTests`, `GroupBackgroundEveryThemeTests`. Capture tour: `sidebar-group-background`.
 - 2026-11-05: a group header's name is regular weight, not semibold. Lawrence, verbatim: "group fonts should not be
   bold". `SidebarStyle.groupHeaderFont` keeps `titleFont`'s face and size at `TypeScale.regular` (was
   `TypeScale.emphasis`); the bar's color sets the group apart. Takes back the semibold half of Leo's 2026-11-05 name
@@ -1449,3 +1460,7 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
 
 - 2026-11-02: pinned group headers show a hover Unpin button (https://github.com/manaflow-ai/cmux/issues/27700), the
   "Pinned group header: hover Unpin" row above. Unpinned headers draw no pin. Regression: GroupHeaderUnpinButtonTests.
+- 2026-11-05 (a-cmdp-memory, for a590): `SidebarModel+WorkspaceRanks.swift` adds `workspaceRanks()`, a read-only map
+  of workspace id to its place in the sidebar (top first), landed in 624581a6e3a3 (range 1a7a182ace6f..624e560418ba).
+  Cmd-P ranks workspaces by it (bias 16·2^(-rank/6)). Sidebar-Look: no visual change. Keep it in step with how rows
+  order; `CmdPSearchMemoryTests` covers it.

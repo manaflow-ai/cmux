@@ -209,27 +209,25 @@ public final class HomeSidebarSource {
         store.save(pins, account: account())
     }
 
-    /// Puts `id` at `index` of the pinned grid (a drag: a new place, or a row pinned there) and
-    /// keeps the order: with the owner among its pinned rows when it lists `id`, else with this account's pins.
+    /// Puts `id` at `index` of the pinned grid (a drag: a new place, or a row pinned there). The whole
+    /// grid in its new order gets one numbering (the owners' scale: now in milliseconds plus the tile's
+    /// index), each pin kept by its own keeper: the owner that lists it, else this account on this Mac.
+    /// So the drawn order holds across both owners and this Mac's pins, and after a relaunch.
     public func place(_ id: ConversationID, at index: Int) {
-        let shown = model(query: "", now: Date()).pinned.map(\.id)
-        if owner(of: id) != nil {
-            // The whole grid in its new order gets positions, each pin with its own owner, so pins of both owners keep that order.
-            var order = shown.filter { $0 != id && owner(of: $0) != nil }
-            order.insert(id, at: min(max(0, index), order.count))
-            let base = HomeInboxSource.now()
-            for inbox in inboxes {
-                let mine = order.enumerated().filter { owner(of: $0.element) === inbox }.map { (id: $0.element.rawValue, position: base + UInt64($0.offset)) }
-                if !mine.isEmpty { inbox.place(mine) }
-            }
-            return
-        }
-        // Only rows no owner lists are this Mac's to order: an owner's pin kept here would move to it again.
-        var order = shown.filter { $0 != id }
+        var order = model(query: "", now: Date()).pinned.map(\.id).filter { $0 != id }
         order.insert(id, at: min(max(0, index), order.count))
-        let mine = order.filter { owner(of: $0) == nil }
+        let base = HomeInboxSource.now()
+        let numbered = order.enumerated().map { (id: $0.element, position: base + UInt64($0.offset)) }
+        let keepers = numbered.map { (pin: $0, owner: owner(of: $0.id)) }
+        for inbox in inboxes {
+            let mine = keepers.filter { $0.owner === inbox }.map { (id: $0.pin.id.rawValue, position: $0.pin.position) }
+            if !mine.isEmpty { inbox.place(mine) }
+        }
+        // Only rows no owner lists are this Mac's to keep: an owner's pin kept here would move to it again.
+        let local = keepers.filter { $0.owner == nil }.map(\.pin)
+        guard !local.isEmpty else { return }
         pins = store.pins(account: account())
-        pins.place(id, at: mine.firstIndex(of: id) ?? mine.count, shown: mine)
+        pins.arrange(local.map(\.id), positions: local.map(\.position))
         store.save(pins, account: account())
     }
 
@@ -250,13 +248,14 @@ public final class HomeSidebarSource {
         let replies = inboxes.compactMap(\.reply)
         guard !replies.isEmpty else {
             let (pinned, rest) = pins.split(listed)
-            return HomeSidebarModel.unreadConversations(pinned: pinned, rest: rest, unreadMarks: unreadMarks, mainChief: chiefRoster().main)
+            return HomeSidebarModel.unreadConversations(pinned: pinned, rest: rest, unreadMarks: unreadMarks,
+                                                        mainChief: pins.leading(chiefRoster().main))
         }
         let list = HomeInboxMapping(owned: HomeInboxMapping.ordered(replies.map(\.rows)), listed: listed, pins: pins, unreadMarks: unreadMarks)
         let rows = list.rows.filter(shows)
         return HomeSidebarModel.unreadConversations(pinned: rows.filter { list.pinned.contains($0.id) },
                                                     rest: rows.filter { !list.pinned.contains($0.id) },
-                                                    unreadMarks: list.unreadMarks, mainChief: chiefRoster().main)
+                                                    unreadMarks: list.unreadMarks, mainChief: nil)
     }
 
     /// Reads this account's marks again (another source changed them).

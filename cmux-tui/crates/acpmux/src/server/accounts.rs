@@ -342,14 +342,29 @@ mod tests {
         })
         .unwrap();
         set(Some(&dir), &state, "claude-key", Some(true), None).unwrap();
-        assert_eq!(routes::bindings(&state).families.get("claude").map(String::as_str), Some("claude-key"));
+        assert_eq!(
+            routes::bindings(&state).families.get("claude").map(String::as_str),
+            Some("claude-key")
+        );
         set(Some(&dir), &state, "claude-key", Some(false), None).unwrap();
         let b = routes::bindings(&state);
         assert_eq!(b.families.get("claude"), None, "a turned-off account still picks new chats");
         assert_eq!(b.global, None);
-        assert_eq!(b.workspaces.get("ws-1"), None, "a workspace default moves new chats onto it too");
-        assert_eq!(b.chats.get("chat-1").map(String::as_str), Some("claude-key"), "a bound chat keeps it");
-        assert_eq!(b.families.get("codex").map(String::as_str), Some("codex-2"), "another family's default stays");
+        assert_eq!(
+            b.workspaces.get("ws-1"),
+            None,
+            "a workspace default moves new chats onto it too"
+        );
+        assert_eq!(
+            b.chats.get("chat-1").map(String::as_str),
+            Some("claude-key"),
+            "a bound chat keeps it"
+        );
+        assert_eq!(
+            b.families.get("codex").map(String::as_str),
+            Some("codex-2"),
+            "another family's default stays"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
