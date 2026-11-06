@@ -34,6 +34,12 @@ extension PageWebView {
         return finishContextMenu(picked)
     }
 
+    /// Shows an app-made menu (an action registry's rows) at a page point in CSS pixels, as
+    /// ``contextMenu(_:)`` places its own, and returns once it closes. A page in no window shows none.
+    public func presentMenu(_ menu: NSMenu, atPagePoint point: CGPoint) async {
+        await PageMenuPresenter.present(menu, at: CGPoint(x: point.x * pageZoom, y: point.y * pageZoom), in: focusView)
+    }
+
     /// Completes the host's native menu, whose nonnil result comes only from an AppKit choice.
     func finishContextMenu(_ picked: String?, at uptime: TimeInterval = ProcessInfo.processInfo.systemUptime) -> JSONValue {
         // PageRouter cancels the old call on close/rebind; its menu cannot authorize the next page.
