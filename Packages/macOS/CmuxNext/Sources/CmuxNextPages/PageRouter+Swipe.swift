@@ -8,7 +8,8 @@ public extension PageNativeOp {
     /// Stream every page may subscribe to: one trackpad scroll event over the page,
     /// `{g, phase, momentum, dx, dy, inverted, time, back?, forward?}` (``PageSwipeEvent``).
     static let pageSwipe = "cmux.page.swipe"
-    /// Built in for every page: run the app's Go Back (`{back: true}`) or Go Forward; answers `{navigated}`.
+    /// Built in for every page: run the app's Go Back (`{back: true, g}`) or Go Forward for forwarded
+    /// gesture `g`; answers `{navigated}`.
     static let historyNavigate = "cmux.app.history.navigate"
     /// Built in for every page: `{g}`, the page is done with forwarded gesture `g`.
     static let swipeRelease = "cmux.app.swipe.release"
@@ -28,7 +29,10 @@ extension PageRouter {
         case PageNativeOp.historyNavigate:
             guard !closed else { throw PageError.closed }
             guard let back = params["back"]?.boolValue else { throw PageError.invalidParams("back must be a boolean") }
-            return ["navigated": .bool(historyNavigate?(back) ?? false)]
+            guard let gesture = params["g"]?.doubleValue, let id = Int(exactly: gesture) else {
+                throw PageError.invalidParams("g must be the forwarded gesture's id")
+            }
+            return ["navigated": .bool(historyNavigate?(back, id) ?? false)]
         case PageNativeOp.swipeRelease:
             guard !closed else { throw PageError.closed }
             if let gesture = params["g"]?.doubleValue, let id = Int(exactly: gesture) { swipeRelease?(id) }

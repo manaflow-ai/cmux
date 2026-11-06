@@ -72,9 +72,17 @@ describe("what keeps a horizontal gesture", () => {
     expect(keepsSwipe(root.getElementById("inner"), "forward", quiet)).toBe(true);
   });
 
-  test("overscroll-behavior-x other than auto keeps the gesture", () => {
-    page(`<div style="overflow-x:auto;overscroll-behavior-x:contain"><canvas id=t></canvas></div>`);
+  test("a horizontal scroller with overscroll-behavior-x other than auto keeps it at either edge", () => {
+    page(`<div id=s style="overflow-x:auto;overscroll-behavior-x:contain"><canvas id=t></canvas></div>`);
+    geometry(at("s")!, 800, 300, 0);
     expect(keepsSwipe(at("t"), "back", quiet)).toBe(true);
+    expect(keepsSwipe(at("t"), "forward", quiet)).toBe(true);
+  });
+
+  test("a vertical list's overscroll containment does not take the swipe (popovers, the Home dock)", () => {
+    page(`<div id=s style="overflow:auto;overscroll-behavior-x:contain"><p id=t>row</p></div>`);
+    geometry(at("s")!, 300, 300, 0);
+    expect(keepsSwipe(at("t"), "back", quiet)).toBe(false);
   });
 
   test("an editable element and the composer keep it", () => {

@@ -3,7 +3,10 @@
 // page probe (BrowserSwipeProbe.swift), run in the page itself, with no round trip:
 // - every horizontal scroller from the element up to the root, through open shadow roots, that can
 //   still scroll that way (right-to-left scrollers count from their right edge), and the document;
-// - a scroller, or the root, with `overscroll-behavior-x` other than `auto` (canvas apps, maps);
+// - a horizontal scroller with `overscroll-behavior-x` other than `auto` (canvas apps, maps), at
+//   either edge. A box whose content fits its width does not count, nor, unlike the browser
+//   tabs' probe, does the root: every app page sets `overscroll-behavior: none` on
+//   the root as its own anti-bounce rule (shared/desktop.css), so it says nothing about the gesture;
 // - an editable element (a field, the composer, a content-editable, a textbox role);
 // - text inside a selection that is not collapsed;
 // - a page that took horizontal wheels itself (`preventDefault`) in the last 600 ms (a carousel).
@@ -57,13 +60,13 @@ export function keepsSwipe(target: Element | null, direction: SwipeDirection, ti
     if (el.matches(EDITABLE)) return true;
     const style = view.getComputedStyle(el);
     if (style.overflowX !== "auto" && style.overflowX !== "scroll") continue;
+    // Only a box that scrolls sideways at all: a vertical list's `overscroll-behavior: contain`
+    // (popovers, the Home dock) stops scroll chaining and says nothing about a horizontal swipe.
+    if (el.scrollWidth - el.clientWidth <= 1) continue;
     const overscroll = style.getPropertyValue("overscroll-behavior-x");
     if (overscroll && overscroll !== "auto") return true;
     if (scrolls(el, style, direction)) return true;
   }
-  const rootStyle = view.getComputedStyle(doc.documentElement);
-  const contained = rootStyle.getPropertyValue("overscroll-behavior-x");
-  if (contained && contained !== "auto") return true;
   const hidden = (el: Element | null) => !!el && ["hidden", "clip"].includes(view.getComputedStyle(el).overflowX);
   const root = doc.scrollingElement ?? doc.documentElement;
   if (hidden(doc.documentElement) || hidden(doc.body)) return false;

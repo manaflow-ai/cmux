@@ -3,7 +3,7 @@
 // it with no page code). The host forwards phase-aware trackpad events on the built-in stream
 // `cmux.page.swipe` only for a page shown in a pane with a history (PageSwipeForwarder.swift); the
 // page decides (gesture.ts, probe.ts), draws (visuals.ts) and, on a commit, asks the host to run its
-// existing Go Back / Go Forward (`cmux.app.history.navigate {back}`). Once a gesture is declined or
+// existing Go Back / Go Forward (`cmux.app.history.navigate {back, g}`). Once a gesture is declined or
 // over, `cmux.app.swipe.release {g}` tells the host to stop forwarding it, so a vertical scroll costs
 // the page a few messages, not one per frame.
 import { SwipeGesture, type SwipeEvent, type SwipeStep } from "./gesture";
@@ -20,6 +20,24 @@ interface SwipeClient {
 
 const isElement = (target: EventTarget | null): target is Element => (target as Node | null)?.nodeType === 1;
 
+/**
+ * Calls `onPrevented` with the time of each horizontal wheel the page's own code took
+ * (`preventDefault`): a carousel keeps swipes off. A capture listener on the window runs before any
+ * page handler can stop the event, and reads `defaultPrevented` once dispatch has finished.
+ */
+export function watchPreventedWheels(view: Window, onPrevented: (at: number) => void): void {
+  view.addEventListener(
+    "wheel",
+    (event) => {
+      if (Math.abs(event.deltaX) <= Math.abs(event.deltaY)) return;
+      view.setTimeout(() => {
+        if (event.defaultPrevented) onPrevented(view.performance.now());
+      }, 0);
+    },
+    { capture: true, passive: true },
+  );
+}
+
 export function installSwipeNavigation(client: SwipeClient, doc: Document = document): void {
   const view = doc.defaultView;
   if (!view) return;
@@ -35,20 +53,12 @@ export function installSwipeNavigation(client: SwipeClient, doc: Document = docu
     },
     { capture: true, passive: true },
   );
-  // Bubble on the window: the page's own handlers have run, so `defaultPrevented` is theirs.
-  view.addEventListener(
-    "wheel",
-    (event) => {
-      if (event.defaultPrevented && Math.abs(event.deltaX) > Math.abs(event.deltaY))
-        preventedAt = view.performance.now();
-    },
-    { passive: true },
-  );
+  watchPreventedWheels(view, (at) => (preventedAt = at));
   doc.addEventListener("visibilitychange", () => {
     if (doc.visibilityState === "hidden") visuals.reset();
   });
 
-  const apply = (step: SwipeStep) => {
+  const apply = (step: SwipeStep, g: number | undefined) => {
     switch (step.kind) {
       case "track":
         visuals.track(step);
@@ -60,7 +70,8 @@ export function installSwipeNavigation(client: SwipeClient, doc: Document = docu
         visuals.hold();
         // The host ran Go Back / Go Forward before it answers: the view already changed.
         void client
-          .call(HISTORY_NAVIGATE_OP, { back: step.direction === "back" })
+          // The host runs it only for the live gesture it forwarded (its id), once.
+          .call(HISTORY_NAVIGATE_OP, { back: step.direction === "back", g })
           .catch(() => undefined)
           .finally(() => visuals.reset());
         return;
@@ -77,6 +88,7 @@ export function installSwipeNavigation(client: SwipeClient, doc: Document = docu
         carry,
         keeps: (direction) => keepsSwipe(target, direction, { now: view.performance.now(), preventedAt }),
       }),
+      event.g,
     );
     const over = gesture.mode === "declined" || event.phase === "ended" || event.phase === "cancelled";
     if (event.g !== undefined && event.g !== released && !event.momentum && over) {

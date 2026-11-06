@@ -74,10 +74,9 @@ public final class PageSwipeForwarder {
     private var monitor: Any?
     private weak var page: PageWebView?
     private var gesture = 0
-    /// The page that last got an event, and when: only a page in a live swipe may run Back / Forward
-    /// (its commit can arrive after it released the gesture).
-    private weak var lastPage: PageWebView?
-    private var lastForwardUptime: TimeInterval = 0
+    /// Which page and gesture may run Back / Forward: the one last forwarded, once, soon after its
+    /// last event (its commit can arrive after it released the gesture).
+    private var commits = PageSwipeCommitGate()
 
     /// Made once by the app's history service, which owns it and runs the Back / Forward it asks for.
     public init(availability: @escaping @MainActor () -> (back: Bool, forward: Bool)) {
@@ -96,6 +95,7 @@ public final class PageSwipeForwarder {
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
         page = nil
+        commits = PageSwipeCommitGate()
     }
 
     /// Runs on every scroll event in the app: a phase check, then a hit test only at a gesture start.
@@ -107,6 +107,8 @@ public final class PageSwipeForwarder {
         if swipe.starts {
             page = NSEvent.isSwipeTrackingFromScrollEventsEnabled ? pageView(under: event) : nil
             gesture += 1
+            // A new gesture ends the last one's chance to commit, wherever it starts.
+            commits = PageSwipeCommitGate()
         }
         guard let page else { return }
         if !swipe.momentum, page.isScrollGestureTakenByEnclosingView {
@@ -114,10 +116,11 @@ public final class PageSwipeForwarder {
             cancelled.phase = "cancelled"
             page.router.publishSwipe(cancelled.json(gesture: gesture))
             self.page = nil
+            commits = PageSwipeCommitGate()
             return
         }
-        lastPage = page
-        lastForwardUptime = ProcessInfo.processInfo.systemUptime
+        let now = ProcessInfo.processInfo.systemUptime
+        if swipe.starts { commits.open(page: ObjectIdentifier(page), gesture: gesture, at: now) } else { commits.touch(at: now) }
         let open = swipe.starts ? availability() : nil
         page.router.publishSwipe(swipe.json(gesture: gesture, back: open?.back, forward: open?.forward))
     }
@@ -147,9 +150,9 @@ public final class PageSwipeForwarder {
 
     private func bind(_ router: PageRouter, to page: PageWebView) {
         guard router.historyNavigate == nil else { return }
-        router.historyNavigate = { [weak self, weak page] back in
-            // Only the page in a live swipe, within a moment of its last event, may navigate.
-            guard let self, let page, lastPage === page, ProcessInfo.processInfo.systemUptime - lastForwardUptime < 2,
+        router.historyNavigate = { [weak self, weak page] back, gesture in
+            guard let self, let page,
+                  commits.take(page: ObjectIdentifier(page), gesture: gesture, at: ProcessInfo.processInfo.systemUptime),
                   let navigate = Self.historyHost(of: page)?.navigate else { return false }
             navigate(back)
             return true
@@ -158,5 +161,30 @@ public final class PageSwipeForwarder {
             guard let self, self.page === page, self.gesture == gesture else { return }
             self.page = nil
         }
+    }
+}
+
+/// Which forwarded gesture may still run Back / Forward (pure; ``PageSwipeForwarder``'s): the one
+/// last opened, on its page, once, within ``window`` of its last forwarded event. Page code cannot
+/// run navigation for an earlier gesture, from another page, twice, or long after its gesture ended.
+struct PageSwipeCommitGate {
+    /// How long after its last event a gesture's commit is still accepted (a spring settles well within it).
+    static let window: TimeInterval = 2
+    private var open: (page: ObjectIdentifier, gesture: Int, last: TimeInterval)?
+
+    mutating func open(page: ObjectIdentifier, gesture: Int, at time: TimeInterval) {
+        open = (page, gesture, time)
+    }
+
+    /// A later event of the open gesture.
+    mutating func touch(at time: TimeInterval) {
+        open?.last = time
+    }
+
+    /// True once for the open gesture's page and id within the window; it closes the gate.
+    mutating func take(page: ObjectIdentifier, gesture: Int, at time: TimeInterval) -> Bool {
+        guard let open, open.page == page, open.gesture == gesture, time - open.last <= Self.window else { return false }
+        self.open = nil
+        return true
     }
 }

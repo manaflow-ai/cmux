@@ -134,8 +134,9 @@ public final class PageRouter {
 
     /// The window's title bar action (DESKTOP-FEEL): a double-click on a title bar the page draws.
     public var titleBarDoubleClick: (@MainActor () -> Void)?
-    /// Go Back (true) or Go Forward (false) for the page's swipe (`cmux.app.history.navigate`); true when it ran.
-    public var historyNavigate: (@MainActor (Bool) -> Bool)?
+    /// Go Back (true) or Go Forward (false) for the page's swipe gesture `g` (`cmux.app.history.navigate`);
+    /// true when it ran.
+    public var historyNavigate: (@MainActor (_ back: Bool, _ gesture: Int) -> Bool)?
     /// The page is done with forwarded swipe gesture `g` (`cmux.app.swipe.release`): stop sending it.
     public var swipeRelease: (@MainActor (Int) -> Void)?
 
