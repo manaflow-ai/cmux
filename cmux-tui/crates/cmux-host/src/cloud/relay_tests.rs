@@ -199,10 +199,7 @@ fn a_stop_drops_the_socket_at_once() {
             tokio::join!(or_stop(&mut rx, serving), stopper).0
         });
         assert_eq!(out, None);
-        assert!(
-            dropped.load(Ordering::SeqCst),
-            "the socket is dropped with its chats"
-        );
+        assert!(dropped.load(Ordering::SeqCst), "the socket is dropped with its chats");
         assert!(started.elapsed() < Duration::from_secs(2), "not at the next ping tick");
     }
 }
