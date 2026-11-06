@@ -300,6 +300,19 @@ def strip_literal_selectors(runs_on: str) -> str:
     return PRESENCE_CONDITION.sub("", stripped)
 
 
+# What may follow an owned route variable that gives the label: the next alternative or the expression's end.
+# Anything else (`!= ''`, `== 'x'`, `&&`) makes it a condition, and what it selects is then the label: router-review
+# F1 at 1e9095d099b: `vars.CI_NIGHTLY_SIGN_RUNNER != '' && 'macos-26'` passed while the label was a hosted Mac.
+GIVES_LABEL = re.compile(r"\s*(?:\|\||\}\})")
+
+
+def owned_label(runs_on: str, match: re.Match) -> bool:
+    """Rule 7a's waiver: this RUNNER_VARIABLE match is an OWNED_ROUTE_VARIABLES name that gives the runs-on label
+    itself, never one only tested in a condition."""
+    return ((match.group(1) or match.group(2)).upper() in OWNED_ROUTE_VARIABLES
+            and bool(GIVES_LABEL.match(runs_on, match.end())))
+
+
 def claim_gated(name: str, job: dict) -> bool:
     """Rule 7a: glaeda's exclusive class admits the job and its first step is the verbatim claim gate."""
     import test_ci_signing_owned_mac as owned_mac  # late: that module imports this one
@@ -492,8 +505,7 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
             # Proven above: every signing secret sits behind the condition that picks an ephemeral label.
             runs_on = ""
         owned_route = claim_gated(name, job)
-        if owned_route and any((m.group(1) or m.group(2)).upper() in OWNED_ROUTE_VARIABLES
-                               for m in RUNNER_VARIABLE.finditer(runs_on)):
+        if owned_route and any(owned_label(runs_on, m) for m in RUNNER_VARIABLE.finditer(runs_on)):
             failures.extend(owned_route_failures(name, job))
         if len(ANY_VARS.findall(runs_on)) != len(RUNNER_VARIABLE.findall(runs_on)):
             failures.append(
@@ -505,7 +517,7 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
             variable = (dotted or bracketed).upper()
             if trusted_ephemeral_pool and variable == "RUNNER_POOLS":
                 continue
-            if owned_route and variable in OWNED_ROUTE_VARIABLES:
+            if owned_route and owned_label(runs_on, match):
                 continue
             if variable not in EPHEMERAL_RUNNER_VARIABLES:
                 failures.append(

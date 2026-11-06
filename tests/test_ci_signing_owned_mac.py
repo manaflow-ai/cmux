@@ -1427,6 +1427,29 @@ class OwnedRouteVariableTests(unittest.TestCase):
                "steps": [self.gate("nightly.yml"), {"run": f"bash {CLAIM}"}, self.SPARKLE]}
         self.assertEqual(self.failures("nightly.yml generate-nightly-deltas", job), [])
 
+    def test_an_owned_variable_only_tested_in_a_condition_is_not_the_route(self) -> None:
+        """router-review F1 at 1e9095d099b: the waiver is for the variable that gives the label. Tested in a
+        condition, it lets whatever it selects be the label, and the claim gate does nothing on a hosted Mac."""
+        for runs_on in ("${{ vars.CI_NIGHTLY_SIGN_RUNNER != '' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}",
+                        "${{ vars.CI_NIGHTLY_SIGN_RUNNER && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}",
+                        "${{ vars.CI_NIGHTLY_SIGNING_POOL == 'x' && vars.SOME_SHARED_RUNNER || "
+                        "'blacksmith-6vcpu-macos-26' }}",
+                        "${{ vars.CI_SIDE_LANE_RUNNER != '' && 'macos-26' }}"):
+            with self.subTest(runs_on=runs_on):
+                job = {"runs-on": runs_on,
+                       "steps": [self.gate("nightly.yml"), {"run": f"bash {CLAIM}"}, self.SPARKLE]}
+                found = self.failures("nightly.yml generate-nightly-deltas", job)
+                self.assertTrue(any("picks its runner from vars." in why or "other than as" in why
+                                    for why in found), found)
+        # the tree's shape: the variable gives the label, after a mode test or among alternatives
+        for runs_on in ("${{ vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || "
+                        "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}",
+                        "${{ github.event_name == 'push' && vars.CI_NIGHTLY_SIGN_RUNNER }}"):
+            with self.subTest(runs_on=runs_on):
+                job = {"runs-on": runs_on,
+                       "steps": [self.gate("nightly.yml"), {"run": f"bash {CLAIM}"}, self.SPARKLE]}
+                self.assertEqual(self.failures("nightly.yml generate-nightly-deltas", job), [])
+
 
 class ClaimScriptTests(unittest.TestCase):
     def run_claim(self, tmp: Path, **env: str) -> subprocess.CompletedProcess:
