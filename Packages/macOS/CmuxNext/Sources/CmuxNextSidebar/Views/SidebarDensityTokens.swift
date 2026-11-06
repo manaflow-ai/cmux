@@ -24,7 +24,7 @@ import CoreGraphics
 /// Row title and detail text size and weight do not change with density (Interface Size and
 /// `sidebar.textSize` own the text size); `sidebar.textSize` (``SidebarTextSize``) adds its
 /// `rowStep` to every row and header height here, on top of any density. A group header's name
-/// takes the rows' title size, semibold (`SidebarStyle.groupHeaderFont`). Row spacing stays `space1` so selection fills
+/// takes the rows' title size and regular weight (`SidebarStyle.groupHeaderFont`). Row spacing stays `space1` so selection fills
 /// keep their rhythm, and it is the only gap between rows: a group's or the
 /// Pinned block's last row adds no padding (Leo 2026-10-21). Values are read at layout time, never cached, so a
 /// change applies live.

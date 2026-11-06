@@ -3,8 +3,8 @@ import CmuxNextDesign
 
 /// Layer hosting (fork API 26) of the page window over one ``CEFHostView``:
 /// asks the fork for the page window's Core Animation context and shows it in
-/// a ``CEFHostedPageView`` at the bottom of the host view, following
-/// `BrowserResizeTunables.layerHosting`.
+/// a ``CEFHostedPageView`` at the bottom of the host view. Every page is hosted
+/// (no switch since 2026-11-06).
 ///
 /// The context belongs to the page window, not to a tab: every tab of a pane
 /// shares it, so a tab switch inside a hosted pane makes no fork call. A new
@@ -18,15 +18,9 @@ import CmuxNextDesign
 /// tracker (``trackerDidRead()``, proof that the tracker is attached) retries
 /// once; another refusal waits for the next show.
 ///
-/// While hosted (fork API 27), a resize of the page window may hold the
-/// process's commit for Chromium's frame at the new size, up to
-/// ``CEFResizeSyncDeadline``: the `browserResize.syncDeadline` tunable capped at
-/// half the shortest frame of all displays. During the window's live resize
-/// every page over the view, hosted or not, gets `browserResize.liveResizeDeadline`
-/// under the same cap, and a person's drag of the view's pane with `browserResize.dragResize` at `resizeSync`
-/// gives it `browserResize.dragResizeDeadline` (``paneResizeDrag(active:)``). A change (a tunable edit, a display added or changed)
-/// reaches the fork at the next show or display change, only when the deadline
-/// changed, and counts as applied only when the fork took it.
+/// A resize never holds the process's commit for Chromium's frame at the new
+/// size: the main thread never waits for a page (the resize wait deadlines are
+/// 0; tests pass others through the init seams).
 ///
 /// `browser` must name a live browser of the page window: a show records the
 /// shown one, and ``windowBrowsersChanged(_:)`` moves it off a closed one.
@@ -105,8 +99,6 @@ final class CEFLayerHosting {
     private(set) var browser: Int32?
     private var fork: Fork?
     private var pending = Pending.none
-    /// The runtime's switch observation this page window follows (``CEFHostingSwitch``); nil in tests that pass none.
-    private weak var hostingSwitch: CEFHostingSwitch?
     private let isEnabled: () -> Bool
     private let schedule: Scheduler
     private let makePage: (CGRect) -> CEFHostedPageView
@@ -129,18 +121,18 @@ final class CEFLayerHosting {
     typealias Scheduler = (_ block: @escaping @MainActor @Sendable () -> Void) -> Void
 
     /// - Parameters:
-    ///   - isEnabled: whether hosting is wanted; by default `browserResize.layerHosting` or S5 (`motion.frameOwner.pages`).
+    ///   - isEnabled: whether hosting is wanted; always by default (tests pass their own).
     ///   - schedule: runs a block at the end of this run-loop turn; tests run it when they choose.
     ///   - makePage: the hosted view for a frame; tests pass one whose layer host fails.
-    ///   - resizeDeadlineMs: the upper bound of a hosted page's resize wait; the tunable by default.
+    ///   - resizeDeadlineMs: the upper bound of a hosted page's resize wait; 0 (never) by default.
     ///   - refreshIntervals: the shortest frame interval of each display, which cap the wait
     ///     (``CEFResizeSyncDeadline``); tests pass fixed rates.
-    init(isEnabled: @escaping () -> Bool = { CEFHostingSwitch.hostingWanted },
+    init(isEnabled: @escaping () -> Bool = { true },
          schedule: @escaping Scheduler = { CEFLayerHosting.atEndOfTurn($0) },
          makePage: @escaping (CGRect) -> CEFHostedPageView = { CEFHostedPageView(frame: $0) },
-         resizeDeadlineMs: @escaping () -> Int32 = { CEFLayerHosting.waitMs(BrowserResizeTunables.syncDeadline) },
-         liveResizeDeadlineMs: @escaping () -> Int32 = { CEFLayerHosting.waitMs(BrowserResizeTunables.liveResizeDeadline) },
-         dragResizeDeadlineMs: @escaping () -> Int32 = { CEFLayerHosting.waitMs(BrowserResizeTunables.dragResizeDeadline) },
+         resizeDeadlineMs: @escaping () -> Int32 = { 0 },
+         liveResizeDeadlineMs: @escaping () -> Int32 = { 0 },
+         dragResizeDeadlineMs: @escaping () -> Int32 = { 0 },
          refreshIntervals: @escaping () -> [Double] = { NSScreen.screens.map(\.minimumRefreshInterval) },
          holdsFocus: (() -> Bool)? = nil) {
         self.holdsFocus = holdsFocus ?? { false }
@@ -154,20 +146,13 @@ final class CEFLayerHosting {
         if holdsFocus == nil { self.holdsFocus = { [weak self] in Self.pageWindowIsKey(over: self?.view) } }
     }
 
-    /// A resize wait tunable in whole ms; with S5 on (`motion.frameOwner.pages`) `motion.frameOwner.pagesWait` instead, 0 by
-    /// default: the main thread never waits for a page in any resize (Chromium's wait runs on the main thread).
-    static func waitMs(_ tunable: Tunable<Double>) -> Int32 {
-        let seconds = BrowserResizeTunables.framesOwnedByCommit.value ? BrowserResizeTunables.pagesWait.value : tunable.value
-        return Int32((seconds * 1_000).rounded())
-    }
-
     /// Whether a refused request waits for the tracker's next read.
     var isRetryArmed: Bool { pending == .armed }
 
     /// A new page window over the view (a pane's Chromium window, or a docked
     /// DevTools): the old window's context went with it. Called inside
     /// Chromium's creation stack, so the request waits for the end of the turn.
-    func pageWindowCreated(browser: Int32, fork: Fork?, follows hostingSwitch: CEFHostingSwitch? = nil) {
+    func pageWindowCreated(browser: Int32, fork: Fork?) {
         dropPage()
         self.browser = browser
         self.fork = fork
@@ -176,9 +161,6 @@ final class CEFLayerHosting {
         pending = .none
         // The window may be in a live resize already.
         syncDeadline()
-        // A switch flipped while the page shows reaches it at once (CEFLayerHosting+Switch).
-        self.hostingSwitch = hostingSwitch
-        hostingSwitch?.follow(self)
         guard fork != nil, isEnabled() else { return }
         request(retry: false)
     }
@@ -367,7 +349,6 @@ final class CEFLayerHosting {
     /// hosting off for the browser and drops the hosted view.
     func stop() {
         pending = .none
-        hostingSwitch?.unfollow(self)
         // The page window closed: a drag's wait does not pass to the next one (an end that comes later is ignored).
         paneDragHolders = 0
         motionHolders = 0
