@@ -155,6 +155,12 @@ pub(crate) enum IdentifyFailure {
 }
 
 impl IdentifyFailure {
+    /// Whether the daemon may answer once its link is back (no connection, an early close, no
+    /// answer in time); a refusal or an answer that is not one would come again.
+    pub(crate) fn transient(self) -> bool {
+        matches!(self, Self::Eof | Self::Connect | Self::Timeout)
+    }
+
     /// Its name on an answer line (`identify_failure`).
     pub(crate) fn code(self) -> &'static str {
         match self {

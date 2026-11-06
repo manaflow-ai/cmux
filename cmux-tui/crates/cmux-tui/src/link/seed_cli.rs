@@ -306,11 +306,19 @@ impl<'a> Machine<'a> {
         let identity = match machine_gate::identify_checked(socket) {
             Ok(identity) => Some(identity),
             Err(failure) => {
+                // Only a machine that may answer once its link is back is "not answering", which
+                // the app copies once more on; a refusal stays a refusal. The category, never
+                // the daemon's words or the socket's path.
+                let (code, words) = if failure.transient() {
+                    (machine_gate::NOT_ANSWERING, "did not answer")
+                } else {
+                    ("sync_failed", "refused")
+                };
                 return Err(SeedError {
                     identify_failure: Some(failure.code()),
                     ..SeedError::new(
-                        machine_gate::NOT_ANSWERING,
-                        format!("the machine did not answer identify ({})", failure.code()),
+                        code,
+                        format!("the machine {words} identify ({})", failure.code()),
                     )
                 });
             }
@@ -707,6 +715,35 @@ mod tests {
             message.contains("connect") && !message.contains(&*socket.to_string_lossy()),
             "{message}"
         );
+    }
+
+    /// A daemon that refuses `identify` is a refusal, never "not answering" (which the app copies
+    /// once more on): its line carries the category only, never the refusal's own words.
+    #[test]
+    fn a_machine_that_refuses_identify_says_refused_and_none_of_its_words() {
+        use std::io::{BufRead as _, Write as _};
+        let folder = tempfile::tempdir().expect("socket folder");
+        let socket = folder.path().join("d.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&socket).expect("bind");
+        let secret = "ghp_0123456789abcdefSECRET /home/work/.ssh/id_ed25519";
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut request = String::new();
+            std::io::BufReader::new(stream.try_clone().expect("clone"))
+                .read_line(&mut request)
+                .expect("read");
+            let answer =
+                serde_json::json!({"id": 1, "ok": false, "error_code": "denied", "error": secret});
+            writeln!(stream, "{answer}").expect("answer");
+        });
+        let Err(error) = Machine::read(&socket) else { panic!("identify was refused") };
+        let line = SeedError::of(&error.into()).line();
+        assert_eq!(line["error_code"], "sync_failed");
+        assert_eq!(line["identify_failure"], "refused");
+        let text = line.to_string();
+        for raw in ["ghp_", "SECRET", ".ssh", "denied", &*socket.to_string_lossy()] {
+            assert!(!text.contains(raw), "{raw} in {text}");
+        }
     }
 
     #[test]

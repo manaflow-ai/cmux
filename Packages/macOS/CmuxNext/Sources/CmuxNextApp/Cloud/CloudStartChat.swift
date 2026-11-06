@@ -38,7 +38,7 @@ struct CloudStartChat {
     /// `report` tells the page's card each step as it begins (``AgentPaneCloudStart/progress(_:folder:machine:size:to:)``).
     func reply(_ start: AgentPaneCloudStart, tab: TabModel, retried: Bool = false, report: @MainActor (AgentPaneCloudStart.Step) -> Void = { _ in }) async -> [String: Any] {
         if let refusal = Self.refusal(services) {
-            return AgentPaneReply.failure(code: refusal, message: Self.refusalMessage(refusal))
+            return AgentPaneReply.failure(code: refusal, message: CloudStrings.startRefusal(refusal))
         }
         let toastID = "cloud-start-" + tab.id
         do {
@@ -97,11 +97,6 @@ struct CloudStartChat {
         CloudStartCore().refusal(cloudDisabled: cloudDisabled, signedIn: signedIn)
     }
 
-    /// Keep the stable refusal code for bridge callers, but give the Cloud start card actionable copy for a signed-out first send.
-    nonisolated static func refusalMessage(_ code: String) -> String {
-        code == "not_signed_in" ? CloudStrings.signInFirst : code
-    }
-
     /// Where a start comes from: the tab that sent (this Mac's new tab, or for a repick the chat's tab on the machine it was on), the chat's folder
     /// on this Mac, the Mac workspace and account the send began in, and what closes the tab once the chat opened on its machine.
     struct Origin {
@@ -135,6 +130,8 @@ struct CloudStartChat {
             await CloudChatPick(services: services).read(folder: chat, tab: tab)
         }
         let name = machine.machine.title, again = CloudMoveRetries.Retry.move(machineID: machine.machineID)
+        services.cloud.startGate.enter(machine.machineID) // until the chat opens, the automatic update leaves the daemon alone (CloudStartSession.run)
+        defer { services.cloud.startGate.leave(machine.machineID) }
         // The account may have changed while the machine connected: copy nothing then.
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
         // The chat's harness login (DEV and dogfood builds, +Login): it runs alongside the copy and is
@@ -151,7 +148,8 @@ struct CloudStartChat {
             // the copy's progress lines go to the clone row as they come, about 4 a second (SeedProgress.feed).
             copy = try await CloudOutdatedMachine.copy(socket: { await machine.daemon.connection?.endpoint?.socketPath },
                                                        link: { CloudMachineUpdates.handshake(machine, machines: services.machines) },
-                                                       notConnected: CloudMove.Failure(message: CloudMoveStrings.notConnected(name))) { socket in try await SeedProgress.feed({ [cli, key = start.key, owner = CloudStartCore().accountText(account), id = machine.machineID, root = folder.root, sub = folder.subpath, roots = services.cloud.move.workRoots, home = QuitAgents.environment(services)?.home.path, storeAccess] line in
+                                                       notConnected: CloudMove.Failure(message: CloudMoveStrings.notConnected(name)), stillOurs: {
+                try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines) }) { socket in try await SeedProgress.feed({ [cli, key = start.key, owner = CloudStartCore().accountText(account), id = machine.machineID, root = folder.root, sub = folder.subpath, roots = services.cloud.move.workRoots, home = QuitAgents.environment(services)?.home.path, storeAccess] line in
                     try await cli.startChatCopy(key: key, account: owner, machine: id, socket: socket, local: root, subpath: sub, workRoots: roots, acpmuxHome: home, access: storeAccess, stderrLine: line)
                 }) { report(AgentPaneCloudStart.copying($0, folder: folderName, machine: name, size: size)) }
             } answer: { ($0.0.ok, $0.0.errorCode, $0.0.side) } update: { await CloudMachineUpdates.updateNow(machine.machineID, services: services) }
