@@ -50,8 +50,10 @@ import Testing
         final class Frames { var work: [@MainActor @Sendable () -> Void] = [] }
         let frames = Frames()
         private(set) var listed: [SidebarWorkspace] = []
-        /// The tracked pass heard a change since it last ran.
+        /// The latest tracked pass heard a change since it ran (an older pass's registration is the app's stream's no
+        /// longer: it tracks only its latest run).
         private(set) var woke = false
+        private var runs = 0
 
         init() throws {
             _ = NSApplication.shared
@@ -76,10 +78,12 @@ import Testing
         /// The window's structural pass under observation tracking, then its rows filled outside it.
         func run() {
             woke = false
+            runs += 1
+            let run = runs
             let sections = withObservationTracking {
                 SidebarBridge.passSections(services, window: state, feed: feed, rows: feed.rowSource).0
             } onChange: { [weak self] in
-                MainActor.assumeIsolated { self?.woke = true }
+                MainActor.assumeIsolated { if self?.runs == run { self?.woke = true } }
             }
             listed = feed.fill(sections).flatMap(\.workspaces)
         }
