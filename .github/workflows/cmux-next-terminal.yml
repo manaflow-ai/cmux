@@ -29,6 +29,7 @@ on:
       - cmux-tui/crates/cmux-terminal-client/**
       - cmux-tui/crates/cmux-encode/**
       - cmux-tui/Cargo.lock
+      - schemas/terminal-corpus/**
       - Packages/Shared/CmuxTerminalSizing/**
       - Packages/Shared/CmuxTerminalStream/**
       - Packages/Shared/CmuxTerminalClient/**

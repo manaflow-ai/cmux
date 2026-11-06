@@ -43,6 +43,8 @@ final class SSHMachineSession {
     /// cx-3r9mt: an older cmux-tui on a machine that is not idle: the sidebar says "Update
     /// available" and the person's Update installs it; the app never does it by itself.
     var updateOffered = false
+    /// A newer build waits as `~/.cmux/bin/cmux.staged` (``RemoteStaticInstallStager``); the header says so.
+    var staticInstallStaged = false
     /// Why the machine's cmux-tui did not start: the daemon's error and the
     /// link's output (the remote error, for example a session db the daemon
     /// cannot open). Set when the first connection gives up after the SSH

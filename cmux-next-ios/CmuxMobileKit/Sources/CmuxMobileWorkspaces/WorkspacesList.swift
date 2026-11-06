@@ -1374,6 +1374,17 @@ struct WorkspaceRow: View {
     /// About one row: unfolding scrolls when the first new row would not fit.
     static let minHeight: CGFloat = 60
 
+    /// Line 2 shows unless the list is compact or it would be blank (an idle
+    /// row with no branch, folder or Mac to name): then the row is the name
+    /// line alone, as short as a compact row, with no empty line under it.
+    static func showsStatusLine(_ workspace: Workspace, status: WorkspaceStatus, macName: String?, compact: Bool) -> Bool {
+        !compact && !StatusLine.isBlank(workspace, status: status, macName: macName)
+    }
+
+    private var showsStatusLine: Bool {
+        Self.showsStatusLine(workspace, status: status, macName: macName, compact: compact)
+    }
+
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 0) {
             mark
@@ -1388,14 +1399,14 @@ struct WorkspaceRow: View {
                     Spacer(minLength: 8)
                     time
                 }
-                if !compact {
+                if showsStatusLine {
                     StatusLine(workspace: workspace, status: status, macName: macName)
                         .lineLimit(typeSize.isAccessibilitySize ? 2 : 1)
                         .opacity(status == .offline ? 0.6 : 1)
                 }
             }
         }
-        .frame(minHeight: compact ? 32 : 40, alignment: .center)
+        .frame(minHeight: showsStatusLine ? 40 : 32, alignment: .center)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(.rect)
         .accessibilityElement(children: .ignore)
@@ -1518,6 +1529,15 @@ struct StatusLine: View {
         return [place, macName].compactMap(\.self).joined(separator: " · ")
     }
 
+    /// Whether the line has no words: only an idle or offline row can, when
+    /// it has no branch, no folder and no Mac to name.
+    static func isBlank(_ workspace: Workspace, status: WorkspaceStatus, macName: String?) -> Bool {
+        switch status {
+        case .idle, .offline: place(workspace, macName: macName).isEmpty
+        case .needsYou, .working, .done, .creating: false
+        }
+    }
+
     /// The same line for VoiceOver.
     static func words(_ workspace: Workspace, status: WorkspaceStatus, macName: String?) -> [String] {
         let tab = workspace.agentTab(for: status)
@@ -1526,8 +1546,8 @@ struct StatusLine: View {
         case .working: return [tab.map { "\($0.agentName) is working" } ?? "Working", tab?.task].compactMap(\.self)
         case .done: return ["Done", tab.map { "\($0.agentName)" }, tab?.task].compactMap(\.self)
         case .creating: return ["Creating"]
-        case .idle: return ["idle", place(workspace, macName: macName)]
-        case .offline: return ["offline", place(workspace, macName: nil)]
+        case .idle: return ["idle", place(workspace, macName: macName)].filter { !$0.isEmpty }
+        case .offline: return ["offline", place(workspace, macName: nil)].filter { !$0.isEmpty }
         }
     }
 }

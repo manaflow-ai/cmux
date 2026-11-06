@@ -988,8 +988,12 @@ export class MockSettingsProvider {
     if (!accounts.some((account) => account.id === run.account)) {
       throw new ProtocolError("cmux.settings.invalid", "account must be a listed account");
     }
-    this.harnessRuns.push(run);
     const target = accounts.find((account) => account.id === run.account)!;
+    // Like the host: a disabled account is never made the default.
+    if (run.action === "accountDefault" && !target.enabled) {
+      throw new ProtocolError("cmux.settings.invalid", "accountDefault needs an enabled account");
+    }
+    this.harnessRuns.push(run);
     const change = (next: ProviderAccount[]) => this.setHarnesses({ ...this.harnesses, accounts: next });
     if (run.action === "accountEnable") {
       change(accounts.map((account) => (account === target ? { ...account, enabled: run.on === true } : account)));

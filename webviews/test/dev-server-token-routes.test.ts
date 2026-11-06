@@ -1,9 +1,9 @@
+// cmux-web-test-timeout: 300
 // The app loads a page's document from the dev server only when the answer proves web-dev.json's
 // token (PageDevServer.answered in CmuxNextPages); an unproven document falls back to the bundled
 // one, whose bundled script (the agent pane's pane.js) the server does not have. So every HTML entry
 // the server answers, the agent pane's /agent-pane/ included, must carry the proof. This runs the
 // real dev server (vite.config.ts) and asks each entry with a nonce, as the app does.
-// cmux-web-test-timeout: 300
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
@@ -22,8 +22,9 @@ beforeAll(async () => {
   const { createServer } = await import("vite");
   server = await createServer({
     configFile: path.resolve(import.meta.dir, "../vite.config.ts"),
-    // No file watcher: the test reads each entry once.
-    server: { port: 0, host: "127.0.0.1", strictPort: false, watch: null },
+    // The test reads each entry once, so the watcher ignores everything (Vite's config merge drops a
+    // `watch: null`, which left it watching the whole tree).
+    server: { port: 0, host: "127.0.0.1", strictPort: false, watch: { ignored: ["**/*"] } },
     logLevel: "error",
   });
   await server.listen();

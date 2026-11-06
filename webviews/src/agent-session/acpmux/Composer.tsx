@@ -20,6 +20,7 @@ import {
   type DroppedKind,
   type LinkItem,
 } from "./attachments";
+import type { SendGesture } from "./heldPrompt";
 import { awaitsOriginals } from "./promptBudget";
 import type { UploadProgressReport, UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
@@ -294,7 +295,17 @@ type Props = {
   /// promise holds the prompt in the composer until the host takes it: it clears when the promise
   /// resolves and stays (for the user to send again) when it rejects, so a refusal loses nothing.
   /// `steer`: into the running turn now (⌘Return); otherwise a prompt sent mid-turn waits behind it.
-  onSend(text: string, attachments?: ComposerAttachment[], steer?: boolean): boolean | void | Promise<unknown>;
+  /// `gesture`: a send held for its files (a pasted image still being read) goes with the gesture
+  /// `onBindSendGesture` bound at its Enter or click; without one the send binds its own as it goes.
+  onSend(
+    text: string,
+    attachments?: ComposerAttachment[],
+    steer?: boolean,
+    gesture?: SendGesture,
+  ): boolean | void | Promise<unknown>;
+  /// Binds the person's current key press or click to one prompt (`transport.gesture`), for a send
+  /// the composer holds until its files are ready (attachmentIntake.tsx `useSendWhenAttached`).
+  onBindSendGesture?(): SendGesture | undefined;
   onStop(): void;
   /// Withdraws a queued prompt (`_acpmux/queue_remove`); false when it already started.
   onQueueRemove?(promptId: string): Promise<boolean>;
@@ -468,6 +479,7 @@ export function Composer({
   headerCwd,
   chips: Chips,
   onSend,
+  onBindSendGesture,
   onStop,
   onQueueRemove,
   onQueueCancelEdit,
@@ -681,7 +693,7 @@ export function Composer({
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
   const sending = useRef(false);
   /// The newest submit, for the handle's `send` (rendered after the trust answer lands).
-  const submitNow = useRef<(force: boolean, steer?: boolean) => boolean>(() => false);
+  const submitNow = useRef<(force: boolean, steer?: boolean, gesture?: SendGesture) => boolean>(() => false);
   /// Set while the send a finished dictation session waited for goes (send, below).
   const dictationEnded = useRef(false);
   /// The newest `onOpenInWindow`, for a ⌘Return held until a screenshot's chip is ready.
@@ -759,12 +771,20 @@ export function Composer({
         attachmentsRef.current.some((chip) => chip.id === id) || pendingRef.current.some((chip) => chip.id === id),
     );
   // A prompt sent while a pasted screenshot is still being read goes once its chip is ready.
-  const holdForAttachments = useSendWhenAttached(loading + videoReading, sessionId, unsettled + videoReading);
+  // It binds the Enter's or click's gesture at once: the screenshot's upload would spend it meanwhile.
+  const bindHeldSend = () => onBindSendGesture?.();
+  const holdForAttachments = useSendWhenAttached<SendGesture>(
+    loading + videoReading,
+    sessionId,
+    unsettled + videoReading,
+    bindHeldSend,
+  );
   /// A prompt too large for one acpmux message waits for its images' originals still uploading,
   /// then goes with them as links (promptBudget.ts); the person's x on one lets it go without it.
-  const holdForOriginals = useSendWhenOriginals(
+  const holdForOriginals = useSendWhenOriginals<SendGesture>(
     attachments.filter((attachment) => originalUploads.has(attachment.id)).length,
     sessionId,
+    bindHeldSend,
   );
   // The box makes a huge paste a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
   const box = useRef<ComposerBoxHandle>(null);
@@ -1392,7 +1412,8 @@ export function Composer({
     // Send does what Return does: mid-turn it steers an agent that steers, else it queues.
     return send(false, steersAlways || returnSteers);
   };
-  const send = (force: boolean, steer = false): boolean => {
+  /// `kept`: the gesture an earlier hold of this send bound (`useSendWhenAttached`).
+  const send = (force: boolean, steer = false, kept?: SendGesture): boolean => {
     // A send waiting for its images' originals is this one's to replace: whatever this one does
     // (it goes, waits again, runs a command or stops), the earlier one never goes on its own.
     holdForOriginals(false, () => undefined);
@@ -1413,7 +1434,7 @@ export function Composer({
         // The session is over even if this render has not heard so yet.
         dictationEnded.current = true;
         try {
-          submitNow.current(force, steer);
+          submitNow.current(force, steer, kept);
         } finally {
           dictationEnded.current = false;
         }
@@ -1540,12 +1561,13 @@ export function Composer({
       }
     }
     // A file pasted or dropped is still being read or uploaded: the prompt waits for its chip.
-    if (holdForAttachments(() => submitNow.current(force, steer))) return false;
+    if (holdForAttachments((gesture) => submitNow.current(force, steer, gesture), kept)) return false;
     // Too large for one message until the originals still uploading are saved: it waits for them.
     if (
       holdForOriginals(
         awaitsOriginals(prompt, placed.attachments, (id) => originalUploads.has(id)),
-        () => submitNow.current(force, steer),
+        (gesture) => submitNow.current(force, steer, gesture),
+        kept,
       )
     )
       return false;
@@ -1562,7 +1584,7 @@ export function Composer({
     notTyped();
     unsentDraft.current?.flush();
     const sent = placed.attachments;
-    const taken = onSend(placed.text, sent, steer);
+    const taken = onSend(placed.text, sent, steer, kept);
     if (taken === false) return false;
     const written = field.current?.value() ?? "";
     const clear = (rest = "") => {
@@ -1895,8 +1917,8 @@ export function Composer({
     ) {
       event.preventDefault();
       const typed = typedWords().trim() !== "";
-      const sendAndOpen = () => {
-        const sent = submitNow.current(false, steersAlways);
+      const sendAndOpen = (gesture?: SendGesture) => {
+        const sent = submitNow.current(false, steersAlways, gesture);
         // A prompt the host refused stays in the composer, and the chat stays here.
         if (typed && !sent) return;
         openInWindow.current?.(sent);
