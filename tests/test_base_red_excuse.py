@@ -1350,6 +1350,32 @@ class SupersededCancelledRun(unittest.TestCase):
         # Nothing was compared with the base: no base run was listed.
         self.assertFalse(any("/workflows/7/runs?" in route for route in self.gh.routes), self.gh.routes)
 
+    def test_recency_is_the_linked_job_id_not_the_check_run_id(self):
+        # A check run's own id need not be its job's: the newer run's check run here has the lower id.
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.gh.jobs[5] = dict(failed_job(5, 11, HEAD), conclusion="success")
+        checks = [{"id": 900, "name": SWIFT, "status": "completed", "conclusion": "cancelled",
+                   "app": {"slug": "github-actions"},
+                   "details_url": f"https://github.com/{REPO}/actions/runs/10/job/1"},
+                  {"id": 3, "name": SWIFT, "status": "completed", "conclusion": "success",
+                   "app": {"slug": "github-actions"},
+                   "details_url": f"https://github.com/{REPO}/actions/runs/11/job/5"}]
+        original = self.gh.json
+
+        def json(route, *, paginate=False):
+            if route.endswith(f"commits/{HEAD}/check-runs?filter=all&per_page=100"):
+                return [{"check_runs": copy.deepcopy(checks)}]
+            return original(route, paginate=paginate)
+
+        self.gh.json = json
+        lines = self.judge()
+        self.assertTrue(lines[0].startswith(f"ignored '{SWIFT}': its cancelled job in run 10 is superseded by job 5 "),
+                        lines)
+        # The other way round, the newer check run's job is older than the cancelled one: it supersedes nothing.
+        checks[1]["details_url"] = f"https://github.com/{REPO}/actions/runs/11/job/0"
+        with self.assertRaisesRegex(excuse.Refused, "cancelled"):
+            self.judge()
+
     def test_a_cancelled_run_with_nothing_newer_stays_a_red(self):
         self.gh.jobs[1]["conclusion"] = "cancelled"
         with self.assertRaisesRegex(excuse.Refused, "cancelled"):

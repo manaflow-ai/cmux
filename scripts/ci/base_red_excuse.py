@@ -1153,21 +1153,22 @@ def superseding_check(repo: str, sha: str, job: dict, github, seen: dict) -> dic
             seen[run] = github.json(f"repos/{repo}/actions/runs/{run}").get("workflow_id")
         return seen[run]
 
+    # Recency is the Actions job id each check run links (its details URL), compared with JOB's own id: one kind of
+    # id on both sides, whatever the check run's own id is.
     url = re.compile(ACTIONS_JOB_URL.format(repo=re.escape(repo)))
+    linked = [(int(match[2]), int(match[1]), check) for check in seen["checks"]
+              if check.get("name") == job.get("name") and (match := url.fullmatch(check.get("details_url") or ""))]
     mine = None
-    for check in sorted(seen["checks"], key=lambda check: check.get("id") or 0, reverse=True):
-        if check.get("name") != job.get("name") or (check.get("id") or 0) <= job["id"]:
-            continue
-        match = url.fullmatch(check.get("details_url") or "")
-        if not match or int(match[1]) == job["run_id"]:
-            continue  # another app's check, or a later attempt of the same run (last_real_jobs reads those)
+    for job_id, run, check in sorted(linked, key=lambda found: found[0], reverse=True):
+        if job_id <= job["id"] or run == job["run_id"]:
+            continue  # older, or a later attempt of the same run (last_real_jobs reads those)
         mine = workflow(job["run_id"]) if mine is None else mine
-        if mine is None or workflow(int(match[1])) != mine:
+        if mine is None or workflow(run) != mine:
             continue
         # The newest run of this workflow and name decides; it must have finished with a verdict of its own.
         if check.get("status") != "completed" or check.get("conclusion") in SUPERSEDABLE:
             return None
-        return check
+        return {**check, "job_id": job_id}
     return None
 
 
@@ -1189,7 +1190,7 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
                 if newer.get("conclusion") in GREEN:
                     if ignored is not None:
                         ignored.append(f"ignored '{name}': its {job['conclusion']} job in run {run} is superseded by "
-                                       f"job {newer['id']} of the same workflow, {newer['conclusion']} on {sha}; "
+                                       f"job {newer['job_id']} of the same workflow, {newer['conclusion']} on {sha}; "
                                        "the newest completed run is the verdict")
                     continue
                 # The newer run's red is the verdict: judge that job, not the cancelled one.
