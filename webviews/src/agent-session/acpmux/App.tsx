@@ -2757,8 +2757,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const planInHat = subagentTray && !pinnedPlan && !sessionStatus && !quick && !childRows && snapshot.isWorking;
   const hatPlanRow = useMemo(() => (planInHat ? liveTurnPlan(turnRowsShown) : undefined), [planInHat, turnRowsShown]);
   // A running turn with no list of its own yet keeps the agent's earlier list with steps left in
-  // sight, marked as from before the person's last message (turns.ts earlierTurnPlan; Claude desktop's
-  // pinned task list). It stays folded in its own turn too; the copy goes once the agent writes a list.
+  // sight, marked as from before the person's last message (turns.ts earlierTurnPlan). It stays folded in its own turn too; the copy goes once the agent writes a list.
   const earlierPlanRow = useMemo(
     () =>
       snapshot.isWorking && !quick && !childRows && !liveTurnPlan(turnRowsShown)
