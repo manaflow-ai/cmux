@@ -7,7 +7,8 @@ public import Foundation
 /// on `ok` its stdin and stdout carry the service. The dial resumes a paused machine, waits out its
 /// park and writes its own `<state dir>/carrier/connect.log`; the app only spawns it.
 /// - `desktop`: the machine's `cmux-rd` host (`cmux.rd/1`), which serves only the owner's grant.
-/// - `mux`: the machine daemon's `cmux.protocol/2` lines, one daemon connection per dial.
+/// - `mux`: the machine daemon's `cmux.protocol/2` lines; a Cloud session runs it through one
+///   `cmux carrier serve` (``CloudCarrierServe``), which dials once per connection to its socket.
 public struct CloudCarrierDial: Equatable, Sendable {
     /// The carrier service a dial opens.
     public enum Service: String, Sendable {
@@ -52,48 +53,44 @@ public struct CloudCarrierDial: Equatable, Sendable {
                      replyTimeoutMs: Int32(Self.deadlineMs + Self.answerSlackMs))
     }
 
-    /// A new bridge for each connection, with the environment read as it opens (a fresh access token).
-    public func bridging(cli: URL, environment: @escaping @Sendable () async throws -> [String: String])
-        -> @Sendable () async throws -> DaemonBridge {
-        { [self] in bridge(cli: cli, environment: try await environment()) }
+    /// `cmux carrier serve`'s argv: a 0600 socket at `socket` that dials this machine's `mux` once per
+    /// connection it accepts, for the Cloud session's daemon connection and every CLI call to that daemon.
+    public func serveArguments(socket: String) -> [String] {
+        ["carrier", "serve", "--machine", machine, "--socket", socket]
     }
 
-    /// One machine's dial for the signed-in person, spawned anew for each connection with a fresh access
-    /// token: the Cloud session's daemon connections (`mux`) and the desktop viewer (`desktop`) both run it.
+    /// The socket of `carrier serve`'s ready line (`{"ok":true,"socket":PATH,"route":"carrier"}`), else nil.
+    public static func readySocket(_ line: String) -> String? {
+        let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any]
+        guard object?["ok"] as? Bool == true, let socket = object?["socket"] as? String, !socket.isEmpty else { return nil }
+        return socket
+    }
+
+    /// One machine's carrier for the signed-in person: the bundled CLI and the environment each child reads
+    /// as it starts (a fresh access token), for the desktop dial and the session's `carrier serve`.
     public struct Connector: Sendable {
         /// The bundled `cmux-tui`.
         public let cli: URL
-        public let bridging: @Sendable () async throws -> DaemonBridge
+        public let dial: CloudCarrierDial
+        public let environment: @Sendable () async throws -> [String: String]
 
         /// Nil without the bundled CLI or for an id that is not a machine's.
         public init?(machine: String, service: Service, cli: URL?, auth: CloudAuth, platform: URL, team: String?) {
             guard let cli, let dial = CloudCarrierDial(machine: machine, service: service) else { return nil }
-            self.cli = cli
-            bridging = dial.bridging(cli: cli) {
-                CloudCarrierDial.environment(platform: platform, accessToken: try await auth.tokens().access, team: team)
-            }
+            (self.cli, self.dial) = (cli, dial)
+            environment = { CloudCarrierDial.environment(platform: platform, accessToken: try await auth.tokens().access, team: team) }
+        }
+
+        init(cli: URL, dial: CloudCarrierDial, environment: @escaping @Sendable () async throws -> [String: String]) {
+            (self.cli, self.dial, self.environment) = (cli, dial, environment)
         }
 
         /// Runs one dial and returns the connected stream; throws why the carrier refused it.
         public func open() async throws -> DaemonBridgeStream {
-            let bridge = try await bridging()
+            let bridge = dial.bridge(cli: cli, environment: try await environment())
             return try await Task.detached(priority: .userInitiated) { () throws -> DaemonBridgeStream in
                 try bridge.openStream()
             }.value
-        }
-    }
-
-    /// A refused dial as the link error the Cloud sidebar already words, step by step: `ticket` (the
-    /// platform minted no ticket) and `handshake` (the machine's end did not answer) as a failed connect,
-    /// `relay` as a dropped one, `parked_timeout` (the machine did not wake in time) as not ready, and
-    /// `service_refused` (not this caller's machine) as a failed connect naming the code. Nil for anything
-    /// that is not a carrier refusal.
-    public static func linkError(_ error: DaemonError?) -> CloudLinkError? {
-        guard let error, let code = DaemonBridge.refusedCode(error) else { return nil }
-        return switch code {
-        case "relay": .disconnected(reason: code)
-        case "parked_timeout": .notUp(state: code)
-        default: .failed(code: code, message: "")
         }
     }
 }

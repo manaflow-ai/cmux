@@ -4833,15 +4833,10 @@ CmuxNextCloud	struct	FileInstallSigner	0	PLATFORM	0	0	Packages/macOS/CmuxNext/So
 CmuxNextCloud	actor	MacInstallIdentity	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Identity/MacInstallIdentity.swift	which install identity signs, rotation, sign-out revocation
 CmuxNextCloud	enum	OwnerOnlyFile	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Identity/MacInstallStore.swift	from struct MacInstallStore:16: Keychain/Secure Enclave install key blob and 0600 record store
 CmuxNextCloud	struct	MacInstallStore	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Identity/MacInstallStore.swift	Keychain/Secure Enclave install key blob and 0600 record store
-CmuxNextCloud	struct	CloudConnectOpResolver	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudConnectOpResolver.swift	cloud.machine.connect op resolution and ownership rule
-CmuxNextCloud	struct	CloudAppRun	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudAppRun.swift	Cloud app op apps-run request, wire origin, refusal mapping (from the App's CloudAppLinks)
-CmuxNextCloud	extension	CloudAppRun	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudAppRun+Cancel.swift	Cloud app link cancel rules (from the App's CloudAppLinks)
-CmuxNextCloud	class	ResultSlot	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudAppRun+Cancel.swift	from extension CloudAppRun:3: Cloud app link cancel rules
 CmuxNextCloud	extension	CloudLinkChange	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudLinkChange+Event.swift	link change of a daemon event (from the App's CloudAppLinks)
 CmuxNextCloud	extension	DaemonIdentity	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/DaemonIdentity+CloudLink.swift	post-handshake link socket check (from the App's CloudAppLinks)
 CmuxNextCloud	struct	CloudLinkChange	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudLinkChange.swift	link changed event shape copy
 CmuxNextCloud	enum	CloudLinkError	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudLinkError.swift	link error enum with localized text
-CmuxNextCloud	struct	CloudAppOpError	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudLinkError.swift	from enum CloudLinkError:6: link error enum with localized text
 CmuxNextCloud	enum	CloudLinkEvent	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudLinkEvent.swift	hand parse of JSON lines printed by cmux-tui helpers
 CmuxNextCloud	enum	CloudLinkOrigin	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudLinkKey.swift	from struct CloudLinkKey:5: app id and link target key constant copy
 CmuxNextCloud	struct	CloudLinkKey	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudLinkKey.swift	app id and link target key constant copy
@@ -4852,7 +4847,6 @@ CmuxNextCloud	class	CloudLinkOwnership	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sou
 CmuxNextCloud	class	CloudLinkRedial	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudLinkRedial.swift	from class CloudLinkRedial:8: redial state from client snapshots
 CmuxNextCloud	protocol	CloudLinkResolver	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudLinkResolver.swift	resolver seam protocol
 CmuxNextCloud	struct	CloudTerminalLinkResolver	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudLinkResolver.swift	from protocol CloudLinkResolver:19: resolver seam protocol
-CmuxNextCloud	typealias	CloudAppOpRunner	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudLinkResolver.swift	op runner closure typealias
 CmuxNextCloud	actor	CloudLinkSession	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudLinkSession.swift	app link session state machine with generations
 CmuxNextCloud	struct	CloudLinkTicket	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudLinkSession.swift	from actor CloudLinkSession:13: app link session state machine with generations
 CmuxNextCloud	enum	CloudLinkSocketPolicy	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudLinkSocketPolicy.swift	link socket path acceptance rule (name, length, owner)
