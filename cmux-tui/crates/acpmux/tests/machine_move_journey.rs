@@ -52,7 +52,7 @@ fn config(store: StoreMode) -> Config {
     let mut cfg =
         Config { harnesses: agents, default_harness: Some("fake".into()), ..Default::default() };
     cfg.store.mode = store;
-    cfg.permission_policy = PermissionPolicy::Ask;
+    cfg.permission_policy = PermissionPolicy::ApproveAll;
     cfg
 }
 
