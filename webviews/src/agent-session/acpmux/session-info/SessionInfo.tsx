@@ -1340,9 +1340,10 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   const onStopWorkflow = useStableCallback(workflows?.onStop);
   const setRunningLimit = useStableCallback(onSetRunningLimit);
   // The tool calls the loaded transcript holds, for a task row's Show call in a chat whose terminal
-  // cannot open here: read here, so a call added to an existing row reaches the sections, and kept while
-  // it is the same set. A chat on this Mac opens the terminal instead and reads none.
-  const readsCalls = !!onShowCall && !opensProcessTerminal(summary);
+  // cannot open here, and for a wakeup or cron job, which shows the call that made it on any chat:
+  // read here, so a call added to an existing row reaches the sections, and kept while it is the same
+  // set. A chat on this Mac with nothing scheduled opens its terminals instead and reads none.
+  const readsCalls = !!onShowCall && (!opensProcessTerminal(summary) || (made?.scheduled?.length ?? 0) > 0);
   const toolCalls = useSameValue(
     useMemo(() => (drawn && readsCalls ? toolCallIds(rows) : undefined), [drawn, readsCalls, rows]),
   );
@@ -1989,9 +1990,12 @@ export function SessionInfo({
   const percent = known ? Math.round(Math.min(1, Math.max(0, usage.used / usage.size)) * 100) : 0;
   const { servers, tasks: commands } = sessionInfoLists(processes, transcriptTasks, listed);
   // A chat on this Mac opens a task's terminal; elsewhere a row shows the call that started it,
-  // when the loaded transcript holds it. Read only then, so a local chat adds no pass over its rows.
+  // when the loaded transcript holds it. A wakeup or cron job shows the call that made it on any
+  // chat (TasksSection `scheduledRow`). Read only then, so a local chat with nothing scheduled adds
+  // no pass over its rows.
   const local = opensProcessTerminal(summary);
-  const showsCalls = !local && !!onShowCall && commands.some((command) => command.toolCallId);
+  const showsCalls =
+    !!onShowCall && ((!local && commands.some((command) => command.toolCallId)) || (made?.scheduled?.length ?? 0) > 0);
   const calls = useMemo(
     () => (showsCalls ? (toolCalls ?? toolCallIds(rows)) : undefined),
     [showsCalls, toolCalls, rows],
