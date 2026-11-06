@@ -39,9 +39,9 @@ extension WorkspaceRowView {
     /// does nothing. A made control stays in the tree; a hover changes its opacity only (HOVER COMMIT).
     func setHoverShown<Control: NSView>(_ slot: RowControlSlot<WorkspaceRowView, Control>, _ shown: Bool, fades: Bool) {
         if shown {
-            setHoverPainted(slot.control(in: self), true, fades: fades, leavesAccessibility: true)
+            setHoverPainted(slot.control(in: self), true, fades: fades)
         } else if let made = slot.made {
-            setHoverPainted(made, false, fades: fades, leavesAccessibility: true)
+            setHoverPainted(made, false, fades: fades)
         }
     }
 }
