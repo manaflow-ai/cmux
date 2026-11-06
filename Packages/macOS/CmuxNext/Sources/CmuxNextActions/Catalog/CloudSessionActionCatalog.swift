@@ -8,9 +8,9 @@ nonisolated enum CloudSessionActionCatalog: ActionCatalogGroup {
         var start = ActionDescriptor(
             id: "cloudStartSession",
             title: String(localized: "action.cloudStartSession", defaultValue: "Start Agent Session on Cloud Machine…", table: "CloudSessionActions", bundle: .module),
-            description: "Starts an agent session (--agent claude, codex, ...) in the Cloud machine's own acpmux and returns machine_id, session_id and host, plus the chat tab's workspace_id and surface_id. Name the machine with --target machine:<id>, or --name <name> to take or create it; --cwd is the folder there. --login pass|machine|none: your login, the machine's own, or none (default: the machine's login or your earlier choice). An agent's run asks no one (unless cloud.agentsStartWithoutAsking is off). A slow run answers pending: true; run it again for its session.",
+            description: "Starts an agent session (--agent claude, codex, ...) in the Cloud machine's own acpmux and returns machine_id, session_id and host, plus the chat tab's workspace_id and surface_id. Name the machine with --target machine:<id>, or --name <name> to take or create it; --cwd is the folder there, or --from-folder copies one from this Mac. --login pass|machine|none: your login, the machine's own, or none (default: the machine's login or your earlier choice). An agent's run asks no one (unless cloud.agentsStartWithoutAsking is off). A slow run answers pending: true; run it again for its session.",
             keywords: ["vm", "cloud", "agent", "session", "chat", "acp", "acpmux", "start", "claude", "codex"], category: .cloud, symbol: "sparkles",
-            surfaces: [.palette, .contextMenu], arguments: [agent, name, cwd, login], targets: [.machine], cliName: "cloud start-session",
+            surfaces: [.palette, .contextMenu], arguments: [agent, name, cwd, fromFolder, login], targets: [.machine], cliName: "cloud start-session",
             surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ActionSurfaceCatalog.p(.cloudMachine, .connection, 221, folder: .connection)])
         )
         // An agent's run waits for the person's Start on its chat's card, then for the session.
@@ -57,6 +57,12 @@ nonisolated enum CloudSessionActionCatalog: ActionCatalogGroup {
     /// `--cwd`: the folder on the machine the session starts in (default: its workspace's folder).
     static var cwd: ActionArgument {
         ActionArgument(name: "cwd", title: String(localized: "argument.cloudStartSession.cwd", defaultValue: "Folder on the Machine", table: "CloudSessionActions", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
+    /// `--from-folder`: a folder on this Mac, copied to the machine; the session starts in the copy (not with `--cwd`).
+    static var fromFolder: ActionArgument {
+        ActionArgument(name: "fromFolder", title: String(localized: "argument.cloudStartSession.fromFolder", defaultValue: "Folder on This Mac to Copy", table: "CloudSessionActions", bundle: .module),
                        kind: .string, isRequired: false)
     }
 
