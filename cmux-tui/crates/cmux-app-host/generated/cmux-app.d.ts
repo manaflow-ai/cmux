@@ -1193,10 +1193,6 @@ interface CmuxGlobal {
     /** `notification.list` (read, scope `notification:read`) */
     list: CmuxOp<{ machine?: string; session?: string; limit?: number }, Array<Cmux.NotificationSnapshot>>
   }
-  palette: {
-    /** `palette.rank` (read, scope `palette:read`) */
-    rank: CmuxOp<{ machine?: string; session?: string; operation?: "rank" | "rankEmpty" | null; entries: Array<Cmux.PaletteRankEntry>; query?: string | null; sectionOrders?: Array<number> | null; frecency?: Cmux.PaletteRankFrecency | null; now?: number | null; showsRecent?: boolean | null; keepsSectionOrder?: boolean | null; ranksPrefixFirst?: boolean | null; recentLimit?: number | null; aliases?: Record<string, Array<string>> | null; pins?: Array<string> | null; pinnedSectionIndex?: number | null; rowLimit?: number | null; highlightLimit?: number | null }, Cmux.PaletteRankResult>
-  }
   palette_usage: {
     /** `palette_usage.forget` (mutation, scope `palette_usage:write`) */
     forget: CmuxOp<{ machine?: string; session?: string; key: string }, Cmux.MutationResult<Cmux.PaletteUsageRecordResult>>

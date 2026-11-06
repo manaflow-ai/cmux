@@ -1053,10 +1053,6 @@
       "scope": "palette_usage:write",
       "class": "mutation"
     },
-    "palette.rank": {
-      "scope": "palette:read",
-      "class": "read"
-    },
     "pane.create": {
       "scope": "workspace:write",
       "class": "mutation"
@@ -2079,6 +2075,7 @@
     "ownership.transfer",
     "pairing_request.list",
     "pairing_request.resolve",
+    "palette.rank",
     "pane.close",
     "participants.remove",
     "request.cancel",
