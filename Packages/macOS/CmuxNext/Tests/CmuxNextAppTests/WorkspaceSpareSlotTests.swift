@@ -27,7 +27,7 @@ import Testing
             reserve: { [unowned self] in log.append("reserve"); return reservation },
             build: { [unowned self] in log.append("build"); let content = Content($0); built.append(content); return content },
             mount: { [unowned self] in log.append("mount"); $0.mounted = true },
-            teardown: { $0.tornDown = true }, isCurrent: { [unowned self] in $0.workspace === reservation })
+            teardown: { $0.tornDown = true }, workspace: \.workspace, isReserved: { [unowned self] in $0 === reservation })
 
         func runStep() { steps.removeFirst()() }
     }
@@ -100,5 +100,31 @@ import Testing
         for _ in 0..<50 where other.slot.ready != nil { _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01)) }
         #expect(other.slot.ready == nil && otherView.tornDown)
         #expect(key.steps.count == 1, "the key window's own fill started")
+    }
+
+    /// A key took the reservation before the build step: no view is built on the workspace the window now shows.
+    @Test func aKeyBeforeTheBuildLeavesNothingToBuild() {
+        let harness = Harness()
+        harness.slot.start()
+        harness.runStep()
+        harness.reservation = nil // the key's create intent took it
+        harness.runStep()
+        #expect(harness.built.isEmpty, "a view was built on the workspace the key shows")
+        #expect(harness.steps.isEmpty && harness.slot.ready == nil)
+    }
+
+    /// A key between the build and the mount takes the built view and mounts it in its turn; the mount step does nothing.
+    @Test func aKeyBetweenBuildAndMountTakesTheBuiltView() throws {
+        let harness = Harness()
+        harness.slot.start()
+        harness.runStep()
+        harness.runStep()
+        let built = try #require(harness.built.first)
+        let model = harness.reservation
+        #expect(harness.slot.take { $0.workspace === model } === built)
+        #expect(built.mounted && !built.tornDown)
+        harness.reservation = nil
+        harness.runStep()
+        #expect(!built.tornDown && harness.slot.ready == nil && harness.built.count == 1)
     }
 }

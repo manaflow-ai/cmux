@@ -43,7 +43,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     }, build: { [weak self] model in
         self.map { window in BenchSpans.measure("cmdN.reserved.build.init") { WorkspaceContentController(workspace: model, daemon: window.services.daemon, services: window.services, state: window.state, parked: true) } }
     }, mount: { [weak self] content in BenchSpans.measure("cmdN.reserved.build.mount") { self?.root.contentHost.addHiddenSubview(content.contentView) } },
-       teardown: { $0.teardown() }, isCurrent: { [weak self] in $0.daemon === self?.services.daemon && $0.daemon.store.reserves($0.workspace) })
+       teardown: { $0.teardown() }, workspace: \.workspace, isReserved: { [weak self] in self?.services.daemon.store.reserves($0) ?? false })
     /// Workspaces Toggle Left/Right/Top/Bottom Dock created for an empty edge, docked there once the daemon reports
     /// them (`arrangeOnScreen`). In memory only.
     var pendingDocks: [String: DockEdge] = [:]

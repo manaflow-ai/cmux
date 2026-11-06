@@ -7,13 +7,15 @@ public import CmuxNextWakeups
 /// ``fill()`` makes it after the frame commits, in three background tasks on the app's scheduler (each yields to the
 /// person's input; none holds the main thread longer than one step): the daemon's reserved workspace (`reserve`), its
 /// view on that model (`build`, unmounted), then its window entry (`mount`, hidden and parked). A key's show takes it
-/// (``take(_:)``) and builds nothing. A view whose workspace is no longer the reservation (`isCurrent`) goes at the next
-/// fill; ``drop()`` lets it go now (another window became key, the window closes, memory pressure).
+/// (``take(_:)``) and builds nothing. A view whose workspace is no longer the reservation (`isReserved`) goes at the next
+/// fill; ``drop()`` lets it go now (another window became key, the window closes, memory pressure). Each step runs only
+/// while its workspace is still the reservation: a key that took it between steps leaves the later steps nothing to do,
+/// and a key that comes between the build and the mount takes the built view and mounts it in its own turn.
 ///
 /// ```swift
 /// let spare = WorkspaceSpareSlot<Content>(owner: "WorkspaceSpare", on: mainWork, wanted: { isKeyWindow },
 ///     reserve: { store.reservedWorkspace?.model }, build: { Content($0) }, mount: { host.addHidden($0) },
-///     teardown: { $0.teardown() }, isCurrent: { store.reserves($0.workspace) })
+///     teardown: { $0.teardown() }, workspace: { $0.workspace }, isReserved: { store.reserves($0) })
 /// let content = spare.take { $0.workspace === shown } ?? Content(shown) // the key's turn
 /// ```
 @MainActor
@@ -25,9 +27,12 @@ public final class WorkspaceSpareSlot<Content: AnyObject> {
     private let build: @MainActor (WorkspaceModel) -> Content?
     private let mount: @MainActor (Content) -> Void
     private let teardown: @MainActor (Content) -> Void
-    private let isCurrent: @MainActor (Content) -> Bool
+    private let workspace: @MainActor (Content) -> WorkspaceModel
+    private let isReserved: @MainActor (WorkspaceModel) -> Bool
     /// The view made and mounted, waiting for its key.
     public private(set) var ready: Content?
+    /// The view built and not mounted yet (between the build and the mount steps).
+    private var built: Content?
     /// The fill under way (``drop()`` moves past it, so its later steps do nothing).
     private var making: UInt64?
     private var generation: UInt64 = 0
@@ -38,46 +43,58 @@ public final class WorkspaceSpareSlot<Content: AnyObject> {
     ///   - build: the view on that workspace, not in a window yet.
     ///   - mount: puts the view in its window, hidden and parked.
     ///   - teardown: lets a view go (out of its window).
-    ///   - isCurrent: whether the view's workspace is still the daemon's reservation.
+    ///   - workspace: the view's workspace.
+    ///   - isReserved: whether a workspace is still the daemon's reservation.
     public convenience init(owner: String, on work: MainWorkScheduler, wanted: @escaping @MainActor () -> Bool,
                 reserve: @escaping @MainActor () -> WorkspaceModel?, build: @escaping @MainActor (WorkspaceModel) -> Content?,
                 mount: @escaping @MainActor (Content) -> Void, teardown: @escaping @MainActor (Content) -> Void,
-                isCurrent: @escaping @MainActor (Content) -> Bool) {
+                workspace: @escaping @MainActor (Content) -> WorkspaceModel, isReserved: @escaping @MainActor (WorkspaceModel) -> Bool) {
         let queue = FrameBatchQueue(owner: owner, budgeted: .background, on: work)
-        self.init(enqueue: { queue.enqueue($0) }, wanted: wanted, reserve: reserve, build: build, mount: mount, teardown: teardown, isCurrent: isCurrent)
+        self.init(enqueue: { queue.enqueue($0) }, wanted: wanted, reserve: reserve, build: build, mount: mount, teardown: teardown, workspace: workspace, isReserved: isReserved)
     }
 
     init(enqueue: @escaping @MainActor (@escaping @MainActor () -> Void) -> Void, wanted: @escaping @MainActor () -> Bool,
          reserve: @escaping @MainActor () -> WorkspaceModel?, build: @escaping @MainActor (WorkspaceModel) -> Content?,
          mount: @escaping @MainActor (Content) -> Void, teardown: @escaping @MainActor (Content) -> Void,
-         isCurrent: @escaping @MainActor (Content) -> Bool) {
+         workspace: @escaping @MainActor (Content) -> WorkspaceModel, isReserved: @escaping @MainActor (WorkspaceModel) -> Bool) {
         self.enqueue = enqueue
         self.wanted = wanted
         self.reserve = reserve
         self.build = build
         self.mount = mount
         self.teardown = teardown
-        self.isCurrent = isCurrent
+        self.workspace = workspace
+        self.isReserved = isReserved
     }
 
     // Generic main-actor class: no isolated deinit (swift-frontend 6.3.3 crashes on one in -O; check-concurrency).
     nonisolated deinit {}
 
-    /// The ready view when `matches` (the workspace the key shows), out of the slot; nil makes nothing.
+    /// The view when `matches` (the workspace the key shows), out of the slot; nil makes nothing. One built and not yet
+    /// mounted is mounted now (its fill stops), so the key never builds a second view of the same workspace.
     public func take(_ matches: (Content) -> Bool) -> Content? {
-        guard let ready, matches(ready) else { return nil }
-        self.ready = nil
-        return ready
+        if let ready, matches(ready) {
+            self.ready = nil
+            return ready
+        }
+        guard let built, matches(built) else { return nil }
+        stop()
+        mount(built)
+        return built
     }
 
-    /// Lets the ready view go, and stops a fill under way.
+    /// Lets the ready view go, and stops a fill under way (a view it built goes too).
     public func drop() {
+        let views = [ready, built].compactMap { $0 }
+        (ready, built) = (nil, nil)
+        stop()
+        views.forEach(teardown)
+    }
+
+    private func stop() {
         generation &+= 1
         making = nil
-        if let ready {
-            self.ready = nil
-            teardown(ready)
-        }
+        built = nil
     }
 
     /// After this frame commits: a stale ready view goes, and a new one is made in three background steps when none is.
@@ -92,7 +109,7 @@ public final class WorkspaceSpareSlot<Content: AnyObject> {
 
     /// ``fill()``'s work, after the frame commit.
     func start() {
-        if let ready, !isCurrent(ready) { drop() }
+        if let ready, !isReserved(workspace(ready)) { drop() }
         guard ready == nil, making == nil, wanted() else { return }
         let run = generation
         making = run
@@ -101,16 +118,25 @@ public final class WorkspaceSpareSlot<Content: AnyObject> {
             guard let model = reserve() else { return finish(run) }
             step(run) { [weak self] in
                 guard let self else { return }
-                guard let content = build(model) else { return finish(run) }
-                step(run, orElse: { [weak self] in self?.teardown(content) }) { [weak self] in
+                guard isReserved(model), let content = build(model) else { return finish(run) }
+                built = content
+                step(run, orElse: { [weak self] in self?.dropBuilt(content) }) { [weak self] in
                     guard let self else { return }
                     finish(run)
-                    guard isCurrent(content) else { return teardown(content) }
+                    built = nil
+                    guard isReserved(model) else { return teardown(content) }
                     mount(content)
                     ready = content
                 }
             }
         }
+    }
+
+    /// A fill that stopped after its build: its view goes, unless a key took it.
+    private func dropBuilt(_ content: Content) {
+        guard built === content else { return }
+        built = nil
+        teardown(content)
     }
 
     /// Runs `work` as its own background task while fill `run` is current and the slot is wanted; else `orElse`.

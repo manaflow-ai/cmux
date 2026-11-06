@@ -102,7 +102,11 @@ struct ReservedWorkspaceTests {
                                                             transaction: transaction)
         var before = NewConversationTabRequest(agentSession: record, workspace: WorkspaceHandle(rawValue: 7), origin: "cmux-next", mutationID: "m-1")
         before.transaction = transaction
-        #expect(try JSONEncoder().encode(moved) == JSONEncoder().encode(before))
+        func fields(_ request: NewConversationTabRequest) throws -> NSDictionary {
+            try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(request)) as? NSDictionary)
+        }
+        #expect(try fields(moved) == fields(before))
+        #expect(try fields(moved).allKeys.count == 5, "agent session, workspace, origin, mutation id, transaction")
         #expect(moved.pane == nil && moved.split == nil && moved.page == nil)
     }
 
