@@ -9,6 +9,7 @@
 
 pub mod files;
 pub mod harness;
+pub mod request;
 pub mod seal;
 #[cfg(all(test, unix))]
 mod tests;

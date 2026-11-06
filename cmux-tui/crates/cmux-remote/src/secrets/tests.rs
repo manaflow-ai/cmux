@@ -397,3 +397,42 @@ fn no_value_reaches_a_log_line_or_an_error() {
     texts.extend(logs);
     assert_no_value(&[&value, &token], &texts);
 }
+
+#[test]
+fn requests_built_on_the_device_open_on_the_machine() {
+    let fixture = fixture(&["DEMO_KEY"]);
+    let value = random_hex(16);
+    let request = super::request::replace_machine_secrets(
+        &fixture.identity.public_key(),
+        MACHINE,
+        &[("DEMO_KEY".to_owned(), zeroize::Zeroizing::new(value.clone()))],
+    )
+    .unwrap();
+    let cmux_remote_protocol::WorkspaceRequest::ReplaceMachineSecrets { items } = request else {
+        panic!("not a replace request");
+    };
+    assert_eq!(fixture.secrets.replace_machine_secrets(&items).unwrap(), 1);
+    let token = format!("sk-ant-oat01-{}", random_hex(24));
+    let request = super::request::install_harness_login(
+        &fixture.identity.public_key(),
+        MACHINE,
+        "claude",
+        token.as_bytes(),
+        false,
+    )
+    .unwrap();
+    let cmux_remote_protocol::WorkspaceRequest::InstallHarnessLogin { item, allow_team_guest } =
+        request
+    else {
+        panic!("not a login request");
+    };
+    assert_eq!(fixture.secrets.install_harness_login(&item, allow_team_guest).unwrap(), "claude");
+    // The serialized request carries no value.
+    let wire =
+        serde_json::to_string(&cmux_remote_protocol::WorkspaceRequest::InstallHarnessLogin {
+            item,
+            allow_team_guest,
+        })
+        .unwrap();
+    assert!(!wire.contains(&token) && !wire.contains(&value));
+}
