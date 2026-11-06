@@ -1,0 +1,167 @@
+{
+  "version": 1,
+  "build": "4214533831301",
+  "notes": "notes/4214533831301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 36923,
+      "title": "Agent chat: the live line never shows a fake 0s beside a finished step",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36939,
+      "title": "refactor(next): move NewWorkspaceDefaultSlot from CmuxNextApp to CmuxNextBridge",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36924,
+      "title": "Cloud: a create sends only the op's fields, so --repo, --size and --persistent pass the approval",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36909,
+      "title": "Agent chat: a plan update ends a reply held past a steer or notice",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36899,
+      "title": "webviews: the dev-server proof test really turns its watcher off",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36912,
+      "title": "m29 drags follow-up: a cancelled size's drag grid reaches the program; drag test on a manual clock",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36945,
+      "title": "measure: hover preload bench says why pages do not sleep (phase and exemption per page) and stops an arm at the first page that does not",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36908,
+      "title": "fix(browser): a new Chromium tab shows the window backdrop again, not a black page area (m37)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36710,
+      "title": "acpmux: list the same person's hub machines and their chats in watch, resolve and peers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36933,
+      "title": "Cloud VM image: pin cmux-tui 0e017c60 (golden 8c00572a + the desktop link service #36519)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36941,
+      "title": "ci: a same-account review receipt must name an independent reviewer agent (m25 item 7)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36541,
+      "title": "perf(browser): an unfocused Chromium page leaves the window for a resize motion (detached hosting slice 1)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36906,
+      "title": "acpmux: the open's write-back keeps the log's modified time",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36901,
+      "title": "cmux-tui: the build adoption replays a post-update home's event journal before it moves its chats",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36931,
+      "title": "acpmux name_match: the prefix step reads the key's length of the name with get, not a slice index (panic-ratchet tip red from #36878)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36936,
+      "title": "debug(sidebar): the motion probe films a removed row while it closes its slot",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36831,
+      "title": "Bring your history: Chats and Memories toggles, sources one level deeper",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36910,
+      "title": "cmux-next: the CLI-name contract test accepts chat channel create, a nested group",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36898,
+      "title": "right-pane-open bench: STRESS on a virtual display, every condition runs, the chat followed by its tab, --pair BEFORE,AFTER on one worker",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36871,
+      "title": "cmux Remote is the default: retire remote.enabled, Computer Use defaults to Upstream",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36907,
+      "title": "agent-pane-policy: C ABI for one check per page frame, linked in cmux-app-ffi (step A; no Swift change)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36233,
+      "title": "fix(new-tab-hold): the New Tab key hold's limit gives the keys back outside the run that opened the hold",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36926,
+      "title": "fix(next tabs): closing mode's next close follows each tab's own x",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36483,
+      "title": "Agent chat: the live line's words change as Claude desktop's do (\"we need to have that!!! for changing tool calls at the bottom\")",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36820,
+      "title": "Contracts: bridge senders by object, closed empty schemas, raw method strings, typed acpmux params and _meta, open-remote --focus",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36921,
+      "title": "affected tests: webviews build inputs run every web test; replay refuses a mismatched crate graph",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
