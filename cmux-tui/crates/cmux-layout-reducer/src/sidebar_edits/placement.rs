@@ -4,6 +4,8 @@
 //! to the global slot next to its visible neighbours.
 
 use serde::{Deserialize, Serialize};
+
+use super::wire;
 use std::collections::{HashMap, HashSet};
 
 /// The daemon root index for local index `local_index` into `local` (the
@@ -19,13 +21,13 @@ pub fn global_index(local_index: i64, local: &[String], global: &[String]) -> i6
     for (index, key) in global.iter().enumerate() {
         position.entry(key.as_str()).or_insert(index);
     }
-    if let Some(anchor) = local[slot..].iter().find_map(|key| position.get(key.as_str())) {
-        return *anchor as i64;
+    if let Some(anchor) = local.iter().skip(slot).find_map(|key| position.get(key.as_str())) {
+        return wire(*anchor);
     }
-    if let Some(index) = local[..slot].iter().rev().find_map(|key| position.get(key.as_str())) {
-        return *index as i64 + 1;
+    if let Some(index) = local.iter().take(slot).rev().find_map(|key| position.get(key.as_str())) {
+        return wire(index.saturating_add(1));
     }
-    global.len() as i64
+    wire(global.len())
 }
 
 /// One personal placement (`workspace.place`): `key` goes to `index` in the
@@ -56,18 +58,16 @@ pub fn personal_placements(
     let mut positioned: HashSet<String> = rowed.iter().cloned().collect();
     let slot = usize::try_from(local_index.max(0)).unwrap_or(usize::MAX).min(shown.len());
     let mut plan = Vec::new();
-    for key in &shown[..slot] {
+    for key in shown.iter().take(slot) {
         if positioned.insert(key.clone()) {
-            plan.push(PersonalPlacement { key: key.clone(), index: rowed.len() as i64 });
+            plan.push(PersonalPlacement { key: key.clone(), index: wire(rowed.len()) });
             rowed.push(key.clone());
         }
     }
-    let index = global_index(slot as i64, shown, &rowed);
-    plan.extend(
-        moving.iter().enumerate().map(|(offset, key)| PersonalPlacement {
-            key: key.clone(),
-            index: index + offset as i64,
-        }),
-    );
+    let index = global_index(wire(slot), shown, &rowed);
+    plan.extend(moving.iter().enumerate().map(|(offset, key)| PersonalPlacement {
+        key: key.clone(),
+        index: index.saturating_add(wire(offset)),
+    }));
     plan
 }

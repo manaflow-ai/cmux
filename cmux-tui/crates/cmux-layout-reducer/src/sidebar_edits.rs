@@ -422,10 +422,10 @@ pub fn position_of(id: &str, sections: &[Section]) -> Option<Position> {
         return Some(Position {
             section: section.id.clone(),
             group: Some(group.id.clone()),
-            index: member as i64,
+            index: wire(member),
         });
     }
-    Some(Position { section: section.id.clone(), group: None, index: at.node as i64 })
+    Some(Position { section: section.id.clone(), group: None, index: wire(at.node) })
 }
 
 /// The given ids in visual (tree) order, without unknown ids.
@@ -450,26 +450,29 @@ fn clamp(index: i64, count: usize) -> usize {
     usize::try_from(index.max(0)).unwrap_or(usize::MAX).min(count)
 }
 
+/// A count or index as the wire's integer.
+pub(crate) fn wire(index: usize) -> i64 {
+    i64::try_from(index).unwrap_or(i64::MAX)
+}
+
 fn reorder(ids: &[String], position: &Position, sections: &mut [Section], prunes: bool) -> bool {
-    let Some(s) = sections.iter().position(|section| section.id == position.section) else {
+    let Some(target) = sections.iter().find(|section| section.id == position.section) else {
         return false;
     };
-    if position.group.is_some() && sections[s].id.machine().is_none() {
+    if position.group.is_some() && target.id.machine().is_none() {
         return false;
     }
     let ordered = tree_order(ids, sections);
     if ordered.is_empty() {
         return false;
     }
-    let placeable = ordered
-        .iter()
-        .filter_map(|id| workspace(id, sections))
-        .all(|ws| can_place(ws, &sections[s]));
+    let placeable =
+        ordered.iter().filter_map(|id| workspace(id, sections)).all(|ws| can_place(ws, target));
     if !placeable {
         return false;
     }
     if let Some(group) = &position.group
-        && !sections[s].nodes.iter().any(|node| node.group_id() == Some(group))
+        && !target.nodes.iter().any(|node| node.group_id() == Some(group))
     {
         return false;
     }
@@ -484,7 +487,8 @@ fn reorder(ids: &[String], position: &Position, sections: &mut [Section], prunes
 
 fn move_to_group(ids: &[String], group: &str, sections: &mut [Section]) -> bool {
     let Some((s, n)) = locate_group(group, sections) else { return false };
-    let Node::Group { group: found } = &sections[s].nodes[n] else { return false };
+    let Some(section) = sections.get(s) else { return false };
+    let Some(Node::Group { group: found }) = section.nodes.get(n) else { return false };
     let moving: HashSet<&str> = ids.iter().map(String::as_str).collect();
     let remaining = found
         .members
@@ -495,16 +499,17 @@ fn move_to_group(ids: &[String], group: &str, sections: &mut [Section]) -> bool 
         })
         .count();
     let position = Position {
-        section: sections[s].id.clone(),
+        section: section.id.clone(),
         group: Some(group.to_owned()),
-        index: remaining as i64,
+        index: wire(remaining),
     };
     reorder(ids, &position, sections, true)
 }
 
 fn reorder_group(group: &str, index: i64, sections: &mut [Section]) -> bool {
     let Some((s, n)) = locate_group(group, sections) else { return false };
-    let nodes = &mut sections[s].nodes;
+    let Some(section) = sections.get_mut(s) else { return false };
+    let nodes = &mut section.nodes;
     let node = nodes.remove(n);
     let clamped = clamp(index, nodes.len());
     nodes.insert(clamped, node);
@@ -525,10 +530,11 @@ fn create_group(
         .or(ordered.first().map(String::as_str));
     let Some(first) = first else { return false };
     let Some(anchor) = locate(first, sections) else { return false };
-    if sections[anchor.section].id.machine().is_none() || locate_group(id, sections).is_some() {
+    let s = anchor.section;
+    let Some(home) = sections.get(s) else { return false };
+    if home.id.machine().is_none() || locate_group(id, sections).is_some() {
         return false;
     }
-    let s = anchor.section;
     // Only workspaces from the anchor's section join. Loose members before the insertion point leave
     // it, so it moves up by their count (emptied groups stay until the prune below).
     let joining: HashSet<String> = ordered
@@ -536,13 +542,16 @@ fn create_group(
         .filter(|id| locate(id, sections).map(|at| at.section) == Some(s))
         .cloned()
         .collect();
-    let mut insertion = if anchor.child.is_none() { anchor.node } else { anchor.node + 1 };
-    insertion -= sections[s].nodes[..insertion]
+    let after = if anchor.child.is_none() { anchor.node } else { anchor.node.saturating_add(1) };
+    let leaving = home
+        .nodes
         .iter()
+        .take(after)
         .filter(
             |node| matches!(node, Node::Workspace { workspace } if joining.contains(&workspace.id)),
         )
         .count();
+    let insertion = after.saturating_sub(leaving);
     let held = groups_with_members(sections);
     let removed = remove_workspaces(&joining.iter().map(String::as_str).collect(), sections);
     let group = Group {
@@ -553,16 +562,17 @@ fn create_group(
         collapsed: false,
         members: removed.into_iter().map(|workspace| Member::Workspace { workspace }).collect(),
     };
-    let nodes = &mut sections[s].nodes;
-    let at = clamp(index.unwrap_or(insertion as i64), nodes.len());
-    nodes.insert(at, Node::Group { group });
+    let Some(home) = sections.get_mut(s) else { return false };
+    let at = clamp(index.unwrap_or(wire(insertion)), home.nodes.len());
+    home.nodes.insert(at, Node::Group { group });
     prune_empty_groups(sections, Some(id), &held);
     true
 }
 
 fn ungroup(id: &str, sections: &mut [Section]) -> bool {
     let Some((s, n)) = locate_group(id, sections) else { return false };
-    let Node::Group { group } = sections[s].nodes.remove(n) else { return false };
+    let Some(section) = sections.get_mut(s) else { return false };
+    let Node::Group { group } = section.nodes.remove(n) else { return false };
     let loose: Vec<Node> = group
         .members
         .into_iter()
@@ -571,18 +581,19 @@ fn ungroup(id: &str, sections: &mut [Section]) -> bool {
             Member::Item { .. } => None,
         })
         .collect();
-    sections[s].nodes.splice(n..n, loose);
+    section.nodes.splice(n..n, loose);
     true
 }
 
 fn close_group(id: &str, sections: &mut [Section]) -> bool {
     let Some((s, n)) = locate_group(id, sections) else { return false };
-    let Node::Group { group } = &mut sections[s].nodes[n] else { return false };
+    let Some(section) = sections.get_mut(s) else { return false };
+    let Some(Node::Group { group }) = section.nodes.get_mut(n) else { return false };
     if group.pinned {
         group.members.retain(|member| matches!(member, Member::Item { .. }));
         group.collapsed = true;
     } else {
-        sections[s].nodes.remove(n);
+        section.nodes.remove(n);
     }
     true
 }
@@ -597,25 +608,22 @@ fn set_pinned(ids: &[String], pinned: bool, sections: &mut Vec<Section>) -> bool
             sections
                 .insert(0, Section { id: SectionId::Pinned, collapsed: false, nodes: Vec::new() });
         }
-        let Some(s) = sections.iter().position(|section| section.id == SectionId::Pinned) else {
+        let Some(pinned) = sections.iter().find(|section| section.id == SectionId::Pinned) else {
             return false;
         };
         let moving: HashSet<&str> = ordered.iter().map(String::as_str).collect();
-        let remaining = sections[s]
+        let remaining = pinned
             .nodes
             .iter()
             .filter(|node| !matches!(node, Node::Workspace { workspace } if moving.contains(workspace.id.as_str())))
             .count();
-        let position =
-            Position { section: SectionId::Pinned, group: None, index: remaining as i64 };
+        let position = Position { section: SectionId::Pinned, group: None, index: wire(remaining) };
         return reorder(&ordered, &position, sections, true);
     }
-    let Some(pinned_index) = sections.iter().position(|section| section.id == SectionId::Pinned)
-    else {
+    let Some(pinned) = sections.iter().find(|section| section.id == SectionId::Pinned) else {
         return false;
     };
-    let pinned_ids: HashSet<&str> =
-        sections[pinned_index].workspaces().map(|ws| ws.id.as_str()).collect();
+    let pinned_ids: HashSet<&str> = pinned.workspaces().map(|ws| ws.id.as_str()).collect();
     // Every pinned id resolves to its workspace; one that does not stays where it is.
     let mut by_machine: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for id in ordered.iter().filter(|id| pinned_ids.contains(id.as_str())) {
@@ -728,7 +736,11 @@ fn groups_with_members(sections: &[Section]) -> HashSet<String> {
 
 fn mutate_group(id: &str, sections: &mut [Section], body: impl FnOnce(&mut Group)) -> bool {
     let Some((s, n)) = locate_group(id, sections) else { return false };
-    let Node::Group { group } = &mut sections[s].nodes[n] else { return false };
+    let Some(Node::Group { group }) =
+        sections.get_mut(s).and_then(|section| section.nodes.get_mut(n))
+    else {
+        return false;
+    };
     body(group);
     true
 }

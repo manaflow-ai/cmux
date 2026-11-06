@@ -7,7 +7,7 @@ use std::collections::HashSet;
 
 use super::{
     Member, Node, Position, Section, can_place, locate, locate_group, position_of,
-    remove_workspaces, tree_order, workspace,
+    remove_workspaces, tree_order, wire, workspace,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -49,7 +49,7 @@ pub fn keyboard_target(
     let i = slots.iter().position(|slot| *slot == current)?;
     let j = match direction {
         Direction::Up => i.checked_sub(1)?,
-        Direction::Down => i + 1,
+        Direction::Down => i.checked_add(1)?,
     };
     slots.get(j).cloned()
 }
@@ -62,7 +62,7 @@ pub(super) fn slots(section: &Section) -> Vec<Position> {
     let at = |group: Option<&str>, index: usize| Position {
         section: section.id.clone(),
         group: group.map(str::to_owned),
-        index: index as i64,
+        index: wire(index),
     };
     let mut result = Vec::new();
     let mut hidden: HashSet<&str> = HashSet::new(); // collapsed groups and every group under one
@@ -113,19 +113,18 @@ pub fn group_index(group: &str, step: GroupMove, sections: &[Section]) -> Option
         })
         .map(|(index, _)| index)
         .collect();
-    let current = top_level.iter().filter(|index| **index < node).count() as i64;
-    let count = top_level.len() as i64;
+    let current = top_level.iter().filter(|index| **index < node).count();
+    let count = top_level.len();
     let target = match step {
         GroupMove::Top => 0,
         GroupMove::Bottom => count,
-        GroupMove::Up => current - 1,
-        GroupMove::Down => current + 1,
+        GroupMove::Up => current.checked_sub(1)?,
+        GroupMove::Down => current.checked_add(1)?,
     };
-    if !(0..=count).contains(&target) || target == current {
+    if target > count || target == current {
         return None;
     }
-    let target = usize::try_from(target).ok()?;
-    Some(top_level.get(target).map_or(staying.len(), |index| *index) as i64)
+    Some(wire(top_level.get(target).map_or(staying.len(), |index| *index)))
 }
 
 /// The groups Collapse Other Groups toggles, in sidebar order: every other
@@ -148,11 +147,11 @@ fn groups(sections: &[Section]) -> impl Iterator<Item = &super::Group> {
 /// and each may live in its section (a group holds one machine row's
 /// workspaces). The one rule for a drag, the palette and the CLI.
 pub fn can_move(ids: &[String], group: &str, sections: &[Section]) -> bool {
-    let Some((s, _)) = locate_group(group, sections) else { return false };
+    let Some(home) = locate_group(group, sections).and_then(|(s, _)| sections.get(s)) else {
+        return false;
+    };
     !ids.is_empty()
-        && ids
-            .iter()
-            .all(|id| workspace(id, sections).is_some_and(|ws| can_place(ws, &sections[s])))
+        && ids.iter().all(|id| workspace(id, sections).is_some_and(|ws| can_place(ws, home)))
 }
 
 /// The groups a workspace's Move to Group lists, in sidebar order: every
