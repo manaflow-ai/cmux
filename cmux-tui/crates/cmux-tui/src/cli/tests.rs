@@ -853,6 +853,31 @@ fn cmux_pair_runs_the_machine_servers_invite_pairing() {
 }
 
 #[test]
+fn cmux_unpair_runs_the_machine_servers_unpair() {
+    let args = |line: &[&str], surface| {
+        machine_server::args_for(&strings(line), surface).map(|r| r.map_err(|(e, _)| e.0))
+    };
+    let machine = |line: &[&str]| Some(Ok(ServerRoute::Machine(strings(line))));
+    assert_eq!(args(&["unpair"], Surface::Cmux), machine(&["unpair"]));
+    assert_eq!(args(&["server", "unpair"], Surface::Cmux), machine(&["unpair"]));
+    assert_eq!(
+        args(&["--json", "unpair", "--local"], Surface::Cmux),
+        machine(&["unpair", "--local", "--json"])
+    );
+    assert_eq!(args(&["unpair"], Surface::CmuxTui), None, "cmux-tui has no unpair verb");
+    let Some(Err(error)) = args(&["--session", "build", "unpair"], Surface::Cmux) else {
+        panic!("cmux unpair with --session ran")
+    };
+    assert!(error.contains("--session"), "{error}");
+    let Some(Ok(ServerRoute::Machine(routed))) = args(&["unpair", "--local"], Surface::Cmux) else {
+        panic!("cmux unpair was not routed to the machine server");
+    };
+    let parsed = cmux_server::cli::parse(&routed).unwrap();
+    assert_eq!(parsed.verb_str(), "unpair");
+    assert!(parsed.has("local"));
+}
+
+#[test]
 fn cmux_server_refuses_global_options_that_do_not_apply() {
     // CLI owner condition: refused with a usage error, never dropped.
     for (line, option) in [

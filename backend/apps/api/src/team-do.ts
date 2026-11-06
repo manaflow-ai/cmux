@@ -594,12 +594,13 @@ export class TeamDO extends OwnerDO<TeamState> {
   async enrollServer(
     entity: string,
     principal: Principal,
-    params: { install: string; name: string; platform: string; wg_public_key: string; network?: typeof ServerNetworkReservation.Type },
+    params: { install: string; name: string; platform: string; wg_public_key: string; network?: typeof ServerNetworkReservation.Type; pairing?: { pairing_object: string; invite_object: string | null } },
     idempotencyKey: string
   ): Promise<{ ok: true; host: string } | { ok: false; code: string; message: string; refused?: true }> {
     this.bind(entity)
     if (principal.kind !== "session" || principal.agent || !principal.user) return { ok: false, code: "auth.forbidden", message: "only a signed-in user may approve a server" }
-    const res = this.submitSystem("server.enrolled", { ...params, owner_user: principal.user, approved_by: principal.user }, idempotencyKey)
+    const { pairing, ...enrolled } = params
+    const res = this.submitSystem("server.enrolled", { ...enrolled, owner_user: principal.user, approved_by: principal.user }, idempotencyKey)
     const reply = res.frames.find((f) => f.t === "result" || f.t === "reject")
     if (!reply || reply.t !== "result") return { ok: false, code: reply && reply.t === "reject" ? reply.code : "owner.unreachable", message: reply && reply.t === "reject" ? reply.message : "no reply" }
     const value = reply.value as { id: string } | ServerEnrollRefused
@@ -608,7 +609,29 @@ export class TeamDO extends OwnerDO<TeamState> {
       if (this.revokeRetryAt === null || Date.now() >= this.revokeRetryAt) await this.flushServerRevocations(entity, value.install)
       return { ok: false, code: "auth.forbidden", message: value.message, refused: true }
     }
+    // Keep the pairing that made it, so a revoke can spend its code and invite. Best effort: a lost
+    // record only means a later revoke leaves those to expire on their own (minutes).
+    if (pairing) {
+      try {
+        this.submitSystem("server.pairing.recorded", { host: value.id, install: params.install, pairing_object: pairing.pairing_object, invite_object: pairing.invite_object }, `${idempotencyKey}:pairing`)
+      } catch (e) {
+        console.error(JSON.stringify({ msg: "server pairing record failed", host: value.id, error: String(e) }))
+      }
+    }
     return { ok: true, host: value.id }
+  }
+
+  /**
+   * RPC from the Worker after a server's own install signed itself out (`install.sign_out`, already
+   * committed by UserDO): its host leaves the directory (`server.signed_out`). Answers the host and
+   * the pairing that made it, if it is still live, so the Worker can spend that code and invite.
+   */
+  async serverSignedOut(entity: string, install: string): Promise<{ host: string | null; pairing?: { pairing_object: string; invite_object: string | null } }> {
+    this.bind(entity)
+    const res = this.submitSystem("server.signed_out", { install }, `server-signed-out:${install}`)
+    const reply = res.frames.find((f) => f.t === "result" || f.t === "reject")
+    if (!reply || reply.t !== "result") throw new Error(reply && reply.t === "reject" ? `${reply.code}: ${reply.message}` : "server.signed_out: no reply")
+    return reply.value as { host: string | null; pairing?: { pairing_object: string; invite_object: string | null } }
   }
 
   /** The owner's UserDO for revocation pushes; tests replace it to fail the RPC. */

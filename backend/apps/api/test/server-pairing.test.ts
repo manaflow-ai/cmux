@@ -4,6 +4,7 @@ import { codeFromRandom, displayCode, normalizeCode } from "../src/domains/pairi
 import { teamDomain, type TeamState } from "../src/domains/team.ts"
 import { userDomain, type UserState } from "../src/domains/user.ts"
 import { handlePairWait, pairApprove } from "../src/pair-routes.ts"
+import { hostsLeavingOwner } from "../src/team-host-replica-drop.ts"
 import { b64u, beginPairing, call, op, read, sessionToken, testEnv, waitFor } from "./pairing-harness.ts"
 
 const OWNER = "user_00000000000000000001"
@@ -51,6 +52,68 @@ describe("servers in the team directory (TeamDO reducer)", () => {
     if (!confirmed.ok) throw new Error(confirmed.message)
     expect((confirmed.state as TeamState).server_revocations?.[INSTALL]).toBeUndefined()
     expect(gone.outbox?.map((o) => o.kind)).toEqual(["host.delete", "audit.append"])
+  })
+
+  it("lets the inviter (the server's owner) revoke it after losing the admin role, and hands the revoke the pairing that made it", () => {
+    const ADMIN = "user_00000000000000000003"
+    const start = { ...base(), members: { ...base().members, [ADMIN]: { user: ADMIN, role: "admin", display_name: "a" } } } as TeamState
+    rows = new MemoryRows()
+    const pairing = { pairing_object: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", invite_object: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }
+    const r = reduce(start, "server.enrolled", { ...enrolled, owner_user: ADMIN, approved_by: ADMIN }, ctx(null))
+    if (!r.ok) throw new Error(r.message)
+    const host = (r.value as { id: string }).id
+    const rec = reduce(r.state as TeamState, "server.pairing.recorded", { host, install: INSTALL, ...pairing }, ctx(null))
+    if (!rec.ok) throw new Error(rec.message)
+    expect((rec.state as TeamState).server_pairings?.[host]).toMatchObject(pairing)
+    expect(reduce(rec.state as TeamState, "server.pairing.recorded", { host, install: INSTALL, ...pairing }, ctx(ADMIN))).toMatchObject({ ok: false, code: "auth.forbidden" })
+    // The inviter is now a plain member: still the owner, so still allowed; another member is not.
+    const demoted = { ...(rec.state as TeamState), members: { ...(rec.state as TeamState).members, [ADMIN]: { user: ADMIN, role: "member", display_name: "a" } } } as TeamState
+    expect(reduce(demoted, "server.revoke", { host }, ctx(MEMBER))).toMatchObject({ ok: false, code: "auth.forbidden" })
+    const gone = reduce(demoted, "server.revoke", { host }, ctx(ADMIN))
+    if (!gone.ok) throw new Error(gone.message)
+    expect(gone.value).toEqual({ host, install: INSTALL, owner_user: ADMIN, pairing })
+    expect((gone.state as TeamState).server_pairings?.[host]).toBeUndefined()
+  })
+
+  it("forgets a pairing once its code and invite have ended, and ignores a malformed one", () => {
+    const r = reduce(base(), "server.enrolled", enrolled, ctx(null))
+    if (!r.ok) throw new Error(r.message)
+    const host = (r.value as { id: string }).id
+    const rec = reduce(r.state as TeamState, "server.pairing.recorded", { host, install: INSTALL, pairing_object: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", invite_object: null }, ctx(null))
+    if (!rec.ok) throw new Error(rec.message)
+    const late = { ...ctx(OWNER), now: 1_000_000 + txn + 20 * 60_000 + 1 }
+    const gone = reduce(rec.state as TeamState, "server.revoke", { host }, late)
+    if (!gone.ok) throw new Error(gone.message)
+    expect(gone.value).toEqual({ host, install: INSTALL, owner_user: OWNER })
+    expect(reduce(r.state as TeamState, "server.pairing.recorded", { host, install: INSTALL, pairing_object: "7KQ4M2XD", invite_object: null }, ctx(null))).toMatchObject({ ok: false, code: "validation.invalid" })
+    // Another install's host, or a host that is gone: nothing recorded.
+    expect(reduce(r.state as TeamState, "server.pairing.recorded", { host, install: "inst_00000000000000000077", pairing_object: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", invite_object: null }, ctx(null))).toMatchObject({ ok: true, changed: false, value: { recorded: false } })
+  })
+
+  it("drops the replica of a server that signed itself out, as for a revoke; a sign-out that found no host drops nothing", () => {
+    const host = "host_00000000000000000042"
+    for (const op of ["server.revoke", "server.signed_out"]) {
+      expect(hostsLeavingOwner(op, [{ t: "result", value: { host, install: INSTALL, owner_user: OWNER } } as never])).toEqual([{ host, tombstone: true, reason: "the host was removed" }])
+    }
+    expect(hostsLeavingOwner("server.signed_out", [{ t: "result", value: { host: null, install: INSTALL } } as never])).toEqual([])
+    expect(hostsLeavingOwner("server.signed_out", [{ t: "result", value: { host, install: INSTALL }, replayed: true } as never])).toEqual([])
+  })
+
+  it("server.signed_out (the box's own install signed out) removes its host without queueing a revocation; a repeat changes nothing", () => {
+    const pairing = { pairing_object: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", invite_object: null }
+    const enr = reduce(base(), "server.enrolled", enrolled, ctx(null))
+    if (!enr.ok) throw new Error(enr.message)
+    const host = (enr.value as { id: string }).id
+    const r = reduce(enr.state as TeamState, "server.pairing.recorded", { host, install: INSTALL, ...pairing }, ctx(null))
+    if (!r.ok) throw new Error(r.message)
+    expect(reduce(r.state as TeamState, "server.signed_out", { install: INSTALL }, ctx(OWNER))).toMatchObject({ ok: false, code: "auth.forbidden" })
+    const out = reduce(r.state as TeamState, "server.signed_out", { install: INSTALL }, ctx(null))
+    if (!out.ok) throw new Error(out.message)
+    expect(out.value).toEqual({ host, install: INSTALL, owner_user: OWNER, pairing })
+    expect(rows.get("host", host)).toBeUndefined()
+    expect((out.state as TeamState).server_revocations?.[INSTALL]).toBeUndefined()
+    expect((out.state as TeamState).host_count).toBe(0)
+    expect(reduce(out.state as TeamState, "server.signed_out", { install: INSTALL }, ctx(null))).toMatchObject({ ok: true, changed: false, value: { host: null } })
   })
 })
 

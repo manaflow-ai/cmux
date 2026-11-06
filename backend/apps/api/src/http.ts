@@ -34,7 +34,7 @@ import { signState, verifyState } from "./integrations/state.ts"
 import type { ReadResult, SubmitResult } from "./owner-do.ts"
 import type { RedeemResult } from "./user-do.ts"
 import { pairApprove, pairPreview } from "./pair-routes.ts"
-import { pairInvite } from "./pair-invite-routes.ts"
+import { pairInvite, revokeServerPairing, type ServerPairingRef } from "./pair-invite-routes.ts"
 import { avatarGetRoute, avatarSetRoute, conversationMutate, conversationRead } from "./home-routes.ts"
 import { linkVerifiedAddress } from "./home-requests.ts"
 import { homeSearch, type SearchParams } from "./home-search.ts"
@@ -376,6 +376,13 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           })
           return toResponse(payload.op, home.frames)
         }
+        // A paired server's own install signs itself out (`cmux server unpair`). Its install kind is read
+        // now, while its grant is live (UserDO's principal carries none); the host leaves after the revoke.
+        let signingOutDaemon = false
+        if (payload.op === "install.sign_out" && principal.kind === "install" && principal.install && principal.team) {
+          const enriched = yield* Effect.tryPromise({ try: () => principalForOwner(env, "cloud:TeamDO", principal), catch: unreachable })
+          signingOutDaemon = Boolean(enriched && !("refused" in enriched) && enriched.install_kind === "daemon")
+        }
         const { frames } = yield* submitTo(def.owner, payload.op === "user.ensure" ? personalPrincipal(submitter) : submitter, frame)
         const response = toResponse(payload.op, frames)
         if (payload.op === "integration.connect" && response.ok) {
@@ -386,11 +393,24 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           const authorizeUrl = yield* Effect.promise(() => Promise.resolve(impl.authorizeUrl(env, state, scopes, callbackUrl(), c.id)))
           return { ...response, value: { connection: c, authorize_url: authorizeUrl } }
         }
+        // The install is revoked (UserDO committed it first, so a refused sign-out changes nothing else): its
+        // host leaves the team directory and the pairing code and invite that made it are spent. If this
+        // fails the reply is retryable; the box's retry then finds its key refused and forgets itself, and
+        // the host stays listed until someone revokes it (server.revoke on a revoked install just ends).
+        if (signingOutDaemon && response.ok) {
+          const team = principal.team!
+          const install = principal.install!
+          const out = yield* Effect.tryPromise({ try: () => rpc<{ host: string | null; pairing?: ServerPairingRef }>(env.TEAM_DO.get(env.TEAM_DO.idFromName(team)).serverSignedOut(team, install)), catch: unreachable })
+          if (out.pairing) yield* Effect.tryPromise({ try: () => revokeServerPairing(env, out.pairing!), catch: unreachable })
+        }
         // A revoked server also loses its install key: TeamDO pushes the revocation to the owner's UserDO now and retries until it lands.
         if ((payload.op === "server.revoke" || payload.op === "host.remove") && response.ok && typeof (response.value as { install?: unknown }).install === "string") {
-          const v = response.value as { host: string; install: string }
+          const v = response.value as { host: string; install: string; pairing?: ServerPairingRef }
           const team = principal.team!
           const flushed = yield* Effect.tryPromise({ try: () => rpc<{ revoked: Array<string> }>(env.TEAM_DO.get(env.TEAM_DO.idFromName(team)).flushServerRevocations(team)), catch: unreachable })
+          // The pairing code and invite that made it are spent, so that key cannot be approved or begin again with them.
+          // A failure answers retryable; the retry replays the same revoke result and spends them again (idempotent).
+          if (v.pairing) yield* Effect.tryPromise({ try: () => revokeServerPairing(env, v.pairing!), catch: unreachable })
           return { ...response, value: payload.op === "server.revoke" ? { host: v.host, install_revoked: flushed.revoked.includes(v.install) } : { host: v.host } }
         }
         // The personal team exists once the user exists (a team of one, identity spec section 2).

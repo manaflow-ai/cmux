@@ -157,6 +157,24 @@ export class PairingDO extends DurableObject<Env> {
     return { ok: true }
   }
 
+  /**
+   * The server this code paired was revoked (server.revoke, or the box signed itself out). The
+   * code is spent for good, approved or not: no preview, claim, rekey or completion passes again,
+   * and the waiting box (now or on a later wait) hears `refused {reason:"revoked"}` instead of the
+   * paired result. The row stays as a tombstone until the code's alarm. Idempotent.
+   */
+  async serverRevoked(now: number): Promise<{ ok: boolean }> {
+    const r = this.row(now, true)
+    if (!r) return { ok: false }
+    if (r.refused === "revoked") return { ok: true }
+    this.ctx.storage.sql.exec(`UPDATE pairing SET refused = 'revoked' WHERE id = 1`)
+    for (const ws of this.ctx.getWebSockets()) {
+      ws.send(JSON.stringify({ t: "refused", reason: "revoked" }))
+      ws.close(4403, "refused")
+    }
+    return { ok: true }
+  }
+
   // Invite instances (`invite:<code>`, `invite-user:<user>`): pair-invite-store.ts.
   async inviteMint(input: { invite: string; approver: string; team: string; inviter: string | null; watch_hash: string; now: number }) {
     return this.invites.mint(input)
@@ -182,6 +200,10 @@ export class PairingDO extends DurableObject<Env> {
   }
   async inviteVoid(invite: string, reason: InviteVoidReason, now: number): Promise<{ ok: boolean; code: string | null }> {
     return this.invites.void(invite, reason, now)
+  }
+  /** The server this invite paired was revoked; addressed by object id (the caller never holds the code). */
+  async inviteRevoked(now: number): Promise<{ ok: boolean }> {
+    return this.invites.revoked(now)
   }
   async invitePaired(invite: string, code: string, host: string, now: number): Promise<{ ok: boolean }> {
     return this.invites.paired(invite, code, host, now)

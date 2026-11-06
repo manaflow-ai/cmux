@@ -6,7 +6,7 @@ import type { Env } from "./env.ts"
 import { BEGIN_SKEW_MS, beginProofMessage, codeFromRandom, displayCode, normalizeCode, normalizeInvite, sha256Hex } from "./domains/pairing.ts"
 import { jwkThumbprint } from "./domains/user.ts"
 import { collectSecret, collectSecretValid } from "./pair-collect.ts"
-import { beginWithInvite, invitePairedNotify, type BegunPairing } from "./pair-invite-routes.ts"
+import { beginWithInvite, invitePairedNotify, type BegunPairing, serverPairingObjects } from "./pair-invite-routes.ts"
 import { fail, isHumanSession, pairingStub, pairLimited, type OpReply } from "./pair-op-reply.ts"
 import type { PairingInvite, PairingRecord, PairingResult } from "./pairing-do.ts"
 import { machineJoinLive, mintPairMachineJoin } from "./pair-machine-join.ts"
@@ -210,7 +210,7 @@ export const pairApprove = async (
   const enrolled = await env.TEAM_DO.get(env.TEAM_DO.idFromName(team)).enrollServer(
     team,
     principal,
-    { install, name, platform: rec.info.platform, wg_public_key: rec.wg_public_key, ...(network ? { network: networkLocator(network) } : {}) },
+    { install, name, platform: rec.info.platform, wg_public_key: rec.wg_public_key, ...(network ? { network: networkLocator(network) } : {}), pairing: serverPairingObjects(env, code, rec.invite ?? null) },
     `pair:${code}:${rec.thumbprint}:host`
   )
   if (!enrolled.ok) {

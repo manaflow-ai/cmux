@@ -12,7 +12,11 @@ fn invalid() -> Error {
     Error::verification("server.pair.invalid_backend_confirmation")
 }
 
-fn token(record: &identity::Identity, transport: &dyn Transport) -> Result<Zeroizing<String>> {
+/// A short-lived install token, minted with this daemon's own install key.
+pub(super) fn token(
+    record: &identity::Identity,
+    transport: &dyn Transport,
+) -> Result<Zeroizing<String>> {
     let paired = record.paired.as_ref().ok_or_else(invalid)?;
     let health = transport.health(&record.api)?;
     let environment = health["environment"]
