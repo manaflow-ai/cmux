@@ -10,36 +10,30 @@ import Foundation
 /// (``AgentPaneView/refreshNewTabPlaces(tabs:workspaces:)``), as seen from its own window. A
 /// refresh lists every place, the tab the page was opened beside included.
 ///
-/// Cheap while idle: with no New Tab page open it observes only the pages' ids. With one open, a
-/// change compares a plain key (ids, titles, addresses, folders), and the rows, favicons
-/// included, are built only when that key changed.
+/// Cheap while idle: with no New Tab page open it observes only the pages' ids. With one open, each
+/// workspace's plain key (ids, titles, addresses, folders) is its own item (``ObservedItemsFeed``), and the rows,
+/// favicons included, are built only when a key changed.
 @MainActor
 enum NewTabPlacesFeed {
     static func wire(_ tabs: AgentTabStore, services: AppServices) {
-        Task { [weak tabs, weak services] in
-            var last: [String] = []
-            let keys = ObservationStream { [weak tabs, weak services] in
-                guard let tabs, let services, !tabs.pageTabs.ids.isEmpty else { return [String]() }
-                return key(services)
-            }
-            for await key in keys where key != last {
+        ObservedItemsFeed<WorkspaceModel, [String]>(
+            list: { [weak tabs, weak services] in
+                guard let tabs, let services, !tabs.pageTabs.ids.isEmpty else { return nil }
+                return services.machines.allWorkspaces.map(\.0)
+            },
+            id: { $0.id },
+            item: { workspace in key(workspace) },
+            changed: { [weak tabs, weak services] in
                 guard let tabs, let services else { return }
-                // The first page to open read its places itself.
-                let opened = last.isEmpty
-                last = key
-                if key.isEmpty || opened { continue }
                 push(tabs, services: services)
-            }
-        }
+            }).start()
     }
 
-    /// Everything the bar's rows are made of, as plain text: a change here is a change of rows.
-    private static func key(_ services: AppServices) -> [String] {
-        services.machines.allWorkspaces.flatMap { workspace, _ in
-            ["\(workspace.id)\t\(workspace.displayName)"] + workspace.screens.flatMap(\.panes).flatMap(\.tabs).map { tab in
-                [tab.id, "\(tab.kind)", tab.displayTitle, tab.url ?? "", tab.cwd ?? "", tab.agentSession?.session ?? ""]
-                    .joined(separator: "\t")
-            }
+    /// Everything one workspace's bar rows are made of, as plain text: a change here is a change of rows.
+    private static func key(_ workspace: WorkspaceModel) -> [String] {
+        ["\(workspace.id)\t\(workspace.displayName)"] + workspace.screens.flatMap(\.panes).flatMap(\.tabs).map { tab in
+            [tab.id, "\(tab.kind)", tab.displayTitle, tab.url ?? "", tab.cwd ?? "", tab.agentSession?.session ?? ""]
+                .joined(separator: "\t")
         }
     }
 
