@@ -29,7 +29,7 @@ export type AcpmuxDebug = {
   /// Replaces the transcript with `count` synthetic rows, with the worked turn of
   /// workedTurn.ts when `fixture` is "worked-turn", or with received agent messages
   /// (incomingFixture.ts) when it is "incoming", or with a turn linking a synthetic pull request page
-  /// (linkFixture.ts) when it is "link", or with a turn organized as Claude Code desktop
+  /// (linkFixture.ts) when it is "link" (a github.com one when "github-link"), or with a turn organized as Claude Code desktop
   /// draws one (organizationFixture.ts) when it is "organization", or with a run of shell calls
   /// summarized as Claude Code desktop summarizes one (toolSummaryFixture.ts) when it is
   /// "tool-summary", or with a shared chat (teammates' prompts, who
@@ -152,6 +152,7 @@ export function createAcpmuxDebug(
         workedTurnRows,
         incomingRows,
         linkRows,
+        GITHUB_PAGE,
         organizationRows,
         toolSummaryRows,
         SUBAGENT_TRAY_STEPS,
@@ -175,8 +176,8 @@ export function createAcpmuxDebug(
             ? workedTurnRows(Date.now() - 60_000)
             : fixture === "incoming"
               ? incomingRows(Date.now() - 120_000)
-              : fixture === "link"
-                ? linkRows(Date.now() - 30_000)
+              : fixture === "link" || fixture === "github-link"
+                ? linkRows(Date.now() - 30_000, fixture === "github-link" ? GITHUB_PAGE : undefined)
                 : fixture === "organization"
                   ? organizationRows(Date.now() - 120_000)
                   : fixture === "tool-summary"
