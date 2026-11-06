@@ -104,7 +104,10 @@ import Testing
         let ask = Ask()
         await ask.model.refresh()
         ask.model.refused(JoinConsentRefusal(requester: "lane-vm-3", surface: surface))
-        let panel = try #require(WebCardPanel.joinConsent(model: ask.model) { [unowned ask] in ask.genuine.contains($0.eventNumber) })
+        // The closure stays out of #require: inside the macro it crashed the compiler's diagnostics.
+        let isPersonEvent: @MainActor (NSEvent) -> Bool = { [weak ask] in ask?.genuine.contains($0.eventNumber) ?? false }
+        let made = WebCardPanel.joinConsent(model: ask.model, isPersonEvent: isPersonEvent)
+        let panel = try #require(made)
         ask.panel = panel
         ask.provider = try #require(panel.cards[JoinConsentCardProvider.route] as? JoinConsentCardProvider)
         panel.rearm(at: 0)
