@@ -16,22 +16,40 @@ struct ClosingPanesDockTests {
     static let dockEdge = ClosingPanesRules.HandleFact(kind: .columnEdge, horizontal: true, hit: .init(minX: 600, maxX: 606, minY: 0, maxY: 800),
                                                        midX: 603, midY: 400, kept: false, fixedSplit: false, area: 0, docked: true, column: 0)
 
-    static func growing(to maxX: CGFloat) -> ClosingPanesRules.FrameFact {
-        .init(id: 1, now: .init(minX: 0, maxX: maxX, minY: 0, maxY: 800), target: .init(minX: 0, maxX: 900, minY: 0, maxY: 800),
-              moving: maxX != 900, vx: 0, vy: 0, vw: maxX != 900 ? 400 : 0, vh: 0)
+    static func growing(to maxX: CGFloat, shift: CGFloat = 0) -> ClosingPanesRules.FrameFact {
+        .init(id: 1, now: .init(minX: -shift, maxX: maxX - shift, minY: 0, maxY: 800), target: .init(minX: -shift, maxX: 900 - shift, minY: 0, maxY: 800),
+              moving: maxX != 900, vx: 0, vy: 0, vw: maxX != 900 ? 400 : 0, vh: 0, scrolls: true)
     }
 
-    @Test func dockedPaneClosesUnderTheStripPaneThatGrowsOverIt() {
+    /// The strip pane's x in strip coordinates: the view's minus the strip's view shift `shift`.
+    static func inStrip(_ pane: ClosingPanesRules.PaneFact, shift: CGFloat) -> ClosingPanesRules.PaneFact {
+        var pane = pane
+        pane.edges.minX -= shift
+        pane.edges.maxX -= shift
+        return pane
+    }
+
+    @Test(arguments: [0, 120, -75] as [CGFloat])
+    func dockedPaneClosesUnderTheStripPaneThatGrowsOverIt(shift: CGFloat) {
         var rules = ClosingPanesRules()
-        #expect(rules.begin(2, shown: Self.dock.edges, panes: [Self.strip, Self.dock], handles: [Self.dockEdge], maxGap: 11, viewShift: nil))
+        #expect(rules.begin(2, shown: Self.dock.edges, panes: [Self.inStrip(Self.strip, shift: shift), Self.dock], handles: [Self.dockEdge],
+                            maxGap: 11, viewShift: nil, stripShift: shift))
         // The strip pane springs over the dock's place: the docked pane does not hide in the close's turn.
-        #expect(rules.settle(frames: [Self.growing(to: 600)], rows: []) == [])
+        #expect(rules.settle(frames: [Self.growing(to: 600, shift: shift)], rows: []) == [])
         #expect(rules.entries[2]?.minX.neighbours == [1])
-        // Its leading side rides the strip pane's trailing edge (the dock's edge goes, so no gap stays).
-        let mid = rules.rects(frames: [Self.growing(to: 750)], rows: [])
+        // Its leading side rides the strip pane's trailing edge where it shows (the dock's edge goes, so no gap stays).
+        let mid = rules.rects(frames: [Self.growing(to: 750, shift: shift)], rows: [], strip: shift, restStrip: shift)
         #expect(mid.first?.0 == 2)
         #expect(mid.first?.1 == ClosingPanesRules.Placed(x: 750, y: 0, width: 150, height: 800))
-        let landed = rules.rects(frames: [Self.growing(to: 900)], rows: [])
+        let landed = rules.rects(frames: [Self.growing(to: 900, shift: shift)], rows: [], strip: shift, restStrip: shift)
         #expect(landed.first?.1.width == 0)
+    }
+
+    /// A strip pane closing beside the dock finds the docked pane across the strip's view shift as well.
+    @Test func stripPaneFindsTheDockedPaneBesideIt() {
+        var rules = ClosingPanesRules()
+        #expect(rules.begin(1, shown: Self.inStrip(Self.strip, shift: 120).edges, panes: [Self.inStrip(Self.strip, shift: 120), Self.dock],
+                            handles: [Self.dockEdge], maxGap: 11, viewShift: nil, stripShift: 120))
+        #expect(rules.entries[1]?.maxX.neighbours == [2])
     }
 }
