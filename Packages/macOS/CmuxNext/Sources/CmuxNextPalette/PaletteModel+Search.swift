@@ -170,6 +170,8 @@ extension PaletteModel {
             // Not `page`: a search the next keystroke supersedes keeps running on the searcher,
             // and holding the page would keep its providers alive after the palette moved on.
             let queryItems = page.queryItems
+            let noMatchItems = page.noMatchItems
+            let trails = page.noMatchItemsTrailResults
             // The superseded search ranks nothing if it has not started (its result is stale anyway).
             searchTask?.cancel()
             searchTask = Task { [weak self, weak state] in
@@ -181,8 +183,8 @@ extension PaletteModel {
                 )
                 guard let self, let state, result.generation == self.searchGeneration else { return }
                 self.searchTask = nil
-                self.deliver(Self.leading(queryItems?(request.query), state.resolve(result.sections)), to: state,
-                             generation: generation)
+                let found = Self.leading(queryItems?(request.query), state.resolve(result.sections))
+                self.deliver(Self.orNoMatch(found, noMatchItems, trails: trails, query: request.query, state: state), to: state, generation: generation)
                 self.closeIfPending()
             }
         }
@@ -263,6 +265,18 @@ extension PaletteModel {
         guard let items, !items.isEmpty else { return sections }
         let rows = items.map { PaletteRow(item: $0, highlights: [], score: 0) }
         return [PaletteResultSection(section: items[0].section, rows: rows)] + sections
+    }
+
+    /// `sections`, or the page's no-match rows first when the typed query found no row and no provider
+    /// is still loading (a loading provider may yet match); with `trails`, after the rows it found.
+    static func orNoMatch(_ sections: [PaletteResultSection], _ noMatch: (@MainActor (String) -> [PaletteItem])?, trails: Bool,
+                          query: String, state: PageState) -> [PaletteResultSection] {
+        guard let noMatch, state.pendingProviders.isEmpty else { return sections }
+        guard sections.contains(where: { !$0.rows.isEmpty }) else { return leading(noMatch(query), sections) }
+        guard trails else { return sections }
+        let items = noMatch(query)
+        guard let first = items.first else { return sections }
+        return sections + [PaletteResultSection(section: first.section, rows: items.map { PaletteRow(item: $0, highlights: [], score: 0) })]
     }
 
     /// A page's rows for `generation`: cached on the page, shown when the

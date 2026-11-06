@@ -49,6 +49,13 @@ extension AppActions {
         return true
     }
 
+    /// Open Chief Dock: the docked Chief's message box takes the keys. A run that may not move the focus (the
+    /// CLI, MCP: socket focus policy) docks the Chief and leaves the keys where they are, with no refusal.
+    static func focusDockComposer(_ services: AppServices) {
+        guard ActionRunScope.viewChangeAllowed() else { return }
+        withDock(services) { $0.focusPrimaryInput() }
+    }
+
     /// Runs `body` on the docked Home's view: Home shown, the dock tab selected, the view made
     /// (at once, or when the tab first shows). Refused (Home not ready) while the dock has no tab yet.
     static func withDock(_ services: AppServices, _ body: @escaping @MainActor (HomeDockView) -> Void) {

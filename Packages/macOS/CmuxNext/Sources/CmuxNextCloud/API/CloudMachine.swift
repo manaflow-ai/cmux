@@ -276,16 +276,27 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
     /// The status the app shows: a change sent from here, else the record's.
     public var shownStatus: Status { pendingChange ?? status }
 
+    /// The cmux-next record's `desktop`: the machine serves its agent display over the Native
+    /// link (its daemon advertises `link-desktop-v1`). It adds `desktop` to ``capabilities``
+    /// without declaring any other operation.
+    public var servesDesktop = false
+
     /// The declared capabilities, or the conservative empty set when the
-    /// record declared none. Gate actions with ``allows(_:)``, not this.
-    public var capabilities: Capabilities { declaredCapabilities ?? Capabilities() }
+    /// record declared none, with `desktop` when ``servesDesktop``. Gate
+    /// actions with ``allows(_:)``, not this.
+    public var capabilities: Capabilities {
+        var capabilities = declaredCapabilities ?? Capabilities()
+        if servesDesktop { capabilities.desktop = true }
+        return capabilities
+    }
 
     /// Whether an action needing `operation` may be attempted on this
     /// machine: a declared capability set must advertise it, and a record
     /// without one keeps the behavior from before capabilities existed (the
     /// server refuses what its provider cannot do).
     public func allows(_ operation: Capabilities.Operation) -> Bool {
-        declaredCapabilities?.supports(operation) ?? true
+        if operation == .desktop, servesDesktop { return true }
+        return declaredCapabilities?.supports(operation) ?? true
     }
 
     /// The machine's name wherever cmux shows one (the sidebar, menus, the Cloud page): the

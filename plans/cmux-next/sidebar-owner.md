@@ -1,5 +1,28 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-05: every sidebar group draws a visible background, glass or solid. Lawrence, verbatim: "invariant: groups
+  must always have a visible bg color, groups should support both glassy and solid bgs too". New setting
+  `sidebar.groupHeader.background`: Automatic (default: cmux's own group look, Leo's glass, or solid when Debug `sidebar.groupGlass` is solid), Glass,
+  Solid. Glass is Leo's tinted pane with its rim (#36225, Debug `sidebar.groupGlass`; under Glass a Debug solid
+  draws vivid; the wash, line and tinted looks stay a solid wash unless the setting is Glass); a no-color glass pane is the solid bar's calm neutral at 0.3, not the ink at the tint (`aNoColorGlassPaneStaysCalm`), and a group with no color is the same pane untinted. Every header, at rest, hovered and dropped, keeps
+  at least 1.2:1 against the sidebar (`GroupBackground.minimumVisibleContrast`): a too-faint pane is pushed away
+  from the sidebar at its own opacity (`GroupGlassPaint`); the solid band with no color is a neutral step of the
+  theme's text (`GroupBackground`). Under glass the rail stays the pane's vivid tint (Leo's
+  `theRailIsThePanesTint`); under the solid band it is the bar's rest color, no color too. The no-color block behind
+  the members is unchanged. Gallery: Sidebar States Playground > Group backgrounds. Regression:
+  `GroupHeaderAlwaysVisibleTests`, `GroupBackgroundEveryThemeTests`. Capture tour: `sidebar-group-background`.
+- 2026-11-05: a group header's name is regular weight, not semibold. Lawrence, verbatim: "group fonts should not be
+  bold". `SidebarStyle.groupHeaderFont` keeps `titleFont`'s face and size at `TypeScale.regular` (was
+  `TypeScale.emphasis`); the bar's color sets the group apart. Takes back the semibold half of Leo's 2026-11-05 name
+  change below. Regression: `GroupHeaderGlassTests.theNameIsTheRowsSizeAndWeight`.
+- 2026-11-05: every workspace row's trailing glyph box ends the row inset before its fill's end, as its leading glyph
+  box starts the row inset after the fill's start. Lawrence, verbatim: "too much padding on right. padding on left/right
+  of every workspace needs to be even." The trailing column centers `horizontalInset + statusGlyphSize / 2` inside the
+  fill (11 compact, 14 comfortable; was 13 / 15). Its floor (`minTrailingCenterInset`) is now the exact resize-band
+  clamp `trailingColumnFrame` applies, sized for the largest control on the column (footer Search), not the full row
+  inset plus Search's excess, which held compact 2.5 pt short. Measured: running app (compact, 2x) pin 6 pt in, spinner
+  ink 9 pt short of the end; fleet test at the base: mark box 9 pt short (pinned band, Pinned section, grouped, loose).
+  Guard: SidebarEvenRowInsetsTests.
 - 2026-11-05: a collapsing group's text fades out fast. Leo, verbatim: "when you're collapsing a group, the text needs to
   fade faster. Otherwise, you just get a ton of text like just jumbled up inside ... you still see like overlapping text
   sometimes". The rows a collapse hides faded over the whole `.move` spring, as long as their slot takes to close; they
@@ -12,10 +35,17 @@
   nothing, which reads as data loss. Until the Earlier window's first answer (`AcpmuxChatWindows.Window.hasAnswered`),
   Earlier keeps its header and one quiet Loading row in the Show More slot (no click action); folded, only its header.
   An answered empty index still has no Earlier. Regression: `SidebarChatHistoryTests.earlierSaysLoadingUntilAcpmuxFirstSendsItsRows`.
+- 2026-11-05: a workspace row is as round as a tab, and the one corner radius defaults to the omnibar's 8 pt.
+  Lawrence, verbatim: "i think default roundness is too round now btw", "maybe default roundness should be omnibar
+  roundness", "sidebar workspaces is too rounded now", "workspace roundness needs to be same as tabs roundness".
+  `SidebarDensityTokens.rowCornerRadius` (workspace rows, pinned rows, group headers) is `Metrics.tabCornerRadius`, one
+  token with the tab pills (6 pt by default, was the outer 10 pt); `densityPaneCornerRadius` is 8 in every density (was
+  10 compact, 11 comfortable). Cards and edit boxes around a row stay that radius plus `space1`. The row insets are
+  a590's. Regression: `DefaultCornerRadiusTests`.
 - 2026-11-05: sidebar corners follow the one concentric corner rule. Lawrence, verbatim (2026-11-04): "all nested
   radius everywhere, for all types of panes where it applies, must be concentric, where inner radius is outer minus
   padding, where padding is configurable too". Rows and rail tiles take the one corner radius
-  (`Metrics.surfaceCornerRadius`, `layout.paneCornerRadius`: 10 compact, 11 comfortable, as before); a card or edit box
+  (`Metrics.surfaceCornerRadius`, `layout.paneCornerRadius`; superseded for rows by the entry above); a card or edit box
   around a row is that radius plus its `space1` gap; the notice, update and now-playing cards and the Needs You tray are
   the one radius (12 pt before, 10 now); rows inside them, the rename field and the drop outline the radius less the
   corner padding; buttons, toggles and small cards the radius less twice the padding; progress bars and dots capsules.
@@ -419,6 +449,13 @@ header and keeps its no-gap drop fill (`drawsAsOneRow`, asked of the model with 
 
 - [1cc205d8d16](https://github.com/manaflow-ai/cmux/commit/1cc205d8d16) (carry of #26582): behavior-only opener bookkeeping keeps a tab's opener relationship inside its source pane when placement moves it elsewhere. No sidebar drawing or layout changes; the existing `RightPanePlacementTests` cover placement behavior. Reviewed as `Sidebar-Look: no visual change`.
 
+- 2026-11-05: the needs-input dot is the tab strip's bright yellow, not orange. Leo: "What if we try that yellow
+  dot thing that we currently have in the horizontal tab and put that in the sidebar?" `Palette.statusAttention`
+  starts from the theme's yellow (`ThemeTokens.attention`) at 3:1 on the rows, and the tab strip reads the same
+  token (`StatusIndicatorLayer.Colors.current`, `TabCell.badgeColor`). Takes back systemOrange from the 11-03
+  status-dot contrast change (c0230efd501) for this one state; blue and red stay. Sizes unchanged.
+  Gallery: `design/needs-input-dot-gallery.html`. Test: `NeedsInputDotTests`.
+
 - 2026-10-30: the "cmux Updated!" card is glass again. Leo: "I don't like the non-glassness". The card is a
   React page over the sidebar whose own CSS glass could not see the sidebar (a flat fill; solid in an opaque
   window through the theme bootstrap's html background). `SidebarUpdatedCardHost` now draws `CardSurfaceView`
@@ -535,6 +572,19 @@ Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents 
 3. Failing test first, then the fix. Real-app captures from the Mac-mini fleet, before and after.
 4. Land on `feat-cmux-next` (rebase, plain push). Add the commit to the log at the end of this note.
 
+## The notice card's rows share one leading edge and show whole (2026-11-05)
+
+Leo 2026-11-05, on the first-run "Help Make cmux Faster?" hang-reports card: "why is the text under it? Also giving
+negative space away ... the buttons and the subtitle text is in a different indentation level". Its title and detail
+started after the icon and its buttons at the card's edge, the detail ended in "…" after two lines, and the card's
+height never depended on its width. A notice card with a symbol now draws it on its own row above the title, on the
+x's row, so the icon, title, detail, list lines and buttons all start at the card's padding
+(`SidebarNoticeCardView.GlyphPlacement.above`; the leading column and the inline icon are the gallery's other
+directions). One measure (`measureFrames`) sizes the slot and places the views: the title, detail and list lines
+wrap in full (the detail keeps two reserved lines, so loading cards keep one height), and a button that does not
+fit starts a new row. Cards without a symbol (the update status, tips, Tidy Up) keep their layout. Regression:
+`SidebarNoticeCardColumnTests`; gallery `AASidebarNoticeCardGalleryTests`.
+
 ## A dropped card covers no leaving row (2026-11-05)
 
 Leo 2026-11-05: "When I click and drag a workspace on the sidebar, it, like, briefly flickers for a bit." His
@@ -572,7 +622,7 @@ A workspace close removes only the workspace. The daemon close path and remote-c
 | Row close (X) | The original close: a small x at the row's trailing end, shown on hover, in its rounded box. Not the top-right "dog-ear" fold. | Lawrence 11405 ("revert styling back to original, for the X button") |
 | Group rail | The rail's left edge is the group header pill's left edge, at every depth, every density, light and dark. | Lawrence 11240, 11371, 11405 |
 | Group rail shape | Chrome's line on that edge: 2 pt, one capsule (see Left bar), the header bar's own color, a 6 pt cut below the header, down to the last member's bottom. Debug `sidebar.groupLineLayout`: `edge` (default, the row above), `joined` (no cut, the bar's bottom-left corner square: one L, band header only), `inside` (the header reaches the corner inset further left, 4 pt compact and 5 pt comfortable, capped at the list's edge: the line under its corner). Members never move. | Leo 2026-10-23 ("WTF HAPPENED TO FOLLOWING CHROME"; asks ask-5b16be6ee9, ask-40133bf821, ask-7e10ebd553), #24513 |
-| Group header | The `group` surface role: its veil tinted by the group's color (chroma x1.3, 44% dark / 34% light) and its rim; the name in the theme's ink at the rows' title size, semibold. Debug `sidebar.groupGlass`: `vivid` (default), `glass`, `frost`, `solid`. | Leo 2026-11-05 ("just make it glassier"; "Why does it not have any sort of rim at all?") |
+| Group header | The `group` surface role: its veil tinted by the group's color (chroma x1.3, 44% dark / 34% light) and its rim; the name in the theme's ink at the rows' title size, regular weight (Lawrence 2026-11-05: "group fonts should not be bold"). Debug `sidebar.groupGlass`: `vivid` (default), `glass`, `frost`, `solid`. | Leo 2026-11-05 ("just make it glassier"; "Why does it not have any sort of rim at all?") |
 | Group with no color | The `group` surface role untinted behind the header and its members (its veil and rim), the header's width, no hue and no indent; rows' hover and selection draw over it. Debug `sidebar.noColorGroup`: `glass` (default), `tray`, `lit`, `plain`. | Leo 2026-11-05 ("a grouped up thing"; "we're not necessarily into that indentation thing") |
 | Left bar: capsule, equal top/bottom rounding | The group rail beside member rows (`GroupLineView`, every place it draws: the list's lines and a lifted group's card) is one capsule: the layer's corner clip rounds all four corners by half the bar's width (`SidebarGroupLineShape`), so the top and bottom caps match, in light and dark, at every density and text size, in the line look and the connected (Chrome-Style Groups) look. Neither cap is clipped by the row, the scroll edge or a neighbour row. | Lawrence msg 19775 ("roundness of left bar needs to be better, like rounded on both top and bottom"); SidebarGroupRailCapsuleTests |
 | Row text | As far left as it originally was. A row with no icon starts its title at the row inset; no empty icon slot pushes it right. A top-level group's rows keep the ungrouped rows' left edge. Only nested groups step in. | Lawrence 11405 ("text needs to be as left as possible (how it originally was)"); #23975 |
@@ -612,6 +662,7 @@ A workspace close removes only the workspace. The daemon close path and remote-c
 | Favicons: a site with no favicon shows a globe | A site page (a browser tab on a host, not a New Tab page) whose favicon is missing or still loading shows a neutral globe (SF Symbol "globe", the secondary label colour) in the favicon's icon slot, so its title stays on the icon column: workspace rows (`WorkspaceIcon.pagePlaceholder`, mapped by `SidebarMapping.row`), band rows and tiles (`SidebarWorkspaceItems.workspaceInfo`, which now also shows the site's favicon once it loads), and the hover card's tab rows. The favicon replaces the globe when it loads; no layout change, nothing per frame. A terminal or agent workspace stays text only. Test: `SidebarFaviconPlaceholderTests`; crops: `AAFaviconPlaceholderGalleryTests`. | Lawrence default "a site with no favicon gets a placeholder (a neutral globe glyph in the same icon slot)" |
 
 | Pinned group header: hover Unpin | A hovered, keyboard-focused or editing pinned group header shows an Unpin button (the `statePinned` glyph in the bar's ink, label Unpin Group) left of its + (of its ⋮ when it has no +), fading with them; it runs the editor's `workspaceGroup.togglePin`. The bar's leading pin stays a mark, and a click elsewhere on the bar still only folds. An unpinned header shows no pin, at rest or on hover; Pin Group stays in its menu and editor, as for workspace rows (Leo 2026-10-21, "no empty pin symbol by default"). | Austin 2026-11-02 ("answer to the group headers thing SHOULD be YES", on https://github.com/manaflow-ai/cmux/issues/27700: pinned groups could only be unpinned from the menu or the editor; repeated header clicks folded the group); recommendation posted on https://github.com/manaflow-ai/cmux/issues/13742 |
+| One UI face | Every sidebar name draws in the UI face (`Typography.system(.default, ...)`, the bundled Inter): rows, group header names and their member counts, and a title with a decoration weight. None is made with `NSFont.systemFont`, so no SF header sits over Inter rows. Test: `SidebarUIFontFaceTests`. | Leo 2026-11-05, ask-5c88cea784 ("I just feel like the Apple system font, like especially for the sidebar, it just looks a little bit whack"); the face is his Inter pin of 2026-10-21 (`schemas/type-scale/leo-bans.json`) |
 
 Default picked (title x): the 10-21 commit c779988d57d reserved an empty icon slot on every row so that
 rows with and without a favicon line up ("weird spacing"). On 11405 Lawrence asked for the text to sit
@@ -1388,6 +1439,22 @@ An empty group now keeps only its header at rest. The header's existing + appear
   while it lists loose (`GroupJoinHold`, at most 2 s from its first loose listing, then it shows where it lists). No
   other row moves. #30583 removed the current-group stop; this removes the loose one. Test: `GroupJoinHoldTests`.
 
+## Projects and Recents, off by default (2026-11-05)
+
+- Lawrence 2026-11-05: "i think we should have similar thing in sidebar as chatgpt app, make it an option, basically u
+  have projects/groups at the top, and show more, and you have recents as well".
+- `sidebar.groupBy` = `recents` ("Projects and Recents"); the default stays `none`, so nothing changes unless chosen.
+  On: one quiet "Projects" header over every computer's groups (first 5, then "Show N more"; a group's first 5 rows),
+  then one "Recents" header over every workspace in no group, newest activity first. Headers draw in the group
+  header's quiet style (`ListHeaderRowView`, as Group by Folder's). Filter, session tree, Group by Status unchanged.
+- Design: [sidebar-recents-and-freeing-DESIGN.md](sidebar-recents-and-freeing-DESIGN.md). Tests:
+  `SidebarRecentsLayoutTests`. Tour: `scripts/cmux-next/media/tours/sidebar-recents.json`.
+- Review fixes: the opened Archive lists its rows whole in Projects and Recents (no Show more inside it, no blank gaps); Cmd-1...9 and Reveal in Sidebar reach projects past the first five.
+- A group whose workspace needs you lists above Show more, as a row past the row limit does.
+- A workspace whose idle terminals the freeing tier ended (`workspaces.freeing.*`, off by default) gets one hover
+  card line, "Freed terminals: N. They start again when you open this workspace." (snooze icon). Rows do not change.
+  Test: `SidebarRecentsLayoutTests.theHoverCardCountsTheFreedTerminals`.
+
 ## Pinned summary follows the density and text size (2026-11-03)
 
 - Lawrence 2026-11-03: "make sure size of the pinned summary thing reflect size of ui compactness i chose".
@@ -1410,3 +1477,7 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
 
 - 2026-11-02: pinned group headers show a hover Unpin button (https://github.com/manaflow-ai/cmux/issues/27700), the
   "Pinned group header: hover Unpin" row above. Unpinned headers draw no pin. Regression: GroupHeaderUnpinButtonTests.
+- 2026-11-05 (a-cmdp-memory, for a590): `SidebarModel+WorkspaceRanks.swift` adds `workspaceRanks()`, a read-only map
+  of workspace id to its place in the sidebar (top first), landed in 624581a6e3a3 (range 1a7a182ace6f..624e560418ba).
+  Cmd-P ranks workspaces by it (bias 16·2^(-rank/6)). Sidebar-Look: no visual change. Keep it in step with how rows
+  order; `CmdPSearchMemoryTests` covers it.
