@@ -21,6 +21,8 @@
 //!    in pieces, and the send reads it from there ([`upload_prompt`]).
 //! 4. With `--wait`, `cloud exec` again until the turn ends (`cmux-tui acp wait`, under the
 //!    exec's own 25 s limit each time), then the turn's last reply (`cmux-tui acp last`).
+//!    `--timeout` counts from the command's start: a new machine, the start and the relay
+//!    spend it too.
 //!
 //! Output: one JSON object (`--json`): the reply text with `machine_id`, `session_id`,
 //! `workspace_id`, `tab_id` and the follow-up commands. A failure names what
@@ -549,6 +551,9 @@ pub(super) fn start_stage(runner: &mut dyn Runner, started: &Value) -> StartStag
 /// Runs the steps (module docs) and answers the outcome.
 pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     let began = runner.now();
+    // `--timeout` is one deadline from here: the list, a new machine, the start, the relay and
+    // the wait each get what is left of it, never a `--timeout` of their own.
+    let deadline = began.checked_add(request.timeout).unwrap_or(began);
     // 1. Signed in, and the machine names in use.
     let listed = match step_result(&runner.cmux(&words(&["cloud", "list-machines", "--json"]))) {
         Ok(listed) => listed,
@@ -574,7 +579,7 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     }
     // No prompt: nothing to relay, so the chat starts over the link alone.
     if request.wait && request.prompt.is_some() {
-        match relay_chat(runner, request, &wanted, &listed) {
+        match relay_chat(runner, request, &wanted, &listed, deadline) {
             Relayed::Answered(outcome) => return outcome,
             Relayed::Fallback(Some(id)) => wanted = Machine::Target(id),
             Relayed::Fallback(None) => {}
@@ -600,6 +605,21 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
         }
         other => other.clone(),
     };
+    // A turn to wait on and no time left for it: nothing starts, and a machine made so far
+    // is there for the same ask again.
+    if request.wait && request.prompt.is_some() && runner.now() >= deadline {
+        let again = again_command(request, &machine);
+        let machine_id = if let Machine::Target(id) = &machine { json!(id) } else { Value::Null };
+        return failed(
+            "cloud.start_pending",
+            format!(
+                "--timeout ({}s) ran out before the chat started, so nothing was sent. Run it again: {again}",
+                request.timeout.as_secs()
+            ),
+            json!({"again": again, "machine_id": machine_id}),
+            75,
+        );
+    }
 
     // 3. The machine and the chat, over the link.
     let mut start = vec!["cloud".to_owned(), "start-session".to_owned()];
@@ -743,8 +763,7 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     if !request.wait {
         return Outcome::Done(answer);
     }
-    let started_at = runner.now();
-    wait_turn(runner, request, machine_id, session, baseline, answer, started_at)
+    wait_turn(runner, request, machine_id, session, baseline, answer, deadline)
 }
 
 /// 5. The turn after `baseline` in `session`: its end and its reply.
@@ -755,10 +774,13 @@ fn wait_turn(
     session: &str,
     baseline: u64,
     mut answer: Value,
-    started_at: Instant,
+    deadline: Instant,
 ) -> Outcome {
-    let deadline = started_at.checked_add(request.timeout).unwrap_or(started_at);
     loop {
+        // The steps before this wait spent the time: no wait past the deadline.
+        if runner.now() >= deadline {
+            return wait_timeout(request, machine_id, session, answer);
+        }
         // Each wait is bounded by exec's own limit and by what is left of `--timeout`.
         let left = deadline.saturating_duration_since(runner.now()).as_secs();
         let slice = left.clamp(1, WAIT_SLICE_SECONDS);
@@ -823,22 +845,26 @@ fn wait_turn(
             );
         }
         if runner.now() >= deadline {
-            return failed(
-                "chat.wait_timeout",
-                format!(
-                    "the turn is still running after {}s; wait on with: cmux cloud exec \
-                     --target machine:{machine_id} --command '{GUEST_CMUX} acp wait {session} \
-                     --timeout {WAIT_SLICE_SECONDS}'",
-                    request.timeout.as_secs()
-                ),
-                json!({"answer": answer}),
-                3,
-            );
+            return wait_timeout(request, machine_id, session, answer);
         }
         if turn.is_none() {
             runner.pause(NOT_STARTED_PAUSE);
         }
     }
+}
+
+fn wait_timeout(request: &Request, machine_id: &str, session: &str, answer: Value) -> Outcome {
+    failed(
+        "chat.wait_timeout",
+        format!(
+            "the turn is still running after {}s; wait on with: cmux cloud exec \
+             --target machine:{machine_id} --command '{GUEST_CMUX} acp wait {session} \
+             --timeout {WAIT_SLICE_SECONDS}'",
+            request.timeout.as_secs()
+        ),
+        json!({"answer": answer}),
+        3,
+    )
 }
 
 /// What the relay-first chat came to.
@@ -858,9 +884,8 @@ fn relay_chat(
     request: &Request,
     machine: &Machine,
     listed: &Value,
+    deadline: Instant,
 ) -> Relayed {
-    // `--timeout` counts from here, a new machine included.
-    let started_at = runner.now();
     let Some(prompt) = request.prompt.as_deref().filter(|p| p.len() <= RELAY_PROMPT_BYTES) else {
         return Relayed::Fallback(None);
     };
@@ -896,10 +921,7 @@ fn relay_chat(
     args.extend(["--prompt-id".to_owned(), runner.prompt_id()]);
     args.push("--json".to_owned());
     // The app may take its whole answer window: with less of `--timeout` left, the link path keeps to it.
-    let left = started_at
-        .checked_add(request.timeout)
-        .map(|end| end.saturating_duration_since(runner.now()));
-    if left.is_none_or(|left| left < RELAY_ANSWER_WINDOW) {
+    if deadline.saturating_duration_since(runner.now()) < RELAY_ANSWER_WINDOW {
         return Relayed::Fallback(Some(machine_id));
     }
     let relayed = match step_result(&runner.cmux(&args)) {
@@ -992,7 +1014,7 @@ fn relay_chat(
             session,
             0,
             answer,
-            started_at,
+            deadline,
         ));
     }
     answer.set("reply", at(&relayed, "reply").clone());
