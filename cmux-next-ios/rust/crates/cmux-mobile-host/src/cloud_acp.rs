@@ -387,6 +387,10 @@ impl Adapter {
         for id in expired {
             if let Some(pending) = self.pending.remove(&id) {
                 out.to_phone.extend(error(pending.phone_id, -32000, "Cloud chat request timed out").to_phone);
+                // A start that never answered leaves no empty chat tab behind either.
+                if let Reply::Start { surface } = pending.reply {
+                    out.to_native.push(json!({"cmd":"close-surface","surface":surface}));
+                }
             }
         }
         out
@@ -412,26 +416,34 @@ fn new_session_refusal(params: &Value) -> Option<&'static str> {
     if object.get("mcpServers").is_some_and(|m| m.as_array().is_none_or(|m| !m.is_empty())) {
         return Some("Cloud chats from a phone take no MCP servers");
     }
+    if object.get("_meta").is_some_and(|m| m.as_object().is_none_or(|m| m.keys().any(|k| k != "acpmux"))) {
+        return Some("Cloud chats from a phone take no other options");
+    }
     let acpmux = params.pointer("/_meta/acpmux");
-    let harness = acpmux.and_then(|a| a.get("harness")).and_then(Value::as_str);
-    if harness.is_some_and(|h| h != PHONE_START_HARNESS) {
+    if acpmux.is_some_and(|a| {
+        a.as_object().is_none_or(|a| a.keys().any(|k| !matches!(k.as_str(), "harness" | "policy")))
+    }) {
+        return Some("Cloud chats from a phone take no other options");
+    }
+    let harness = acpmux.and_then(|a| a.get("harness"));
+    if harness.is_some_and(|h| h.as_str() != Some(PHONE_START_HARNESS)) {
         return Some("A phone starts Claude chats on a Cloud machine");
     }
-    let policy = acpmux.and_then(|a| a.get("policy")).and_then(Value::as_str);
-    if policy.is_some_and(|p| p != "ask") {
+    let policy = acpmux.and_then(|a| a.get("policy"));
+    if policy.is_some_and(|p| p.as_str() != Some("ask")) {
         return Some("Cloud chats from a phone ask before acting");
     }
     None
 }
 
-/// The workspace a phone's new chat goes in: the active ordinary workspace, else the first
-/// ordinary one (a workspace with a `kind`, such as a home, is skipped).
+/// The workspace a phone's new chat goes in: the active ordinary workspace (`kind` `normal`, or
+/// none from an older daemon), else the first ordinary one; a home or app workspace is skipped.
 fn chat_workspace(tree: &Value) -> Option<u64> {
     let ordinary = tree
         .get("workspaces")?
         .as_array()?
         .iter()
-        .filter(|w| w.get("kind").is_none_or(Value::is_null))
+        .filter(|w| w.get("kind").is_none_or(|k| k.is_null() || k == "normal"))
         .collect::<Vec<_>>();
     ordinary
         .iter()
@@ -749,8 +761,9 @@ mod tests {
         assert_eq!(tree.to_native[0]["cmd"], "list-workspaces");
         let tab = respond(a, &tree.to_native[0], json!({"registry_id":"reg-1","workspaces":[
             {"id":1,"kind":"home","active":false,"screens":[]},
-            {"id":4,"kind":null,"active":false,"screens":[]},
-            {"id":5,"kind":null,"active":true,"screens":[]}]}));
+            {"id":3,"kind":"app","active":false,"screens":[]},
+            {"id":4,"kind":"normal","active":false,"screens":[]},
+            {"id":5,"kind":"normal","active":true,"screens":[]}]}));
         assert_eq!(tab.to_native[0]["cmd"], "new-conversation-tab");
         assert_eq!(tab.to_native[0]["workspace"], 5);
         assert_eq!(tab.to_native[0]["agent_session"], json!({"host":"registry:reg-1","harness":"claude"}));
@@ -811,10 +824,27 @@ mod tests {
             json!({"mcpServers":[{"name":"x","command":"sh"}]}),
             json!({"mcpServers":"sh"}),
             json!({"model":"opus"}),
+            json!({"_meta":{"acpmux":{"harness":"claude","model":"opus"}}}),
+            json!({"_meta":{"acpmux":{"mode":"bypassPermissions"}}}),
+            json!({"_meta":{"acpmux":{"harness":7}}}),
+            json!({"_meta":{"acpmux":"claude"}}),
+            json!({"_meta":{"other":{}}}),
         ] {
             let out = phone(&mut a, 2, "session/new", params.clone());
             assert!(out.to_native.is_empty(), "{params}");
             assert_eq!(out.to_phone[0]["error"]["code"], -32602, "{params}");
         }
+    }
+
+    #[test]
+    fn a_start_that_times_out_closes_its_empty_tab() {
+        let mut a = adapter();
+        start_chat(&mut a, 2);
+        for p in a.pending.values_mut() {
+            p.at = Instant::now() - START_DEADLINE;
+        }
+        let out = a.expire();
+        assert_eq!(out.to_phone[0]["id"], 2);
+        assert_eq!(out.to_native, vec![json!({"cmd":"close-surface","surface":31})]);
     }
 }
