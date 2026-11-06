@@ -240,7 +240,7 @@ nonisolated enum CloudActionDescriptions {
             Returns no fields.
             """,
         "cloudCopyLink": """
-            Opens a port of the machine (--port) through cmux Cloud and copies its link to the clipboard. \
+            Makes the platform's expiring share link for a port of the machine (--port) and copies it to the clipboard. \
             Not a CLI verb.
             """,
         "cloudCopyPort": """
