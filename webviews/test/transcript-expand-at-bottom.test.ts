@@ -131,7 +131,10 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
     await page.close();
   });
 
-  test("at the very bottom, a long prompt's Show more opens it downward", async () => {
+  // A long prompt's Show more stays under the pointer, as every clicked line does, here as anywhere
+  // in the chat: the text it shows comes in above it, so the prompt's text rises and the rows under
+  // it stay where they were.
+  test("at the very bottom, a long prompt's Show more stays under the pointer and its text rises", async () => {
     const MORE = '.cv-user__more[aria-expanded="false"]';
     const page = await open("prompt", MORE);
     await page.locator(".acpmux-scroll").evaluate((node) => {
@@ -146,7 +149,6 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
         return {
           prompt: bubbles.at(-1)!.getBoundingClientRect().top,
           lastFoot: rows.at(-1)!.getBoundingClientRect().bottom,
-          scrollTop: scroller.scrollTop,
           scrollHeight: scroller.scrollHeight,
           fromEnd: scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop,
         };
@@ -157,12 +159,10 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
     await page.locator('.cv-user__more[aria-expanded="true"]').waitFor();
     await settled(page);
     const after = await where();
-    // The prompt's top and the view stayed; the reply under it moved down.
-    expect(Math.abs(after.prompt - before.prompt)).toBeLessThanOrEqual(1);
-    expect(Math.abs(after.scrollTop - before.scrollTop)).toBeLessThanOrEqual(1);
+    expect(after.fromEnd).toBeLessThanOrEqual(2);
+    expect(Math.abs(after.lastFoot - before.lastFoot)).toBeLessThanOrEqual(2);
     expect(after.scrollHeight).toBeGreaterThan(before.scrollHeight + 40);
-    expect(after.lastFoot - before.lastFoot).toBeGreaterThan(40);
-    expect(after.fromEnd).toBeGreaterThan(40);
+    expect(before.prompt - after.prompt).toBeGreaterThan(40);
     await page.close();
   });
 

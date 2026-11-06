@@ -2025,11 +2025,13 @@ export function VirtualTranscript({
   /// code put it, so the hold lets go, or its next pass puts the line back (#34780, as
   /// `releaseBottomStackFold` does for a close at the end). Only the offset moving off where the
   /// hold left it counts: a layout change moves the line, not the offset, and a closing body's clamp
-  /// lands at the end.
+  /// lands at the end. A view still following the latest row moves its own offset to the end until
+  /// the hold's first pass lets go of it, so nothing counts until then.
   const releaseFoldHold = (node: HTMLElement): boolean => {
     const left = holdTop.current;
     if (
       !foldAnchor.current ||
+      followingRef.current ||
       bottomStackFold.current ||
       left === undefined ||
       Math.abs(node.scrollTop - left) <= FOLLOW_BOTTOM_DEADBAND_PX ||
