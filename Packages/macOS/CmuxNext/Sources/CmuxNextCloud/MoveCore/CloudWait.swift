@@ -186,7 +186,7 @@ extension CloudWait {
     }
 
     /// How long a start or a copy waits for a machine's new link after an update restarted its daemon.
-    public static var relinkWait: Duration { .milliseconds(CloudMoveCore.deadlines.relinkMs) }
+    public nonisolated static var relinkWait: Duration { .milliseconds(CloudMoveCore.deadlines.relinkMs) }
 
     public static func retriedOnce<T>(_ start: () async throws -> T, closed: (any Error) -> Bool,
                                       relink: () async -> Bool) async throws -> T {

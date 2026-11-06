@@ -62,7 +62,7 @@ public final class CloudMovedChats {
     public init() {}
 
     private struct Request: Encodable {
-        var moved: String?, starting: String?, action: String, host = "", session = "", remoteChat: String?, harness: String?, entry: Entry?
+        var moved: String?, starting: String?, action: String, host: String, session: String, remoteChat: String?, harness: String?, entry: Entry?
     }
 
     private struct Reply: Decodable {

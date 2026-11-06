@@ -109,15 +109,17 @@ public nonisolated struct CloudMoveCLI: Sendable {
     /// answer for this app on the link in use.
     public func agentMove(from: String, surface: UInt64, to: String, cwd: String, sync: FrozenSync? = nil, askFirst: Bool = false,
                           vmKind: String? = nil, toPID: Int32? = nil) async throws -> Answer {
-        struct Call: Encodable { var verb = "agent-move", from: String, surface: UInt64, to: String, cwd: String, sync: FrozenSync?,
-                                 askFirst: Bool, vmKind: String?, toPid: Int32? }
+        struct Call: Encodable {
+            var verb = "agent-move"
+            var from: String, surface: UInt64, to: String, cwd: String, sync: FrozenSync?, askFirst: Bool, vmKind: String?, toPid: Int32?
+        }
         return try await run(Call(from: from, surface: surface, to: to, cwd: cwd, sync: sync, askFirst: askFirst, vmKind: vmKind, toPid: toPID)).answer
     }
 
     /// `cmux link machine update`: updates the machine's cmux-tui to this app's own pinned build when it is outdated;
     /// `toBundled` whenever it runs another build, with `ifOlder` only when that build is older than this app's.
     public func machineUpdate(socket: String, toBundled: Bool = false, ifOlder: Bool = false) async throws -> Answer {
-        struct Call: Encodable { var verb = "machine-update", socket: String, toBundled: Bool, ifOlder: Bool }
+        struct Call: Encodable { var verb = "machine-update"; var socket: String, toBundled: Bool, ifOlder: Bool }
         return try await run(Call(socket: socket, toBundled: toBundled, ifOlder: ifOlder), reading: "machine-update").answer
     }
 
@@ -126,7 +128,7 @@ public nonisolated struct CloudMoveCLI: Sendable {
 
     /// Rust validates reservation fields; the native app supplies only its trusted origin/team.
     public func startChatReservation(release: Bool, request: String, access: String) async throws -> Data {
-        struct Call: Encodable { var verb = "start-chat-reservation", release: Bool, request: String }
+        struct Call: Encodable { var verb = "start-chat-reservation"; var release: Bool, request: String }
         let read = try await run(Call(release: release, request: request), reading: "reservation", stdin: Data((access + "\n").utf8))
         return read.object ?? Data(#"{"ok":false,"error_code":"bad_answer"}"#.utf8)
     }
@@ -172,8 +174,11 @@ public nonisolated struct CloudMoveCLI: Sendable {
     public func startChatCopy(key: String, account: String, machine: String, socket: String, local: String, subpath: String,
                               workRoots: [String], acpmuxHome: String?, access: String? = nil,
                               stderrLine: (@Sendable (String) -> Void)? = nil) async throws -> (Answer, (chat: String, folder: String, copied: Bool, sourceTrusted: Bool)) {
-        struct Call: Encodable { var verb = "start-chat-copy", key, account, machine, socket, local, subpath: String, workRoots: [String],
-                                 acpmuxHome: String?, store: Bool }
+        struct Call: Encodable {
+            var verb = "start-chat-copy"
+            var key: String, account: String, machine: String, socket: String, local: String, subpath: String
+            var workRoots: [String], acpmuxHome: String?, store: Bool
+        }
         let call = Call(key: key, account: account, machine: machine, socket: socket, local: local, subpath: subpath, workRoots: workRoots,
                         acpmuxHome: acpmuxHome, store: access != nil)
         let read = try await run(call, reading: "start-chat-copy", stdin: access.map { Data(($0 + "\n").utf8) }, stderrLine: stderrLine)

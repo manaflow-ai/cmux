@@ -50,7 +50,11 @@ public final class CloudMoveRetries {
         self.key = key
     }
 
-    private struct Request: Encodable { var stored: String?, tab = "", set = false, retry: Retry? }
+    private struct Request: Encodable {
+        var stored: String?
+        var tab = "", set = false
+        var retry: Retry?
+    }
     private struct Reply: Decodable { var retries: [String: Retry]?, changed: Bool?, stored: String? }
 
     private var stored: String? {
@@ -104,7 +108,9 @@ public struct CloudMoveAlwaysGrants {
             struct Reply: Decodable { var valid: Bool }
             let request = Request(action: "scope", userID: userID, teamID: teamID, cloudOrigin: cloudOrigin)
             guard CloudMoveCore().call("grants", request, as: Reply.self)?.valid == true, let userID, let teamID else { return nil }
-            (self.userID, self.teamID, self.cloudOrigin) = (userID, teamID, cloudOrigin)
+            self.userID = userID
+            self.teamID = teamID
+            self.cloudOrigin = cloudOrigin
         }
     }
 
@@ -116,12 +122,15 @@ public struct CloudMoveAlwaysGrants {
         public let folder: String
 
         public init(scope: Scope, folder: String) {
-            (userID, teamID, cloudOrigin, self.folder) = (scope.userID, scope.teamID, scope.cloudOrigin, folder)
+            userID = scope.userID
+            teamID = scope.teamID
+            cloudOrigin = scope.cloudOrigin
+            self.folder = folder
         }
     }
 
     fileprivate struct Request: Encodable {
-        var stored: String?, action: String, userID: String?, teamID: String?, cloudOrigin = "", folder = "", always = false, grants: [Grant] = []
+        var stored: String?, action: String, userID: String?, teamID: String?, cloudOrigin: String, folder: String, always: Bool, grants: [Grant]
         init(stored: String? = nil, action: String, userID: String? = nil, teamID: String? = nil, cloudOrigin: String = "", folder: String = "",
              always: Bool = false, grants: [Grant] = []) {
             (self.stored, self.action, self.userID, self.teamID, self.cloudOrigin) = (stored, action, userID, teamID, cloudOrigin)
