@@ -519,7 +519,7 @@ set は値を非表示の入力プロンプトまたは標準入力から読み�
 
 /// `cmux cloud start-chat --help` (cloud_start_chat.rs runs it).
 pub(super) const START_CHAT_USAGE: &str = "\
-usage: cmux cloud start-chat --prompt TEXT [--agent AGENT] [--cwd DIR]
+usage: cmux cloud start-chat [--prompt TEXT] [--agent AGENT] [--cwd DIR]
                              [--login pass|machine|none]
                              [--name MACHINE | --target machine:MACHINE_ID]
                              [--wait] [--timeout SECONDS] [--json]
@@ -527,7 +527,9 @@ usage: cmux cloud start-chat --prompt TEXT [--agent AGENT] [--cwd DIR]
 Starts an agent chat on a Cloud machine and sends it a prompt, in one step.
 The chat opens as a tab in the machine's workspace in the cmux app.
 
-  --prompt TEXT      What to send (`-` reads it from stdin)
+  --prompt TEXT      What to send (`-` reads it from stdin). Without it the
+                     chat starts and nothing is sent; the answer has ready_ms
+                     and follow_up.send for the first message
   --agent AGENT      claude (default), codex, ...
   --cwd DIR          A folder on the machine (default: a new one under ~/chats)
   --login pass|machine|none
@@ -538,15 +540,17 @@ The chat opens as a tab in the machine's workspace in the cmux app.
   --target machine:MACHINE_ID
                      Use this machine (`cmux cloud list-machines`)
                      Neither: create a new small machine with a new name
-  --wait             Wait for the turn to end and print the reply
+  --wait             Wait for the turn to end and print the reply (no
+                     prompt: the chat is ready, nothing to wait for)
   --timeout SECONDS  How long --wait waits (default 900)
 
 Answers machine_id, machine_name, session_id, workspace_id and tab_id,
-plus reply with --wait.
+plus reply with --wait, or sent: false and ready_ms with no prompt.
 
 EXAMPLES
   cmux cloud start-chat --prompt 'Summarize README.md' --wait --json
   cmux cloud start-chat --name dev --prompt 'Run the tests' --json
+  cmux cloud start-chat --agent codex --login machine --json
 
 FOLLOW-UPS (MACHINE_ID and SESSION_ID from the answer)
   cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp send --no-wait SESSION_ID \"next prompt\"'

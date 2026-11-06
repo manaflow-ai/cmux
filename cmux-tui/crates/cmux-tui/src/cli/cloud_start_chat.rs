@@ -1,4 +1,4 @@
-//! `cmux cloud start-chat --prompt TEXT [--agent claude] [--cwd DIR] [--login L] [--name MACHINE |
+//! `cmux cloud start-chat [--prompt TEXT] [--agent claude] [--cwd DIR] [--login L] [--name MACHINE |
 //! --target machine:ID] [--wait] [--timeout SECONDS]`: one command takes a Cloud chat from
 //! nothing to a reply, for a person, a script or the Chief (Leo, 2026-11-02: "we need to improve
 //! the docs/instructions/commands and guidance and whatnot to make this all smoother faster more
@@ -13,6 +13,7 @@
 //!    Without `--name` or `--target` it creates a new small machine with a new name, so the chat
 //!    never lands on a machine another workspace uses (leo-workspace `design/cloud.md`, "One
 //!    workspace per small machine").
+//!    With no prompt the command answers here: the chat's ids, `ready_ms` and the follow-ups.
 //! 3. `cloud exec` on that machine: hands the prompt to the chat's session in the machine's own
 //!    acpmux (`cmux-tui acp send --no-wait`), which the chat's tab shows like any send. A prompt
 //!    of any length works: one too long to go in one command goes to a file on the machine first,
@@ -83,7 +84,8 @@ pub(super) enum Machine {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Request {
-    pub prompt: String,
+    /// `None`: start the chat and send nothing (`ready_ms` and `follow_up.send` in the answer).
+    pub prompt: Option<String>,
     pub agent: String,
     pub cwd: Option<String>,
     /// `--login pass|machine|none`: the harness login the machine's agent gets, as `cloud start-session`
@@ -210,11 +212,13 @@ pub(super) fn parse(
         index += 1;
     }
     let prompt = match prompt.as_deref() {
-        Some("-") => stdin().map_err(|error| UsageError::new(format!("--prompt -: {error}")))?,
-        Some(text) => text.to_owned(),
-        None => return Err(UsageError::new("--prompt TEXT is required")),
+        Some("-") => {
+            Some(stdin().map_err(|error| UsageError::new(format!("--prompt -: {error}")))?)
+        }
+        Some(text) => Some(text.to_owned()),
+        None => None,
     };
-    if prompt.trim().is_empty() {
+    if prompt.as_deref().is_some_and(|text| text.trim().is_empty()) {
         return Err(UsageError::new("--prompt is empty"));
     }
     let agent = agent.unwrap_or_else(|| "claude".to_owned());
@@ -382,7 +386,9 @@ pub(super) fn again_command(request: &Request, machine: &Machine) -> String {
     if let Some(login) = &request.login {
         words.push(format!("--login {login}"));
     }
-    words.push(format!("--prompt {}", shell_quote(&request.prompt)));
+    if let Some(prompt) = &request.prompt {
+        words.push(format!("--prompt {}", shell_quote(prompt)));
+    }
     if request.wait {
         words.push("--wait".to_owned());
     }
@@ -512,6 +518,7 @@ pub(super) fn start_stage(runner: &mut dyn Runner, started: &Value) -> StartStag
 
 /// Runs the steps (module docs) and answers the outcome.
 pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
+    let began = runner.now();
     // 1. Signed in, and the machine names in use.
     let listed = match step_result(&runner.cmux(&words(&["cloud", "list-machines", "--json"]))) {
         Ok(listed) => listed,
@@ -529,7 +536,8 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     // holds from boot, with no link to the machine. Whatever kept it from the machine (an app or a machine
     // without the relay) leaves the link path below, on the machine it found or made.
     let mut wanted = request.machine.clone();
-    if request.wait {
+    // No prompt: nothing to relay, so the chat starts over the link alone.
+    if request.wait && request.prompt.is_some() {
         match relay_chat(runner, request, &listed) {
             Relayed::Answered(outcome) => return outcome,
             Relayed::Fallback(Some(id)) => wanted = Machine::Target(id),
@@ -630,8 +638,15 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
         "follow_up": follow_ups(machine_id, session),
     });
 
+    let Some(prompt) = request.prompt.as_deref() else {
+        // No prompt: the chat is ready once start-session returned; `--wait` has no turn to wait on.
+        let ready_ms = runner.now().saturating_duration_since(began).as_millis();
+        answer.set("sent", json!(false));
+        answer.set("ready_ms", json!(u64::try_from(ready_ms).unwrap_or(u64::MAX)));
+        return Outcome::Done(answer);
+    };
     // 4. The prompt: inside the command when it fits there, else from a file on the machine.
-    let quoted = shell_quote(&request.prompt);
+    let quoted = shell_quote(prompt);
     // The uploaded prompt's file words, when the prompt went to a file.
     let mut uploaded = None;
     let send = if quoted.len() <= INLINE_PROMPT_BYTES {
@@ -641,7 +656,7 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
             sid = shell_quote(session),
         )
     } else {
-        let file = match upload_prompt(runner, machine_id, session, request.prompt.as_bytes()) {
+        let file = match upload_prompt(runner, machine_id, session, prompt.as_bytes()) {
             Ok(file) => file,
             Err(error) => {
                 return failed(
@@ -805,9 +820,9 @@ const RELAY_PROMPT_BYTES: usize = 96 * 1024;
 fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Value) -> Relayed {
     // `--timeout` counts from here, a new machine included.
     let started_at = runner.now();
-    if request.prompt.len() > RELAY_PROMPT_BYTES {
+    let Some(prompt) = request.prompt.as_deref().filter(|p| p.len() <= RELAY_PROMPT_BYTES) else {
         return Relayed::Fallback(None);
-    }
+    };
     let machine_id = match &request.machine {
         Machine::Target(id) => id.clone(),
         Machine::Named(name) => {
@@ -845,7 +860,7 @@ fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Value) -> Rel
     let mut args = words(&["cloud", "relay-chat", "--target"]);
     args.push(format!("machine:{machine_id}"));
     args.extend(["--agent".to_owned(), request.agent.clone()]);
-    args.extend(["--prompt".to_owned(), request.prompt.clone()]);
+    args.extend(["--prompt".to_owned(), prompt.to_owned()]);
     if let Some(cwd) = &request.cwd {
         args.extend(["--cwd".to_owned(), cwd.clone()]);
     }
@@ -1213,7 +1228,8 @@ fn report(outcome: &Outcome, output: OutputMode) -> i32 {
                 // Text from the machine: no terminal controls reach this terminal.
                 Some(reply) => println!("{}", super::wire::sanitize_remote_text(reply)),
                 None => println!(
-                    "Sent to {} on {} (machine:{}).",
+                    "{} {} on {} (machine:{}).",
+                    if at(answer, "sent").as_bool() == Some(false) { "Started" } else { "Sent to" },
                     at(answer, "session_id").as_str().unwrap_or_default(),
                     at(answer, "machine_name").as_str().unwrap_or_default(),
                     at(answer, "machine_id").as_str().unwrap_or_default()

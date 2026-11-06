@@ -22,7 +22,7 @@ fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
     assert_eq!(
         parsed,
         Request {
-            prompt: "hi there".into(),
+            prompt: Some("hi there".into()),
             agent: "claude".into(),
             cwd: None,
             login: None,
@@ -52,7 +52,7 @@ fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
         request(&["--target", "machine:vm-1", "-p", "x"]).machine,
         Machine::Target("vm-1".into())
     );
-    assert_eq!(request(&["--prompt", "-"]).prompt, "from stdin");
+    assert_eq!(request(&["--prompt", "-"]).prompt.as_deref(), Some("from stdin"));
 }
 
 #[test]
@@ -621,7 +621,7 @@ fn output_flags_are_lifted_but_a_flag_value_stays() {
     let words = lift_output(&strings(&["--prompt", "--json", "--wait", "--json"]), &mut output);
     assert_eq!(words, strings(&["--prompt", "--json", "--wait"]));
     assert_eq!(output, OutputMode::Json);
-    assert_eq!(request(&["--prompt", "--json", "--wait"]).prompt, "--json");
+    assert_eq!(request(&["--prompt", "--json", "--wait"]).prompt.as_deref(), Some("--json"));
 }
 
 #[test]
