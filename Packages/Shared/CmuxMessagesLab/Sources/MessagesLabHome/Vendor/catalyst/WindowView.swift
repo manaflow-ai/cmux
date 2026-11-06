@@ -514,7 +514,9 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         rowsBottomInset = value
         CATransaction.begin()
         layout.bottomPad = bounds.height - anchorY
-        _ = layout.rebaseIfNeeded(force: true)
+        // Not forced (as a commit): the content height stays unless its slack ran out, so taking the inset
+        // back puts every row exactly where it was (a forced rebase moved the pixel-rounded offset by a point).
+        _ = layout.rebaseIfNeeded()
         layout.invalidateLayout()
         restore(anchor)
         // Window space, y down: rows that rose show `delta` lower first and slide to their place.
