@@ -923,7 +923,7 @@ function decodeStoredCredentials(raw: string | undefined): StoredCtlCredentials 
 }
 
 const DISCOVERY_PATH = "/api/devices/iroh";
-/** Upstream refused the stored credentials (401/403); a retry cannot help. */
+/** Upstream refused the stored credentials (401); a retry cannot help. */
 const CREDENTIALS_REJECTED = "credentials_rejected" as const;
 const MINT_PATH = "/api/relay/token";
 
@@ -1781,26 +1781,29 @@ export class ControlPlaneCore {
    * the latest one is preferred because it was verified most recently. Control
    * sockets omit that field. Endpoint-bound mints never borrow across sockets. */
   private async refreshDirectory(live: CtlSocket[]): Promise<void> {
-    const holder = this.freshestBearerHolder(live);
-    if (holder === null) return;
-    const fetched = await this.fetchDirectory(holder.attachment);
-    if (fetched === CREDENTIALS_REJECTED) {
-      // Production control sockets never expire, so the bearer stored at
-      // attach outlives the Stack session that minted it. Upstream will
-      // reject it on every later alarm; retire the socket instead, so the
-      // client reconnects with fresh credentials and the next alarm reads
-      // through another socket.
+    let fetched: Awaited<ReturnType<ControlPlaneCore["fetchDirectory"]>> = null;
+    const retired = new Set<string>();
+    // Production control sockets never expire, so the bearer stored at
+    // attach outlives the Stack session that minted it. A socket whose
+    // bearer upstream refuses is retired (the client reconnects with fresh
+    // credentials) and the next holder is tried in the same tick. A socket
+    // already retired but not yet gone from the runtime has no bearer left.
+    for (const holder of this.bearerHolders(live)) {
+      if (!(await this.deps.storage.get<string>(BEARER_PREFIX + holder.attachment.sessionId))) continue;
+      fetched = await this.fetchDirectory(holder.attachment);
+      if (fetched !== CREDENTIALS_REJECTED) break;
       await this.retireRejectedCredentials(holder.socket, holder.attachment);
-      return;
+      retired.add(holder.attachment.sessionId);
+      fetched = null;
     }
-    if (fetched === null) return; // upstream down; keep serving cached facts
+    if (fetched === null) return; // upstream down or no usable bearer; keep serving cached facts
     const { rev, previous, previousRev } = await this.storeDirectory(fetched);
     await this.broadcastDirectoryChange(previous, fetched.payload, rev, previousRev, null);
     // Recover sockets whose initial snapshot fetch failed.
     const now = this.deps.now();
     for (const socket of live) {
       const attachment = socket.getAttachment();
-      if (!attachment || !attachment.snapshotPending) continue;
+      if (!attachment || !attachment.snapshotPending || retired.has(attachment.sessionId)) continue;
       if (attachment.expiresAt !== undefined && attachment.expiresAt <= now) continue;
       await this.sendDirectory(socket, attachment, rev, fetched.payload);
       await this.finishSnapshot(socket, attachment, rev);
@@ -1809,13 +1812,13 @@ export class ControlPlaneCore {
 
   // ---- Shared internals ----
 
-  private freshestBearerHolder(live: CtlSocket[]): { socket: CtlSocket; attachment: CtlAttachment } | null {
+  private bearerHolders(live: CtlSocket[]): { socket: CtlSocket; attachment: CtlAttachment }[] {
     const holders = live
       .map((socket) => ({ socket, attachment: socket.getAttachment() }))
       .filter((holder): holder is { socket: CtlSocket; attachment: CtlAttachment } => holder.attachment !== null)
       .sort((left, right) => (right.attachment.expiresAt ?? Number.POSITIVE_INFINITY)
         - (left.attachment.expiresAt ?? Number.POSITIVE_INFINITY));
-    return holders[0] ?? null;
+    return holders;
   }
 
   /** Drops a socket whose stored credentials upstream refused. The close
@@ -1854,7 +1857,7 @@ export class ControlPlaneCore {
       headers: upstreamHeaders(credentials, "legacy", false),
     });
     if (result === null) return null;
-    if (result.status === 401 || result.status === 403) return CREDENTIALS_REJECTED;
+    if (result.status === 401) return CREDENTIALS_REJECTED;
     if (result.status < 200 || result.status >= 300) {
       await this.recordUpstreamCooldown(DIRECTORY_RETRY_AT_KEY, result);
       return null;
