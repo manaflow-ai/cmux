@@ -108,7 +108,7 @@ enum RemoteStrings {
             return String(localized: "remote.status.offline", defaultValue: "Disconnected. Choose Reconnect Machine to connect.", table: "Remote", bundle: .module)
         case .connecting, .connected:
             if let failure = session.daemonFailure { return plainFailure(failure.error, machine: session.host.label) }
-            return session.lastError
+            return session.lastError ?? (session.staticInstallStaged ? staticInstallStaged : nil)
         case .reconnecting:
             return String(localized: "remote.status.reconnecting", defaultValue: "The connection dropped. cmux reconnects on its own; programs keep running on the machine.", table: "Remote", bundle: .module)
         case .authFailed(let message):
