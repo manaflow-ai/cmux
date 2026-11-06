@@ -50,6 +50,7 @@ export function badgeCut(size: number, corner: SenderIconCorner): string {
   const cx = right ? size + overhang - badge / 2 : badge / 2 - overhang;
   const cy = bottom ? size + overhang - badge / 2 : badge / 2 - overhang;
   const r = badge / 2 + 1;
+  // l10n-allow: a CSS mask value, never shown as text.
   return `radial-gradient(circle at ${cx}px ${cy}px, transparent ${r}px, #000 ${r + 0.5}px)`;
 }
 
