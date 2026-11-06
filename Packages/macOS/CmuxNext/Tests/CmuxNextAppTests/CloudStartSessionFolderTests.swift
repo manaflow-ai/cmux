@@ -32,19 +32,21 @@ struct CloudStartSessionFolderTests {
         #expect(try CloudStartSession.fromFolder(CloudStartSessionTests.invocation([:], origin: .mcp), cwd: nil, home: Self.home) == nil)
     }
 
-    /// Only a CLI run on this Mac or the person's own run names a folder to copy. `start-chat --from-folder` runs
-    /// `start-session` piped, so its origin is `script`, and it copies. A socket caller claiming another client
-    /// (`remote`), a page, or `user` from the socket (an app host during a gesture) copies nothing.
+    /// Only a CLI run on this Mac at the person's terminal (`cli`; `start-chat --from-folder` at a terminal
+    /// says `cli` for the `start-session` it pipes) or the person's own run names a folder to copy. A script
+    /// (`script`: no terminal), a socket caller claiming another client (`remote`), a page, or `user` from the
+    /// socket (an app host during a gesture) copies nothing.
     @Test func onlyACLIRunOnThisMacOrThePersonCopiesAFolder() throws {
         var socketUser = CloudStartSessionTests.invocation(["fromFolder": .string("/Users/me/code/app")], origin: .user)
         socketUser.viaControlSocket = true
-        for invocation in [CloudStartSessionTests.invocation(["fromFolder": .string("/Users/me/code/app")], origin: .remote),
+        for invocation in [CloudStartSessionTests.invocation(["fromFolder": .string("/Users/me/code/app")], origin: .script),
+                           CloudStartSessionTests.invocation(["fromFolder": .string("/Users/me/code/app")], origin: .remote),
                            CloudStartSessionTests.invocation(["fromFolder": .string("/Users/me/code/app")], origin: .page), socketUser] {
             #expect(throws: ActionFailure(message: CloudStartSessionStrings.fromFolderAgent)) {
                 try CloudStartSession.fromFolder(invocation, cwd: nil, home: Self.home)
             }
         }
-        for origin in [ActionOrigin.cli, .script, .user] {
+        for origin in [ActionOrigin.cli, .user] {
             let invocation = CloudStartSessionTests.invocation(["fromFolder": .string("/Users/me/code/app")], origin: origin)
             #expect(try CloudStartSession.fromFolder(invocation, cwd: nil, home: Self.home) == "/Users/me/code/app")
         }
@@ -84,9 +86,13 @@ struct CloudStartSessionFolderTests {
         #expect(throws: ActionFailure(message: CloudStartSessionStrings.fromFolderTooBroad(written))) { try Self.fromFolder(folder) }
     }
 
-    /// The credential folders the composer's start never copies (#35019), and a folder holding one.
+    /// The credential folders the composer's start never copies (#35019), a folder under one, and a folder holding one:
+    /// gh's OAuth tokens (`~/.config/gh/hosts.yml`) and Cargo's registry token (`~/.cargo/credentials.toml`) too.
     @Test(arguments: [("/Users/me/.ssh", "~/.ssh"), ("/Users/me/.SSH/keys", "~/.ssh"), ("/Users/me/.config", "~/.config/gcloud"),
-                      ("/Users/me/Library/Keychains", "~/Library/Keychains")])
+                      ("/Users/me/Library/Keychains", "~/Library/Keychains"), ("/Users/me/.config/gh", "~/.config/gh"),
+                      ("/Users/me/.config/gh/extensions", "~/.config/gh"), ("/Users/me/.cargo", "~/.cargo"),
+                      ("/Users/me/.cargo/registry/src", "~/.cargo"), ("/Users/me/.kube", "~/.kube"), ("/Users/me/.gem", "~/.gem"),
+                      ("/Users/me/.terraform.d", "~/.terraform.d"), ("/Users/me/.password-store", "~/.password-store")])
     func aCredentialFolderIsRefused(folder: String, secret: String) {
         #expect(throws: ActionFailure(message: CloudStartSessionStrings.fromFolderSecret(folder, secret: secret))) { try Self.fromFolder(folder) }
     }

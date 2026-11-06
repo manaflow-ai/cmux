@@ -669,7 +669,91 @@ mod tests {
     use std::path::Path;
     use std::process::Command;
 
-    use super::{Rules, borrowed_object, borrowed_skipped, collect, unquote};
+    use super::{
+        LocalSet, Rules, Skips, borrowed_object, borrowed_skipped, collect, unquote, walk_plain,
+    };
+
+    fn write(top: &Path, relative: &str) {
+        let path = top.join(relative);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, "x\n").unwrap();
+    }
+
+    /// A chat's copy of a plain folder never takes a credential folder's or
+    /// file's contents at any depth (gh's `hosts.yml` OAuth tokens, Cargo's
+    /// `credentials.toml`, cloud and cluster logins, `.netrc`-style files);
+    /// the project's own files beside them go, `.cargo/config.toml` too.
+    #[test]
+    fn a_plain_copy_leaves_credential_folders_and_files_here() {
+        let top = tempfile::tempdir().unwrap();
+        let top = std::fs::canonicalize(top.path()).unwrap();
+        let secrets = [
+            ".config/gh/hosts.yml",
+            "home/.config/gh/hosts.yml",
+            ".config/gcloud/credentials.db",
+            ".config/hub",
+            ".cargo/credentials.toml",
+            ".cargo/credentials",
+            ".aws/credentials",
+            ".ssh/config",
+            ".gnupg/pubring.kbx",
+            ".docker/config.json",
+            ".kube/config",
+            ".azure/accessTokens.json",
+            ".netrc",
+            "deep/.npmrc",
+            ".pypirc",
+            ".git-credentials",
+            ".gem/credentials",
+            ".terraform.d/credentials.tfrc.json",
+        ];
+        for relative in secrets {
+            write(&top, relative);
+        }
+        let kept = ["src/main.rs", ".cargo/config.toml", ".config/app.toml", "gh/notes.md"];
+        for relative in kept {
+            write(&top, relative);
+        }
+        let set = collect(&top, Rules::Copy).unwrap();
+        for relative in secrets {
+            assert!(!set.files.contains_key(relative), "{relative} went: {:?}", set.files.keys());
+        }
+        for relative in kept {
+            assert!(set.files.contains_key(relative), "{relative} stayed: {:?}", set.files.keys());
+        }
+    }
+
+    /// A folder swapped for a symlink after its parent was listed is never
+    /// walked through: the walk opens each folder by name, relative to its
+    /// parent, without following a symlink, so it lists nothing outside the
+    /// selected folder (the race between the listing and the descent).
+    #[test]
+    fn a_folder_swapped_for_a_symlink_is_never_walked_through() {
+        let root = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(root.path()).unwrap();
+        let (top, outside) = (root.join("top"), root.join("outside"));
+        write(&outside, "secret.txt");
+        write(&top, "a/kept.txt");
+        std::os::unix::fs::symlink(&outside, top.join("swapped")).unwrap();
+        std::os::unix::fs::symlink(&outside, top.join("a/swapped")).unwrap();
+        for dir in [top.join("swapped"), top.join("a/swapped")] {
+            let mut set = LocalSet {
+                files: Default::default(),
+                links: Default::default(),
+                skipped: 0,
+                skips: Skips::new(&top),
+                git: false,
+            };
+            // As the walk descends into a name it listed as a folder.
+            let _ = walk_plain(&mut set, Rules::Copy, &top, &dir);
+            assert!(
+                set.files.keys().all(|relative| !relative.ends_with("secret.txt")),
+                "walked outside through {}: {:?}",
+                dir.display(),
+                set.files.keys()
+            );
+        }
+    }
 
     #[test]
     fn only_git_object_files_of_a_borrowed_store_go() {
