@@ -14,14 +14,21 @@ import Testing
 /// app resolves; the Rust side finds their keys in the string catalogs.
 @MainActor
 @Suite struct ActionCatalogDumpTests {
-    @Test(.enabled(if: ["CMUX_CHECK_GENERATED_EXPORTS", "CMUX_UPDATE_ACTION_SURFACES"].contains { ProcessInfo.processInfo.environment[$0] == "1" }))
+    static let url = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("plans/cmux-next/action-catalog.json")
+
+    /// A placeholder file (`{}`) asks for a fresh dump: a fleet suite run writes it.
+    static var wantsDump: Bool {
+        (try? String(contentsOf: url, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) == "{}"
+    }
+
+    @Test(.enabled(if: wantsDump || ["CMUX_CHECK_GENERATED_EXPORTS", "CMUX_UPDATE_ACTION_SURFACES"].contains { ProcessInfo.processInfo.environment[$0] == "1" }))
     func dumpIsFresh() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("plans/cmux-next/action-catalog.json")
+        let url = Self.url
         let current = try Self.json()
-        if ProcessInfo.processInfo.environment["CMUX_UPDATE_ACTION_SURFACES"] == "1" {
+        if Self.wantsDump || ProcessInfo.processInfo.environment["CMUX_UPDATE_ACTION_SURFACES"] == "1" {
             try current.write(to: url, atomically: true, encoding: .utf8)
         }
         let stored = try String(contentsOf: url, encoding: .utf8)
