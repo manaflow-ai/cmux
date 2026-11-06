@@ -14,6 +14,8 @@
 //! `cmux-cloud-config`'s rules (`cloud_config_*`: which Cloud a build talks to;
 //! `cloud_auth_*`: the auth rules around the app's Keychain I/O;
 //! `cloud_vm_agent_key_*`: the VM agent-key mint's request and answer),
+//! `cmux-cloud-machine`'s Cloud machine record and rules (`cloud_machine_*`) and the
+//! small Cloud API models (`cloud_model_*`),
 //! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
 //! `focus_child_window_key`), agent cursor visibility
 //! (`agent_cursor_visibility`) and input invariants (`focus_input_world`,
@@ -37,6 +39,7 @@ pub mod agent_cursor;
 pub mod close_focus;
 pub mod closing_panes;
 mod cloud_config;
+mod cloud_machine;
 pub mod focus;
 mod imessage;
 pub mod input;
@@ -366,6 +369,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             }
             operation if cloud_config::handles(operation) => {
                 cloud_config::respond(operation, request)?
+            }
+            operation if cloud_machine::handles(operation) => {
+                cloud_machine::respond(operation, request)?
             }
             _ => return Err(ERR_INVALID),
         };
