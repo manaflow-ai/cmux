@@ -44,9 +44,9 @@ extension LocationTrailService {
 
     /// The current title of an entry's tab while it is open on its machine; nil for a top page or a closed tab.
     func liveTitle(_ location: HistoryLocation) -> String? {
-        guard location.page == nil, let (tab, pane) = services.locateTab(location.key.tab) else { return nil }
-        let daemon = services.daemon(for: pane)
-        return daemon.machineID == location.key.machine ? title(of: tab, in: daemon.store.workspace(containing: pane.handle)) : nil
+        // On the entry's own machine: a forked tab id may also live on another one.
+        guard location.page == nil, let (tab, pane) = services.locateTab(location.key.tab, onMachine: location.key.machine) else { return nil }
+        return title(of: tab, in: services.daemon(for: pane).store.workspace(containing: pane.handle))
     }
 
     /// Whether the location's tab exists on a connected machine now.

@@ -205,6 +205,7 @@ public struct TitlebarHistoryMenu {
         switch kind {
         case .terminalTab: "terminal"
         case .browserTab: "globe"
+        case .conversationTab: "bubble.left"
         case .screen: "rectangle.split.2x1"
         case .workspace: "square.stack"
         }
