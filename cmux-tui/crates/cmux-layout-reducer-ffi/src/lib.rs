@@ -470,6 +470,14 @@ mirror_entry!(
     /// The acceptance table of a drag over the rows of the last view.
     cmux_sidebar_mirror_drag_begin => drag_begin
 );
+mirror_entry!(
+    /// The sections a view request's rows draw (`sidebar_doc::project`).
+    cmux_sidebar_mirror_project => project
+);
+mirror_entry!(
+    /// The ops of New Subgroup or of a remote group (`sidebar_doc::plan`).
+    cmux_sidebar_mirror_plan => plan
+);
 
 /// Run one typed mirror call: JSON in, a pointer to a reply the mirror owns
 /// (valid until the next typed call on it, or its free); null for a null

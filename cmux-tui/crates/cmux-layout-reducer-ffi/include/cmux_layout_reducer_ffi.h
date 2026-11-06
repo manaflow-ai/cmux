@@ -112,6 +112,11 @@ uint8_t cmux_pane_edge_split_axis(uint8_t edge);
  *   view(request)        {live, window, filter?, collapsed?} -> [row]
  *                        row = {key, kind, section, parent?, depth, item?, dimmed, ref?, collapsed?}
  *   drag_begin(items)    {items:[id]} -> {row_key:{before,into,after,refusal?}}
+ *   project(request)     view's request -> {sections, machines, items, machine_sections, machine_order,
+ *                        unplaced, band_groups, host_groups, archived, group_sorts, pinned_in_group}
+ *                        (the rows regrouped as the list draws them; its rows are the last view's)
+ *   plan(request)        {plan:"subgroup", parent, id, name, color?} | {plan:"host_group", session, on?, title?}
+ *                        -> {"ok":true,"ops":[op]} | {"refusal":"unknown_group"|"too_deep"}
  */
 typedef struct CmuxSidebarMirror CmuxSidebarMirror;
 
@@ -123,6 +128,8 @@ char *cmux_sidebar_mirror_apply_batch(CmuxSidebarMirror *mirror, const uint8_t *
 char *cmux_sidebar_mirror_apply_intent(CmuxSidebarMirror *mirror, const uint8_t *json, size_t json_len);
 char *cmux_sidebar_mirror_view(CmuxSidebarMirror *mirror, const uint8_t *json, size_t json_len);
 char *cmux_sidebar_mirror_drag_begin(CmuxSidebarMirror *mirror, const uint8_t *json, size_t json_len);
+char *cmux_sidebar_mirror_project(CmuxSidebarMirror *mirror, const uint8_t *json, size_t json_len);
+char *cmux_sidebar_mirror_plan(CmuxSidebarMirror *mirror, const uint8_t *json, size_t json_len);
 
 /*
  * Typed replies (bead cx-x5jpp): the same calls, read with no JSON decode.
