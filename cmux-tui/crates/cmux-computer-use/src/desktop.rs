@@ -316,6 +316,11 @@ pub trait Desktop: Send + Sync {
     ) -> DResult<RawFrame> {
         Err(DesktopError::Unsupported("this desktop cannot leave apps out of a capture".into()))
     }
+    /// The apps a display capture sees, from the capture system itself (every
+    /// app with a window at any level), for [`Desktop::capture_display_excluding`].
+    fn capture_apps(&self) -> DResult<Vec<App>> {
+        Err(DesktopError::Unsupported("this desktop lists no capture apps".into()))
+    }
     fn ui_tree(&self, window_id: &str, options: TreeOptions) -> DResult<UiTree>;
     fn click(&self, target: &PointerTarget, spec: &ClickSpec) -> DResult<ActionOutcome>;
     /// Types `text` into the window's focused element (or `element_id`).
@@ -379,6 +384,10 @@ pub trait HostServices: Send + Sync {
         _exclude_pids: &[u32],
     ) -> DResult<RawFrame> {
         Err(DesktopError::Unsupported("the host cannot leave apps out of a capture".into()))
+    }
+    /// Every app the capture sees (any window, any level).
+    fn capture_apps(&self) -> DResult<Vec<App>> {
+        Err(DesktopError::Unsupported("the host lists no capture apps".into()))
     }
     fn request_permission(&self, which: &str) -> DResult<()>;
 }

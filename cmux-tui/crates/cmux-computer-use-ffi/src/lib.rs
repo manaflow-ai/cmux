@@ -61,6 +61,7 @@ type CursorFn = unsafe extern "C" fn(*mut std::ffi::c_void, *const u8, usize);
 type AskFn = unsafe extern "C" fn(*mut std::ffi::c_void, *const u8, usize) -> i32;
 type WaitIdleFn = unsafe extern "C" fn(*mut std::ffi::c_void, u64) -> bool;
 type PermissionFn = unsafe extern "C" fn(*mut std::ffi::c_void, *const u8, usize) -> i32;
+type CaptureAppsFn = unsafe extern "C" fn(*mut std::ffi::c_void, *mut u8, usize, *mut usize) -> i32;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -73,6 +74,7 @@ pub struct CmuxCuHost {
     pub ask: Option<AskFn>,
     pub wait_idle: Option<WaitIdleFn>,
     pub request_permission: Option<PermissionFn>,
+    pub capture_apps: Option<CaptureAppsFn>,
 }
 
 /// The host's callbacks. The host promises its context outlives the engine
@@ -97,6 +99,55 @@ impl HostServices for Host {
         exclude_pids: &[u32],
     ) -> DResult<RawFrame> {
         self.capture_request(&json!({"display": display, "exclude_pids": exclude_pids}).to_string())
+    }
+
+    fn capture_apps(&self) -> DResult<Vec<cmux_computer_use::desktop::App>> {
+        let Some(f) = self.0.capture_apps else {
+            return Err(DesktopError::Unsupported("the worker lists no capture apps".into()));
+        };
+        let mut buffer = vec![0u8; 64 * 1024];
+        for _ in 0..3 {
+            let mut len = 0usize;
+            // SAFETY: header contract: writes at most `cap` bytes to `out`.
+            let status = unsafe { f(self.0.context, buffer.as_mut_ptr(), buffer.len(), &mut len) };
+            match status {
+                0 => {
+                    let bytes = buffer.get(..len.min(buffer.len())).unwrap_or_default();
+                    let rows: Vec<Value> = serde_json::from_slice(bytes)
+                        .map_err(|e| DesktopError::Failed(format!("capture apps: {e}")))?;
+                    return Ok(rows
+                        .iter()
+                        .filter_map(|r| {
+                            let pid = r
+                                .get("pid")?
+                                .as_u64()
+                                .filter(|p| *p > 0 && *p <= u32::MAX as u64)?
+                                as u32;
+                            let id =
+                                r.get("id").and_then(Value::as_str).unwrap_or_default();
+                            let name = r
+                                .get("name")
+                                .and_then(Value::as_str)
+                                .unwrap_or_default();
+                            Some(cmux_computer_use::desktop::App {
+                                id: id.to_string(),
+                                name: name.to_string(),
+                                pid,
+                                frontmost: false,
+                                hidden: false,
+                            })
+                        })
+                        .collect());
+                }
+                2 if len > buffer.len() && len <= 16 << 20 => buffer.resize(len, 0),
+                _ => {
+                    return Err(DesktopError::Failed(
+                        "the worker could not list the capture's apps".into(),
+                    ));
+                }
+            }
+        }
+        Err(DesktopError::Failed("the capture's app list kept growing".into()))
     }
 
     fn request_permission(&self, which: &str) -> DResult<()> {

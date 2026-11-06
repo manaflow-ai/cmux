@@ -235,6 +235,13 @@ impl Desktop for MacDesktop {
         self.host.is_some()
     }
 
+    fn capture_apps(&self) -> DResult<Vec<App>> {
+        match &self.host {
+            Some(host) => host.capture_apps(),
+            None => Err(DesktopError::Unsupported("no capture host".into())),
+        }
+    }
+
     fn capture_display_excluding(
         &self,
         display: Option<&str>,

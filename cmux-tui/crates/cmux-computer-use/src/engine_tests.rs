@@ -305,3 +305,33 @@ fn denied_apps_are_left_out_of_the_capture_where_the_desktop_can() {
     assert_eq!(shot.body["left_out_apps"], 1);
     assert_eq!(*desktop.last_excluded.lock().unwrap(), vec![20]);
 }
+
+#[test]
+fn a_floating_denied_app_only_the_capture_sees_is_left_out_and_a_refusal_falls_back_to_painting() {
+    use crate::desktop::App;
+    // A denied app with no normal window (a floating password panel): only the
+    // capture system lists it, and it is still left out.
+    let mut desktop = FakeDesktop::standard();
+    desktop.excludes_apps = true;
+    desktop.capture_only_apps.push(App {
+        id: "com.bitwarden.desktop.helper".into(),
+        name: "Bitwarden Helper".into(),
+        pid: 77,
+        frontmost: false,
+        hidden: false,
+    });
+    let desktop = Arc::new(desktop);
+    let e = engine(desktop.clone(), PolicyConfig::default());
+    e.call(&ctx(None), "screenshot", &json!({}));
+    let left = desktop.last_excluded.lock().unwrap().clone();
+    assert!(left.contains(&20) && left.contains(&77), "{left:?}");
+    // The capture refuses its list: nothing is captured unpainted.
+    let mut refusing = FakeDesktop::standard();
+    refusing.excludes_apps = true;
+    refusing.refuse_exclusion = true;
+    let e = engine(Arc::new(refusing), PolicyConfig::default());
+    let shot = e.call(&ctx(None), "screenshot", &json!({}));
+    assert!(!shot.is_error, "{:?}", shot.body);
+    assert_eq!(shot.body["redacted_windows"], 1);
+    assert_eq!(shot.body["left_out_apps"], 0);
+}

@@ -24,6 +24,10 @@ pub struct FakeDesktop {
     /// Whether a display capture can leave processes out; the last list asked for.
     pub excludes_apps: bool,
     pub last_excluded: Mutex<Vec<u32>>,
+    /// Apps only the capture system sees (a floating panel's app, a helper).
+    pub capture_only_apps: Vec<App>,
+    /// The capture refuses its exclusion list (a requested app it cannot find).
+    pub refuse_exclusion: bool,
     pub apps: Vec<App>,
     pub windows: Vec<Window>,
     pub scale: f64,
@@ -57,6 +61,8 @@ impl FakeDesktop {
             isolated_window_capture: false,
             excludes_apps: false,
             last_excluded: Mutex::new(vec![]),
+            capture_only_apps: vec![],
+            refuse_exclusion: false,
             apps: vec![
                 app("com.apple.Safari", "Safari", 10),
                 app("com.1password.1password", "1Password", 20),
@@ -123,11 +129,20 @@ impl Desktop for FakeDesktop {
         self.excludes_apps
     }
 
+    fn capture_apps(&self) -> DResult<Vec<App>> {
+        let mut apps = self.apps.clone();
+        apps.extend(self.capture_only_apps.iter().cloned());
+        Ok(apps)
+    }
+
     fn capture_display_excluding(
         &self,
         display: Option<&str>,
         exclude_pids: &[u32],
     ) -> DResult<RawFrame> {
+        if self.refuse_exclusion {
+            return Err(DesktopError::Failed("exclusion_incomplete".into()));
+        }
         *self.last_excluded.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
             exclude_pids.to_vec();
         self.capture(&CaptureTarget::Display(display.map(str::to_string)))

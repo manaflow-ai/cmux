@@ -196,6 +196,15 @@ final class WorkerServices: @unchecked Sendable { // crash-allow: mutable state 
         }
     }
 
+    /// The capture's apps as JSON into `out`; 2 when `capacity` is too small (`length` says how much).
+    fileprivate func captureApps(out: UnsafeMutablePointer<UInt8>?, capacity: Int, length: UnsafeMutablePointer<Int>) -> Int32 {
+        guard case .success(let data) = ScreenCapture().applications() else { return 1 }
+        length.pointee = data.count
+        guard let out, data.count <= capacity else { return 2 }
+        data.copyBytes(to: out, count: data.count)
+        return 0
+    }
+
     fileprivate func cursor(_ json: Data) {
         guard let event = AgentCursorEvent(json: json) else { return }
         DispatchQueue.main.async { MainActor.assumeIsolated { self.overlay?.show(event) } }
@@ -279,6 +288,10 @@ final class WorkerServices: @unchecked Sendable { // crash-allow: mutable state 
         }
         host.request_permission = { context, name, length in
             WorkerServices.services(context)?.requestPermission(String(decoding: WorkerServices.data(name, length), as: UTF8.self)) ?? 1
+        }
+        host.capture_apps = { context, out, capacity, length in
+            guard let services = WorkerServices.services(context), let length else { return 1 }
+            return services.captureApps(out: out, capacity: capacity, length: length)
         }
         return host
     }

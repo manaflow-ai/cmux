@@ -70,6 +70,12 @@ typedef struct CmuxCuHost {
     bool (*wait_idle)(void *context, uint64_t limit_ms);
     // Asks for an OS permission ("accessibility", "screen_capture"); 0 on success.
     int32_t (*request_permission)(void *context, const uint8_t *name, size_t name_len);
+    // The apps the capture sees (every app with a window, at any window level), as JSON
+    // [{"pid":N,"id":"<bundle id, or empty>","name":"..."}]. Writes up to cap bytes to out and the
+    // full length to *len. Returns 0, 2 when cap was too small (call again with *len bytes), or
+    // another nonzero value on failure. A display capture's "exclude_pids" are checked against
+    // the same list: the capture fails rather than leave a requested, running app in it.
+    int32_t (*capture_apps)(void *context, uint8_t *out, size_t cap, size_t *len);
 } CmuxCuHost;
 
 typedef struct CmuxCuEngine CmuxCuEngine;

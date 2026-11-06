@@ -43,6 +43,41 @@ struct ScreenCapture: Sendable {
     /// The longest one capture may take.
     static let deadline: TimeInterval = 10
 
+    /// The requested processes that still run but are not among the capture's applications.
+    static func missing(_ requested: [pid_t], in content: SCShareableContent) -> [pid_t] {
+        let seen = Set(content.applications.map(\.processID))
+        return requested.filter { pid in
+            !seen.contains(pid) && (kill(pid, 0) == 0 || errno == EPERM)
+        }
+    }
+
+    /// Every app the capture sees (any window, any level), as the engine's `capture_apps` JSON.
+    func applications() -> Result<Data, Failure> {
+        guard CGPreflightScreenCaptureAccess() else { return .failure(.permission) }
+        let box = OSAllocatedUnfairLock<Result<Data, Failure>?>(initialState: nil)
+        let done = DispatchSemaphore(value: 0)
+        // task-owner: one listing; the calling engine thread waits for it below, bounded by `deadline`.
+        Task.detached(priority: .userInitiated) {
+            let result: Result<Data, Failure>
+            do {
+                let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+                let rows: [[String: Any]] = content.applications.map {
+                    ["pid": Int($0.processID), "id": $0.bundleIdentifier, "name": $0.applicationName]
+                }
+                result = .success((try? JSONSerialization.data(withJSONObject: rows)) ?? Data("[]".utf8))
+            } catch {
+                result = .failure(.failed(String(describing: error)))
+            }
+            box.withLock { $0 = result }
+            done.signal()
+        }
+        // concurrency-allow: the engine's capture_apps callback is synchronous by contract and runs on an engine thread, never main.
+        guard done.wait(timeout: .now() + Self.deadline) == .success, let result = box.withLock({ $0 }) else {
+            return .failure(.timedOut)
+        }
+        return result
+    }
+
     /// One still of `target`; blocks the calling thread until ScreenCaptureKit answers.
     func capture(_ target: CaptureTarget) -> Result<CapturedFrame, Failure> {
         guard CGPreflightScreenCaptureAccess() else { return .failure(.permission) }
@@ -69,7 +104,19 @@ struct ScreenCapture: Sendable {
             // queued exists; then all windows, not only on-screen ones, are read, so this process is
             // in `applications` once it has made any window, even one that shows only later.
             await MainActor.run {}
-            let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+            var content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+            // Every requested app that still runs must be left out: the capture fails rather than
+            // show one (the engine then paints denied windows out whole). One re-read first, for
+            // an app that made its first window just now; an app that quit since is not missing.
+            if case .display(_, let excluding) = target, !excluding.isEmpty {
+                if !Self.missing(excluding, in: content).isEmpty {
+                    content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+                }
+                let missing = Self.missing(excluding, in: content)
+                if !missing.isEmpty {
+                    return .failure(.failed("exclusion_incomplete: cannot leave out pid \(missing.map(String.init).joined(separator: ","))"))
+                }
+            }
             let own = content.applications.filter { $0.processID == getpid() }
             let filter: SCContentFilter
             let frame: CGRect

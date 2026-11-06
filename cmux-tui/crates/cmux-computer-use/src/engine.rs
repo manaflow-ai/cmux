@@ -870,31 +870,48 @@ impl Engine {
         let blocked_pid = |pid: u32, app: &TargetApp| -> bool {
             pid != 0 && self.blocked(config, &saved, app).is_some()
         };
+        // The processes to leave out come from the capture system's own app
+        // list (every app with a window at any level, helpers with their own
+        // ids too) as well as the engine's lists; the capture refuses rather
+        // than leave a requested, running app in, and then every denied window
+        // is painted out whole instead.
         let mut left_out: Vec<u32> = Vec::new();
-        let excluding = matches!(&target, CaptureTarget::Display(_))
-            && self.desktop.excludes_apps_from_display_capture();
-        if excluding {
+        let mut excluding = false;
+        if matches!(&target, CaptureTarget::Display(_))
+            && self.desktop.excludes_apps_from_display_capture()
+            && let Ok(capture_apps) = self.desktop.capture_apps()
+        {
+            excluding = true;
+            let listed = self.desktop.list_apps().unwrap_or_default();
+            for a in capture_apps.iter().chain(listed.iter()) {
+                let t = TargetApp {
+                    id: if a.id.is_empty() { a.name.clone() } else { a.id.clone() },
+                    name: a.name.clone(),
+                };
+                if blocked_pid(a.pid, &t) && !left_out.contains(&a.pid) {
+                    left_out.push(a.pid);
+                }
+            }
             for w in &windows {
                 if blocked_pid(w.pid, &self.target_of(w, &names)) && !left_out.contains(&w.pid) {
                     left_out.push(w.pid);
                 }
             }
-            if let Ok(apps) = self.desktop.list_apps() {
-                for a in apps {
-                    let t = TargetApp { id: a.id.clone(), name: a.name.clone() };
-                    if blocked_pid(a.pid, &t) && !left_out.contains(&a.pid) {
-                        left_out.push(a.pid);
-                    }
-                }
-            }
         }
-        let raw = match (&target, excluding) {
+        let excluded = match (&target, excluding) {
             (CaptureTarget::Display(display), true) => {
-                self.desktop.capture_display_excluding(display.as_deref(), &left_out)
+                self.desktop.capture_display_excluding(display.as_deref(), &left_out).ok()
             }
-            _ => self.desktop.capture(&target),
+            _ => None,
+        };
+        if excluded.is_none() {
+            excluding = false;
+            left_out.clear();
         }
-        .map_err(|e| ToolOutput::desktop(&e))?;
+        let raw = match excluded {
+            Some(frame) => frame,
+            None => self.desktop.capture(&target).map_err(|e| ToolOutput::desktop(&e))?,
+        };
         let after = self.windows()?;
         let mut redact: Vec<Rect> = Vec::new();
         if !isolated {
