@@ -74,6 +74,12 @@ export const PAGES = {
     out: "webviews/src/pages/import-history/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/import-history/Localizable.xcstrings" }],
   },
+  // The onboarding tool window (Agents, Import from Browsers, Computer Use): the page's own table,
+  // its keys and translations the Swift steps' (CmuxNextOnboarding) it replaces.
+  onboarding: {
+    out: "webviews/src/pages/onboarding/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/onboarding/Localizable.xcstrings" }],
+  },
   gallery: {
     out: "webviews/src/gallery/generated/strings.json",
     catalogs: [{ file: "webviews/src/gallery/Localizable.xcstrings" }],
