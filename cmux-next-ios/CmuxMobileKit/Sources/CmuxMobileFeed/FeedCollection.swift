@@ -15,6 +15,8 @@ final class FeedListControl {
     var atTop = true
     /// Events that arrived above the reader while they read below the top (the "N new" pill).
     var newAbove = 0
+    /// A jump to the top (the pill's) is under way: the pill stays until it lands.
+    var jumpingToTop = false
     @ObservationIgnored fileprivate weak var controller: FeedListController?
 
     func scrollToTop(animated: Bool = true) { controller?.scrollToTop(animated: animated) }
@@ -196,6 +198,9 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
             }
         }, for: .valueChanged)
         view.refreshControl = refresh
+        let catcher = FeedJumpTouchCatcher(target: self, action: #selector(touchDuringJump(_:)))
+        catcher.isArmed = { [weak self] in self?.jumpingToTop ?? false }
+        view.addGestureRecognizer(catcher)
         view.onWidthChange = { [weak self] width in self?.widthChanged(width) }
 
         dataSource = FeedTableDataSource(tableView: view) { [weak self] tableView, indexPath, id in
@@ -687,15 +692,35 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     // MARK: Commands
 
     /// A jump to the top (the "N new" pill) is under way until it lands or the person drags.
-    private var jumpingToTop = false
+    private var jumpingToTop = false {
+        didSet { if control.jumpingToTop != jumpingToTop { control.jumpingToTop = jumpingToTop } }
+    }
 
     func scrollToTop(animated: Bool) {
         guard let collectionView else { return }
         let top = CGPoint(x: 0, y: -collectionView.adjustedContentInset.top)
         jumpingToTop = animated && abs(collectionView.contentOffset.y - top.y) > 0.25
         collectionView.setContentOffset(top, animated: jumpingToTop)
-        if !jumpingToTop, collectionView.contentOffset != top { collectionView.contentOffset = top }
-        control.newAbove = 0
+        if !jumpingToTop {
+            if collectionView.contentOffset != top { collectionView.contentOffset = top }
+            reachedTop()
+        }
+        // A jump clears the count when it reaches the top (scrollViewDidScroll), so the pill keeps
+        // it until then and keeps it when a touch stops the jump on the way.
+    }
+
+    /// The events above have been seen: the pill's count clears.
+    private func reachedTop() {
+        if control.newAbove != 0 { control.newAbove = 0 }
+        store.clearUnseen()
+    }
+
+    /// A touch on the list while a jump to the top moves it: the jump stops where it is (as a touch
+    /// stops a fling), and the touch is the list's, never the row's that moved under the finger.
+    @objc private func touchDuringJump(_ catcher: FeedJumpTouchCatcher) {
+        guard catcher.state == .began, let collectionView else { return }
+        jumpingToTop = false
+        collectionView.setContentOffset(collectionView.contentOffset, animated: false)
     }
 
     /// A snapshot applied during a jump to the top can move or stop the animated offset: aim at
@@ -754,11 +779,12 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         let top = scrollView.contentOffset.y + scrollView.adjustedContentInset.top < 60
         if top != control.atTop { control.atTop = top }
         if top {
-            if control.newAbove != 0 { control.newAbove = 0 }
-            store.clearUnseen()
+            reachedTop()
             // Back at the top: what scrolling brought back from disk goes back there.
             if !scrollView.isTracking { store.restoreWindow() }
         }
+        // At the top exactly: the jump is over, whether or not its animation reported its end.
+        if jumpingToTop, abs(scrollView.contentOffset.y + scrollView.adjustedContentInset.top) <= 0.25 { jumpingToTop = false }
         markMoving()
     }
 
