@@ -18,7 +18,7 @@ import Testing
     /// for a page).
     static let mainThreadWaitBudgetMs: Int32 = 0
 
-    /// A key resize with the switch on: the page follows its pane's page area in every step at the step's size (never the
+    /// A key resize: the page follows its pane's page area in every step at the step's size (never the
     /// start size, never scaled), and no page window is asked to hold a commit for its frame.
     @Test func aKeyResizeShowsThePageAtThePanesSizeInEveryStep() throws {
         let (runtime, root) = try Self.runtime()
@@ -56,7 +56,7 @@ import Testing
         #expect(!host.hostView.layerHosting.inPaneDrag, "the page sync ends with the key resize")
     }
 
-    /// A divider drag with the switch on and `browserResize.dragResize` at its default: the page is hosted, lays out at every
+    /// A divider drag: the page is hosted, lays out at every
     /// drag size, and no page window holds a commit for its frame.
     @Test func aDividerDragShowsTheHostedPageAtThePanesSizeInEveryStep() throws {
         let (runtime, root) = try Self.runtime()
@@ -88,8 +88,7 @@ import Testing
         #expect(!host.hostView.layerHosting.inPaneDrag)
     }
 
-    /// The switch on hosts every new page window in the window's layer tree, with `browserResize.layerHosting` at its
-    /// default (off): the page's pixels commit with its pane.
+    /// Every new page window is hosted in the window's layer tree (no switch): the page's pixels commit with its pane.
     @Test func aNewPageWindowIsHostedInTheWindowsLayers() throws {
         let view = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         defer { withExtendedLifetime(view) {} }
@@ -103,9 +102,8 @@ import Testing
 
     /// The page misses every frame (Chromium never draws at the new size in time). Chromium's resize wait runs inside the
     /// app's commit on the main thread for the deadline the fork holds, so that deadline is the main thread's wait per
-    /// frame. With S5 on it is 0 in a drag, a key resize's page sync and the window's live resize, also with every pre-S5
-    /// wait tunable set to 50 ms, so the main thread commits each frame at once; S5 off with those tunables waits (the
-    /// half-frame cap). `motion.frameOwner.pagesWait` above 0 (measurement only) stays under half a frame.
+    /// frame. It is 0 in a drag, a key resize's page sync and the window's live resize, so the main thread commits each
+    /// frame at once.
     @Test func aPageThatMissesItsFrameNeverHoldsTheMainThread() throws {
         func waitIfThePageMisses(_ fork: FakeFork) -> Int32 { fork.syncs.last?.timeoutMs ?? 0 }
         let view = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
