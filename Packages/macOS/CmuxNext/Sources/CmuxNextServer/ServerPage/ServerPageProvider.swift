@@ -131,21 +131,24 @@ public final class ServerPageProvider: WebCard {
     }
 
     /// One observation of the model for every page that listens; it ends with the last listener.
+    /// Primed now, in the subscribe's turn, so a change before the task first runs is an event.
     private func startWatch() {
         guard watch == nil else { return }
         let model = model
+        let later = ObservationStream.current({ Self.fingerprint(model) }).later
         // task-owner: the pages' subscriptions; cancelled when the last one ends. Event-driven (Observation).
         watch = Task { [weak self] in
-            var first = true
-            for await _ in ObservationStream({ Self.fingerprint(model) }) {
+            for await _ in later {
                 guard !Task.isCancelled, let self else { return }
-                // The first value is the state the pages read with `status`; only changes are events.
-                if first { first = false } else { self.changed() }
+                self.changed()
             }
         }
     }
 
+    /// The state changed: the pages read `status` again, and on the card panel a click begun before
+    /// the card redrew does not count as aimed at its Approve (``WebCardPanel/rearm(at:)``).
     private func changed() {
+        host?.rearm()
         for listener in listeners.values { listener(.object([:])) }
     }
 

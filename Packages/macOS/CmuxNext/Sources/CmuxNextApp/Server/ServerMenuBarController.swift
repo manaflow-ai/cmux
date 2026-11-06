@@ -93,11 +93,7 @@ final class ServerMenuBarController: NSObject {
         guard let provider = currentProvider(), let panel = currentCards(provider) else {
             return Self.logger.fault("server card: no source or card page (the App's services are gone)")
         }
-        if let code {
-            provider.model.beginApproval(code: code)
-        } else {
-            provider.model.beginApproval()
-        }
+        if let code { provider.model.beginApproval(code: code) } else { provider.model.beginApproval() }
         panel.present(card: ServerPageProvider.route, over: Self.frontWindow(), takeKeys: code == nil)
     }
 
