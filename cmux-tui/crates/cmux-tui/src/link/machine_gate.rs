@@ -175,7 +175,34 @@ impl IdentifyFailure {
 
 /// [`identify`], saying why it got no `data`.
 pub(crate) fn identify_checked(socket: &Path) -> Result<Value, IdentifyFailure> {
-    identify_within(socket, IDENTIFY_BUDGET)
+    identify_within(socket, identify_budget())
+}
+
+/// [`IDENTIFY_BUDGET`]; in a test, the shorter one [`with_identify_budget`] set on this thread.
+fn identify_budget() -> Duration {
+    #[cfg(test)]
+    {
+        if let Some(budget) = TEST_IDENTIFY_BUDGET.get() {
+            return budget;
+        }
+    }
+    IDENTIFY_BUDGET
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_IDENTIFY_BUDGET: std::cell::Cell<Option<Duration>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// `body` with `identify` held to `budget` on this thread, so a test keeps the product's
+/// proportions at a fraction of its time.
+#[cfg(test)]
+pub(super) fn with_identify_budget<T>(budget: Duration, body: impl FnOnce() -> T) -> T {
+    let previous = TEST_IDENTIFY_BUDGET.replace(Some(budget));
+    let result = body();
+    TEST_IDENTIFY_BUDGET.set(previous);
+    result
 }
 
 fn identify_within(socket: &Path, budget: Duration) -> Result<Value, IdentifyFailure> {

@@ -82,6 +82,8 @@ struct FakeSource {
     tokens: Mutex<VecDeque<Result<LinkTokenGrant, ConnectInfoError>>>,
     calls: Mutex<usize>,
     mints: Mutex<usize>,
+    /// How long each mint takes before it answers.
+    mint_delay: std::time::Duration,
 }
 
 impl FakeSource {
@@ -107,6 +109,7 @@ impl ConnectInfoSource for FakeSource {
         _services: &[Service],
     ) -> Result<LinkTokenGrant, ConnectInfoError> {
         *self.mints.lock().unwrap() += 1;
+        tokio::time::sleep(self.mint_delay).await;
         self.tokens.lock().unwrap().pop_front().expect("no more link tokens")
     }
 }
@@ -117,6 +120,8 @@ struct CloudOverlay {
     connects: Mutex<Vec<SocketAddr>>,
     far_ends: Mutex<Vec<DuplexStream>>,
     fail: bool,
+    /// How long each connect takes before its handshake answers.
+    connect_delay: std::time::Duration,
 }
 
 impl Overlay for CloudOverlay {
@@ -124,6 +129,7 @@ impl Overlay for CloudOverlay {
 
     async fn connect(&self, remote: SocketAddr) -> std::io::Result<DuplexStream> {
         self.connects.lock().unwrap().push(remote);
+        tokio::time::sleep(self.connect_delay).await;
         if self.fail {
             return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "no handshake"));
         }
@@ -365,4 +371,158 @@ async fn forwarded_cloud_events_drop_records_and_peers() {
 async fn a_missing_relay_is_unavailable() {
     let resolver = CloudResolver::new(RelaySource::unavailable());
     assert!(matches!(resolver.resolve(HOST, false).await, Err(ConnectInfoError::Unavailable(_))));
+}
+
+/// A machine's daemon behind one dialed stream: it reads the service hello, then answers
+/// every request `ok`, keeping each with its stream's number in `seen`; `ended` gets the
+/// number when the stream closes.
+async fn machine_daemon(
+    far: DuplexStream,
+    number: usize,
+    seen: &'static Mutex<Vec<(usize, serde_json::Value)>>,
+    ended: std::sync::mpsc::Sender<usize>,
+) {
+    let mut far = BufReader::new(far);
+    let mut line = String::new();
+    if far.read_line(&mut line).await.unwrap_or(0) > 0 && line.contains("\"link_token\"") {
+        loop {
+            line.clear();
+            if far.read_line(&mut line).await.unwrap_or(0) == 0 {
+                break;
+            }
+            let request: serde_json::Value =
+                serde_json::from_str(line.trim()).unwrap_or(serde_json::Value::Null);
+            seen.lock().unwrap().push((number, request.clone()));
+            let answer = serde_json::json!({"id": request["id"], "ok": true, "data": {}});
+            if far.write_all(format!("{answer}\n").as_bytes()).await.is_err() {
+                break;
+            }
+        }
+    }
+    let _ = ended.send(number);
+}
+
+/// What cmux-cloud's carrier (first-party-apps/cloud/server/src/link/carrier.rs) does with
+/// each connection it accepts, less its `cmux link dial` child: a fresh Cloud dial of its own,
+/// whose reply line it reads before any byte of the connection moves, then the connection
+/// spliced to the dialed stream. Streams are numbered from 1 in the order their dials end.
+async fn carrier(
+    listener: std::os::unix::net::UnixListener,
+    overlay: &'static CloudOverlay,
+    resolver: &'static CloudResolver<FakeSource>,
+    seen: &'static Mutex<Vec<(usize, serde_json::Value)>>,
+    ended: std::sync::mpsc::Sender<usize>,
+) {
+    let listener = tokio::net::UnixListener::from_std(listener).unwrap();
+    let numbers = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(1));
+    while let Ok((mut connection, _)) = listener.accept().await {
+        let (numbers, ended) = (numbers.clone(), ended.clone());
+        tokio::spawn(async move {
+            let (mut caller, link_side) = tokio::io::duplex(64 * 1024);
+            let request = format!(r#"{{"op":"link.dial","host":"{HOST}","service":"daemon"}}"#);
+            tokio::spawn(async move {
+                serve_dial_line(link_side, &request, overlay, &Pairings::default(), resolver, None)
+                    .await;
+            });
+            let reply =
+                super::super::lines::read_line(&mut caller, cmux_link::dial::MAX_LINE_BYTES).await;
+            if !reply.is_ok_and(|reply| reply.contains("\"ok\":true")) {
+                return;
+            }
+            let far = overlay.far_ends.lock().unwrap().pop().expect("the dialed stream");
+            let number = numbers.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            tokio::spawn(machine_daemon(far, number, seen, ended));
+            let _ = tokio::io::copy_bidirectional(&mut connection, &mut caller).await;
+        });
+    }
+}
+
+/// One request on a std stream to the carrier and its answer line.
+fn ask(stream: &mut std::os::unix::net::UnixStream, id: u64) -> serde_json::Value {
+    use std::io::{BufRead as _, Write as _};
+    writeln!(stream, "{}", serde_json::json!({"cmd": "ping", "id": id})).unwrap();
+    let mut answer = String::new();
+    std::io::BufReader::new(stream.try_clone().unwrap()).read_line(&mut answer).unwrap();
+    serde_json::from_str(answer.trim()).unwrap()
+}
+
+/// Every fresh carrier connection is a fresh Cloud dial: an overlay connect (5 s allowed) and
+/// then a token mint (its own 5 s), and only then the first byte reaches the daemon. identify's
+/// 5 s budget starts before both, so a legal 3 s connect and 3 s mint pass it while the app's
+/// own stream stays healthy. Scaled down (identify's budget through its test seam): the copy
+/// answers `machine_not_answering` (`timeout`), nothing after identify reaches the daemon, and
+/// the app's stream still answers. A unit test of that mechanism, not of the production carrier:
+/// `carrier()` here models cmux-cloud's carrier.rs (one dial per connection, then a splice)
+/// without its `cmux link dial` child, so it does not run `open_dial`. The carrier's own case is
+/// carrier.rs `a_slow_dial_of_a_second_stream_runs_past_its_callers_budget_while_the_first_stays_up`.
+/// Neither reproduces a production cause.
+#[test]
+fn identify_on_a_fresh_carrier_times_out_when_dial_and_mint_together_pass_its_budget() {
+    use std::time::{Duration, Instant};
+    let budget = Duration::from_millis(400);
+    // 3 s of identify's 5 s, each: both under their own limits, together past the budget.
+    let delay = budget * 3 / 5;
+    assert!(delay < DIAL_TIMEOUT && delay * 2 > budget);
+    let overlay: &'static CloudOverlay =
+        Box::leak(Box::new(CloudOverlay { connect_delay: delay, ..CloudOverlay::default() }));
+    let resolver: &'static CloudResolver<FakeSource> =
+        Box::leak(Box::new(CloudResolver::new(FakeSource {
+            mint_delay: delay,
+            ..FakeSource::with(vec![Ok(record("running", &["daemon"]))]).tokens(
+                ["t1", "t2", "t3"]
+                    .into_iter()
+                    .map(|token| Ok(grant(token, HOST, &["daemon"])))
+                    .collect(),
+            )
+        })));
+    let seen: &'static Mutex<Vec<(usize, serde_json::Value)>> = Box::leak(Box::default());
+    let (ended, streams_ended) = std::sync::mpsc::channel();
+    let dir = cmux_unix_socket::short_test_dir("carrier-identify");
+    let socket = dir.path().join("carrier.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let runtime =
+        tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
+    runtime.spawn(carrier(listener, overlay, resolver, seen, ended));
+
+    // The app's stream: dialed once, and alive throughout.
+    let mut app = std::os::unix::net::UnixStream::connect(&socket).unwrap();
+    app.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    assert_eq!(ask(&mut app, 7)["ok"], true);
+
+    let project = tempfile::tempdir().unwrap();
+    let state = tempfile::tempdir().unwrap();
+    let ledger = state.path().join("cloud-start-chat").join("destinations.json");
+    let copy = super::super::start_chat_cli::StartCopy {
+        key: "0000000A-0000-4000-8000-0000000C4A1E".into(),
+        account: "user-leo/team-a".into(),
+        machine: "vm-a".into(),
+        socket: socket.clone(),
+        local: project.path().to_string_lossy().into_owned(),
+        subpath: String::new(),
+        work_roots: vec!["/home/cmux/work".into()],
+        acpmux_home: None,
+    };
+    let started = Instant::now();
+    let answer = super::super::machine_gate::with_identify_budget(budget, || {
+        copy.run(&ledger, &super::super::start_chat_cli::push)
+    });
+    let took = started.elapsed();
+    assert_eq!(answer["ok"], false, "{answer}");
+    assert_eq!(answer["error_code"], "machine_not_answering", "{answer}");
+    assert_eq!(answer["identify_failure"], "timeout", "{answer}");
+    assert_eq!(answer["seed_phase"], "copy", "{answer}");
+    assert!(took >= budget && took < budget * 3, "identify gave up after {took:?}");
+
+    // identify's own stream ends once its dial does; the daemon never saw more than identify.
+    assert_eq!(streams_ended.recv_timeout(Duration::from_secs(5)), Ok(2));
+    assert_eq!(*resolver.source.mints.lock().unwrap(), 2, "one fresh dial per connection");
+    assert_eq!(ask(&mut app, 8)["ok"], true, "the app's stream is still alive");
+    let seen = seen.lock().unwrap().clone();
+    for (stream, request) in &seen {
+        let expected = if *stream == 1 { "ping" } else { "identify" };
+        assert_eq!(request["cmd"], expected, "stream {stream} got {request}: {seen:?}");
+    }
+    assert_eq!(seen.iter().filter(|(stream, _)| *stream == 1).count(), 2, "{seen:?}");
+    runtime.shutdown_background();
 }

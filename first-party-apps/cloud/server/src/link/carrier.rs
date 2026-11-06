@@ -363,4 +363,74 @@ mod tests {
         supervisor.disconnect("vm-test");
         std::fs::remove_dir_all(root).expect("remove this test's private files");
     }
+
+    /// A second stream whose dial child is slow (an overlay dial plus a token mint, each within its own limit) leaves a
+    /// caller that budgets its first answer (cmux-tui's `identify`: 5 s) with nothing within that budget, while the stream
+    /// already open keeps answering. Each accepted connection is its own `cmux link dial`, so the caller's budget runs from
+    /// before the carrier even starts that dial. Budgets here are a tenth: 400 ms for the caller, 1 s for the dial child.
+    /// The child is the carrier's to end: a terminate ends the one still dialing.
+    #[test]
+    fn a_slow_dial_of_a_second_stream_runs_past_its_callers_budget_while_the_first_stays_up() {
+        let root = std::env::temp_dir().join(format!("cc-slow-dial-{}", std::process::id()));
+        std::fs::create_dir_all(&root).expect("this test's folder");
+        // The first dial answers at once; each later one takes 1 s. Every dial then echoes its stream (a daemon that answers).
+        let script = r#"n=0; [ -f "$1/n" ] && read n < "$1/n"; echo $((n + 1)) > "$1/n"; echo $$ > "$1/pid$n"
+[ "$n" -gt 0 ] && /bin/sleep 1
+printf '%s\n' '{"ok":true,"path_state":"direct"}' >&2
+exec /bin/cat"#;
+        let command = LinkCommand {
+            binary: PathBuf::from("/bin/sh"),
+            args: vec![
+                "-c".into(),
+                script.into(),
+                "sh".into(),
+                root.to_string_lossy().into_owned(),
+            ],
+            env: vec![],
+            state_dir: root.join("state"),
+            local_socket: root.join("carrier.sock"),
+        };
+        let mut supervisor = LinkSupervisor::new(Box::new(CarrierSpawner));
+        let carrier = supervisor.spawn_and_wait("vm-test", &command).expect("carrier listens");
+        let ask = |stream: &mut UnixStream, line: &str| -> std::io::Result<String> {
+            stream.write_all(line.as_bytes())?;
+            let mut answer = String::new();
+            BufReader::new(stream.try_clone()?).read_line(&mut answer)?;
+            Ok(answer)
+        };
+        let mut app = UnixStream::connect(&carrier.socket).expect("the app's stream");
+        app.set_read_timeout(Some(Duration::from_secs(5))).expect("bounded read");
+        assert_eq!(ask(&mut app, "ping 1\n").expect("the app's stream answers"), "ping 1\n");
+
+        let mut copy = UnixStream::connect(&carrier.socket).expect("the copy's stream");
+        let budget = Duration::from_millis(400);
+        copy.set_read_timeout(Some(budget)).expect("the caller's budget");
+        let started = std::time::Instant::now();
+        let silent = ask(&mut copy, "{\"cmd\":\"identify\",\"id\":1}\n")
+            .expect_err("no answer within the caller's budget");
+        assert!(
+            matches!(silent.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut),
+            "{silent}"
+        );
+        assert!(
+            started.elapsed() < Duration::from_millis(900),
+            "the budget, not the dial, ended the wait"
+        );
+        // Meanwhile the open stream never stopped answering.
+        assert_eq!(ask(&mut app, "ping 2\n").expect("the app's stream still answers"), "ping 2\n");
+
+        let first = std::fs::read_to_string(root.join("pid0")).expect("the first dial ran");
+        let slow = std::fs::read_to_string(root.join("pid1")).expect("the slow dial is running");
+        supervisor.disconnect("vm-test");
+        // A terminate ended and reaped both dials, the slow one included: no child outlives the carrier.
+        for pid in [first.trim(), slow.trim()] {
+            let alive = Command::new("/bin/kill")
+                .args(["-0", pid])
+                .stderr(Stdio::null())
+                .status()
+                .expect("kill -0");
+            assert!(!alive.success(), "dial child {pid} outlived the carrier");
+        }
+        std::fs::remove_dir_all(root).expect("remove this test's private files");
+    }
 }

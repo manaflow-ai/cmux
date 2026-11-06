@@ -997,7 +997,7 @@ impl PushFailure {
 /// machine"): a git folder with a GitHub remote is seeded from it, anything
 /// else copied (`cmux link sync push`), which refuses a machine without
 /// `fs-v1` (`machine_outdated`) itself.
-fn push(socket: &Path, local: &Path, remote: &str) -> Result<Value, PushFailure> {
+pub(super) fn push(socket: &Path, local: &Path, remote: &str) -> Result<Value, PushFailure> {
     super::seed_cli::push(socket, local, remote)
         .map(|pushed| pushed_fields(&pushed.json()))
         .map_err(|error| {

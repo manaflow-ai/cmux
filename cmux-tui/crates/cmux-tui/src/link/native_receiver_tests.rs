@@ -133,9 +133,16 @@ async fn setup(
     receiver.reconcile(Some(&policy)).await.unwrap();
     let source =
         if wrong_source { &policy.peers[0].binding.host } else { &policy.peers[0].install };
+    let client = client_mesh(CLIENT, source, &policy.host, endpoint).await;
+    (receiver, client, owner, policy)
+}
+
+/// A client's mesh with key `private`, sending from `source`'s overlay address, whose one peer
+/// is the receiver of `host` at `endpoint`. Adding that peer sends its first handshake at once.
+async fn client_mesh(private: [u8; 32], source: &str, host: &str, endpoint: SocketAddr) -> WgMesh {
     let client = WgMesh::start(
         WgMeshConfig {
-            private_key: Zeroizing::new(CLIENT),
+            private_key: Zeroizing::new(private),
             addresses: vec![InterfaceAddress {
                 address: IpAddr::V6(overlay_address(source)),
                 prefix: 128,
@@ -149,15 +156,13 @@ async fn setup(
         .add_peer(WgPeer {
             public_key: public(PRIVATE),
             preshared_key: None,
-            allowed_ips: vec![
-                IpNetwork::new(IpAddr::V6(overlay_address(&policy.host)), 128).unwrap(),
-            ],
+            allowed_ips: vec![IpNetwork::new(IpAddr::V6(overlay_address(host)), 128).unwrap()],
             route: Some(endpoint.into()),
             persistent_keepalive: None,
         })
         .await
         .unwrap();
-    (receiver, client, owner, policy)
+    client
 }
 
 async fn drive<T>(receiver: &mut NativeReceiver, future: impl Future<Output = T>) -> T {
@@ -321,5 +326,96 @@ async fn native_receiver_runtime_expiry_closes_a_real_backend_without_a_policy_u
     };
     let (result, ()) = within(async { tokio::join!(serve, check) }).await;
     result.unwrap();
+    client.shutdown().await;
+}
+
+/// The receiver reports ready before its first policy read lands, and until then it has no
+/// peers, so a client that dials at once has its handshake dropped. Production timing (baseline
+/// run 42162063683): first policy reads of 6309 and 6120 ms after ready, so the policy lands at
+/// about 1.24 of the client's 5 s dial (`DIAL_TIMEOUT`), inside its one retry (rule 3: a second
+/// 5 s connect, 10 s in all). Kept at that ratio in real time: the client's recovery is paced
+/// by WireGuard's own handshake repeat (boringtun's `REKEY_TIMEOUT`, 5 s, a constant of that
+/// crate with no seam), so it cannot be scaled down. A policy after the first repeat (5 s) is
+/// met only by the second (10 s): the client gets in, bounded, but at the end of its dial and
+/// retry budget. A key the policy never names is not admitted before the policy or after it.
+#[tokio::test]
+async fn an_early_client_gets_in_on_the_handshake_after_a_late_policy_and_a_stranger_never_does() {
+    // WireGuard's handshake repeat, the same 5 s as the dial's own budget.
+    const REPEAT: Duration = Duration::from_secs(5);
+    // About 6.2 s after ready, as measured: 1.24 of a dial.
+    let policy_at = super::super::dial::DIAL_TIMEOUT * 31 / 25;
+    const STRANGER: [u8; 32] = [7; 32];
+    let owner = Arc::new(Owner::new(keys()).unwrap());
+    let socket = UdpSocket::bind((Ipv6Addr::LOCALHOST, 0)).await.unwrap();
+    let endpoint = socket.local_addr().unwrap();
+    let directory = cmux_unix_socket::short_test_dir("receiver-cold");
+    let mut receiver = NativeReceiver::start(
+        binding(),
+        Zeroizing::new(PRIVATE),
+        socket,
+        directory.path().join("session.sock"),
+        "127.0.0.1:1".parse().unwrap(),
+        owner.verifier(),
+    )
+    .await
+    .unwrap();
+    let host = receiver.binding.host.clone();
+    let install = fixture()["claims"]["sub"].as_str().unwrap().to_string();
+    let stranger_install = "inst_00000000000000000009";
+    let link = SocketAddr::new(IpAddr::V6(overlay_address(&host)), cmux_link::LINK_PORT);
+    let dial = |mesh: WgMesh| {
+        tokio::spawn(async move {
+            let stream = mesh.connect(link).await;
+            (mesh, stream)
+        })
+    };
+    // Both dial first: their handshakes reach a receiver with no peers.
+    let client = dial(client_mesh(CLIENT, &install, &host, endpoint).await);
+    let dialed = Instant::now();
+    let stranger = dial(client_mesh(STRANGER, stranger_install, &host, endpoint).await);
+    assert!(
+        tokio::time::timeout(
+            policy_at.saturating_sub(dialed.elapsed()),
+            receiver.listener.accept()
+        )
+        .await
+        .is_err(),
+        "a stream was admitted before any policy"
+    );
+
+    // The first policy lands late, naming the client only; a stranger dials again after it.
+    let policy = publish(&owner, 0);
+    receiver.reconcile(Some(&policy)).await.unwrap();
+    let late = dial(client_mesh(STRANGER, stranger_install, &host, endpoint).await);
+    let (incoming, key) = within(receiver.listener.accept()).await.expect("the client's stream");
+    let took = dialed.elapsed();
+    assert_eq!(key, public(CLIENT), "only the policy's peer is admitted");
+    // Not before the second repeat (the first came before the policy), and soon after it: a
+    // timer tick (0.25 s) and slack. The product's dial and its retry end at about 10 s too.
+    assert!(
+        took >= REPEAT * 2 - Duration::from_millis(250)
+            && took < REPEAT * 2 + Duration::from_millis(1_500),
+        "the client got in {took:?} after it dialed (policy at {policy_at:?})"
+    );
+    let (client, stream) = within(client).await.unwrap();
+    let stream = stream.expect("the client's own dial connected");
+
+    // The strangers' handshakes (the first one's 10 s repeat came after the policy too) admit
+    // nothing.
+    assert!(
+        tokio::time::timeout(Duration::from_millis(500), receiver.listener.accept()).await.is_err(),
+        "a key absent from the policy was admitted"
+    );
+    for dial in [stranger, late] {
+        if dial.is_finished() {
+            let (_, connected) = dial.await.unwrap();
+            assert!(connected.is_err(), "a key absent from the policy connected");
+        } else {
+            dial.abort();
+        }
+    }
+    drop((incoming, stream));
+    let (_policies, updates) = mpsc::channel(1);
+    within(receiver.serve(updates, async {})).await.unwrap();
     client.shutdown().await;
 }
