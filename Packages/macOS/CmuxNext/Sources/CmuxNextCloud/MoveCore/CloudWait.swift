@@ -1,9 +1,10 @@
 import CmuxNextCompat
-import CmuxNextDaemon
+public import CmuxNextDaemon
 import Foundation
 public import CmuxNextWakeups
 
-/// Bounded waits on main-actor state for the Cloud flows.
+/// Bounded waits on main-actor state for the Cloud flows: the observation glue. What counts as done, the
+/// deadlines and which failure is a dropped link are Rust's (`moves::wait`, ops `cloud_move_*`).
 @MainActor
 public struct CloudWait {
     public init() {}
@@ -29,9 +30,9 @@ public struct CloudWait {
         }
     }
 
-    /// How a start's wait spaces its redials (``holds(within:redialing:redial:until:)``): 1 s growing to 10 s, so a
-    /// new machine's receiver that answers half a minute after its record runs is dialed again within seconds.
-    public static let startRedial = Backoff(initial: .seconds(1), maximum: .seconds(10))
+    /// How a start's wait spaces its redials (``holds(within:redialing:redial:until:)``), as Rust's deadlines say.
+    public static let startRedial = Backoff(initial: .milliseconds(CloudMoveCore.deadlines.startRedialInitialMs),
+                                            maximum: .milliseconds(CloudMoveCore.deadlines.startRedialMaximumMs))
 
     /// Whether `condition` holds within `limit`: `redial` runs first and again after each of `backoff`'s delays,
     /// so a link that ended while the condition did not hold yet is dialed again (a new machine's daemon may
@@ -76,15 +77,15 @@ public struct CloudWait {
     public static func linkFailure(within limit: Duration, connected: @escaping @MainActor @Sendable () -> Bool,
                                    failure: @escaping @MainActor @Sendable () -> String?, deadline: String) async -> String? {
         @MainActor final class Seen { var cleared = false }
+        struct Look: Encodable { var connected: Bool, failed: Bool, cleared: Bool }
+        struct Step: Decodable { var done: Bool, cleared: Bool }
         let seen = Seen()
         seen.cleared = failure() == nil
         _ = await holds(within: limit) {
-            if connected() { return true }
-            guard failure() != nil else {
-                seen.cleared = true
-                return false
-            }
-            return seen.cleared
+            let look = Look(connected: connected(), failed: failure() != nil, cleared: seen.cleared)
+            guard let step = CloudMoveCore().call("link_look", look, as: Step.self) else { return look.connected }
+            seen.cleared = step.cleared
+            return step.done
         }
         return connected() ? nil : failure() ?? deadline
     }
@@ -161,11 +162,14 @@ extension CloudWait {
     /// `closed`): the connection closed (an EOF right after a resume), or the link socket was gone or refused while its
     /// carrier rebound it (`connect …/cmux-link-….sock failed: No such file or directory`, start matrix run 42125025387).
     public nonisolated static func linkDropped(_ error: any Error) -> Bool {
-        switch error {
-        case DaemonError.connectionClosed: true
-        case DaemonError.connectFailed(_, let code): code == ENOENT || code == ECONNREFUSED
-        default: false
+        struct Failure: Encodable { var kind: String, code: Int32? }
+        struct Reply: Decodable { var dropped: Bool }
+        let failure = switch error {
+        case DaemonError.connectionClosed: Failure(kind: "connectionClosed", code: nil)
+        case DaemonError.connectFailed(_, let code): Failure(kind: "connectFailed", code: code)
+        default: Failure(kind: "other", code: nil)
         }
+        return CloudMoveCore().call("link_dropped", failure, as: Reply.self)?.dropped ?? false
     }
 
     /// A refused start's machine `update`, then its new link: the update restarts the machine's daemon and its carrier
@@ -173,13 +177,16 @@ extension CloudWait {
     /// 42125025387 on bcf992a1: a first chat with no folder on a new machine). As ``CloudOutdatedMachine/copy`` does,
     /// this waits, up to `relink`, for `handshake` (the connection's key) to change from what it was before. False when
     /// `update` ran no turn; true after the wait, whether the new handshake came or not (the start's next refusal stands).
-    public static func updatedThenRelinked(handshake: @escaping @MainActor @Sendable () -> String?, relink: Duration = .seconds(90),
+    public static func updatedThenRelinked(handshake: @escaping @MainActor @Sendable () -> String?, relink: Duration = relinkWait,
                                            update: () async -> Bool) async -> Bool {
         let before = handshake()
         guard await update() else { return false }
-        _ = await holds(within: relink) { handshake().map { $0 != before && $0 != "refused" } ?? false }
+        _ = await holds(within: relink) { CloudMoveCore().relinked(before: before, now: handshake(), refusedCounts: false) }
         return true
     }
+
+    /// How long a start or a copy waits for a machine's new link after an update restarted its daemon.
+    public static var relinkWait: Duration { .milliseconds(CloudMoveCore.deadlines.relinkMs) }
 
     public static func retriedOnce<T>(_ start: () async throws -> T, closed: (any Error) -> Bool,
                                       relink: () async -> Bool) async throws -> T {
@@ -189,5 +196,116 @@ extension CloudWait {
             guard await relink() else { throw error }
             return try await start()
         }
+    }
+}
+
+/// A Cloud machine whose cmux-tui is older than the app's: the CLIs Move to Cloud, Bring Back Local
+/// and a chat start's folder copy run (cmux-tui `link/machine_gate.rs`) refuse it with ``code``.
+///
+/// A new machine's image may carry an older cmux-tui than the app, and the automatic update its
+/// first handshake queued may not have run yet. A chat start's copy (`cmux link start-chat copy`)
+/// refused that way updates the machine to the app's own build and copies once more, on its new link (``copy(socket:link:notConnected:relink:_:answer:update:)``),
+/// instead of failing the person's first send with "Update the machine".
+public struct CloudOutdatedMachine {
+    public init() {}
+    /// The CLIs' error code for a daemon too old for the verb.
+    public static let code = "machine_outdated"
+
+    /// Whether an answer (`ok`, `error_code`, `side`) is the machine's older daemon refusing it (Rust's rule:
+    /// ``code`` about the machine, never this Mac's own daemon).
+    public static func updatesBeforeCopyingAgain(ok: Bool, errorCode: String?, side: String?) -> Bool {
+        CloudMoveCore().updatesBeforeCopyingAgain(ok: ok, errorCode: errorCode, side: side)
+    }
+
+    /// Updates a machine before using a capability that its current daemon does not advertise.
+    /// The update restarts the daemon, so this waits, up to `relink`, for `holds` itself (read from the
+    /// new handshake), not just for the link to change: a new link may come up before its handshake
+    /// carries the capability, and opening then was refused although the update had worked (capture at
+    /// a799d97a, 2026-11-02). If the update cannot run or the capability does not arrive in time, this
+    /// returns and the caller's existing capability refusal remains the final result.
+    @MainActor
+    public static func updateBeforeUsingCapability(
+        holds: @escaping @MainActor @Sendable () -> Bool,
+        relink: Duration = CloudWait.relinkWait,
+        update: @escaping @MainActor @Sendable () async -> Bool
+    ) async {
+        guard !holds() else { return }
+        guard await update() else { return }
+        _ = await CloudWait.holds(within: relink, until: holds)
+    }
+
+    /// Runs `copy` on the machine's link socket (`socket`, nil when not connected: `notConnected` is thrown); when
+    /// its answer (read by `answer`) is the machine's older daemon refusing it (``updatesBeforeCopyingAgain(ok:errorCode:side:)``)
+    /// and `update` updated the machine (true), runs it once more. Otherwise the first answer stands: nothing else updates it.
+    ///
+    /// The update restarts the machine's daemon and its link comes back on a new socket: copying again on the
+    /// first one failed with "cannot connect to …/cmux-link-….sock: No such file or directory" (capture at
+    /// ff3f8c9b, 2026-11-01). So the second copy waits, up to `relink`, for `link` (the connection's handshake
+    /// key) to change from what it was before the update, and reads the socket again.
+    @MainActor
+    public static func copy<Answer>(socket: () async -> String?, link: @escaping @MainActor @Sendable () -> String?, notConnected: any Error,
+                                    relink: Duration = CloudWait.relinkWait, _ copy: (String) async throws -> Answer,
+                                    answer: (Answer) -> (ok: Bool, errorCode: String?, side: String?), update: () async -> Bool) async throws -> Answer {
+        guard let path = await socket() else { throw notConnected }
+        let before = link()
+        let first = try await copy(path)
+        let read = answer(first)
+        guard updatesBeforeCopyingAgain(ok: read.ok, errorCode: read.errorCode, side: read.side), await update() else { return first }
+        _ = await CloudWait.holds(within: relink) { CloudMoveCore().relinked(before: before, now: link(), refusedCounts: true) }
+        guard let again = await socket() else { throw notConnected }
+        return try await copy(again)
+    }
+}
+
+/// The workspace on a Cloud machine where its terminals and chats land (`CloudHandlers.terminalAnchor`:
+/// a chat start's chat, `cloud start-session`, a browser tab): the machine's first workspace, or a new
+/// one when it has none.
+///
+/// The app finds a workspace by its id alone (`MachineRegistry.workspace(id:)`: this Mac's tree, then
+/// the first machine's that lists it), and machines made from one image list the same key for their
+/// first workspace (capture d143d61c: cloud-chats and cloud-chats-3 both listed workspace-1 as
+/// a40723c3-…). A chat opened in such a workspace was shown in another machine's: the window showed
+/// cloud-chats-2's empty chat, the chat on cloud-chats never loaded its page, and its seeded first
+/// message, handed over only at the page's handshake, never went. So a workspace another machine
+/// (or this Mac) also lists (`listedElsewhere`) is never the anchor: a new one is made instead.
+@MainActor
+public struct CloudMachineWorkspace {
+    public init() {}
+
+    public static func targetAnchor(_ paneID: String, in store: DaemonStore) -> (id: String, key: WorkspaceKey, pane: PaneModel)? {
+        for workspace in store.workspaces {
+            guard let key = workspace.key else { continue }
+            if let pane = workspace.screens.flatMap(\.panes).first(where: { $0.resourceID?.rawValue == paneID }) {
+                return (workspace.id, key, pane)
+            }
+        }
+        return nil
+    }
+
+    /// The first workspace `store` lists that no other tree lists, nil when it has none. A daemon's
+    /// connection is up before its first tree is applied (right after a resume), and the list then is
+    /// the last connection's, not "none": the read waits for this connection's tree (`liveTreeEpoch`),
+    /// up to `limit`, so an open never makes a second workspace. The connection is published before
+    /// the store hears `.connected` (which moves the epoch), so the store must say connected too. A
+    /// tree that never comes within `limit` throws `notConnected`: never "none", which would make one.
+    public static func existing(in store: DaemonStore, within limit: Duration = .milliseconds(CloudMoveCore.deadlines.workspaceTreeMs), notConnected: @autoclosure () -> any Error,
+                                listedElsewhere: (String) -> Bool = { _ in false }) async throws -> String? {
+        let current = { @MainActor @Sendable in
+            if case .connected = store.connectionState { return store.liveTreeEpoch == store.connectionEpoch }
+            return false
+        }
+        if !(await current()), await !CloudWait.holds(within: limit, until: current) { throw notConnected() }
+        return store.workspaces.lazy.map(\.id).first { !listedElsewhere($0) }
+    }
+
+    /// ``existing(in:within:notConnected:listedElsewhere:)``, else a workspace `create` makes (nil:
+    /// `notConnected`), after `beforeCreate`, whose throw makes none. `created` says which.
+    public static func first(in store: DaemonStore, notConnected: @autoclosure () -> any Error, listedElsewhere: (String) -> Bool = { _ in false },
+                             beforeCreate: () throws -> Void, create: () async -> String?) async throws -> (id: String, created: Bool) {
+        if let first = try await existing(in: store, notConnected: notConnected(), listedElsewhere: listedElsewhere) { return (first, false) }
+        // The live tree, rather than the stale pre-wait tree, decides whether creation needs consent.
+        try beforeCreate()
+        guard let id = await create() else { throw notConnected() }
+        return (id, true)
     }
 }

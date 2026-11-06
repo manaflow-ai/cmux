@@ -5,7 +5,8 @@ public import Foundation
 /// goes on waits for that run. A run that ends with a caller still waiting has reached it and is
 /// dropped; one that ends after every caller answered `pending` is kept for the next same ask,
 /// which gets its end once. A kept run lasts at most ``kept`` (checked on every ask) and at most
-/// ``limit`` are kept, trimmed when a run starts and when one is kept; no timer. Runs and
+/// ``limit`` are kept, trimmed when a run starts and when one is kept; no timer. How long and how many,
+/// and which kept runs go, are Rust's (`moves::wait`, ops `cloud_move_runs*`); this is the main-actor glue. Runs and
 /// creations are per account (user and team): another account's ask never joins or takes them,
 /// and a sign-out or team switch ends them (``forgetAll()``).
 ///
@@ -43,8 +44,8 @@ public final class CloudStartRuns<Answer: Sendable, Machine: Sendable> {
         nonisolated deinit {}
     }
 
-    public static var kept: Duration { .seconds(600) }
-    public static var limit: Int { 32 }
+    public static var kept: Duration { .milliseconds(CloudMoveCore.deadlines.runKeptMs) }
+    public static var limit: Int { CloudMoveCore.deadlines.runsKept }
     private var runs: [Key: Run] = [:]
     /// Creations of a machine by name and account, each with its own token: two asks for one new
     /// name create one machine.
@@ -154,7 +155,7 @@ public final class CloudStartRuns<Answer: Sendable, Machine: Sendable> {
         if let run = runs[key] {
             if let kept = run.kept {
                 runs[key] = nil
-                if now() - kept <= Self.kept { return (run, false) }
+                if Self.reusable(age: now() - kept) { return (run, false) }
             } else {
                 return (run, false)
             }
@@ -190,12 +191,24 @@ public final class CloudStartRuns<Answer: Sendable, Machine: Sendable> {
     /// Callers waiting on any run now (tests: a caller that answered pending holds nothing).
     public var waitingCount: Int { runs.values.reduce(0) { $0 + $1.waiters.count } }
 
-    /// Drops expired kept runs, then the oldest kept ones beyond `keeping`.
+    /// Whether a run kept `age` ago still answers the next same ask (Rust's rule; an FFI that does not answer starts anew).
+    private static func reusable(age: Duration) -> Bool {
+        struct Request: Encodable { var ageMs: UInt64 }
+        struct Reply: Decodable { var reusable: Bool }
+        return CloudMoveCore().call("run_reusable", Request(ageMs: UInt64(max(0, age.wholeMilliseconds))), as: Reply.self)?.reusable ?? false
+    }
+
+    /// Drops the kept runs Rust names: expired ones, then the oldest beyond `keeping`.
     private func trim(keeping: Int) {
-        let cutoff = now() - Self.kept
-        runs = runs.filter { $0.value.kept.map { $0 > cutoff } ?? true }
-        let kept = runs.compactMap { key, run in run.kept.map { (key, $0) } }.sorted { $0.1 < $1.1 }
-        for (key, _) in kept.prefix(max(0, kept.count - keeping)) { runs[key] = nil }
+        struct Kept: Encodable { var id: Int, ageMs: UInt64 }
+        struct Request: Encodable { var kept: [Kept], keeping: Int }
+        struct Reply: Decodable { var drop: [Int] }
+        let at = now()
+        let kept = Array(runs.compactMap { key, run in run.kept.map { (key, $0) } }.enumerated())
+        let request = Request(kept: kept.map { Kept(id: $0.offset, ageMs: UInt64(max(0, (at - $0.element.1).wholeMilliseconds))) }, keeping: keeping)
+        // An FFI that does not answer drops every kept run: none outlives its limit.
+        let drop = CloudMoveCore().call("runs", request, as: Reply.self)?.drop ?? kept.map(\.offset)
+        for index in drop where kept.indices.contains(index) { runs[kept[index].element.0] = nil }
     }
 
     /// Before a new run: room for it among the kept ones.
@@ -217,5 +230,68 @@ public struct CloudStartRunKey: Hashable, Sendable {
 
     public init(machine: String, agent: String, cwd: String?, caller: String?, account: [String?], login: String? = nil) {
         (self.machine, self.agent, self.cwd, self.caller, self.account, self.login) = (machine, agent, cwd, caller, account, login)
+    }
+}
+
+/// Coalesces triggers waiting for the next read, without joining a read that
+/// started before the trigger. Each caller waits for its own batch's result.
+@MainActor
+public final class CloudRefreshGate {
+    @MainActor
+    private final class Batch {
+        var task: Task<Bool, Never>?
+        var queued = true
+        var waiters: Set<UUID> = []
+    }
+
+    private var tail: Batch?
+    private var batches: [UUID: Batch] = [:]
+
+    public init() {}
+
+    @discardableResult
+    public func run(_ operation: @escaping @MainActor () async -> Bool) async -> Bool {
+        guard !Task.isCancelled else { return false }
+        let batch: Batch
+        if let tail, tail.queued, tail.task?.isCancelled == false {
+            batch = tail
+        } else {
+            batch = Batch()
+            let previous = tail?.task
+            let batchID = UUID()
+            batches[batchID] = batch
+            tail = batch
+            // task-owner: batches; cancel() stops every read during service teardown.
+            batch.task = Task { @MainActor in
+                defer {
+                    self.batches.removeValue(forKey: batchID)
+                    if self.tail === batch { self.tail = nil }
+                }
+                if let previous { _ = await previous.value }
+                batch.queued = false
+                guard !Task.isCancelled else { return false }
+                return await operation()
+            }
+        }
+        let ticket = UUID()
+        batch.waiters.insert(ticket)
+        guard let task = batch.task else { return false }
+        defer { batch.waiters.remove(ticket) }
+        let result = await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            // task-owner: one main-actor cancellation handoff; no recurring work.
+            Task { @MainActor in
+                batch.waiters.remove(ticket)
+                if batch.waiters.isEmpty { batch.task?.cancel() }
+            }
+        }
+        return !Task.isCancelled && result
+    }
+
+    /// Keeps the serialization chain until canceled work unwinds, so a restart
+    /// cannot overlap an old transport that has not returned from cancellation.
+    public func cancel() {
+        for batch in batches.values { batch.task?.cancel() }
     }
 }
