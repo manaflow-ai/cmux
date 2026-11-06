@@ -19,13 +19,21 @@ auth all go over it. Nothing else reaches the machine.
    readiness event, and nobody polls for it. After a pause, the machine registers again on resume.
 2. **The device connects out.** The device asks the same route for a Connect ticket and a carrier grant,
    then connects to the slot. If the machine isn't registered yet, the slot holds the connect (`Parked`)
-   and pairs the two as soon as the machine registers. If the machine is paused, the route starts it.
+   and pairs the two as soon as the machine registers. A client says it understands `Parked` in its
+   Connect; an older client is never sent the frame, since an unknown control frame ends its connection. If the machine is paused, the route starts it.
 3. **One Noise session, end to end.** The two sides run `Noise_XX_25519_ChaChaPoly_BLAKE2s` (the `snow`
    library, `cmux-remote/src/crypto.rs`).
    - The device pins the daemon's static key from the machine record.
    - The daemon admits the device on a carrier grant: an Ed25519 JWS (`cmux-carrier+jwt`) that names the
-     machine, the person, the services and the SHA-256 of the device's Noise key. The daemon verifies it
-     locally against the platform keyset.
+     machine, the team, the person, the services and the SHA-256 of the device's Noise key. The daemon
+     verifies it locally against the platform keyset. It refuses the grant unless all of these hold:
+     - `aud` is the daemon's own bound machine id and `team` is its team, so a grant for one machine
+       can't open another;
+     - `nk` matches the key that just finished the handshake;
+     - its `jti` hasn't been seen.
+   - Every connect and every reconnect fetches a fresh grant. When the platform can't mint one, a session
+     that is already up resumes on its resume lease, because resume needs no grant. A new session waits,
+     with backoff, until the connect deadline.
    - The relay only ever sees ciphertext.
 4. **Everything rides the session** as cmux-remote services:
    - chat and terminals on `MuxControl`;
