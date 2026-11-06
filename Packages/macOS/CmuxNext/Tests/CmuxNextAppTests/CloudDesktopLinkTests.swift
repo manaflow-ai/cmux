@@ -36,24 +36,50 @@ import Testing
 
     @Test func theDialIsServiceDesktopOverTheCarrier() throws {
         let dial = try #require(CloudDesktopLinkDial(machine: "vm_abc123"))
-        #expect(dial.arguments == ["carrier", "dial", "--machine", "vm_abc123", "--service", "desktop", "--deadline-ms", "9000"])
+        #expect(dial.arguments == ["carrier", "dial", "--machine", "vm_abc123", "--service", "desktop", "--deadline-ms", "180000"])
         #expect(CloudDesktopLinkDial(machine: "") == nil)
         #expect(CloudDesktopLinkDial(machine: "vm 1; rm -rf /") == nil)
-        let environment = CloudDesktopLinkDial.environment(platform: try #require(URL(string: "https://platform.example")), accessToken: "t-1")
-        #expect(environment == ["CMUX_CLOUD_API_URL": "https://platform.example", "CMUX_CLOUD_ACCESS_TOKEN": "t-1"])
+        let platform = try #require(URL(string: "https://platform.example"))
+        #expect(CloudDesktopLinkDial.environment(platform: platform, accessToken: "t-1", team: nil)
+            == ["CMUX_CLOUD_API_URL": "https://platform.example", "CMUX_CLOUD_ACCESS_TOKEN": "t-1"])
+        #expect(CloudDesktopLinkDial.environment(platform: platform, accessToken: "t-1", team: "")
+            == ["CMUX_CLOUD_API_URL": "https://platform.example", "CMUX_CLOUD_ACCESS_TOKEN": "t-1"])
+        #expect(CloudDesktopLinkDial.environment(platform: platform, accessToken: "t-1", team: "team_0123456789abcdef0123")
+            == ["CMUX_CLOUD_API_URL": "https://platform.example", "CMUX_CLOUD_ACCESS_TOKEN": "t-1", "CMUX_CLOUD_TEAM": "team_0123456789abcdef0123"])
+    }
+
+    /// The machine's team comes from its cmux-next record (`team`), the one `cloud.machine.list` answers.
+    @Test func theRecordNamesTheMachinesTeam() throws {
+        func record(_ json: String) throws -> CloudMachine? {
+            CloudMachine(next: try JSONDecoder().decode(CmuxNextDaemon.JSONValue.self, from: Data(json.utf8)))
+        }
+        #expect(try record(#"{"id":"vm_abc123","status":"running","team":"team_0123456789abcdef0123","desktop":true}"#)?.team == "team_0123456789abcdef0123")
+        #expect(try record(#"{"id":"vm_abc123","status":"running"}"#)?.team == nil)
+    }
+
+    /// The bridge waits for the dial line as long as its caller says: a cold machine's resume takes
+    /// seconds before the carrier answers, so the desktop dial's wait follows its own deadline.
+    @Test func theBridgeWaitsAsLongAsItsCallerSays() async throws {
+        let cli = try Self.standIn("sleep 1\nprintf '{\"ok\":true}\\n' >&2\n")
+        defer { try? FileManager.default.removeItem(at: cli.deletingLastPathComponent()) }
+        let short = DaemonBridge(executable: cli.path, arguments: [], replyTimeoutMs: 100)
+        await #expect(throws: DaemonError.self) { _ = try await Task.detached { try short.openStream() }.value }
+        let long = DaemonBridge(executable: cli.path, arguments: [], replyTimeoutMs: 10_000)
+        let stream = try await Task.detached { try long.openStream() }.value
+        stream.close()
     }
 
     /// The dial runs the bundled CLI's `carrier dial` with the credential in its environment: here a
-    /// stand-in that answers the dial line on stderr and echoes its argv and the two variables as the stream.
+    /// stand-in that answers the dial line on stderr and echoes its argv and the three variables as the stream.
     @Test func theDialRunsCarrierDialWithTheCredential() async throws {
-        let cli = try Self.standIn("printf '{\"ok\":true,\"path_state\":\"relay\",\"route\":\"carrier\"}\\n' >&2\nprintf '%s ' \"$@\" \"$CMUX_CLOUD_API_URL\" \"$CMUX_CLOUD_ACCESS_TOKEN\"\n")
+        let cli = try Self.standIn("printf '{\"ok\":true,\"path_state\":\"relay\",\"route\":\"carrier\"}\\n' >&2\nprintf '%s ' \"$@\" \"$CMUX_CLOUD_API_URL\" \"$CMUX_CLOUD_ACCESS_TOKEN\" \"$CMUX_CLOUD_TEAM\"\n")
         defer { try? FileManager.default.removeItem(at: cli.deletingLastPathComponent()) }
         let dial = try #require(CloudDesktopLinkDial(machine: "vm_abc123"))
-        let stream = try await dial.open(cli: cli, environment: ["CMUX_CLOUD_API_URL": "https://p", "CMUX_CLOUD_ACCESS_TOKEN": "t-1"])
+        let stream = try await dial.open(cli: cli, environment: ["CMUX_CLOUD_API_URL": "https://p", "CMUX_CLOUD_ACCESS_TOKEN": "t-1", "CMUX_CLOUD_TEAM": "team_x"])
         var bytes = Data()
         while let chunk = await stream.read() { bytes.append(chunk) }
         stream.close()
-        #expect(String(decoding: bytes, as: UTF8.self) == "carrier dial --machine vm_abc123 --service desktop --deadline-ms 9000 https://p t-1 ")
+        #expect(String(decoding: bytes, as: UTF8.self) == "carrier dial --machine vm_abc123 --service desktop --deadline-ms 180000 https://p t-1 team_x ")
     }
 
     /// Someone other than the owner: the machine refuses the desktop (`service_refused`, exit 6).

@@ -21,12 +21,12 @@ extension AppServices {
     /// `cmux carrier dial --service desktop` per session with the platform origin and the person's
     /// access token (``CloudDesktopLinkDial``); each session's transport in the mode it asks for.
     func cloudDesktopRdTransport(machine: String) -> (@MainActor (_ control: Bool) -> RemoteRdStreamTransport?)? {
-        guard let id = machines.cloud.first(where: { $0.machineID.lowercased() == machine.lowercased() })?.machineID,
-              let dial = CloudDesktopLinkDial(machine: id), let cli = cloud.binary else { return nil }
-        let (auth, platform, hello) = (cloud.auth, cloud.configuration.relayAPIBaseURL(), RemoteRdHello.cloudDesktop())
+        guard let session = machines.cloud.first(where: { $0.machineID.lowercased() == machine.lowercased() }),
+              let dial = CloudDesktopLinkDial(machine: session.machineID), let cli = cloud.binary else { return nil }
+        let (auth, platform, hello, team) = (cloud.auth, cloud.configuration.relayAPIBaseURL(), RemoteRdHello.cloudDesktop(), session.machine.team)
         return { control in
             let carrier = RemoteRdStreamCarrier {
-                let environment = CloudDesktopLinkDial.environment(platform: platform, accessToken: try await auth.tokens().access)
+                let environment = CloudDesktopLinkDial.environment(platform: platform, accessToken: try await auth.tokens().access, team: team)
                 let stream = try await dial.open(cli: cli, environment: environment)
                 return RemoteRdByteStream(read: { await stream.read() }, write: { try await stream.send($0) }, close: { stream.close() })
             }

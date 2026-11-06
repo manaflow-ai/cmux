@@ -15,14 +15,16 @@ public struct DaemonBridge: Hashable, Sendable {
     public var arguments: [String]
     /// Variables set for the child on top of the app's environment (a carrier dial's platform origin and token).
     public var environment: [String: String]
+    /// How long the child may take to write its dial line (a carrier dial waits out a cold machine's resume).
+    public var replyTimeoutMs: Int32
 
-    public init(executable: String, arguments: [String], environment: [String: String] = [:]) {
+    public init(executable: String, arguments: [String], environment: [String: String] = [:], replyTimeoutMs: Int32 = 10_000) {
         self.executable = executable
         self.arguments = arguments
         self.environment = environment
+        self.replyTimeoutMs = replyTimeoutMs
     }
 
-    static let replyTimeoutMs: Int32 = 10_000
     static let maxReplyBytes = 1024
 
     /// Spawns the bridge and waits for its dial line: the descriptor of the
@@ -69,7 +71,7 @@ public struct DaemonBridge: Hashable, Sendable {
         }
         let child = BridgeChild(pid: pid, stderr: errRead)
         do {
-            try DaemonBridge.check(try Self.readLine(errRead))
+            try DaemonBridge.check(try Self.readLine(errRead, timeoutMs: replyTimeoutMs))
         } catch {
             child.terminate()
             Darwin.close(mine)
@@ -79,11 +81,11 @@ public struct DaemonBridge: Hashable, Sendable {
     }
 
     /// One line from the child's stderr within the deadline.
-    static func readLine(_ fd: Int32) throws(DaemonError) -> Data {
+    static func readLine(_ fd: Int32, timeoutMs: Int32) throws(DaemonError) -> Data {
         var line: [UInt8] = []
         for _ in 0...(maxReplyBytes + 8) {
             var poller = pollfd(fd: fd, events: Int16(clamping: POLLIN), revents: 0)
-            let ready = poll(&poller, 1, replyTimeoutMs)
+            let ready = poll(&poller, 1, timeoutMs)
             if ready < 0, errno == EINTR { continue }
             guard ready > 0 else { throw .endpointBlocked("the link dial gave no answer") }
             var byte: UInt8 = 0
