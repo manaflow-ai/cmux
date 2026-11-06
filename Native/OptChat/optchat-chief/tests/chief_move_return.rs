@@ -730,3 +730,103 @@ fn a_watcher_that_dies_mid_move_leaves_the_request_for_the_next_watcher() {
     assert_eq!(local_memory(&src).len(), 4);
     assert!(!on_mini.join("state/teleport-request.json").exists());
 }
+
+/// A stand-in `ssh` like `fake_ssh` that, when first asked to checkpoint the mini, writes `file`
+/// with `text` there first: a request written while the watcher's move runs.
+fn fake_ssh_writing_during_move(dir: &Path, remote_home: &Path, file: &Path, text: &str) -> PathBuf {
+    let path = dir.join("fake-ssh-write");
+    let flag = dir.join("wrote-once");
+    let body = dir.join("newer-request.json");
+    write(&body, text);
+    write(
+        &path,
+        &format!(
+            "#!/bin/sh\nwhile [ \"$1\" = -o ]; do shift 2; done\nshift\n\
+             case \"$1\" in *'move checkpoint'*) [ -e '{f}' ] || {{ : > '{f}'; cp '{b}' '{t}'; }} ;; esac\n\
+             cd '{h}' && HOME='{h}' exec sh -c \"$1\"\n",
+            f = flag.display(),
+            b = body.display(),
+            t = file.display(),
+            h = remote_home.display()
+        ),
+    );
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    path
+}
+
+/// A home moved out to a stand-in mini, with the mini's copy of it.
+fn moved_to_mini(dir: &Path) -> (PathBuf, PathBuf, PathBuf, PathBuf) {
+    let probe = dir.join("probe");
+    std::fs::create_dir_all(&probe).unwrap();
+    let seed_home = moved_home(&probe, "http://127.0.0.1:1");
+    let (base, _seen) = fake_cloud(local_memory(&seed_home));
+    let src = moved_home(dir, &base);
+    let cli = fake_app_cli(dir, &base);
+    let remote = dir.join("mini-user");
+    std::fs::create_dir_all(&remote).unwrap();
+    let remote = std::fs::canonicalize(remote).unwrap();
+    let out = Command::new(BIN)
+        .args(["move", "--to", "ssh:mini", "--remote-bin", BIN, "--home", src.to_str().unwrap()])
+        .env("OPTCHAT_MOVE_CMUX", &cli)
+        .env("OPTCHAT_MOVE_SSH", fake_ssh(dir, &remote))
+        .env_remove("CMUX_CLOUD_SESSION_TOKEN")
+        .output()
+        .unwrap();
+    assert_eq!(report(&out)["moved"], true);
+    (src, cli, remote.join(".cmux/chief/src"), remote)
+}
+
+/// One watcher run over `src`, ended when it exits or after `secs`.
+fn watch_once(src: &Path, cli: &Path, ssh: &Path, secs: u64) {
+    let mut child = Command::new(BIN)
+        .args(["move", "watch", "--every", "1", "--remote-bin", BIN, "--home", src.to_str().unwrap()])
+        .env("OPTCHAT_MOVE_CMUX", cli)
+        .env("OPTCHAT_MOVE_SSH", ssh)
+        .env_remove("CMUX_CLOUD_SESSION_TOKEN")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(secs);
+    // Bounded wait for the watcher to end.
+    while child.try_wait().unwrap().is_none() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+/// A request written while the watcher carries out an older one is not the one it handled:
+/// clearing the handled request leaves the newer one in place.
+#[test]
+fn a_request_written_during_a_move_is_not_cleared_with_the_one_carried_out() {
+    let dir = tempfile::tempdir().unwrap();
+    let (src, cli, on_mini, remote) = moved_to_mini(dir.path());
+    let file = on_mini.join("state/teleport-request.json");
+    write(&file, &json!({"to": "home", "id": "tp-old"}).to_string());
+    let newer = json!({"to": "home", "id": "tp-new"}).to_string();
+    let ssh = fake_ssh_writing_during_move(dir.path(), &remote, &file, &newer);
+    watch_once(&src, &cli, &ssh, 60);
+    assert!(dir.path().join("wrote-once").exists(), "the newer request was written mid-move");
+    assert!(!src.join("state/moved.json").exists(), "the old request was carried out");
+    let left = std::fs::read_to_string(&file).unwrap_or_default();
+    assert!(left.contains("tp-new"), "the newer request is still there: {left:?}");
+}
+
+/// A move whose outcome cannot be written to `state/move.json` keeps its request: nothing
+/// records what happened, so the request stays for the next watcher.
+#[test]
+fn a_move_whose_outcome_is_not_written_keeps_its_request() {
+    let dir = tempfile::tempdir().unwrap();
+    let (src, cli, on_mini, remote) = moved_to_mini(dir.path());
+    let file = on_mini.join("state/teleport-request.json");
+    write(&file, &json!({"to": "home", "id": "tp-unrecorded"}).to_string());
+    // A directory where the outcome file goes: writing it fails.
+    std::fs::create_dir_all(src.join("state/move.json")).unwrap();
+    watch_once(&src, &cli, &fake_ssh(dir.path(), &remote), 60);
+    assert!(
+        file.exists(),
+        "the request stays when its outcome was not recorded"
+    );
+}
