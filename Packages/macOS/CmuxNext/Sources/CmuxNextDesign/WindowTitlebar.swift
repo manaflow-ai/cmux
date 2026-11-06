@@ -111,9 +111,10 @@ public struct WindowTitlebar {
     ///   - indicatorWidth: The indicator's width supplied by its owner.
     ///   - midY: The traffic lights' center in the accessories' parent coordinates.
     ///   - scale: The window's current backing scale factor.
+    ///   - trailing: A quiet mark after them, shown only while `showsTrailing` (hidden otherwise).
     public static func layoutAccessories(after band: CGRect, badge: NSView?, indicator: NSView?,
                                          indicatorWidth: CGFloat, centeredOn midY: CGFloat, scale: CGFloat,
-                                         trailing: NSView? = nil) {
+                                         trailing: NSView? = nil, showsTrailing: Bool = true) {
         var x = band.maxX + Metrics.space2
         if let badge {
             let size = badge.fittingSize
@@ -126,7 +127,8 @@ public struct WindowTitlebar {
             x = indicator.frame.maxX + Metrics.space2
         }
         // Last, a quiet text mark such as Swift live mode's (LiveModeBadgeView).
-        guard let trailing, !trailing.isHidden else { return }
+        trailing?.isHidden = !showsTrailing
+        guard let trailing, showsTrailing else { return }
         let size = trailing.fittingSize
         trailing.frame = alignedFrame(CGRect(x: x, y: midY - size.height / 2, width: size.width, height: size.height), scale: scale)
     }

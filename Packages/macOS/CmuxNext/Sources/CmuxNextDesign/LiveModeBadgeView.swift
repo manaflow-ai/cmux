@@ -1,7 +1,7 @@
 public import AppKit
 
-/// Swift live mode's quiet mark in the window's top row, after the toolbar band (and the badge and
-/// host pressure indicator while they show): "Live mode" in secondary caption text on the subtle
+/// Swift live mode's quiet mark on the sidebar's footer line, right of the profile avatar, and in the
+/// window's top row only while the sidebar is hidden: "Live mode" in secondary caption text on the subtle
 /// hover gray, no glyph, no motion. It shows while this app is the live code build
 /// (`cmux live start --swift`, docs/cmux-next/live-code.md), which is slower and bigger than the
 /// normal build; its tooltip says so and how to go back. A press on it never moves the window.
