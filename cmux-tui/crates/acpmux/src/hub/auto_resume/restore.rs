@@ -59,11 +59,17 @@ impl Hub {
         // journal writes a log line to its file at once and queues the metadata record behind
         // it, so `session.json` (or its journaled image) can name an older turn. The log's newest
         // result is the truth; take its summary when the saved one names another turn.
-        {
+        // Only a summary this chat saved is corrected, as the live path writes it
+        // (`record_last_turn`): never from a trigger delivery's result, and not on a chat that
+        // saved none (a fork's copied results are its parent's; a watched chat's are not its own).
+        // The log's result must also be newer than the saved summary.
+        if last.msg.get("trigger") != Some(&Value::Bool(true)) {
             let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             let logged = last.msg.get("turnId");
-            if logged.is_some()
-                && meta.last_turn.as_ref().and_then(|turn| turn.get("turnId")) != logged
+            if let Some(saved) = meta.last_turn.as_ref()
+                && logged.is_some()
+                && saved.get("turnId") != logged
+                && saved.get("endedAt").and_then(Value::as_u64).is_none_or(|ended| ended < last.at)
             {
                 meta.last_turn = Some(last_turn_summary(&last));
             }
@@ -409,6 +415,11 @@ fn last_turn_summary(result: &EventRecord) -> Value {
         }
     }
     summary.insert("endedAt".into(), json!(result.at));
+    for key in ["turnCount", "turnSeq"] {
+        if let Some(value) = result.msg.get(key) {
+            summary.insert(key.into(), value.clone());
+        }
+    }
     Value::Object(summary)
 }
 
@@ -484,7 +495,35 @@ mod tests {
         session.auto_resume_restored.store(false, std::sync::atomic::Ordering::SeqCst);
         session.meta.lock().unwrap().last_turn = Some(kept.clone());
         hub.restore_auto_resume(&session);
-        assert_eq!(session.meta().last_turn, Some(kept));
+        assert_eq!(session.meta().last_turn, Some(kept.clone()));
+        // A trigger delivery's result never becomes the last turn (`record_last_turn`).
+        hub.append(
+            &session,
+            "mux",
+            "turn_result",
+            json!({"turnId": "trigger-turn", "promptId": "trigger-prompt",
+                "status": "failed", "errorText": "stream disconnected", "trigger": true}),
+        );
+        session.auto_resume_restored.store(false, std::sync::atomic::Ordering::SeqCst);
+        hub.restore_auto_resume(&session);
+        assert_eq!(session.meta().last_turn, Some(kept), "a trigger turn became the last turn");
+    }
+
+    /// A chat that saved no last turn (a fork, whose log holds its parent's copied results)
+    /// gets none at start.
+    #[tokio::test]
+    async fn a_chat_that_saved_no_last_turn_gets_none_from_copied_results() {
+        let (hub, session) = idle_chat();
+        hub.append(
+            &session,
+            "mux",
+            "turn_result",
+            json!({"turnId": "parent-turn", "promptId": "parent-prompt",
+                "status": "completed", "stopReason": "end_turn"}),
+        );
+        session.meta.lock().unwrap().last_turn = None;
+        hub.restore_auto_resume(&session);
+        assert_eq!(session.meta().last_turn, None);
     }
 
     async fn restart(hub: &Hub, session: &Session) -> (Arc<Hub>, Arc<Session>) {

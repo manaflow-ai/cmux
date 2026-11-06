@@ -1,4 +1,4 @@
-//! Chat metadata through the event journal (`store.journal`, R-DURABILITY S3; DESIGN.md 3.3e): a
+//! Chat metadata through the event journal (always on, R-DURABILITY S3; DESIGN.md 3.3e): a
 //! metadata change is a journal record, `session.json` is what a checkpoint writes from it, and a
 //! crash at any point leaves the metadata and the log in step.
 //!
@@ -719,43 +719,53 @@ fn open_daemon_store(home: &Path) -> Box<dyn Store> {
     super::open(&StoreConfig::default(), home).unwrap_or_else(|e| panic!("{e:#}"))
 }
 
-/// F2 of the review of #35562 (its test, from when the journal had a switch): a start's replay
-/// never writes an older journaled image over a change the run before it made, also after a
-/// failed repair (DESIGN.md 3.3c: "turning it on again replays nothing old").
+/// The store a build with the journal switch off opened on `home` (as `store::open` did then):
+/// the journal's catch-up first, whose failure it only logged, then the logs alone.
+fn open_switch_off_build(home: &Path) -> Box<dyn Store> {
+    let _ = super::catch_up_journal(&config(), home);
+    Box::new(
+        LocalStore::new(home.join("sessions"), config().segment_bytes)
+            .unwrap_or_else(|e| panic!("open the store as a switch-off build: {e:#}")),
+    )
+}
+
+/// F2 of the review of #35562 (its test): after a failed repair, a build with the switch off
+/// renames the chat without the journal; this build's replay must not write an older journaled
+/// image over that rename (DESIGN.md 3.3c: "turning it on again replays nothing old").
 #[test]
-fn a_start_after_a_failed_repair_keeps_a_rename_the_run_before_made() {
+fn a_rename_a_switch_off_build_made_after_a_failed_repair_survives_the_replay() {
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
     killed_run_with_a_broken_chat(home.path(), &[meta(CHAT, "on", 0)]);
-    let run = open_daemon_store(home.path());
-    let mut renamed = run
+    let off = open_switch_off_build(home.path());
+    let mut renamed = off
         .load(CHAT)
         .unwrap_or_else(|e| panic!("{e:#}"))
         .unwrap_or_else(|| panic!("the chat is gone"));
-    renamed.name = "renamed".into();
-    run.save(&renamed).unwrap_or_else(|e| panic!("{e:#}"));
-    drop(run);
-    let next = open_daemon_store(home.path());
-    let name = next.load(CHAT).unwrap_or_else(|e| panic!("{e:#}")).map(|meta| meta.name);
+    renamed.name = "off".into();
+    off.save(&renamed).unwrap_or_else(|e| panic!("{e:#}"));
+    drop(off);
+    let store = open_daemon_store(home.path());
+    let name = store.load(CHAT).unwrap_or_else(|e| panic!("{e:#}")).map(|meta| meta.name);
     assert_eq!(
         name.as_deref(),
-        Some("renamed"),
-        "the replay wrote an older journaled image over a rename the run before made"
+        Some("off"),
+        "the replay wrote an older journaled image over a rename made without the journal"
     );
 }
 
-/// F2 of the review of #35562 (its test, from when the journal had a switch): a chat the run
-/// before deleted stays deleted at the next start, also after a failed repair.
+/// F2 of the review of #35562 (its test): after a failed repair, a build with the switch off
+/// deletes the chat; this build's replay must not make it again.
 #[test]
-fn a_start_after_a_failed_repair_keeps_a_chat_the_run_before_deleted() {
+fn a_chat_a_switch_off_build_deleted_after_a_failed_repair_stays_deleted() {
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
     killed_run_with_a_broken_chat(home.path(), &[meta(CHAT, "chat", 0)]);
-    let run = open_daemon_store(home.path());
-    run.delete(CHAT).unwrap_or_else(|e| panic!("{e:#}"));
-    drop(run);
-    let next = open_daemon_store(home.path());
+    let off = open_switch_off_build(home.path());
+    off.delete(CHAT).unwrap_or_else(|e| panic!("{e:#}"));
+    drop(off);
+    let store = open_daemon_store(home.path());
     assert!(
-        next.load(CHAT).unwrap_or_else(|e| panic!("{e:#}")).is_none(),
-        "a chat the run before deleted came back"
+        store.load(CHAT).unwrap_or_else(|e| panic!("{e:#}")).is_none(),
+        "a chat deleted without the journal came back"
     );
     assert!(!home.path().join("sessions").join(CHAT).exists(), "the replay made its folder again");
 }

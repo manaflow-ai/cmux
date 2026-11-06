@@ -1,4 +1,4 @@
-//! The event log through the journal (`store.journal`, R-DURABILITY S2; DESIGN.md 3.3b): a line
+//! The event log through the journal (always on, R-DURABILITY S2; DESIGN.md 3.3b): a line
 //! the store says is durable survives an OS crash, a kill keeps every line once, and a chat that
 //! was deleted stays deleted.
 //!
