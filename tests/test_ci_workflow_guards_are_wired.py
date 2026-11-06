@@ -81,6 +81,9 @@ UNWIRED: set[str] = {
     # lane = "manual" for the same rule. It checks that the nightly-next tail jobs run in the dispatched
     # post-publish run, off the push group; run it by hand after changing those jobs or their dispatch.
     "tests/test_nightly_next_tail_off_push_group.py",
+    # lane = "manual" for the same rule. It checks that the nightly deltas are built without the Sparkle key, off
+    # the whole-Mac hold; run it by hand after changing build-nightly-deltas, generate-nightly-deltas or their scripts.
+    "tests/test_nightly_deltas_keyless_prebuild.py",
     # lane = "manual" for the same rule (their tests/test-execution.toml entries say so: wiring them as
     # linux-guard reddened tooling-tests on every pull request). Run each by hand after changing what it reads:
     # .github/runners.json linux_sizes or a Blacksmith Linux runs-on (#30360);
