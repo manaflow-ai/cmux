@@ -19,19 +19,18 @@ import Foundation
 /// Never blocks the chat: a machine that is not the person's, a cancelled confirm or a failed install
 /// opens the chat anyway, and its turn card still offers recovery (#26148).
 extension CloudStartChat {
+    /// Every scope a person's cached Claude login may sit under: each of their teams, then their personal scope. One login per person, whichever team is selected.
+    @MainActor static func loginScopes(_ cloud: CloudService) -> [String?] { cloud.auth.teams.map { Optional($0.id) } + [nil] }
+    /// A login cancelled with its start (its copy failed before `run` awaited it) is `cancelled`, never "failed: CancellationError" (run 42157718918).
+    nonisolated static let loginCancelled = "cancelled"
+    nonisolated static func cancelledLogin(_ error: any Error, cancelled: Bool) -> Bool { cancelled || error is CancellationError }
+
     /// Gives the start's machine the person's Claude or Codex login when this build passes it. Returns
     /// whether a login was installed; never throws. `cmux cloud start-session` passes it the same way, with no Codex prompt.
-    /// Every scope a person's cached Claude login may sit under: each of their teams, then their
-    /// personal scope. One login per person, whichever team is selected.
-    @MainActor static func loginScopes(_ cloud: CloudService) -> [String?] {
-        cloud.auth.teams.map { Optional($0.id) } + [nil]
-    }
-
     func passHarnessLogin(harness: String?, machine: CloudMachineSession, codexPrompt: Bool = true, ask: CloudHarnessLoginAsk = .init()) async -> Bool {
         let cloud = services.cloud, userID = cloud.auth.user?.id
         let teamID = cloud.auth.teamID, machineID = machine.machineID, api = cloud.machineAPI.pinningTeam(teamID)
-        // The person's cached login under any of their teams, or their personal scope: one login per person.
-        let otherTeams = Self.loginScopes(cloud)
+        let otherTeams = Self.loginScopes(cloud) // the person's cached login under any of their teams, or their personal scope: one per person
         var decision = CloudHarnessLoginDecision(dogfood: DevTools.isEnabled, setting: CloudCredentialTransfer.passHarnessLoginSetting(.standard),
                                                  harness: harness, signedIn: userID != nil)
         let gate = Self.loginCopyGate(services)
@@ -87,7 +86,7 @@ extension CloudStartChat {
             }
             decision.outcome = "installed"
             return true
-        } catch {
+        } catch where Self.cancelledLogin(error, cancelled: Task.isCancelled) { decision.outcome = Self.loginCancelled; return false } catch {
             // The message is the transfer's fixed text, never provider output.
             decision.outcome = "failed: " + ((error as? LocalizedError)?.errorDescription ?? String(describing: type(of: error)))
             return false
