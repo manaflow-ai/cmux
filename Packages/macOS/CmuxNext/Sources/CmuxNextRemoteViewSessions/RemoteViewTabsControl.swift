@@ -24,7 +24,7 @@ public struct RemoteViewTabsControl {
     public init() {}
     /// The methods every build registers (RemoteViewDebugMethods). The CLI's `app remote-views`
     /// reads the first (`REMOTE_VIEWS_METHOD` in cmux-tui's cli/app.rs; a test holds the two equal).
-    public static let releaseMethods = ["remote_view.state", "remote_view.mode"]
+    nonisolated public static let releaseMethods = ["remote_view.state", "remote_view.mode"]
     public static func answer(_ params: [String: JSONValue], cloudOnly: Bool) async -> JSONValue {
         let only = params["tab"]?.stringValue
         let tabs = RemoteViewPageTab.live.allObjects.filter { tab in
