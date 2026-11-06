@@ -2615,6 +2615,7 @@ export class AcpmuxDirectClient {
       let opened = false;
       socket.onopen = () => {
         opened = true;
+        acpmuxPerf.markLaunch("socketOpen");
         this.daemonLastFrameAt = Date.now();
         this.wire.lifecycle("open");
         resolve(socket);
@@ -2659,6 +2660,7 @@ export class AcpmuxDirectClient {
         clientInfo: { name: "cmux-react-agent-pane", version: "1" },
         clientCapabilities: {},
       });
+      acpmuxPerf.markLaunch("initialized");
       this.canFork = servesOperation(initialized, FORK_OP);
       const features = initialized?._meta?.acpmux?.features;
       this.features = new Set(
@@ -5000,6 +5002,7 @@ export class AcpmuxDirectClient {
     // acpmux holds nothing older than the page: the pane offers no more history.
     if (result?.hasMore === false) this.historyExhausted = true;
     this.attachedGeneration = generation;
+    acpmuxPerf.markLaunch("attached");
     // The machine answered: these rows are its chat now, not the Mac's copy.
     this.peerCopy = undefined;
     if (this.copyBack === sessionId) this.copyBack = undefined;

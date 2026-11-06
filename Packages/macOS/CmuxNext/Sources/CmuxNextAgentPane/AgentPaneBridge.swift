@@ -88,8 +88,9 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
         // the model is held across it, so closing the tab frees the view and
         // its web view right away.
         guard request == .ready else { return await model.respond(to: request) }
-        AgentPaneLaunchTimings.shared.mark("agent_pane.handshake_start")
-        defer { AgentPaneLaunchTimings.shared.mark("agent_pane.handshake_end") }
+        let newTab = model.newTab != nil
+        AgentPaneLaunchTimings.shared.mark(stage: "handshake_start", newTab: newTab)
+        defer { AgentPaneLaunchTimings.shared.mark(stage: "handshake_end", newTab: newTab) }
         return await model.respond(to: request)
     }
 

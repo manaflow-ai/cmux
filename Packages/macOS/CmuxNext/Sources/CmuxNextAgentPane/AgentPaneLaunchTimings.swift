@@ -29,6 +29,12 @@ public nonisolated final class AgentPaneLaunchTimings: Sendable {
         for (name, date) in early { receiver(name, date) }
     }
 
+    /// Marks agent pane stage `stage` (`agent_pane.<stage>`), or `agent_pane.newtab_<stage>` for a New Tab
+    /// page's: a New Tab spare made beside a restored chat must not set the chat's first time of a stage.
+    func mark(stage: String, newTab: Bool) {
+        mark(newTab ? "agent_pane.newtab_\(stage)" : "agent_pane.\(stage)")
+    }
+
     func mark(_ name: String) {
         signposter.emitEvent("agent_pane", "\(name, privacy: .public)")
         let now = Date()

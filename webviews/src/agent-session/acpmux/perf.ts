@@ -149,11 +149,23 @@ type AgentMark = "handshakeStart" | "handshakeReady" | "composerReady" | "snapsh
  * loaded: the relaunch-reconnect bench lines them up with the app's launch marks
  * (scripts/cmux-next/bench_relaunch_reconnect.py). `handshakeStart` is the first ask (a retry
  * keeps it), `connectStart` and `connected` bracket the client's connect (transport open,
- * `initialize`, the first read), `firstEvent` is the first event of the shown chat to arrive, and
+ * `initialize`, the first read; `socketOpen`, `initialized` and `attached` inside it), `chatDrawn`
+ * the first render that drew what the pane is and `paintPosted` its `pane.painted`, `firstEvent` is the first event of the shown chat to arrive, and
  * `liveEvent` the first that arrives within LIVE_EVENT_LAG_MS of when acpmux recorded it: the chat
  * is live, past any backlog.
  */
-type LaunchMark = "handshakeStart" | "handshakeReady" | "connectStart" | "connected" | "firstEvent" | "liveEvent";
+type LaunchMark =
+  | "handshakeStart"
+  | "handshakeReady"
+  | "connectStart"
+  | "socketOpen"
+  | "initialized"
+  | "attached"
+  | "connected"
+  | "chatDrawn"
+  | "paintPosted"
+  | "firstEvent"
+  | "liveEvent";
 /** An event that arrives this soon after acpmux recorded it is live, not backlog. */
 export const LIVE_EVENT_LAG_MS = 1000;
 
