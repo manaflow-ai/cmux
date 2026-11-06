@@ -6,6 +6,11 @@ fuzz.py, and it reuses fuzz.py's guest connection: every app call goes through t
 bundled `cmux app call` over SSH, every screenshot is a VNC frame of the guest display. The
 guest needs no python3 and no Accessibility grant.
 
+The app starts with CMUX_NEXT_SKIP_ONBOARDING=1: on some first runs (when the acpmux harness read
+answers in time) the first-run "Sign In to Your Agents" window opened and kept the keys, so the VNC
+keys of design_on went to it, behind the main window (2026-11-06, step 21c5abb6). The onboarding
+suite tests that window.
+
 Steps (each one ok/FAIL in result.json, with a screenshot shot-<step>.png):
   launch     the app starts and answers a ping
   window     a main window exists (debug.windows)
@@ -138,6 +143,13 @@ class Smoke:
     # --- app reads ----------------------------------------------------------------------------
     def windows(self) -> list:
         return self.call("debug.windows").get("windows") or []
+
+    def key_window(self) -> dict | None:
+        """The app's key window (debug.window_list), None when no window of the app is key."""
+        for w in self.call("debug.window_list").get("windows") or []:
+            if w.get("key"):
+                return {k: w.get(k) for k in ("id", "kind", "class", "title")}
+        return None
 
     def terminals(self) -> int:
         return int(self.call("debug.surfaces").get("live_terminals") or 0)
@@ -293,9 +305,11 @@ class Smoke:
         store = self.call("debug.tunables", {"action": "activate"})
         picker = self.call("debug.tunables", {"action": "set", "key": "browserPage.uiPointer", "value": True})
         picker["store_active"] = store.get("active")
+        # VNC keys go to the key window: a FAIL names it (it must be the main window).
+        key_window = self.key_window()
         self.vnc.chord("ctrl+opt+cmd+d")
         on = self.wait(lambda: self.page_eval(overlay) is True, 15)
-        self.step("design_on", bool(on), {"overlay": self.page_eval(overlay)})
+        self.step("design_on", bool(on), {"overlay": self.page_eval(overlay), "key_window": key_window})
         self.vnc.chord("ctrl+opt+cmd+d")
         off = self.wait(lambda: self.page_eval(overlay) is False, 15)
         self.step("design_off", bool(on) and bool(off), {"overlay": self.page_eval(overlay), "picker": picker})
@@ -386,6 +400,8 @@ def main() -> int:
     o = ap.parse_args()
     os.makedirs(o.out, exist_ok=True)
     g = Guest(o.ssh, o.app, o.ssh_opt)
+    # No first-run onboarding window: it takes the key window (and the VNC keys) at a random step.
+    g.env += " CMUX_NEXT_SKIP_ONBOARDING=1"
     if g.sh(f"test -d {shlex.quote(o.app)}").returncode != 0:
         sys.exit(f"no app at {o.app!r} in the guest")
     smoke = Smoke(g, o.vnc, o.out)
