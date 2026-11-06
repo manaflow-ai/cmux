@@ -109,13 +109,15 @@ public struct WorkspaceSpawn: Sendable {
         (opensNewTabPage || firstChat != nil || firstSession != nil) && command == nil && browserProfile == nil && (cwd == nil || local)
     }
 
-    /// The default slot of this create's sidebar row and the rule its daemon places it by, from the window's
-    /// `workspaces.newPlacement` rule `byDefault` (nil for a create with a slot of its own): a create that does not
-    /// place itself from the window's current workspace loses that anchor (except `afterCurrent`), and only a create
-    /// placed by the setting gives the daemon a rule.
-    public func placement(byDefault: NewWorkspaceDefaultSlot?) -> (row: NewWorkspaceDefaultSlot?, rule: NewWorkspaceDefaultSlot?) {
-        let row = byDefault?.anchored(fromCurrent: placesFromCurrent && placesBySetting)
-        return (row, placesBySetting ? row : nil)
+    /// The default slot of this create's sidebar row and the rule it is placed by, from the window's
+    /// `workspaces.newPlacement` rule `setting`: a create that does not place itself from the window's current
+    /// workspace loses that anchor (except `afterCurrent`), and only a create placed by the setting gets a rule. A
+    /// create with a slot of its own shows its row there (no default row) and keeps the rule only as the fallback for
+    /// a slot whose anchor closed during the create: never the daemon's place, which can be the sidebar's end (Leo
+    /// 2026-11-06).
+    public func placement(setting: NewWorkspaceDefaultSlot) -> (row: NewWorkspaceDefaultSlot?, rule: NewWorkspaceDefaultSlot?) {
+        let anchored = setting.anchored(fromCurrent: placesFromCurrent && placesBySetting)
+        return (slot == nil ? anchored : nil, placesBySetting ? anchored : nil)
     }
 
     /// What a new workspace's first terminal starts with (``TerminalStart``). On this Mac (`local`) it gets the app's

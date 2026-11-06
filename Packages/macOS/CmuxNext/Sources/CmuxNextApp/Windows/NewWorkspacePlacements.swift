@@ -21,7 +21,7 @@ enum NewWorkspacePlacements {
                                    legacy: windows.services.sidebarLayout.unavailableReason != nil, machines: windows.services.machines) } == true
                 ? nil : windows.services.machines.daemon(forWorkspace: id)?.machineID
         }
-        return NewWorkspaceDefaultSlot(placement: placement, current: current, currentMachine: currentMachine)
+        return NewWorkspaceDefaultSlot(placement: placement, current: current, currentMachine: currentMachine, currentGap: .belowCurrent(current, in: model?.sections))
     }
 
     /// Whether workspace `id` shows outside the window's workspace list: an item of a section of
@@ -64,11 +64,11 @@ enum NewWorkspacePlacements {
     }
 
     /// The index a group formed for a new workspace takes (`createGroup`'s `index`, New Workspace in
-    /// New Group): first under `workspaces.newPlacement` `top` (the default), else last (`Int.max`).
-    /// The same rule as the Chief's subagent groups (`new_group_index` in optchat-chief workspaces.rs).
+    /// New Group): last (`Int.max`) only under `workspaces.newPlacement` `bottom`, else first: under
+    /// `afterCurrent` (the default) a new workspace never goes to the sidebar's end (Leo 2026-11-06).
     static func newGroupIndex(_ services: AppServices) -> Int {
         newGroupIndex(for: services.settings?.snapshot.newWorkspacePlacement ?? CmuxConfigSnapshot.newWorkspacePlacementFallback)
     }
 
-    static func newGroupIndex(for placement: NewWorkspacePlacement) -> Int { placement == .top ? 0 : .max }
+    static func newGroupIndex(for placement: NewWorkspacePlacement) -> Int { placement == .bottom ? .max : 0 }
 }

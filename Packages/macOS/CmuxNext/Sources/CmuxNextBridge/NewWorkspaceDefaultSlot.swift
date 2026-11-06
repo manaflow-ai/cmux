@@ -34,11 +34,34 @@ public struct NewWorkspaceDefaultSlot: Hashable, Sendable {
     /// Its creator named `placement` (`agents chat new --top`): the daemon placed it by the setting, so `move` writes even its top slot.
     public var named = false
 
-    public init(placement: NewWorkspacePlacement, current: String? = nil, currentMachine: String? = nil, named: Bool = false) {
+    /// The gap right below `current` in the window's rows at the press (``belowCurrent(_:in:)``): where the new
+    /// workspace goes when `current` closes before it is listed, instead of the section's top.
+    public var currentGap: WorkspaceGap?
+
+    public init(placement: NewWorkspacePlacement, current: String? = nil, currentMachine: String? = nil, named: Bool = false,
+                currentGap: WorkspaceGap? = nil) {
         self.placement = placement
         self.current = current
         self.currentMachine = currentMachine
         self.named = named
+        self.currentGap = currentGap
+    }
+
+    /// The gap right below workspace `current` in its container of the window's `shown` rows (its group, else the
+    /// loose rows; pending rows left out), nil when they do not list it.
+    public static func belowCurrent(_ current: String?, in shown: [SidebarRowSection]?) -> WorkspaceGap? {
+        guard let current, let shown else { return nil }
+        let sections = SidebarRowSection.withoutPlaceholders(shown)
+        guard let position = WorkspaceSlot.below(current).position(moving: [], besides: current, in: sections) else { return nil }
+        return WorkspaceGap(position, in: sections)
+    }
+
+    /// Right below `current`, else where it was when it closed during the create (`currentGap`), else the end of
+    /// the group it was in: what a new workspace made from the selected row resolves to (Leo 2026-11-06).
+    private var belowCurrentOrItsPlace: [WorkspaceSlot] {
+        (current.map { [WorkspaceSlot.below($0)] } ?? []) + (currentGap.map { gap in
+            [.gap(gap)] + (gap.group.map { [.endOfGroup($0)] } ?? [])
+        } ?? [])
     }
 
     /// The current row is expected in this machine section but is not in the
@@ -77,9 +100,9 @@ public struct NewWorkspaceDefaultSlot: Hashable, Sendable {
             return nil
         case .afterCurrent:
             if awaitsCurrentAnchor(section: section, in: sections, home: home, catchingUp: catchingUp) { return nil }
-            if let current, current != id, current != home,
-               WorkspaceSlot.below(current).position(moving: [id], section: section, in: sections) != nil {
-                return .below(current)
+            if current != id, current != home,
+               let slot = belowCurrentOrItsPlace.first(where: { $0.position(moving: [id], section: section, in: sections) != nil }) {
+                return slot
             }
             return Self.top(for: id, section: section, in: sections, home: home)
         case .top:
@@ -106,14 +129,15 @@ public struct NewWorkspaceDefaultSlot: Hashable, Sendable {
     /// The slot for a new workspace made inside group `group` from the group itself (its header's
     /// +, a double-click in its empty part), whose workspace rows are `members` in order: its
     /// first slot under `top`, right below the window's current workspace under `afterCurrent`
-    /// when that one is a member (else the first slot), its last slot under `bottom`.
+    /// when that one is a member (where it was, should it close during the create), else the group's
+    /// end (Leo 2026-11-06), its last slot under `bottom`.
     public func slot(inGroup group: GroupID, members: [String]) -> WorkspaceSlot {
         let first = members.first.map { WorkspaceSlot.top(anchor: $0) } ?? .endOfGroup(group)
         switch placement {
         case .top: return first
         case .afterCurrent:
-            if let current, members.contains(current) { return .below(current) }
-            return first
+            if let current, members.contains(current) { return .first(belowCurrentOrItsPlace + [.endOfGroup(group)]) }
+            return .endOfGroup(group)
         case .bottom: return .endOfGroup(group)
         }
     }
