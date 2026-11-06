@@ -37,6 +37,10 @@ final class KeyboardPinTrace: NSObject {
         shared.write(String(format: "t=%.4f demo=%@", CACurrentMediaTime() - shared.start, label))
     }
 
+    /// The trace file. A UI test on the simulator reads it from the path in
+    /// the probe's `file=` (KeyboardToggleInterruptUITests prints it).
+    static let traceURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("kbd-pin-trace.txt")
+
     private var demo = "-"
     /// The last keyboard notifications, `name@t:dur/inherited/endY`.
     private var events: [String] = []
@@ -45,7 +49,7 @@ final class KeyboardPinTrace: NSObject {
     private var fieldSteps = FieldStepMeter()
 
     private override init() {
-        let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("kbd-pin-trace.txt")
+        let url = Self.traceURL
         FileManager.default.createFile(atPath: url.path, contents: nil)
         handle = try? FileHandle(forWritingTo: url)
         super.init()
@@ -146,6 +150,7 @@ final class KeyboardPinTrace: NSObject {
             "fj=\(fieldSteps.jumps)",
             String(format: "fjmax=%.1f", fieldSteps.largestJump),
             "demo=\(demo)",
+            "file=" + Self.traceURL.path.replacingOccurrences(of: " ", with: "%20"),
             "fjlog=" + (fieldSteps.log.isEmpty ? "-" : fieldSteps.log.joined(separator: ",")),
             "evlog=" + (events.isEmpty ? "-" : events.joined(separator: ",")),
         ].joined(separator: " ")

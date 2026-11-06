@@ -45,6 +45,22 @@ final class KeyboardToggleInterruptUITests: XCTestCase {
             let kv = pair.split(separator: "=", maxSplits: 1)
             return kv.count == 2 ? (String(kv[0]), String(kv[1])) : nil
         }, uniquingKeysWith: { _, last in last })
+        // The app's per-frame trace (keyboard and field as drawn, keyboard
+        // notifications, demo steps), for the report's frame plots.
+        if let path = values["file"]?.replacingOccurrences(of: "%20", with: " "),
+           let trace = try? String(contentsOfFile: path, encoding: .utf8) {
+            print("kbd-toggles trace begin")
+            for row in trace.split(separator: "\n") where row.contains("demo=") || row.contains("ev=") || row.contains(" fb=") {
+                print("kbd-trace \(row)")
+            }
+            print("kbd-toggles trace end")
+            let attachment = XCTAttachment(string: trace)
+            attachment.name = "kbd-pin-trace.txt"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        } else {
+            print("kbd-toggles trace unreadable at \(values["file"] ?? "-")")
+        }
         let jumps = values["fj"].flatMap { Int($0) }
         XCTAssertNotNil(jumps, "the probe counts jumps (\(line))")
         XCTAssertEqual(jumps, 0, "the composer jumped instead of riding the keyboard: largest \(values["fjmax"] ?? "?") pt at \(values["fjlog"] ?? "?"); keyboard events \(values["evlog"] ?? "?")")
