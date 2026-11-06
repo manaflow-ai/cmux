@@ -3274,10 +3274,6 @@ class WsCheckPerTest(unittest.TestCase):
                          [f"no red run or check named on {HEAD}: no failure to excuse"])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class SweepGitHub(FakeGitHub):
     """A head like cmux#36958's (2026-11-06): N red jobs, each in its own workflow whose 35 newest base runs cancelled
     the job, and a 'next-autoland / verdict' status with no run link among 32 head runs, none of which has that job.
@@ -3408,3 +3404,7 @@ class SweepLimit(unittest.TestCase):
             third.judge(2)
             self.assertIn(f"repos/{REPO}/actions/runs/10035", third.targets)
             self.assertNotIn(f"repos/{REPO}/actions/runs/20035", third.targets)
+
+
+if __name__ == "__main__":
+    unittest.main()
