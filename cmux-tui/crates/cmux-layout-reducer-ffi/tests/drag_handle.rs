@@ -102,18 +102,18 @@ fn a_drag_move_answers_as_resolve_drag_did_and_unchanged_replies_write_nothing()
     let request = drag_request(40);
     let drag = new_drag(&request);
     let mut last: Option<Value> = None;
-    let gap = Some(5.0 * ROW);
+    let gap_y = 5.0 * ROW;
     for step in 0..400 {
         let centre = step as f64 * 0.37 * ROW / 4.0;
         let leading = centre + ROW / 2.0;
         let mut expected = request.clone();
         expected["centre_y"] = json!(centre);
         expected["leading_y"] = json!(leading);
-        expected["gap_y"] = json!(gap);
+        expected["gap_y"] = json!(gap_y);
         expected["gap_height"] = json!(ROW);
         let expected = json_op("resolve_drag", &expected);
         let reply = read(|o, c, l| unsafe {
-            cmux_sidebar_drag_resolve(drag, centre, leading, 1, gap.unwrap(), ROW, o, c, l)
+            cmux_sidebar_drag_resolve(drag, centre, leading, 1, gap_y, ROW, o, c, l)
         });
         match reply {
             Some(reply) => {
