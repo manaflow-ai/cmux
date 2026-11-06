@@ -16,7 +16,8 @@ receipt = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(receipt)
 
 
-def passing_records() -> list[dict[str, object]]:
+def legacy_records() -> list[dict[str, object]]:
+    """#37147's ad-hoc shape, which the validator no longer reads."""
     return [
         {
             "request_id": "req-golden-1",
@@ -107,159 +108,6 @@ def platform_receipt(**auth: object) -> dict[str, object]:
 
 
 class GoldenPathReceiptTests(unittest.TestCase):
-    def test_normalizes_app_and_pause_resume_receipts_to_pass(self) -> None:
-        result = receipt.normalize(passing_records())
-
-        self.assertEqual(result["schema"], receipt.SCHEMA)
-        self.assertEqual(result["status"], "pass")
-        self.assertEqual(result["machine_id"], "vm_ab12")
-        self.assertEqual(result["session_id"], "sess_acp_1")
-        self.assertEqual(result["blockers"], [])
-        self.assertEqual(
-            result["stages"],
-            {
-                "fresh_cloud_chat_start": True,
-                "acpmux_session_discovery": True,
-                "first_reply": True,
-                "pause_resume_reconnect": True,
-            },
-        )
-
-    def test_reply_without_provider_evidence_is_blocked(self) -> None:
-        records = passing_records()
-        records[1].pop("provider_verified")
-        result = receipt.normalize(records)
-
-        self.assertEqual(result["status"], "blocked")
-        self.assertIn("provider_proof_missing", result["blockers"])
-
-    def test_session_id_without_acpmux_discovery_is_blocked(self) -> None:
-        records = passing_records()
-        records[0]["steps"] = [{"step": "cloud start-chat", "exit": 0, "reply": "ok"}]
-        result = receipt.normalize(records)
-
-        self.assertEqual(result["status"], "blocked")
-        self.assertIn("missing_acpmux_session_discovery", result["blockers"])
-
-    def test_failed_continuity_receipt_cannot_pass(self) -> None:
-        records = passing_records()
-        records[1]["continuity"] = {
-            "pause_landed": True,
-            "resume_reached_running": False,
-            "reconnected": True,
-        }
-        result = receipt.normalize(records)
-
-        self.assertEqual(result["status"], "fail")
-        self.assertIn("receipt_reports_failure", result["blockers"])
-        self.assertIn("missing_pause_resume_reconnect", result["blockers"])
-
-    def test_paused_resume_harness_rounds_are_consumed(self) -> None:
-        records = [
-            {
-                "machine": "vm_ab12",
-                "first_chat": {
-                    "ok": True,
-                    "turn": {"session_id": "sess_acp_1", "first_text_ms": 42},
-                },
-                "rounds": [
-                    {
-                        "paused": True,
-                        "chat": {"reply_ok": True},
-                        "resume": {"running": True},
-                    },
-                    {
-                        "paused": True,
-                        "chat": {"reply_ok": True},
-                        "resume": {"running": True},
-                    },
-                ],
-                "outcome": "ok",
-                "provider_verified": True,
-            }
-        ]
-
-        result = receipt.normalize(records)
-
-        self.assertEqual(result["status"], "pass")
-        self.assertTrue(result["stages"]["fresh_cloud_chat_start"])
-        self.assertTrue(result["stages"]["acpmux_session_discovery"])
-        self.assertTrue(result["stages"]["pause_resume_reconnect"])
-
-    def test_jsonl_input_and_check_exit_are_supported(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "receipt.jsonl"
-            path.write_text(
-                "\n".join(json.dumps(record) for record in passing_records()) + "\n",
-                encoding="utf-8",
-            )
-            self.assertEqual(len(receipt.load_receipt(path)), 2)
-            output = Path(directory) / "normalized.json"
-            self.assertEqual(
-                receipt.main(["--receipt", str(path), "--out", str(output), "--check"]),
-                0,
-            )
-            self.assertEqual(json.loads(output.read_text())["status"], "pass")
-
-    def test_nonzero_exit_steps_fail_the_receipt(self) -> None:
-        records = passing_records()
-        records[0]["steps"] = [
-            {"step": "cloud start-chat", "exit": 1, "reply": "ok"},
-            {"step": "ACP session discovered", "exit": 1},
-        ]
-        result = receipt.normalize(records)
-
-        self.assertEqual(result["status"], "fail")
-        self.assertIn("receipt_reports_failure", result["blockers"])
-        self.assertFalse(result["stages"]["fresh_cloud_chat_start"])
-        self.assertFalse(result["stages"]["acpmux_session_discovery"])
-
-    def test_named_step_without_success_evidence_does_not_prove_discovery(self) -> None:
-        records = passing_records()
-        records[0]["steps"] = [
-            {"step": "cloud start-chat", "exit": 0, "reply": "ok"},
-            {"step": "ACP session discovered"},
-        ]
-        result = receipt.normalize(records)
-
-        self.assertNotEqual(result["status"], "pass")
-        self.assertFalse(result["stages"]["acpmux_session_discovery"])
-
-    def test_failed_round_in_another_merged_record_fails_continuity(self) -> None:
-        good_round = {"paused": True, "chat": {"reply_ok": True}, "resume": {"running": True}}
-        bad_round = {"paused": True, "chat": {"reply_ok": True}, "resume": {"running": False}}
-        records = [
-            {
-                "machine": "vm_ab12",
-                "first_chat": {"ok": True, "turn": {"session_id": "sess_acp_1"}},
-                "rounds": [good_round],
-                "provider_verified": True,
-            },
-            {"machine": "vm_ab12", "rounds": [bad_round]},
-        ]
-        result = receipt.normalize(records)
-
-        self.assertEqual(result["status"], "fail")
-        self.assertIn("receipt_reports_failure", result["blockers"])
-        self.assertFalse(result["stages"]["pause_resume_reconnect"])
-
-    def test_failed_round_in_same_record_fails_continuity(self) -> None:
-        records = [
-            {
-                "machine": "vm_ab12",
-                "first_chat": {"ok": True, "turn": {"session_id": "sess_acp_1"}},
-                "rounds": [
-                    {"paused": True, "chat": {"reply_ok": True}, "resume": {"running": True}},
-                    {"paused": True, "chat": {"reply_ok": False}, "resume": {"running": True}},
-                ],
-                "provider_verified": True,
-            }
-        ]
-        result = receipt.normalize(records)
-
-        self.assertEqual(result["status"], "fail")
-        self.assertFalse(result["stages"]["pause_resume_reconnect"])
-
     def test_golden_path_receipts_merge_to_pass_with_stage_ms(self) -> None:
         result = receipt.normalize([cli_receipt(), platform_receipt()])
 
@@ -426,17 +274,6 @@ class GoldenPathReceiptTests(unittest.TestCase):
         self.assertNotEqual(result["status"], "pass")
         self.assertFalse(result["stages"]["acpmux_session_discovery"])
 
-    def test_legacy_running_status_is_not_success(self) -> None:
-        records = passing_records()
-        records[0]["steps"] = [
-            {"step": "cloud start-chat", "exit": 0, "reply": "ok"},
-            {"step": "ACP session discovered", "status": "running"},
-        ]
-        result = receipt.normalize(records)
-
-        self.assertNotEqual(result["status"], "pass")
-        self.assertFalse(result["stages"]["acpmux_session_discovery"])
-
     def test_golden_stage_ok_true_with_failure_object_fails(self) -> None:
         platform = platform_receipt()
         platform["stages"][1]["failure"] = {"code": "auth.denied", "message": "no chat grant", "retryable": False}
@@ -525,6 +362,90 @@ class GoldenPathReceiptTests(unittest.TestCase):
         for secret in secrets + ["abc.def.ghi"]:
             self.assertNotIn(secret, rendered)
         self.assertIn("[withheld]", rendered)
+
+    # Re-review BLOCK at 02f73a11 (#37177): one receipt shape only.
+
+    def test_legacy_receipt_shape_is_unsupported(self) -> None:
+        result = receipt.normalize(legacy_records())
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertIn("receipt_shape_unsupported", result["blockers"])
+
+    def test_legacy_records_beside_golden_receipts_are_never_evidence(self) -> None:
+        failed_first_chat = {
+            "machine": MACHINE,
+            "first_chat": {"ok": False, "turn": {"session_id": "sess_acp_1"}},
+            "rounds": [{"paused": True, "chat": {"reply_ok": True}, "resume": {"running": True}}],
+            "provider_verified": True,
+        }
+        result = receipt.normalize([cli_receipt(provider_verified=None), platform_receipt(), failed_first_chat])
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertIn("receipt_shape_unsupported", result["blockers"])
+        self.assertIn("provider_proof_missing", result["blockers"])
+
+    def test_legacy_provider_evidence_for_another_machine_is_unsupported(self) -> None:
+        records = legacy_records()
+        records[0]["machine_id"] = "vm_ffff"
+        records[1]["machine_id"] = "vm_ab12"
+        result = receipt.normalize(records)
+
+        self.assertNotEqual(result["status"], "pass")
+        self.assertIn("receipt_shape_unsupported", result["blockers"])
+
+    def test_machine_bound_provider_record_is_accepted(self) -> None:
+        result = receipt.normalize([
+            cli_receipt(provider_verified=None), platform_receipt(), {"machineId": MACHINE, "provider_verified": True},
+        ])
+
+        self.assertEqual(result["status"], "pass", result["blockers"])
+        self.assertNotIn("receipt_shape_unsupported", result["blockers"])
+
+    def test_any_present_failure_value_fails_an_ok_stage(self) -> None:
+        for failure in ({}, "", [], 0, False):
+            platform = platform_receipt()
+            platform["stages"][1]["failure"] = failure
+            result = receipt.normalize([cli_receipt(), platform])
+            self.assertEqual(result["status"], "fail", failure)
+            self.assertEqual(result["golden_path_stages"]["auth"], "failed", failure)
+        platform = platform_receipt()
+        platform["stages"][1]["failure"] = None
+        self.assertEqual(receipt.normalize([cli_receipt(), platform])["status"], "pass")
+
+    def test_receipt_level_failure_beside_passed_outcome_fails(self) -> None:
+        platform = platform_receipt()
+        platform["failure"] = {}
+        result = receipt.normalize([cli_receipt(), platform])
+
+        self.assertEqual(result["status"], "fail")
+
+    def test_credential_key_value_pairs_are_redacted(self) -> None:
+        values = [
+            "wJalrXUtnFEMIK7MDENGbPxRfiCYEXAMPLEKEY",
+            "hunter2hunter2",
+            "s3cr3t-client-value",
+            "plain-token-value-123",
+            "abc123privatekeymaterial",
+            "credential-blob-xyz",
+            "authvalue987",
+            "apikeyvalue654",
+        ]
+        message = " ".join([
+            f"AWS_SECRET_ACCESS_KEY={values[0]}",
+            f"db_password: {values[1]}",
+            f'{{"client_secret": "{values[2]}"}}',
+            f"GITHUB_TOKEN={values[3]}",
+            f"PRIVATE_KEY='{values[4]}'",
+            f"gcp_credentials={values[5]}",
+            f"X-Auth: {values[6]}",
+            f"API_KEY = {values[7]}",
+        ])
+        platform = platform_receipt(ok=False, failure={"code": "auth.denied", "message": message, "retryable": False})
+        rendered = json.dumps(receipt.normalize([cli_receipt(), platform]))
+
+        for value in values:
+            self.assertNotIn(value, rendered)
+        self.assertIn("AWS_SECRET_ACCESS_KEY", rendered)
 
 
 if __name__ == "__main__":
