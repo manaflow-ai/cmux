@@ -10,9 +10,9 @@ import QuartzCore
 /// it is larger. Nothing in them lays out or resizes during the hold. When it ends they take the area's size once,
 /// before anything hears that the motion ended.
 ///
-/// With ``PaneMotionHold/containersFollow`` (FRAME OWNER S3) a container in it (``PaneMotionHoldFollowing``: a
-/// terminal's host, a browser's chrome) takes the area's bounds in every frame instead and hears the hold once, so its
-/// own ground covers the pane; only its producer keeps its size.
+/// A container in it (``PaneMotionHoldFollowing``: a terminal's host, a browser's chrome; FRAME OWNER S3) takes the
+/// area's bounds in every frame instead and hears the hold once, so its own ground covers the pane; only its producer
+/// keeps its size (a terminal's surface follows too with `motion.frameOwner.terminals` on, cmux-ad m6).
 public final class PaneContentAreaView: NSView {
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -88,7 +88,6 @@ public final class PaneContentAreaView: NSView {
         guard let heldSize, let hold else { return }
         let origin = hold.boundsOrigin(holding: heldSize, in: bounds.size)
         if bounds.origin != origin { setBoundsOrigin(origin) }
-        guard hold.containersFollow else { return }
         for case let follower as any PaneMotionHoldFollowing in subviews {
             let id = ObjectIdentifier(follower)
             if !handed.contains(id) {
@@ -109,7 +108,7 @@ public final class PaneContentAreaView: NSView {
 
     /// A container in it was shown again during a following hold (a parked tab): it joins in this frame's layout pass.
     public func followerDidShow() {
-        if hold?.containersFollow == true { needsLayout = true }
+        if hold != nil { needsLayout = true }
     }
 
     public override func layout() { // perf-hot: 4ms motion-frame
@@ -125,7 +124,7 @@ public final class PaneContentAreaView: NSView {
     /// containers that were there when the hold began.
     public override func didAddSubview(_ subview: NSView) {
         super.didAddSubview(subview)
-        guard let heldSize, let hold, hold.containersFollow, let follower = subview as? any PaneMotionHoldFollowing, follows(follower),
+        guard let heldSize, let hold, let follower = subview as? any PaneMotionHoldFollowing, follows(follower),
               handed.insert(ObjectIdentifier(follower)).inserted else { return }
         follower.followPaneMotion(hold, heldSize: heldSize)
         if follower.frame != bounds {

@@ -129,6 +129,17 @@ export function newTabScreenActions(deps: {
         return ignore(callNative("file.open", { path: decodeURIComponent(new URL(url).pathname), where: "tab" }));
       ignore(callNative("tab.open", { kind: "browser", text: url }));
     },
+    // Open in Profile… and Open in New Profile: the same browser open, in the profile the row names.
+    onOpenInProfile: (url, id) => ignore(callNative("tab.open", { kind: "browser", text: url, profile: id })),
+    onOpenInNewProfile: (url, name) =>
+      ignore(
+        callNative("tab.open", {
+          kind: "browser",
+          text: url,
+          newProfile: true,
+          ...(name ? { profileName: name } : {}),
+        }),
+      ),
     onSearch: (text) => ignore(callNative("tab.open", { kind: "browser", text, search: true })),
     // `!cmd`: the page becomes a chat in its folder, its first block the command; no terminal tab.
     onShell(command) {

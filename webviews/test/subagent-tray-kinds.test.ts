@@ -77,9 +77,9 @@ await requireBrowserLane("subagent-tray-kinds.test.ts", async () => {
           };
         });
         expect(geometry.title).toBe("1 build · 2 waits · 1 command · 1 subagent done");
-        // Five one-row lines fit the list: no scrollbar to take their right edge in. Narrow, each line
-        // takes two rows and the list scrolls; the header's chevron follows the scrollbar (below).
-        if (width > 400) expect(geometry.overflow).toBeLessThanOrEqual(0);
+        // Five one-row lines fit the list: no scrollbar to take their right edge in. Narrow too: a line
+        // stays one row there (Leo, 2026-11-04: "how Claude code just has one lines too").
+        expect(geometry.overflow).toBeLessThanOrEqual(0);
         const [first] = geometry.lines;
         for (const line of geometry.lines) {
           expect(Math.abs(line.time.right - first!.time.right)).toBeLessThanOrEqual(0.5);

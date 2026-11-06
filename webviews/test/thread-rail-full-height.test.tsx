@@ -115,7 +115,7 @@ const rail = () => {
   const rows = [...ticks].reduce(
     (sum, node) =>
       sum +
-      (node.classList.contains("acpmux-minimap__gap") ? Number.parseFloat((node as HTMLElement).style.height) / 10 : 1),
+      (node.classList.contains("acpmux-minimap__gap") ? Number.parseFloat((node as HTMLElement).style.height) / 20 : 1),
     0,
   );
   const top = Number.parseFloat(nav.style.top);
@@ -124,14 +124,14 @@ const rail = () => {
     top,
     lead,
     height: Number.parseFloat(nav.style.height),
-    latest: top + lead + (rows - 1) * 10 - list.scrollTop,
+    latest: top + lead + (rows - 1) * 20 - list.scrollTop,
   };
 };
 
 /// Centered in the view, then moved up only as far as it takes to clear the bottom stack (model.ts railTop).
 const centered = (height: number) => Math.round((VIEWPORT - height) / 2);
 /// Where the drawn ticks' run is centered, in px down the view.
-const middle = (box: ReturnType<typeof rail>) => (box.top + box.lead + box.latest + 10) / 2;
+const middle = (box: ReturnType<typeof rail>) => (box.top + box.lead + box.latest + 20) / 2;
 
 test("held ticks sit centered in the view, never stacked at the box's foot, while older prompts are not held", async () => {
   const all = chat(45);
@@ -157,30 +157,30 @@ test("held ticks sit centered in the view, never stacked at the box's foot, whil
     // The first frame: twelve prompts held, the summary says forty-five.
     await render({ promptCount: 45 });
     const open = rail();
-    // The box is the rail's one height (240 px, the Codex rail's size) over all forty-five ticks, the
+    // The box is the rail's one height (480 px, twice the original height) over all forty-five ticks, the
     // thirty-three not held yet as resting ticks, centered: no empty rows above the held ones.
     expect(open.lead).toBe(0);
-    expect(open.height).toBe(240);
+    expect(open.height).toBe(480);
     // Every prompt has its row, drawn or (past the list's view) a gap's.
     const rows = [...document.querySelectorAll<HTMLElement>(".acpmux-minimap__entry, .acpmux-minimap__gap")].reduce(
       (sum, node) =>
-        sum + (node.classList.contains("acpmux-minimap__gap") ? Number.parseFloat(node.style.height) / 10 : 1),
+        sum + (node.classList.contains("acpmux-minimap__gap") ? Number.parseFloat(node.style.height) / 20 : 1),
       0,
     );
     expect(rows).toBe(45);
-    expect(open.top).toBeLessThanOrEqual(centered(240));
+    expect(open.top).toBeLessThanOrEqual(centered(480));
     // The ticks' run is about the view's middle, nowhere near its foot.
     expect(Math.abs(middle(open) - VIEWPORT / 2)).toBeLessThanOrEqual(100);
     // The latest tick ends the box, clear of the bottom stack.
-    expect(open.latest + 10).toBe(open.top + open.height);
-    expect(open.latest + 10).toBeLessThanOrEqual(VIEWPORT - stack);
+    expect(open.latest + 20).toBe(open.top + open.height);
+    expect(open.latest + 20).toBeLessThanOrEqual(VIEWPORT - stack);
     // The index answers: every prompt has its tick, in the same box.
     await render({ earlier });
     const full = rail();
     expect(full).toEqual(open);
     expect(full.lead).toBe(0);
-    expect(full.height).toBe(240);
-    expect(full.top).toBeLessThanOrEqual(centered(240));
+    expect(full.height).toBe(480);
+    expect(full.top).toBeLessThanOrEqual(centered(480));
     expect(Math.abs(middle(full) - VIEWPORT / 2)).toBeLessThanOrEqual(100);
   } finally {
     await act(async () => root.unmount());
@@ -204,8 +204,8 @@ test("without a count the rail grows as prompts arrive, as before", async () => 
       ),
     );
     // Twelve prompts: the rail's one height, centered.
-    expect(rail().height).toBe(240);
-    expect(rail().top).toBeLessThanOrEqual(centered(240));
+    expect(rail().height).toBe(480);
+    expect(rail().top).toBeLessThanOrEqual(centered(480));
   } finally {
     await act(async () => root.unmount());
   }
@@ -241,7 +241,7 @@ test("a chat with more prompts than the rail holds keeps its latest tick at the 
     expect(open).toEqual(first);
     // Taller than the room: the rail fills it, and the latest tick ends at its bottom.
     expect(open.height).toBeLessThan(800);
-    expect(open.latest + 10).toBe(open.top + open.height);
+    expect(open.latest + 20).toBe(open.top + open.height);
   } finally {
     await act(async () => root.unmount());
   }
@@ -255,7 +255,7 @@ const frame = () => {
   const ticks: Record<string, number> = {};
   for (const tick of nav.querySelectorAll<HTMLElement>("[data-tick]")) {
     const prompt = tick.getAttribute("aria-label")?.match(/Question \d+/)?.[0];
-    if (prompt) ticks[prompt] = Number.parseFloat(nav.style.top) + Number(tick.dataset.tick) * 10 - list.scrollTop;
+    if (prompt) ticks[prompt] = Number.parseFloat(nav.style.top) + Number(tick.dataset.tick) * 20 - list.scrollTop;
   }
   return {
     top: Number.parseFloat(nav.style.top),

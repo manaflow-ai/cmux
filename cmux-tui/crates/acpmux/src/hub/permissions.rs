@@ -130,6 +130,7 @@ impl Hub {
                             .contains(&agent);
                         self.arm_auto_background(&session, params.as_ref(), replayed);
                         self.on_update(&session, params.as_ref(), replayed);
+                        self.notice_overlaps(&session);
                     } else if m == method::CANCEL_REQUEST
                         && let Some(id) = params.as_ref().and_then(|p| p.get("requestId"))
                     {
@@ -265,6 +266,8 @@ impl Hub {
                     self.processes_lost(&session, processes::HARNESS_EXIT);
                     // So did its background subagents (`work_below.rs`).
                     self.end_background_subagents(&session);
+                    // And its loops, also when a forced Stop dropped its own clear (`loop_goal.rs`).
+                    self.end_loop_goal(&session);
                     // The idle exit marked it before it ended the harness (`idle.rs`); a stop clears the mark.
                     let hibernating = session.hibernated_at.load(Ordering::SeqCst) != 0
                         && session.status() != SessionStatus::Closed;
@@ -347,6 +350,7 @@ impl Hub {
             }
             "tool_call" | "tool_call_update" => {
                 super::pull_requests::absorb(session, update, &mut m);
+                super::touched::absorb(session, update, &mut m, replayed);
                 super::lineage::note_tool_call(session, update);
             }
             "usage_update" => m.usage = Some(update.clone()),

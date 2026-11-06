@@ -22,7 +22,10 @@
 //! Backpressure is the socket itself: the daemon reads and writes through
 //! one 256 KiB buffer and blocks on a full window. A write stream that ends
 //! (or times out) before `size` bytes drops its [`PendingWrite`], which
-//! unlinks the temporary file: nothing appears at `path`.
+//! unlinks the temporary file: nothing appears at `path`. A write the daemon
+//! refuses after `ready` (bytes past `decoded_size`, a failed disk write) is
+//! answered at once and the stream closes without reading the rest of the
+//! `size` bytes: a client whose send then fails reads that answer.
 
 use std::io::{self, Read, Write};
 use std::os::fd::AsFd;

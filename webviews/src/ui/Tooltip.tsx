@@ -5,13 +5,23 @@
 // "WHERE IS THE GLASS EVERYWHERE, all these hover tooltips and hover previews"), primary ink, an
 // optional shortcut hint. Every tooltip and hover card here is glass, never the solid popup surface
 // (webviews/scripts/check-glass-never-opaque.ts fails one that is not).
-import { useState, type PointerEventHandler, type ReactElement, type ReactNode, type Ref } from "react";
+import {
+  useCallback,
+  useLayoutEffect,
+  useState,
+  type PointerEventHandler,
+  type ReactElement,
+  type ReactNode,
+  type Ref,
+} from "react";
 import { Tooltip as BaseTooltip } from "@base-ui/react/tooltip";
 import { usePopupHost, usePortalContainer } from "./UiProvider";
 import { useEscapingPopup } from "./popupHost";
 import { virtualAnchor, type UiAnchor } from "./Popover";
 import { cx } from "./cx";
+import { attachSeeThroughBlur, type CoveredCandidates, type SeeThroughOptions } from "./glass/seeThroughBlur";
 import { HOVER_INTENT } from "./hoverIntent";
+import { UI_TOOLTIP_GAP, tooltipGap, tooltipScale } from "./tooltipTokens";
 
 /**
  * A page's tooltips wait the hover delay before the first shows, then show at once while the group
@@ -27,8 +37,11 @@ export function TooltipProvider({ children }: { children: ReactNode }) {
 
 export interface TooltipProps {
   label: ReactNode;
+  /** Optional supporting text on a dimmer second line. */
+  detail?: ReactNode;
   /** The control it describes (its `render` target). */
   children: ReactElement;
+  /** Tooltips sit above their control when there is room, like the reference surfaces. */
   side?: "top" | "bottom";
   /** A keyboard shortcut shown after the label in the secondary ink (`⌘T`), as on native tooltips. */
   shortcut?: string;
@@ -36,7 +49,7 @@ export interface TooltipProps {
   className?: string;
 }
 
-export function Tooltip({ label, children, side = "bottom", shortcut, className }: TooltipProps) {
+export function Tooltip({ label, detail, children, side = "top", shortcut, className }: TooltipProps) {
   const container = usePortalContainer();
   const host = usePopupHost();
   const [trigger, setTrigger] = useState<HTMLElement | null>(null);
@@ -44,15 +57,26 @@ export function Tooltip({ label, children, side = "bottom", shortcut, className 
   // No room in the page (a tiny pane): past the window's edge, as a Mac tooltip (popupHost.ts). A
   // hover card (`ui-card`) wraps its lines, so its width never sends it there.
   const wraps = /(^|\s)ui-card(\s|$)/.test(className ?? "");
-  useEscapingPopup(host, popup, () => trigger, { side, align: "start", gap: 6, kind: "tooltip", wraps });
+  useEscapingPopup(host, popup, () => trigger, {
+    side,
+    align: "start",
+    gap: UI_TOOLTIP_GAP * (popup ? tooltipScale(popup.ownerDocument) : 1),
+    kind: "tooltip",
+    wraps,
+  });
   return (
     <BaseTooltip.Root>
       <BaseTooltip.Trigger ref={host ? setTrigger : undefined} render={children} />
       <BaseTooltip.Portal container={container}>
-        <BaseTooltip.Positioner className="ui-positioner" side={side} sideOffset={6}>
-          <BaseTooltip.Popup ref={host ? setPopup : undefined} className={cx("ui-tooltip ui-glass", className)}>
+        <BaseTooltip.Positioner className="ui-positioner" side={side} sideOffset={tooltipGap}>
+          <BaseTooltip.Popup ref={setPopup} className={cx("ui-tooltip ui-glass", className)}>
             {shortcut && <span className="ui-tooltip-hint">{shortcut}</span>}
-            {label}
+            {typeof label === "string" || typeof label === "number" ? (
+              <span className="ui-tooltip-text">{label}</span>
+            ) : (
+              label
+            )}
+            {detail != null && <span className="ui-tooltip-detail">{detail}</span>}
           </BaseTooltip.Popup>
         </BaseTooltip.Positioner>
       </BaseTooltip.Portal>
@@ -84,6 +108,11 @@ export interface AnchoredCardProps {
   popupRef?: Ref<HTMLDivElement>;
   /** Identifies this portal to a shared hover bridge. */
   hoverBridgeId?: number;
+  /** What the card covers on its page, blurred in place while it shows (glass/seeThroughBlur.ts):
+   * Chromium's backdrop leaves the text under a card reading through its tint. A module constant. */
+  under?: CoveredCandidates;
+  /** The in-place blur's options (a module constant): its owner word and what keeps the underlay. */
+  underOptions?: SeeThroughOptions;
   children: ReactNode;
 }
 
@@ -112,9 +141,27 @@ export function AnchoredCard({
   onPointerLeave,
   popupRef,
   hoverBridgeId,
+  under,
+  underOptions,
   children,
 }: AnchoredCardProps) {
   const container = usePortalContainer();
+  // The popup mounts after this component commits (the portal places it first), so the blur keys
+  // on the popup node itself, not a ref read in this component's own commit.
+  const [popup, setPopupNode] = useState<HTMLDivElement | null>(null);
+  const setPopup = useCallback(
+    (node: HTMLDivElement | null) => {
+      setPopupNode(node);
+      if (typeof popupRef === "function") popupRef(node);
+      else if (popupRef) popupRef.current = node;
+    },
+    [popupRef],
+  );
+  const shown = open ?? anchor !== null;
+  useLayoutEffect(() => {
+    if (!popup || !under || !shown) return;
+    return attachSeeThroughBlur(popup, under, underOptions);
+  }, [popup, under, underOptions, shown]);
   return (
     <BaseTooltip.Root open={open ?? anchor !== null}>
       <BaseTooltip.Portal container={container}>
@@ -123,10 +170,10 @@ export function AnchoredCard({
           anchor={virtualAnchor(anchor)}
           side={side}
           align="start"
-          sideOffset={6}
+          sideOffset={tooltipGap}
         >
           <BaseTooltip.Popup
-            ref={popupRef}
+            ref={setPopup}
             id={id}
             className={cx("ui-tooltip ui-card ui-glass", className)}
             data-state={state}

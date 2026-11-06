@@ -12,6 +12,10 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     weak var delegate: SidebarDelegate?
     /// "No Results" in 15 pt semibold, made once (a font made per call can race its release; cx-qpqs).
     private static let noResultsFont = NSFont.systemFont(ofSize: 15, weight: .semibold)
+    /// cmux: No Results one and two points larger (the host's sidebar Text Size), made once too.
+    private static let steppedNoResultsFonts = [16, 17].map { NSFont.systemFont(ofSize: CGFloat($0), weight: .semibold) }
+    /// cmux: Show All's text at the host's larger Text Sizes, made once (its own size is 11 to 13 pt).
+    private static let steppedShowAllFonts = [12, 13, 14, 15].map { NSFont.systemFont(ofSize: CGFloat($0)) }
     /// The selected conversation (nil: none, or a row of the host's extra search section).
     var selectedID: ConversationID? { highlightID.flatMap { SidebarController.isExtra($0) ? nil : $0 } }
     /// v1.1: extra search results from the host (a section under the matching conversations).
@@ -112,16 +116,15 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     private var scale: CGFloat { document.window?.backingScaleFactor ?? 2 }
     private let cache = SidebarBitmapCache()
     let avatars = SidebarAvatarCache() // cmux: internal, the pin drag draws its tile
-    var avatarMotion = SidebarAvatarMotion() // cmux: a Chief's avatar loop (the host's gate and style)
     /// cmux (the user, 2026-11-03, msg 20105): nothing in the list animates unless the host turns this on: rows
-    /// moving or appearing, the typing bubble's pop, fade and pulse, the swipe, the tile and pin drags, avatar loops.
-    var animates = false { didSet { avatarMotion.animates = animates } }
+    /// moving or appearing, the typing bubble's pop, fade and pulse, the swipe, the tile and pin drags.
+    var animates = false
     private let textCache = SidebarTextCache()
     private let timeFormatter = ConversationTimeFormatter(yesterday: SidebarStrings.yesterday)
     private var bellSecondary: CGImage?, bellSelected: CGImage?, failedGlyph: CGImage?, failedSelected: CGImage?
     private var windowActive = true
     private var pending: Set<SidebarBitmapKey> = []
-    private(set) var rowLayers: [Int: SidebarRowLayer] = [:] // cmux: readable (Cmux/SidebarAvatarMotion.swift)
+    private(set) var rowLayers: [Int: SidebarRowLayer] = [:] // cmux: readable (tests read the rows on screen)
     private var pool: [SidebarRowLayer] = []
     // cmux: readable by the pin drag (Cmux/SidebarPinDragging.swift).
     private(set) var tileLayers: [SidebarRowLayer] = []
@@ -135,6 +138,17 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     let showAll = NSButton(title: "", target: nil, action: nil)
     /// cmux: Show All's click, after the filter went off (the host's toggle and chip follow it).
     var onShowAll: (() -> Void)?
+    /// cmux: points added to the empty list's text (No Results, No Unread Chats, Show All): the
+    /// host's sidebar Text Size. 0 keeps MessagesLab's sizes.
+    var emptyTextStep: CGFloat = 0 {
+        didSet {
+            guard emptyTextStep != oldValue else { return }
+            applyEmptyTextStep()
+            view.needsLayout = true
+        }
+    }
+    /// cmux: Show All's font before any ``emptyTextStep`` (its small control size's).
+    private var showAllBaseFont: NSFont?
 
     /// Counters for the bench and the self-test.
     struct Stats {
@@ -580,6 +594,16 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
 
     // MARK: Filter (v1.2)
 
+    /// cmux: No Results and Show All at ``emptyTextStep`` points over their own sizes, from fonts made
+    /// once (cx-qpqs); a step without one keeps the own size.
+    private func applyEmptyTextStep() {
+        let step = emptyTextStep
+        noResults.font = Self.steppedNoResultsFonts.first { $0.pointSize == Self.noResultsFont.pointSize + step } ?? Self.noResultsFont
+        guard let base = showAllBaseFont ?? showAll.font else { return }
+        showAllBaseFont = base
+        showAll.font = step == 0 ? base : Self.steppedShowAllFonts.first { $0.pointSize == base.pointSize + step } ?? base
+    }
+
     @objc private func showAllClicked() {
         filter = .all
         onShowAll?()
@@ -1008,7 +1032,6 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         l.conversationID = nil
         l.setAffineTransform(.identity)
         l.removeAnimation(forKey: "move"); l.removeAnimation(forKey: "appear")
-        SidebarAvatarMotion.stop(l) // cmux: a pooled avatar never loops
         l.shownKey = nil
         l.shownLayout = nil
         l.shownText = nil
@@ -1052,7 +1075,6 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             l.avatar.contents = avatars.image(c.avatar, diameter: ah, ctx: renderContext)
             l.avatarSpec = c.avatar; l.avatarGeneration = generation; l.avatarDiameter = ah
         }
-        avatarMotion.apply(l, mode: c.avatarMotion, seed: c.id, window: document.window) // cmux
         let d = SidebarMetrics.dotDiameter
         l.dot.isHidden = !c.unread
         l.dot.frame = CGRect(x: SidebarMetrics.dotCenterX - d / 2, y: frame.height / 2 - d / 2, width: d, height: d)
@@ -1241,7 +1263,6 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             l.avatar.contents = avatars.image(c.avatar, diameter: SidebarMetrics.pinMaxAvatar, ctx: renderContext)
             l.avatarSpec = c.avatar; l.avatarGeneration = generation
         }
-        avatarMotion.apply(l, mode: c.avatarMotion, seed: c.id, window: document.window) // cmux
         configureSenders(l, c, avatar: ar)
         l.dot.isHidden = !c.unread
         l.dot.cornerRadius = (metrics.compact ? SidebarMetrics.dotDiameter : SidebarDraw.tileDotDiameter) / 2
@@ -1681,7 +1702,6 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     func scaleChanged() { avatars.removeAll(); invalidateAll() }
     func setWindowActive(_ active: Bool) {
         requestedWindowActive = active // cmux
-        if avatarMotion.windowKey != active { avatarMotion.windowKey = active; refreshAvatarMotion() } // cmux: avatars move only in the key window
         let active = active || neutralSelection // cmux: neutral selection looks the same in every window state
         guard active != windowActive else { return }
         windowActive = active
@@ -1795,8 +1815,6 @@ final class SidebarRowLayer: CALayer {
     var senders: [CALayer] = []
     /// The conversation this layer shows (nil: in the pool).
     var conversationID: ConversationID?
-    /// cmux: what the avatar was asked to show and the loop on it (``SidebarAvatarMotion``).
-    var avatarMotion: SidebarAvatarMotion.Shown?
     var shownKey: SidebarBitmapKey?
     /// The line breaks and truncation of the text bitmap on screen (nil: not known, e.g. from the cache).
     var shownLayout: SidebarDraw.RowTextLayout?

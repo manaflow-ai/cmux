@@ -223,11 +223,19 @@ jobs:
           jq 'del(.scripts)' webviews/package.json | sudo -n -u "$JOIN_USER" -- tee "$JOIN_BASE/bench/webviews/package.json" >/dev/null
           sudo -n -u "$JOIN_USER" -- cp -- webviews/bun.lock "$JOIN_BASE/bench/webviews/bun.lock"
           # deps-slow: every packet out of this VM waits 150 ms more (a far-away registry and cache).
-          # The VM is destroyed after the job, so the delay is never undone.
+          # The VM is destroyed after the job, so the delay is never undone. A kernel without netem
+          # gets the same delay from a local proxy that the bench routes every tool's HTTPS through.
           if [ "$BENCH" = deps-slow ]; then
             dev="$(ip -o route get 1.1.1.1 | sed -n 's/.* dev \([^ ]*\).*/\1/p')"
-            sudo tc qdisc replace dev "$dev" root netem delay 150ms
-            tc qdisc show dev "$dev"
+            sudo modprobe sch_netem 2>/dev/null || true
+            if sudo tc qdisc replace dev "$dev" root netem delay 150ms; then
+              tc qdisc show dev "$dev"
+              echo netem | sudo -n -u "$JOIN_USER" -- tee "$JOIN_BASE/bench/link" >/dev/null
+            else
+              sudo install -o root -g root -m 0755 scripts/cmux-next/delay-proxy.py "$JOIN_BASE/bin/delay-proxy.py"
+              echo 150 | sudo -n -u "$JOIN_USER" -- tee "$JOIN_BASE/bench/link-proxy-ms" >/dev/null
+              echo proxy | sudo -n -u "$JOIN_USER" -- tee "$JOIN_BASE/bench/link" >/dev/null
+            fi
           fi
 
       # The only step that sees the stack secrets, through env. No `set -x`: the script prints its own lines.

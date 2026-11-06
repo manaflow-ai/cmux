@@ -545,7 +545,7 @@
   {
    "name": "site.permission.sound",
    "meaning": "Site permission: sound",
-   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4 9.25v5.5a.75.75 0 0 0 .75.75H7.5l4.25 3.75V4.75L7.5 8.5H4.75a.75.75 0 0 0-.75.75Z'/><path d='M14.83 9.17A4 4 0 0 1 14.83 14.83M17.48 6.52A7.75 7.75 0 0 1 17.48 17.48'/></svg>",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3 9.75c0-.615.51-1.125 1.125-1.125H7.5l7.875-5.25v16.5L7.5 15.375H4.125C3.51 15.375 3 14.865 3 14.25Z'/><path d='M19.125 7.875a6 6 0 0 1 0 8.25'/></svg>",
    "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4 9.25v5.5a.75.75 0 0 0 .75.75H7.5l4.25 3.75V4.75L7.5 8.5H4.75a.75.75 0 0 0-.75.75Z'/></g><g fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M14.83 9.17A4 4 0 0 1 14.83 14.83M17.48 6.52A7.75 7.75 0 0 1 17.48 17.48'/></g></svg>",
    "alts": [],
    "note": "",
@@ -718,7 +718,7 @@
    "name": "media.audio",
    "meaning": "Tab is playing sound",
    "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4 9.25v5.5a.75.75 0 0 0 .75.75H7.5l4.25 3.75V4.75L7.5 8.5H4.75a.75.75 0 0 0-.75.75Z'/><path d='M14.83 9.17A4 4 0 0 1 14.83 14.83M17.48 6.52A7.75 7.75 0 0 1 17.48 17.48'/></svg>",
-   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4 9.25v5.5a.75.75 0 0 0 .75.75H7.5l4.25 3.75V4.75L7.5 8.5H4.75a.75.75 0 0 0-.75.75Z'/></g><g fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round'><path d='M14.83 9.17A4 4 0 0 1 14.83 14.83M17.48 6.52A7.75 7.75 0 0 1 17.48 17.48'/></g></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3 9.75c0-.615.51-1.125 1.125-1.125H7.5l7.875-5.25v16.5L7.5 15.375H4.125C3.51 15.375 3 14.865 3 14.25Z'/></g><g fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round'><path d='M19.125 7.875a6 6 0 0 1 0 8.25'/></g></svg>",
    "replaces": [
     "speaker.wave.2"
    ],

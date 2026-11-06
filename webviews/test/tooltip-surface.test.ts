@@ -59,7 +59,10 @@ await requireBrowserLane("tooltip-surface.test.ts", async () => {
   </div>`;
 
   async function open(style: string, body = toolbar, options: { reducedMotion?: "reduce" } = {}) {
-    const page = await browser.newPage({ viewport: { width: 500, height: 300 }, deviceScaleFactor: 2 });
+    const page = await browser.newPage({
+      viewport: { width: 500, height: 300 },
+      deviceScaleFactor: 2,
+    });
     if (options.reducedMotion) await page.emulateMedia({ reducedMotion: options.reducedMotion });
     await page.setContent(
       `<!doctype html><html style="${style}"><head><style>${css}</style></head><body style="margin:0">${body}</body></html>`,
@@ -299,7 +302,9 @@ await requireBrowserLane("tooltip-surface.test.ts", async () => {
           const tip = (await page.locator(".ui-title-tooltip").boundingBox())!;
           // A pixel of the surface inside the rim, left of the text's first glyph.
           const shot = PNG.sync.read(
-            await page.screenshot({ clip: { x: tip.x + 2, y: tip.y + tip.height / 2, width: 1, height: 1 } }),
+            await page.screenshot({
+              clip: { x: tip.x + 2, y: tip.y + tip.height / 2, width: 1, height: 1 },
+            }),
           );
           const fill = [shot.data[0], shot.data[1], shot.data[2]];
           const ratio = contrast(rgb(themes[name].text), fill);
@@ -330,5 +335,42 @@ await requireBrowserLane("tooltip-surface.test.ts", async () => {
     // The shadow is elevation 1 on both sides (TooltipSurface.shadow, --elevation-1).
     expect(swift).toContain("static var shadow: Elevation { PopupStyle.elevation1 }");
     expect(desktop).toContain("--tooltip-shadow: var(--elevation-1);");
+  });
+  test("wide rows keep compact scaled bubbles close to the control with title/detail hierarchy", async () => {
+    for (const scale of [1, 1.25]) {
+      const page = await open(
+        theme("dark", `--cmux-interface-scale:${scale};`),
+        '<button id="wide" style="position:absolute;left:20px;top:180px;width:450px;overflow:hidden;white-space:nowrap" title="Fork from here" data-tooltip-detail="Start a new thread. This one stays as it is.">A long truncated control label that extends beyond its row and must not dictate the tooltip width</button>',
+      );
+      try {
+        await hoverAndWait(page, "wide");
+        const seen = await page.evaluate(() => {
+          const tip = document.querySelector<HTMLElement>(".ui-title-tooltip")!;
+          tip.getAnimations().forEach((animation) => animation.finish());
+          const rect = tip.getBoundingClientRect();
+          const anchor = document.getElementById("wide")!.getBoundingClientRect();
+          const title = getComputedStyle(tip.querySelector(".ui-tooltip-text")!);
+          const detail = getComputedStyle(tip.querySelector(".ui-tooltip-detail")!);
+          return {
+            width: rect.width,
+            gap: anchor.top - rect.bottom,
+            titleWeight: Number(title.fontWeight),
+            detailWeight: Number(detail.fontWeight),
+            titleColor: title.color,
+            detailColor: detail.color,
+            text: tip.textContent,
+          };
+        });
+        expect(seen.width).toBeLessThanOrEqual(320 * scale);
+        expect(seen.width).toBeLessThan(450);
+        // Placement rounds its top to a CSS pixel, including fractional scaled line heights.
+        expect(Math.abs(seen.gap - 4 * scale)).toBeLessThanOrEqual(0.5);
+        expect(seen.titleWeight).toBeGreaterThan(seen.detailWeight);
+        expect(seen.titleColor).not.toBe(seen.detailColor);
+        expect(seen.text).toContain("This one stays as it is.");
+      } finally {
+        await page.close();
+      }
+    }
   });
 });

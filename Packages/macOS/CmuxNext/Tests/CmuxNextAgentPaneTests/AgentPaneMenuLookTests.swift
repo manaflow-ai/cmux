@@ -39,6 +39,28 @@ struct AgentPaneMenuLookTests {
     static let links = AgentPaneMessageTarget(text: "Two links.", markdown: "Two [links](https://cmux.com/docs).",
                                               links: [docs, docs.appending(path: "blog")])
 
+    @Test func aReplyMenuStartsWithItsQuietTimestamp() throws {
+        let target = try #require(AgentPaneMessageTarget(report: [
+            "text": "Done.", "markdown": "Done.", "replyTime": "Today, 5:29 PM",
+        ]))
+        let menu = Self.menu(target: target)
+        let header = try #require(menu.items.first)
+        #expect(header.title == "Today, 5:29 PM")
+        #expect(header.action == nil)
+        #expect(!header.isEnabled)
+        #expect(header.image == nil)
+        #expect(header.view == nil)
+        #expect(menu.items[1].isSeparatorItem)
+        #expect(menu.items.contains { $0.title == AgentPaneMenuStrings.copyMessage })
+    }
+
+    @Test func aPromptOrSelectionHasNoReplyTimestampHeader() {
+        let prompt = AgentPaneMessageTarget(text: "Fix the build.", replyTime: "Today, 5:29 PM")
+        #expect(Self.menu(target: prompt).items.first?.title != "Today, 5:29 PM")
+        let reply = AgentPaneMessageTarget(text: "Done.", markdown: "Done.", replyTime: "Today, 5:29 PM")
+        #expect(Self.menu(target: reply, selection: "Done").items.first?.title != "Today, 5:29 PM")
+    }
+
     @Test(arguments: ["prompt", "reply", "links", "selection"])
     func everyRowIsNativeWithAnIcon(_ kind: String) throws {
         let menu = switch kind {
@@ -136,6 +158,31 @@ struct AgentPaneMenuLookTests {
         try Self.click(right)
         Self.drainRunLoop { !opened.isEmpty }
         #expect(opened == ["child"])
+    }
+
+    /// A right-click on another chat the transcript names (a link, a name, a sender) also has that
+    /// chat's sidebar row rows, asked for that chat, in their own group after Open on Right; an
+    /// agent link keeps its link rows after them (Leo, 2026-11-05: "right clicking on a
+    /// deeplink/link to another session/name of another session/rendering of it shuold give thes options").
+    @Test func aChatPartAddsItsSidebarRowRows() throws {
+        var asked: [String] = []
+        let menu = Self.webKitMenu(MenuLookWebKitTarget())
+        var actions = AgentPaneContextMenu.Actions(copy: { _ in }, fork: { _ in })
+        actions.openSession = { _, _ in }
+        actions.sessionItems = { session in
+            asked.append(session)
+            return [NSMenuItem(title: "Mark as Read", action: nil, keyEquivalent: ""), NSMenuItem(title: "Archive Chat", action: nil, keyEquivalent: "")]
+        }
+        let link = try #require(URL(string: "https://cmux.com/deeplink/agent?session=child"))
+        let target = AgentPaneMessageTarget(text: "", part: AgentPaneMenuPart(link: link, session: "child"))
+        AgentPaneContextMenu.rebuild(menu, target: target, devTools: false, scope: ThemeScope.app.fullStrength, actions: actions)
+        #expect(asked == ["child"])
+        let titles = menu.items.map { $0.isSeparatorItem ? "-" : $0.title }
+        let open = try #require(titles.firstIndex(of: AgentPaneMenuStrings.openOnRight))
+        let read = try #require(titles.firstIndex(of: "Mark as Read"))
+        let copyLink = try #require(titles.firstIndex(of: AgentPaneMenuStrings.copyLink))
+        #expect(open < read && read < copyLink, "Open on Right, then the row's rows, then the link's: \(titles)")
+        #expect(titles[read - 1] == "-", "the row's rows are their own group: \(titles)")
     }
 
     // MARK: Helpers

@@ -25,15 +25,16 @@ final class FocusCoordinator {
     private var reduced = FocusState()
     /// Topologies their owners marked changed, built when next needed (`setNeedsTopology`).
     private var pendingTopologies: [(owner: ObjectIdentifier, build: @MainActor () -> FocusTopology?)] = []
-    /// The state and rules (`cmux-focus-core`); the view above mirrors it.
-    private let machine = FocusMachine()
+    /// The state and rules (`cmux-focus-core`, in the app's one input router); the view above mirrors it.
+    private let machine: FocusMachine
+    init(machine: FocusMachine) { self.machine = machine }
     private var appliedCloseFocus: CloseFocusPolicy?
     /// The close-focus setting (tests inject one).
     var closeFocus: () -> CloseFocusPolicy = { DesignSettings.shared.closeFocus }
     weak var applier: (any FocusEffectApplying)?
     /// The window this coordinator focuses in (`debug.pane_focus` times its commit).
     weak var window: NSWindow?
-    private var queue: [FocusEvent] = []
+    private var queue: [(event: FocusEvent, menuPick: Bool)] = []  // each with its sender's run mark, not the drain's (#36896)
     private var isRunning = false
     /// The applier runs the address-bar focus of a return to the tab (``FocusMachine/Reduction``).
     private(set) var isReturningToOmnibar = false
@@ -81,7 +82,7 @@ final class FocusCoordinator {
         if event.isPersonsOwn, event.changesView { personIntents = (personIntents.count &+ 1, (NSApp as? CmuxApplication)?.inputDispatch?.event?.timestamp) }
         // A changed topology goes first: the event (and its effects) see the current panes and tabs.
         if case .topology = event {} else { reducePendingTopologies() }
-        queue.append(event)
+        queue.append((event, ActionRunScope.current?.menuPick == true))
         guard !isRunning else { return }
         isRunning = true
         defer { isRunning = false }
@@ -96,7 +97,7 @@ final class FocusCoordinator {
         // queue holds this event, so the drain runs at least once, and it ends when the queue is empty.
         while !queue.isEmpty {
             while !queue.isEmpty {
-                let event = queue.removeFirst()
+                let (event, menuPick) = queue.removeFirst()
                 // A topology equal to the one the machine holds is not an event:
                 // nothing is sent, recorded or applied (the window re-reports
                 // its panes after every daemon delta and selection echo).
@@ -109,7 +110,7 @@ final class FocusCoordinator {
                     machine.setCloseFocus(mostRecent: policy == .mostRecent)
                 }
                 let previous = reduced
-                guard let result = machine.send(event, into: &reduced) else {
+                guard let result = machine.send(event, into: &reduced, menuPick: menuPick) else {
                     // The ABI refused the event: a wire mismatch between the app
                     // and the linked FFI. Keep the state rather than lose focus.
                     assertionFailure("focus machine refused \(event)")
@@ -120,7 +121,7 @@ final class FocusCoordinator {
                 record(event)
                 if result.omnibarReturn {
                     // Runs after this event's effects moved the responder to the page.
-                    queue.append(FocusMachine.returnToOmnibar)
+                    queue.append((FocusMachine.returnToOmnibar, menuPick))
                 }
                 observer?(.reduced(event, before: previous, after: reduced, changed: result.changed || !effects.isEmpty))
                 guard !effects.isEmpty, let applier else { continue }

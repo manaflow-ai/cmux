@@ -45,6 +45,13 @@ public nonisolated struct AcpmuxSessionPage: Sendable {
         return Self.chat(id, in: result)
     }
 
+    /// One session's whole summary by exact id (`_acpmux/resolve`), open or closed, on this Mac or a peer it
+    /// mirrors; nil when acpmux has no such session. Home reads its `movedTo` and `moveEpoch` to follow a
+    /// Chief's agent where it moved.
+    @concurrent public func summary(_ id: String, deadline: Duration = AcpmuxEnvironment.answerDeadline) async throws -> sending [String: Any]? {
+        try await AcpmuxStatusClient.sessionSummary(socketPath: socketPath, sessionId: id, deadline: deadline)
+    }
+
     /// The acpmux session an agent link names (`cmux://agent/<harness>/<session>` or its cmux.com
     /// form), on this Mac or a peer it mirrors: `_acpmux/resolve {query}`, which reads the link
     /// itself (hub/locate.rs, agent_link.rs). Nil when acpmux lists no such session, which is

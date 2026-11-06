@@ -11,6 +11,13 @@ import Testing
 /// can't drag from this top area at all").
 @Suite(.closesItsWindows)
 @MainActor struct EmptyWorkspaceTitlebarDragTests {
+    @Test func emptyWorkspaceShowsTheBuiltInWordmark() throws {
+        let empty = EmptyWorkspaceView()
+        let stack = try #require(empty.subviews.first as? NSStackView)
+        #expect(stack.arrangedSubviews.first?.accessibilityLabel() == "cmux")
+        #expect((stack.arrangedSubviews.first as? NSTextField)?.stringValue == CmuxWordmarkLabel.wordmark)
+    }
+
     @Test func aPressInTheEmptyWorkspacesTopRowMovesTheWindow() throws {
         _ = NSApplication.shared
         let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel()))
