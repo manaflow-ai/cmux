@@ -99,6 +99,8 @@ extension SettingsPageLayout {
         id: "terminal", title: section(.terminal), symbol: "terminal",
         groups: [
             GroupSpec(keys: ["newTerminal.opensWorkspace", "app.warnBeforeClosingTab"], title: SettingsText.keyed("settings.pageGroup.terminalBehavior", "Behavior")),
+            // The TERM new terminals start with (terminal.term).
+            GroupSpec(group: "settings.group.terminalCompatibility"),
         ],
         lead: [.terminalInfo], trail: [.ghosttyDiagnostics], actions: [.terminal], aliases: [.terminal]
     )

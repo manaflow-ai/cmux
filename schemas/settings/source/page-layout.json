@@ -210,7 +210,8 @@
           "groups": [
             {"title": {"key": "settings.pageGroup.terminalBehavior", "text": "Behavior"}, "keys": [
               "newTerminal.opensWorkspace", "app.warnBeforeClosingTab"
-            ]}
+            ]},
+            {"group": "settings.group.terminalCompatibility", "note": "The TERM new terminals start with (terminal.term)."}
           ],
           "lead": ["terminalInfo"],
           "trail": ["ghosttyDiagnostics"],

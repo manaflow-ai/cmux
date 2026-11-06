@@ -156,14 +156,9 @@ test("every category and section symbol has its own icon", () => {
     ...sections.map((section) => section.symbol),
   ];
   const layout = JSON.parse(
-    readFileSync(
-      new URL("../../../../schemas/settings/source/page-layout.json", import.meta.url),
-      "utf8",
-    ),
+    readFileSync(new URL("../../../../schemas/settings/source/page-layout.json", import.meta.url), "utf8"),
   ) as { sidebar_sections: Array<{ categories: Array<{ symbol: string }> }> };
-  const layoutSymbols = layout.sidebar_sections.flatMap((run) =>
-    run.categories.map((category) => category.symbol),
-  );
+  const layoutSymbols = layout.sidebar_sections.flatMap((run) => run.categories.map((category) => category.symbol));
   expect(layoutSymbols).toContain("iphone");
   const missing = [...new Set([...exportedSymbols, ...layoutSymbols])].filter((symbol) => !hasIcon(symbol));
   expect(missing).toEqual([]);
