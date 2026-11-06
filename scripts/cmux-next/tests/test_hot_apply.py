@@ -215,12 +215,14 @@ class FindSocket(unittest.TestCase):
     def tearDown(self):
         self.hot.subprocess.run = self.real_run
 
-    def stub(self, status):
+    def stub(self, status, argv0=None):
         prefix = str(self.app / self.hot.BIN)
 
         def run(argv, **kwargs):
+            if argv[0] == "ps" and argv[-1] == "pid=,comm=":
+                return subprocess.CompletedProcess(argv, 0, f"4242 {prefix}/cmux-tui\n", "")
             if argv[0] == "ps":
-                return subprocess.CompletedProcess(argv, 0, f"4242 {prefix}/cmux-tui --session s server\n", "")
+                return subprocess.CompletedProcess(argv, 0, f"4242 {argv0 or prefix + '/cmux-tui'} --session s server\n", "")
             if argv[0] == "lsof":
                 return subprocess.CompletedProcess(argv, 0, "p4242\nn/tmp/s.sock\n", "")
             return status(argv)
@@ -228,6 +230,10 @@ class FindSocket(unittest.TestCase):
 
     def test_a_daemon_that_answers_is_found(self):
         self.stub(lambda argv: subprocess.CompletedProcess(argv, 0, '{"pid": 4242}', ""))
+        self.assertEqual(self.hot.find_socket(self.app, Path("cmux")), "/tmp/s.sock")
+
+    def test_a_daemon_whose_argv0_is_its_bare_name_is_found_by_its_executable(self):
+        self.stub(lambda argv: subprocess.CompletedProcess(argv, 0, '{"pid": 4242}', ""), argv0="cmux-tui")
         self.assertEqual(self.hot.find_socket(self.app, Path("cmux")), "/tmp/s.sock")
 
     def test_a_status_that_never_answers_is_not_taken_for_no_daemon(self):

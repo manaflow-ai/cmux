@@ -31470,6 +31470,11 @@
           "kind" : "string",
           "name" : "repo",
           "required" : false
+        },
+        {
+          "kind" : "string",
+          "name" : "environment",
+          "required" : false
         }
       ],
       "cli" : "offered",
@@ -34715,6 +34720,11 @@
         {
           "kind" : "string",
           "name" : "promptId",
+          "required" : false
+        },
+        {
+          "kind" : "string",
+          "name" : "login",
           "required" : false
         }
       ],

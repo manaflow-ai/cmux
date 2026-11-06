@@ -10,30 +10,27 @@
 //! there is no bootstrap on the machine, its repository step finished (`repo-status.json` says
 //! `cloned`, `updated` or `kept`), the whole bootstrap is `done`, or it ended with no repository
 //! step and the folder is there. While the bootstrap is `starting` or `running` the machine waits on
-//! it for at most [`SLICE_SECONDS`] (less when less is left) and the CLI asks again until the one
-//! deadline from the command's start. A bootstrap that ended any other way fails the start with its
+//! it for at most [`SLICE_SECONDS`] (less when less of `--timeout` is left: the command's one [`Deadline`])
+//! and the CLI asks again. Past the deadline the start answers [`out_of_time`]; with no deadline (no
+//! `--wait`) it waits at most [`MAX_WAIT`]. A bootstrap that ended any other way fails the start with its
 //! status and log. An exec the machine refused leaves the start as it was.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use super::{GUEST_PRELUDE, Outcome, Request, Runner, at, exec, failed, shell_quote};
+use super::{
+    Deadline, GUEST_PRELUDE, Machine, Outcome, Request, Runner, at, exec, failed, out_of_time,
+    shell_quote,
+};
 
 /// The machine's bootstrap folder (`CloudMachineBootstrap.directory`, in the work user's home).
 pub(super) const BOOTSTRAP: &str = ".cmux/bootstrap";
 pub(super) const LOG: &str = ".cmux/bootstrap/bootstrap.log";
 /// The most one exec waits on the machine (the exec itself stops after 25 s).
 pub(super) const SLICE_SECONDS: u64 = 15;
-/// The longest a start waits for a clone without `--wait`'s `--timeout`.
+/// The longest a start with no deadline (no `--wait`) waits for a clone.
 pub(super) const MAX_WAIT: Duration = Duration::from_secs(10 * 60);
-
-/// When the folder wait gives up: `--timeout` from the command's start (with `--wait`), and never past
-/// [`MAX_WAIT`] from it.
-pub(super) fn end(request: &Request, began: Instant) -> Instant {
-    let limit = if request.wait { request.timeout.min(MAX_WAIT) } else { MAX_WAIT };
-    began.checked_add(limit).unwrap_or(began)
-}
 
 /// What the machine said about `--cwd`.
 #[derive(Debug, PartialEq)]
@@ -80,26 +77,37 @@ pub(super) fn read(stdout: &str) -> Folder {
     }
 }
 
-/// Waits on `machine`'s bootstrap for `cwd` until `end` (module docs). `None` starts the chat; `Some`
-/// is the start's failure.
+/// Waits on `machine`'s bootstrap for `cwd` within `deadline` (module docs). `None` starts the chat;
+/// `Some` is the start's failure.
 pub(super) fn wait(
     runner: &mut dyn Runner,
+    request: &Request,
     machine: &str,
     cwd: &str,
-    end: Instant,
+    deadline: Deadline,
 ) -> Option<Outcome> {
     let started = runner.now();
     loop {
-        let left = end.saturating_duration_since(runner.now()).as_secs();
-        let answer = if left == 0 {
-            Folder::Cloning
-        } else {
-            let Ok(stdout) = exec(runner, machine, &script(cwd, left.min(SLICE_SECONDS))) else {
-                return None;
-            };
-            read(&stdout)
-        };
-        match answer {
+        if deadline.passed(runner) {
+            return Some(out_of_time(request, &Machine::Target(machine.to_owned()), Value::Null));
+        }
+        let waited = runner.now().saturating_duration_since(started);
+        if waited >= MAX_WAIT {
+            return Some(failed(
+                "cloud.folder_pending",
+                format!(
+                    "{cwd} is not ready on the machine yet: its bootstrap is still cloning the repository. \
+                     Run the same command again to keep waiting, or read ~/{LOG} on the machine"
+                ),
+                json!({"cwd": cwd, "machine_id": machine, "log": format!("~/{LOG}"),
+                       "waited_ms": waited.as_millis() as u64}),
+                75,
+            ));
+        }
+        let own = Duration::from_secs(SLICE_SECONDS).min(MAX_WAIT - waited);
+        let slice = deadline.bound(runner, own).as_secs().max(1);
+        let Ok(stdout) = exec(runner, machine, &script(cwd, slice)) else { return None };
+        match read(&stdout) {
             Folder::Go => return None,
             Folder::Missing(status) => {
                 let repo = at(at(&status, "repo"), "status").as_str().unwrap_or("none");
@@ -113,18 +121,6 @@ pub(super) fn wait(
                     ),
                     json!({"cwd": cwd, "machine_id": machine, "bootstrap": status, "log": format!("~/{LOG}")}),
                     1,
-                ));
-            }
-            Folder::Cloning if runner.now() >= end => {
-                return Some(failed(
-                    "cloud.folder_pending",
-                    format!(
-                        "{cwd} is not ready on the machine yet: its bootstrap is still cloning the repository. \
-                         Run the same command again to keep waiting, or read ~/{LOG} on the machine"
-                    ),
-                    json!({"cwd": cwd, "machine_id": machine, "log": format!("~/{LOG}"),
-                           "waited_ms": runner.now().saturating_duration_since(started).as_millis() as u64}),
-                    75,
                 ));
             }
             Folder::Cloning => {}

@@ -1,6 +1,7 @@
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextWakeups
 import CmuxNextDaemonService
 import Foundation
@@ -42,6 +43,60 @@ struct CloudNewMachineTests {
         let request = try CloudHandlers.newMachineRequest(Self.invocation(["size": .string("xlarge")]))
         #expect(request.memoryMb == 24576)
         #expect(CloudHandlers.newMachineFields(request, nil)["cpu"] == .int(12), "24 GiB is the 12 vCPU row, not resize's 16")
+    }
+
+    /// `cmux cloud start-chat --environment` (Leo, 2026-11-06: "Like with a ... environment"): the create takes an
+    /// environment by id or by name and never drops it on the plain path.
+    @Test func anEnvironmentIsTakenByIDOrNameAndKeptOffThePlainPath() throws {
+        typealias Option = CloudWorkspaceSetupWizard.EnvironmentOption
+        let request = try CloudHandlers.newMachineRequest(Self.invocation(["environment": .string(" python-dev ")]))
+        #expect(request.environment == "python-dev")
+        #expect(!request.takesPlainPath, "the plain path would make the machine without its environment")
+        #expect(try CloudHandlers.newMachineRequest(Self.invocation([:])).takesPlainPath)
+        #expect(throws: Option.Unknown.self) { try CloudHandlers.newMachineRequest(Self.invocation(["environment": .bool(true)])) }
+        #expect(throws: Option.Unknown.self) { try CloudHandlers.newMachineRequest(Self.invocation(["environment": .string(" ")])) }
+        #expect(String(describing: Option.Unknown()).contains("--environment"), "the refusal reads as its message")
+        let options = [Option(id: "env_1", name: "python-dev"), Option(id: "env_2", name: "Node")]
+        #expect(try Option.id(for: "env_9", in: []) == "env_9")
+        #expect(try Option.id(for: "python-dev", in: options) == "env_1")
+        #expect(try Option.id(for: "node", in: options) == "env_2")
+        #expect(throws: Option.Unknown.self) { try Option.id(for: "nope", in: options) }
+    }
+
+    /// The review of #37159: `--environment` with `--name` makes no second machine of that name. A list the
+    /// server has not answered just now says nothing, a create of that name on its way (this app's, or a
+    /// `cloud start-session --name` going on) takes the name, and an environment list that fails to load is
+    /// that refusal, not "no such environment".
+    @Test func aNamedEnvironmentCreateNeverMakesASecondMachine() async throws {
+        typealias Option = CloudWorkspaceSetupWizard.EnvironmentOption
+        #expect(CloudMachineRequest.namedCreate("py", listCurrent: false, machines: [], creating: []) == .unread)
+        #expect(CloudMachineRequest.namedCreate("py", listCurrent: true, machines: ["py"], creating: []) == .taken)
+        #expect(CloudMachineRequest.namedCreate("py", listCurrent: true, machines: [], creating: ["py"]) == .taken)
+        #expect(CloudMachineRequest.namedCreate("py", listCurrent: true, machines: ["dev"], creating: ["other"]) == .free)
+
+        let runs = CloudStartRuns<Int, Int>(), account: [String?] = ["user-1", "team-1"]
+        let (gate, open) = AsyncStream<Void>.makeStream(), (entered, enter) = AsyncStream<Void>.makeStream()
+        let making = Task { @MainActor in
+            try await runs.creating("py", account: account) {
+                enter.yield()
+                for await _ in gate { break }
+                return 1
+            }
+        }
+        for await _ in entered { break }
+        #expect(runs.isCreating("py", account: account), "a start-session creating py holds the name")
+        #expect(!runs.isCreating("py", account: ["user-1", "team-2"]), "another team's create is not this one's")
+        #expect(!runs.isCreating("dev", account: account))
+        open.yield()
+        open.finish()
+        _ = try await making.value
+        #expect(!runs.isCreating("py", account: account), "an ended create holds nothing")
+
+        struct Down: Error {}
+        await #expect(throws: Option.ListUnread.self) { _ = try await Option.id(for: "python-dev", loading: { throw Down() }) }
+        #expect(try await Option.id(for: "env_9", loading: { throw Down() }) == "env_9", "an id needs no list")
+        #expect(try await Option.id(for: "Python-Dev", loading: { [Option(id: "env_1", name: "python-dev")] }) == "env_1")
+        #expect(String(describing: Option.ListUnread()).contains("environments"), "the refusal reads as its message")
     }
 
     @Test func anUnknownSizeIsRefusedWithTheChoices() {

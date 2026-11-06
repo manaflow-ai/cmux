@@ -282,6 +282,8 @@ mod elicitation;
 mod elicitation_tests;
 // The chat's own tool calls running in the foreground, and for how long (`FOREGROUND_WORK`).
 mod foreground_work;
+#[cfg(test)]
+mod foreground_work_tests;
 mod hook_callback;
 #[cfg(test)]
 mod hook_callback_tests;
