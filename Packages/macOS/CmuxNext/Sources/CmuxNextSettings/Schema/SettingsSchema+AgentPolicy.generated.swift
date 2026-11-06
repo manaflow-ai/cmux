@@ -119,8 +119,8 @@ extension SettingsSchema {
         // Whether browser tabs offer to import cookies: the card reads nothing until the person clicks Import.
         "browser.import.cookieBanner",
         "browser.toolbarButtons", "browser.hibernation", "browser.hibernationExclusions", "browser.hibernatePinnedTabs",
-        "browser.freezeHiddenTabs", "browser.keepNeighborTabsAwake", "notifications.dismissal",
-        "notifications.timeoutSeconds", "notifications.sources.agent.dismissal",
+        "browser.freezeHiddenTabs", "browser.keepNeighborTabsAwake", "browser.wakeTabsOnHover",
+        "notifications.dismissal", "notifications.timeoutSeconds", "notifications.sources.agent.dismissal",
         "notifications.sources.terminal.dismissal", "notifications.sources.cli.dismissal", "notifications.desktop",
         "notifications.sound", "notifications.quietHours", "notifications.suppressWhileTypingSeconds",
         "status.runNotifyMinimumSeconds", "status.runNotifyWhenVisible", "notifications.dockBadge",

@@ -390,6 +390,7 @@
         "browser.hibernatePinnedTabs",
         "browser.freezeHiddenTabs",
         "browser.keepNeighborTabsAwake",
+        "browser.wakeTabsOnHover",
         "notifications.dismissal",
         "notifications.timeoutSeconds",
         "notifications.sources.agent.dismissal",
