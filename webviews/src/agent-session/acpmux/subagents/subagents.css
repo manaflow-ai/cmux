@@ -704,14 +704,14 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray[data-settled][data-card][data-surface="rim"] {
   --acpmux-tray-fill: color-mix(in srgb, var(--agent-text) 2%, transparent);
 }
-/* A card over the composer is the composer's own glass (composerStates.css: the composer surface at
-   70%, or 50% over a see-through window, frosted) with the tray's tint over it, so the transcript
+/* A card over the composer is the composer's own glass, the popover level (composerStates.css: the
+   composer surface at 70%, or 50% over a see-through window, under the level's blur) with the tray's tint over it, so the transcript
    never shows through its lines: the reply's footer icons read through a settled line that drew no
    surface (Leo, 2026-11-02: "this running thing now looks mildly awkward"). It stays glass, never
    opaque; Reduce Transparency gives it the composer's solid fill, as the card. */
 .acpmux-running-tray[data-card] {
-  --acpmux-tray-glass: color-mix(in srgb, var(--acpmux-composer-solid) 70%, transparent);
-  --acpmux-tray-frost: blur(24px) saturate(1.25);
+  --acpmux-tray-glass: color-mix(in srgb, var(--acpmux-composer-solid) var(--ds-glass-popover-tint), transparent);
+  --acpmux-tray-frost: var(--ds-glass-popover-blur);
   background:
     linear-gradient(var(--acpmux-tray-fill, color-mix(in srgb, var(--agent-text) 8%, transparent)), var(--acpmux-tray-fill, color-mix(in srgb, var(--agent-text) 8%, transparent))),
     var(--acpmux-tray-glass);
@@ -719,8 +719,8 @@ button.cv-subagent > :last-child {
   backdrop-filter: var(--acpmux-tray-frost);
 }
 :root[data-cmux-see-through] .acpmux-running-tray[data-card] {
-  --acpmux-tray-glass: color-mix(in srgb, var(--acpmux-composer-solid) 50%, transparent);
-  --acpmux-tray-frost: var(--surface-blur);
+  --acpmux-tray-glass: color-mix(in srgb, var(--acpmux-composer-solid) var(--ds-glass-popover-art-tint), transparent);
+  --acpmux-tray-frost: var(--ds-glass-popover-blur);
 }
 :root[data-reduce-transparency] .acpmux-running-tray[data-card] {
   /* glass-opaque-allow: the Reduce Transparency fill only, as the composer card's */

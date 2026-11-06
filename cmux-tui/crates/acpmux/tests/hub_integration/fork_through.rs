@@ -46,6 +46,9 @@ mod claude_allow_input;
 // The background-process registry over Claude's shells, which shares these helpers too.
 #[path = "processes.rs"]
 mod processes;
+// The person's message moves the long foreground call it waits behind.
+#[path = "message_background.rs"]
+mod message_background;
 // The same registry over Codex's background terminals (the fake app-server).
 #[cfg(unix)]
 #[path = "codex_processes.rs"]

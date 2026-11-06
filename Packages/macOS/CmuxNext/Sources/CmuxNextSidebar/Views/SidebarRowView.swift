@@ -51,6 +51,18 @@ class SidebarRowView: NSView {
         return nil
     }
 
+    /// A hover control cleared by paint (shown once, now at opacity 0: `setHoverPainted`, HOVER COMMIT) is not among
+    /// the row's accessibility children, as a hidden one was not; VoiceOver reaches it through the row's actions.
+    override func accessibilityChildren() -> [Any]? {
+        guard let children = super.accessibilityChildren() else { return nil }
+        let clear = interactiveSubviews.filter { !$0.isHidden && $0.alphaValue == 0 }
+        guard !clear.isEmpty else { return children }
+        return children.filter { child in
+            let view = (child as? NSView) ?? (child as? NSCell)?.controlView
+            return !clear.contains { $0 === view }
+        }
+    }
+
     /// Fingerprint of the last configured content. Reloads happen on every
     /// drag step, so rows skip work (symbol images, attributed strings,
     /// accessibility) when nothing they show has changed.
