@@ -1205,7 +1205,9 @@ name = "cmux-computer-use"
 version = "1.0.0"
 dependencies = [
  "base64",
+ "block2",
  "libc",
+ "objc2",
  "png",
  "serde",
  "serde_json",

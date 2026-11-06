@@ -1,0 +1,186 @@
+//! Running apps and app launch through NSWorkspace / NSRunningApplication.
+//!
+//! Plain Objective-C messages through objc2; strings and URLs cross as their
+//! toll-free bridged CoreFoundation types.
+
+use std::sync::mpsc;
+use std::time::Duration;
+
+use block2::RcBlock;
+use objc2::msg_send;
+use objc2::rc::{Retained, autoreleasepool};
+use objc2::runtime::{AnyClass, AnyObject, Bool};
+
+use super::sys::Cf;
+use crate::desktop::{DResult, DesktopError};
+
+/// How long launch_app waits for the app to report it started.
+const LAUNCH_TIMEOUT: Duration = Duration::from_secs(30);
+
+const POLICY_REGULAR: isize = 0;
+const POLICY_ACCESSORY: isize = 1;
+
+/// One running app as NSRunningApplication sees it.
+#[derive(Clone, Debug)]
+pub struct RunningApp {
+    pub pid: i32,
+    pub bundle_id: Option<String>,
+    /// The executable's file name (`executableURL`).
+    pub executable: Option<String>,
+    pub name: String,
+    pub policy: isize,
+    pub active: bool,
+    pub hidden: bool,
+}
+
+impl RunningApp {
+    /// The policy identity: the bundle id, else the executable name.
+    pub fn id(&self) -> String {
+        self.bundle_id
+            .clone()
+            .filter(|b| !b.is_empty())
+            .or_else(|| self.executable.clone())
+            .unwrap_or_else(|| format!("pid:{}", self.pid))
+    }
+
+    pub fn is_regular(&self) -> bool {
+        self.policy == POLICY_REGULAR
+    }
+
+    pub fn is_accessory(&self) -> bool {
+        self.policy == POLICY_ACCESSORY
+    }
+}
+
+fn class(name: &std::ffi::CStr) -> DResult<&'static AnyClass> {
+    AnyClass::get(name).ok_or_else(|| DesktopError::Failed(format!("{name:?} is not available")))
+}
+
+fn ns_string(o: Option<Retained<AnyObject>>) -> Option<String> {
+    let o = o?;
+    let p: *const AnyObject = &*o;
+    Cf::retained(p.cast()).and_then(|s| s.as_string())
+}
+
+fn shared_workspace() -> DResult<Retained<AnyObject>> {
+    let cls = class(c"NSWorkspace")?;
+    // SAFETY: +[NSWorkspace sharedWorkspace] returns the shared instance.
+    let ws: Option<Retained<AnyObject>> = unsafe { msg_send![cls, sharedWorkspace] };
+    ws.ok_or_else(|| DesktopError::Failed("NSWorkspace is not available".into()))
+}
+
+fn describe(app: &AnyObject) -> Option<RunningApp> {
+    // SAFETY: app is an NSRunningApplication; each selector exists on it
+    // since macOS 10.6 and returns the declared type.
+    unsafe {
+        let terminated: Bool = msg_send![app, isTerminated];
+        if terminated.as_bool() {
+            return None;
+        }
+        let pid: i32 = msg_send![app, processIdentifier];
+        if pid <= 0 {
+            return None;
+        }
+        let policy: isize = msg_send![app, activationPolicy];
+        let active: Bool = msg_send![app, isActive];
+        let hidden: Bool = msg_send![app, isHidden];
+        let bundle_id = ns_string(msg_send![app, bundleIdentifier]);
+        let url: Option<Retained<AnyObject>> = msg_send![app, executableURL];
+        let executable = url
+            .and_then(|u| ns_string(msg_send![&*u, lastPathComponent]))
+            .filter(|s| !s.is_empty());
+        let name = ns_string(msg_send![app, localizedName])
+            .filter(|s| !s.is_empty())
+            .or_else(|| executable.clone())
+            .unwrap_or_default();
+        Some(RunningApp {
+            pid,
+            bundle_id,
+            executable,
+            name,
+            policy,
+            active: active.as_bool(),
+            hidden: hidden.as_bool(),
+        })
+    }
+}
+
+/// The app of one pid, fresh from the system (also when the workspace's
+/// cached list has not caught up yet).
+pub fn app_for_pid(pid: i32) -> Option<RunningApp> {
+    autoreleasepool(|_| {
+        let cls = AnyClass::get(c"NSRunningApplication")?;
+        // SAFETY: +runningApplicationWithProcessIdentifier: returns nil or an app.
+        let app: Option<Retained<AnyObject>> =
+            unsafe { msg_send![cls, runningApplicationWithProcessIdentifier: pid] };
+        app.as_deref().and_then(describe)
+    })
+}
+
+/// Launches the app with `bundle_id` without activating it, and returns it
+/// once it runs (an app that already runs is returned as it is).
+pub fn launch(bundle_id: &str) -> DResult<RunningApp> {
+    let rx = autoreleasepool(|_| start_launch(bundle_id))?;
+    match rx.recv_timeout(LAUNCH_TIMEOUT) {
+        Ok(Ok(pid)) => app_for_pid(pid).ok_or_else(|| {
+            DesktopError::Failed(format!("{bundle_id} started (pid {pid}) and quit at once"))
+        }),
+        Ok(Err(message)) => {
+            Err(DesktopError::Failed(format!("could not open {bundle_id}: {message}")))
+        }
+        Err(_) => Err(DesktopError::Failed(format!(
+            "{bundle_id} did not finish launching in {} s",
+            LAUNCH_TIMEOUT.as_secs()
+        ))),
+    }
+}
+
+type LaunchResult = Result<i32, String>;
+
+fn start_launch(bundle_id: &str) -> DResult<mpsc::Receiver<LaunchResult>> {
+    let ws = shared_workspace()?;
+    let id = Cf::string(bundle_id).ok_or_else(|| DesktopError::Failed("bad bundle id".into()))?;
+    let id_obj: *const AnyObject = id.ptr().cast();
+    // SAFETY: -URLForApplicationWithBundleIdentifier: takes an NSString
+    // (a CFString is toll-free bridged) and returns nil or an NSURL.
+    let url: Option<Retained<AnyObject>> =
+        unsafe { msg_send![&*ws, URLForApplicationWithBundleIdentifier: id_obj] };
+    let url = url.ok_or_else(|| {
+        DesktopError::TargetNotFound(format!("no installed app has the bundle id {bundle_id}"))
+    })?;
+    let config_cls = class(c"NSWorkspaceOpenConfiguration")?;
+    // SAFETY: +configuration returns a new configuration; -setActivates:
+    // takes a BOOL (macOS 10.15+).
+    let config: Option<Retained<AnyObject>> = unsafe { msg_send![config_cls, configuration] };
+    let config =
+        config.ok_or_else(|| DesktopError::Failed("NSWorkspaceOpenConfiguration failed".into()))?;
+    unsafe {
+        let _: () = msg_send![&*config, setActivates: Bool::NO];
+        let _: () = msg_send![&*config, setAddsToRecentItems: Bool::NO];
+    }
+    let (tx, rx) = mpsc::channel::<LaunchResult>();
+    let block = RcBlock::new(move |app: *mut AnyObject, error: *mut AnyObject| {
+        let result = if app.is_null() {
+            // SAFETY: error is nil or an NSError for the duration of the call.
+            let message = unsafe { error.as_ref() }
+                .and_then(|e| ns_string(unsafe { msg_send![e, localizedDescription] }))
+                .unwrap_or_else(|| "unknown error".into());
+            Err(message)
+        } else {
+            // SAFETY: app is a live NSRunningApplication for the call.
+            Ok(unsafe { msg_send![&*app, processIdentifier] })
+        };
+        let _ = tx.send(result);
+    });
+    // SAFETY: the completion handler block has the signature
+    // void (^)(NSRunningApplication *, NSError *); NSWorkspace copies it.
+    unsafe {
+        let _: () = msg_send![
+            &*ws,
+            openApplicationAtURL: &*url,
+            configuration: &*config,
+            completionHandler: &*block
+        ];
+    }
+    Ok(rx)
+}
