@@ -252,6 +252,15 @@ class AffectedTests(unittest.TestCase):
         self.assertIn("tests_v2/test_browser_api_p0.py", [n["what"] for n in result["not_run"]])
         self.assertFalse([u for u in result["units"] if "tests_v2/test_browser_api_p0.py" in u["argv"]])
 
+    def test_a_webviews_build_input_runs_every_web_test(self):
+        # vite configs, package.json and the lockfile change every test, though no test imports them.
+        for path in ("webviews/vite.config.gallery.ts", "webviews/package.json", "webviews/bun.lock"):
+            with self.subTest(path=path):
+                web = [u for u in plan([path])["units"] if u["kind"] == "web"]
+                self.assertEqual(len(web), 1, web)
+                self.assertFalse(any(a.startswith("CMUX_WEB_TEST_FILES=") for a in web[0]["argv"]))
+                self.assertIn("CMUX_BROWSER_TESTS=1", web[0]["argv"])
+
     def test_swift_shards_split_targets_without_loss(self):
         targets = affected_tests.swift_test_targets(ROOT, "Packages/macOS/CmuxNext")
         parts = affected_tests.split(targets, 4)
@@ -276,6 +285,27 @@ class Replay(unittest.TestCase):
         unit = {"kind": "python", "argv": ["test", "--setup", "none", "--", "bash", "-c", "s", "affected", "tests/test_a.py"]}
         sel = self.replay.selected({"all": False, "units": [unit]})
         self.assertEqual(sel["python"], {"tests/test_a.py"})
+
+    def test_head_graph_reads_member_edges_from_the_manifests(self):
+        graph = self.replay.head_graph("HEAD")
+        self.assertIsNotNone(graph)
+        self.assertIn("acpmux-build-id", graph["acpmux"])
+        self.assertNotIn("anyhow", graph["acpmux"])  # an outside crate is no member edge
+
+    def test_a_head_with_another_crate_graph_is_told_apart(self):
+        graph = self.replay.head_graph("HEAD")
+        ids = {name: f"{name} 0.0.0" for name in graph}
+        meta = {"workspace_members": list(ids.values()),
+                "packages": [{"id": ids[n], "name": n, "dependencies": [{"name": d} for d in sorted(deps)]}
+                             for n, deps in graph.items()]}
+        self.assertEqual(self.replay.meta_graph(meta), graph)
+        edge = next(p for p in meta["packages"] if p["dependencies"])
+        edge["dependencies"].pop()  # metadata from a commit before an edge was added
+        self.assertNotEqual(self.replay.meta_graph(meta), graph)
+        meta["packages"].append({"id": "new 0.0.0", "name": "new", "dependencies": []})
+        meta["workspace_members"].append("new 0.0.0")  # or before a crate was removed
+        self.assertNotIn("new", graph)
+        self.assertIn("new", self.replay.meta_graph(meta))
 
     def test_guard_runner_summary_names_each_red_guard(self):
         log = "##[group]Run x\nfailed: workflow-guard-tests / ci: Validate A; workflow-guard-tests / ci: Validate B\n"
