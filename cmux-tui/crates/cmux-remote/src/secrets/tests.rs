@@ -336,7 +336,16 @@ fn a_login_is_refused_off_an_owner_guest_or_next_to_a_custom_endpoint() {
         .install_harness_login(&fixture.seal(Purpose::HarnessLogin, "claude", &token()), false)
         .unwrap_err();
     assert!(error.message.starts_with("not-owner-guest"), "{error}");
-    // The DEV creator allowance lets a team guest through.
+    assert!(!error.retryable);
+    // A guest that hasn't bound yet has no kind record: retryable.
+    std::fs::remove_file(fixture.etc.join("vm-kind")).unwrap();
+    let error = fixture
+        .secrets
+        .install_harness_login(&fixture.seal(Purpose::HarnessLogin, "claude", &token()), false)
+        .unwrap_err();
+    assert!(error.message.starts_with("not-ready") && error.retryable, "{error}");
+    std::fs::write(fixture.etc.join("vm-kind"), "team\n").unwrap();
+    // The DEV creator allowance lets a team guest through (test builds are DEV builds).
     fixture
         .secrets
         .install_harness_login(&fixture.seal(Purpose::HarnessLogin, "claude", &token()), true)

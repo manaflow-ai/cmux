@@ -31,6 +31,10 @@ pub enum HarnessLogin {
 pub enum LoginRefusal {
     UnknownHarness,
     InvalidCredential,
+    /// The guest has no kind record yet: its bind agent writes
+    /// `/etc/cmux/vm-kind` once it binds, which can land after the daemon
+    /// starts. Retryable.
+    NotReady,
     /// The guest is not an owner guest (or a team guest when allowed), or the
     /// image has no `agent-auth.sh`.
     NotOwnerGuest,
@@ -44,6 +48,7 @@ impl LoginRefusal {
         match self {
             Self::UnknownHarness => "bad-name",
             Self::InvalidCredential => "invalid-credential",
+            Self::NotReady => "not-ready",
             Self::NotOwnerGuest => "not-owner-guest",
             Self::Conflict => "conflict",
             Self::Write => "write",
@@ -118,6 +123,9 @@ pub fn check_guest(
 ) -> Result<(), LoginRefusal> {
     let kind = std::fs::read_to_string(etc.join("vm-kind")).unwrap_or_default();
     let kind = kind.trim();
+    if kind.is_empty() {
+        return Err(LoginRefusal::NotReady);
+    }
     let kind_allowed = kind == "owner" || (allow_team_guest && kind == "team");
     let agent_auth = etc.join("agent-auth.sh");
     if !kind_allowed || !agent_auth.is_file() {

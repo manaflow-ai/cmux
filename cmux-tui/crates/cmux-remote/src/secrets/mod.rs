@@ -75,8 +75,12 @@ impl std::fmt::Debug for MachineSecrets {
     }
 }
 
+/// A refusal: a fixed code and the item's name, never a value. `not-ready`
+/// (a guest that hasn't bound yet) is the one a caller may retry.
 fn refused(code: &str, name: &str) -> RpcError {
-    RpcError::new("secret-refused", format!("{code}: {name}"))
+    let mut error = RpcError::new("secret-refused", format!("{code}: {name}"));
+    error.retryable = code == "not-ready";
+    error
 }
 
 impl MachineSecrets {
