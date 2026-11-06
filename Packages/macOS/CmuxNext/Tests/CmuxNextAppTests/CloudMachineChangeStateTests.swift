@@ -591,7 +591,7 @@ struct CloudMachineChangeStateTests {
         #expect(try Self.next(#"{"id":"vm_1","status":"running","error":"odd"}"#).lastChangeFailure == nil)
         #expect(try Self.next(#"{"id":"vm_1","status":"running","error":{"code":"x","message":""}}"#).lastChangeFailure?.text == "x")
         // The `/api/vm` record decodes the same fields.
-        let decoded = try JSONDecoder().decode(CloudMachine.self, from: Data(#"{"id":"vm-1","status":"pausing","error":{"code":"x","message":"y"}}"#.utf8))
+        let decoded = try CloudMachine.classic(Data(#"{"id":"vm-1","status":"pausing","error":{"code":"x","message":"y"}}"#.utf8))
         #expect(decoded.status == .pausing)
         #expect(decoded.lastChangeFailure?.text == "y")
     }
