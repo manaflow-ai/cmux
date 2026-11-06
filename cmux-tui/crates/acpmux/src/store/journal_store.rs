@@ -66,6 +66,8 @@ mod fenced;
 mod meta;
 mod new_folders;
 mod repair;
+#[cfg(all(test, unix))]
+mod seal_tests;
 
 use checkpoint::{frozen_marker, read_checkpoint, remove_checkpoint_temporaries};
 pub(super) use fenced::FencedStorage;
