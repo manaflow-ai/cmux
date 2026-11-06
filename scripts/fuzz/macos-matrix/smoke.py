@@ -24,7 +24,8 @@ Steps (each one ok/FAIL in result.json, with a screenshot shot-<step>.png):
   type_waits browser.page.insert_text answers only after the page handled the text (its
              gesture-free round trip): the page's input handler holds the page for 1.2 s, so the
              call takes 0.9 s or more, and the field holds the text
-  design_on  with Debug Settings' UI pointer picker on (browserPage.uiPointer, off by default),
+  design_on  with Debug Settings' UI pointer picker on (browserPage.uiPointer, off by default; the
+             tunable store is turned on first, as a Release build with bench hooks starts with it off),
              Ctrl-Opt-Cmd-D (VNC keys, the person's) turns design mode on: its overlay host is in
              the page (enableDesignMode runs in an isolated world without a gesture)
   design_off the same keys turn it off: the overlay host is gone
@@ -286,7 +287,12 @@ class Smoke:
 
         overlay = "!!document.querySelector('[data-cmux-design-mode=\"overlay\"]')"
         # Design mode is behind a Debug Settings toggle (off by default): on for these two steps.
+        # A Release build with bench hooks (the fleet's dev-release builds) launches with the tunable
+        # store off and keeps every default, so a set changes nothing there: turn the store on for this
+        # launch first (in memory only; a no-op where launch already turned it on).
+        store = self.call("debug.tunables", {"action": "activate"})
         picker = self.call("debug.tunables", {"action": "set", "key": "browserPage.uiPointer", "value": True})
+        picker["store_active"] = store.get("active")
         self.vnc.chord("ctrl+opt+cmd+d")
         on = self.wait(lambda: self.page_eval(overlay) is True, 15)
         self.step("design_on", bool(on), {"overlay": self.page_eval(overlay)})

@@ -875,7 +875,7 @@ class ShipReceiptTests(unittest.TestCase):
 class SameAccountReceiptTests(unittest.TestCase):
     """cmux-ad m25 item 7: every agent posts as the same account as the pull request's author, so a SHIP from that
     account counts only when it names its reviewer agent and who started it, neither of them the description's
-    `Author-agent:` (receipt_grammar). #36311: the author agent's own subagent posted
+    `Author-agent:` (risk_tier.py). #36311: the author agent's own subagent posted
     `Review (claude-review-subagent): SHIP at ...` from the author's account and the gate read it as independent."""
 
     AUTHOR = "lawrencecchen"
@@ -934,7 +934,7 @@ class SameAccountReceiptTests(unittest.TestCase):
 class DescriptionVerdictTests(unittest.TestCase):
     """A review verdict in the PR description, so a review needs no receipt comment. The description is the
     author's own account, so its SHIP lines name the reviewer agent and who started it, and the description
-    names its Author-agent (receipt_grammar)."""
+    names its Author-agent (risk_tier.py)."""
 
     def pr(self, body, association="MEMBER", kind="User"):
         body = f"Author-agent: claude-author\n{body}"
@@ -1039,6 +1039,25 @@ class DescriptionVerdictTests(unittest.TestCase):
         self.assertIn("ready=false", out)
         self.assertIn("could not be read", summary)
         self.assertNotIn("Warning:", summary)
+
+
+class StandaloneCheckoutTests(unittest.TestCase):
+    """risk-tier.yml runs from main and checks out only scripts/ci/risk_tier.py from the base, so the script must
+    run with no other file beside it. #36941 moved the receipt grammar into its own module and every `risk evidence`
+    run failed with "ModuleNotFoundError: No module named 'receipt_grammar'"."""
+
+    def test_risk_tier_runs_from_a_directory_holding_only_that_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            alone = Path(tmp) / "scripts" / "ci"
+            alone.mkdir(parents=True)
+            (alone / "risk_tier.py").write_text((ROOT / "scripts/ci/risk_tier.py").read_text(encoding="utf-8"),
+                                                encoding="utf-8")
+            files = Path(tmp) / "files.txt"
+            files.write_text("scripts/ci/risk_tier.py\n", encoding="utf-8")
+            result = subprocess.run([sys.executable, "-I", str(alone / "risk_tier.py"), "classify", "--files", str(files)],
+                                    cwd=tmp, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("high", result.stdout)
 
 
 class EventPayloadTests(unittest.TestCase):

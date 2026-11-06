@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "a8bf2d3326aa4ee4ca8db46cb9b69b3f29663cf614c1a9e776b2aae5751ab54b";
+inline constexpr std::string_view kProtocolIrSha256 = "e4a1ecdbb2d02067e00dcbd99c1fee0b9cdcca541c3d10095377224592fa0a86";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -228,6 +228,8 @@ struct TerminalHistoryPagesResult;
 enum class TerminalKey;
 enum class TerminalKeyAction;
 struct TerminalKeyInput;
+struct TerminalLastCommand;
+struct TerminalLastCommandResult;
 enum class TerminalLifecycle;
 struct TerminalModifiers;
 struct TerminalPlacement;
@@ -560,6 +562,7 @@ struct TerminalClipboardReplyRequest;
 struct TerminalClipboardSubscribeRequest;
 struct TerminalEventsRequest;
 struct TerminalHistoryRequest;
+struct TerminalLastCommandRequest;
 struct TerminalPortsRequest;
 struct TerminalReadRangeRequest;
 struct TerminalResourcesRequest;
@@ -5768,6 +5771,26 @@ struct TerminalInputUnclaimedEvent {
     friend bool operator==(const TerminalInputUnclaimedEvent&, const TerminalInputUnclaimedEvent&) = default;
 };
 
+struct TerminalLastCommand {
+    std::string command{};
+    std::string ended_at_ms{};
+    std::optional<std::int32_t> exit_code{};
+    std::string started_at_ms{};
+    friend bool operator==(const TerminalLastCommand&, const TerminalLastCommand&) = default;
+};
+
+struct TerminalLastCommandRequest {
+    Field<Id> surface{};
+    Field<std::string> terminal_id{};
+    friend bool operator==(const TerminalLastCommandRequest&, const TerminalLastCommandRequest&) = default;
+};
+
+struct TerminalLastCommandResult {
+    std::optional<TerminalLastCommand> last_command{};
+    std::string terminal_id{};
+    friend bool operator==(const TerminalLastCommandResult&, const TerminalLastCommandResult&) = default;
+};
+
 struct TerminalPlacement {
     bool already_exited{};
     std::optional<TerminalExit> exit{};
@@ -7509,6 +7532,18 @@ template <>
 struct Codec<TerminalKeyInput> {
     static Result<Json> encode(const TerminalKeyInput& value);
     static Result<TerminalKeyInput> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalLastCommand> {
+    static Result<Json> encode(const TerminalLastCommand& value);
+    static Result<TerminalLastCommand> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalLastCommandResult> {
+    static Result<Json> encode(const TerminalLastCommandResult& value);
+    static Result<TerminalLastCommandResult> decode(const Json& value);
 };
 
 template <>
@@ -9501,6 +9536,12 @@ template <>
 struct Codec<TerminalHistoryRequest> {
     static Result<Json> encode(const TerminalHistoryRequest& value);
     static Result<TerminalHistoryRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalLastCommandRequest> {
+    static Result<Json> encode(const TerminalLastCommandRequest& value);
+    static Result<TerminalLastCommandRequest> decode(const Json& value);
 };
 
 template <>

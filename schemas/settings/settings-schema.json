@@ -168,7 +168,11 @@
             "rows" : [
               "workspaces.hibernation.enabled",
               "workspaces.hibernation.idleMinutes",
-              "workspaces.hibernation.hiddenSpaceMinutes"
+              "workspaces.hibernation.hiddenSpaceMinutes",
+              "workspaces.freeing.enabled",
+              "workspaces.freeing.idleMinutes",
+              "workspaces.freeing.agents",
+              "workspaces.freeing.runningCommands"
             ],
             "title" : {
               "key" : "settings.group.workspaceHibernation",
@@ -600,6 +604,7 @@
               "sidebar.showLocalMachine",
               "sidebar.groupHeader.memberCount",
               "sidebar.groupHeader.unreadCount",
+              "sidebar.groupHeader.background",
               "sidebar.priorityView.enabled",
               "sidebar.priorityView.shown"
             ],
@@ -1369,6 +1374,17 @@
             }
           },
           {
+            "key" : "settings.group.chiefDock",
+            "rows" : [
+              "home.chiefDock.edge",
+              "home.chiefDock.openBeside"
+            ],
+            "title" : {
+              "key" : "settings.group.chiefDock",
+              "text" : "Chief Dock"
+            }
+          },
+          {
             "key" : "settings.group.chiefPet",
             "rows" : [
               "home.chiefPetEnabled",
@@ -1405,7 +1421,11 @@
           {
             "key" : "settings.group.chiefSubagents",
             "rows" : [
-              "chief.autoRouteSubagents"
+              "chief.autoRouteSubagents",
+              "chief.subagentSidebar",
+              "chief.subagentSidebarShowWords",
+              "chief.subagentSidebarHideWords",
+              "chief.subagentSidebarMinWords"
             ],
             "title" : {
               "key" : "settings.group.chiefSubagents",
@@ -1586,7 +1606,8 @@
               "palette.scopes.workspaces.prefix",
               "palette.scopes.commands.prefix",
               "palette.scopes.settings.prefix",
-              "palette.scopes.scopes.prefix"
+              "palette.scopes.scopes.prefix",
+              "palette.searchHistory"
             ],
             "title" : {
               "key" : "settings.group.palette",
@@ -20415,6 +20436,139 @@
       "default" : true,
       "default_label" : null,
       "group" : {
+        "key" : "settings.group.palette",
+        "text" : "Command Palette"
+      },
+      "help" : {
+        "key" : "settings.palette.searchHistory.help",
+        "text" : "The row you pick for what you typed comes first the next time you type it, and rows you use often rank higher. Off, the palette records nothing and ranks by match and sidebar order only."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "palette.searchHistory",
+      "keywords" : [
+        "palette",
+        "search",
+        "history",
+        "memory",
+        "recent",
+        "frecency",
+        "ranking"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "palette",
+        "searchHistory"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:palette.searchHistory"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.palette.searchHistory",
+        "text" : "Remember Palette Searches"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
         "key" : "settings.group.chats",
         "text" : "Chats"
       },
@@ -22098,6 +22252,566 @@
       "title" : {
         "key" : "settings.workspaceHibernation.hiddenSpaceMinutes",
         "text" : "Hibernate Hidden Spaces After"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "destructive",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.workspaceHibernation",
+        "text" : "Hibernation"
+      },
+      "help" : {
+        "key" : "settings.workspaceHibernation.freeingEnabled.help",
+        "text" : "Ends the shells of workspaces you have not used for a long time when they sit at an empty prompt. Opening the workspace starts each shell again in the same folder, with its saved screen above it. Pinned workspaces and workspaces kept awake are never freed."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "workspaces.freeing.enabled",
+      "keywords" : [
+        "free",
+        "freeing",
+        "park",
+        "shell",
+        "terminal",
+        "processes",
+        "idle",
+        "resources",
+        "restore",
+        "scrollback"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "workspaces",
+        "freeing",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:workspaces.freeing.enabled"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.workspaceHibernation.freeingEnabled",
+        "text" : "Free Idle Terminals"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        60,
+        43200,
+        21630
+      ],
+      "agent_refusal" : "destructive",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 1440,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.workspaceHibernation",
+        "text" : "Hibernation"
+      },
+      "help" : {
+        "key" : "settings.workspaceHibernation.freeingIdleMinutes.help",
+        "text" : "A hibernated workspace's idle shells end after this many minutes without use (1440 is one day)."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "workspaces.freeing.idleMinutes",
+      "keywords" : [
+        "free",
+        "idle",
+        "hours",
+        "timeout",
+        "shell",
+        "terminal"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "workspaces",
+        "freeing",
+        "idleMinutes"
+      ],
+      "range" : {
+        "max" : 43200,
+        "min" : 60,
+        "placeholder" : 60,
+        "step" : 60,
+        "unit" : "minutes"
+      },
+      "refuses" : [
+        -43080,
+        86340,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:workspaces.freeing.idleMinutes"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.workspaceHibernation.freeingIdleMinutes",
+        "text" : "Free Terminals After"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "destructive",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.workspaceHibernation",
+        "text" : "Hibernation"
+      },
+      "help" : {
+        "key" : "settings.workspaceHibernation.freeingAgents.help",
+        "text" : "Also ends Claude Code and Codex sessions that wait for your next message. Opening the tab resumes the same session."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "workspaces.freeing.agents",
+      "keywords" : [
+        "free",
+        "agent",
+        "claude",
+        "codex",
+        "resume",
+        "idle"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "workspaces",
+        "freeing",
+        "agents"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:workspaces.freeing.agents"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.workspaceHibernation.freeingAgents",
+        "text" : "Free Idle Agents"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "never",
+        "relaunch"
+      ],
+      "agent_refusal" : "destructive",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.freeingRunningNever",
+            "text" : "Keep Running"
+          },
+          "value" : "never"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.freeingRunningRelaunch",
+            "text" : "End and Offer Again"
+          },
+          "value" : "relaunch"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "never",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.workspaceHibernation",
+        "text" : "Hibernation"
+      },
+      "help" : {
+        "key" : "settings.workspaceHibernation.freeingRunningCommands.help",
+        "text" : "What happens to a command that still runs in a workspace that frees its terminals."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "workspaces.freeing.runningCommands",
+      "keywords" : [
+        "free",
+        "running",
+        "command",
+        "dev server",
+        "relaunch",
+        "idle"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "workspaces",
+        "freeing",
+        "runningCommands"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:workspaces.freeing.runningCommands"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.workspaceHibernation.freeingRunningCommands",
+        "text" : "Running Commands"
       },
       "validation" : "portable"
     },
@@ -47239,6 +47953,160 @@
     },
     {
       "accepts" : [
+        "xterm-256color",
+        "xterm-ghostty"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.xterm256color",
+            "text" : "xterm-256color (standard)"
+          },
+          "value" : "xterm-256color"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.xtermGhostty",
+            "text" : "xterm-ghostty"
+          },
+          "value" : "xterm-ghostty"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "xterm-256color",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.terminalCompatibility",
+        "text" : "Compatibility"
+      },
+      "help" : {
+        "key" : "settings.terminal.term.help",
+        "text" : "The TERM new terminals start with. xterm-256color works on every host you ssh to. xterm-ghostty needs Ghostty's terminfo on each of those hosts, and applies only when it is installed on this Mac."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "terminal.term",
+      "keywords" : [
+        "TERM",
+        "terminfo",
+        "xterm",
+        "xterm-256color",
+        "xterm-ghostty",
+        "ssh",
+        "htop",
+        "ncurses",
+        "terminal type",
+        "compatibility"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "terminal",
+        "term"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "terminal",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:terminal.term"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.terminal.term",
+        "text" : "Terminal Type (TERM)"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
 
       ],
       "agent_refusal" : null,
@@ -55164,7 +56032,8 @@
     {
       "accepts" : [
         "none",
-        "folder"
+        "folder",
+        "recents"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -55182,6 +56051,13 @@
             "text" : "Folder"
           },
           "value" : "folder"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupByRecents",
+            "text" : "Projects and Recents"
+          },
+          "value" : "recents"
         }
       ],
       "consumers" : [
@@ -55202,7 +56078,11 @@
         "group",
         "folder",
         "directory",
-        "cwd"
+        "cwd",
+        "recents",
+        "recent",
+        "chatgpt",
+        "history"
       ],
       "kind" : "choice",
       "page_hidden" : false,
@@ -58139,6 +59019,170 @@
       "title" : {
         "key" : "settings.sidebar.groupHeader.unreadCount",
         "text" : "Show Group Unread Count"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "auto",
+        "glass",
+        "solid"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.groupBackgroundAuto",
+            "text" : "Automatic"
+          },
+          "value" : "auto"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupBackgroundGlass",
+            "text" : "Glass"
+          },
+          "value" : "glass"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupBackgroundSolid",
+            "text" : "Solid"
+          },
+          "value" : "solid"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "auto",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.groupHeader.background.help",
+        "text" : "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.groupHeader.background",
+      "keywords" : [
+        "sidebar",
+        "group",
+        "groups",
+        "background",
+        "glass",
+        "glassy",
+        "solid",
+        "opaque",
+        "translucent",
+        "fill",
+        "header"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "groupHeader",
+        "background"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:sidebar.groupHeader.background"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.sidebar.groupHeader.background",
+        "text" : "Group Background"
       },
       "validation" : "portable"
     },
@@ -85154,6 +86198,313 @@
     },
     {
       "accepts" : [
+        "left",
+        "right",
+        "top",
+        "bottom"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.chiefDockEdge.left",
+            "text" : "Left"
+          },
+          "value" : "left"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefDockEdge.right",
+            "text" : "Right"
+          },
+          "value" : "right"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefDockEdge.top",
+            "text" : "Top"
+          },
+          "value" : "top"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefDockEdge.bottom",
+            "text" : "Bottom"
+          },
+          "value" : "bottom"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "left",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefDock",
+        "text" : "Chief Dock"
+      },
+      "help" : {
+        "key" : "settings.home.chiefDockEdge.help",
+        "text" : "The window edge the Chief docks to when you press Cmd-I or open a workspace from the Chief. The rest of the window shows the workspace you pick."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.chiefDock.edge",
+      "keywords" : [
+        "chief",
+        "dock",
+        "window",
+        "edge",
+        "left",
+        "right",
+        "top",
+        "bottom",
+        "side",
+        "home"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "chiefDock",
+        "edge"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "home",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:home.chiefDock.edge"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.home.chiefDockEdge",
+        "text" : "Dock Edge"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefDock",
+        "text" : "Chief Dock"
+      },
+      "help" : {
+        "key" : "settings.home.chiefDockOpenBeside.help",
+        "text" : "A workspace, tab or agent link clicked in the Chief opens beside it. The Chief stays docked with your draft and scroll position."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.chiefDock.openBeside",
+      "keywords" : [
+        "chief",
+        "dock",
+        "window",
+        "links",
+        "workspace",
+        "beside",
+        "home"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "chiefDock",
+        "openBeside"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "home",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:home.chiefDock.openBeside"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.home.chiefDockOpenBeside",
+        "text" : "Keep Chief Docked When Opening Workspaces"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "auto",
         "local",
         "hosted"
@@ -85986,6 +87337,608 @@
       "title" : {
         "key" : "settings.chief.autoRouteSubagents",
         "text" : "Route Subagents to the Best Agent"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "auto",
+        "always",
+        "never"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.subagentSidebarAuto",
+            "text" : "Chief Decides"
+          },
+          "value" : "auto"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.subagentSidebarAlways",
+            "text" : "Always"
+          },
+          "value" : "always"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.subagentSidebarNever",
+            "text" : "Never"
+          },
+          "value" : "never"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "auto",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefSubagents",
+        "text" : "Subagents"
+      },
+      "help" : {
+        "key" : "settings.chief.subagentSidebar.help",
+        "text" : "Automatic lets the Chief decide for each subagent: work you will want to watch or join shows, short errands stay hidden. Always and Never override the Chief."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "chief.subagentSidebar",
+      "keywords" : [
+        "chief",
+        "subagent",
+        "sidebar",
+        "workspace",
+        "show",
+        "hide",
+        "hidden",
+        "visible"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "chief",
+        "subagentSidebar"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "home",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:chief.subagentSidebar"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.chief.subagentSidebar",
+        "text" : "Subagents in the Sidebar"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "ws-1",
+          "2B7F0C3A-workspace"
+        ]
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefSubagents",
+        "text" : "Subagents"
+      },
+      "help" : {
+        "key" : "settings.chief.subagentSidebarShowWords.help",
+        "text" : "Words or phrases that show a subagent when the Chief leaves it to these rules. They add to the built-in ones, such as UI, design, screenshots and needs you."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "chief.subagentSidebarShowWords",
+      "keywords" : [
+        "chief",
+        "subagent",
+        "sidebar",
+        "workspace",
+        "show",
+        "hide",
+        "hidden",
+        "visible",
+        "words",
+        "rules"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : false,
+      "path" : [
+        "chief",
+        "subagentSidebarShowWords"
+      ],
+      "refuses" : [
+        "ws-1",
+        [
+          1
+        ],
+        [
+          ""
+        ],
+        {
+
+        }
+      ],
+      "section" : "home",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:chief.subagentSidebarShowWords"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.chief.subagentSidebarShowWords",
+        "text" : "Show Tasks That Mention"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "ws-1",
+          "2B7F0C3A-workspace"
+        ]
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefSubagents",
+        "text" : "Subagents"
+      },
+      "help" : {
+        "key" : "settings.chief.subagentSidebarHideWords.help",
+        "text" : "Words or phrases that keep a subagent hidden when the Chief leaves it to these rules. They add to the built-in ones, such as lookup, cleanup and land queue. A show word wins."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "chief.subagentSidebarHideWords",
+      "keywords" : [
+        "chief",
+        "subagent",
+        "sidebar",
+        "workspace",
+        "show",
+        "hide",
+        "hidden",
+        "visible",
+        "words",
+        "rules"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : false,
+      "path" : [
+        "chief",
+        "subagentSidebarHideWords"
+      ],
+      "refuses" : [
+        "ws-1",
+        [
+          1
+        ],
+        [
+          ""
+        ],
+        {
+
+        }
+      ],
+      "section" : "home",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:chief.subagentSidebarHideWords"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.chief.subagentSidebarHideWords",
+        "text" : "Hide Tasks That Mention"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        1000,
+        500
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 50,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefSubagents",
+        "text" : "Subagents"
+      },
+      "help" : {
+        "key" : "settings.chief.subagentSidebarMinWords.help",
+        "text" : "A task with no show or hide word shows when it has at least this many words, and stays hidden when it is shorter."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "chief.subagentSidebarMinWords",
+      "keywords" : [
+        "chief",
+        "subagent",
+        "sidebar",
+        "workspace",
+        "show",
+        "hide",
+        "hidden",
+        "visible",
+        "length",
+        "words"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "chief",
+        "subagentSidebarMinWords"
+      ],
+      "range" : {
+        "max" : 1000,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 10,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -1000,
+        2000,
+        "1"
+      ],
+      "section" : "home",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:chief.subagentSidebarMinWords"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.chief.subagentSidebarMinWords",
+        "text" : "Show Tasks Longer Than"
       },
       "validation" : "portable"
     },

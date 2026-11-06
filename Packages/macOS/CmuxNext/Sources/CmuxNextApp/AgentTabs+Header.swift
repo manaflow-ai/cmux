@@ -73,6 +73,7 @@ extension AgentTabStore {
         }
         model.header?.shown = { watch.current } // the palette's switches: the page's last state, no watch armed
         model.chatMenuItems = actions.menuItems
+        model.sessionMenuItems = actions.sessionMenuItems
         model.onSearchWeb = actions.searchWeb
     }
 
