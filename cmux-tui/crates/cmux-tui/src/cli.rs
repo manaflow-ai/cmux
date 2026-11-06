@@ -824,7 +824,7 @@ fn parse_command(
             ["server", action, ..]
                 if matches!(
                     *action,
-                    "start" | "ensure" | "status" | "stats" | "stop" | "reload-config"
+                    "start" | "ensure" | "status" | "stats" | "stop" | "restart" | "reload-config"
                 ) =>
             {
                 Some(format!("server {action}"))

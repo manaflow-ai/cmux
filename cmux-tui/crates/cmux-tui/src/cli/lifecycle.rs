@@ -162,9 +162,11 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         }
         action => action,
     };
-    let ensure_after_stop = |previous_pid: Option<u32>| {
+    // The new owner takes the stopped owner's session (its `identify`), so a
+    // restart by `--socket` alone never starts a "main" owner beside it.
+    let ensure_after_stop = |session: Option<String>, previous_pid: Option<u32>| {
         run_ensure(
-            expected_session.clone(),
+            session,
             (None, None),
             None,
             (socket.clone(), socket_is_derived),
@@ -180,6 +182,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             session: expected_session.as_deref(),
             limit: restore_wait,
             retry_flags: (force, end_terminals),
+            restart,
             output: global.output,
         };
         if let Err(exit_code) = stop.wait_for_restore() {
@@ -188,7 +191,9 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     }
     let stream = match cmux_tui_core::server::connect_session_socket(&socket, socket_is_derived) {
         Ok(stream) => stream,
-        Err(error) if restart && is_absent(&error) => return ensure_after_stop(None),
+        Err(error) if restart && is_absent(&error) => {
+            return ensure_after_stop(expected_session, None);
+        }
         Err(error) if matches!(action, ServerAction::Stop { .. }) && is_absent(&error) => {
             return print_success(
                 json!({
@@ -486,7 +491,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                 if let Err(message) = wait_for_exit(pid, Instant::now() + Duration::from_secs(10)) {
                     return local_error("server.stop_incomplete", &message, global.output, 3);
                 }
-                return ensure_after_stop(Some(pid));
+                return ensure_after_stop(Some(actual_session.to_owned()), Some(pid));
             }
             print_success(
                 json!({
@@ -558,6 +563,8 @@ struct StopWait<'a> {
     limit: Duration,
     /// `--force` and `--end-terminals`, repeated in the retry command.
     retry_flags: (bool, bool),
+    /// A `server restart`'s stop: the retry command restarts, never only stops.
+    restart: bool,
     output: OutputMode,
 }
 
@@ -687,8 +694,12 @@ impl StopWait<'_> {
     fn give_up(&self, phase: RestorePhase, started: Instant) -> i32 {
         let waited = started.elapsed();
         let longer = (self.limit * 2).max(crate::local_owner::RESTORE_DEADLINE);
-        let mut retry =
-            super::fix_command::stop_daemon(&super::fix_command::this_cli(), self.socket);
+        let cli = super::fix_command::this_cli();
+        let mut retry = if self.restart {
+            super::fix_command::restart_daemon_in_place(&cli, self.socket)
+        } else {
+            super::fix_command::stop_daemon(&cli, self.socket)
+        };
         let (force, end_terminals) = self.retry_flags;
         if force {
             retry.push_str(" --force");
