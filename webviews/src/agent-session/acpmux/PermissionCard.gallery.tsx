@@ -234,7 +234,7 @@ export default componentEntry<Props>({
       props: { permission: shortRule, harness: "claude" },
     },
     "long-rule": {
-      note: "Leo 2026-11-05, on Claude desktop's \"Allow Claude to use …?\" card: \"The whole, like, allow whatever to use, allow for this session, or deny. And then it shows the hotkeys.\" A bold title and a muted reason, a quiet details band with the command and the long rule on one muted line (cut, whole on hover), then the answers at the trailing edge: Deny with its esc keycap, Always allow with ⌥⌘2, and the filled Allow once with ⌘↩.",
+      note: 'Leo 2026-11-05, on Claude desktop\'s "Allow Claude to use …?" card: "The whole, like, allow whatever to use, allow for this session, or deny. And then it shows the hotkeys." A bold title and a muted reason, a quiet details band with the command and the long rule on one muted line (cut, whole on hover), then the answers at the trailing edge: Deny with its esc keycap, Always allow with ⌥⌘2, and the filled Allow once with ⌘↩.',
       props: { permission: longRule, harness: "claude" },
       play: scopeOnce,
     },

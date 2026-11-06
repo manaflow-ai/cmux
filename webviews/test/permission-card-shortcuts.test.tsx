@@ -86,7 +86,10 @@ async function mount(shortcuts?: boolean, permission: AcpmuxPermission = ask) {
   const keycaps = () =>
     [...host.querySelectorAll("button")]
       .filter((button) => button.querySelector("kbd"))
-      .map((button) => `${button.getAttribute("aria-label")}: ${[...button.querySelectorAll("kbd")].map((key) => key.textContent).join(" ")}`);
+      .map(
+        (button) =>
+          `${button.getAttribute("aria-label")}: ${[...button.querySelectorAll("kbd")].map((key) => key.textContent).join(" ")}`,
+      );
   return { host, answers, press, keycaps, unmount: () => act(async () => root.unmount()) };
 }
 
