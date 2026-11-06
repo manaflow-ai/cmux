@@ -879,6 +879,50 @@ def test_tui_python_wrapper_skips_venv_for_other_python_version(failures: list[s
             )
 
 
+def test_tui_python_wrapper_skips_non_python_launcher_ancestors(failures: list[str]) -> None:
+    """A frontend such as oh-my-hermes puts its own Node processes between
+    Hermes's Python launcher and the gateway (#36999). The wrapper must not run
+    the gateway with one of them; it keeps looking up for the Python launcher.
+    Two shells stand in for the Node processes.
+    """
+    with tempfile.TemporaryDirectory(prefix="cmux-hermes-python-test-") as td:
+        tmp = Path(td)
+        output = tmp / "selected"
+        # A `python3` on PATH that the wrapper would fall back to if it never
+        # reached the launcher; it writes its own marker.
+        fallback_bin = tmp / "bin"
+        fallback_bin.mkdir()
+        make_executable([], fallback_bin / "python3", f"#!/bin/sh\nprintf path-python3 > '{output}'\n")
+        env = os.environ.copy()
+        env.pop("CMUX_HERMES_TUI_REAL_PYTHON", None)
+        env.pop("HERMES_PYTHON_SRC_ROOT", None)
+        env["PATH"] = f"{fallback_bin}{os.pathsep}{env.get('PATH', '')}"
+        gateway = [
+            str(SOURCE_TUI_PYTHON_WRAPPER),
+            "-c",
+            "import sys; open(sys.argv[1], 'w').write('launcher')",
+            str(output),
+        ]
+        frontend = ["/bin/sh", "-c", '"$0" "$@"; exit $?']
+        launcher = (
+            "import subprocess, sys; "
+            "sys.exit(subprocess.run(sys.argv[1:]).returncode)"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", launcher, *frontend, *frontend, *gateway],
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        selected = output.read_text(encoding="utf-8") if output.exists() else ""
+        expect(
+            result.returncode == 0 and selected == "launcher",
+            "non-Python frontend: expected the gateway to run under the Python launcher, "
+            f"got exit {result.returncode}, output {selected or 'nothing'}, stderr {result.stderr.strip()!r}",
+            failures,
+        )
+
+
 def test_tui_gateway_rejects_retired_cmux_python_wrapper(failures: list[str]) -> None:
     expected_events = [
         f"gateway:{event}:{turn}"
@@ -1117,6 +1161,7 @@ def main() -> int:
         test_tui_gateway_registers_hooks_for_every_turn(failures)
         test_tui_python_wrapper_prefers_symlinked_venv_interpreter(failures)
         test_tui_python_wrapper_skips_venv_for_other_python_version(failures)
+        test_tui_python_wrapper_skips_non_python_launcher_ancestors(failures)
         test_tui_gateway_rejects_retired_cmux_python_wrapper(failures)
         test_bundled_wrappers_ignore_path_bash_shadow(failures)
         test_explicit_classic_cli_skips_tui_watcher(failures)
