@@ -199,3 +199,33 @@ test("a reply whose turn end was dropped never takes the next reply's text once 
   expect(failed).toBe(true);
   expect(p.replies()).toEqual([PARTS.join(""), "Owners are listed above."]);
 });
+
+test("a finished reply is its stored text even when acpmux dropped chunks with no lag marker", async () => {
+  // The coordinator's chat under load: one reply lost a middle piece ("without a focus-ring-stuck-2"),
+  // another its first lines ("cosmic-gray myself at 05:49Z, ..."), and both stayed so once finished.
+  const p = await pane((after) => all.filter((record) => record.seq > after));
+  for (const record of [chunks[2]!, chunks[4]!, ended]) p.live(record);
+  await p.until(() => p.reply() === PARTS.join(""));
+  expect(p.reply()).toBe(PARTS.join(""));
+});
+
+test("a finished reply whose stored text the pane already has reads it once and changes nothing", async () => {
+  let reads = 0;
+  let endSent = false;
+  let read!: () => void;
+  const checked = new Promise<void>((resolve) => (read = resolve));
+  const p = await pane((after) => {
+    if (endSent) {
+      reads += 1;
+      queueMicrotask(read);
+    }
+    return all.filter((record) => record.seq > after);
+  });
+  for (const record of chunks) p.live(record);
+  endSent = true;
+  p.live(ended);
+  await checked;
+  await p.until(() => p.reply() === PARTS.join(""));
+  expect(reads).toBe(1);
+  expect(p.reply()).toBe(PARTS.join(""));
+});
