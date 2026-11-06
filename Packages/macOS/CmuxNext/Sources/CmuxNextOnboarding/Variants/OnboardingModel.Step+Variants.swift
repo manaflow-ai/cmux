@@ -5,6 +5,7 @@ extension OnboardingModel.Step {
     var screen: any OnboardingScreenVariant.Type {
         switch self {
         case .agents: StandardAgents.self
+        case .computerUseWelcome: StandardComputerUseWelcome.self
         case .importData: StandardImport.self
         case .computerUse: StandardComputerUse.self
         }

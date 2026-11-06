@@ -2,9 +2,10 @@ public import CmuxNextDesign
 public import Foundation
 public import Observation
 
-/// The tool window: one screen for one tool, Agents (first run), Import
-/// from Browser or Computer Use setup (Lawrence 2026-10-09: no onboarding
-/// window, no sequence). Work is async and cancellable; nothing here blocks the main
+/// The tool window: one screen for one tool, Agents and Computer Use (first
+/// run), Import from Browser or Computer Use setup (Lawrence 2026-10-09: no
+/// onboarding window, no sequence; the presenter shows the first-run pages one
+/// after another). Work is async and cancellable; nothing here blocks the main
 /// thread.
 @MainActor
 @Observable
@@ -13,7 +14,9 @@ public final class OnboardingModel {
         // Agents comes first: at first run it opens over Bring your history.
         // The app may host importData as Bring your history (web); the standalone browser
         // importer remains this model's native import tool.
-        case agents, importData, computerUse
+        // computerUseWelcome: the first-run page that says Computer Use is built in and on
+        // (Full access), with Allow Access, which opens the computerUse setup for the grants.
+        case agents, computerUseWelcome, importData, computerUse
     }
 
     /// The tool this window shows; it never changes.
@@ -28,6 +31,9 @@ public final class OnboardingModel {
     public private(set) var ended = false
     /// The window asks to close (the controller observes this).
     public var onEnd: ((Bool) -> Void)?
+    /// The tool the presenter opens once this window closed: the Computer Use setup after
+    /// the first-run page's Allow Access; nil opens nothing.
+    public private(set) var followUp: Step?
 
     public init(services: any OnboardingServices, step: Step) {
         self.services = services
@@ -47,6 +53,7 @@ public final class OnboardingModel {
         if step == .importData, importer.isConfirmingPasswords { return OnboardingStrings.beginImporting }
         if step == .importData, importer.canStart { return OnboardingStrings.importButton }
         if step == .agents { return OnboardingStrings.continueTitle }
+        if step == .computerUseWelcome { return OnboardingStrings.computerUseWelcomeAllow }
         return OnboardingStrings.done
     }
 
@@ -79,6 +86,13 @@ public final class OnboardingModel {
         case .computerUse where !computerUse.allGranted:
             if computerUse.permissions.helperFailed { computerUse.restart() } else { computerUse.allowNext() }
             return
+        // Allow Access: Computer Use stays on (or turns on), and the setup window that walks each
+        // macOS grant (Accessibility, Screen Recording) opens once this page closed. Nothing
+        // here waits on macOS or shows a system alert.
+        case .computerUseWelcome:
+            services.computerUsePermissions?.enable()
+            followUp = .computerUse
+            finish(completed: true)
         default:
             finish(completed: true)
         }
@@ -87,7 +101,8 @@ public final class OnboardingModel {
     /// The footer's Skip: Skip Importing on the Keychain explainer, where it
     /// leaves without reading anything.
     public var skipTitle: String {
-        step == .importData && importer.isConfirmingPasswords ? OnboardingStrings.skipImporting : OnboardingStrings.skip
+        if step == .computerUseWelcome { return OnboardingStrings.computerUseNotNow }
+        return step == .importData && importer.isConfirmingPasswords ? OnboardingStrings.skipImporting : OnboardingStrings.skip
     }
 
     /// The footer's Back: shown on the folder and Keychain explainers, off
@@ -131,6 +146,7 @@ public final class OnboardingModel {
         case .importData: importer.detect()
         case .computerUse: computerUse.start()
         case .agents: agents.start()
+        case .computerUseWelcome: break
         }
     }
 

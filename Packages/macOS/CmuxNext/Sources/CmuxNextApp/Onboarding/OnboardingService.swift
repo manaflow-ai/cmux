@@ -189,6 +189,14 @@ final class OnboardingService {
         await presenter.showAgentsAtFirstRun(isFirstRun: isFirstRun, source: signInHarnesses)
     }
 
+    /// The first-run Computer Use page (``OnboardingWindowPresenter/showComputerUseAtFirstRun``), after the
+    /// Agents step when it shows; never under showcase, nor when a managed policy turns Computer Use off.
+    func showComputerUseAtFirstRun(isFirstRun: Bool) {
+        guard !services.environment.showcase else { return }
+        presenter.showComputerUseAtFirstRun(isFirstRun: isFirstRun,
+                                            available: !services.registry.disabledFeatures.contains(.computerUse))
+    }
+
     func historyImportFinished() {
         UserDefaults.standard.set(true, forKey: HomeHostView.memoryOfferUsedKey)
     }

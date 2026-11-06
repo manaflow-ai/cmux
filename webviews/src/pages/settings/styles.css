@@ -2179,3 +2179,112 @@ button.menu-disclosure {
   border-color: transparent;
   background: var(--accent-soft);
 }
+
+/* Settings > Computer Use (ComputerUseCard): the built-in line, the mode list, the app lists. */
+.computer-use-builtin {
+  margin: 0 0 var(--ds-space-3);
+  color: var(--muted-text);
+}
+
+.computer-use-modes {
+  display: grid;
+  gap: var(--ds-space-1);
+  margin: var(--ds-space-2) 0 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.computer-use-mode {
+  position: relative;
+  display: flex;
+  gap: var(--ds-space-3);
+  align-items: flex-start;
+  padding: var(--ds-space-2) var(--ds-space-3);
+  border-radius: var(--ds-radius-sm);
+}
+
+.computer-use-mode:hover {
+  background: var(--input-bg);
+}
+
+.computer-use-mode[data-checked] {
+  background: var(--accent-soft);
+}
+
+.computer-use-mode:focus-within {
+  outline: 2px solid var(--border-strong);
+  outline-offset: -2px;
+}
+
+.computer-use-mode input {
+  margin: 2px 0 0;
+}
+
+.computer-use-mode-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.computer-use-mode-title {
+  font-weight: 500;
+}
+
+.computer-use-list {
+  display: grid;
+  gap: 0;
+  margin: var(--ds-space-2) 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.computer-use-list-row {
+  display: flex;
+  gap: var(--ds-space-3);
+  align-items: center;
+  justify-content: space-between;
+  min-height: var(--ds-control-row);
+  padding: 0 var(--ds-space-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.computer-use-list-row:last-child {
+  border-bottom: 0;
+}
+
+.computer-use-app {
+  display: flex;
+  gap: var(--ds-space-2);
+  align-items: baseline;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.computer-use-app-id {
+  color: var(--muted-text);
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+.computer-use-approval-controls {
+  display: inline-flex;
+  gap: var(--ds-space-2);
+  align-items: center;
+}
+
+.computer-use-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-2);
+  align-items: center;
+  margin-top: var(--ds-space-2);
+}
+
+.computer-use-add .field[type="text"] {
+  flex: 1;
+  min-width: 160px;
+}
