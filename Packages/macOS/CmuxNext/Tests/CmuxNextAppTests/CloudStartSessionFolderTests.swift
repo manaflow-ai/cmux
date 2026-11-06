@@ -32,16 +32,19 @@ struct CloudStartSessionFolderTests {
         #expect(try CloudStartSession.fromFolder(CloudStartSessionTests.invocation([:], origin: .mcp), cwd: nil, home: Self.home) == nil)
     }
 
-    /// Only this Mac's own CLI or the person's own run names a folder to copy: a socket caller claiming another
-    /// client (`remote`), a script or a page copies nothing, though no remote path reaches `action.run` today.
-    @Test func onlyThisMacsCLIOrThePersonCopiesAFolder() throws {
-        for origin in [ActionOrigin.remote, .script, .page] {
+    /// Only a CLI run on this Mac or the person's own run names a folder to copy. `start-chat --from-folder` runs
+    /// `start-session` piped, so its origin is `script`, and it copies. A socket caller claiming another client
+    /// (`remote`), a page, or `user` from the socket (an app host during a gesture) copies nothing.
+    @Test func onlyACLIRunOnThisMacOrThePersonCopiesAFolder() throws {
+        var socketUser = CloudStartSessionTests.invocation(["fromFolder": .string("/Users/me/code/app")], origin: .user)
+        socketUser.viaControlSocket = true
+        for invocation in [CloudStartSessionTests.invocation(["fromFolder": .string("/Users/me/code/app")], origin: .remote),
+                           CloudStartSessionTests.invocation(["fromFolder": .string("/Users/me/code/app")], origin: .page), socketUser] {
             #expect(throws: ActionFailure(message: CloudStartSessionStrings.fromFolderAgent)) {
-                try CloudStartSession.fromFolder(CloudStartSessionTests.invocation(["fromFolder": .string("/Users/me/code/app")], origin: origin),
-                                                 cwd: nil, home: Self.home)
+                try CloudStartSession.fromFolder(invocation, cwd: nil, home: Self.home)
             }
         }
-        for origin in [ActionOrigin.cli, .user] {
+        for origin in [ActionOrigin.cli, .script, .user] {
             let invocation = CloudStartSessionTests.invocation(["fromFolder": .string("/Users/me/code/app")], origin: origin)
             #expect(try CloudStartSession.fromFolder(invocation, cwd: nil, home: Self.home) == "/Users/me/code/app")
         }
