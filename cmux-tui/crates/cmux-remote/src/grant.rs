@@ -146,7 +146,7 @@ pub fn is_grant_device_id(device_id: &str) -> bool {
 /// [`Service`] (`mux-control`, `workspace-rpc`, `process-stream`,
 /// `terminal-bytes-v1`, `tcp-tunnel`, `computer-use`, `local-socket`).
 pub fn service_from_name(name: &str) -> Option<Service> {
-    serde_json::from_value(serde_json::Value::String(name.to_owned())).ok()
+    serde_json::from_value(Value::String(name.to_owned())).ok()
 }
 
 /// The services only the machine's owner holds: [`Service::LocalSocket`]
@@ -217,7 +217,7 @@ pub struct GrantConfig {
 
 impl GrantConfig {
     pub fn parse(text: &str) -> Result<Self, String> {
-        let value: serde_json::Value =
+        let value: Value =
             serde_json::from_str(text).map_err(|e| format!("grant config is not JSON: {e}"))?;
         let object = value.as_object().ok_or("grant config is not an object")?;
         if let Some(key) = object
@@ -229,7 +229,7 @@ impl GrantConfig {
         let field = |name: &str| {
             object
                 .get(name)
-                .and_then(serde_json::Value::as_str)
+                .and_then(Value::as_str)
                 .map(str::to_owned)
                 .ok_or_else(|| format!("grant config `{name}` is missing"))
         };
