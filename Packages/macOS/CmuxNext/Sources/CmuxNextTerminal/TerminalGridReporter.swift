@@ -33,12 +33,14 @@ final class TerminalGridReporter {
 
     /// A drag's grid: coalesced when its size shows now (the bounds took it), else when the presenter shows it.
     func drag(_ grid: TerminalGridSize, shownNow: Bool) {
+        print("TKTRACE t=\(Self.traceMs()) DRAG view=\(view.map { ObjectIdentifier($0).hashValue % 100000 } ?? 0) shownNow=\(shownNow) grid=\(String(describing: grid))")
         if shownNow { coalesced(grid) } else { awaitingShown = grid }
     }
 
     /// The presenter's commit showed a size with its frame (``TerminalSurfaceView/frameDidLand()``): the grid that size
     /// fits goes, coalesced while the drag `live`s, else now (a size that landed after the drag ended).
     func shown(_ grid: TerminalGridSize?, live: Bool) {
+        print("TKTRACE t=\(Self.traceMs()) SHOWN view=\(view.map { ObjectIdentifier($0).hashValue % 100000 } ?? 0) live=\(live) awaiting=\(String(describing: awaitingShown)) grid=\(String(describing: grid))")
         guard awaitingShown != nil, let grid else { return }
         awaitingShown = nil
         if live { coalesced(grid) } else { now(grid) }
@@ -63,6 +65,7 @@ final class TerminalGridReporter {
 
     /// A drag's grid: it waits for the window, or opens one.
     func coalesced(_ grid: TerminalGridSize) {
+        print("TKTRACE t=\(Self.traceMs()) COALESCED view=\(view.map { ObjectIdentifier($0).hashValue % 100000 } ?? 0)  grid=\(String(describing: grid))")
         coalescer.viewSized(grid)
     }
 
@@ -76,11 +79,20 @@ final class TerminalGridReporter {
 
     /// The drag ended (or will not end for this view): the grid that waits goes now.
     func flush() {
+        print("TKTRACE t=\(Self.traceMs()) FLUSH view=\(view.map { ObjectIdentifier($0).hashValue % 100000 } ?? 0) pending=\(String(describing: coalescer.pending))")
         coalescer.flush()
+    }
+
+    /// DIAG (never merge): one clock for the drag shown-grid trace.
+    nonisolated static let traceEpoch = ContinuousClock.now
+    nonisolated static func traceMs() -> String {
+        let d = traceEpoch.duration(to: .now)
+        return String(format: "%.2f", Double(d.components.seconds) * 1000 + Double(d.components.attoseconds) / 1e15)
     }
 
     private func deliver(_ grid: TerminalGridSize) {
         guard let view, let surface = view.surface else { return }
+        print("TKTRACE t=\(Self.traceMs()) SEND view=\(ObjectIdentifier(view).hashValue % 100000) grid=\(grid.columns)x\(grid.rows) final=\(sendingFinal) inFlight=\(String(describing: view.frameOwnership.inFlight)) bounds=\(view.bounds.size) drag=\(view.isFollowingResizeGesture) stack=\(Thread.callStackSymbols.dropFirst(1).prefix(7).map { $0.split(separator: " ", omittingEmptySubsequences: true).dropFirst(3).first.map(String.init) ?? "?" })")
         TerminalSurfaceView.gridReports &+= 1
         let size = ghostty_surface_size(surface)
         let metrics = TerminalGridMetrics(cellWidth: Int(size.cell_width_px), cellHeight: Int(size.cell_height_px),

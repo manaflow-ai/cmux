@@ -295,6 +295,8 @@ final class TerminalFramePresenter {
     private func landed(_ view: TerminalSurfaceView, id: ObjectIdentifier, watch: Bool, followUp: Bool) {
         // A request the landing made for this view owns it; it is not watched beside it.
         if watch, requests[id] == nil { watched[id] = Watch(view: view) } else if !watch { commits[id] = Watch(view: view) }
+        let scale = view.layer?.contentsScale ?? 0, lb = view.layer?.bounds.size ?? .zero
+        print("TKTRACE t=\(TerminalGridReporter.traceMs()) LAND view=\(ObjectIdentifier(view).hashValue % 100000) layer=\(Int(lb.width * scale))x\(Int(lb.height * scale)) frame=\(view.presentedFrame.map { "\($0.width)x\($0.height)" } ?? "nil") (the commit of this turn follows)")
         // Outside the lock span: what follows the new size and reads Ghostty under the terminal's lock.
         view.frameDidLand()
         if followUp { view.requestWantedFrame() }

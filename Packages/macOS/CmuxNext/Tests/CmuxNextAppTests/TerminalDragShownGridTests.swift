@@ -19,7 +19,7 @@ import Testing
 struct TerminalDragShownGridTests {
     typealias Rig = TerminalKeyResizeFrameTests
 
-    @Test func everyGridADragSendsIsTheGridOfAShownFrame() async throws {
+    @Test(arguments: 0..<4) func everyGridADragSendsIsTheGridOfAShownFrame(run: Int) async throws {
         let screen = try await Rig.PaneScreen(announcesGrids: true)
         defer { screen.close() }
         await Rig.settle(screen)
@@ -33,6 +33,7 @@ struct TerminalDragShownGridTests {
         // one of them (frame-owner-s4: a drag step that asks a new size in the turn of a landing must send the landed grid,
         // not the new ask, which no commit has shown yet).
         func record() {
+            print("TKTRACE t=\(TerminalGridReporter.traceMs()) RECORD views=\(screen.sessions.map { ObjectIdentifier($0.surfaceView).hashValue % 100000 }) resizes=\(screen.ios.map { $0.resizes.map { "\($0.columns)x\($0.rows)" }.suffix(3) })")
             for (index, session) in screen.sessions.enumerated() {
                 // A size shows when the committed layer and the frame it presents have one pixel size; the next size may
                 // already be asked (a drag asks one per frame), so a size in flight does not hide the one shown.
