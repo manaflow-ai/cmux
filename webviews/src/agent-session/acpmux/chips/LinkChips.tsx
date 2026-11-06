@@ -10,7 +10,7 @@
 // 2026-10-21, #22896 grew into "#22896 · cmux-next updates: …" after a hover). Titles and favicons
 // live in the shared link card (LinkHoverCard.tsx) that hovering opens: Open and Open in, and a
 // pull request's title, state, author and checks.
-import { useContext, useState, type ReactNode } from "react";
+import { useContext, useLayoutEffect, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { callChipHost } from "./host";
 import { useMessageScope } from "./messageScope";
@@ -164,8 +164,9 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
   // opening it as the link does, in place of the site's.
   const subsessions = useContext(SubsessionContext);
   const session = useSessionHover(agent["data-open-session"] ?? "", subsessions?.openSender ?? subsessions?.open);
-  // A pointer or focus that came in keeps the card it started, even when the link resolves to a chat
-  // meanwhile (its first hover is what asks): the chat's card is the next one, never a lost card.
+  // Its first hover or focus is what asks acpmux for the chat, so the answer can come in under the
+  // site's card or its rest: the chat's card then takes over in place, in the same frame, with the
+  // pointer or focus still on the link (review of #36360).
   const [entered, setEntered] = useState<"chat" | "site" | null>(null);
   const now = session.trigger.onPointerEnter !== undefined ? "chat" : "site";
   const chat = (entered ?? now) === "chat";
@@ -174,6 +175,16 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
     setEntered(now);
     return now === "chat" ? session.trigger : hover.trigger;
   };
+  useLayoutEffect(() => {
+    if (entered !== "site" || now !== "chat" || !anchor) return;
+    setEntered("chat");
+    const here = anchor.matches(":hover") || anchor === document.activeElement;
+    if (!hover.open && !here) return;
+    const shown = hover.open;
+    hover.dismiss();
+    session.takeOver(anchor, shown);
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- it runs when the link resolves, not per render.
+  }, [entered, now, anchor]);
   return (
     <>
       <a

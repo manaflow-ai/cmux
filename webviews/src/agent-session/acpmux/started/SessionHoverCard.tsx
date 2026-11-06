@@ -68,17 +68,22 @@ const noStore = () => () => {};
 /// The hover card of session `sessionId`: spread `trigger` on the reference and render `card`
 /// beside it. Both are empty without a ``SessionHoverContext`` and for a chat its store does not list,
 /// so a reference keeps its own tooltip there. A click on the card opens the chat with `open`, the
-/// reference's own opener (a sender's name opens as a sender), else the context's.
+/// reference's own opener (a sender's name opens as a sender), else the context's. `takeOver(anchor,
+/// now)` hands it a pointer or focus already on the reference (another card's, whose reference just
+/// resolved to this chat): with `now`, the card shows in that card's place in the same frame, else
+/// after the usual rest.
 export function useSessionHover(
   sessionId: string,
   open?: (sessionId: string) => void,
-): { trigger: SessionHoverTrigger; card: ReactNode } {
+): { trigger: SessionHoverTrigger; card: ReactNode; takeOver(anchor: HTMLElement, now: boolean): void } {
   const hover = useContext(SessionHoverContext);
   const readListed = () => (hover && sessionId ? hover.store.get(sessionId) !== undefined : false);
   const listed = useSyncExternalStore(hover?.store.subscribe ?? noStore, readListed, readListed);
   const intent = useHoverIntent<HTMLElement>({ delay: SESSION_HOVER_DELAY, group });
   const { hover: point, dismiss } = intent;
   const [placed, setPlaced] = useState<{ anchor: HTMLElement; side: "top" | "bottom" } | null>(null);
+  // A card that took another's place is there at once, with no fade in, until it goes.
+  const [swapped, setSwapped] = useState<HTMLElement | null>(null);
   const leave = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const inside = useRef<HTMLButtonElement | null>(null);
   // Escape in the card hands focus back to the reference: that focus must not show the card again.
@@ -86,9 +91,18 @@ export function useSessionHover(
   const cardId = useId();
   useEffect(() => {
     if (intent.shown) setPlaced({ anchor: intent.shown, side: hoverCardSide(intent.shown) });
+    else setSwapped(null);
   }, [intent.shown]);
   useEffect(() => () => clearTimeout(leave.current), []);
-  if (!hover || !listed) return { trigger: {}, card: null };
+  if (!hover || !listed) return { trigger: {}, card: null, takeOver: () => undefined };
+  const takeOver = (anchor: HTMLElement, now: boolean) => {
+    if (now) {
+      // Placed with the show, in the render that puts the other card away: no frame without a card.
+      setPlaced({ anchor, side: hoverCardSide(anchor) });
+      setSwapped(anchor);
+      point(anchor, 0);
+    } else point(anchor);
+  };
 
   const stay = () => {
     clearTimeout(leave.current);
@@ -147,7 +161,7 @@ export function useSessionHover(
       anchor={placed.anchor}
       side={placed.side}
       open={intent.shown !== null}
-      instant={intent.instant}
+      instant={intent.instant || (swapped !== null && swapped === intent.shown)}
       interactive
       ariaLabel={hover.store.get(sessionId)?.title}
       className="ui-glass ui-glass-floats acpmux-session-hover-card"
@@ -175,7 +189,7 @@ export function useSessionHover(
       />
     </AnchoredCard>
   ) : null;
-  return { trigger, card };
+  return { trigger, card, takeOver };
 }
 
 function SessionHoverBody({
