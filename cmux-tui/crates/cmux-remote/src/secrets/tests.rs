@@ -464,14 +464,11 @@ fn a_symlinked_folder_below_home_is_never_written_through() {
     std::os::unix::fs::symlink(&outside, fixture.home.join(".claude")).unwrap();
     let error = fixture
         .secrets
-        .install_harness_login(
-            &fixture.seal(
-                Purpose::HarnessLogin,
-                "claude",
-                &format!("sk-ant-oat01-{}", random_hex(24)),
-            ),
-            false,
-        )
+        .install_harness_login(&fixture.seal(
+            Purpose::HarnessLogin,
+            "claude",
+            &format!("sk-ant-oat01-{}", random_hex(24)),
+        ))
         .unwrap_err();
     assert!(error.message.starts_with("conflict") || error.message.starts_with("write"), "{error}");
     assert_eq!(std::fs::read_dir(&outside).unwrap().count(), 0);
