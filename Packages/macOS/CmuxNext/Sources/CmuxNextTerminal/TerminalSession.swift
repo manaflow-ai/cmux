@@ -432,6 +432,7 @@ public final class TerminalSession {
         view.onClose = nil
         onClose?()
         surfaceView.clipboardRequests.cancelPendingWrite()
+        surfaceView.cancelGridReport()
         eventsTask?.cancel()
         eventsTask = nil
         closeCancels.forEach { $0.cancel() }
@@ -564,6 +565,7 @@ public final class TerminalSession {
     private func swapSurface() {
         let old = surfaceView
         old.clipboardRequests.cancelPendingWrite()
+        old.cancelGridReport() // detached: its waiting grid is not this session's any more
         let wasFirstResponder = old.isFirstResponder
         let fresh = TerminalSurfaceView(io: ioMode, input: input, session: self)
         swappedSurfaces += 1

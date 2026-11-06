@@ -44,6 +44,7 @@ extension ScreenContentView {
         }
         if !moving { scrollRidesFrames = false }
         applyPresentation()
+        if moving, let window { drawAhead(MotionClock.forWindow(window).nextFrameInterval, policy: policy) }
         // The key resize's spring landed (the hosts laid their content out at rest in this pass): the next motion
         // resizes content live again unless another key press holds it.
         if !moving { holdsContentForKeyResize = false }
@@ -51,6 +52,32 @@ extension ScreenContentView {
         if !moving { releaseClosing() }
         return moving
     }
+    /// Draw ahead (cmux-ad m26, the Chromium model: the renderer gets the size before the compositor needs its frame):
+    /// each pane its key hold's spring still moves hears how much its size changes at the next refresh, from a copy of
+    /// its spring stepped once more by `dt`, the display link's interval to the next frame's target time (one refresh).
+    /// A terminal in it asks Ghostty for that size after this refresh's commit, so the next commit presents the frame
+    /// drawn at it with its bounds. A drag, a Reduce Motion jump (no spring frame after it) and hidden panes draw nothing
+    /// ahead.
+    private func drawAhead(_ dt: Double, policy: MotionPolicy) { // perf-hot: 1ms motion-frame
+        guard holdsContentForKeyResize, !policy.reduceMotion, !isHiddenOrHasHiddenAncestor else { return }
+        let frameSpring = policy.spring(motionState.frameSpring), appear = policy.spring(.appear), scale = self.scale
+        let strip = stripShift
+        for (pane, frame) in paneFrames where frame.rect != frame.targetRect {
+            guard let host = context.hosts[pane], host.superview === self else { continue }
+            // Placed as `applyPresentation` places it, so the two sizes round to the pixel grid the same way.
+            let offset = CGVector(dx: (geometry.scrolls(pane: pane) ? strip : 0) - areaOffset(of: pane), dy: -rowOffset(of: pane))
+            var next = frame
+            let token = zoomMotion.spring(for: pane, fallback: motionState.frameSpring)
+            _ = next.advanceUnsettled(dt, parameters: token == motionState.frameSpring ? frameSpring : policy.spring(token),
+                                      alphaParameters: appear)
+            let nextRect = next.geometryNearRest ? next.targetRect : next.rect
+            let now = frame.rect.offsetBy(dx: offset.dx, dy: offset.dy).pixelEdges(scale)
+            let then = nextRect.offsetBy(dx: offset.dx, dy: offset.dy).pixelEdges(scale)
+            let change = CGSize(width: then.width - now.width, height: then.height - now.height)
+            if change != .zero { host.drawAhead(sizeChange: change) }
+        }
+    }
+
     /// Steps every pane and divider spring by `dt`, no presentation (`step`'s first part). The panes and dividers are
     /// one motion: none settles on its own (an edge with a shorter travel would snap frames before the others and
     /// change the gap beside it); they all land in the frame the last one comes within a quarter point of rest.
