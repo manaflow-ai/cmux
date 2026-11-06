@@ -100,7 +100,7 @@
   "JSON / property-list decode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/HiddenHistoryStore.swift": {
-  "JSON / property-list decode": 4
+  "JSON / property-list decode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewTab/NewTabChoiceMemory.swift": {
   "JSON / property-list decode": 1
