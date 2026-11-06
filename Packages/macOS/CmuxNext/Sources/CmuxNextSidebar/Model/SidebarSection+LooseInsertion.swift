@@ -33,7 +33,7 @@ nonisolated extension SidebarSection {
             guard oldShell == newShell else { return nil }
             let (before, after) = (old[s].nodes, new[s].nodes)
             // The first node that differs is the new one; every node after it is the old one before it.
-            let k = zip(before, after).firstIndex { $0 != $1 } ?? before.count
+            let k = before.indices.first { before[$0] != after[$0] } ?? before.count
             guard case .workspace = after[k], after[(k + 1)...].elementsEqual(before[k...]) else { return nil }
             found = (s, k)
         }
