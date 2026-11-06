@@ -36,3 +36,10 @@ fn the_wire_is_the_apps_shape() {
         serde_json::json!({"ownsVm": true, "teammate": false, "linkArguments": ["--vm-kind", "owner"]})
     );
 }
+
+/// The app server's `unknown` (no owner answer could be read): it grants nothing and names no teammate's machine.
+#[test]
+fn unknown_grants_nothing_and_is_no_teammate() {
+    let unknown = read(Some("unknown"));
+    assert!(!unknown.owns_vm && !unknown.teammate && unknown.link_arguments.is_empty());
+}
