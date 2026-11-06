@@ -223,6 +223,29 @@ export const PAGES = {
       },
     ],
   },
+  // The server cards (cmux-page://cmux.server-cards/) share the tables of the Swift they replaced:
+  // Pair Another Machine's own, and the Add Server words, name and buttons it reuses.
+  "server-cards": {
+    out: "webviews/src/pages/server-cards/generated/strings.json",
+    catalogs: [
+      { file: `${sources}/CmuxNextServer/Resources/PairInvite.xcstrings` },
+      {
+        file: `${sources}/CmuxNextServer/Resources/Localizable.xcstrings`,
+        keys: (all) =>
+          all.filter((key) =>
+            [
+              "approver.wordsQuestion",
+              "approver.wordsWarning",
+              "approver.retry",
+              "approver.done",
+              "approver.name",
+              "approver.cancel",
+              "approver.runChief",
+            ].includes(key),
+          ),
+      },
+    ],
+  },
   // The Artifacts page (cmux-page://cmux.artifacts/); its table lives next to it.
   artifacts: {
     out: "webviews/src/pages/artifacts/generated/strings.json",

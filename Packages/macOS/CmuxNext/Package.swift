@@ -1215,7 +1215,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextServer",
             // CmuxNextWakeups: the joined rows' one-shot heartbeat deadline (JoinedMachineStore aging).
-            dependencies: ["CmuxNextCloud", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextRemote", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCloud", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextPages", "CmuxNextRemote", "CmuxNextSettings", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],

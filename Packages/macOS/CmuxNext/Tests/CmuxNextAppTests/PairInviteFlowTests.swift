@@ -2,12 +2,14 @@ import Foundation
 @testable import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextServer
+import CmuxNextPages
+import CmuxNextSettings
 import Testing
 
 /// "Pair Another Machine…" (the invite, the reverse of Add Server): the 10-symbol invite code never
-/// reads as an 8-symbol server code, the wire's reply and frames decode, and the card walks
-/// pending, arrived (Add Server's own preview), paired, voided, expired and lost over a fake socket,
-/// event driven, with the socket and countdown stopped at each end and on close.
+/// reads as an 8-symbol server code, the wire's reply and frames decode, and the card's provider
+/// relays pending, arrived (Add Server's own preview), paired, voided, expired and lost from a fake
+/// socket, event driven, with the socket stopped at each end and on close.
 @MainActor @Suite(.serialized) struct PairInviteFlowTests {
     // MARK: - The invite code
 
@@ -86,19 +88,17 @@ import Testing
         #expect(PairInviteService.closed(1006, invite: invite, now: Date(timeIntervalSince1970: 100)) == .lost)
     }
 
-    // MARK: - The flow
+    // MARK: - The card's provider (the page derives steps, buttons and the countdown: server-cards/pairInvite/model.test.ts)
 
     /// A fake Worker: the mint answers `mintResult`, and each watch is a socket the test pushes frames into.
     nonisolated final class Fake: @unchecked Sendable {
-        var now = Date(timeIntervalSince1970: 1_000_000)
         var mints = 0
         var watches: [PairInvite] = []
         var socket: AsyncStream<PairInviteFrame>.Continuation?
         var socketClosed = false
         var copied: [String] = []
         var mintResult: Result<PairInvite, PairInviteFailure>?
-        // Ten minutes after the clock's start.
-        var invite = PairInvite(code: "ABCDE12345", expiresAt: Date(timeIntervalSince1970: 1_000_600), watchSecret: "w1")
+        var invite = PairInvite(code: "ABCDE12345", expiresAt: Date().addingTimeInterval(600), watchSecret: "w1")
 
         func service() -> PairInviteService {
             PairInviteService(
@@ -112,12 +112,11 @@ import Testing
                 })
         }
 
-        @MainActor func model(_ source: MockServerSource = MockServerSource()) -> PairInviteModel {
+        @MainActor func provider(_ source: MockServerSource = MockServerSource()) -> PairInviteCardProvider {
             let approver = ServerModel(source: source)
             approver.start()
-            // The countdown's sleep waits until it is cancelled: these tests move time by hand (tick()).
-            return PairInviteModel(service: service(), approver: approver, copy: { [self] in copied.append($0) },
-                                   clock: { [self] in now }, sleep: { _ in try await Task.sleep(for: .seconds(3600)) })
+            return PairInviteCardProvider(service: service(), approver: approver, copy: { [self] in copied.append($0) },
+                                          qr: { "data:image/png;base64,\($0.count)" })
         }
 
         func push(_ frame: PairInviteFrame) { socket?.yield(frame) }
@@ -132,195 +131,167 @@ import Testing
         source.received.map(\.kind).filter { if case .approveCode = $0 { true } else { false } }
     }
 
-    @Test func aMintShowsTheCodeAndOpensOneSocket() async {
+    private static let gesture = PageCallContext(page: "cmux.server-cards", userGesture: true, gestureEvent: 1)
+
+    @Test func aMintShowsTheCodeAndOpensOneSocketWithoutItsSecret() async throws {
         let fake = Fake()
-        let model = fake.model()
-        #expect(model.phase == .idle)
-        await model.mint()
+        let provider = fake.provider()
+        #expect(provider.mint == .idle)
+        await provider.mintInvite()
         #expect(fake.mints == 1)
-        #expect(model.step == .showing(fake.invite))
-        #expect(model.secondsLeft == 600)
         #expect(fake.watches == [fake.invite], "one socket, for the minted invite")
-        #expect(model.isWatching)
-        #expect(model.buttons.map(\.action) == [.cancel])
+        #expect(provider.isWatching)
+        let status = provider.status()
+        #expect(status["mint"]?.stringValue == "ready")
+        #expect(status["invite"]?["code"]?.stringValue == "ABCDE-12345")
+        #expect(status["invite"]?["line"]?.stringValue == "cmux pair ABCDE-12345")
+        #expect(status["invite"]?["qr"]?.stringValue != nil)
+        #expect(!status.compactText.contains("w1"), "the watch secret never reaches the page")
         fake.push(.pending(expiresAt: fake.invite.expiresAt))
         await settle()
-        #expect(model.step == .showing(fake.invite), "pending changes nothing")
-        model.perform(.copyLine)
-        model.perform(.copyCode)
-        model.perform(.copyInstallLine)
+        #expect(provider.frames.isEmpty, "pending changes nothing")
+        for target in ["line", "code", "installLine"] {
+            _ = try await provider.call(PairInviteCardProvider.copyOp, params: ["target": .string(target)], context: Self.gesture)
+        }
         #expect(fake.copied == ["cmux pair ABCDE-12345", "ABCDE-12345", fake.invite.installLine])
-        #expect(model.copied == .installLine)
+    }
+
+    @Test func copyNewCodeAndTheChiefOptionNeedThePersonsGesture() async {
+        let fake = Fake()
+        let provider = fake.provider()
+        await provider.mintInvite()
+        let script = PageCallContext(page: "cmux.server-cards")
+        for (op, params) in [(PairInviteCardProvider.copyOp, ["target": "code"] as JSONValue),
+                             (PairInviteCardProvider.newCodeOp, [:]), (PairInviteCardProvider.setRunChiefOp, ["on": true])] {
+            await #expect(throws: PageError.self) { _ = try await provider.call(op, params: params, context: script) }
+        }
+        #expect(fake.copied.isEmpty)
+        #expect(fake.mints == 1)
     }
 
     @Test func arrivedRunsAddServersPreviewThenConfirmApprovesAndPairs() async {
         let fake = Fake()
         let source = MockServerSource()
-        let model = fake.model(source)
-        await model.mint()
+        let provider = fake.provider(source)
+        await provider.mintInvite()
         fake.push(.arrived(code: MockServerScenario.offerCode))
         await settle()
         #expect(source.received.map(\.kind) == [.lookupCode(MockServerScenario.offerCode)], "Add Server's own preview")
-        #expect(model.step == .review(fake.invite, MockServerScenario.candidate))
-        #expect(model.secondsLeft == nil, "the code's countdown is gone once a machine used it")
-        #expect(model.buttons.map(\.action) == [.cancel, .confirm])
-        #expect(model.canConfirm)
-        model.confirm(name: "  build box  ")
+        #expect(provider.status()["approver"]?["step"]?.stringValue == "review")
+        #expect(provider.status()["approver"]?["candidate"]?["name"]?.stringValue == MockServerScenario.candidate.name)
+        fake.push(.arrived(code: MockServerScenario.offerCode))
+        await settle()
+        #expect(source.received.count == 1, "the same arrival previews once")
+        provider.confirm(name: "  build box  ")
         #expect(approvals(source) == [.approveCode(code: MockServerScenario.offerCode, team: "team_personal", name: "build box",
                                                    placeChief: MockServerScenario.candidate.isChiefBrain)],
                 "Add Server's own approve, with the name typed")
-        await settle()
-        #expect(model.step == .paired("build box"))
-        #expect(model.buttons.map(\.action) == [.done])
         fake.push(.paired(host: "h_1"))
         await settle()
-        #expect(model.phase == .paired(host: "h_1"))
-        #expect(model.step == .paired("build box"))
-        #expect(!model.isWatching)
+        #expect(!provider.isWatching)
         #expect(fake.socketClosed, "the socket closes once the machine is paired")
     }
 
-    /// SECURITY: Confirm's key, its action and the card's perform approve nothing: only the panel's
-    /// person-click check calls confirm() (PairInviteConfirmTests drives that check).
+    /// SECURITY: Confirm from a key, a script or the page's own call approves nothing: only the
+    /// person's own click on the card (WebCardPanel.isPersonClick) reaches the approve.
     @Test func confirmIsRefusedWithoutThePersonsClick() async {
         let fake = Fake()
         let source = MockServerSource()
-        let model = fake.model(source)
-        await model.mint()
-        #expect(!model.canConfirm, "nothing to confirm before a machine arrives")
-        model.confirm()
-        #expect(approvals(source).isEmpty)
+        let provider = fake.provider(source)
+        await provider.mintInvite()
+        provider.confirm(name: nil)
+        #expect(approvals(source).isEmpty, "nothing to confirm before a machine arrives")
         fake.push(.arrived(code: MockServerScenario.offerCode))
         await settle()
-        #expect(model.perform(.confirm) == false)
-        #expect(model.perform(.retry) == false)
-        #expect(PairInviteAction.confirm.isPersonClickOnly && PairInviteAction.retry.isPersonClickOnly)
-        #expect(approvals(source).isEmpty, "perform(.confirm), the key's and Accessibility's path, approves nothing")
+        for context in [PageCallContext(page: "cmux.server-cards"), Self.gesture] {
+            await #expect(throws: PageError.self) {
+                _ = try await provider.call(PairInviteCardProvider.confirmOp, params: ["name": "x"], context: context)
+            }
+        }
+        #expect(approvals(source).isEmpty, "a key's gesture with no click on a card approves nothing")
         let descriptor = ServerActionCatalog.descriptors().first { $0.id == "server.pairAnotherMachine" }
         #expect(descriptor?.isPersonOnly == true, "only a person may open the card and mint an invite")
         #expect(descriptor?.arguments.isEmpty == true, "the action takes no code, words or confirm: nothing to script")
     }
 
-    @Test func aSecondMachineVoidsTheInviteAndOffersANewCode() async {
+    @Test func aSecondMachineVoidsTheInviteAndDropsTheArrivedMachine() async {
         let fake = Fake()
-        let model = fake.model()
-        await model.mint()
-        fake.push(.voided(reason: "second_redemption"))
-        await settle()
-        #expect(model.step == .voided)
-        #expect(!model.isWatching)
-        #expect(model.buttons.map(\.action) == [.cancel, .newCode])
-        // Voided after it arrived too: the arrived machine's facts go.
         let source = MockServerSource()
-        let arrived = fake.model(source)
-        await arrived.mint()
+        let provider = fake.provider(source)
+        await provider.mintInvite()
         fake.push(.arrived(code: MockServerScenario.offerCode))
         await settle()
-        #expect(arrived.step == .review(fake.invite, MockServerScenario.candidate))
         fake.push(.voided(reason: "second_redemption"))
         await settle()
-        #expect(arrived.step == .voided)
-        #expect(arrived.approver.candidate == nil)
-        #expect(!arrived.canConfirm)
+        #expect(!provider.isWatching)
+        #expect(provider.approver.candidate == nil)
+        provider.confirm(name: nil)
         #expect(approvals(source).isEmpty)
-        // New Code mints again.
-        arrived.perform(.newCode)
+        #expect(provider.frames.map { if case .voided = $0 { "voided" } else { "other" } }.last == "voided")
+        fake.push(.arrived(code: "ZZZZZZZZ"))
         await settle()
-        #expect(arrived.step == .showing(fake.invite))
-    }
-
-    @Test func theCodeExpiresAtItsTimeOrTheWorkersClose() async {
-        let fake = Fake()
-        let model = fake.model()
-        await model.mint()
-        fake.now = fake.invite.expiresAt.addingTimeInterval(-30)
-        model.tick()
-        #expect(model.secondsLeft == 30)
-        fake.now = fake.invite.expiresAt
-        model.tick()
-        #expect(model.step == .expired)
-        #expect(!model.isWatching)
-        #expect(model.buttons.map(\.action) == [.cancel, .newCode])
-        let closed = fake.model()
-        fake.now = Date(timeIntervalSince1970: 1_000_000)
-        await closed.mint()
-        fake.push(.expired)
-        await settle()
-        #expect(closed.step == .expired, "the Worker's 4408")
+        #expect(source.received.count == 1, "a frame after the invite ended previews nothing")
     }
 
     @Test func anExpiryAfterTheMachineArrivedStillLetsThePersonConfirm() async {
         let fake = Fake()
         let source = MockServerSource()
-        let model = fake.model(source)
-        await model.mint()
+        let provider = fake.provider(source)
+        await provider.mintInvite()
         fake.push(.arrived(code: MockServerScenario.offerCode))
         await settle()
         fake.push(.expired)
         await settle()
-        #expect(model.step == .review(fake.invite, MockServerScenario.candidate), "the machine's own pairing outlives the invite")
-        #expect(model.canConfirm)
+        #expect(!provider.isWatching)
+        provider.confirm(name: nil)
+        #expect(approvals(source).count == 1, "the machine's own pairing outlives the invite")
     }
 
     @Test func aLostSocketSaysSoAndNeverReconnectsOnItsOwn() async {
         let fake = Fake()
-        let model = fake.model()
-        await model.mint()
+        let provider = fake.provider()
+        await provider.mintInvite()
         fake.socket?.finish()
         await settle()
-        #expect(model.step == .lost)
+        #expect(provider.status()["frames"]?.arrayValue?.last?["t"]?.stringValue == "lost")
         #expect(fake.watches.count == 1, "no reconnect loop")
-        #expect(model.buttons.map(\.action) == [.cancel, .newCode])
+        #expect(!provider.isWatching)
     }
 
     @Test func aRefusedMintSaysWhy() async {
         let fake = Fake()
         fake.mintResult = .failure(.signedOut)
-        let model = fake.model()
-        await model.mint()
-        #expect(model.step == .signedOut)
+        let provider = fake.provider()
+        await provider.mintInvite()
+        #expect(provider.status()["failure"]?["signedOut"]?.boolValue == true)
         #expect(fake.watches.isEmpty)
         fake.mintResult = .failure(.refused("Could not make a pairing code: rate limited"))
-        await model.mint()
-        #expect(model.step == .failed("Could not make a pairing code: rate limited"))
-        fake.mintResult = .success(PairInvite(code: "ABCDE12345", expiresAt: fake.now.addingTimeInterval(-1), watchSecret: "w"))
-        await model.mint()
-        #expect(model.step == .expired, "an invite that is already out of time never shows")
-        #expect(fake.watches.isEmpty)
+        await provider.mintInvite()
+        #expect(provider.status()["failure"]?["text"]?.stringValue == "Could not make a pairing code: rate limited")
+        fake.mintResult = .success(PairInvite(code: "ABCDE12345", expiresAt: Date().addingTimeInterval(-1), watchSecret: "w"))
+        await provider.mintInvite()
+        #expect(fake.watches.isEmpty, "an invite already out of time opens no socket")
     }
 
     @Test func closeStopsTheSocketAndDropsALateFrame() async {
         let fake = Fake()
         let source = MockServerSource()
-        let model = fake.model(source)
-        await model.mint()
-        let socket = fake.socket
-        #expect(model.perform(.cancel), "Cancel closes the card")
+        let provider = fake.provider(source)
+        provider.opened(again: false)
         await settle()
-        #expect(model.phase == .idle)
-        #expect(!model.isWatching)
+        #expect(fake.mints == 1)
+        provider.opened(again: true)
+        await settle()
+        #expect(fake.mints == 1, "a card already showing a live invite keeps it")
+        let socket = fake.socket
+        provider.closed()
+        await settle()
+        #expect(provider.mint == .idle)
+        #expect(!provider.isWatching)
         #expect(fake.socketClosed)
         socket?.yield(.arrived(code: MockServerScenario.offerCode))
         await settle()
-        #expect(model.phase == .idle)
         #expect(source.received.isEmpty, "a frame after close previews nothing")
-    }
-
-    @Test func theMockPreviewsTheGalleryMachine() async {
-        let approver = ServerModel(source: MockServerSource())
-        approver.start()
-        let now = MockServerScenario.referenceDate
-        let model = PairInviteModel(service: .mock(now: now, frames: [.arrived(code: MockServerScenario.offerCode)]), approver: approver,
-                                    clock: { now }, sleep: { _ in try await Task.sleep(for: .seconds(3600)) })
-        await model.mint()
-        await settle()
-        guard case let .review(invite, candidate) = model.step else {
-            Issue.record("the mock arrives at review, got \(model.step)")
-            return
-        }
-        #expect(invite.code == PairInviteService.mockCode)
-        #expect(candidate == MockServerScenario.candidate)
-        model.close()
     }
 
     // MARK: - Add Device
