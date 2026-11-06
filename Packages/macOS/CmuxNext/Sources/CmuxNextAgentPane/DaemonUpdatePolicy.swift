@@ -161,6 +161,9 @@ public actor DaemonUpdatePolicy {
         var offline = false
         /// Failed or rolled-back updates of it in this run, each tried again after a backoff.
         var failures = 0
+        /// Its board line says it will try again (busy, or a failure waiting for its retry): a drop
+        /// must clear that line, or "Update will try again soon" stays with no retry coming.
+        var saysRetrying: Bool { firstBusy != nil || failures > 0 }
     }
 
     /// Queues `target` and returns at once; the queue drains in the background, one target at a
@@ -311,9 +314,13 @@ public actor DaemonUpdatePolicy {
         let deps = dependencies
         guard deps.enabled(), let local = DaemonBuildCommit(await deps.bundledBuild()), !local.dirty else {
             Self.logger.info("daemon update skipped: off, or the bundled build is unknown or has local changes")
+            let retrying = queue.filter(\.saysRetrying)
             queue.removeAll()
             drain = nil
             endTurnWaits(nil)
+            for each in retrying {
+                await deps.report(DaemonUpdateEvent(each.target, .cleared))
+            }
             return
         }
         var ledger = DaemonUpdateLedger.read(deps.directory, build: local.hash)
@@ -325,7 +332,7 @@ public actor DaemonUpdatePolicy {
             }
             guard deps.enabled() else {
                 Self.logger.info("daemon update stopped: agent.updatePeers turned off")
-                let retried = queue.filter { $0.firstBusy != nil }
+                let retried = queue.filter(\.saysRetrying)
                 queue.removeAll()
                 endTurnWaits(nil)
                 for each in retried {
@@ -516,7 +523,7 @@ public actor DaemonUpdatePolicy {
     /// line kept after 6 hours (``offlineShown``) goes as well: it connected needing no update.
     private func dropped(_ pending: Pending, asked: Bool = false) async -> Pending? {
         let wasOffline = offlineShown.remove(pending.target.id) != nil
-        if pending.firstBusy != nil || asked || wasOffline { await dependencies.report(DaemonUpdateEvent(pending.target, .cleared)) }
+        if pending.saysRetrying || asked || wasOffline { await dependencies.report(DaemonUpdateEvent(pending.target, .cleared)) }
         return nil
     }
 

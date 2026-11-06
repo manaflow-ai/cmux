@@ -360,6 +360,20 @@ import Testing
         #expect(fixture.ledger.targets == ["huge-blue": "updated"])
     }
 
+    /// Review of #36960 (F1): a failure waiting for its retry says "will try again"; when its turn
+    /// finds the machine already on the build (updated some other way), the line clears instead of
+    /// staying with no retry coming.
+    @Test func aRetryThatFindsTheMachineCurrentClearsItsLine() async throws {
+        let fixture = try PolicyFixture()
+        defer { fixture.remove() }
+        let target = fixture.target("peer", build: Self.older, outcomes: [.rolledBack(reason: "new daemon reported 0123456ff")])
+        await fixture.policy([target], board: { event in
+            if event.state == .retrying { target.reach(DaemonUpdatePolicyTests.bundled) }
+        }).run()
+        #expect(fixture.calls == ["peer"])
+        #expect(fixture.states("peer") == [.updating, .retrying, .cleared])
+    }
+
     /// A rollback that keeps rolling back is tried 1 + ``DaemonUpdatePolicy/Dependencies/failureRetries``
     /// times, then recorded, and tried again only on the next build.
     @Test func aRollbackIsRecordedAfterItsRetriesAndTriedAgainOnTheNextBuild() async throws {
