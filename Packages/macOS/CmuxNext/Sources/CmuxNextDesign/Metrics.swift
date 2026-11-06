@@ -314,13 +314,15 @@ public struct Typography {
     /// Interface Size is not overridden). Surfaces with their own type scale
     /// (the Home transcript's `textScale`) follow it.
     public static var userScale: CGFloat { scale }
-    /// The text scale app web pages draw at (`--cmux-interface-scale`): the chrome body size (Text
-    /// Size, else the density's) over Compact's, so pages follow Density as native chrome does.
-    /// It is 1 at Compact with no Text Size, which is the size the pages are drawn for.
+    /// The text scale app web pages draw at (`--cmux-interface-scale`). Pages are drawn for the
+    /// Default density's 13 pt text; a larger chrome body size (Text Size, else the density's)
+    /// grows them by the same ratio, and a smaller one keeps them as drawn, so Ultra-compact and
+    /// Compact pages stay as they were.
     public static var pageScale: CGFloat {
         let interfaceScale = DesignSettings.shared.interfaceScaleEnabled ? DesignSettings.shared.interfaceScale : 1
         let body = DesignSettings.shared.overrides[.chromeFontSize] ?? Metrics.tokens.bodySize
-        return body / DensityTokens.compact.bodySize * interfaceScale
+        let drawn = DensityPreset.cozy.tokens.bodySize
+        return max(body, drawn) / drawn * interfaceScale
     }
     /// A style's size: the density's (`DensityTokens.textSize`, which follows its level and its
     /// own font size), times the user's text scale.

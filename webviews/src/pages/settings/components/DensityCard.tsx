@@ -13,6 +13,7 @@ import { rowsByKey } from "../schema";
 import {
   CUSTOM_DENSITIES_KEY,
   CUSTOM_DENSITY_KEY,
+  DEFAULT_DENSITY,
   DENSITY_KEY,
   FONT_RANGE,
   LEVEL_RANGE,
@@ -118,7 +119,7 @@ export function DensityCard({ focus = null }: { focus?: string | null }) {
   const { rows, readable } = useSettingsState();
   const customs = useMemo(() => customDensities(rows.get(CUSTOM_DENSITIES_KEY)?.value), [rows]);
   const customID = rows.get(CUSTOM_DENSITY_KEY)?.value;
-  const builtIn = (rows.get(DENSITY_KEY)?.value ?? "compact") as string;
+  const builtIn = (rows.get(DENSITY_KEY)?.value ?? DEFAULT_DENSITY) as string;
   const current = (
     typeof customID === "string" && customs.some((item) => item.id === customID) ? customID : builtIn
   ) as string;
@@ -143,7 +144,7 @@ export function DensityCard({ focus = null }: { focus?: string | null }) {
     await store.set(CUSTOM_DENSITIES_KEY, list.map(toJSON));
     if (select) await store.set(CUSTOM_DENSITY_KEY, select);
   };
-  const base = all.find((item) => item.id === current) ?? PRESETS[1]!;
+  const base = all.find((item) => item.id === current) ?? PRESETS.find((preset) => preset.id === DEFAULT_DENSITY)!;
   const onDuplicate = () => {
     const made = duplicate(base, t("settingsWindow.density.copyName", displayName(base)), customs);
     setDraft(made);
@@ -164,7 +165,7 @@ export function DensityCard({ focus = null }: { focus?: string | null }) {
       if (current === density.id)
         await store.set(
           DENSITY_KEY,
-          density.basedOn && PRESETS.some((p) => p.id === density.basedOn) ? density.basedOn : "compact",
+          density.basedOn && PRESETS.some((p) => p.id === density.basedOn) ? density.basedOn : DEFAULT_DENSITY,
         );
       await store.set(CUSTOM_DENSITIES_KEY, list.map(toJSON));
     })();

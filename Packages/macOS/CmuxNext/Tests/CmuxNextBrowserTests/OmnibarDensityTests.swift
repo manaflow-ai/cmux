@@ -39,7 +39,7 @@ import Testing
     }
 
     @Test func comfortableIsChromesRoomierBar() {
-        let comfortable = OmnibarMetrics(tokens: DensityPreset.comfortable.tokens)
+        let comfortable = OmnibarMetrics(tokens: DensityTokens(id: "comfortable", name: "Comfortable", level: 1))
         #expect(comfortable.barHeight == 34 && comfortable.buttonSize == 34)
         #expect(comfortable.fontSize == TypeScale.title)
         #expect(comfortable.iconPointSize == 15 && comfortable.toolbarIconSize == 22 && comfortable.trailingIconSize == 20)

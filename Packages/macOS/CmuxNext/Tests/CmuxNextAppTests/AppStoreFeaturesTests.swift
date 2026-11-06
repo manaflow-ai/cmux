@@ -206,14 +206,14 @@ import Testing
             return
         }
         let wasOn = bridge.isOn(feature)
-        // Compact density is the default choice. Removing its explicit key leaves the same
+        // Default density (`cozy`) is the default choice. Removing its explicit key leaves the same
         // effective value, so there is no off state to exercise while preserving that default.
-        if id == "appearance.compact" && wasOn {
+        if id == "appearance.cozy" && wasOn {
             try await bridge.set(feature, on: false)
             #expect(bridge.isOn(feature))
             // Removing the key would re-enable the default and contradict the requested off
             // press, so the settings bridge records the default explicitly to keep the card on.
-            #expect(settings.fileRoot.value(at: feature.path) == .string("compact"))
+            #expect(settings.fileRoot.value(at: feature.path) == .string("cozy"))
             return
         }
         try await bridge.set(feature, on: !wasOn)

@@ -52,8 +52,10 @@ import Testing
         #expect(DensityPreset.compact.tokens.tokens.isEmpty && DensityPreset.compact.tokens.fontSize == nil)
     }
 
-    @Test func comfortableIsTodaysComfortable() {
-        DensityTokens.$scoped.withValue(DensityPreset.comfortable.tokens) {
+    /// Level 1 is the tunables' comfortable pair. The Comfortable preset sits above it since
+    /// Default took the middle (Austin 2026-11-05), so this pins the level, not the preset.
+    @Test func levelOneIsTheComfortablePair() {
+        DensityTokens.$scoped.withValue(DensityTokens(id: "comfortable", name: "Comfortable", level: 1)) {
             for metric in MetricTunables.metrics {
                 #expect(metric.value == metric.comfortable, "\(metric.name) at Comfortable")
             }

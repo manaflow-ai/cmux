@@ -19,8 +19,8 @@ import Testing
         #expect(design.interfaceScaleScript().contains("--cmux-ui-scale', '1.25"))
     }
 
-    /// Pages follow Density: the text scale is the density's body size over Compact's, and a
-    /// Text Size (`chromeFontSize`) wins over it.
+    /// Pages follow Density: they are drawn for Default's 13 pt, grow with a larger chrome body
+    /// size, never shrink below it (Compact keeps today's pages), and Text Size wins.
     @Test func pageTextScaleFollowsDensityAndTextSize() {
         let design = DesignSettings.shared
         let savedTokens = design.densityTokens, savedText = design.overrides[.chromeFontSize]
@@ -31,11 +31,15 @@ import Testing
         design.setOverride(.chromeFontSize, nil)
         design.densityTokens = DensityPreset.compact.tokens
         #expect(Typography.pageScale == 1)
+        design.densityTokens = DensityPreset.cozy.tokens
+        #expect(Typography.pageScale == 1)
         design.densityTokens = DensityPreset.spacious.tokens
-        #expect(Typography.pageScale == DensityPreset.spacious.tokens.bodySize / DensityPreset.compact.tokens.bodySize)
+        #expect(Typography.pageScale == DensityPreset.spacious.tokens.bodySize / 13)
         #expect(Typography.pageScale > 1)
         #expect(design.interfaceScaleScript().contains("--cmux-interface-scale', '\(Typography.pageScale)'"))
         design.setOverride(.chromeFontSize, 15)
-        #expect(Typography.pageScale == 15 / DensityPreset.compact.tokens.bodySize)
+        #expect(Typography.pageScale == 15 / 13)
+        design.setOverride(.chromeFontSize, 11)
+        #expect(Typography.pageScale == 1)
     }
 }

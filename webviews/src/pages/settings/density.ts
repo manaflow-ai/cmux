@@ -27,14 +27,20 @@ export const LEVEL_RANGE = { min: -1, max: 2.5 } as const;
 export const SPACING_RANGE = { min: 0.5, max: 2 } as const;
 export const FONT_RANGE = { min: 9, max: 20 } as const;
 
-/** The built-ins, densest first; `name` is the catalog key of the localized name. */
+/** Default's chrome body text in points: the ChatGPT and Codex desktop apps' size. */
+const DEFAULT_BODY_POINTS = 13;
+
+/** The built-ins, densest first (Swift `DensityPreset`); `name` is the catalog key of the
+ * localized name. Default keeps the id `cozy` so saved files still name it. */
 export const PRESETS: ReadonlyArray<Density & { nameKey: string }> = [
   { id: "ultraCompact", name: "Ultra-compact", nameKey: "settings.choice.ultraCompact", level: -0.5, spacing: 0.75 },
   { id: "compact", name: "Compact", nameKey: "settings.choice.compact", level: 0 },
-  { id: "cozy", name: "Cozy", nameKey: "settings.choice.cozy", level: 0.5 },
-  { id: "comfortable", name: "Comfortable", nameKey: "settings.choice.comfortable", level: 1 },
-  { id: "spacious", name: "Spacious", nameKey: "settings.choice.spacious", level: 1.75, spacing: 1.25 },
+  { id: "cozy", name: "Default", nameKey: "settings.choice.default", level: 0.5, fontSize: DEFAULT_BODY_POINTS },
+  { id: "comfortable", name: "Comfortable", nameKey: "settings.choice.comfortable", level: 1.25, spacing: 1.1 },
+  { id: "spacious", name: "Spacious", nameKey: "settings.choice.spacious", level: 2.25, spacing: 1.35 },
 ];
+/** The density when appearance.density is unset (Swift `DensitySetting.fallback`). */
+export const DEFAULT_DENSITY = "cozy";
 
 /** The metrics a preview draws and the editor's exact sizes: [compact, comfortable] in points. */
 export const PAIRS = {

@@ -239,9 +239,9 @@ nonisolated enum AppearanceSettingsSchema {
                 ["appearance", "density"], section: .appearance, group: look,
                 title: SettingsText.keyed("settings.appearance.density", "Density"),
                 help: SettingsText.keyed("settings.appearance.density.help",
-                                        "Row height, padding, corners, icons and text size together. Compact is the default."),
+                                        "Row height, padding, corners, icons and text size together."),
                 kind: .choice(DensityPreset.allCases.map { SettingChoice($0.rawValue, DensityNames.title($0)) }),
-                default: "compact", keywords: ["size", "spacing", "compact", "comfortable", "cozy", "spacious", "dense", "font"]
+                default: "cozy", keywords: ["size", "spacing", "compact", "comfortable", "cozy", "default", "normal", "spacious", "dense", "font"]
             ),
             SettingDescriptor(
                 CustomDensitySelectionSetting().configPath, section: .appearance, group: look,
