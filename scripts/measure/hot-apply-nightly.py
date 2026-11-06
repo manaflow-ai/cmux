@@ -37,6 +37,20 @@ def load(name: str, path: Path):
 hot = load("hot_apply", HOT)
 rust_live = load("rust_live", ROOT / "scripts/cmux-next/rust-live.py")
 request, wait_until, shell_pid = rust_live.request, rust_live.wait_until, rust_live.shell_pid
+bench = load("bench_launch", ROOT / "scripts/cmux-next/bench_launch.py")
+
+
+def control_socket(app_pid: int) -> str | None:
+    """The copy's control socket: a unix socket the app process holds under ~/.local/state/cmux (or
+    its /tmp name) that answers system.ping. A side copy names it by its key hash, so it is read
+    from the process, not computed."""
+    held = subprocess.run(["lsof", "-a", "-p", str(app_pid), "-U", "-Fn"], capture_output=True, text=True).stdout
+    for name in sorted({entry[1:] for entry in held.splitlines() if entry.startswith("n/")}):
+        if name.endswith(".sock") and ("/.local/state/cmux/" in name or name.startswith("/tmp/cmux")):
+            reply = bench.rpc_at(name, "system.ping", timeout=3)
+            if not (isinstance(reply, dict) and reply.get("unreachable")):
+                return name
+    return None
 
 
 def sha256(path: Path) -> str:
@@ -82,6 +96,11 @@ def main() -> int:
     cli = (app / hot.BIN / "cmux").resolve()
     receipt: dict = {"app_commit": hot.app_commit(app), "sha": args.sha, "checks": {}}
     t0 = time.monotonic()
+    app_pid = int(Path(args.pid_file).read_text().strip())
+    # A fresh copy starts its terminal daemon with its first terminal: open a workspace for one.
+    control = wait_until("the copy's control socket", time.monotonic() + 120, lambda: control_socket(app_pid))
+    opened = bench.rpc_at(control, "action.run", {"action": "workspace.newAtBottom"}, timeout=30)
+    receipt["opened_workspace"] = not (isinstance(opened, dict) and opened.get("error"))
     try:
         sock = wait_until("the copy's daemon", time.monotonic() + 180, lambda: hot.find_socket(app, cli))
     except TimeoutError:
@@ -93,7 +112,6 @@ def main() -> int:
             print(f"HAN pid {pid} unix sockets: {held.split()}", file=sys.stderr)
         raise
     receipt["daemon_ready_secs"] = round(time.monotonic() - t0, 1)
-    app_pid = int(Path(args.pid_file).read_text().strip())
     receipt["nightly_sha256"] = before = sha256(cli)
     receipt["nightly_version"] = version(cli)
 
