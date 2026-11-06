@@ -83,7 +83,7 @@ fn result_line(id: &str, path: &Path) -> Value {
 fn claude_path() -> Option<PathBuf> {
     which_on_path("claude").or_else(|| {
         let local = dirs::home_dir()?.join(".local/bin/claude");
-        local.is_file().then_some(local)
+        is_executable(&local).then_some(local)
     })
 }
 
@@ -92,7 +92,13 @@ fn which_on_path(program: &str) -> Option<PathBuf> {
         .into_iter()
         .flat_map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>())
         .map(|dir| dir.join(program))
-        .find(|path| path.is_file())
+        .find(|path| is_executable(path))
+}
+
+/// A file someone may run: a stale or non-executable `claude` is no installed CLI.
+fn is_executable(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt as _;
+    path.metadata().is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
 }
 
 async fn fetch(url: &str) -> Result<String> {
@@ -106,6 +112,8 @@ async fn fetch(url: &str) -> Result<String> {
 }
 
 /// The installer script on bash's stdin, with no terminal: its own output is kept for the error.
+/// It runs in a process group of its own, and the limit covers the whole run: past it, the
+/// group (bash and anything the installer started) is killed, so nothing outlives the command.
 async fn run_installer(script: &str) -> Result<()> {
     use tokio::io::AsyncWriteExt as _;
     let mut child = tokio::process::Command::new("/bin/bash")
@@ -113,14 +121,27 @@ async fn run_installer(script: &str) -> Result<()> {
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
+        .process_group(0)
         .kill_on_drop(true)
         .spawn()?;
+    let group = child.id();
     let mut stdin = child.stdin.take().ok_or_else(|| anyhow!("no stdin for bash"))?;
-    stdin.write_all(script.as_bytes()).await?;
-    drop(stdin);
-    let out = tokio::time::timeout(CLAUDE_INSTALL_LIMIT, child.wait_with_output()).await.map_err(
-        |_| anyhow!("the installer did not finish in {} s", CLAUDE_INSTALL_LIMIT.as_secs()),
-    )??;
+    let script = script.to_owned();
+    let run = async move {
+        stdin.write_all(script.as_bytes()).await?;
+        drop(stdin);
+        anyhow::Ok(child.wait_with_output().await?)
+    };
+    let out = match tokio::time::timeout(CLAUDE_INSTALL_LIMIT, run).await {
+        Ok(out) => out?,
+        Err(_) => {
+            if let Some(group) = group {
+                // SAFETY: killpg signals only the group this function started (process_group(0)).
+                unsafe { libc::killpg(group as i32, libc::SIGKILL) };
+            }
+            bail!("the installer did not finish in {} s", CLAUDE_INSTALL_LIMIT.as_secs())
+        }
+    };
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);
         let last = err.lines().rev().find(|line| !line.trim().is_empty()).unwrap_or_default();
@@ -139,6 +160,19 @@ mod tests {
         assert_eq!(agent("codex").unwrap().0, "Codex");
         let err = agent("gemini").unwrap_err().to_string();
         assert!(err.contains("installs claude, codex"), "{err}");
+    }
+
+    #[test]
+    fn only_an_executable_file_counts_as_installed() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("claude");
+        std::fs::write(&file, "#!/bin/sh\n").unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(!is_executable(&file));
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(is_executable(&file));
+        assert!(!is_executable(dir.path()));
     }
 
     #[tokio::test]
