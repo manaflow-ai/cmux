@@ -127,7 +127,8 @@ struct SidebarHoverCrossingTreeTests {
     /// layout shows it in the frame after the move). Once it shows, the x's own tooltip is the one waiting.
     @Test func aControlShownUnderThePointerGetsItsTooltip() throws {
         let (a, b, window) = rows()
-        defer { window.close(); TooltipPresenter.shared.dismiss() }
+        // The shared presenter keeps its panel and only orders it out; close it too (`.closesItsWindows`).
+        defer { window.close(); TooltipPresenter.shared.dismiss(); TooltipPresenter.shared.panel.close() }
         let root = try #require(window.contentView)
         b.isHovered = true
         root.layoutSubtreeIfNeeded()
