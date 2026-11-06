@@ -51,16 +51,35 @@ class SidebarRowView: NSView {
         return nil
     }
 
-    /// A hover control cleared by paint (shown once, now at opacity 0: `setHoverPainted`, HOVER COMMIT) is not among
-    /// the row's accessibility children, as a hidden one was not; VoiceOver reaches it through the row's actions.
+    /// The controls a hover shows and clears by paint (`setHoverPainted`, HOVER COMMIT): a row's x, ⋮, Unpin and tree
+    /// fold once they first showed. A cleared one (in the tree, at opacity 0) answers accessibility as a hidden one did:
+    /// it is not among the row's children, it is no hit, and the row posts a layout change when it clears or shows.
+    /// Another control at opacity 0 (the speaker that the shown controls cover) stays a child, as before.
+    var hoverPaintedControls: [NSView] { [] }
+
+    /// The hover controls a hover cleared (shown once, now at opacity 0).
+    var clearHoverControls: [NSView] { hoverPaintedControls.filter { !$0.isHidden && $0.alphaValue == 0 } }
+
+    /// The view an accessibility element stands for (a control answers through its cell).
+    func accessibilityView(of element: Any?) -> NSView? { (element as? NSView) ?? (element as? NSCell)?.controlView }
+
     override func accessibilityChildren() -> [Any]? {
         guard let children = super.accessibilityChildren() else { return nil }
-        let clear = interactiveSubviews.filter { !$0.isHidden && $0.alphaValue == 0 }
+        let clear = clearHoverControls
         guard !clear.isEmpty else { return children }
-        return children.filter { child in
-            let view = (child as? NSView) ?? (child as? NSCell)?.controlView
-            return !clear.contains { $0 === view }
-        }
+        return children.filter { child in !clear.contains { $0 === accessibilityView(of: child) } }
+    }
+
+    /// A cleared hover control is no hit (`RowAccessibilityHitTest`).
+    nonisolated override func accessibilityHitTest(_ point: NSPoint) -> Any? {
+        RowAccessibilityHitTest(row: self).answer(super.accessibilityHitTest(point), at: point)
+    }
+
+    /// A hover control cleared or showed (`setHoverPainted`): VoiceOver's view of the row changed, as when the control
+    /// hid or showed. Marks that are no accessibility element (the badge, the keycap) post nothing.
+    func hoverControlReachChanged(_ control: NSView) {
+        guard hoverPaintedControls.contains(where: { $0 === control }) else { return }
+        postAccessibility(self, .layoutChanged, [.uiElements: [control.alphaValue > 0 ? control : self]])
     }
 
     /// Posts an accessibility notification for the row: AppKit's `NSAccessibility.post`; a test records the posts.
