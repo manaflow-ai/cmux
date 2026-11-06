@@ -540,7 +540,7 @@ struct PaneContentPolicyTests {
         rig.root.syncWithModel()
         _ = await Self.refresh(rig)
         let atSecond = await marker()
-        let frames = await Self.runRefreshes(rig)
+        let frames = try await Self.runRefreshes(rig)
         let presenter = TerminalFramePresenter.forWindow(rig.window)
         let atLanding = "presenter \(presenter.debugState(of: parked.surfaceView)), in flight \(parked.surfaceView.frameOwnership.inFlight.map { "\($0)" } ?? "none"), grid at landing \(String(describing: parked.surfaceView.fittedGrid))"
         let afterLanding = await marker()
