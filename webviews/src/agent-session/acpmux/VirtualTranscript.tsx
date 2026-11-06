@@ -2677,8 +2677,8 @@ export function VirtualTranscript({
           }
         } else {
           // Only what this pass added slides: what the fold's own frames already moved is drawn where
-          // it is. A call that joined the opened group after its fold ended slid the whole fold
-          // again from the closed row's height, and the row dropped back and grew a second time
+          // it is. A call that joined the group after its fold ended slid the whole fold again
+          // from the row's first height, and the row jumped back and moved a second time
           // (Leo, 2026-11-06: "things clash with other things with animations going haywire").
           stack.from = delta - stack.delta;
           const frames = [{ translate: `0 ${stack.from}px` }, { translate: "0 0" }];
@@ -3920,10 +3920,11 @@ export function VirtualTranscript({
   };
   // Jump to latest remains shown once the reader is far behind, avoiding flicker near the threshold.
   const below = layout.totalHeight - height - (renderScroll.top - origin);
-  // A fold the reader opened or closed at the very bottom keeps the view at its end on each of its
-  // frames (`beginBottomStackFold`): a render mid-fold that lays out ahead of that pin (a call that
-  // joins the opening group) is not the reader falling behind, and never brings the arrow up (Leo,
-  // 2026-11-06: "way too discontinuous", the arrow came up while a tool call opened under load).
+  // A fold the reader closed at the very bottom keeps the view at its end on each of its frames
+  // (`beginBottomStackFold`; an open there grows down and stops following): a render mid-fold that
+  // lays out ahead of that pin (a call that joins the group) is not the reader falling behind, and
+  // never brings the arrow up (Leo, 2026-11-06: "way too discontinuous", the arrow came up mid-fold
+  // under load).
   if (renderFollowing || below <= FOLLOW_BOTTOM_DEADBAND_PX) jumpShown.current = false;
   else if (below > JUMP_LATEST_DISTANCE && !bottomStackFold.current) jumpShown.current = true;
   const behind = jumpShown.current;
