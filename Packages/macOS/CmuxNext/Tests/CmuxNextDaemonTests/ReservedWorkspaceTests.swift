@@ -33,6 +33,9 @@ struct ReservedWorkspaceTests {
         #expect(store.workspace(id: reserved.provisional.key.rawValue) == nil)
         #expect(store.tabsBySurface[reserved.provisional.tab.surface] == nil, "a reservation is not indexed")
         #expect(store.reserves(reserved.model))
+        // A view mapped from the reserved model finds its pane in the model itself (the store indexes none of it).
+        #expect(store.pane(reserved.provisional.pane) == nil)
+        #expect(reserved.model.pane(reserved.provisional.pane)?.tabs.map(\.surface) == [reserved.provisional.tab.surface])
     }
 
     @Test func thePressShowsTheReservedModelUnderItsName() throws {

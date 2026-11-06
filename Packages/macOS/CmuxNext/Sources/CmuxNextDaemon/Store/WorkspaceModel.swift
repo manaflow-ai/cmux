@@ -13,6 +13,9 @@ public final class WorkspaceModel: Identifiable {
     public internal(set) var nameSource: WorkspaceNameSource
     public internal(set) var nameRevision: UInt64
     public internal(set) var screens: [ScreenModel] { didSet { adoptUnread() } }
+    /// The pane `handle` of one of its screens: what a view mapped from this model mounts, also while no store indexes
+    /// the model (the next Cmd-N's workspace, reserved before its key: `DaemonStore.reserveWorkspace`).
+    public func pane(_ handle: PaneID) -> PaneModel? { screens.lazy.compactMap { $0.pane(handle) }.first }
     /// Screen group runs in screen order (`screen-groups-v1`).
     public internal(set) var screenGroups: [ScreenGroupSnapshot]
     public internal(set) var group: WorkspaceGroupID?
