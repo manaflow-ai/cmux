@@ -72,7 +72,7 @@ on:
       - mux/packages/brain/conformance/**
       - skills/cmux-acpmux/SKILL.md
       - skills/cmux-browser/**
-      - skills/cmux-cua/**
+      - skills/cmux-computer-use/**
       - skills/cmux-customization/**
       - skills/cmux-live/**
       - skills/cmux/SKILL.md
@@ -362,7 +362,7 @@ on:
       - mux/packages/brain/conformance/**
       - skills/cmux-acpmux/SKILL.md
       - skills/cmux-browser/**
-      - skills/cmux-cua/**
+      - skills/cmux-computer-use/**
       - skills/cmux-customization/**
       - skills/cmux-live/**
       - skills/cmux/SKILL.md

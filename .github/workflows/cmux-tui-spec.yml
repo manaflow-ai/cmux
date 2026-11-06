@@ -35,7 +35,7 @@ on:
       - "schemas/settings/source/trust.json"
       - "skills/cmux-acpmux/SKILL.md"
       - "skills/cmux-browser/**"
-      - "skills/cmux-cua/SKILL.md"
+      - "skills/cmux-computer-use/SKILL.md"
       - "skills/cmux-customization/**"
       - "skills/cmux-live/SKILL.md"
       - "skills/cmux/SKILL.md"
