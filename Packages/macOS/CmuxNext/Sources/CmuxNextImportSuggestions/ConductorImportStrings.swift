@@ -55,28 +55,6 @@ public nonisolated struct ConductorImportStrings: Sendable {
     public static var failed: String {
         String(localized: "conductorImport.toast.failed", defaultValue: "Couldn’t import your workspaces.", table: "ImportSuggestions", bundle: .module)
     }
-    /// The sidebar's one-time note (``ImportSuggestionState/showsConductorNote(findings:jobs:now:)``).
-    public static var noteTitle: String {
-        String(localized: "conductorImport.note.title", defaultValue: "Bring your workspaces", table: "ImportSuggestions", bundle: .module)
-    }
-    public static var noteDetail: String {
-        String(localized: "conductorImport.note.detail",
-               defaultValue: "Import your existing workspaces from Settings › Import; they open here, in place.",
-               table: "ImportSuggestions", bundle: .module)
-    }
-    public static var noteOpen: String {
-        String(localized: "conductorImport.note.open", defaultValue: "Open Import", table: "ImportSuggestions", bundle: .module)
-    }
-    /// The note's x: it never shows again.
-    public static var noteClose: String {
-        String(localized: "conductorImport.note.close", defaultValue: "Don’t Show Again", table: "ImportSuggestions", bundle: .module)
-    }
-    /// The first-run history page's line (``ImportScanner/conductorOnboardingLine(now:)``).
-    public static var onboardingLine: String {
-        String(localized: "conductorImport.onboarding.line",
-               defaultValue: "Import your existing workspaces from Settings › Import; they open here, in place.",
-               table: "ImportSuggestions", bundle: .module)
-    }
 
     private static func format(_ template: String, _ count: Int) -> String {
         String(format: template, count.formatted(.number))
