@@ -672,3 +672,78 @@ fn the_json_op_round_trips() {
     .expect("reply");
     assert_eq!(index, None);
 }
+
+// MARK: Subgroups move and leave with their parent (review of #37322)
+
+fn sub(id: &str, parent: &str, members: &[&str]) -> Node {
+    let mut g = group(id, members);
+    g.parent = Some(parent.into());
+    node(g)
+}
+
+fn parents(section: &Section) -> Vec<(String, Option<String>)> {
+    section
+        .nodes
+        .iter()
+        .filter_map(|node| match node {
+            Node::Group { group } => Some((group.id.clone(), group.parent.clone())),
+            Node::Workspace { .. } | Node::Item { .. } => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_group_moves_with_its_subgroups() {
+    // a, g, s (in g), t (in s), h, z: Move Group Down sends g past h, with s and t.
+    let mut sections = vec![section(vec![
+        loose("a"),
+        node(group("g", &["c"])),
+        sub("s", "g", &["d"]),
+        sub("t", "s", &["e"]),
+        node(group("h", &["f"])),
+        loose("z"),
+    ])];
+    let index = group_index("g", GroupMove::Down, &sections).expect("an index");
+    assert!(apply(&Intent::ReorderGroup { group: "g".into(), index }, &mut sections));
+    assert_eq!(order(&sections[0]), ids(&["a", "h", "g", "s", "t", "z"]));
+    let index = group_index("g", GroupMove::Top, &sections).expect("an index");
+    assert!(apply(&Intent::ReorderGroup { group: "g".into(), index }, &mut sections));
+    assert_eq!(order(&sections[0]), ids(&["g", "s", "t", "a", "h", "z"]));
+    let index = group_index("g", GroupMove::Bottom, &sections).expect("an index");
+    assert!(apply(&Intent::ReorderGroup { group: "g".into(), index }, &mut sections));
+    assert_eq!(order(&sections[0]), ids(&["a", "h", "z", "g", "s", "t"]));
+}
+
+#[test]
+fn a_group_move_up_past_a_group_keeps_that_groups_subgroups_with_it() {
+    let mut sections = vec![section(vec![
+        node(group("g", &["c"])),
+        sub("s", "g", &["d"]),
+        node(group("h", &["e"])),
+    ])];
+    let index = group_index("h", GroupMove::Up, &sections).expect("an index");
+    assert!(apply(&Intent::ReorderGroup { group: "h".into(), index }, &mut sections));
+    assert_eq!(order(&sections[0]), ids(&["h", "g", "s"]));
+}
+
+#[test]
+fn a_closed_or_pruned_parent_leaves_its_subgroups_at_the_top_level() {
+    let nested = || {
+        vec![section(vec![
+            node(group("g", &["c"])),
+            sub("s", "g", &["d"]),
+            sub("t", "s", &["e"]),
+            loose("z"),
+        ])]
+    };
+    let mut closed = nested();
+    assert!(apply(&Intent::CloseGroup { group: "g".into() }, &mut closed));
+    assert_eq!(parents(&closed[0]), vec![("s".into(), None), ("t".into(), Some("s".into()))]);
+    let mut pruned = nested();
+    assert!(apply(&Intent::Reorder { ids: ids(&["c"]), position: at(None, 0) }, &mut pruned));
+    assert_eq!(order(&pruned[0]), ids(&["c", "s", "t", "z"]));
+    assert_eq!(parents(&pruned[0]), vec![("s".into(), None), ("t".into(), Some("s".into()))]);
+    let mut ungrouped = nested();
+    assert!(apply(&Intent::Ungroup { group: "g".into() }, &mut ungrouped));
+    assert_eq!(parents(&ungrouped[0]), vec![("s".into(), None), ("t".into(), Some("s".into()))]);
+}
