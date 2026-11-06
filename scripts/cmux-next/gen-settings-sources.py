@@ -50,7 +50,9 @@ name, a syntax example). A row:
                  enum (cases from the values in camel case, or each choice's swift_case; doc from
                  note) into <file>Choices*.generated.swift, at most 3 per file. generated false: a
                  hand-written enum (it has logic, more cases, or lives in another module); the
-                 descriptor names its cases (`Enum.case.rawValue`) and the default is typed by it.
+                 descriptor names its cases (`Enum.case.rawValue`) and the default is typed by it;
+                 module names the module that declares it when that is not CmuxNextSettings (the
+                 generated files `public import` it).
                  Absent: plain string values, plus a `values` constant.
   swift_owner    the type that gets the row's constants. Absent: the list's owner type from
                  SECTIONS, with prefixed names (<name>Path, <name>Default, <name>Range,
@@ -498,9 +500,10 @@ def check_row(src, row, seen_keys, idents):
     check_default(src, key, kind, row, values)
     enum = row.get("swift_enum")
     if enum is not None:
-        if kind not in CHOICE_KINDS or not isinstance(enum, dict) or set(enum) - {"name", "generated"} \
-                or not TYPE.match(enum.get("name", "")) or not isinstance(enum.get("generated", True), bool):
-            fail(src, "%s: swift_enum is {name, generated (default true)} on a choice row" % key)
+        if kind not in CHOICE_KINDS or not isinstance(enum, dict) or set(enum) - {"name", "generated", "module"} \
+                or not TYPE.match(enum.get("name", "")) or not isinstance(enum.get("generated", True), bool) \
+                or ("module" in enum and (enum.get("generated", True) or not TYPE.match(enum["module"]))):
+            fail(src, "%s: swift_enum is {name, generated (default true), module (a hand-written enum's module)} on a choice row" % key)
         for choice in row["choices"]:
             case_name(choice)
     if "aliases" in row:
@@ -717,6 +720,10 @@ def section_swift(section, data):
     """{path: text} of the section's descriptors and constants: one file while it fits in MAX_LINES lines,
     else split (constants and lists in order, a list too long for a file in parts joined by its var)."""
     header = ["// " + HEADER.format(c="//", src=section["source"]), ""]
+    modules = sorted({row["swift_enum"]["module"] for entry in data["lists"] for row in entry["rows"]
+                      if row.get("swift_enum", {}).get("module")})
+    if modules:
+        header += ["public import %s" % module for module in modules] + [""]
     # Parser constants: per list, one extension per owner type, in first-row order.
     constant_blocks = []
     for entry in data["lists"]:
