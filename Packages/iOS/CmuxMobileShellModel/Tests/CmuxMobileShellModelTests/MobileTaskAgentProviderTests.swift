@@ -8,6 +8,9 @@ import Testing
             ("codex -- \"$CMUX_TASK_PROMPT\"", MobileTaskAgentProvider.codex),
             ("opencode --prompt \"$CMUX_TASK_PROMPT\"", MobileTaskAgentProvider.openCode),
             ("/usr/local/bin/claude -- \"$CMUX_TASK_PROMPT\"", MobileTaskAgentProvider.claude),
+            ("sr codex -- \"$CMUX_TASK_PROMPT\"", MobileTaskAgentProvider.codex),
+            ("sr claude -- \"$CMUX_TASK_PROMPT\"", MobileTaskAgentProvider.claude),
+            ("/opt/bin/sr opencode --prompt \"$CMUX_TASK_PROMPT\"", MobileTaskAgentProvider.openCode),
         ]
     )
     func detectsProvider(command: String, expected: MobileTaskAgentProvider) {
@@ -19,6 +22,11 @@ import Testing
             "cd x && claude -- \"$CMUX_TASK_PROMPT\"",
             "FOO=1 claude -- \"$CMUX_TASK_PROMPT\"",
             "claudex -- \"$CMUX_TASK_PROMPT\"",
+            "sr -- \"$CMUX_TASK_PROMPT\"",
+            "sr aider -- \"$CMUX_TASK_PROMPT\"",
+            "sr sr codex -- \"$CMUX_TASK_PROMPT\"",
+            "wrapper codex -- \"$CMUX_TASK_PROMPT\"",
+            "sr\ncodex",
             "",
             " \n\t ",
         ]
@@ -261,6 +269,23 @@ import Testing
         #expect(
             MobileTaskAgentProvider.codex.command(applying: "gpt-5.5", to: "codex | tee --model x")
                 == "codex -m 'gpt-5.5' | tee --model x"
+        )
+    }
+
+    @Test func wrappedCommandRewritesOnlyTheAgentFlags() {
+        let command = "sr codex -m old -- \"$CMUX_TASK_PROMPT -m keep\""
+        let provider = MobileTaskAgentProvider(command: command)
+        #expect(
+            provider?.command(applying: "gpt-5.5", to: command)
+                == "sr codex -m 'gpt-5.5' -- \"$CMUX_TASK_PROMPT -m keep\""
+        )
+        #expect(
+            provider?.command(applying: "gpt-5.5", to: "sr codex -- \"$CMUX_TASK_PROMPT\"")
+                == "sr codex -m 'gpt-5.5' -- \"$CMUX_TASK_PROMPT\""
+        )
+        #expect(
+            provider?.command(applyingEffort: "high", to: "sr codex -- 'do it'")
+                == "sr codex -c model_reasoning_effort='high' -- 'do it'"
         )
     }
 }
