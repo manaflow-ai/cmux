@@ -74,7 +74,7 @@ import Testing
             let inbox = sidebar.attention.inbox
             #expect(!inbox.isHidden && inbox.frame.height > 0)
             #expect(inbox.items.map(\.id) == [Self.asks, Self.unread], "needs you before unread; a read workspace is not listed")
-            #expect(inbox.frame.minY < sidebar.scrollView.frame.minY + inbox.frame.height, "pinned at the list's top")
+            #expect(abs(inbox.frame.minY - (sidebar.edgeFade.frame.minY + Metrics.space2)) < 0.5, "pinned at the list's top")
             #expect(sidebar.scrollView.contentInsets.top >= inbox.frame.height, "the list scrolls under it, no row hidden")
         }
     }
@@ -90,7 +90,7 @@ import Testing
             sidebar.layoutSubtreeIfNeeded()
             let card = sidebar.attention.arrival
             #expect(!card.isHidden && card.items.map(\.id) == [Self.read])
-            #expect(card.frame.maxY > sidebar.scrollView.frame.midY, "at the bottom of the list")
+            #expect(card.frame.maxY > sidebar.edgeFade.frame.midY, "at the bottom of the list")
             // Read: it leaves the card.
             docs.unread = .none
             #expect(sidebar.model.patchWorkspaces([docs]))
