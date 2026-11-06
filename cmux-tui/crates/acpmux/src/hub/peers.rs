@@ -4,6 +4,12 @@ use super::*;
 use crate::session_identity::SessionReceipt;
 use cmux_json::JsonSet as _;
 
+type PeerNoticeLockKey = (usize, String);
+
+static PEER_NOTICE_LOCKS: std::sync::OnceLock<
+    StdMutex<HashMap<PeerNoticeLockKey, Arc<StdMutex<()>>>>,
+> = std::sync::OnceLock::new();
+
 pub(super) fn session_receipt(summary: &Value) -> Option<SessionReceipt> {
     summary.get("sessionReceipt").and_then(|value| serde_json::from_value(value.clone()).ok())
 }
@@ -42,6 +48,16 @@ fn take_peer_rows(map: &mut super::remote_rows::RemoteRows, name: &str) -> Vec<V
 }
 
 impl Hub {
+    /// Serializes notices for one peer while allowing unrelated peers to proceed independently.
+    /// The guard is held through the per-peer diff and event announcements, but never replaces
+    /// the short `remote_sessions` snapshots with a global lock around the expensive work.
+    pub(super) fn peer_notice_lock(&self, peer: &str) -> Arc<StdMutex<()>> {
+        let key = (self as *const Hub as usize, peer.to_owned());
+        let locks = PEER_NOTICE_LOCKS.get_or_init(Default::default);
+        let mut locks = locks.lock().unwrap_or_else(|e| e.into_inner());
+        locks.entry(key).or_insert_with(|| Arc::new(StdMutex::new(()))).clone()
+    }
+
     // ------------------------------------------------------------- peers
 
     pub(super) fn start_peer(
@@ -595,6 +611,8 @@ impl Hub {
         // that changes rows checks again under the rows lock.
         use crate::peer::PeerNotice;
         let peer = peer.to_owned();
+        let notice_lock = self.peer_notice_lock(&peer);
+        let _notice = notice_lock.lock().unwrap_or_else(|e| e.into_inner());
         {
             match notice {
                 PeerNotice::Connected => {
@@ -642,48 +660,78 @@ impl Hub {
                 PeerNotice::Sessions(list) => {
                     // The list can land after clients took their snapshot (an
                     // ssh tunnel is slow to open), so tell watchers what changed.
-                    let (changed, gone) = {
-                        let mut map = self.remote_sessions.lock().unwrap();
+                    // Read the old summaries under the rows lock, then do all JSON projection and
+                    // comparison work without it. The per-peer notice gate prevents another
+                    // notice for this peer from changing the baseline while this one is built.
+                    let mut old: HashMap<String, Value> = {
+                        let map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
                         if !self.is_current(&peer, generation) {
                             return;
                         }
-                        // Read before a purge this link already brought (`purge_tombstones.rs`).
-                        let purged = self.with_tombstones(&peer, generation, |t| t.take());
-                        let purged = purged.unwrap_or_default();
-                        let mut old: HashMap<String, Value> = map
-                            .take_peer(&peer)
-                            .into_iter()
-                            .map(|(id, r)| (id, Arc::unwrap_or_clone(r).summary))
-                            .collect();
-                        let mut changed = Vec::new();
-                        for s in list {
-                            let summary = Self::remote_summary(&peer, s);
-                            let Some(receipt) = session_receipt(&summary) else { continue };
-                            if purged.contains(&receipt.mux_session_id) {
-                                continue;
-                            }
-                            let id = receipt.qualified_id();
-                            let previous = old.get(&id);
-                            let summary = Self::retain_summary_tools(summary, previous);
-                            if old.remove(&id).as_ref() != Some(&summary) {
-                                changed.push(summary.clone());
-                            }
-                            map.insert(id, RemoteSession { peer: peer.clone(), summary, receipt });
-                        }
-                        // Which generation of each session is current (`peer_snapshot.rs`), sent
-                        // before the lock goes: a page asked of a row read after it comes after it.
-                        let created =
-                            |r: &RemoteSession| r.summary.get("createdAt").and_then(Value::as_u64);
-                        let listed = map.of_peer(&peer).map(|(_, r)| r);
-                        let listed = listed.map(|r| (r.receipt.mux_session_id.clone(), created(r)));
-                        if self.peer_snapshots.allows(generation) {
-                            self.peer_snapshots.listed(&peer, listed.collect(), true);
-                        }
-                        (changed, old.into_values().collect::<Vec<_>>())
+                        map.of_peer(&peer).map(|(id, r)| (id.clone(), r.summary.clone())).collect()
                     };
-                    // A notice before this list may have changed a row while its
-                    // cache save was throttled. A full list also persists that change.
-                    self.save_peer_cache(&peer, generation, true);
+                    // Read before a purge this link already brought (`purge_tombstones.rs`).
+                    let purged = self.with_tombstones(&peer, generation, |t| t.take());
+                    let purged = purged.unwrap_or_default();
+                    let mut listed_rows = Vec::new();
+                    let mut updates = Vec::new();
+                    let mut changed = Vec::new();
+                    for s in list {
+                        let summary = Self::remote_summary(&peer, s);
+                        let Some(receipt) = session_receipt(&summary) else { continue };
+                        if purged.contains(&receipt.mux_session_id) {
+                            continue;
+                        }
+                        let id = receipt.qualified_id();
+                        let previous = old.remove(&id);
+                        let summary = Self::retain_summary_tools(summary, previous.as_ref());
+                        if previous.as_ref() != Some(&summary) {
+                            changed.push(summary.clone());
+                            updates.push((
+                                id.clone(),
+                                RemoteSession {
+                                    peer: peer.clone(),
+                                    summary: summary.clone(),
+                                    receipt: receipt.clone(),
+                                },
+                            ));
+                        }
+                        listed_rows
+                            .push((id, RemoteSession { peer: peer.clone(), summary, receipt }));
+                    }
+                    let gone = old.into_iter().map(|(id, _)| id).collect::<Vec<_>>();
+                    let listed = listed_rows
+                        .iter()
+                        .map(|(_, r)| {
+                            (
+                                r.receipt.mux_session_id.clone(),
+                                r.summary.get("createdAt").and_then(Value::as_u64),
+                            )
+                        })
+                        .collect::<Vec<_>>();
+                    {
+                        let mut map =
+                            self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+                        if !self.is_current(&peer, generation) {
+                            return;
+                        }
+                        for id in gone.iter() {
+                            map.remove(id);
+                        }
+                        for (id, row) in updates {
+                            map.insert(id, row);
+                        }
+                    }
+                    // Which generation of each session is current (`peer_snapshot.rs`), sent
+                    // after the swap and before events, so a page asked of a row read after it
+                    // comes after it.
+                    if self.peer_snapshots.allows(generation) {
+                        self.peer_snapshots.listed(&peer, listed, true);
+                    }
+                    // A burst of lists is dirty state, not an immediate disk write for every
+                    // notice. The throttle admits one snapshot per interval; disconnect/drop
+                    // paths still call with `now = true` for the final state.
+                    self.save_peer_cache(&peer, generation, false);
                     for summary in changed {
                         self.announce_remote(&peer, summary, "status");
                     }
