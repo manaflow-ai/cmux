@@ -65,6 +65,7 @@ public final class WebCardPanel: NSPanel {
                                      options: Self.engineOptions) else { return nil }
         self.page = page
         self.host = host
+        self.cards = Dictionary(cards.map { ($0.card, $0) }, uniquingKeysWith: { first, _ in first })
         glass = Glass.makePanel(content: page, style: .regular, cornerRadius: 14)
         super.init(contentRect: NSRect(origin: .zero, size: NSSize(width: width, height: 240)),
                    styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView], backing: .buffered, defer: true)
@@ -82,7 +83,6 @@ public final class WebCardPanel: NSPanel {
         setAccessibilityIdentifier("cmux.serverCard")
         glass.autoresizingMask = [.width, .height]
         contentView = glass
-        self.cards = Dictionary(cards.map { ($0.card, $0) }, uniquingKeysWith: { first, _ in first })
         host.panel = self
         for card in cards { card.host = self }
     }
