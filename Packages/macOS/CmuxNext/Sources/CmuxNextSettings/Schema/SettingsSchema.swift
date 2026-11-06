@@ -1,4 +1,4 @@
-public import CmuxNextActions
+import CmuxNextActions
 public import CmuxNextDesign
 public import CoreGraphics
 
@@ -50,29 +50,6 @@ public nonisolated enum SettingsSchema {
     /// The descriptor for a dotted key or key path.
     public static func descriptor(for path: [String]) -> SettingDescriptor? {
         all.first { $0.path == path }
-    }
-
-    /// Actions shown as buttons at the end of a section (their titles and
-    /// availability come from the action registry).
-    public static func actions(in section: SettingsSection) -> [ActionID] {
-        switch section {
-        case .general: ["palette.makeDefaultTerminal", "palette.makeDefaultBrowser", "palette.checkForUpdates", "liveWeb.start", "liveWeb.stop",
-                        "palette.clearSearchHistory"]
-        case .appearance: ["space.setTheme", "workspace.setTheme", "terminal.setTheme", "palette.openGhosttySettings"]
-        case .terminal: ["palette.openGhosttySettings", "reloadConfiguration"]
-        case .editor: ["fileEditor.importEditorSettings"]
-        case .browser: ["importFromBrowser", "browser.extensions.manage", "browser.extensions.webStore", "browser.extensions.loadUnpacked"]
-        case .home: ["chief.importMemories", "diagnostics.viewHangReport"]
-        case .keyboard: ["keybindings.open", "palette.searchShortcuts"]
-        case .notifications: []
-        case .accounts: ["accounts.refresh", "palette.mobileConnect"]
-        case .rooms: ["space.new", "space.switch", "space.rename", "space.setTheme", "space.clearTheme"]
-        case .machines: ["device.add", "remote.connect", "newCloudMachine", "palette.auth.signIn"]
-        // The page draws Open <settings file> itself, named from the loaded path.
-        // Start and Stop Swift Live Mode, beside Labs > Live Code.
-        case .advanced: ["reloadConfiguration", "liveSwift.start", "liveSwift.stop"]
-        case .development: []
-        }
     }
 
     // MARK: General

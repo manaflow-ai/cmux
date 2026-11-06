@@ -14,6 +14,11 @@ script writes the copies the app's Swift modules compile in. Sources so far:
   still exported from Swift (SettingsSchemaExportTests); moving a section must not change it.
 - schemas/settings/source/sections.json: the Settings sections in sidebar order (Swift: the
   SettingsSection enum, SettingsSection.generated.swift). Every row's section must be listed there.
+- schemas/settings/source/page-layout.json: the Settings page layout (categories, group cards, their
+  order and titles, sidebar sections, default category, dev_only) and each section's action buttons
+  (Swift: SettingsPageLayout and SettingsSchema.actions(in:), SettingsSchema+PageLayout*.generated.swift).
+  The export resolves it against the rows into settings-schema.json's `page`
+  (SettingsPageLayout+Categories.swift).
 
 A generated Swift file this script no longer writes (for example a choices file after a section
 lost its choice rows) counts as drift under --check and is deleted when writing.
@@ -527,6 +532,247 @@ def section_swift(section, data):
     return "\n".join(out) + "\n"
 
 
+# The Settings page layout and the section action buttons (schemas/settings/source/page-layout.json).
+PAGE_SOURCE = "schemas/settings/source/page-layout.json"
+PAGE_SWIFT = SCHEMA_DIR + "/SettingsSchema+PageLayout.generated.swift"
+PAGE_CATEGORIES_SWIFT = SCHEMA_DIR + "/SettingsSchema+PageLayoutCategories.generated.swift"
+PAGE_FIELDS = {"$comment", "default_category", "max_rows_per_card", "cards", "section_actions", "sidebar_sections"}
+PAGE_CATEGORY_FIELDS = {"id", "title", "symbol", "note", "groups", "lead", "trail", "actions", "aliases", "dev_only"}
+PAGE_GROUP_FIELDS = {"group", "keys", "lead_keys", "title", "note"}
+ACTION_ID = __import__("re").compile(r"^[A-Za-z][A-Za-z0-9]*(\.[A-Za-z][A-Za-z0-9]*)*$")
+
+
+def load_page_layout(section_ids):
+    """The page layout, checked: every id it names exists, and no row key is claimed twice."""
+    src = PAGE_SOURCE
+    with open(os.path.join(ROOT, src), encoding="utf-8") as handle:
+        data = json.load(handle)
+    if set(data) != PAGE_FIELDS:
+        fail(src, "top-level fields are %s" % sorted(PAGE_FIELDS))
+    max_rows = data["max_rows_per_card"]
+    if isinstance(max_rows, bool) or not isinstance(max_rows, int) or max_rows < 1:
+        fail(src, "max_rows_per_card is a positive integer")
+    cards = []
+    for card in data["cards"]:
+        if set(card) - {"id", "note"} or not IDENT.match(card.get("id", "")) or card["id"] in cards \
+                or card["id"] in SWIFT_KEYWORDS:
+            fail(src, "a card has a unique identifier id and an optional note: %r" % card)
+        check_note(src, "card " + card["id"], card.get("note"))
+        cards.append(card["id"])
+    actions = data["section_actions"]
+    if not isinstance(actions, dict) or set(actions) != section_ids:
+        fail(src, "section_actions lists every section of sections.json exactly once")
+    for section, ids in actions.items():
+        if not isinstance(ids, list) or len(set(ids)) != len(ids) or not all(isinstance(i, str) and ACTION_ID.match(i) for i in ids):
+            fail(src, "section_actions.%s is a list of unique action ids" % section)
+    category_ids, group_keys, claimed = [], set(), set()
+    for run in data["sidebar_sections"]:
+        if set(run) != {"id", "title", "categories"} or not IDENT.match(run["id"]) or not run["categories"]:
+            fail(src, "a sidebar section has id, title (or null) and a non-empty categories list: %r" % run.get("id"))
+        check_text(src, run["id"] + ".title", run["title"], optional=True)
+        for category in run["categories"]:
+            cid = category.get("id", "")
+            if set(category) - PAGE_CATEGORY_FIELDS or not {"id", "title", "symbol", "groups"} <= set(category):
+                fail(src, "category %r: fields are %s (id, title, symbol, groups required)" % (cid, sorted(PAGE_CATEGORY_FIELDS)))
+            if not IDENT.match(cid) or cid in category_ids:
+                fail(src, "bad or duplicate category id %r" % cid)
+            category_ids.append(cid)
+            title = category["title"]
+            if isinstance(title, dict) and set(title) == {"section"}:
+                if title["section"] not in section_ids:
+                    fail(src, "%s: unknown title section %r" % (cid, title["section"]))
+            else:
+                check_text(src, cid + ".title", title)
+            if not SYMBOL.match(category["symbol"]):
+                fail(src, "%s: bad symbol %r" % (cid, category["symbol"]))
+            check_note(src, cid, category.get("note"))
+            for field, known in (("lead", cards), ("trail", cards), ("actions", section_ids), ("aliases", section_ids)):
+                values = category.get(field, [])
+                if not isinstance(values, list) or len(set(values)) != len(values) or any(v not in known for v in values):
+                    fail(src, "%s.%s: unique ids of %s" % (cid, field, "cards" if known is cards else "sections"))
+            if not isinstance(category.get("dev_only", False), bool):
+                fail(src, "%s.dev_only is a bool" % cid)
+            for index, group in enumerate(category["groups"]):
+                where = "%s group %d" % (cid, index)
+                if set(group) - PAGE_GROUP_FIELDS or not ("group" in group or "title" in group):
+                    fail(src, "%s: fields are %s, with a group or a title" % (where, sorted(PAGE_GROUP_FIELDS)))
+                key = group.get("group", "%s.%d" % (cid, index))
+                if not key or key in group_keys:
+                    fail(src, "%s: duplicate card key %r" % (where, key))
+                group_keys.add(key)
+                check_text(src, where + ".title", group.get("title"), optional=True)
+                check_note(src, where, group.get("note"))
+                for field in ("lead_keys", "keys"):
+                    for row in group.get(field, []):
+                        if not isinstance(row, str) or not row or any(not part for part in row.split(".")) or row in claimed:
+                            fail(src, "%s: bad row key or a row claimed twice: %r" % (where, row))
+                        claimed.add(row)
+    if data["default_category"] not in category_ids:
+        fail(src, "default_category %r is not a category" % data["default_category"])
+    return data
+
+
+def swift_list(values, render=swift_string):
+    return "[" + ", ".join(render(value) for value in values) + "]"
+
+
+def page_layout_swift(data, sections):
+    cards = []
+    for card in data["cards"]:
+        if card.get("note"):
+            cards.append("        /// " + card["note"])
+        cards.append("        case %s" % card["id"])
+    actions = "\n".join("        case .%s: %s" % (entry["id"], swift_list(data["section_actions"][entry["id"]]))
+                        for entry in sections)
+    return """// {header}
+
+public import CmuxNextActions
+
+/// The Settings page's navigation (SETTINGS-PAGE-FIRST-PRINCIPLES P2, P4): categories by user
+/// task, each a list of group cards, in `sidebarSections` (SettingsSchema+PageLayoutCategories).
+/// Exported as the schema's `page` (`SettingsSchemaExport`), resolved by `categories(rows:)`;
+/// the web Settings page and the GPUI client render it from the export and copy nothing
+/// (layer-ownership.md L5). Every row the page shows has exactly one card.
+public nonisolated struct SettingsPageLayout: Sendable {{
+    /// A part of a category that is not a schema row (host lists, the theme
+    /// studio, file actions). Raw values are the export's card ids.
+    public nonisolated enum Card: String, Sendable, Hashable, CaseIterable {{
+{cards}
+    }}
+
+    /// A group card as the layout states it: rows claimed by key to lead it, the rows
+    /// of a schema group (minus rows another card claims), then rows claimed by key.
+    public nonisolated struct GroupSpec: Sendable {{
+        /// A schema group key: its title, and every row of it no other card claims.
+        public var group: String?
+        /// Rows by key, moved here from their schema group; `title` names the card then.
+        public var keys: [String] = []
+        public var title: SettingText?
+        /// Rows by key, claimed like `keys` but drawn first, before the schema group's own rows.
+        public var leadKeys: [String] = []
+    }}
+
+    public nonisolated struct CategorySpec: Sendable {{
+        public var id: String
+        public var title: SettingText
+        public var symbol: String
+        public var groups: [GroupSpec]
+        /// Cards drawn before the groups, and after them.
+        public var lead: [Card] = []
+        public var trail: [Card] = []
+        /// The sections whose registry buttons (cmux.settings.section.actions) show at the end.
+        public var actions: [SettingsSection] = []
+        /// The section ids (`cmux settings open --section`, old links) that open this category.
+        public var aliases: [SettingsSection] = []
+        /// Shown only in DEV builds: the page hides it when the host says it is not one.
+        public var devOnly = false
+    }}
+
+    /// A titled run of categories in the page's sidebar (the lead run is untitled).
+    public nonisolated struct SidebarSection: Sendable {{
+        /// A stable id for tests and the export (`look`, `tools`).
+        public var id: String
+        /// The small header above the run; nil for the untitled lead run.
+        public var title: SettingText?
+        /// The categories of the run, in sidebar order.
+        public var categories: [CategorySpec]
+    }}
+
+    /// A resolved group card: its rows in display order.
+    public nonisolated struct Group: Sendable, Hashable {{
+        public let key: String
+        public let title: SettingText
+        public let rows: [String]
+    }}
+
+    public nonisolated struct Category: Sendable {{
+        public let spec: CategorySpec
+        public let groups: [Group]
+    }}
+
+    public static let defaultCategory = {default}
+
+    /// The most rows one card holds: a longer card is split into titled cards a person can scan.
+    /// `SettingsPageSectionsTests` holds it.
+    public static let maxRowsPerCard = {max_rows}
+
+    public init() {{}}
+
+    /// Every category in sidebar order: the sections' categories, one after another.
+    static var specs: [CategorySpec] {{ sidebarSections.flatMap(\\.categories) }}
+}}
+
+extension SettingsSchema {{
+    /// Actions shown as buttons at the end of a section (their titles and
+    /// availability come from the action registry).
+    public static func actions(in section: SettingsSection) -> [ActionID] {{
+        switch section {{
+{actions}
+        }}
+    }}
+}}
+""".format(header=HEADER.format(c="//", src=PAGE_SOURCE), cards="\n".join(cards), default=swift_string(data["default_category"]),
+           max_rows=data["max_rows_per_card"], actions=actions)
+
+
+def page_categories_swift(data):
+    def title(text):
+        if text is None:
+            return "nil"
+        if set(text) == {"section"}:
+            return "section(.%s)" % text["section"]
+        return keyed(text)
+
+    def cases(values):
+        return swift_list(values, lambda value: "." + value)
+
+    out = ["// " + HEADER.format(c="//", src=PAGE_SOURCE), "", "extension SettingsPageLayout {",
+           "    /// The sidebar's sections: what a person looks for together sits together under one small header.",
+           "    public static let sidebarSections: [SidebarSection] = ["]
+    for run in data["sidebar_sections"]:
+        out.append("        SidebarSection(id: %s, title: %s, categories: %s)," % (
+            swift_string(run["id"]), title(run["title"]), swift_list(run["categories"], lambda c: c["id"] + "Category")))
+    out += ["    ]", "", "    private static func section(_ section: SettingsSection) -> SettingText {",
+            "        SettingText(key: section.titleKey, text: section.title)", "    }"]
+    for run in data["sidebar_sections"]:
+        for category in run["categories"]:
+            out.append("")
+            if category.get("note"):
+                out.append("    /// " + category["note"])
+            out.append("    private static let %sCategory = CategorySpec(" % category["id"])
+            out.append("        id: %s, title: %s, symbol: %s," % (
+                swift_string(category["id"]), title(category["title"]), swift_string(category["symbol"])))
+            if category["groups"]:
+                out.append("        groups: [")
+                for group in category["groups"]:
+                    if group.get("note"):
+                        out.append("            // " + group["note"])
+                    args = []
+                    if "group" in group:
+                        args.append("group: " + swift_string(group["group"]))
+                    if group.get("keys"):
+                        args.append("keys: " + swift_list(group["keys"]))
+                    if group.get("title"):
+                        args.append("title: " + keyed(group["title"]))
+                    if group.get("lead_keys"):
+                        args.append("leadKeys: " + swift_list(group["lead_keys"]))
+                    out.append("            GroupSpec(%s)," % ", ".join(args))
+                out.append("        ]" + ("," if any(category.get(f) for f in ("lead", "trail", "actions", "aliases", "dev_only")) else ""))
+            else:
+                out.append("        groups: []" + ("," if any(category.get(f) for f in ("lead", "trail", "actions", "aliases", "dev_only")) else ""))
+            rest = []
+            for field, label in (("lead", "lead"), ("trail", "trail"), ("actions", "actions"), ("aliases", "aliases")):
+                if category.get(field):
+                    rest.append("%s: %s" % (label, cases(category[field])))
+            if category.get("dev_only"):
+                rest.append("devOnly: true")
+            if rest:
+                out.append("        " + ", ".join(rest))
+            out.append("    )")
+    out.append("}")
+    return "\n".join(out) + "\n"
+
+
 def main():
     check = "--check" in sys.argv[1:]
     outputs = {RETIRED_SWIFT: retired_swift(load_retired())}
@@ -538,6 +784,9 @@ def main():
         data = load_section(section, seen_keys, section_ids)
         outputs[section["swift"]] = section_swift(section, data)
         outputs.update(choices_swift(section, data))
+    page = load_page_layout(section_ids)
+    outputs[PAGE_SWIFT] = page_layout_swift(page, sections)
+    outputs[PAGE_CATEGORIES_SWIFT] = page_categories_swift(page)
     drifted = []
     for path, text in outputs.items():
         full = os.path.join(ROOT, path)
