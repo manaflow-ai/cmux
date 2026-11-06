@@ -424,10 +424,10 @@ pub enum Command {
     /// Serve the local CodeRouter in a separate process.
     #[command(subcommand)]
     Router(RouterCmd),
-    /// The cmux Computer Use helper v2 bridge: an MCP stdio server for one
-    /// agent session (agent_tools.rs registers it; not for people).
+    /// cmux Computer Use for one agent session: an MCP stdio server
+    /// (agent_tools.rs registers it; not for people; see `cmux computer-use`).
     #[command(hide = true)]
-    CuaMcp,
+    ComputerUseMcp,
     /// The agent's request_secret and run_with_secret tools: an MCP stdio
     /// server for one agent session (agent_tools.rs registers it; not for people).
     #[command(hide = true)]
@@ -1481,7 +1481,7 @@ mod help_contract_tests {
         ("integrate-harness skill", include_str!("../../skills/integrate-harness/SKILL.md")),
         ("cmux-acpmux skill", include_str!("../../../../../skills/cmux-acpmux/SKILL.md")),
         ("cmux skill", include_str!("../../../../../skills/cmux/SKILL.md")),
-        ("cmux-cua skill", include_str!("../../../../../skills/cmux-cua/SKILL.md")),
+        ("cmux-computer-use skill", include_str!("../../../../../skills/cmux-computer-use/SKILL.md")),
         ("docs/agent-surfaces.md", include_str!("../../docs/agent-surfaces.md")),
         ("docs/cli-sessions.md", include_str!("../../docs/cli-sessions.md")),
         ("docs/cli-hosts.md", include_str!("../../docs/cli-hosts.md")),
@@ -1723,7 +1723,7 @@ mod help_contract_tests {
             "integrate-harness skill",
             "cmux-acpmux skill",
             "cmux skill",
-            "cmux-cua skill",
+            "cmux-computer-use skill",
             "docs/agent-surfaces.md",
         ];
         let mut stale = Vec::new();

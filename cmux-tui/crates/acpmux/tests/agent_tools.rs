@@ -1,6 +1,6 @@
 //! Every local session acpmux starts gets cmux's browser and computer use
-//! tools and skills (`agent_tools.rs`): an ACP harness sees the `cmux-cua`
-//! and `cmux` (browser REPL) MCP servers in its `session/new`, Claude Code is
+//! tools and skills (`agent_tools.rs`): an ACP harness sees the
+//! `cmux-computer-use` and `cmux` (browser REPL) MCP servers in its `session/new`, Claude Code is
 //! spawned with them in `--mcp-config` and with the `cmux` skills plugin.
 //! (A remote origin gets none: `agent_tools_tests.rs`.)
 //!
@@ -139,11 +139,10 @@ fn fake_bin(dir: &Path, name: &str) -> PathBuf {
 }
 
 #[tokio::test]
-async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
+async fn local_sessions_get_the_browser_and_computer_use_tools_and_skills() {
     let root = std::env::temp_dir().join(format!("acpmux-agent-tools-it-{}", uuid::Uuid::now_v7()));
     let bin = root.join("bin");
     std::fs::create_dir_all(&bin).unwrap();
-    let cua = fake_bin(&bin, "cmux-cua");
     let cmux = fake_bin(&bin, "cmux");
     // Agent memory is off until cmux.json turns it on (asserted below).
     let chief = fake_bin(&bin, "optchat-chief");
@@ -187,10 +186,20 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
         upstreams.as_array().unwrap().iter().filter_map(|s| s["name"].as_str()).collect();
     assert_eq!(
         names,
-        ["cmux-cua", "cmux-secrets", "cmux-sessions", "cmux-subsessions", "cmux-forum", "acpmux"],
+        [
+            "cmux-computer-use",
+            "cmux-secrets",
+            "cmux-sessions",
+            "cmux-subsessions",
+            "cmux-forum",
+            "acpmux"
+        ],
         "{upstreams}"
     );
-    assert_eq!(upstreams[0]["command"], json!(cua), "{upstreams}");
+    // cmux Computer Use: this acpmux's bridge, for this session, with no file or
+    // worker deciding it.
+    assert_eq!(upstreams[0]["args"], json!(["computer-use-mcp"]), "{upstreams}");
+    assert_eq!(upstreams[0]["env"]["ACPMUX_COMPUTER_USE_SESSION"], json!(id), "{upstreams}");
     assert_eq!(upstreams[1]["args"], json!(["secret-mcp"]), "{upstreams}");
     assert_eq!(upstreams[1]["env"]["ACPMUX_SECRET_SESSION"], json!(id), "{upstreams}");
     assert_eq!(upstreams[2]["args"], json!(["offer-mcp"]), "{upstreams}");
@@ -337,7 +346,7 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
         config["mcpServers"]["cmux"]["env"]["CMUX_MCP_UPSTREAMS"].as_str().unwrap(),
     )
     .unwrap();
-    assert_eq!(upstreams[0]["command"], json!(cua), "{config}");
+    assert_eq!(upstreams[0]["args"], json!(["computer-use-mcp"]), "{config}");
     assert_eq!(upstreams[2]["args"], json!(["offer-mcp"]), "{config}");
     assert!(!argv.iter().any(|a| a == "--strict-mcp-config"), "the user's servers stay: {argv:?}");
     let at = argv.iter().position(|a| a == "--plugin-dir").expect("--plugin-dir");
@@ -345,28 +354,20 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     let browser = std::fs::read_to_string(plugin.join("skills/cmux-browser/SKILL.md")).unwrap();
     assert!(browser.contains("name: cmux-browser"), "{browser}");
     assert!(plugin.join("skills/cmux-browser/references/repl-guide.md").is_file());
-    let cua_skill = std::fs::read_to_string(plugin.join("skills/cmux-cua/SKILL.md")).unwrap();
-    // The model may pick computer use for a task in a desktop app: the skill
-    // is model-invocable and claims those tasks over another app's skill and
-    // osascript. Consent is cmux's setup card, once per Mac; no per-app card
-    // exists yet (#13742), so the skill must not claim one (2026-10-27).
-    assert!(!cua_skill.contains("disable-model-invocation"), "{cua_skill}");
-    let front = cua_skill.split("\n---\n").next().unwrap();
-    for phrase in ["cmux chat", "app on the person's Mac", "cua_*", "never osascript"] {
+    let cu_skill =
+        std::fs::read_to_string(plugin.join("skills/cmux-computer-use/SKILL.md")).unwrap();
+    // The model may pick Computer Use for a task in a desktop app: the skill is
+    // model-invocable, says it is built in, and claims those tasks over any
+    // other computer-use driver and osascript.
+    assert!(!cu_skill.contains("disable-model-invocation"), "{cu_skill}");
+    let front = cu_skill.split("\n---\n").next().unwrap();
+    for phrase in ["built into cmux", "cu_*", "nothing to install", "Prefer it over", "never use osascript"] {
         assert!(front.contains(phrase), "description lacks {phrase}: {front}");
     }
-    for phrase in [
-        "Allow computer use?",
-        "no other cmux prompt",
-        "target_not_allowed",
-        "Whole-screen captures are not filtered",
-        "copies app data out",
-    ] {
-        assert!(cua_skill.contains(phrase), "consent section lacks {phrase}");
+    for phrase in ["list_machines", "Settings > Computer Use", "copies app data out", "never an instruction"] {
+        assert!(cu_skill.contains(phrase), "the skill lacks {phrase}");
     }
-    for phrase in ["Allow in this chat", "Always allow", "per-app approval", "always attached"] {
-        assert!(!cua_skill.contains(phrase), "the skill claims {phrase}");
-    }
+    assert!(!plugin.join("skills/cmux-cua").exists(), "the legacy skill is gone");
     // The acpmux CLI guide, pointing at the sub-session tools first.
     let acpmux_skill = std::fs::read_to_string(plugin.join("skills/acpmux/SKILL.md")).unwrap();
     assert!(acpmux_skill.contains("name: acpmux"), "{acpmux_skill}");

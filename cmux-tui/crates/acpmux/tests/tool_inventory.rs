@@ -222,7 +222,6 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
         std::env::temp_dir().join(format!("acpmux-tool-inventory-it-{}", uuid::Uuid::now_v7()));
     let bin = root.join("bin");
     std::fs::create_dir_all(&bin).unwrap();
-    fake_bin(&bin, "cmux-cua");
     fake_bin(&bin, "cmux");
     let cmux_json = root.join("cmux-next.json");
     std::fs::write(&cmux_json, r#"{"agents": {"chats": {"enabled": true}}}"#).unwrap();
@@ -257,7 +256,7 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
     let info = local.call("_acpmux/info", json!({"sessionId": acp})).await.unwrap();
     assert_eq!(info["toolsMutable"], json!(false), "{info}");
     let cmux_servers = vec![
-        row("mcp:cmux-cua", "cmux", "cmux", true, false),
+        row("mcp:cmux-computer-use", "cmux", "cmux", true, false),
         row("mcp:cmux-subsessions", "cmux", "cmux", true, false),
         row("mcp:cmux-forum", "cmux", "cmux", true, false),
         row("mcp:acpmux", "cmux", "cmux", true, false),
@@ -335,13 +334,13 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
     assert_eq!(
         rows(&info["tools"]),
         vec![
-            row("mcp:cmux-cua", "cmux", "cmux", true, true),
+            row("mcp:cmux-computer-use", "cmux", "cmux", true, true),
             row("mcp:cmux-subsessions", "cmux", "cmux", true, true),
             row("mcp:cmux-forum", "cmux", "cmux", true, true),
             row("mcp:acpmux", "cmux", "cmux", true, true),
             row("mcp:cmux", "cmux", "cmux", true, true),
             row("skill:cmux:cmux-browser", "cmux", "cmux", true, false),
-            row("skill:cmux:cmux-cua", "cmux", "cmux", true, false),
+            row("skill:cmux:cmux-computer-use", "cmux", "cmux", true, false),
             row("skill:cmux:cmux-customization", "cmux", "cmux", true, false),
             row("skill:cmux:cmux-live", "cmux", "cmux", true, false),
             row("skill:cmux:acpmux", "cmux", "cmux", true, false),
@@ -391,7 +390,7 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
 
     // cmux's computer use server runs behind the cmux server (code mode):
     // turned off, it leaves that server's CMUX_MCP_UPSTREAMS too, since
-    // `--disallowedTools mcp__cmux-cua` names no tool there. Then back on.
+    // `--disallowedTools mcp__cmux-computer-use` names no tool there. Then back on.
     let upstreams = |args: &[String]| -> Vec<String> {
         let at = args.iter().position(|a| a == "--mcp-config").expect("--mcp-config");
         let config: Value =
@@ -400,21 +399,21 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
         let list: Value = serde_json::from_str(list).unwrap();
         list.as_array().unwrap().iter().map(|s| s["name"].as_str().unwrap().to_owned()).collect()
     };
-    assert!(upstreams(&args).contains(&"cmux-cua".to_owned()), "{args:?}");
+    assert!(upstreams(&args).contains(&"cmux-computer-use".to_owned()), "{args:?}");
     for enabled in [false, true] {
         let set = local
             .call(
                 "_acpmux/set_tools",
-                json!({"sessionId": claude, "id": "mcp:cmux-cua", "enabled": enabled}),
+                json!({"sessionId": claude, "id": "mcp:cmux-computer-use", "enabled": enabled}),
             )
             .await
             .expect("set_tools");
         assert_eq!(set["applied"], json!("now"), "{set}");
-        while tool(&watcher.changed(&claude, "tools").await["session"]["tools"], "mcp:cmux-cua").3
+        while tool(&watcher.changed(&claude, "tools").await["session"]["tools"], "mcp:cmux-computer-use").3
             != enabled
         {}
         let args = argv(&local.ask(&claude, "hi").await);
-        let has = upstreams(&args).contains(&"cmux-cua".to_owned());
+        let has = upstreams(&args).contains(&"cmux-computer-use".to_owned());
         assert_eq!(has, enabled, "{args:?}");
     }
 

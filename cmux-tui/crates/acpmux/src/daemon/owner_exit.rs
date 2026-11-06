@@ -134,7 +134,7 @@ pub fn process_start(pid: u32) -> Option<u64> {
     }
     #[cfg(target_os = "macos")]
     {
-        let (sec, usec) = crate::cua_v2::start_time(i32::try_from(pid).ok()?)?;
+        let (sec, usec) = crate::proc_start::start_time(i32::try_from(pid).ok()?)?;
         sec.checked_mul(1_000_000)?.checked_add(usec)
     }
     #[cfg(not(any(target_os = "linux", target_os = "android", target_os = "macos")))]

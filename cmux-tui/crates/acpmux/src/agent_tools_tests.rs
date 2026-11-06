@@ -4,34 +4,12 @@ fn chief_turn_tools_contain_no_mac_app_actions() {
     assert!(tools.iter().all(|tool| !tool.starts_with("app_")), "{tools:?}");
 }
 
-#[test]
-fn a_spawned_agent_never_inherits_a_helper_token() {
-    let mut cmd = tokio::process::Command::new("/bin/true");
-    crate::cua_socket::scrub_agent_env(&mut cmd);
-    let removed: Vec<String> = cmd
-        .as_std()
-        .get_envs()
-        .filter(|(_, v)| v.is_none())
-        .map(|(k, _)| k.to_string_lossy().into_owned())
-        .collect();
-    for key in [
-        "CMUX_NEXT_CUA_SOCKET_HOST_AUTH_TOKEN",
-        "CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN",
-        "CMUX_CUA_SOCKET_HOST_AUTH_TOKEN",
-        "CMUX_CUA_SOCKET_AUTH_TOKEN",
-    ] {
-        assert!(removed.iter().any(|k| k == key), "{key} must be removed from an agent's env");
-    }
-}
-
 fn memory_inputs(bin: &std::path::Path, cmux_json: Option<&str>) -> super::Inputs {
     super::Inputs {
         enabled: true,
         bin_dir: Some(bin.to_owned()),
         cmux_json: cmux_json.map(str::to_owned),
         state_dir: bin.join("state"),
-        cua: None,
-        cua_v2: None,
         acpmux: None,
         secrets: false,
         offers: false,
@@ -79,35 +57,43 @@ fn agent_memory_is_off_until_the_setting_turns_it_on() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// A shipped NIGHTLY/NEXT app has no `Contents/Resources/bin/cmux-cua`: its
-/// only copy is the signed helper app at `Contents/Library/cmux Computer
-/// Use.app` (nightly.yml removes the scratch bin copy). Sessions must still
-/// get the `cmux-cua` server, from that helper's executable.
+/// Every session gets the Computer Use bridge, whether or not a worker runs:
+/// nothing on disk decides it, only `computerUse.mode: "off"` in cmux.json
+/// (and no acpmux binary to run it, in a test without one).
 #[test]
-fn cmux_cua_falls_back_to_the_nested_helper_app() {
-    use std::os::unix::fs::PermissionsExt;
-    let root = std::env::temp_dir().join(format!("acpmux-cua-helper-{}", uuid::Uuid::now_v7()));
-    let bin = root.join("Contents/Resources/bin");
-    let helper_dir = root.join("Contents/Library/cmux Computer Use.app/Contents/MacOS");
-    std::fs::create_dir_all(&bin).unwrap();
-    std::fs::create_dir_all(&helper_dir).unwrap();
-    let helper = helper_dir.join("cmux-cua");
-    std::fs::write(&helper, "#!/bin/sh\nexit 0\n").unwrap();
-    std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let cua = |tools: &super::AgentTools| {
-        tools.servers.iter().find(|s| s.name == "cmux-cua").map(|s| s.command.clone())
+fn every_session_gets_computer_use_unless_the_mode_is_off() {
+    let root = std::env::temp_dir().join(format!("acpmux-cu-server-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let exe = std::path::PathBuf::from("/usr/local/bin/acpmux");
+    let inputs = |json: Option<&str>| super::Inputs {
+        acpmux: Some(crate::self_command::SelfCommand::new(exe.clone(), Vec::new())),
+        ..memory_inputs(&root, json)
     };
-    let tools = super::resolve(&memory_inputs(&bin, None));
-    assert_eq!(cua(&tools), Some(helper.clone()), "the nested helper stands in");
-    // A bin copy (a DEV build) wins over the helper.
-    let bin_cua = bin.join("cmux-cua");
-    std::fs::write(&bin_cua, "#!/bin/sh\nexit 0\n").unwrap();
-    std::fs::set_permissions(&bin_cua, std::fs::Permissions::from_mode(0o755)).unwrap();
-    assert_eq!(cua(&super::resolve(&memory_inputs(&bin, None))), Some(bin_cua.clone()));
-    // Neither: no server.
-    std::fs::remove_file(&bin_cua).unwrap();
-    std::fs::remove_file(&helper).unwrap();
-    assert_eq!(cua(&super::resolve(&memory_inputs(&bin, None))), None);
+    let has = |json: Option<&str>| {
+        super::resolve(&inputs(json))
+            .servers
+            .iter()
+            .any(|s| s.name == crate::computer_use::mcp::SERVER_NAME)
+    };
+    for json in [
+        None,
+        Some("{}"),
+        Some("{"),
+        Some(r#"{"computerUse":{"mode":"fullAccess"}}"#),
+        Some(r#"{"computerUse":{"mode":"lookOnly"}}"#),
+        Some(r#"{"computerUse.mode":"askEveryTime"}"#),
+    ] {
+        assert!(has(json), "{json:?}");
+    }
+    assert!(!has(Some(r#"{"computerUse":{"mode":"off"}}"#)));
+    assert!(!has(Some("{\n// mine\n\"computerUse.mode\": \"off\",\n}")));
+    // The session's own key, this daemon and nothing inherited.
+    let tools = super::resolve(&inputs(None)).for_session("s-cu");
+    let cu = tools.servers.iter().find(|s| s.name == crate::computer_use::mcp::SERVER_NAME).unwrap();
+    assert_eq!(cu.args, [crate::computer_use::mcp::COMMAND]);
+    let env: std::collections::HashMap<_, _> = cu.env.iter().cloned().collect();
+    assert_eq!(env[crate::computer_use::mcp::SESSION_ENV], "s-cu");
+    assert!(env.contains_key("ACPMUX_SOCKET"), "{env:?}");
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -126,7 +112,6 @@ fn own_servers_run_under_the_daemon_prefix() {
             exe.clone(),
             prefix.iter().map(std::ffi::OsString::from).collect(),
         )),
-        cua_v2: Some(root.join("cua-v2")),
         secrets: true,
         offers: true,
         subsessions: true,
@@ -139,7 +124,7 @@ fn own_servers_run_under_the_daemon_prefix() {
     };
     let expect = |prefix: &[&str]| -> Vec<(String, Vec<String>)> {
         [
-            (crate::cua_v2::SERVER_NAME, "cua-mcp"),
+            (crate::computer_use::mcp::SERVER_NAME, crate::computer_use::mcp::COMMAND),
             (crate::secret_mcp::SERVER_NAME, "secret-mcp"),
             (crate::offer_mcp::SERVER_NAME, "offer-mcp"),
             (crate::subsession_mcp::SERVER_NAME, "subsession-mcp"),
@@ -157,8 +142,8 @@ fn own_servers_run_under_the_daemon_prefix() {
     assert_eq!(servers(&[]), expect(&[]));
     // cmux-tui: `cmux-tui acp subsession-mcp`.
     assert_eq!(servers(&["acp"]), expect(&["acp"]));
-    // Per-workspace displays (a Linux cloud machine) still drop the helper v2
-    // bridge, which cannot be pinned to a display, under the prefix too.
+    // Per-workspace displays (a Linux cloud machine) drop the Computer Use
+    // bridge, which drives the machine's one desktop, under the prefix too.
     let mut tools = super::resolve(&inputs(&["acp"]));
     tools.displays = Some(root.join("displays"));
     let env = std::collections::BTreeMap::from([(
@@ -166,7 +151,7 @@ fn own_servers_run_under_the_daemon_prefix() {
         "ws-1".to_owned(),
     )]);
     let names: Vec<String> = tools.scoped(&env).servers.into_iter().map(|s| s.name).collect();
-    assert!(!names.iter().any(|n| n == crate::cua_v2::SERVER_NAME), "{names:?}");
+    assert!(!names.iter().any(|n| n == crate::computer_use::mcp::SERVER_NAME), "{names:?}");
     assert!(names.iter().any(|n| n == crate::subsession_mcp::SERVER_NAME), "{names:?}");
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -236,7 +221,7 @@ fn a_tool_allowlist_reaches_a_standalone_acpmux_server() {
         env: vec![],
     };
     let tools = super::AgentTools {
-        servers: vec![server(crate::acpmux_mcp::SERVER_NAME), server("cmux-cua")],
+        servers: vec![server(crate::acpmux_mcp::SERVER_NAME), server(crate::computer_use::mcp::SERVER_NAME)],
         ..Default::default()
     };
     let env = std::collections::BTreeMap::from([

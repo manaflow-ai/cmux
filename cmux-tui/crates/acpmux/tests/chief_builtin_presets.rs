@@ -407,7 +407,7 @@ async fn a_built_in_preset_of_an_unknown_chief_is_refused() {
 
 /// A Chief turn gets cmux with its folded acpmux coordinator tools:
 /// the computer use, secret and session offer servers stay out of its
-/// session. In the app (whose bundle has `cmux-cua`) their tool names and
+/// session. In the app their tool names and
 /// instructions came after the turn's cache mark, 2,905 uncached tokens per
 /// turn and about 70% read from the cache; a turn reaches that work through
 /// subagents, which keep every server.
@@ -420,7 +420,7 @@ async fn a_chief_turn_gets_cmux_and_folded_acpmux_tools() {
     );
     let tools = d.dir.join("tools");
     std::fs::create_dir_all(&tools).unwrap();
-    for name in ["cmux", "cmux-cua"] {
+    for name in ["cmux"] {
         use std::os::unix::fs::PermissionsExt;
         let path = tools.join(name);
         std::fs::write(&path, "#!/bin/sh\nexit 0\n").unwrap();
@@ -455,7 +455,7 @@ async fn a_chief_turn_gets_cmux_and_folded_acpmux_tools() {
             Some(format!("optchat-sub-{id}")),
             vec![
                 "cmux",
-                "+cmux-cua",
+                "+cmux-computer-use",
                 "+cmux-secrets",
                 "+cmux-sessions",
                 "+cmux-subsessions",
@@ -467,7 +467,7 @@ async fn a_chief_turn_gets_cmux_and_folded_acpmux_tools() {
             None,
             vec![
                 "cmux",
-                "+cmux-cua",
+                "+cmux-computer-use",
                 "+cmux-secrets",
                 "+cmux-sessions",
                 "+cmux-subsessions",

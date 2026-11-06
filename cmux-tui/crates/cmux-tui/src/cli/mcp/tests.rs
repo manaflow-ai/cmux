@@ -57,17 +57,10 @@ struct Fake {
     caller_terminal: Option<String>,
     /// What `Backend::focus` answers.
     focus: Option<Value>,
-    /// The app's `computer_use.status` through `Backend::app_caller`; no
-    /// app caller when unset.
-    computer_use: Option<Value>,
-    /// The card's answer to `permissions.request`; `granted` when unset.
-    setup_outcome: Option<Value>,
     /// The app's `cloud.machines` answer; an app without it answers `{ran: true}`.
     cloud_machines: Option<Value>,
     /// The server was started on another session (`--session`, `--socket`).
     other_session: bool,
-    /// `{method, params, thread}` of each request the app caller got.
-    app_calls: std::sync::Arc<std::sync::Mutex<Vec<Value>>>,
     sent: RefCell<Vec<Value>>,
 }
 
@@ -167,21 +160,6 @@ impl Fake {
 impl Backend for Fake {
     fn app_session(&self) -> bool {
         !self.other_session
-    }
-
-    fn app_caller(&self) -> Option<computer_use_gate::AppCaller> {
-        let status = self.computer_use.clone()?;
-        let outcome = self.setup_outcome.clone().unwrap_or_else(|| json!({"outcome": "granted"}));
-        let calls = self.app_calls.clone();
-        Some(std::sync::Arc::new(move |method: &str, params: Value, _timeout: Duration| {
-            calls.lock().unwrap().push(json!({"method": method, "params": params,
-                "thread": format!("{:?}", std::thread::current().id())}));
-            match method {
-                "computer_use.status" => Ok(status.clone()),
-                "permissions.request" => Ok(outcome.clone()),
-                other => panic!("unexpected app call {other}"),
-            }
-        }))
     }
 
     fn resource(
