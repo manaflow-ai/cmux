@@ -359,7 +359,7 @@ import {
   waitingAsks,
 } from "./conversation/turns";
 import { PendingAsks } from "./conversation/PendingAsks";
-import { dismissAsk, dismissedAsks, shownAsks } from "./conversation/waitingAskStore";
+import { bottomAsks, dismissAsk, dismissedAsks, shownAsks } from "./conversation/waitingAskStore";
 import { turnPreviewUrl } from "./conversation/previewUrl";
 import { projectInboxRows } from "./conversation/laneNoticeBatches";
 import {
@@ -9124,14 +9124,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     snapshot.permissionGroups?.supported &&
     (snapshot.permissionGroups.groups.length > 0 || snapshot.permissionGroups.error),
   );
-  const hasBottomAsk = Boolean(
-    pinnedAsks.length > 0 ||
+  const liveBottomAsk = Boolean(
     (trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted")) ||
     hasPermissionGroups ||
     individualPermission ||
     secret ||
     toolCards.length > 0,
   );
+  // Pinned questions join the stack but never take the composer's keys (waitingAskStore.ts).
+  const bottomStack = bottomAsks(liveBottomAsk, pinnedAsks.length);
+  const hasBottomAsk = bottomStack.holdsKeys;
   // A folder confirmation can be pending while the New Tab stays mounted. Keep the same ask in
   // that surface too: the regular composer is deliberately hidden behind the New Tab, so leaving
   // the ask there would strand the prompt with no Use or Cancel action.
@@ -9194,7 +9196,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         answers={answersTrust}
       />
     ) : undefined;
-  const asks = hasBottomAsk ? (
+  const asks = bottomStack.shows ? (
     <div className="acpmux-permission acpmux-asks-stack">
       {pinnedAsks.length > 0 && (
         <PendingAsks

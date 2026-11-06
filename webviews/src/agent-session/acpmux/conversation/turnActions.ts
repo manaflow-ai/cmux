@@ -157,11 +157,20 @@ export const resumeThrough =
 /// A tagged ask's answer (NextStepCard.tsx) through the composer's send (`chat.send`), as Continue
 /// sends its prompt: the person's next message, in order behind anything already sent. Settles once
 /// the send does. A send that fails rejects, so the card says it was not sent and keeps its buttons:
-/// an answer is never dropped without a word (Leo, 2026-11-06: "I already replied to that").
+/// an answer is never dropped without a word (Leo, 2026-11-06: "I already replied to that"). One
+/// acpmux already took (its error is `taken`, direct.ts `send`: the turn it started failed, or the
+/// connection dropped after its echo) was sent: it is in the transcript, and sending it again would
+/// answer twice.
 export const answerThrough =
   (callNative: (method: string, params: Record<string, unknown>) => Promise<unknown>) =>
   (text: string): Promise<void> =>
-    callNative("chat.send", { text }).then(() => undefined);
+    callNative("chat.send", { text }).then(
+      () => undefined,
+      (error: unknown) => {
+        if ((error as { taken?: unknown } | null)?.taken === true) return;
+        throw error;
+      },
+    );
 
 /// The prompt Compact sends: the harness's own slash command (Claude Code's and Codex's).
 /// l10n-allow: a command to the agent, not UI

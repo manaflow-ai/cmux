@@ -42,6 +42,7 @@ export const PendingAsks = memo(function PendingAsks({
               ask={ask}
               onAnswer={onAnswer}
               registerKey={index === asks.length - 1 ? registerKey : undefined}
+              answerKey={askKey(row)}
             />
           </section>
         );

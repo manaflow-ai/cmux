@@ -55,6 +55,7 @@ import {
 import { foldMessageRuns, messageRunFoldFor, messageRunRevealKey, openMessageRuns } from "./messageRuns";
 import { backgroundRunFoldFor, foldBackgroundRuns, openBackgroundRuns } from "./backgroundRuns";
 import { turnFoldStyle, type TurnFoldStyle } from "./turnFoldStyle";
+import { answerClaim, askKey, CLAIM_SLACK_MS } from "./waitingAskStore";
 import { canonicalCall } from "../toolNames";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
@@ -589,7 +590,12 @@ export function turnViewFrom(
     ends.push({ count: out.length, row: out.at(-1), visible });
   }
   // A reused card a later one now supersedes changed: the unchanged prefix ends before it.
-  reusedRows = Math.min(reusedRows, settleNextSteps(out, nextSteps, Math.max(0, keptCards - 1)));
+  // From the last kept card, back over the cards still waiting on the person or answered out of
+  // order: a click on an older pinned card settles it, so the waiting run is settled again.
+  let settleFrom = Math.max(0, keptCards - 1);
+  while (settleFrom > 0 && (!nextSteps[settleFrom - 1]!.spoke || nextSteps[settleFrom - 1]!.outOfOrder))
+    settleFrom -= 1;
+  reusedRows = Math.min(reusedRows, settleNextSteps(out, nextSteps, settleFrom));
   return {
     source: rows,
     expanded,
@@ -617,9 +623,10 @@ export function turnViewFrom(
   };
 }
 
-/// A next-step card in a turn view: its index in the drawn rows, the row as its turn shaped it, and
-/// whether the person said anything after it before the next card (`settleNextSteps`).
-type NextStepAt = { at: number; row: AcpmuxRow; spoke?: boolean };
+/// A next-step card in a turn view: its index in the drawn rows, the row as its turn shaped it,
+/// whether the person said anything after it before the next card, and whether the answer clicked
+/// on it came after a later card (`settleNextSteps`).
+type NextStepAt = { at: number; row: AcpmuxRow; spoke?: boolean; outOfOrder?: boolean };
 
 /// A card's version spans its shaped version and its settled state (none, answered, superseded,
 /// both), so its memo and height cache redraw when it settles.
@@ -648,20 +655,51 @@ function settleNextSteps(out: AcpmuxRow[], cards: NextStepAt[], from: number): n
     if (out[at] !== row) changed = Math.min(changed, at);
     out[at] = row;
   };
+  // An answer clicked on a card (waitingAskStore.ts `claimAnswer`) is that card's, wherever it came:
+  // with several questions waiting, the person's "Yes" on an older card is not the newest's. The
+  // first prompt of the claimed words sent since the click is it, by the drawn row's index.
+  const claimed = new Map<number, number>();
+  const own = new Map<number, number>();
+  for (let index = from; index < cards.length; index += 1) {
+    const { at, row } = cards[index]!;
+    if (!row.nextStep!.ask.question) continue;
+    const claim = answerClaim(askKey(row));
+    if (!claim) continue;
+    for (let later = at + 1; later < out.length; later += 1) {
+      if (claimed.has(later) || personPrompt(out[later]!) !== claim.text) continue;
+      if (out[later]!.at < claim.at - CLAIM_SLACK_MS) continue;
+      claimed.set(later, index);
+      own.set(index, later);
+      break;
+    }
+  }
   for (let index = from; index < cards.length; index += 1) {
     const { at, row } = cards[index]!;
     const { ask } = row.nextStep!;
     const next = index + 1 < cards.length ? cards[index + 1]!.at : out.length;
+    const mine = own.get(index);
     let answer: string | undefined;
+    if (mine !== undefined) {
+      const said = personPrompt(out[mine]!)!;
+      answer = pickedAnswer(ask, said) ?? said;
+    }
     let first: string | undefined;
     if (ask.question)
-      for (let later = at + 1; later < next && answer === undefined; later += 1) {
+      for (let later = at + 1; later < next && (answer === undefined || first === undefined); later += 1) {
+        // Another card's clicked answer is not the person speaking to this one.
+        const by = claimed.get(later);
+        if (by !== undefined && by !== index) continue;
         const said = personPrompt(out[later]!);
         if (said === undefined) continue;
         first ??= said;
-        answer = pickedAnswer(ask, said);
+        answer ??= pickedAnswer(ask, said);
       }
-    cards[index] = { at, row, spoke: first !== undefined };
+    cards[index] = {
+      at,
+      row,
+      spoke: first !== undefined,
+      ...(mine !== undefined && mine >= next && { outOfOrder: true }),
+    };
     const superseded = index + 1 < cards.length && (first !== undefined || !ask.question);
     if (answer === undefined && superseded && first !== undefined) answer = chosenAnswer(ask, first);
     if (answer === undefined && !superseded) {
