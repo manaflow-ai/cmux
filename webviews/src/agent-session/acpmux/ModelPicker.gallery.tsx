@@ -640,18 +640,15 @@ export default componentEntry<GalleryProps>({
       play: openQuick,
     },
     // The same chat where it can fork (Leo 2026-10-22: "can expose as fork"; 2026-11-06: "it should
-    // only need to necessarily fork when you enter a message on that new model"): the rail, and the
-    // Codex tab lists Codex's models to browse and pick, as a New Tab's does.
+    // only need to necessarily fork when you enter a message on that new model"): the rail lists
+    // every harness the chat can fork to beside its own, whose models it opens on. Another tab's
+    // models show in started-chat-held, which opens on Codex: switched to from here, the menu keeps
+    // the width Claude's rows set (columns hold their largest size while open).
     "started-chat-fork": {
       props: startedFork,
       play: async (ctx) => {
         await openColumns(ctx);
-        await ctx.click({ selector: '.acpmux-cols-tab[aria-label="Codex"]' });
-        await ctx.waitFor(
-          () =>
-            ctx.document.querySelector('.acpmux-cols-tab[aria-label="Codex"][aria-selected="true"]') !== null &&
-            ctx.document.querySelectorAll(".acpmux-cols [role=listbox] [role=option]").length > 0,
-        );
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-cols-tab[aria-label="Codex"]') !== null);
       },
     },
     // A Codex model held for the next message: the chip names it with the fork mark, and the menu

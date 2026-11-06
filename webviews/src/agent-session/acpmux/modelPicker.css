@@ -507,7 +507,9 @@
 /* The menu's screen-reader-only text (a symbol tab's name, the effort trigger's model, Add
    harness's label) is hidden by the picker's own rule, not only by the pane's Tailwind sr-only:
    the menu is portaled, and a page without that utility drew it all as text. */
-.acpmux-quick-menu .sr-only {
+.acpmux-quick-menu .sr-only,
+.acpmux-model-fork .sr-only,
+.acpmux-used-mark .sr-only {
   position: absolute;
   overflow: hidden;
   clip-path: inset(50%);

@@ -1327,8 +1327,9 @@ export function ModelPicker(props: ModelPickerProps) {
   // The held pick's fork mark (Leo 2026-11-06: "it should only need to necessarily fork when you
   // enter a message on that new model"): the next message forks the chat, and the mark says so.
   const forkGlyph = forkText && (
-    <span className="acpmux-model-fork" role="img" aria-label={forkText}>
+    <span className="acpmux-model-fork">
       <Icon name="agent.fork" size={12} />
+      <span className="sr-only">{forkText}</span>
     </span>
   );
   return (

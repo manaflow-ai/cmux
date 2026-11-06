@@ -355,7 +355,7 @@ test("a started chat lists another harness's models, and picking one holds it fo
   expect(await heldHarness()).toBe("codex");
   expect(switched).toEqual([]);
   expect(picked).toEqual([]);
-  expect(forkMark()?.getAttribute("aria-label")).toBe("Your next message forks this chat to Codex");
+  expect(forkMark()?.textContent).toBe("Your next message forks this chat to Codex");
   expect(chipTitle()).toContain("Your next message forks this chat to Codex");
   expect(chipTitle().startsWith(name)).toBe(true);
   await close();
@@ -659,7 +659,7 @@ test("holding a folded launch route names it on the chip and its fork tooltip", 
   await open();
   await showTab("Claude Code (work)");
   expect(await heldHarness()).toBe("claude_work");
-  expect(forkMark()?.getAttribute("aria-label")).toBe("Your next message forks this chat to Claude Code (work)");
+  expect(forkMark()?.textContent).toBe("Your next message forks this chat to Claude Code (work)");
   expect(chipTitle().startsWith("Claude Code (work)")).toBe(true);
 });
 

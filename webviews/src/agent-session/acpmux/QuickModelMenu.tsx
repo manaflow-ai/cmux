@@ -1509,8 +1509,9 @@ export function UsedMark({ look }: { look: UsedLook }) {
   const text = t("picker.usedHere");
   if (look === "caption") return <span className="acpmux-used-caption">{text}</span>;
   return (
-    <span className={`acpmux-used-mark acpmux-used-${look}`} role="img" aria-label={text}>
+    <span className={`acpmux-used-mark acpmux-used-${look}`}>
       {look === "glyph" && <Icon name="history" size={12} />}
+      <span className="sr-only">{text}</span>
     </span>
   );
 }
