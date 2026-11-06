@@ -129,11 +129,11 @@ fn parse_takes_an_environment_for_a_new_machine() {
     let asked = request(&["--environment", "py", "--prompt", "x"]);
     assert_eq!(
         again_command(&asked, &Machine::Target("vm-1".into())),
-        "cmux cloud start-chat --target machine:vm-1 --prompt x --json"
+        "cmux cloud start-chat --target machine:vm-1 --prompt TEXT --json"
     );
     assert_eq!(
         again_command(&asked, &Machine::New),
-        "cmux cloud start-chat --environment py --prompt x --json"
+        "cmux cloud start-chat --environment py --prompt TEXT --json"
     );
 }
 
@@ -176,16 +176,17 @@ fn the_reply_is_the_newest_of_acp_last() {
 
 #[test]
 fn again_command_quotes_every_word() {
+    // The prompt is never repeated in the command (it may be private): TEXT stands for it.
     let mut asked = request(&["--prompt", "it's done", "--cwd", "/a b", "--wait"]);
     asked.agent = "codex".into();
     assert_eq!(
         again_command(&asked, &Machine::Named("chat-1".into())),
-        "cmux cloud start-chat --name chat-1 --agent codex --cwd '/a b' --prompt 'it'\\''s done' --wait --json"
+        "cmux cloud start-chat --name chat-1 --agent codex --cwd '/a b' --prompt TEXT --wait --json"
     );
     let asked = request(&["--prompt", "x", "--login", "none"]);
     assert_eq!(
         again_command(&asked, &Machine::Target("vm-1".into())),
-        "cmux cloud start-chat --target machine:vm-1 --login none --prompt x --json"
+        "cmux cloud start-chat --target machine:vm-1 --login none --prompt TEXT --json"
     );
 }
 
@@ -244,6 +245,8 @@ struct Fake {
     paused: Duration,
     /// How long a verb (`cloud VERB`) takes, for one that takes longer than the 5 s every other step takes.
     costs: Vec<(&'static str, Duration)>,
+    /// How long the step at this index of `ran` takes, before `costs`.
+    slow: Vec<(usize, Duration)>,
 }
 
 impl Fake {
@@ -254,16 +257,21 @@ impl Fake {
             clock: Instant::now(),
             paused: Duration::ZERO,
             costs: Vec::new(),
+            slow: Vec::new(),
         }
     }
 }
 
 impl Runner for Fake {
     fn cmux(&mut self, args: &[String]) -> Ran {
+        let index = self.ran.len();
         self.ran.push(args.to_vec());
-        // Each step takes a few seconds of the wait, or what `costs` says for its verb.
+        // Each step takes a few seconds of the wait, or what `slow` says for it, or `costs` for its verb.
         let verb = args.get(1).map(String::as_str);
-        let cost = self.costs.iter().find(|(name, _)| Some(*name) == verb).map(|(_, cost)| *cost);
+        let cost = self.slow.iter().find(|(at, _)| *at == index).map(|(_, cost)| *cost);
+        let cost = cost.or_else(|| {
+            self.costs.iter().find(|(name, _)| Some(*name) == verb).map(|(_, cost)| *cost)
+        });
         self.clock += cost.unwrap_or(Duration::from_secs(5));
         self.answers.pop_front().expect("an answer for every step")
     }
@@ -596,7 +604,7 @@ fn a_pending_machine_names_the_command_that_waits_on() {
     assert_eq!((error["code"].as_str(), exit), (Some("cloud.start_pending"), 75));
     assert_eq!(
         error["details"]["again"],
-        "cmux cloud start-chat --name chat-fresh --prompt x --wait --json"
+        "cmux cloud start-chat --name chat-fresh --prompt TEXT --wait --json"
     );
     assert_eq!(error["details"]["machine_id"], "vm-9");
     assert_eq!(error["details"]["stage"]["status"], "provisioning");
@@ -1356,6 +1364,135 @@ fn each_wait_on_a_new_machine_is_bounded_by_the_time_left() {
     assert_eq!(fake.ran.len(), 6);
 }
 
+/// A step that answers after the deadline is that phase's timeout whatever it answered, an error included (the
+/// third re-review of #37159): `cloud.start_pending` (75) before the prompt may have reached the machine,
+/// `chat.wait_timeout` (3) once it was sent.
+#[test]
+fn a_late_answer_of_any_step_is_its_phases_timeout() {
+    let secs = Duration::from_secs;
+    let refused = |code: &str| Ran {
+        code: 1,
+        stderr: json!({"code": code, "message": "the step failed late"}).to_string(),
+        ..Ran::default()
+    };
+    let sent = || exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n");
+    let asked = |words: &[&str]| {
+        let mut all = vec!["--prompt", "x", "--wait"];
+        all.extend_from_slice(words);
+        request(&all)
+    };
+    // (case, request, answers, the slow step's index and cost, code, exit, steps run)
+    let big = "a".repeat(400 * 1024);
+    let cases: Vec<(&str, Request, Vec<Ran>, (usize, u64), &str, i32, usize)> = vec![
+        (
+            "start-session errs late",
+            asked(&["--target", "machine:vm-1", "--timeout", "30"]),
+            vec![signed_in(), refused("app.failed")],
+            (1, 30),
+            "cloud.start_pending",
+            75,
+            2,
+        ),
+        (
+            "--environment's new-machine errs late",
+            asked(&["--environment", "env_1", "--timeout", "30"]),
+            vec![signed_in(), refused("app.failed")],
+            (1, 30),
+            "cloud.start_pending",
+            75,
+            2,
+        ),
+        (
+            "the relay's new-machine errs late",
+            asked(&["--timeout", "60"]),
+            vec![signed_in(), refused("app.failed")],
+            (1, 60),
+            "cloud.start_pending",
+            75,
+            2,
+        ),
+        (
+            "the relay errs late",
+            asked(&["--target", "machine:vm-1", "--timeout", "50"]),
+            vec![signed_in(), refused("app.failed")],
+            (1, 50),
+            "cloud.start_pending",
+            75,
+            2,
+        ),
+        (
+            "the pending start's stage list answers late",
+            asked(&["--target", "machine:vm-1", "--timeout", "30"]),
+            vec![
+                signed_in(),
+                ok(json!({"pending": true, "machine_id": "vm-1", "machine_name": "dev"})),
+                ok(
+                    json!({"machines": [{"machine_id": "vm-1", "title": "dev", "status": "failed"}]}),
+                ),
+            ],
+            (2, 30),
+            "cloud.start_pending",
+            75,
+            3,
+        ),
+        (
+            "the send's exec errs late",
+            asked(&["--target", "machine:vm-1", "--timeout", "30"]),
+            vec![signed_in(), started(), refused("app.timeout")],
+            (2, 30),
+            "chat.wait_timeout",
+            3,
+            3,
+        ),
+        (
+            "the turn's wait answers it ended, late",
+            asked(&["--target", "machine:vm-1", "--timeout", "30"]),
+            vec![
+                signed_in(),
+                started(),
+                sent(),
+                exec_out(
+                    "@@wait 0\n@@history\n{\"turns\":[{\"seq\":1,\"endedAt\":9}]}\n@@last\n\"4\"\n@@lastexit 0\n",
+                ),
+            ],
+            (3, 30),
+            "chat.wait_timeout",
+            3,
+            4,
+        ),
+    ];
+    for (case, asked, answers, (index, cost), code, exit, steps) in cases {
+        let mut fake = Fake::new(answers);
+        fake.slow.push((index, secs(cost)));
+        let Outcome::Failed { error, exit: got } = run(&mut fake, &asked) else {
+            panic!("{case}: {:?}", fake.ran)
+        };
+        assert_eq!((error["code"].as_str(), got), (Some(code), exit), "{case}: {error}");
+        assert_eq!(fake.ran.len(), steps, "{case}: {:?}", fake.ran);
+    }
+
+    // The upload's first piece errs late: no send; only the run's own prompt file is removed.
+    let mut fake = Fake::new(vec![signed_in(), started(), refused("app.failed"), exec_out("")]);
+    fake.slow.push((2, secs(30)));
+    let asked =
+        request(&["--prompt", &big, "--target", "machine:vm-1", "--wait", "--timeout", "30"]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!((error["code"].as_str(), exit), (Some("cloud.start_pending"), 75), "{error}");
+    assert!(fake.ran[3][5].contains("rm -f"), "{:?}", fake.ran[3]);
+    assert_eq!(fake.ran.len(), 4);
+
+    // A relay that may have reached the machine says so, and the command to ask again leaves the prompt out.
+    let mut fake = Fake::new(vec![signed_in(), refused("app.failed")]);
+    fake.slow.push((1, secs(50)));
+    let asked =
+        request(&["--prompt", "secret", "--target", "machine:vm-1", "--wait", "--timeout", "50"]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    let message = error["message"].as_str().unwrap();
+    assert!(message.contains("may have reached"), "{message}");
+    assert!(message.contains("acp ls"), "{message}");
+    assert!(!error.to_string().contains("secret"), "{error}");
+}
+
 #[test]
 fn a_timeout_shorter_than_the_relay_window_goes_the_link_way() {
     let mut fake = Fake::new(vec![
@@ -1493,7 +1630,7 @@ fn a_start_the_plans_running_cap_refuses_names_the_machines_and_how_to_make_room
     let message = error["message"].as_str().unwrap();
     assert!(message.starts_with("this plan allows 5 active machines: "), "{message}");
     assert!(
-        message.contains("api (running): `cmux cloud start-chat --target machine:vm-a --prompt hi --json` or `cmux cloud pause-machine --target machine:vm-a`"),
+        message.contains("api (running): `cmux cloud start-chat --target machine:vm-a --prompt TEXT --json` or `cmux cloud pause-machine --target machine:vm-a`"),
         "{message}"
     );
     assert!(message.contains("web (paused)"), "{message}");
@@ -1525,7 +1662,7 @@ fn a_new_machine_the_vm_apis_cap_failed_names_the_machines_and_how_to_delete_one
     let message = error["message"].as_str().unwrap();
     assert!(message.starts_with(cap), "{message}");
     assert!(
-        message.contains("web (paused): `cmux cloud start-chat --target machine:vm-b --prompt hi --json` or `cmux cloud kill-machine --target machine:vm-b --confirm`"),
+        message.contains("web (paused): `cmux cloud start-chat --target machine:vm-b --prompt TEXT --json` or `cmux cloud kill-machine --target machine:vm-b --confirm`"),
         "{message}"
     );
     assert_eq!(error["details"]["cap"], "held");
