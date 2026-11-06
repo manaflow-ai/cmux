@@ -78601,6 +78601,256 @@
         }
       }
     },
+    "cli.help.claudeAccount.list": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account [list] [--json]"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account [list] [--json]"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account [list] [--json]"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account [list] [--json]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account [list] [--json]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account [list] [--json]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account [list] [--json]"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account [list] [--json]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account [list] [--json]"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account [list] [--json]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account [list] [--json]"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account [list] [--json]"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account [list] [--json]"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account [list] [--json]"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account [list] [--json]"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account [list] [--json]"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account [list] [--json]"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account [list] [--json]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account [list] [--json]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account [list] [--json]"
+          }
+        }
+      }
+    },
+    "cli.help.claudeAccount.switch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        }
+      }
+    },
     "cli.help.clearNotifications": {
       "extractionState": "manual",
       "localizations": {

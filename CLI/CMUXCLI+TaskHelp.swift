@@ -208,8 +208,8 @@ extension CMUXCLI {
         \(String(localized: "cli.help.agents.messages", defaultValue: "agent messages [on|off|status] [<target>] [--workspace]"))
         agent-hibernation <on|off>
         agent-hibernation <hibernate|wake> <surface>
-        claude-account [list] [--json]
-        claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]
+        \(String(localized: "cli.help.claudeAccount.list", defaultValue: "claude-account [list] [--json]", bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main))
+        \(String(localized: "cli.help.claudeAccount.switch", defaultValue: "claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]", bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main))
         claude-teams [claude-args...]
         codex-teams [codex-args...]
         omo [opencode-args...]
