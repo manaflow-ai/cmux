@@ -230,6 +230,7 @@ public struct CloudMachineConfig: Equatable, Sendable {
         self.contents = contents
     }
 
+    public nonisolated static var directory: String { CloudMachineBootstrap.facts.configDirectory }
     public nonisolated static var statusPath: String { CloudMachineBootstrap.facts.configStatusPath }
     public nonisolated static var logPath: String { CloudMachineBootstrap.facts.configLogPath }
     /// The largest file the applier takes.
