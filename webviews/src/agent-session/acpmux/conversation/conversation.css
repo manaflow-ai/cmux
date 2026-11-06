@@ -3628,24 +3628,6 @@ button.cv-video-frames__frame:focus-visible {
   text-overflow: clip;
   white-space: pre-wrap;
 }
-/* An opened run's "1 background command completed, 1 failed, 1 running" (BackgroundStatusLine.tsx):
-   a quiet line after the steps, its words on their text column and their pitch; not a step or a
-   control, so it adds no row to the steps. */
-.cv-bgstatus {
-  display: flex;
-  align-items: center;
-  min-height: var(--cv-tool-row-height);
-  padding-inline-start: var(--cv-tool-text-inset);
-  overflow: hidden;
-  color: var(--cv-activity-text);
-  line-height: 20px;
-  white-space: nowrap;
-}
-.cv-bgstatus__text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 /* A failed call's cause (ToolFailureCause.tsx, the `tool-error-look` experiment): one quiet line
    under the row, starting under its words (the 16px glyph and the 8px
    gap), cut to the width; the opened call has the rest. The error tone stays on the row's word. */
