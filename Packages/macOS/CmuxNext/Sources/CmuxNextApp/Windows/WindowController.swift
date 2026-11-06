@@ -42,7 +42,10 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         self.flatMap { $0.services.agentTabs.reserveWorkspace(on: $0.services.daemon, cwd: WorkspaceSpawn().startFolder(roomFolder: $0.services.machines.local.store.profile($0.state.profileID)?.defaults?.cwd, local: true, daemonDefault: $0.services.daemon.defaultCwd)) }
     }, build: { [weak self] model in
         self.map { window in BenchSpans.measure("cmdN.reserved.build.init") { WorkspaceContentController(workspace: model, daemon: window.services.daemon, services: window.services, state: window.state, parked: true) } }
-    }, mount: { [weak self] content in BenchSpans.measure("cmdN.reserved.build.mount") { self?.root.contentHost.addHiddenSubview(content.contentView) } },
+    }, mount: { [weak self] content in BenchSpans.measure("cmdN.reserved.build.mount") { self?.root.contentHost.addHiddenSubview(content.contentView) }
+        // MUTANT (never merge): the mount takes the keyboard from the focused terminal (a page view's focus grant).
+        let page = content.contentView.subviews.lazy.flatMap { [$0] + $0.subviews }.first { $0.acceptsFirstResponder }
+        content.contentView.window?.makeFirstResponder(page) },
        teardown: { $0.teardown() }, isCurrent: { [weak self] in $0.daemon === self?.services.daemon && $0.daemon.store.reserves($0.workspace) })
     /// Workspaces Toggle Left/Right/Top/Bottom Dock created for an empty edge, docked there once the daemon reports
     /// them (`arrangeOnScreen`). In memory only.
