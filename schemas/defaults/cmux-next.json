@@ -453,6 +453,7 @@
     "setting.browser.toolbarPosition": "top",
     "setting.browser.urlsToAlwaysOpenExternally": [],
     "setting.browser.verificationAutofill.enabled": false,
+    "setting.browser.wakeTabsOnHover": false,
     "setting.chief.autoRouteSubagents": false,
     "setting.chief.reactionClassifier.harness": "",
     "setting.chief.reactionClassifier.model": "claude-haiku-5-5",
