@@ -226,7 +226,7 @@ const longCommandRows = [
 /// sent to the in-page mock daemon (mock.ts).
 type GalleryCall = {
   method: string;
-  params?: { id?: string; sessionId?: string; archived?: unknown };
+  params?: { id?: string; sessionId?: string; archived?: unknown; throughSeq?: unknown };
 };
 /// The pane's client attached the mock daemon's chat (the menu can show before, from the stage's
 /// snapshot), and its header offers the chat menu.
@@ -1794,6 +1794,49 @@ export default agentPaneEntry({
         await ctx.focus({ selector: "[contenteditable='true']" });
         await ctx.waitFor(
           () => ctx.document.querySelectorAll('.cv-turn-actions button[aria-label="Fork from here"]').length === 1,
+        );
+      },
+    },
+    "try-another-approach-cloud": {
+      note: "Cloud's latest completed turn offers Try another approach. It snapshots the machine now, copies the transcript through that turn, and opens one sibling labelled with its parent; the parent stays selected.",
+      // This action is host-owned; keep the preview transport so the fixture's transcript remains
+      // the selected parent's latest turn while the native call is recorded by the gallery bridge.
+      ready: { cloudMachineID: "vm_gallery_cloud" },
+      native: {
+        "chat.tryAnotherApproach": {
+          childId: "child-gallery",
+          parentLabel: "Try another approach · Add retries to the fetch helper",
+        },
+      },
+      snapshot: forkTurns(undefined),
+      play: async (ctx) => {
+        const page = ctx.document.defaultView as unknown as { cmuxGalleryLog: GalleryCall[] };
+        await ctx.focus({ selector: "[contenteditable='true']" });
+        await ctx.waitFor(
+          () =>
+            ctx.document.querySelectorAll('.cv-turn-actions button[aria-label="Try another approach"]').length === 1,
+        );
+        const buttons = ctx.document.querySelectorAll<HTMLButtonElement>(
+          '.cv-turn-actions button[aria-label="Try another approach"]',
+        );
+        buttons[0]!.click();
+        await ctx.waitFor(() =>
+          page.cmuxGalleryLog.some(
+            ({ method, params }) => method === "chat.tryAnotherApproach" && params?.throughSeq === 6,
+          ),
+        );
+        if (ctx.document.querySelectorAll('.cv-turn-actions button[aria-label="Try another approach"]').length !== 1)
+          throw new Error("parent action changed");
+      },
+    },
+    "try-another-approach-child": {
+      note: "Sibling chat opened by Try another approach, with the parent label visible in its title.",
+      ready: { cloudMachineID: "vm_gallery_cloud" },
+      snapshot: forkTurns(undefined, "Try another approach · Add retries to the fetch helper"),
+      play: async (ctx) => {
+        await ctx.focus({ selector: "[contenteditable='true']" });
+        await ctx.waitFor(() =>
+          ctx.document.querySelector('[aria-label="Try another approach · Add retries to the fetch helper"]'),
         );
       },
     },
@@ -3842,7 +3885,7 @@ async function forkEarlierTurn(ctx: PlayContext) {
   );
 }
 
-function forkTurns(family: string | undefined) {
+function forkTurns(family: string | undefined, title = "Add retries to the fetch helper") {
   const snapshot = chat([
     user("Add retry with backoff to the uploader", 9, { seq: 1 }),
     assistant("Done: three tries, doubling from 200 ms, only on 5xx and timeouts.", 8.5),
@@ -3851,5 +3894,9 @@ function forkTurns(family: string | undefined) {
     assistant("Added `uploader.retry.test.ts`; it passes and fails without the retry.", 5),
     summary(5, { seq: 6, status: "completed" }),
   ]);
-  return { ...snapshot, summary: snapshot.summary && { ...snapshot.summary, family } };
+  return {
+    ...snapshot,
+    summary: snapshot.summary && { ...snapshot.summary, family, title },
+    sessions: snapshot.sessions.map((entry) => ({ ...entry, displayTitle: title })),
+  };
 }

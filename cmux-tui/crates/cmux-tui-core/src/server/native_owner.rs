@@ -35,6 +35,7 @@ const COMMANDS: &[&str] = &[
     "agent-session-permission",
     "agent-session-detach",
     "agent-session-children",
+    "agent-session-fork",
     "agent-session-media",
     "agent-session-typing",
     "agent-session-view",
@@ -115,6 +116,7 @@ const CAPABILITIES: &[&str] = &[
     AGENT_SESSION_START_MODEL_CAPABILITY,
     agent_session_attach::AGENT_SESSION_PRESENCE_CAPABILITY,
     agent_session_attach::agent_session_children::AGENT_SESSION_CHILDREN_CAPABILITY,
+    AGENT_SESSION_FORK_CAPABILITY,
     agent_transfer::AGENT_TRANSFER_CAPABILITY,
     agent_transfer::AGENT_TRANSFER_VM_KIND_CAPABILITY,
     agent_inventory::CAPABILITY,
@@ -296,5 +298,16 @@ pub(super) fn raw_command(mux: &Mux, client: u64, command: &Command) -> bool {
         | Command::TerminalClipboardSubscribe { .. } => true,
         Command::NewConversationTab(params) => params.native_agent_tab(mux),
         _ => terminal::allows(mux, client, command),
+    }
+}
+
+#[cfg(test)]
+mod fork_admission_tests {
+    use super::*;
+
+    #[test]
+    fn a_native_owner_may_fork_its_attached_chat() {
+        assert!(admits(r#"{"cmd":"agent-session-fork","surface":1,"through_seq":3}"#));
+        assert!(CAPABILITIES.contains(&AGENT_SESSION_FORK_CAPABILITY));
     }
 }

@@ -57,6 +57,19 @@ public struct CloudWait {
         return false
     }
 
+    /// The async-redial form is used when each bounded observation must reconcile remote state
+    /// before checking the condition (for example, a machine created by a just-completed fork).
+    public static func holds(tries: Int, each: Duration,
+                             redial: @escaping @MainActor @Sendable () async -> Void,
+                             until condition: @escaping @MainActor @Sendable () -> Bool) async -> Bool {
+        var up = false
+        for _ in 0..<tries where !up {
+            await redial()
+            up = await holds(within: each, until: condition)
+        }
+        return up
+    }
+
     /// Waits within `limit` for a link to come up: nil once `connected`, else `failure`, or `deadline`
     /// when there is none. A failure already showing when the wait begins is the last link's: it ends
     /// the wait only once the new connect cleared it and failed again, or at the deadline.

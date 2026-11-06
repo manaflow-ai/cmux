@@ -1516,6 +1516,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // This Mac's own name (`localMachineName`): `machineName` names a seeded chat's machine instead.
   const [localMachineName, setLocalMachineName] = useState<string | undefined>();
   const [cloudMachineID, setCloudMachineID] = useState<string | undefined>();
+  // The host bridge reads the current machine without re-registering every native handler.
+  const cloudMachineIDRef = useRef(cloudMachineID);
+  cloudMachineIDRef.current = cloudMachineID;
   const [cloudRepositoryAvailable, setCloudRepositoryAvailable] = useState(false);
   const [cloudChatIdentity, setCloudChatIdentity] = useState<CloudChatIdentity>();
   // A fresh composer can select a paused Cloud machine before it has a session. Keep only that
@@ -1878,6 +1881,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const forkable = canFork(snapshot);
   const forkSeq = latestForkSeq(snapshot.rows);
   const forkAny = forksAnyTurn(snapshot.summary?.family);
+  const tryAnotherApproachInFlight = useRef<Promise<void> | undefined>(undefined);
   // Edit and resend (cx-ncc.60): rebuilt when the editable prompts change, not on every streamed row.
   // A running chat still permits editing an earlier completed prompt: editResend forks through that
   // prompt's preceding turn, leaving this branch running while the edited sibling starts its own turn.
@@ -3459,10 +3463,31 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       }),
       ...(forkable && {
         fork: (throughSeq: number) => void callNative("chat.fork", { throughSeq }).catch(() => undefined),
-        forkSeq,
         forkAny,
         promptTurns: stablePromptSeqs,
       }),
+      // Cloud's latest-turn action is available even when the harness does not advertise the
+      // ordinary transcript fork capability; ForkRuns supplies the machine copy and this action
+      // uses the child acpmux bridge for the transcript.
+      forkSeq,
+      ...(cloudMachineID &&
+        forkSeq !== undefined && {
+          tryAnotherApproach: async (throughSeq: number) => {
+            if (tryAnotherApproachInFlight.current) return tryAnotherApproachInFlight.current;
+            // Straight to native: callNative would select the page action of the same name.
+            const task = postNative("chat.tryAnotherApproach", { throughSeq });
+            const settled = task.then(
+              () => undefined,
+              () => undefined,
+            );
+            tryAnotherApproachInFlight.current = settled;
+            try {
+              await task;
+            } finally {
+              if (tryAnotherApproachInFlight.current === settled) tryAnotherApproachInFlight.current = undefined;
+            }
+          },
+        }),
       promptImage: (id: string) => directClient.current?.promptImage(id) ?? Promise.resolve(undefined),
       ...(stableEditSeqs.size > 0 && {
         edit: {
@@ -7283,6 +7308,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               persist: persistSession,
               focus: () => composerHandle.current?.focus(),
             });
+          },
+          // Cloud's Try another approach is native-owned: it snapshots the current machine,
+          // then asks the child acpmux to fork its latest transcript before opening a sibling.
+          // postNative, never callNative: callNative would pick this same page action again.
+          "chat.tryAnotherApproach": async ({ throughSeq }) => {
+            if (!cloudMachineIDRef.current || Number(throughSeq) !== latestForkSeq(snapshotRef.current?.rows ?? []))
+              return undefined;
+            return postNative("chat.tryAnotherApproach", { throughSeq: Number(throughSeq) });
           },
           // Edit and resend (cx-ncc.60): a fork through the turn before the prompt, which then gets the
           // edited text with the prompt's attachments; the original chat stays as it was.

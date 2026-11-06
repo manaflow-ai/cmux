@@ -548,6 +548,14 @@ extension AgentTabStore {
     /// Keep the native recovery callback aligned with the current Cloud account. This runs at
     /// construction and on each observed sign-in/account transition, so sign-in restores it.
     func syncCloudCredentialTransferAvailability(services: AppServices) {
+        if services.cloud.auth.isSignedIn {
+            tryAnotherApproach = { [weak services] (chat: String, throughSeq: Int) async throws -> [String: Any] in
+                guard let services else { throw CancellationError() }
+                return try await cloudTryAnotherApproach(chat: chat, throughSeq: throughSeq, services: services)
+            }
+        } else {
+            tryAnotherApproach = nil
+        }
         guard Self.cloudCredentialTransferIsAvailable(isSignedIn: services.cloud.auth.isSignedIn) else {
             cloudCredentialTransfer = nil
             return
