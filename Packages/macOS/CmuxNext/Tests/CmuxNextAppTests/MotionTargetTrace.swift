@@ -6,15 +6,16 @@ import CoreGraphics
 /// and how far its container's edges moved that frame, then finds every frame that breaks a target:
 /// - away: the element is farther from its rest than in the frame before (an overshoot, or a jolt "all the way down and
 ///   then back up");
-/// - jump: the element moved more in one frame than its container's edges did (a snap or a pop-in mid-motion);
+/// - jump: the element moved more in one frame than its container's edges did, or, for an element that is itself what
+///   moves, more than half its whole travel in one frame (a snap or a pop-in mid-motion);
 /// - after the end: the element moves after the motion landed (a layout jump once the animation ended).
 /// Built for the frame-owner path's manual 120 Hz ticks (`LayoutRootView.advanceFrame`); dropped frames are the
 /// films' and benches' to count, not this check's.
 struct MotionTargetTrace {
     struct Sample {
         var position: CGFloat
-        /// The largest move of the element's container's edges since the frame before; nil when the element is itself a
-        /// moving edge (a pane's), which only the away and after-the-end targets check.
+        /// The largest move of the element's container's edges since the frame before; nil when the element is itself
+        /// what moves (a pane's edge, a tab, a sidebar row): then a jump is one frame covering more than half its travel.
         var containerStep: CGFloat?
     }
 
@@ -60,8 +61,8 @@ struct MotionTargetTrace {
                 let slack = frame == 0 ? firstStep[element] ?? 0 : 0
                 let away = abs(now.position - rest) - abs(before.position - rest) - slack
                 if away > Self.tolerance { found.append(Violation(element: element, frame: frame + 1, kind: .away, points: away)) }
-                guard let step = now.containerStep else { continue }
-                let jump = abs(now.position - before.position) - step - slack
+                let travel = abs((samples.first?.position ?? rest) - rest)
+                let jump = abs(now.position - before.position) - (now.containerStep ?? travel / 2) - slack
                 if jump > Self.tolerance { found.append(Violation(element: element, frame: frame + 1, kind: .jump, points: jump)) }
             }
             if let last = samples.last, let settledAt = settled[element], abs(settledAt - last.position) > Self.tolerance {

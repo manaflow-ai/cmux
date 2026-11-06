@@ -15,7 +15,7 @@ import Testing
 /// frame is sampled from the tab's layer at a fixed media time, the move's begin time plus k/120 s
 /// (`MotionPath.value(at:)`, the render server's own evaluation of every move on the layer), not at real time, and the
 /// samples do not depend on how busy the runner is. A tab's shown x is its layer's left edge in the strip's content;
-/// the strip itself does not move, so every sample has `containerStep: 0`. After the last frame one more layout pass
+/// the strip itself does not move, so every sample has `containerStep: nil` (each is itself what moves). After the last frame one more layout pass
 /// runs, and each tab's model x then is its rest.
 ///
 /// The strip animates only in a window on a screen (`TabStripView.stripMove`: `Motion.canAnimate` refuses a window
@@ -117,12 +117,12 @@ struct TabMoveMotionTargetTests {
 
         var trace = MotionTargetTrace()
         for (id, _) in cells {
-            if let x = start[id] { trace.record(id.rawValue, x, containerStep: 0) }
+            if let x = start[id] { trace.record(id.rawValue, x, containerStep: nil) }
         }
         let frames = Int(((end - begin) * 120).rounded(.up)) + 1
         for k in 0...frames {
             let time = begin + Double(k) / 120
-            for (id, cell) in cells { trace.record(id.rawValue, Self.shownX(cell, at: time), containerStep: 0) }
+            for (id, cell) in cells { trace.record(id.rawValue, Self.shownX(cell, at: time), containerStep: nil) }
         }
         // The landing, then one more layout pass: every tab's model geometry is where it rests.
         strip.needsLayout = true

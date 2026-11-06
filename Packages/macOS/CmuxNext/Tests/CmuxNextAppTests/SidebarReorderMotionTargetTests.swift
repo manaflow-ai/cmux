@@ -17,7 +17,7 @@ import Testing
 /// sampled from the row's layer at a fixed media time, the springs' begin time plus k/120 s (`MotionPath.value(at:)`,
 /// Core Animation's own spring), not at real time, and the samples do not depend on how busy the runner is. A row's
 /// shown y is its layer's top in the list's coordinates; the list does not scroll in these cases (checked), so every
-/// sample has `containerStep: 0`. After the last frame the move's end runs (`RowMotion.land`) and one more layout
+/// sample has `containerStep: nil` (each row is itself what moves). After the last frame the move's end runs (`RowMotion.land`) and one more layout
 /// pass, and each row's model y then is its rest.
 ///
 /// The springs run only in a window on an awake screen (`SidebarDragSpring.move` and `Motion.canAnimate` land the
@@ -107,13 +107,13 @@ struct SidebarReorderMotionTargetTests {
 
         var trace = MotionTargetTrace()
         for row in moved {
-            if let y = startY[row.key] { trace.record("\(row.key)", y, containerStep: 0) }
+            if let y = startY[row.key] { trace.record("\(row.key)", y, containerStep: nil) }
         }
         // At most 5 s of frames: a slower animation speed still ends inside it.
         let frames = min(600, Int(((springEnd - begin) * 120).rounded(.up)) + 1)
         for k in 0...frames {
             let time = begin + Double(k) / 120
-            for row in moved { trace.record("\(row.key)", Self.shownY(row.view, at: time), containerStep: 0) }
+            for row in moved { trace.record("\(row.key)", Self.shownY(row.view, at: time), containerStep: nil) }
         }
         // The move's end puts every row on its layout frame, then one more layout pass: each row's model y is its rest.
         RowMotion.land(list)
