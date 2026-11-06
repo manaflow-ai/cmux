@@ -1,4 +1,4 @@
-import Foundation
+package import Foundation
 
 /// The strings of the Home models (Localizable.xcstrings): the Chief tags, the group and invite
 /// outcomes, group info's members header and roles, Leave Group's question, and the first-run
@@ -55,7 +55,7 @@ package enum HomeModelStrings {
     /// The Home row menu's item that opens the sheet for a group.
     package static var infoGroupMenu: String { String(localized: "home.info.menu.group", defaultValue: "Group Info…", bundle: .module) }
     /// The members list's plain header. `bundle` and `locale` as for ``infoMemberCount(_:bundle:locale:)``.
-    package static func infoMembers(bundle: Bundle = .module, locale: Locale = .current) -> String {
+    package static func infoMembers(bundle: Bundle = HomeModelStrings.bundle, locale: Locale = .current) -> String {
         String(localized: "home.info.members", defaultValue: "Members", bundle: bundle, locale: locale)
     }
     package static var infoRoleOwner: String { String(localized: "home.info.role.owner", defaultValue: "Owner", bundle: .module) }
@@ -64,7 +64,7 @@ package enum HomeModelStrings {
     /// A large group's header ("5,000 members"); a plural string, so each locale picks its form for
     /// `count`, and the interpolated count is formatted for `locale`. `bundle` and `locale` default to
     /// this module's catalog in the user's language; a test passes one language's table and its locale.
-    package static func infoMemberCount(_ count: Int, bundle: Bundle = .module, locale: Locale = .current) -> String {
+    package static func infoMemberCount(_ count: Int, bundle: Bundle = HomeModelStrings.bundle, locale: Locale = .current) -> String {
         String(localized: "home.info.memberCount", defaultValue: "\(count) members", bundle: bundle, locale: locale)
     }
     /// What a group action's outcome says; nil when it worked.
