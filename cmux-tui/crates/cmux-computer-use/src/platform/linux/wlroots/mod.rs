@@ -147,12 +147,31 @@ impl WlrootsDesktop {
                 (None, Some(serial)) => self.wl().activate(serial.parse().unwrap_or(0))?,
                 _ => return Err(DesktopError::Unsupported("cannot focus this window".into())),
             }
+            self.settle_focus(w)?;
         }
         Ok(if self.headless && delivery == Delivery::Background {
             "wlr_virtual_input_headless"
         } else {
             "wlr_virtual_input"
         })
+    }
+
+    /// After a focus change: waits (bounded, on compositor round trips) until
+    /// the compositor reports the window activated, then taps Shift. Clients
+    /// such as foot drop the first keys that arrive in the same burst as
+    /// their keyboard enter; a modifier tap absorbs that and types nothing.
+    fn settle_focus(&self, w: &IpcWindow) -> DResult<()> {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(500);
+        let mut wl = self.wl();
+        while std::time::Instant::now() < deadline {
+            wl.sync()?;
+            let active =
+                wl.state.toplevels.iter().any(|t| !t.closed && t.activated && t.title == w.title);
+            if active || !wl.toplevel_list {
+                break;
+            }
+        }
+        wl.keys(&[keysym::SHIFT_L], &[(0, true), (0, false)])
     }
 
     fn point_in(w: &IpcWindow, p: Point) -> DResult<()> {
