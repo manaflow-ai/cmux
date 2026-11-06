@@ -474,6 +474,9 @@ pub struct PromptOptions {
     pub interrupt_turn: Option<String>,
     /// Who sent the prompt, when not the person (`prompt_provenance.rs`).
     pub provenance: Option<Value>,
+    /// Connection proof that a person authored this prompt. A `person_message` kind alone is not
+    /// enough: local clients may supply that shape without the authenticated person handshake.
+    pub human_authenticated: bool,
     /// Sender identity carried across a peer link. Provenance is intentionally removed at that
     /// boundary, but the additive message event still needs the sender's stable identity.
     pub message_sender: Option<Value>,
