@@ -461,6 +461,49 @@ pub(crate) fn is_shell_app(app_name: &str) -> bool {
     )
 }
 
+/// What `launch(app_id)` would start, as policy ids: the desktop-file id, the
+/// program's file name, and every desktop entry that runs that program (so
+/// `konsole` is also `org.kde.konsole`).
+pub(crate) fn launch_identities(
+    resolver: &AppResolver,
+    app_id: &str,
+) -> crate::desktop::DResult<Vec<String>> {
+    use crate::desktop::DesktopError;
+    let index = resolver.index();
+    let program = if let Some(e) = index.by_id(app_id) {
+        exec_argv(&e.exec).into_iter().next()
+    } else if !app_id.contains('/') && which(app_id).is_some() {
+        Some(app_id.to_string())
+    } else {
+        return Err(DesktopError::TargetNotFound(format!(
+            "no desktop file or executable named {app_id:?}"
+        )));
+    };
+    let mut ids = vec![app_id.to_string()];
+    if let Some(e) = index.by_id(app_id) {
+        ids.push(e.id.clone());
+    }
+    if let Some(program) = program {
+        let base = Path::new(&program)
+            .file_name()
+            .and_then(|f| f.to_str())
+            .unwrap_or(program.as_str())
+            .to_string();
+        for e in index.entries.iter() {
+            let runs = exec_argv(&e.exec).into_iter().next().is_some_and(|p| {
+                Path::new(&p).file_name().and_then(|f| f.to_str()) == Some(base.as_str())
+            });
+            if runs {
+                ids.push(e.id.clone());
+            }
+        }
+        ids.push(base);
+    }
+    ids.sort();
+    ids.dedup();
+    Ok(ids)
+}
+
 /// Starts an app by desktop file id or executable name, detached from us.
 pub(crate) fn launch(
     resolver: &AppResolver,

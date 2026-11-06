@@ -198,3 +198,67 @@ fn mcp_shape() {
     assert_eq!(v["content"][1]["type"], "image");
     assert_eq!(v["isError"], false);
 }
+
+#[test]
+fn launch_checks_what_would_really_start_not_the_agents_words() {
+    let d = Arc::new(FakeDesktop::standard());
+    let config = PolicyConfig { denied_apps: vec!["cmd.exe".into()], ..PolicyConfig::default() };
+    let e = engine(d.clone(), config);
+    for id in ["cmd", "CMD.EXE", "C:\\Windows\\System32\\cmd.exe"] {
+        let out = e.call(&ctx(None), "launch_app", &json!({"app_id": id}));
+        assert_eq!(out.code.as_deref(), Some("app_denied"), "{id}");
+    }
+    assert!(d.events().is_empty(), "nothing was launched");
+}
+
+#[test]
+fn never_apps_are_painted_out_and_marked_in_listings() {
+    let d = Arc::new(FakeDesktop::standard());
+    let config = PolicyConfig { denied_apps: vec![], ..PolicyConfig::default() };
+    let e = engine(d, config);
+    assert_eq!(e.call(&ctx(None), "screenshot", &json!({})).body["redacted_windows"], 0);
+    e.sessions().update_saved(|s| s.set_never("com.1password.1password"));
+    assert_eq!(
+        e.call(&ctx(None), "screenshot", &json!({"force": true})).body["redacted_windows"],
+        1
+    );
+    let windows = e.call(&ctx(None), "list_windows", &json!({}));
+    assert_eq!(windows.body["windows"][0]["denied"], true);
+    let apps = e.call(&ctx(None), "list_apps", &json!({}));
+    assert_eq!(apps.body["apps"][1]["denied_reason"], "app_never_allowed");
+}
+
+#[test]
+fn a_call_cut_off_by_a_restart_is_not_run_again() {
+    let dir = std::env::temp_dir().join(format!("cu-engine-restart-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    // The first worker recorded the click as started, then stopped.
+    Sessions::open(Some(&dir)).begin("s1", "cut");
+    let d = Arc::new(FakeDesktop::standard());
+    let mut parts = EngineParts::new(d.clone());
+    parts.state_dir = Some(dir.clone());
+    let e = Engine::new(parts);
+    let out = e.call(&ctx(Some("cut")), "click", &json!({"window_id": "1", "element_id": "e1"}));
+    assert_eq!(out.code.as_deref(), Some("maybe_done"));
+    assert!(d.events().is_empty());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn labels_shown_to_the_person_are_bounded() {
+    assert_eq!(safe_label("Claude\n\tCode"), "Claude Code");
+    assert_eq!(safe_label("\u{7}"), "Agent");
+    let long = "x".repeat(500);
+    assert_eq!(safe_label(&long).chars().count(), LABEL_MAX_CHARS);
+    let rec = Arc::new(Recorder(Mutex::new(vec![])));
+    let mut parts = EngineParts::new(Arc::new(FakeDesktop::standard()));
+    parts.cursor = rec.clone();
+    let e = Engine::new(parts);
+    let mut c = ctx(None);
+    c.label = long;
+    e.call(&c, "click", &json!({"window_id": "1", "x": 1, "y": 1}));
+    let events = rec.0.lock().unwrap();
+    let CursorEvent::Move { label, .. } = &events[0] else { panic!() };
+    assert_eq!(label.chars().count(), LABEL_MAX_CHARS);
+}

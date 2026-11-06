@@ -529,6 +529,10 @@ impl Desktop for WlrootsDesktop {
     fn launch_app(&self, app_id: &str) -> DResult<App> {
         super::launch(&self.apps, app_id)
     }
+
+    fn launch_identities(&self, app_id: &str) -> DResult<Vec<String>> {
+        super::launch_identities(&self.apps, app_id)
+    }
 }
 
 fn button_code(b: Button) -> u32 {

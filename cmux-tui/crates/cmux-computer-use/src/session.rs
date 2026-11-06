@@ -31,11 +31,34 @@ pub const SESSION_GRANT_IDLE: Duration = Duration::from_secs(8 * 3600);
 struct SessionFile {
     /// app id -> last use, unix seconds.
     grants: HashMap<String, u64>,
+    /// Acting calls, newest last: started (no result yet) or finished.
+    calls: VecDeque<CallRecord>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct CallRecord {
+    id: String,
+    /// Unix seconds when it started.
+    at: u64,
+    /// The finished call's result; `None` while it runs, or when the worker
+    /// stopped before it finished.
+    result: Option<String>,
+}
+
+/// What a retried `call_id` finds.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Prior {
+    /// Never seen: run it.
+    New,
+    /// Finished: return this result without acting again.
+    Finished(String),
+    /// Started by an earlier worker that stopped before it answered: it may
+    /// have acted, so it is not run again.
+    Interrupted,
 }
 
 struct Session {
     file: SessionFile,
-    finished: VecDeque<(String, u64, String)>,
 }
 
 /// The sessions and saved approvals of one machine.
@@ -53,11 +76,21 @@ fn now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
 
-fn valid_key(key: &str) -> bool {
-    !key.is_empty()
-        && key.len() <= 128
-        && key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
-        && !key.starts_with('.')
+/// The file of a session key: its safe characters (at most 64) and a hash
+/// of the whole key, so any key (`remote:mini:abc`, or a hostile one) maps
+/// to one plain file name inside the sessions folder.
+fn file_name(key: &str) -> String {
+    let safe: String = key
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .take(64)
+        .collect();
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in key.bytes() {
+        hash ^= b as u64;
+        hash = hash.wrapping_mul(0x0100_0000_01b3);
+    }
+    format!("{safe}-{hash:016x}.json")
 }
 
 impl Sessions {
@@ -99,11 +132,10 @@ impl Sessions {
             let file = self
                 .dir
                 .as_ref()
-                .filter(|_| valid_key(key))
-                .and_then(|d| std::fs::read(d.join("sessions").join(format!("{key}.json"))).ok())
+                .and_then(|d| std::fs::read(d.join("sessions").join(file_name(key))).ok())
                 .and_then(|b| serde_json::from_slice(&b).ok())
                 .unwrap_or_default();
-            Session { file, finished: VecDeque::new() }
+            Session { file }
         })
     }
 
@@ -143,50 +175,81 @@ impl Sessions {
             Some(k) => vec![k.to_string()],
             None => state.sessions.keys().cloned().collect(),
         };
+        let mut files = Vec::new();
         for k in &keys {
-            self.session(&mut state, k).file.grants.clear();
+            let session = self.session(&mut state, k);
+            session.file.grants.clear();
+            files.push((k.clone(), session.file.clone()));
         }
         drop(state);
-        for k in keys {
-            self.persist(&k, &SessionFile::default());
+        for (k, file) in &files {
+            self.persist(k, file);
         }
+        // Sessions this worker has not loaded: their grants go too (their call
+        // records stay, so a retried call still never acts twice).
         if key.is_none()
             && let Some(dir) = &self.dir
             && let Ok(entries) = std::fs::read_dir(dir.join("sessions"))
         {
+            let loaded: std::collections::HashSet<String> =
+                files.iter().map(|(k, _)| file_name(k)).collect();
             for e in entries.flatten() {
-                let _ = std::fs::remove_file(e.path());
+                let name = e.file_name().to_string_lossy().into_owned();
+                if loaded.contains(&name) {
+                    continue;
+                }
+                let Ok(bytes) = std::fs::read(e.path()) else { continue };
+                let Ok(mut file) = serde_json::from_slice::<SessionFile>(&bytes) else { continue };
+                file.grants.clear();
+                if let Ok(bytes) = serde_json::to_vec(&file) {
+                    write_private(&e.path(), &bytes);
+                }
             }
         }
     }
 
-    /// The result of a call already finished in this session, when the
-    /// bridge retries the same `call_id`.
-    pub fn finished(&self, key: &str, call_id: &str) -> Option<String> {
+    /// What an earlier attempt of `call_id` left: a result, an interrupted
+    /// start (from a worker that stopped), or nothing.
+    pub fn prior(&self, key: &str, call_id: &str) -> Prior {
         let mut state = self.lock();
         let session = self.session(&mut state, key);
         let cutoff = now().saturating_sub(CALL_MEMORY.as_secs());
-        session.finished.retain(|(_, t, _)| *t >= cutoff);
-        session.finished.iter().find(|(id, _, _)| id == call_id).map(|(_, _, r)| r.clone())
+        session.file.calls.retain(|c| c.at >= cutoff);
+        match session.file.calls.iter().find(|c| c.id == call_id) {
+            None => Prior::New,
+            Some(CallRecord { result: Some(result), .. }) => Prior::Finished(result.clone()),
+            Some(CallRecord { result: None, .. }) => Prior::Interrupted,
+        }
     }
 
+    /// Records, on disk, that an acting call starts, before it acts.
+    pub fn begin(&self, key: &str, call_id: &str) {
+        self.record(key, call_id, None);
+    }
+
+    /// Records, on disk, the finished call's result before it is returned.
     pub fn remember(&self, key: &str, call_id: &str, result: String) {
+        self.record(key, call_id, Some(result));
+    }
+
+    fn record(&self, key: &str, call_id: &str, result: Option<String>) {
         let mut state = self.lock();
         let session = self.session(&mut state, key);
-        session.finished.push_back((call_id.to_string(), now(), result));
-        while session.finished.len() > CALL_MEMORY_MAX {
-            session.finished.pop_front();
+        session.file.calls.retain(|c| c.id != call_id);
+        session.file.calls.push_back(CallRecord { id: call_id.to_string(), at: now(), result });
+        while session.file.calls.len() > CALL_MEMORY_MAX {
+            session.file.calls.pop_front();
         }
+        let file = session.file.clone();
+        drop(state);
+        self.persist(key, &file);
     }
 
     fn persist(&self, key: &str, file: &SessionFile) {
-        if !valid_key(key) {
-            return;
-        }
         if let Some(dir) = &self.dir
             && let Ok(bytes) = serde_json::to_vec(file)
         {
-            write_private(&dir.join("sessions").join(format!("{key}.json")), &bytes);
+            write_private(&dir.join("sessions").join(file_name(key)), &bytes);
         }
     }
 }
@@ -256,18 +319,40 @@ mod tests {
     #[test]
     fn a_retried_call_returns_the_first_result() {
         let s = Sessions::open(None);
-        assert!(s.finished("a", "c1").is_none());
+        assert_eq!(s.prior("a", "c1"), Prior::New);
+        s.begin("a", "c1");
         s.remember("a", "c1", "{\"ok\":1}".into());
-        assert_eq!(s.finished("a", "c1").as_deref(), Some("{\"ok\":1}"));
-        assert!(s.finished("b", "c1").is_none());
+        assert_eq!(s.prior("a", "c1"), Prior::Finished("{\"ok\":1}".into()));
+        assert_eq!(s.prior("b", "c1"), Prior::New);
     }
 
     #[test]
-    fn hostile_session_keys_never_touch_the_filesystem() {
+    fn finished_and_interrupted_calls_survive_a_worker_restart() {
+        let dir = tmpdir("calls");
+        let first = Sessions::open(Some(&dir));
+        first.begin("remote:mini:s1", "done");
+        first.remember("remote:mini:s1", "done", "r".into());
+        // The worker stops after this one started acting, before it answered.
+        first.begin("remote:mini:s1", "cut");
+        drop(first);
+        let second = Sessions::open(Some(&dir));
+        assert_eq!(second.prior("remote:mini:s1", "done"), Prior::Finished("r".into()));
+        assert_eq!(second.prior("remote:mini:s1", "cut"), Prior::Interrupted);
+        second.revoke_all(None);
+        // Revoking grants keeps the call records.
+        assert_eq!(Sessions::open(Some(&dir)).prior("remote:mini:s1", "cut"), Prior::Interrupted);
+    }
+
+    #[test]
+    fn hostile_session_keys_stay_one_file_in_the_sessions_folder() {
         let dir = tmpdir("keys");
         let s = Sessions::open(Some(&dir));
         s.grant("../../etc/x", "a");
-        assert!(!dir.join("etc").exists());
-        assert!(s.has_grant("../../etc/x", "a"));
+        assert!(!dir.join("etc").exists() && !dir.parent().unwrap().join("etc").exists());
+        let files: Vec<_> = std::fs::read_dir(dir.join("sessions")).unwrap().flatten().collect();
+        assert_eq!(files.len(), 1);
+        assert!(!files[0].file_name().to_string_lossy().contains('/'));
+        assert!(Sessions::open(Some(&dir)).has_grant("../../etc/x", "a"));
+        assert_ne!(file_name("a:b"), file_name("a_b"));
     }
 }

@@ -295,6 +295,15 @@ pub fn parse_app_id(id: &str) -> Result<AppId, String> {
     }
 }
 
+/// What `launch_app(id)` would start, as policy ids: the `.exe` file name
+/// (lowercased, as `list_apps` reports it) or the packaged app id.
+pub fn launch_identities(id: &str) -> Result<Vec<String>, String> {
+    Ok(match parse_app_id(id)? {
+        AppId::Exe(path) => vec![exe_id(&path)],
+        AppId::Aumid(aumid) => vec![aumid.to_ascii_lowercase()],
+    })
+}
+
 /// The app id policy matches on: the executable's file name, lowercased.
 pub fn exe_id(path: &str) -> String {
     path.rsplit(['\\', '/']).next().unwrap_or(path).to_ascii_lowercase()
@@ -604,5 +613,18 @@ mod tests {
         assert_eq!(px(a.width - 1, 0)[3], 0);
         // Premultiplied: no channel exceeds alpha.
         assert!(a.bgra.chunks_exact(4).all(|p| p[0] <= p[3] && p[1] <= p[3] && p[2] <= p[3]));
+    }
+}
+
+#[cfg(test)]
+mod launch_identity_tests {
+    use super::launch_identities;
+
+    #[test]
+    fn every_spelling_of_a_program_is_one_identity() {
+        for id in ["cmd", "CMD.EXE", "C:\\Windows\\System32\\cmd.exe", "\\\\host\\share\\Cmd.exe"] {
+            assert_eq!(launch_identities(id).unwrap(), vec!["cmd.exe".to_string()], "{id}");
+        }
+        assert!(launch_identities("ms-settings:privacy").is_err());
     }
 }

@@ -31,7 +31,7 @@ use crate::keys::KeyCombo;
 use crate::policy::{
     self, Access, Decision, OriginKind, PolicyConfig, Refusal, Request, TargetApp,
 };
-use crate::session::Sessions;
+use crate::session::{Prior, Sessions};
 use crate::tools;
 
 pub use crate::policy::OriginKind as Origin;
@@ -274,24 +274,49 @@ impl Engine {
     }
 
     pub fn call(&self, ctx: &CallContext, name: &str, args: &Value) -> ToolOutput {
+        // The label reaches the person (approval panel, cursor, notifications):
+        // any caller with the socket secret sets it, so it is bounded here.
+        let safe;
+        let ctx = if safe_label(&ctx.label) == ctx.label {
+            ctx
+        } else {
+            safe = CallContext { label: safe_label(&ctx.label), ..ctx.clone() };
+            &safe
+        };
         let Some(tool) = tools::find(name) else {
             return ToolOutput::error("unknown_tool", format!("unknown tool {name:?}"));
         };
-        if let Some(call_id) = &ctx.call_id
-            && let Some(done) = self.sessions.finished(&ctx.session, call_id)
-            && let Some(out) =
-                serde_json::from_str::<Value>(&done).ok().as_ref().and_then(ToolOutput::from_json)
-        {
-            return out;
+        // An acting call is recorded on disk before it acts and again with its
+        // result, so a retry (same call_id), even after a worker restart,
+        // never acts twice.
+        let acting_id = ctx.call_id.as_deref().filter(|_| tool.acts());
+        if let Some(call_id) = acting_id {
+            match self.sessions.prior(&ctx.session, call_id) {
+                Prior::Finished(done) => {
+                    if let Some(out) = serde_json::from_str::<Value>(&done)
+                        .ok()
+                        .as_ref()
+                        .and_then(ToolOutput::from_json)
+                    {
+                        return out;
+                    }
+                }
+                Prior::Interrupted => {
+                    return ToolOutput::error(
+                        "maybe_done",
+                        "This call was cut off by a Computer Use restart and may already have acted. Take a screenshot to check before doing it again (with a new call).",
+                    );
+                }
+                Prior::New => {}
+            }
+            self.sessions.begin(&ctx.session, call_id);
         }
         let args = if args.is_object() { args.clone() } else { json!({}) };
         let (out, app) = match self.dispatch(tool, ctx, &args) {
             Ok((out, app)) => (out, app),
             Err(out) => (out, None),
         };
-        if tool.acts()
-            && let Some(call_id) = &ctx.call_id
-        {
+        if let Some(call_id) = acting_id {
             self.sessions.remember(&ctx.session, call_id, out.to_json().to_string());
         }
         self.write_audit(ctx, name, app.as_ref(), &out);
@@ -315,13 +340,14 @@ impl Engine {
             )),
             "list_apps" => {
                 self.authorize(&config, ctx, Access::Discover, None, false)?;
+                let saved = self.sessions.saved();
                 let apps = self.desktop.list_apps().map_err(|e| ToolOutput::desktop(&e))?;
                 let apps: Vec<Value> = apps
                     .into_iter()
                     .map(|a| {
                         let t = TargetApp { id: a.id.clone(), name: a.name.clone() };
                         let mut v = serde_json::to_value(&a).unwrap_or(Value::Null);
-                        if let Some(r) = policy::is_blocked(&config, &t) {
+                        if let Some(r) = self.blocked(&config, &saved, &t) {
                             v["denied"] = json!(true);
                             v["denied_reason"] = json!(r.code());
                         }
@@ -333,6 +359,7 @@ impl Engine {
             "list_windows" => {
                 self.authorize(&config, ctx, Access::Discover, None, false)?;
                 let filter = args_str(args, "app_id");
+                let saved = self.sessions.saved();
                 let windows = self.windows()?;
                 let names = self.app_names();
                 let list: Vec<Value> = windows
@@ -340,7 +367,7 @@ impl Engine {
                     .filter(|w| filter.is_none_or(|f| w.app_id.eq_ignore_ascii_case(f)))
                     .map(|w| {
                         let t = self.target_of(&w, &names);
-                        let blocked = policy::is_blocked(&config, &t);
+                        let blocked = self.blocked(&config, &saved, &t);
                         let mut v = serde_json::to_value(&w).unwrap_or(Value::Null);
                         v["window_id"] = json!(w.id);
                         if let Some(o) = v.as_object_mut() {
@@ -481,9 +508,29 @@ impl Engine {
             }
             "launch_app" => {
                 let id = need(args, "app_id")?;
-                let app = TargetApp { id: id.to_string(), name: id.to_string() };
+                // Policy sees what would really start (cmd -> cmd.exe,
+                // konsole -> org.kde.konsole), never only the agent's words.
+                let identities =
+                    self.desktop.launch_identities(id).map_err(|e| ToolOutput::desktop(&e))?;
+                let saved = self.sessions.saved();
+                for identity in &identities {
+                    let candidate = TargetApp { id: identity.clone(), name: id.to_string() };
+                    if let Some(refusal) = policy::is_blocked(&config, &candidate) {
+                        return Err(ToolOutput::refused(&refusal, Some(&candidate)));
+                    }
+                    if saved.is_never(identity) {
+                        return Err(ToolOutput::refused(&Refusal::NeverAllowed, Some(&candidate)));
+                    }
+                }
+                let primary = identities.first().cloned().unwrap_or_else(|| id.to_string());
+                let app = TargetApp { id: primary, name: id.to_string() };
                 self.authorize(&config, ctx, Access::Act, Some(&app), false)?;
                 let started = self.desktop.launch_app(id).map_err(|e| ToolOutput::desktop(&e))?;
+                // The app that started is checked too; a blocked one is reported, not handed over.
+                let started_app = TargetApp { id: started.id.clone(), name: started.name.clone() };
+                if let Some(refusal) = policy::is_blocked(&config, &started_app) {
+                    return Err(ToolOutput::refused(&refusal, Some(&started_app)));
+                }
                 Ok((
                     ToolOutput::ok(serde_json::to_value(started).unwrap_or(Value::Null)),
                     Some(app),
@@ -508,6 +555,18 @@ impl Engine {
             "cursor": config.show_cursor,
             "cloud_vm": config.cloud_vm,
         }))
+    }
+
+    /// Protected, denied, or answered Never: hidden from listings and painted
+    /// out of screenshots.
+    fn blocked(
+        &self,
+        config: &PolicyConfig,
+        saved: &policy::SavedApprovals,
+        app: &TargetApp,
+    ) -> Option<Refusal> {
+        policy::is_blocked(config, app)
+            .or_else(|| saved.is_never(&app.id).then_some(Refusal::NeverAllowed))
     }
 
     fn windows(&self) -> Result<Vec<Window>, ToolOutput> {
@@ -798,17 +857,23 @@ impl Engine {
         let raw = self.desktop.capture(&target).map_err(|e| ToolOutput::desktop(&e))?;
         // Every on-screen window of a blocked app is painted out of a display
         // shot, and out of a window shot where it overlaps (a covering denied
-        // window would otherwise show in a composited capture).
-        let redact: Vec<Rect> = windows
-            .iter()
-            .filter(|w| w.on_screen && !w.minimized)
-            .filter(|w| policy::is_blocked(config, &self.target_of(w, &names)).is_some())
-            .filter(|w| match &target {
-                CaptureTarget::Window(id) => w.id != *id,
-                CaptureTarget::Display(_) => true,
-            })
-            .map(|w| w.frame)
-            .collect();
+        // window would otherwise show in a composited capture). The windows
+        // are read again after the capture and both lists count, so a denied
+        // window that appeared or moved during it is painted out too; if the
+        // second read fails, the capture is not returned.
+        let after = self.windows()?;
+        let saved = self.sessions.saved();
+        let mut redact: Vec<Rect> = Vec::new();
+        for w in windows.iter().chain(after.iter()) {
+            let skip = !w.on_screen
+                || w.minimized
+                || matches!(&target, CaptureTarget::Window(id) if w.id == *id)
+                || self.blocked(config, &saved, &self.target_of(w, &names)).is_none();
+            // A window that did not move is painted once.
+            if !skip && !redact.contains(&w.frame) {
+                redact.push(w.frame);
+            }
+        }
         let previous = lock(&self.seen).get(&(ctx.session.clone(), key.clone())).map(|(_, d)| *d);
         let encoded = frame::process(raw, &redact, frame::DEFAULT_MAX_EDGE, previous, force)
             .map_err(|e| ToolOutput::error("failed", e))?;
@@ -851,10 +916,41 @@ impl Engine {
             "ok": !out.is_error, "code": out.code,
             "route": out.body.get("route"),
         });
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        let mut options = std::fs::OpenOptions::new();
+        options.create(true).append(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+        if let Ok(mut f) = options.open(path) {
             let _ = writeln!(f, "{line}");
         }
     }
+}
+
+/// Most characters of an agent label shown to the person.
+pub const LABEL_MAX_CHARS: usize = 60;
+
+/// An agent label fit to show the person: no control characters, one line,
+/// at most [`LABEL_MAX_CHARS`] characters, never empty.
+pub fn safe_label(label: &str) -> String {
+    let mut out = String::new();
+    let mut space = false;
+    for c in label.chars() {
+        if c.is_control() || c.is_whitespace() {
+            space = !out.is_empty();
+            continue;
+        }
+        if space {
+            out.push(' ');
+            space = false;
+        }
+        out.push(c);
+    }
+    let mut out: String = out.chars().take(LABEL_MAX_CHARS).collect();
+    if label.chars().filter(|c| !c.is_control()).count() > LABEL_MAX_CHARS {
+        out.pop();
+        out.push('\u{2026}');
+    }
+    if out.is_empty() { "Agent".into() } else { out }
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {

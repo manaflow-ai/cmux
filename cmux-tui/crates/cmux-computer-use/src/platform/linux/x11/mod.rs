@@ -573,4 +573,8 @@ impl Desktop for X11Desktop {
         self.invalidate();
         super::launch(&self.apps, app_id)
     }
+
+    fn launch_identities(&self, app_id: &str) -> DResult<Vec<String>> {
+        super::launch_identities(&self.apps, app_id)
+    }
 }

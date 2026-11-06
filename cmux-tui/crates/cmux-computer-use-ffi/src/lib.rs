@@ -353,7 +353,14 @@ pub unsafe extern "C" fn cmux_cu_engine_call(
         .map_err(|e| e.to_string())
         .and_then(|v| parse_request(&v))
     {
-        Ok((ctx, name, args)) => engine.engine.call(&ctx, &name, &args),
+        // A panic must not unwind into Swift (undefined behavior) or abort
+        // cmux Remote: the call fails instead.
+        Ok((ctx, name, args)) => std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            engine.engine.call(&ctx, &name, &args)
+        }))
+        .unwrap_or_else(|_| {
+            cmux_computer_use::ToolOutput::error("failed", "Computer Use failed on this call")
+        }),
         Err(e) => cmux_computer_use::ToolOutput::error("invalid_request", e),
     };
     CmuxCuBuffer::from_string(out.to_json().to_string())

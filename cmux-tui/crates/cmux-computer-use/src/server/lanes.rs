@@ -31,7 +31,11 @@ struct State {
 pub struct Lanes {
     state: Mutex<State>,
     wake: Condvar,
+    /// Signalled when a pool thread exits.
+    drained: Condvar,
 }
+
+const THREAD_NAME: &str = "cmux-cu-call";
 
 impl Lanes {
     pub fn new() -> Arc<Self> {
@@ -58,7 +62,7 @@ impl Lanes {
             state.threads += 1;
             let lanes = Arc::clone(self);
             let spawned =
-                std::thread::Builder::new().name("cmux-cu-call".into()).spawn(move || lanes.run());
+                std::thread::Builder::new().name(THREAD_NAME.into()).spawn(move || lanes.run());
             if spawned.is_err() {
                 state.threads -= 1;
             }
@@ -78,6 +82,8 @@ impl Lanes {
             let Some(session) = state.ready.pop_front() else {
                 // Stopped with nothing ready.
                 state.threads -= 1;
+                drop(state);
+                self.drained.notify_all();
                 return;
             };
             let job = state.queues.get_mut(&session).and_then(VecDeque::pop_front);
@@ -98,14 +104,20 @@ impl Lanes {
         }
     }
 
-    /// Drops every waiting job; running jobs finish. Idle threads exit.
+    /// Drops every waiting job, then returns once every running job has
+    /// finished and every pool thread has exited, so nothing the jobs use
+    /// (the engine, the host's callbacks) is touched after this returns.
+    /// Called from a pool thread, it waits for every thread but its own.
     pub fn stop(&self) {
         let mut state = self.lock();
         state.stopped = true;
         state.ready.clear();
         state.queues.clear();
-        drop(state);
         self.wake.notify_all();
+        let own = usize::from(std::thread::current().name() == Some(THREAD_NAME));
+        while state.threads > own {
+            state = self.drained.wait(state).unwrap_or_else(PoisonError::into_inner);
+        }
     }
 }
 
@@ -114,6 +126,22 @@ mod tests {
     use super::*;
     use std::sync::mpsc;
     use std::time::Duration;
+
+    #[test]
+    fn stop_waits_for_the_running_call() {
+        let lanes = Lanes::new();
+        let (started_tx, started_rx) = mpsc::channel::<()>();
+        let finished = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let done = Arc::clone(&finished);
+        lanes.submit("a", move || {
+            started_tx.send(()).unwrap();
+            std::thread::sleep(Duration::from_millis(200));
+            done.store(true, std::sync::atomic::Ordering::SeqCst);
+        });
+        started_rx.recv().unwrap();
+        lanes.stop();
+        assert!(finished.load(std::sync::atomic::Ordering::SeqCst), "stop returned mid-call");
+    }
 
     #[test]
     fn one_session_runs_in_order_and_others_are_not_blocked() {

@@ -243,6 +243,12 @@ impl Desktop for FakeDesktop {
         });
         Ok(ActionOutcome::confirmed("fake"))
     }
+    /// Like Windows: a bare name launches `<name>.exe`, matched lowercased.
+    fn launch_identities(&self, app_id: &str) -> DResult<Vec<String>> {
+        let file = app_id.rsplit(['\\', '/']).next().unwrap_or(app_id).to_ascii_lowercase();
+        Ok(vec![if file.contains('.') { file } else { format!("{file}.exe") }])
+    }
+
     fn launch_app(&self, app_id: &str) -> DResult<App> {
         self.push(Event::Launch(app_id.into()));
         Ok(App { id: app_id.into(), name: app_id.into(), pid: 99, frontmost: false, hidden: false })

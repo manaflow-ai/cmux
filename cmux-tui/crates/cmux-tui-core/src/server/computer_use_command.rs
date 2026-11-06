@@ -11,9 +11,10 @@
 //!   The machine owner's file (`/etc/cmux/computer-use.json`,
 //!   `%ProgramData%\cmux\computer-use.json`) still wins.
 //! - `computer-use-approvals {action, app_id?, id?, answer?}`: `list` (saved
-//!   approvals and the questions waiting), `forget`, `never` and
-//!   `revoke_sessions` lower trust and are open to any local connection;
-//!   `always`, and an `answer` that allows, raise it and need the verified app.
+//!   approvals and the questions waiting), `never` and `revoke_sessions`
+//!   lower trust and are open to any local connection; `always`, `forget`
+//!   (it also removes a saved Never) and an `answer` that allows raise it
+//!   and need the verified app.
 //!
 //! Questions from the Linux and Windows worker reach the person as a cmux
 //! notification while a verified app is connected ([`route_ask`]); the app
@@ -147,15 +148,17 @@ pub(super) fn approvals(mux: &Mux, client: u64, params: Value) -> anyhow::Result
     let app_id = params.get("app_id").and_then(Value::as_str).unwrap_or_default();
     let raises = match action {
         "list" | "revoke_sessions" => false,
-        "forget" | "never" => {
+        "never" => {
             if app_id.is_empty() {
-                return Err(refused(BAD_REQUEST, format!("{action} needs app_id")));
+                return Err(refused(BAD_REQUEST, "never needs app_id"));
             }
             false
         }
-        "always" => {
+        // Forgetting removes a saved Never as well as an Always, which widens
+        // access, so it needs the cmux app like an Always does.
+        "forget" | "always" => {
             if app_id.is_empty() {
-                return Err(refused(BAD_REQUEST, "always needs app_id"));
+                return Err(refused(BAD_REQUEST, format!("{action} needs app_id")));
             }
             true
         }
@@ -183,7 +186,7 @@ pub(super) fn approvals(mux: &Mux, client: u64, params: Value) -> anyhow::Result
     if raises && !verified_app {
         return Err(refused(
             ORIGIN_FORBIDDEN,
-            "allowing an app needs the cmux app (Settings > Computer Use)",
+            "allowing an app or forgetting an answer needs the cmux app (Settings > Computer Use)",
         ));
     }
     #[cfg(target_os = "macos")]

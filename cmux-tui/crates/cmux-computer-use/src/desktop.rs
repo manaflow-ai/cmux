@@ -330,6 +330,13 @@ pub trait Desktop: Send + Sync {
     ) -> DResult<ActionOutcome>;
     /// Starts an app without bringing it to the front where the platform allows.
     fn launch_app(&self, app_id: &str) -> DResult<App>;
+    /// Every app identity `launch_app(app_id)` could start, as policy matches
+    /// them (the resolved bundle id, `.exe` name or desktop-file id), so a
+    /// launch is checked against what would really run, never only against
+    /// the agent's words. Refuses an id the platform would not launch.
+    fn launch_identities(&self, app_id: &str) -> DResult<Vec<String>> {
+        Ok(vec![app_id.to_string()])
+    }
     /// Asks the OS for a missing grant (shows the OS prompt or settings pane).
     fn request_permission(&self, _which: &str) -> DResult<()> {
         Err(DesktopError::Unsupported("this desktop has no permission prompt".into()))

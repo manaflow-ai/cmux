@@ -225,6 +225,10 @@ impl Desktop for WindowsDesktop {
         session::require_interactive()?;
         launch::launch(app_id, &self.names)
     }
+
+    fn launch_identities(&self, app_id: &str) -> DResult<Vec<String>> {
+        pure::launch_identities(app_id).map_err(DesktopError::Unsupported)
+    }
 }
 
 /// Keeps the person's last-input clock honest about our own SendInput.
