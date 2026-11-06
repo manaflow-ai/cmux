@@ -111,17 +111,26 @@ public struct WindowTitlebar {
     ///   - indicatorWidth: The indicator's width supplied by its owner.
     ///   - midY: The traffic lights' center in the accessories' parent coordinates.
     ///   - scale: The window's current backing scale factor.
+    ///   - trailing: A quiet mark after them, shown only while `showsTrailing` (hidden otherwise).
     public static func layoutAccessories(after band: CGRect, badge: NSView?, indicator: NSView?,
-                                         indicatorWidth: CGFloat, centeredOn midY: CGFloat, scale: CGFloat) {
+                                         indicatorWidth: CGFloat, centeredOn midY: CGFloat, scale: CGFloat,
+                                         trailing: NSView? = nil, showsTrailing: Bool = true) {
         var x = band.maxX + Metrics.space2
         if let badge {
             let size = badge.fittingSize
             badge.frame = alignedFrame(CGRect(x: x, y: midY - size.height / 2, width: size.width, height: size.height), scale: scale)
             x = badge.frame.maxX + Metrics.space2
         }
-        guard let indicator, !indicator.isHidden else { return }
-        let side = TitlebarBandButton.side
-        indicator.frame = alignedFrame(CGRect(x: x, y: midY - side / 2, width: indicatorWidth, height: side), scale: scale)
+        if let indicator, !indicator.isHidden {
+            let side = TitlebarBandButton.side
+            indicator.frame = alignedFrame(CGRect(x: x, y: midY - side / 2, width: indicatorWidth, height: side), scale: scale)
+            x = indicator.frame.maxX + Metrics.space2
+        }
+        // Last, a quiet text mark such as Swift live mode's (LiveModeBadgeView).
+        trailing?.isHidden = !showsTrailing
+        guard let trailing, showsTrailing else { return }
+        let size = trailing.fittingSize
+        trailing.frame = alignedFrame(CGRect(x: x, y: midY - size.height / 2, width: size.width, height: size.height), scale: scale)
     }
 
     /// The main pane card's top inset in `root` (the window's root view):

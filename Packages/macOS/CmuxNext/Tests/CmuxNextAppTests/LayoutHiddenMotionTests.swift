@@ -48,12 +48,13 @@ struct LayoutHiddenMotionTests {
         #expect(!incoming.hasMotion)
         #expect(root.driver.isRunning)
 
-        // No frame or layout pass may finish the transition before the workspace parks.
+        // No frame or layout pass ran before the workspace parks. The park lands the switch in flight with the panes
+        // (c5a36a3fe86, LayoutParkedLiveTests), so the show finds nothing left to slide and schedules no frame.
         root.isHidden = true
         #expect(!root.driver.isRunning)
         root.isHidden = false
         #expect(root.isLive)
-        #expect(root.driver.isRunning, "the incoming screen needs scheduled frames even when its panes are settled")
+        #expect(!root.driver.isRunning, "the show restarted a screen switch the park already landed")
         let scheduler = FrameScheduler.forWindow(fixture.window)
         for tick in 0..<240 {
             if !root.driver.isRunning { break }

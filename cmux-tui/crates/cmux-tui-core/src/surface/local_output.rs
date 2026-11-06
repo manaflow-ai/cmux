@@ -113,7 +113,8 @@ impl LocalOutput {
             }
             terminal_notifications = pty.observe_terminal_output(output);
             finished_commands = pty.observe_shell_marks(&mut term, || {
-                mux.upgrade().is_some_and(|mux| mux.terminal_command_history_enabled())
+                mux.upgrade()
+                    .map_or(crate::shell_history::Recording::Off, |mux| mux.shell_recording())
             });
             let cursor_changed =
                 term.cursor_activity().expect("valid local terminals expose cursor activity")

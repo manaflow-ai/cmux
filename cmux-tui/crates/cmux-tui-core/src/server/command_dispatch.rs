@@ -317,6 +317,9 @@ fn dispatch_command(
         Command::SetTerminalKeep { surface, terminal_id, keep } => {
             cmd_terminals::set_terminal_keep(mux, surface, terminal_id, keep)
         }
+        Command::TerminalLastCommand { surface, terminal_id } => {
+            cmd_terminals::terminal_last_command(mux, surface, terminal_id)
+        }
         Command::TerminalResumeCommand { surface, terminal_id, command } => {
             cmd_terminals::terminal_resume_command(mux, surface, terminal_id, command)
         }

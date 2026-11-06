@@ -1826,6 +1826,8 @@ export default agentPaneEntry({
             ({ method, params }) => method === "chat.tryAnotherApproach" && params?.throughSeq === 6,
           ),
         );
+        // The button says it is working until the snapshot call answers, then offers itself again.
+        await ctx.waitFor(() => ctx.document.querySelector('.cv-turn-try-another[data-try-state="idle"]'));
         if (ctx.document.querySelectorAll('.cv-turn-actions button[aria-label="Try another approach"]').length !== 1)
           throw new Error("parent action changed");
       },

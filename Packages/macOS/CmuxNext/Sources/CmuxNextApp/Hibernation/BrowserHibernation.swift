@@ -354,13 +354,13 @@ final class BrowserHibernation {
     /// tab (`HoverWakeGate`, off the main thread): the tab wakes once the pointer rested on it for the
     /// dwell, so a sweep across the strip wakes nothing (plans/cmux-next/hover-preload-DESIGN.md).
     func noteHover(_ key: String?) {
-        tabHover.note(key.map { .tab($0) })
+        tabHover.note(setting.wakesOnHover ? key.map { .tab($0) } : nil) // `browser.wakeTabsOnHover` off (the default): no target
     }
 
     /// The pointer moved onto the sidebar row of workspace `id` in `window` (nil: off every row). As for
     /// a tab: the row's pages wake only after the dwell.
     func noteWorkspaceHover(_ id: String?, window: String) {
-        workspaceHover.note(id.map { .workspace($0, window: window) })
+        workspaceHover.note(setting.wakesOnHover ? id.map { .workspace($0, window: window) } : nil)
     }
 
     /// The dwell held: wake what the click would show, at most `hoverBudget.pages` pages. A frozen page
@@ -399,9 +399,9 @@ final class BrowserHibernation {
     }
 
     /// How many pages one hover may wake now (memory pressure and Low Power Mode lower it).
-    /// `browser.keepNeighborTabsAwake` 0 turns it off: the person asked that no hidden page be kept awake early.
+    /// None unless `browser.wakeTabsOnHover` (off by default); `browser.keepNeighborTabsAwake` 0 turns it off too.
     var hoverBudget: HoverWakeBudget {
-        HoverWakeBudget(pressure: pressure, lowPower: lowPower.isEnabled, enabled: setting.neighborRadius > 0)
+        HoverWakeBudget(pressure: pressure, lowPower: lowPower.isEnabled, enabled: setting.wakesOnHover && setting.neighborRadius > 0)
     }
 
     /// How long the pointer stays on a tab or row before its pages wake.
