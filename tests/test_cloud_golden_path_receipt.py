@@ -529,12 +529,56 @@ class GoldenPathReceiptTests(unittest.TestCase):
         cli = self.cli_from_writer()
         cli["stages"][3] = {**cli["stages"][3], "ok": False}
         cli["stages"][3].pop("value")
-        cli["stages"][3]["failure"] = failure("folder.no_route")
+        cli["stages"][3]["failure"] = failure("folder.mismatch")
         result = receipt.normalize([cli, self.platform_for(MACHINE), provider()])
 
         self.assertEqual(result["status"], "fail")
         self.assertEqual(result["golden_path_stages"]["folder"], "failed")
         self.assertEqual(result["golden_path_stages"]["chat"], "missing")
+
+    def cli_with_no_folder_route(self) -> dict[str, object]:
+        cli = self.cli_from_writer()
+        folder = next(item for item in cli["stages"] if item["stage"] == "folder")
+        folder["ok"] = False
+        folder.pop("value")
+        folder["failure"] = {**failure("folder.no_route", "no --from-folder"), "details": {"ms": 1000}}
+        return cli
+
+    def test_no_route_is_a_gap_that_blocks_on_its_stage(self) -> None:
+        result = receipt.normalize([self.cli_with_no_folder_route(), self.platform_for(MACHINE), provider()])
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertNotIn("receipt_reports_failure", result["blockers"])
+        self.assertIn("stage_no_route_folder", result["blockers"])
+        self.assertEqual(result["golden_path_stages"]["folder"], "no_route")
+        self.assertEqual(
+            {name: state for name, state in result["golden_path_stages"].items() if name != "folder"},
+            {name: "ok" for name in ALL_STAGES if name != "folder"},
+        )
+        self.assertTrue(result["checks"]["acpmux_session_discovery"])
+        self.assertTrue(result["checks"]["pause_resume_reconnect"])
+
+    def test_no_route_stage_is_cleared_only_by_another_receipt(self) -> None:
+        platform = self.platform_for(MACHINE)
+        platform["stages"].append(stage("folder", 12, 8, probe=PLATFORM_PROBE, value={"workspace": "golden-path"}))
+        result = receipt.normalize([self.cli_with_no_folder_route(), platform, provider()])
+        self.assertEqual(result["status"], "pass", result["blockers"])
+
+        cli = self.cli_with_no_folder_route()
+        cli["stages"].append(stage("folder", 40, 5, value={"workspace": "golden-path"}))
+        result = receipt.normalize([cli, self.platform_for(MACHINE), provider()])
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["golden_path_stages"]["folder"], "no_route")
+
+    def test_slug_probe_ids_are_echoed(self) -> None:
+        result = receipt.normalize([self.cli_from_writer(), self.platform_for(MACHINE), provider()])
+        self.assertEqual(result["probe_ids"], ["start-matrix-golden-path", PLATFORM_PROBE])
+
+        for bad in ("Start-matrix", "-leading-dash", "a" * 65, "has space", "under_score", "sk-ant-Abc"):
+            cli = self.cli_from_writer()
+            cli["probeId"] = bad
+            result = receipt.normalize([cli, self.platform_for(MACHINE), provider()])
+            self.assertEqual(result["probe_ids"], [PLATFORM_PROBE], bad)
 
 
 if __name__ == "__main__":
