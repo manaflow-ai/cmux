@@ -1449,3 +1449,7 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
 
 - 2026-11-02: pinned group headers show a hover Unpin button (https://github.com/manaflow-ai/cmux/issues/27700), the
   "Pinned group header: hover Unpin" row above. Unpinned headers draw no pin. Regression: GroupHeaderUnpinButtonTests.
+- 2026-11-05 (a-cmdp-memory, for a590): `SidebarModel+WorkspaceRanks.swift` adds `workspaceRanks()`, a read-only map
+  of workspace id to its place in the sidebar (top first), landed in 624581a6e3a3 (range 1a7a182ace6f..624e560418ba).
+  Cmd-P ranks workspaces by it (bias 16·2^(-rank/6)). Sidebar-Look: no visual change. Keep it in step with how rows
+  order; `CmdPSearchMemoryTests` covers it.

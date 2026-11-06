@@ -51,6 +51,31 @@ impl PublicTopologyFold {
         }
     }
 
+    /// Whether decorating `change` could make the fold state it: an upsert of a resource decoration adds to
+    /// (`state/values.rs` `decorate_value`: a workspace, tab or screen) whose held value differs from it only in
+    /// what decoration sets (`content_kind`, `extra`). One that differs elsewhere (a tab whose index moved) is
+    /// kept without a query.
+    fn may_state_decorated(&self, change: &Value) -> bool {
+        let (Some(resource), Some(id)) = (change["resource"].as_str(), change["id"].as_str())
+        else {
+            return false;
+        };
+        if change["kind"] != "upsert" || !matches!(resource, "workspace" | "tab" | "screen") {
+            return false;
+        }
+        let Some(held) = self.values.get(&(resource.to_string(), id.to_string())) else {
+            return false;
+        };
+        let (Some(held), Some(raw)) = (held.as_object(), change["value"].as_object()) else {
+            return false;
+        };
+        let decorated_only = |key: &String| key == "content_kind" || key == "extra";
+        held.iter()
+            .filter(|(key, _)| !decorated_only(key))
+            .all(|(key, value)| raw.get(key) == Some(value))
+            && raw.keys().filter(|key| !decorated_only(key)).all(|key| held.contains_key(key))
+    }
+
     fn states(&self, change: &Value) -> bool {
         change["kind"] == "upsert"
             && change["resource"]
@@ -99,10 +124,26 @@ impl WorkspaceRegistry {
         self.catch_up_public_fold();
         let Some(fold) = self.public_fold.as_ref() else { return Ok(deltas.clone()) };
         let changes = deltas.as_array().context("resource deltas are not an array")?;
+        // The fold holds decorated values (`record_public_fold`), the projection raw ones: a raw upsert of a
+        // decorated tab or screen (a chat tab, a frontend browser's profile, a pinned screen) never equals what
+        // the fold holds, so it is compared decorated as the journal would write it. Without this, every chat
+        // tab of a pane was journaled again on each create in it.
+        let connection = self.connection.get();
+        let decorate = crate::state::store::state_tables_ready(&connection)?;
         let mut kept = Vec::with_capacity(changes.len());
         for change in changes {
             if fold.states(change) {
                 continue;
+            }
+            if decorate && fold.may_state_decorated(change) {
+                let mut decorated = change.clone();
+                let resource = change["resource"].as_str().unwrap_or_default();
+                if let Some(value) = decorated.get_mut("value") {
+                    crate::state::values::decorate_value(&connection, resource, value)?;
+                }
+                if fold.states(&decorated) {
+                    continue;
+                }
             }
             let mut change = change.clone();
             if let Some(object) = change.as_object_mut()

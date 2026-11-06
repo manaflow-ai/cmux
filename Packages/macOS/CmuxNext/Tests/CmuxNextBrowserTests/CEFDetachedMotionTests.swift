@@ -136,4 +136,49 @@ import Testing
         hosting.resizeMotion(active: false)
         #expect(calls == ["4:detach", "4:attach"], "the landing has nothing more to attach")
     }
+
+    /// Leo 2026-11-06 (nightly d7d50e5, load 130+): a pane whose split closed stayed unclickable. A landing whose attach
+    /// the fork refused left the page window headless with nothing to retry it: the page showed but took no click. The
+    /// attach is owed and retried at the next tracker read, show or browser change until the fork takes it.
+    @Test func anAttachTheForkRefusedAtTheLandingIsRetriedUntilItTakes() {
+        let hosting = hostedPage()
+        hosting.resizeMotion(active: true)
+        fake.accepts = false
+        hosting.resizeMotion(active: false)
+        #expect(hosting.isDetached && hosting.attachOwed, "the refused attach is owed")
+        hosting.trackerDidRead()
+        #expect(hosting.isDetached, "still refused")
+        fake.accepts = true
+        hosting.trackerDidRead()
+        #expect(!hosting.isDetached && !hosting.attachOwed, "the next read attaches the page window")
+        #expect(calls == ["4:detach", "4:attach", "4:attach", "4:attach"])
+        hosting.trackerDidRead()
+        #expect(calls.count == 4, "nothing more reaches the fork once attached")
+    }
+
+    /// A renderer restart names the page window by another browser while it is detached: the owed attach goes to it.
+    @Test func anOwedAttachFollowsTheBrowserThatNamesThePageWindowNow() {
+        let hosting = hostedPage()
+        hosting.resizeMotion(active: true)
+        fake.accepts = false
+        hosting.resizeMotion(active: false)
+        fake.accepts = true
+        hosting.windowBrowsersChanged([9])
+        #expect(!hosting.isDetached)
+        #expect(calls.last == "9:attach")
+    }
+
+    /// A new motion before the retry owns the page window again: it lands with one attach, not one per read.
+    @Test func aMotionStartedBeforeTheRetryLandsWithItsOwnAttach() {
+        let hosting = hostedPage()
+        hosting.resizeMotion(active: true)
+        fake.accepts = false
+        hosting.resizeMotion(active: false)
+        fake.accepts = true
+        hosting.resizeMotion(active: true)
+        hosting.trackerDidRead()
+        #expect(hosting.isDetached && !hosting.attachOwed, "mid-motion the page stays detached")
+        hosting.resizeMotion(active: false)
+        #expect(!hosting.isDetached)
+    }
 }
