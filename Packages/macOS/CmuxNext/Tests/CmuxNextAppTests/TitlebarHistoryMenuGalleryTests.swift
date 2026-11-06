@@ -56,13 +56,16 @@ import Testing
         var historyRows: Int
         var closedRows: Int
         var height: CGFloat
+        /// The widest title at the menu font, which sets the menu's width.
+        var width: CGFloat
     }
 
     static func measure(_ menu: NSMenu) -> Measure {
         let history = menu.items.filter { $0.action == #selector(TitlebarHistoryMenuTarget.pick(_:)) }.count
         let closed = menu.items.filter { $0.action == #selector(TitlebarHistoryMenuTarget.pickClosed(_:)) }.count
         let height = menu.items.reduce(CGFloat(10)) { $0 + ($1.isSeparatorItem ? separatorHeight : rowHeight) }
-        return Measure(historyRows: history, closedRows: closed, height: height)
+        let width = (menu.items + menu.items.flatMap { $0.submenu?.items ?? [] }).map { TitlebarHistoryMenu.titleWidth($0.title) }.max() ?? 0
+        return Measure(historyRows: history, closedRows: closed, height: height, width: width)
     }
 
     /// The menu's items as rows of a menu-like panel, `label` under it.
@@ -169,6 +172,7 @@ import Testing
             #expect(shown.historyRows == today.historyRows)
             #expect(shown.closedRows <= TitlebarHistoryMenu.closedLimit)
             #expect(shown.height - today.height <= Self.separatorHeight + Self.rowHeight * CGFloat(1 + TitlebarHistoryMenu.closedLimit))
+            #expect(shown.width <= max(today.width, TitlebarHistoryMenu.closedMinWidth))
         }
     }
 
@@ -187,10 +191,11 @@ import Testing
             let menu = Self.menu(style)
             let shown = Self.measure(menu)
             let label = style == nil
-                ? "Today: \(today.historyRows) history rows, \(Int(today.height)) pt tall"
+                ? "Today: \(today.historyRows) history rows, \(Int(today.height)) pt tall, widest row \(Int(today.width)) pt"
                 : "\(style!.tunableTitle): \(shown.historyRows) history rows (today \(today.historyRows)), "
                     + "\(shown.closedRows) closed (max \(TitlebarHistoryMenu.closedLimit)), "
-                    + "\(Int(shown.height)) pt (today \(Int(today.height)), +\(Int(shown.height - today.height))), width unchanged"
+                    + "\(Int(shown.height)) pt (today \(Int(today.height)), +\(Int(shown.height - today.height))), "
+                    + "widest row \(Int(shown.width)) pt (today \(Int(today.width)))"
             lines.append("\(name): \(label)")
             for (look, appearance) in [("dark", NSAppearance.Name.darkAqua), ("light", .aqua)] {
                 let image = try Self.render(Self.panel(menu, label: label, appearance: try #require(NSAppearance(named: appearance))))

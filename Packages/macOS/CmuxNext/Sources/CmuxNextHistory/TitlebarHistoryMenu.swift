@@ -77,9 +77,12 @@ public struct TitlebarHistoryMenu {
     /// keep the room they had.
     public static let closedLimit = 5
 
-    /// The longest closed row, in characters. NSMenu is as wide as its longest title, so a long
-    /// address or folder must not widen the list (Leo 2026-11-06: "don't baloon it").
+    /// The longest closed row, in characters, however wide the list already is.
     public static let closedTitleLength = 60
+
+    /// The width closed rows may use when the rows above them are narrower: room for a title and
+    /// some of its address, so a short history does not squeeze them to a few letters.
+    public static let closedMinWidth: CGFloat = 240
 
     /// `showAll` is the registry's `history.show` row (it runs the registered action, as the
     /// palette does), retitled Show Full History; nil: no footer. `closed` nil leaves the Recently
@@ -107,7 +110,11 @@ public struct TitlebarHistoryMenu {
         }
         if let closed {
             if !menu.items.isEmpty { menu.addItem(.separator()) }
-            let rows = closedRows(closed, icons: style == .inlineIcons, target: target)
+            // NSMenu is as wide as its widest title, so closed rows fit the width the list already has
+            // (Leo 2026-11-06: "don't increase any size ... don't baloon it").
+            let others = menu.items.map(\.title) + [HistoryStrings.menuRecentlyClosed, showAll == nil ? "" : HistoryStrings.menuShowAll]
+            let width = max(closedMinWidth, others.map(titleWidth).max() ?? 0)
+            let rows = closedRows(closed, icons: style == .inlineIcons, width: width, target: target)
             if style == .submenu {
                 let item = NSMenuItem(title: HistoryStrings.menuRecentlyClosed, action: nil, keyEquivalent: "")
                 let submenu = NSMenu(title: HistoryStrings.menuRecentlyClosed)
@@ -129,13 +136,14 @@ public struct TitlebarHistoryMenu {
 
     /// The Recently Closed rows, newest first and at most ``closedLimit``, or the one disabled line
     /// that says why there are none.
-    static func closedRows(_ closed: TitlebarHistoryClosedSection, icons: Bool, target: TitlebarHistoryMenuTarget) -> [NSMenuItem] {
+    static func closedRows(_ closed: TitlebarHistoryClosedSection, icons: Bool, width: CGFloat,
+                           target: TitlebarHistoryMenuTarget) -> [NSMenuItem] {
         switch closed {
         case .empty: return [note(HistoryStrings.menuNothingClosed)]
         case .unavailable: return [note(HistoryStrings.menuClosedUnavailable)]
         case .rows(let rows):
             return rows.prefix(closedLimit).map { closedRow in
-                let row = NSMenuItem(title: closedTitle(closedRow), action: #selector(TitlebarHistoryMenuTarget.pickClosed(_:)), keyEquivalent: "")
+                let row = NSMenuItem(title: closedTitle(closedRow, fitting: width), action: #selector(TitlebarHistoryMenuTarget.pickClosed(_:)), keyEquivalent: "")
                 if icons {
                     row.image = NSImage(systemSymbolName: symbol(closedRow.kind), accessibilityDescription: nil)?
                         .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: TypeScale.body, weight: .regular))
@@ -148,17 +156,33 @@ public struct TitlebarHistoryMenu {
         }
     }
 
-    /// "title — detail" in at most ``closedTitleLength`` characters: the title cut at its end, the
-    /// detail (an address or a path, whose ends say most) in its middle, and left out when no room is left.
-    static func closedTitle(_ row: TitlebarHistoryClosedRow) -> String {
-        let title = clip(row.title, to: closedTitleLength, middle: false)
-        let room = closedTitleLength - title.count - 3
+    /// The longest ``closedTitle(_:length:)`` no wider than `width` at the menu font (a row
+    /// image, when any, indents every row alike, so titles compare as they are).
+    static func closedTitle(_ row: TitlebarHistoryClosedRow, fitting width: CGFloat) -> String {
+        var low = 1, high = closedTitleLength
+        while low < high {
+            let length = (low + high + 1) / 2
+            if titleWidth(closedTitle(row, length: length)) <= width { low = length } else { high = length - 1 }
+        }
+        return closedTitle(row, length: low)
+    }
+
+    static func titleWidth(_ title: String) -> CGFloat {
+        ceil((title as NSString).size(withAttributes: [.font: NSFont.menuFont(ofSize: 0)]).width)
+    }
+
+    /// "title — detail" in at most `length` characters: the title cut at its end, the detail (an
+    /// address or a path, whose ends say most) in its middle, and left out when no room is left.
+    static func closedTitle(_ row: TitlebarHistoryClosedRow, length: Int = closedTitleLength) -> String {
+        let title = clip(row.title, to: length, middle: false)
+        let room = length - title.count - 3
         guard let detail = row.detail, !detail.isEmpty, room >= 8 else { return title }
         return "\(title) — \(clip(detail, to: room, middle: true))"
     }
 
     static func clip(_ text: String, to length: Int, middle: Bool) -> String {
         guard text.count > length else { return text }
+        guard length > 1 else { return "…" }
         guard middle else { return String(text.prefix(length - 1)) + "…" }
         let head = (length - 1) / 2
         return String(text.prefix(head)) + "…" + String(text.suffix(length - 1 - head))

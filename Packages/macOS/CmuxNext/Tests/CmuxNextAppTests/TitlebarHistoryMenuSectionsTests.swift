@@ -170,18 +170,23 @@ struct TitlebarHistoryMenuSectionsTests {
         }
     }
 
-    /// A long address or path cannot widen the list: the row keeps the title's start and both ends of the detail.
+    /// A long address or path cannot widen the list: closed rows fit the width the history rows set
+    /// (or ``TitlebarHistoryMenu/closedMinWidth`` when those are narrower), keeping the title's start and both ends of the detail.
     @Test func aLongClosedDetailDoesNotWidenTheList() throws {
         let url = "https://example.com/" + String(repeating: "deep/", count: 40) + "page.html"
         let row = TitlebarHistoryClosedRow(id: "daemon:closed_1", kind: .browserTab, title: "Docs", detail: url)
-        let menu = TitlebarHistoryMenu.make([], closed: .rows([row]), choose: { _ in }, showAll: nil)
-        let title = try #require(menu.items.last?.title)
-        #expect(title.count == TitlebarHistoryMenu.closedTitleLength)
-        #expect(title.hasPrefix("Docs — https://example.com/"))
-        #expect(title.hasSuffix("page.html"))
-        #expect(menu.items.last?.identifier?.rawValue == "daemon:closed_1")
+        for style in TitlebarHistoryMenuStyle.allCases {
+            let today = TitlebarHistoryMenu.make(Self.sections(), choose: { _ in }, showAll: nil)
+            let menu = TitlebarHistoryMenu.make(Self.sections(), closed: .rows([row]), style: style, choose: { _ in }, showAll: nil)
+            let items = menu.items + menu.items.flatMap { $0.submenu?.items ?? [] }
+            let closed = try #require(items.first { $0.identifier?.rawValue == "daemon:closed_1" })
+            let todayWidth = today.items.map { TitlebarHistoryMenu.titleWidth($0.title) }.max() ?? 0
+            #expect(TitlebarHistoryMenu.titleWidth(closed.title) <= max(todayWidth, TitlebarHistoryMenu.closedMinWidth))
+            #expect(closed.title.hasPrefix("Docs — https://"))
+            #expect(closed.title.hasSuffix(".html"))
+        }
         let long = TitlebarHistoryClosedRow(id: "daemon:closed_2", kind: .terminalTab, title: String(repeating: "x", count: 200), detail: "~")
-        #expect(TitlebarHistoryMenu.closedTitle(long).count == TitlebarHistoryMenu.closedTitleLength)
+        #expect(TitlebarHistoryMenu.closedTitle(long, fitting: 10_000).count == TitlebarHistoryMenu.closedTitleLength)
     }
 
     @Test func theSubmenuStyleHoldsTheClosedRows() throws {
