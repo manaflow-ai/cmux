@@ -37,8 +37,9 @@
 //! the same Noise key for the same link group (the daemon's digest of the
 //! session, generation and connection attempt), and at most
 //! [`MAX_PRESENTATIONS`] times; any other use is a replay. The daemon fences
-//! generations, so a link group that already registered can never open a
-//! session again. A resume of an admitted session needs no grant: the
+//! generations, and once the session a link group formed registers, the
+//! daemon seals that group ([`CarrierGrantVerifier::seal`]): it admits no
+//! further link, also after the session closes. A resume of an admitted session needs no grant: the
 //! daemon re-admits the same Noise key (cmux-remote `grant.rs`).
 
 use std::collections::BTreeMap;
@@ -125,6 +126,9 @@ struct Spent {
     noise_key: [u8; 32],
     link_group: [u8; 32],
     presentations: u8,
+    /// The session this grant's link group formed has registered: no
+    /// further presentation counts.
+    sealed: bool,
 }
 
 struct State {
@@ -283,7 +287,8 @@ impl CarrierGrantVerifier {
         state.spent.retain(|_, spent| spent.exp > now);
         match state.spent.get_mut(&c.jti) {
             Some(spent)
-                if spent.noise_key == *noise_key
+                if !spent.sealed
+                    && spent.noise_key == *noise_key
                     && spent.link_group == link_group
                     && spent.presentations < MAX_PRESENTATIONS =>
             {
@@ -296,7 +301,13 @@ impl CarrierGrantVerifier {
                 }
                 state.spent.insert(
                     c.jti,
-                    Spent { exp: c.exp, noise_key: *noise_key, link_group, presentations: 1 },
+                    Spent {
+                        exp: c.exp,
+                        noise_key: *noise_key,
+                        link_group,
+                        presentations: 1,
+                        sealed: false,
+                    },
                 );
             }
         }
@@ -307,6 +318,16 @@ impl CarrierGrantVerifier {
             expires_at: c.exp,
             vm_kind: c.vmk,
         })
+    }
+
+    /// The session `link_group` was presenting for has registered: the
+    /// grants spent in it admit no further link, so closing that session
+    /// and presenting the same grant again opens nothing.
+    pub fn seal(&self, link_group: [u8; 32]) {
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        for spent in state.spent.values_mut().filter(|spent| spent.link_group == link_group) {
+            spent.sealed = true;
+        }
     }
 }
 
