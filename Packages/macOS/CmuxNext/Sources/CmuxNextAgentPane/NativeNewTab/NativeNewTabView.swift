@@ -38,8 +38,8 @@ public struct NativeNewTabView: View {
                     rowList(rows)
                 }
             }
-            .background(RoundedRectangle(cornerRadius: 12).fill(Color(nsColor: .controlBackgroundColor)))
-            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color(nsColor: .separatorColor)))
+            .background(RoundedRectangle(cornerRadius: Metrics.surfaceCornerRadius).fill(Color(nsColor: .controlBackgroundColor)))
+            .overlay(RoundedRectangle(cornerRadius: Metrics.surfaceCornerRadius).strokeBorder(Color(nsColor: .separatorColor)))
             .frame(maxWidth: 640)
             Spacer(minLength: 0)
         }

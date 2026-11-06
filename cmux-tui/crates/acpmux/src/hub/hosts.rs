@@ -398,7 +398,7 @@ impl Hub {
         // first (`ensure_child` -> `readopt`, under the spawn lock). One
         // adoption per host: a second link would replace the first
         // child, and the requests open on it would be lost.
-        let _spawning = session.spawn_lock.lock().await;
+        let _spawning = self.spawn_lease(&session).await;
         if let Some(child) = session.child.lock().await.as_ref()
             && child.is_alive().await
         {
@@ -1258,7 +1258,6 @@ impl Hub {
                         notice: false,
                         // As logged (`turn_started` `persons`); an older record's takes notices.
                         persons: work.turn_persons,
-                        from_agents: false,
                     });
                     if work.turn_trigger {
                         self.restore_trigger_background(session, &turn_id);

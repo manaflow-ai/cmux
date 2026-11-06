@@ -8,7 +8,7 @@ import UserNotificationsUI
 /// "Expanded view"). It has no link to the Mac: what it sends goes to the
 /// App Group outbox (or, in a build without the App Group, the push keychain
 /// group under this notification's request id: `PushHandover`), and the app (opened by `performNotificationDefaultAction`)
-/// sends it over that Mac's link, asking Face ID for an answer or an Allow.
+/// sends it over that Mac's link, signing an answer or an Allow.
 ///
 /// Replying is the system's own text field at the bottom (the category's
 /// Reply action), which sends in the background. As in Messages, "+" in the
@@ -83,7 +83,7 @@ final class NotificationViewController: UIViewController, @MainActor UNNotificat
         }
     }
 
-    /// Buttons go on to the app delegate, which owns delivery (and Face ID).
+    /// Buttons go on to the app delegate, which owns delivery (and signing).
     func didReceive(_ response: UNNotificationResponse, completionHandler completion: @escaping (UNNotificationContentExtensionResponseOption) -> Void) {
         completion(.dismissAndForwardAction)
     }

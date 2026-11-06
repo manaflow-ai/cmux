@@ -1,6 +1,7 @@
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextCloudCredentials
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -79,15 +80,34 @@ struct CloudStartChatLoginTests {
         }
     }
 
-    /// The kind read's budget holds in wall time: a guest whose exec is slow is cut off at the budget, not
+    /// The kind read's budget holds in elapsed time: a guest whose exec is slow is cut off at the budget, not
     /// after the read in flight finishes, and the start goes on without a kind (no login is copied).
+    ///
+    /// The budget runs on a ``ManualClock`` the test advances by hand, and the slow exec waits on a second
+    /// one the test never advances, so the only way the read can end is the budget cutting it off: nothing
+    /// here waits on real time, and a read that waited for its exec hangs the test instead of passing on a
+    /// fast runner.
     @Test func aSlowGuestKindReadIsCutOffAtTheBudget() async throws {
         var start = Decision(dogfood: true, setting: nil, harness: nil, signedIn: true)
         start.callerOwns = true
-        let started = ContinuousClock.now
-        try await start.readGuest(exec: { _ in try? await Task.sleep(for: .seconds(2)); return "vm-kind:\n" },
-                                  pause: {}, budget: .milliseconds(200))
-        #expect(ContinuousClock.now - started < .seconds(1) && !start.guestTakesLogin)
+        let budget = Duration.milliseconds(200)
+        let clock = ManualClock(), slowExec = ManualClock()
+        // The budget's deadline is the only thing that ever waits on `clock`: once it is set, the budget passes.
+        let passTheBudget = Task { try await clock.waitForSleeper(); clock.advance(by: budget) }
+        try await start.readGuest(exec: { _ in await Self.guestKindTooSlowToAnswer(waitingOn: slowExec) },
+                                  pause: {}, budget: budget, clock: clock)
+        try await passTheBudget.value
+        // Cut off at the budget: the read in flight was cancelled (it left `slowExec`) and its answer was
+        // never taken, so the start goes on with no kind, and the budget is all the time the read spent.
+        #expect(!start.guestTakesLogin && start.guestStdout == nil)
+        #expect(slowExec.sleeperCount == 0 && clock.now.offset == budget)
+    }
+
+    /// A guest exec too slow to answer within the read's budget: it waits on a clock its test never
+    /// advances, so it answers only if the read waits for it instead of cutting it off.
+    nonisolated static func guestKindTooSlowToAnswer(waitingOn clock: ManualClock) async -> String? {
+        try? await clock.sleep(for: .seconds(2))
+        return "vm-kind:\n"
     }
 
     /// A scripted guest: its kind answers in order (the last repeats), and how many reads and pauses it saw.

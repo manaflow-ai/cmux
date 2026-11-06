@@ -323,6 +323,44 @@ class PerTest(unittest.TestCase):
                    SUMMARY)
         self.assertFalse(reds.classify(head, base).own, reds.classify(head, base).reasons)
 
+    def test_a_module_relative_issue_location_records_its_file(self):
+        # A location can be module-relative (`Package/CloudPlanTests.swift:25:9`). With no `/` in the file
+        # class, neither side recorded a file, both fell back to name-only comparison, and two distinct
+        # suites with one display name read as a single base red (cmux#35961 F1).
+        head = log('✘ Test "shows the plan" recorded an issue at Pkg/Cloud/CloudPlanTests.swift:25:9: '
+                   'Expectation failed', '✘ Test "shows the plan" failed after 0.1 seconds with 1 issue.',
+                   SUMMARY)
+        base = log('✘ Test "shows the plan" recorded an issue at Pkg/Home/HomePlanTests.swift:14:9: '
+                   'Expectation failed', '✘ Test "shows the plan" failed after 0.1 seconds with 1 issue.',
+                   SUMMARY)
+        self.assertEqual(reds.read(head).sites, {'"shows the plan"': {"Pkg/Cloud/CloudPlanTests.swift"}})
+        verdict = reds.classify(head, base)
+        self.assertTrue(verdict.own, verdict.reasons)
+        self.assertIn("Pkg/Cloud/CloudPlanTests.swift", verdict.reasons[0])
+        self.assertEqual(verdict.shared, [])
+
+    def test_a_location_quoted_after_the_real_one_is_not_the_issue_site(self):
+        # The source location is not at end of line: the expectation text follows it and can quote another
+        # ` at <file>.swift:<line>:<col>`. Reading the last one recorded the wrong file, so a test that fails
+        # in the same file on both sides read as two tests and the shared base red became the head's own
+        # (cmux#35961 F2). The first location after the arguments clause is the one Swift Testing printed.
+        head = log('✘ Test "shows the plan" recorded an issue at CloudPlanTests.swift:25:9: Expectation '
+                   'failed: (trace → "raised at HomePlanTests.swift:14:2")',
+                   '✘ Test "shows the plan" failed after 0.1 seconds with 1 issue.', SUMMARY)
+        base = log('✘ Test "shows the plan" recorded an issue at CloudPlanTests.swift:25:9: Expectation failed',
+                   '✘ Test "shows the plan" failed after 0.1 seconds with 1 issue.', SUMMARY)
+        self.assertEqual(reds.read(head).sites, {'"shows the plan"': {"CloudPlanTests.swift"}})
+        verdict = reds.classify(head, base)
+        self.assertFalse(verdict.own, verdict.reasons)
+        self.assertEqual(verdict.shared, ['"shows the plan"'])
+
+    def test_an_arguments_clause_still_yields_the_location_after_it(self):
+        # A parameterized test prints `with N arguments ...` before the location, and an argument value may
+        # itself hold a `.swift:` (cmux#35902); the clause is skipped, the location after it is recorded.
+        head = log('✘ Test "shows the plan" recorded an issue with 1 argument p → "A.swift:1:1" at '
+                   'Pkg/CloudPlanTests.swift:25:9: Expectation failed', SUMMARY)
+        self.assertEqual(reds.read(head).sites, {'"shows the plan"': {"Pkg/CloudPlanTests.swift"}})
+
     def test_a_display_name_with_no_file_on_either_side_compares_by_name(self):
         # Only the `failed after` line, as a rerun summary prints: nothing says which suite, so the name
         # alone decides, exactly as before this comparison existed.
@@ -405,6 +443,15 @@ class PerTest(unittest.TestCase):
             with self.subTest(line):
                 self.assertTrue(reds.classify(log(line), log(line), "cmux-next swift test").own)
         self.assertTrue(reds.classify("  \n", log(failed("a()")), "cmux-next swift test").own)
+
+    def test_a_harness_heading_that_names_a_crash_is_not_one_but_the_crash_under_it_is(self):
+        # cmuxterm-hq#7285, run 42053582212: fresh_home_launch_smoke.py's heading above a launch over its budget.
+        heading = "--- the app's errors in the system log (an uncaught exception or assertion names itself here)"
+        over = "relaunch restore took 3042 ms, over its 3000 ms budget"
+        self.assertFalse(reds.read(log(over, heading, "--- app output (last 60 lines)")).crashes)
+        crash = "*** Terminating app due to uncaught exception 'NSInternalInconsistencyException'"
+        self.assertTrue(reds.read(log(over, heading, crash)).crashes)
+        self.assertTrue(reds.read(log(over, f"--- {crash}")).crashes)
 
     def test_a_whole_unittest_run_and_a_known_issue_run_end_are_whole(self):
         self.assertEqual(reds.read(log("test_a (mod.T.test_a) ... ok", "Ran 1 test in 0.001s", "OK")).truncated, [])
@@ -1353,6 +1400,56 @@ class LostRunner(unittest.TestCase):
                                   capture_output=True, text=True)
         self.assertEqual(done.returncode, 1, done.stderr)
         self.assertIn("a verdict", done.stdout)
+
+
+class ReadOncePerLog(unittest.TestCase):
+    """A log is parsed once per process, however often the judge reads it (2026-11-06, cmux#36356 at 2c9f6957):
+    base_red_excuse.py's window re-classified every log each time it grew, 50 reads of six 20 to 27 MB logs, 110 s
+    of CPU, and merge_hold's 120 s bound on the classifier refused the merge."""
+
+    def setUp(self):
+        reds._parsed.clear()
+        self.addCleanup(reds._parsed.clear)
+
+    def test_a_window_parses_each_log_once(self):
+        head, base = HEAD_26346.read_text(), BASE_26346.read_text()
+        older = base + "\n"  # another base run's log: another text
+        parsed = []
+        real = reds.parse_log
+
+        def counting(log, bun=True):
+            parsed.append(log)
+            return real(log, bun)
+
+        reds.parse_log = counting
+        self.addCleanup(setattr, reds, "parse_log", real)
+        # As compare_window does as the window grows: the newest, then the newest and an older one.
+        first = reds.classify_any(head, [("feat-cmux-next run 1", base)], "cmux-next swift test")
+        grown = reds.classify_any(head, [("feat-cmux-next run 1", base), ("feat-cmux-next run 2", older)],
+                                  "cmux-next swift test")
+        self.assertEqual([parsed.count(text) for text in (head, base, older)], [1, 1, 1])
+        reds.parse_log = real
+        reds._parsed.clear()
+        fresh = reds.classify_any(head, [("feat-cmux-next run 1", base), ("feat-cmux-next run 2", older)],
+                                  "cmux-next swift test")
+        self.assertEqual((grown.own, grown.reasons, grown.shared), (fresh.own, fresh.reasons, fresh.shared))
+        self.assertIsNotNone(first)
+
+    def test_a_kept_read_is_the_callers_own_copy(self):
+        log = HEAD_26346.read_text()
+        mine = reds.read(log)
+        mine.failed.add("a test that never ran")
+        mine.crashes.append("a crash that never happened")
+        again = reds.read(log)
+        self.assertNotIn("a test that never ran", again.failed)
+        self.assertNotIn("a crash that never happened", again.crashes)
+        self.assertEqual((again.failed, again.crashes), (reds.parse_log(log).failed, reds.parse_log(log).crashes))
+
+    def test_at_most_keep_parsed_logs_are_kept(self):
+        for n in range(reds.KEEP_PARSED + 3):
+            reds.read(f"✘ Test t{n}() failed after 0.1 seconds with 1 issue.\n")
+        self.assertEqual(len(reds._parsed), reds.KEEP_PARSED)
+
 
 if __name__ == "__main__":
     unittest.main()

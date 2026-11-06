@@ -18,8 +18,8 @@ public struct PushReply: Codable, Sendable, Equatable, Identifiable {
         /// A text reply; `attachments` are file names in the outbox's attachments folder.
         case text(String, attachments: [String])
 
-        /// Signed with the approval key after Face ID (verify/phone-approvals.md).
-        public var needsFaceID: Bool {
+        /// Signed with the approval key (verify/phone-approvals.md).
+        public var isSigned: Bool {
             switch self {
             case .option, .answers, .allow: true
             case .deny, .text: false

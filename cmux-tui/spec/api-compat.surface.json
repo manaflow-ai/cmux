@@ -5007,6 +5007,9 @@
           "\"vt-state\""
         ]
       },
+      "/history_rows_omitted": {
+        "ty": "uint64"
+      },
       "/kitty_graphics_state": {
         "ty": "object"
       },
@@ -7191,6 +7194,10 @@
           "bytes",
           "render"
         ]
+      },
+      "/replay_history_rows": {
+        "ty": "uint32",
+        "nullable": true
       },
       "/rows": {
         "ty": "uint16",
@@ -10998,6 +11005,32 @@
       }
     },
     "request:reload-config": {},
+    "request:remote-host-app": {},
+    "request:remote-host-call": {
+      "/method": {
+        "ty": "string",
+        "required": true
+      },
+      "/params": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:remote-host-config": {
+      "/computer_use": {
+        "ty": "boolean",
+        "nullable": true
+      },
+      "/headless": {
+        "ty": "boolean",
+        "nullable": true
+      },
+      "/screen_sharing": {
+        "ty": "boolean",
+        "nullable": true
+      }
+    },
+    "request:remote-host-status": {},
     "request:remote-terminal-snapshot": {
       "/surface": {
         "ty": "uint64",
@@ -12190,6 +12223,16 @@
       "/surface": {
         "ty": "uint64",
         "required": true
+      }
+    },
+    "request:terminal-last-command": {
+      "/surface": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/terminal_id": {
+        "ty": "string",
+        "nullable": true
       }
     },
     "request:terminal-ports": {
@@ -19178,6 +19221,38 @@
         ]
       }
     },
+    "response:remote-host-app": {
+      "/data/host_pid": {
+        "ty": "uint32",
+        "required": true
+      },
+      "/data/secret": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/socket": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "response:remote-host-call": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:remote-host-config": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:remote-host-status": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
     "response:remote-terminal-snapshot": {
       "/data": {
         "ty": "json",
@@ -21193,6 +21268,34 @@
       },
       "/data/surface": {
         "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:terminal-last-command": {
+      "/data/last_command": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/last_command/command": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/last_command/ended_at_ms": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/last_command/exit_code": {
+        "ty": "int32",
+        "required": true,
+        "nullable": true
+      },
+      "/data/last_command/started_at_ms": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/terminal_id": {
+        "ty": "string",
         "required": true
       }
     },

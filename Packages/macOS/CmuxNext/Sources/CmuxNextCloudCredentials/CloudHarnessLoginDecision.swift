@@ -176,12 +176,21 @@ public nonisolated struct CloudHarnessLoginDecision: Sendable, Equatable {
     /// every exec and pause counts against `budget`, slow ones included, and a read cut off by it keeps the last answer.
     public mutating func readGuest(exec: @escaping @Sendable (String) async -> String?, pause: @escaping @Sendable () async throws -> Void,
                                    budget: Duration = CloudCredentialTransfer.guestCheckBudget) async throws {
-        let deadline = ContinuousClock.now + budget, probe = verdict.guestKindProbe
+        try await readGuest(exec: exec, pause: pause, budget: budget, clock: ContinuousClock())
+    }
+
+    /// ``readGuest(exec:pause:budget:)`` with `budget` held on `clock`: a test passes a ``ManualClock`` it
+    /// advances by hand, so the budget's cut-off is proven with no real time elapsed.
+    public mutating func readGuest<C: Clock & Sendable>(exec: @escaping @Sendable (String) async -> String?,
+                                   pause: @escaping @Sendable () async throws -> Void,
+                                   budget: Duration = CloudCredentialTransfer.guestCheckBudget,
+                                   clock: C) async throws where C.Duration == Duration {
+        let deadline = clock.now.advanced(by: budget), probe = verdict.guestKindProbe
         for attempt in 1...CloudCredentialTransfer.guestCheckTries {
-            guard let read = try await CloudCredentialTransfer.before(deadline, { await exec(probe) }) else { return }
+            guard let read = try await CloudCredentialTransfer.before(deadline, clock: clock, { await exec(probe) }) else { return }
             guestStdout = read
             guard guestKind == "", attempt < CloudCredentialTransfer.guestCheckTries,
-                  try await CloudCredentialTransfer.before(deadline, pause) != nil else { return }
+                  try await CloudCredentialTransfer.before(deadline, clock: clock, pause) != nil else { return }
         }
     }
 }

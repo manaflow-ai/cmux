@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """A Cloud chat end to end from a tagged DEV app, signed in as the agent test account.
 
-Run by .github/workflows/cloud-chat-proof.yml after `scripts/reload.sh --tag TAG --launch
---auth-profile agent --credentials-file FILE`. A tagged Debug build signs in on the staging Stack
-project and mints VM keys at vm-staging.cmux.dev (CloudConfiguration.resolve,
-AppControl+VMAgentKey.vmBaseURL). Through the tagged app's own CLI and socket:
+Run by .github/workflows/cloud-chat-proof.yml after one `scripts/reload.sh --tag TAG --build-only
+--auth-profile agent --credentials-file FILE`. The same built bundle is launched once for each
+selected backend with `--cloud-backend`; the credentials file is read by the app at launch and is
+never included in evidence. Through the tagged app's own CLI and socket:
 
 1. waits until the app is signed in (`cloud list-machines` says account.signed_in),
 2. `vm token create --ttl 30m` (the key goes to the login Keychain; it is never printed),
@@ -14,22 +14,11 @@ AppControl+VMAgentKey.vmBaseURL). Through the tagged app's own CLI and socket:
 Each step's exit code and the CLI's own message go to the evidence JSON and the job summary, with
 the reply text. The chat prompt always includes a browser proof against example.com, so a passing
 run demonstrates that the agent on the Cloud machine drove its browser and read the page back.
-Before the chat it also sends cmux#34487's composer reservation
-(`POST /v1/machines/reservations`, `x-cmux-team`) to the development platform with the agent account's
-session (a published build's seeded credentials.json, refreshed once at Stack; for a tagged build a
-sign-in from the auth profile the workflow wrote; the token is never recorded), keeps
-the HTTP status, the answer and the platform's /v1/health commit, then releases the reservation and
-destroys the machine it reserved (the app's kill-machine when the platform's destroy did not take).
-
-With --cleanup-machine vm_<hex> there is no chat: once signed in it reads the machine's row and
-`cloud machine-status`, kills it (one retry, with a status read after a failed kill) and reads its
-status again, for a machine an earlier run leaked. Only allowlisted status fields reach the evidence.
+Nothing here reads the credentials file; the app does.
 """
 import argparse
-import base64
 import collections
 import hashlib
-import http.client
 import json
 import os
 import re
@@ -38,26 +27,34 @@ import subprocess
 import sys
 import threading
 import time
-import urllib.error
-import urllib.request
-import uuid
 from pathlib import Path
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True, help="the tagged app bundle")
 parser.add_argument("--tag", required=True)
-parser.add_argument("--prompt", default=None)
+parser.add_argument("--prompt", default="")
 parser.add_argument("--agent", default="claude")
+parser.add_argument("--cloud-backend", choices=("staging", "prod"))
+parser.add_argument("--expected-api-origin")
+parser.add_argument("--credentials-file", help="0600 Stack credentials file read by the app")
 parser.add_argument("--evidence", required=True)
 parser.add_argument("--cleanup-machine", default="", help="vm_<hex>: inspect and kill this machine, no chat")
 args = parser.parse_args()
+if not args.cleanup_machine and (not args.cloud_backend or not args.expected_api_origin):
+    parser.error("--cloud-backend and --expected-api-origin are required for a chat proof")
 if args.cleanup_machine and not re.fullmatch(r"vm_[0-9a-f]{1,64}", args.cleanup_machine):
     parser.error("--cleanup-machine must look like vm_<lowercase hex>")
-if not args.cleanup_machine and args.prompt is None:
-    parser.error("--prompt is required without --cleanup-machine")
 
 CLI = str(Path(args.app) / "Contents/Resources/bin/cmux")
-ENV = {**os.environ, "CMUX_SOCKET_PATH": f"/tmp/cmux-debug-{args.tag}.sock"}
+SOCKET_PATH = f"/tmp/cmux-debug-{args.tag}.sock"
+ENV = {
+    **os.environ,
+    # The published app and the tagged app use different names for the same
+    # per-proof socket. Set both so a second `open -n` cannot attach to a
+    # pre-existing default daemon.
+    "CMUX_SOCKET_PATH": SOCKET_PATH,
+    "CMUX_NEXT_SOCKET_PATH": SOCKET_PATH,
+}
 BROWSER_PROOF_NONCE = secrets.token_hex(8)
 BROWSER_PROOF_URL = f"https://example.com/?cmux_browser_proof={BROWSER_PROOF_NONCE}"
 BROWSER_PROOF_MARKER = "CLOUD_BROWSER_PROOF_OK"
@@ -81,10 +78,15 @@ SECRET_PATTERNS = (
 evidence = {
     "tag": None,
     "agent": args.agent,
-    "prompt_sha256": hashlib.sha256((args.prompt or "").encode("utf-8")).hexdigest(),
-    "prompt_bytes": len((args.prompt or "").encode("utf-8")),
+    "prompt_sha256": hashlib.sha256(args.prompt.encode("utf-8")).hexdigest(),
+    "prompt_bytes": len(args.prompt.encode("utf-8")),
     "steps": [],
+    "cloud_environment": args.cloud_backend,
+    "expected_api_origin": args.expected_api_origin,
+    "app": str(Path(args.app).resolve()),
 }
+app_launcher = None
+owned_app = False
 
 
 def has_browser_proof_reply(text: str) -> bool:
@@ -131,6 +133,21 @@ def record(name: str, code: int, out: str, err: str, **extra) -> dict:
 
 
 def finish(result: str) -> None:
+    if app_launcher is not None:
+        # Quit only the bundle this proof identified, then wait for the open -W helper we started.
+        # Its exit is the launch service's completion event, not a fixed sleep between backends.
+        if owned_app:
+            code, out, err = cmux("app", "quit", "--json", timeout=30)
+            record("app quit", code, out, err)
+        try:
+            code = app_launcher.wait(timeout=60)
+            record("app exited", code, "", "")
+            if code != 0 and result == "pass":
+                result = "fail: app launch helper exited unsuccessfully"
+        except subprocess.TimeoutExpired:
+            record("app exited", 124, "", "the launched app did not exit within 60s")
+            if result == "pass":
+                result = "fail: the launched app did not exit"
     evidence["result"] = result
     Path(args.evidence).parent.mkdir(parents=True, exist_ok=True)
     Path(args.evidence).write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
@@ -260,16 +277,12 @@ IDLE_PAUSE_FIELDS = ("minutes", "last_checked_at", "idle_since", "last_api_activ
 
 def scalar(value: object) -> object:
     if isinstance(value, str):
-        # Left out, not redacted: a `token=[withheld]` would still trip the workflow's evidence scan.
         return "[left out]" if EVIDENCE_SCAN.search(value) else clean(value, 300)
     return value if isinstance(value, (int, float, bool)) or value is None else None
 
 
 def machine_status(machine: str) -> tuple[int, dict, str]:
-    """Return a redacted, allowlisted status summary of a machine."""
-    code, out, err = cmux(
-        "cloud", "machine-status", "--target", f"machine:{machine}", "--json", timeout=60
-    )
+    code, out, err = cmux("cloud", "machine-status", "--target", f"machine:{machine}", "--json", timeout=60)
     value = parsed(out)
     for key in ("machine", "fields"):
         if isinstance(value.get(key), dict):
@@ -281,9 +294,9 @@ def machine_status(machine: str) -> tuple[int, dict, str]:
         decision = idle.get("last_decision")
         if isinstance(decision, dict):
             summary["idle_pause"]["last_decision"] = {
-                key: scalar(decision[key]) for key in ("at", "outcome", "reason") if key in decision}
-    detail = failure_text(err, out) if code != 0 else ""
-    return code, summary, detail
+                key: scalar(decision[key]) for key in ("at", "outcome", "reason") if key in decision
+            }
+    return code, summary, failure_text(err, out) if code != 0 else ""
 
 
 def raw_output(text: str, limit: int = 2048) -> dict:
@@ -307,8 +320,9 @@ def raw_output(text: str, limit: int = 2048) -> dict:
 # `--confirm` comes last: `cmux` reads a flag it does not know as taking the next word, so
 # `--confirm --json` made `--json` the confirm's value, the CLI answered in human text, and a
 # failed kill's error was dropped as not JSON (run 41867887577).
-def kill_command(machine: str) -> tuple[int, str, str]:
-    return cmux("cloud", "kill-machine", "--target", f"machine:{machine}", "--json", "--confirm", timeout=120)
+def kill_command(machine: str, *, cleanup: bool = False) -> tuple[int, str, str]:
+    flags = ("--json", "--confirm") if cleanup else ("--confirm", "--json")
+    return cmux("cloud", "kill-machine", "--target", f"machine:{machine}", *flags, timeout=120)
 
 
 def kill_failure(code: int, out: str, err: str) -> dict:
@@ -317,22 +331,24 @@ def kill_failure(code: int, out: str, err: str) -> dict:
             "raw": {"exit": code, "stdout": raw_output(out), "stderr": raw_output(err)}}
 
 
-def kill_machine(machine: str) -> bool:
+def kill_machine(machine: str, *, inspect_status: bool = True, cleanup: bool = False) -> bool:
     """Kill MACHINE (a destructive verb needs --confirm from a script). A failed kill reads one
     bounded status snapshot and retries once; only the safe status/error summary and the redacted
     raw output are kept."""
-    code_k, out_k, err_k = kill_command(machine)
+    code_k, out_k, err_k = kill_command(machine, cleanup=cleanup)
     if code_k == 0:
         record("cloud kill-machine", code_k, "", "")
         return True
     # A failed kill used to be silent, leaving the proof unable to distinguish a deleted
     # machine from a leaked one.
     failed = kill_failure(code_k, out_k, err_k)
-    status_code, status_summary, status_detail = machine_status(machine)
-    record("cloud kill-machine", code_k, "", failed["stderr"], raw=failed["raw"],
-           status_after_failure={"exit": status_code, **status_summary,
-                                 **({"error": status_detail} if status_detail else {})})
-    code_retry, out_retry, err_retry = kill_command(machine)
+    extra = {}
+    if inspect_status:
+        status_code, status_summary, status_detail = machine_status(machine)
+        extra["status_after_failure"] = {"exit": status_code, **status_summary,
+                                         **({"error": status_detail} if status_detail else {})}
+    record("cloud kill-machine", code_k, "", failed["stderr"], raw=failed["raw"], **extra)
+    code_retry, out_retry, err_retry = kill_command(machine, cleanup=cleanup)
     if code_retry == 0:
         record("cloud kill-machine retry", code_retry, "", "")
         return True
@@ -423,261 +439,98 @@ def browser_event_proof(events: list[dict]) -> dict:
     }
 
 
-# The composer reservation (cmux#34487: a warm Cloud machine while composing). The signed NEXT DEV app
-# sends it through `cmux link start-chat reserve` to its artifactsAPIBaseURL, the development platform;
-# this sends the same POST /v1/machines/reservations itself so the evidence holds the platform's own
-# HTTP status and answer. The session is the agent account's: for a published build the file token
-# store dev-signin-token.py --seed wrote for the app, refreshed once at Stack; for a tagged build a
-# Stack sign-in from the auth profile reload.sh reads. The token never reaches the evidence.
-STACK_PROJECT = "454ecd03-1db2-4050-845e-4ce5b0cd9895"  # dev-signin-token.py PROJECT
-STACK_CLIENT_KEY = "pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g"  # its publishable client key
-STACK_API = os.environ.get("CMUX_PROOF_STACK_API", "https://api.stack-auth.com").rstrip("/")  # a test's fake
-STACK_REFRESH = f"{STACK_API}/api/v1/auth/sessions/current/refresh"
-STACK_SIGN_IN = f"{STACK_API}/api/v1/auth/password/sign-in"
-PROFILE_FILE = Path.home() / ".secrets/cmuxterm-dev.env"  # the workflow's "Materialize the agent auth profile"
-SESSION_FILE = (Path.home() / "Library/Application Support/cmux/com.cmuxterm.app.debug.next" / STACK_PROJECT
-                / "credentials.json")
-RESERVATION_PLATFORM = os.environ.get("CMUX_PROOF_RESERVATION_PLATFORM",
-                                      "https://cmux-platform-development.debussy.workers.dev").rstrip("/")
-MACHINE_ID = re.compile(r"vm_[0-9a-z]{1,64}")
-SECRET_KEY = re.compile(r"(?i)token|password|secret|credential|authori[sz]ation|cookie|api[_-]?key|private[_-]?key")
+def validate_credentials_file(path_text: str) -> str:
+    """Return a user-owned 0600 credentials path without reading its secret values."""
+    path = Path(path_text).expanduser().resolve()
+    info = path.stat()
+    if not path.is_file() or info.st_uid != os.getuid() or info.st_mode & 0o077:
+        raise ValueError("credentials file must be a user-owned regular file with mode 0600")
+    return str(path)
 
 
-def http_json(method: str, url: str, access: str | None = None, team: str | None = None,
-              body: dict | None = None, extra: dict | None = None, timeout: int = 60) -> tuple[int, object]:
-    """One HTTPS call: (status, parsed JSON body or None); status 0 when nothing answered."""
-    # Cloudflare refuses urllib's default user agent on the platform Worker (error 1010).
-    headers = {"accept": "application/json", "user-agent": "cmux-cloud-chat-proof", **(extra or {})}
-    if access:
-        headers["authorization"] = f"Bearer {access}"
-    if team:
-        headers["x-cmux-team"] = team  # cmux-platform src/server/auth/TeamSelect.ts TEAM_HEADER
-    data = None
-    if body is not None:
-        headers["content-type"] = "application/json"
-        data = json.dumps(body).encode()
-    request = urllib.request.Request(url, method=method, data=data, headers=headers)
+def wait_for(name: str, words: tuple[str, ...], ready, timeout: int = 240) -> dict:
+    """Bounded wait for app launch or authentication; record only safe status fields."""
+    started = time.monotonic()
+    deadline = started + timeout
+    while True:
+        code, out, err = cmux(*words, timeout=min(30, max(1, int(deadline - time.monotonic()))))
+        value = parsed(out) if code == 0 else {}
+        satisfied = code == 0 and ready(value)
+        if satisfied or time.monotonic() >= deadline:
+            break
+        time.sleep(min(5, max(0, deadline - time.monotonic())))
+    safe = {key: value.get(key) for key in ("pid", "signed_in", "backend", "cloud_environment")
+            if key in value}
+    record(name, 0 if satisfied else (code or 1), "", "" if satisfied else err,
+           elapsed_ms=round((time.monotonic() - started) * 1000), **safe)
+    if not satisfied:
+        finish(f"fail: {name}")
+    return value
+
+
+# 1. The launch flag must change the actual running app, rather than only a CLI selection. The
+# workflow builds once and invokes this script once per backend; the socket and app bundle are the
+# same, while the persisted credentials file is replaced between launches.
+app_path = str(Path(args.app).resolve())
+open_tool = os.environ.get("CMUX_PROOF_OPEN_TOOL", "/usr/bin/open")
+launch = [open_tool, "-W", "-g", "-n"]
+if args.credentials_file:
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            status, raw = response.status, response.read()
-    except urllib.error.HTTPError as error:
-        status, raw = error.code, error.read()
-    except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError) as error:
-        return 0, {"unreachable": type(error).__name__}
+        credentials_file = validate_credentials_file(args.credentials_file)
+    except (OSError, ValueError) as error:
+        record("credentials file", 1, "", str(error))
+        finish("fail: credentials file")
+    launch.extend(["--env", f"CMUX_AUTH_CREDENTIALS_FILE={credentials_file}",
+                   "--env", "CMUX_DEV_AUTH_PROFILE=agent",
+                   "--env", "CMUX_DEV_AUTH_REPLACE_SESSION=1"])
+launch.extend([app_path, "--args", "--cloud-backend", args.cloud_backend])
+launchable_cleanup = not args.cleanup_machine or Path(app_path, "Contents", "Info.plist").is_file()
+if launchable_cleanup:
     try:
-        return status, json.loads(raw) if raw else None
-    except ValueError:
-        return status, None
-
-
-def safe_body(value: object, depth: int = 0) -> object:
-    """A platform answer for the evidence: scalars through `scalar` (a secret-shaped string is left
-    out), objects and lists kept to a few levels and entries."""
-    if isinstance(value, dict) and depth < 3:
-        # A secret-named key keeps its name but never its value: `{"token": "opaque"}` has no
-        # secret-shaped value, and the workflow's scan does not see a quoted key.
-        return {str(key)[:64]: "[left out]" if SECRET_KEY.search(str(key)) else safe_body(item, depth + 1)
-                for key, item in list(value.items())[:24]}
-    if isinstance(value, list) and depth < 3:
-        return [safe_body(item, depth + 1) for item in value[:12]]
-    return scalar(value)
-
-
-def session_access() -> tuple[str | None, str]:
-    """The app's seeded session's access token, refreshed at Stack when it can be; and how it was got."""
-    try:
-        stored = json.loads(SESSION_FILE.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return profile_session()
-    refresh, access = stored.get("refreshToken"), stored.get("accessToken")
-    if isinstance(refresh, str) and refresh:
-        status, body = http_json("POST", STACK_REFRESH, body={}, extra={
-            "x-stack-refresh-token": refresh, "x-stack-project-id": STACK_PROJECT,
-            "x-stack-publishable-client-key": STACK_CLIENT_KEY, "x-stack-access-type": "client"})
-        fresh = body.get("access_token") if isinstance(body, dict) else None
-        if status == 200 and isinstance(fresh, str) and fresh:
-            return fresh, "seeded session, refreshed at Stack"
-    if isinstance(access, str) and access:
-        return access, "seeded session (Stack refresh failed; the stored access token)"
-    return None, "the seeded session holds no token"
-
-
-def profile_session() -> tuple[str | None, str]:
-    """A tagged build signs in from the auth profile the workflow wrote (reload.sh --credentials-file):
-    a session for the same agent account, signed in at Stack the way dev-signin-token.py does."""
-    pair = {}
-    try:
-        for line in PROFILE_FILE.read_text(encoding="utf-8").splitlines():
-            name, _, value = line.partition("=")
-            pair[name.strip()] = value.strip()
-    except OSError:
-        return None, "no seeded session and no auth profile"
-    email, password = pair.get("CMUX_UITEST_STACK_EMAIL"), pair.get("CMUX_UITEST_STACK_PASSWORD")
-    if not email or not password:
-        return None, "the auth profile holds no stack pair"
-    status, body = http_json("POST", STACK_SIGN_IN, body={"email": email, "password": password}, extra={
-        "x-stack-project-id": STACK_PROJECT, "x-stack-publishable-client-key": STACK_CLIENT_KEY,
-        "x-stack-access-type": "client"})
-    access = body.get("access_token") if isinstance(body, dict) else None
-    if status == 200 and isinstance(access, str) and access:
-        return access, "agent account signed in at Stack from the auth profile (tagged build)"
-    return None, f"Stack refused the auth profile's sign-in (HTTP {status})"
-
-
-def personal_team(access: str) -> str | None:
-    """The session's personal team id, as cmux-platform derives it (src/server/auth/Ids.ts): the
-    Stack user id from the JWT's `sub`, read here only to name the team, never verified or kept."""
-    try:
-        payload = access.split(".")[1]
-        claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
-    except (IndexError, ValueError):
-        return None
-    sub = claims.get("sub") if isinstance(claims, dict) else None
-    if not isinstance(sub, str) or not sub:
-        return None
-    hex20 = lambda text: hashlib.sha256(text.encode()).hexdigest()[:20]
-    return f"team_{hex20('personal:user_' + hex20(f'stack:{STACK_PROJECT}:{sub}'))}"
-
-
-MACHINE_FIELDS = ("id", "status", "state", "provider", "region", "createdAt", "deletedAt")
-
-
-def platform_machine(access: str, team: str | None, machine: str) -> dict:
-    status, body = http_json("GET", f"{RESERVATION_PLATFORM}/v1/machines/{machine}", access, team)
-    value = body.get("machine", body) if isinstance(body, dict) else body
-    fields = {key: scalar(value[key]) for key in MACHINE_FIELDS if isinstance(value, dict) and key in value}
-    return {"http_status": status, **fields, **({"body": safe_body(body)} if status >= 400 or status == 0 else {})}
-
-
-def platform_machine_ids(access: str, team: str | None) -> tuple[set, bool]:
-    """The ids of the team's machines on the platform, and whether the list was read."""
-    status, body = http_json("GET", f"{RESERVATION_PLATFORM}/v1/machines", access, team)
-    rows = body.get("machines", body) if isinstance(body, dict) else body
-    if status != 200 or not isinstance(rows, list):
-        return set(), False
-    return {row["id"] for row in rows if isinstance(row, dict) and isinstance(row.get("id"), str)
-            and MACHINE_ID.fullmatch(row["id"])}, True
-
-
-def reservation_proof(owner: object) -> dict:
-    """POST /v1/machines/reservations with the app's session and x-cmux-team, then release it and
-    destroy the machine it reserved, falling back to the app's kill-machine. Never raises."""
-    result: dict = {"platform": RESERVATION_PLATFORM, "app_list_owner": scalar(owner)}
-    if os.environ.get("CMUX_PROOF_RESERVATION") == "skip":  # the fake-CLI tests of the chat path
-        result.update(ok=False, cleaned=True, skipped="CMUX_PROOF_RESERVATION=skip")
-        return result
-    access, how = session_access()
-    result["session"] = how
-    if not access:
-        result.update(ok=False, cleaned=True, skipped="no signed-in session to send")
-        return result
-    status, health = http_json("GET", f"{RESERVATION_PLATFORM}/v1/health")
-    result["health_status"] = status
-    result["health_commit"] = scalar(health.get("commit")) if isinstance(health, dict) else None
-    team = personal_team(access)
-    result["x_cmux_team"] = team
-    compose = str(uuid.uuid4())
-    result["compose_key"] = compose
-    before, listed_before = platform_machine_ids(access, team)
-    machine = None
-    try:
-        for attempt in (1, 2):  # a lost answer is asked again with the same compose key (one carrier per key)
-            started = time.monotonic()
-            status, body = http_json("POST", f"{RESERVATION_PLATFORM}/v1/machines/reservations", access, team,
-                                     {"composeKey": compose}, timeout=130)
-            result["reserve" if attempt == 1 else "reserve_retry"] = {
-                "method": "POST", "path": "/v1/machines/reservations", "http_status": status,
-                "ms": int((time.monotonic() - started) * 1000), "body": safe_body(body)}
-            found = body.get("machine") if isinstance(body, dict) else None
-            machine = found if isinstance(found, str) and MACHINE_ID.fullmatch(found) else None
-            if machine or (status != 0 and status < 500):
-                break
-        result["machine"] = machine
-        result["ok"] = status == 200 and machine is not None
-        if machine:
-            result["machine_after_reserve"] = platform_machine(access, team, machine)
-    finally:
-        status, body = http_json("DELETE", f"{RESERVATION_PLATFORM}/v1/machines/reservations/{compose}",
-                                 access, team, timeout=30)
-        result["release"] = {"method": "DELETE", "path": "/v1/machines/reservations/{compose_key}",
-                             "http_status": status, "body": safe_body(body)}
-        # A reservation the platform made must be released; one it never made answers 404.
-        released = status == 200 or (machine is None and status == 404)
-        gone = True
-        if machine:
-            status, body = http_json("DELETE", f"{RESERVATION_PLATFORM}/v1/machines/{machine}", access, team,
-                                     timeout=60)
-            result["destroy"] = {"method": "DELETE", "path": "/v1/machines/{machine}", "http_status": status,
-                                 "body": safe_body(body)}
-            after = platform_machine(access, team, machine)
-            result["machine_after_cleanup"] = after
-            gone = status in (200, 202, 204, 404) and (
-                after["http_status"] == 404 or str(after.get("status") or after.get("state") or "").lower()
-                in {"deleted", "deleting", "destroyed", "destroying", "terminated", "stopped"})
-            if not gone:
-                # The proof's own cleanup: the app's kill-machine, as for the chat's machine.
-                gone = kill_machine(machine)
-                result["app_kill_machine"] = gone
-        else:
-            # No answer named a machine, but the platform may have made one: name every machine that
-            # appeared since the reserve (never destroyed here: another caller may own it) so a
-            # cleanup_machine dispatch can take it, and fail the proof.
-            after_ids, listed_after = platform_machine_ids(access, team)
-            appeared = sorted(after_ids - before) if listed_before and listed_after else []
-            result["machines_appeared_without_answer"] = appeared
-            gone = listed_before and listed_after and not appeared
-        result["cleaned"] = bool(released and gone)
-    return result
-
-
-# 1. Signed in: the auto sign-in runs at launch. list-machines answers while signed out too
-# (account.signed_in false), so the wait reads that field, not the exit code.
-deadline = time.monotonic() + 240
-while True:  # bounded wait on the app's sign-in, not app code
-    code, out, err, machines = listed()
-    signed_in = (machines.get("account") or {}).get("signed_in") is True
-    if signed_in or time.monotonic() > deadline:
-        break
-    time.sleep(5)
-record("signed in (cloud list-machines)", 0 if signed_in else (code or 1), "" if signed_in else out, err,
-       signed_in=signed_in)
-if not signed_in:
-    finish("fail: the app never signed in (cloud list-machines: account.signed_in is not true)")
+        app_launcher = subprocess.Popen(launch, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError as error:
+        record("launch app", 1, "", str(error))
+        finish("fail: launch app")
+    record("launch app", 0, "", "", launch_flag=args.cloud_backend)
+    wait_for("launched app ready", ("app", "identify", "--json"),
+             lambda value: bool(value.get("pid")) and value.get("app_bundle_path") == app_path)
+    owned_app = True
 
 if args.cleanup_machine:
     machine = args.cleanup_machine
     evidence["cleanup_machine"] = machine
+    list_code, list_out, list_err, machines = listed()
     row = next((r for r in machines.get("machines") or []
                 if isinstance(r, dict) and r.get("machine_id") == machine), None)
-    record("cloud list-machines (cleanup target)", 0, "", "", listed=row is not None, loaded=machines.get("loaded"),
+    record("cloud list-machines (cleanup target)", list_code, "", failure_text(list_err, list_out), listed=row is not None,
+           loaded=machines.get("loaded"),
            **({"row": {key: scalar(row[key]) for key in ("title", "status", "created_at") if key in row}}
               if row else {}))
+    if list_code != 0 or row is None:
+        # Never invoke destructive cleanup until the account snapshot has positively
+        # identified the requested machine. A failed or incomplete listing is inconclusive,
+        # so leave the machine untouched and make the proof fail closed.
+        record("cloud machine-status", list_code or 1, "", "skipped: cleanup target was not confirmed",
+               machine_status={"skipped": True})
+        finish("fail: cleanup target was not confirmed")
     status_code, status_summary, status_detail = machine_status(machine)
     record("cloud machine-status", status_code, "", status_detail, machine_status=status_summary)
-    killed = kill_machine(machine)
+    killed = kill_machine(machine, cleanup=True)
     after_code, after_summary, after_detail = machine_status(machine)
     record("cloud machine-status after kill", after_code, "", after_detail, machine_status=after_summary)
     finish("pass" if killed else "fail: kill-machine failed twice")
 
-# 1a. Machines earlier proof runs left (titled ccp-<run id>), read-only, so a leak is named by id and a
-# cleanup_machine dispatch can take it.
-evidence["leftover_proof_machines"] = [
-    {key: scalar(row.get(key)) for key in ("title", "machine_id", "status", "created_at")}
-    for row in machines.get("machines") or []
-    if isinstance(row, dict) and re.fullmatch(r"ccp-\d+", str(row.get("title") or "")) and row.get("title") != args.tag]
+actual = wait_for("selected backend active and signed in", ("app", "call", "auth.status", "--json"),
+                  lambda value: value.get("cloud_environment") == args.cloud_backend
+                  and value.get("backend", "").rstrip("/") == args.expected_api_origin.rstrip("/")
+                  and value.get("signed_in") is True)
+evidence["api_origin"] = actual.get("backend")
 
-# 1b. A composer reservation (cmux#34487's warm machine on select), straight at the platform with the
-# signed-in session, then its release and the machine's destroy, before the chat runs.
-reservation = reservation_proof(machines.get("owner"))
-evidence["reservation"] = reservation
-print(f"[{'ok' if reservation.get('ok') else 'FAIL'}] machine reservation: "
-      f"{json.dumps({key: reservation.get(key) for key in ('platform', 'health_commit', 'ok', 'cleaned') if key in reservation})}",
-      flush=True)
-
-# 2. A VM agent key at this build's issuer (vm-staging.cmux.dev for a tagged Debug build).
+# 2. A VM agent key at the selected environment's issuer.
+started = time.monotonic()
 code, out, err = cmux("vm", "token", "create", "--ttl", "30m", "--json", timeout=60)
 # The token is intentionally not retained in the evidence or the job log.
-record("vm token create", code, "", err)
+record("vm token create", code, out, err, elapsed_ms=round((time.monotonic() - started) * 1000))
 if code != 0:
     finish("fail: vm token create")
 
@@ -709,6 +562,10 @@ record("cloud start-chat", code, "", failure_text(err, out) if code != 0 else ""
        browser_proof={"url": BROWSER_PROOF_URL, "marker": BROWSER_PROOF_MARKER,
                       "reply_observed": bool(reply_text), "reply_matches": browser_marker, "tool_calls": tool_calls,
                       "tool_call_observed": browser_tools},
+       machine_id=clean(answer.get("machine_id") or "") or None,
+       session_id=clean(answer.get("session_id") or "") or None,
+       guest_host=clean(answer.get("host") or "") or None,
+       elapsed_ms=round((time.monotonic() - chat_started) * 1000),
        **({"app_link_log": app_link_log(LINK_LOG_SINCE), "app_link_state": app_link_state(args.tag)} if code != 0 else {}))
 # A failed chat answers on stderr: the machine it made is at details.machine_id (chat.turn_failed)
 # or details.answer.machine_id (the other failures).
@@ -732,14 +589,10 @@ record("cloud browser event proof", event_code, "", "",
        browser_proof={"url": BROWSER_PROOF_URL, **event_proof})
 
 # 5. The machine the chat made goes, pass or fail.
-killed = kill_machine(machine) if machine else True
+killed = kill_machine(machine, inspect_status=False) if machine else False
 
 if not (code == 0 and reply_text):
     finish("fail: cloud start-chat gave no reply")
 if not (browser_marker and browser_tools and event_proof["navigation_observed"] and event_proof["page_read_observed"]):
     finish("fail: the Cloud agent did not produce a browser navigation and page readback")
-if not killed:
-    finish("fail: the chat replied but its machine was not killed")
-if not reservation.get("cleaned"):
-    finish("fail: the reserved machine was not released and destroyed")
-finish("pass" if reservation.get("ok") else "fail: POST /v1/machines/reservations reserved no machine")
+finish("pass" if killed else "fail: the chat replied but its machine was not killed")

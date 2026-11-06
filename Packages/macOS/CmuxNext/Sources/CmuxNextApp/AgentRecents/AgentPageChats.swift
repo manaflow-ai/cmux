@@ -144,7 +144,8 @@ final class AgentPageChats {
         tabs.pageChats.cloudReservation = { [weak services] request in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
             return await request.run(allowed: !services.registry.disabledFeatures.contains(.cloud) && services.cloud.mayCallCloud,
-                                     binary: services.cloud.move.cli, configuration: services.cloud.configuration, auth: services.cloud.auth)
+                                     binary: services.cloud.move.cli, configuration: services.cloud.configuration, auth: services.cloud.auth,
+                                     team: { try await services.cloud.reservationTeam() })
         }
         tabs.pageChats.cloudEnvironment = { [weak services] request in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }

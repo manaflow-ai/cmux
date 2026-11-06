@@ -69,7 +69,7 @@ export const checkRaise = async (env: Env, sql: SqlStorage, caller: HandCaller, 
   sql.exec(`DELETE FROM hand_level_challenge WHERE nonce = ?`, proof.nonce)
   if (!row || row.target !== target || row.expires_at < Date.now()) return "the challenge is unknown, used or expired"
   // The install must still be active, and its registered presence key signs.
-  const user = env.USER_DO.get(env.USER_DO.idFromName(owner)) as unknown as { personKey(entity: string, install: string): Promise<JsonWebKey | null> }
+  const user = env.USER_DO.get(env.USER_DO.idFromName(owner))
   if (!(await user.personKey(owner, proof.install).catch(() => null))) return "that install is not one of the owner's active Mac or iPhone apps"
   const presence = await presenceOf(proof.install).catch(() => null)
   if (!presence) return "that install has no presence key (Touch ID / Face ID) registered for hand levels"
@@ -103,7 +103,7 @@ export const approvalMessage = (env: Env, hand: string, approval: string) => `cm
 export const checkApproval = async (env: Env, caller: HandCaller, owner: string, hand: string, approval: string, install: string | undefined, signature: string | undefined): Promise<string | null> => {
   if (caller.kind !== "owner" || caller.user !== owner) return "only the owner allows a hand request"
   if (!install || !signature) return "allowing needs the owner's app proof (install, signature)"
-  const user = env.USER_DO.get(env.USER_DO.idFromName(owner)) as unknown as { personKey(entity: string, install: string): Promise<JsonWebKey | null> }
+  const user = env.USER_DO.get(env.USER_DO.idFromName(owner))
   const jwk = await user.personKey(owner, install).catch(() => null)
   if (!jwk) return "that install is not one of the owner's active Mac or iPhone apps"
   return (await verifyInstallSignature(jwk, approvalMessage(env, hand, approval), signature)) ? null : "bad signature"

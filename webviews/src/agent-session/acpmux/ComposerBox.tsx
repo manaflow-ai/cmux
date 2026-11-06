@@ -192,7 +192,10 @@ export function ComposerBox({
   useImperativeHandle(
     handle,
     () => ({
-      plainPaste: () => plainPaste.current(),
+      plainPaste: () => {
+        plainPaste.current();
+        prompt.current?.plainPaste();
+      },
       place: (chips) => inline.place(chips, "paste"),
       sent: (ids) => inline.sent(ids),
     }),
@@ -259,7 +262,7 @@ export function ComposerBox({
       {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the prompt inside is the control and takes the keyboard itself. */}
       <div
         ref={attachBox}
-        className="ui-glass ui-glass-floats acpmux-composer-box"
+        className="ui-glass ui-glass-floats ui-glass-material acpmux-composer-box"
         // The compact grid (composerLocation.css): a state attribute, not a :has() on the box.
         data-composer-grid=""
         data-attachment-view={attachmentView}

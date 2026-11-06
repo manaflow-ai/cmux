@@ -69,14 +69,20 @@ struct SidebarBottomCardSlot {
     /// The notice card shows only while no other card does.
     var showsNotice: Bool { shown == .notice }
 
-    /// The room the slot takes above the footer: its card and a gap above
-    /// and below it; 0 without a card.
-    var height: CGFloat {
-        switch shown {
+    /// The card's width in a sidebar `width` wide: inset like the card stack's cards.
+    static func cardWidth(in sidebarWidth: CGFloat) -> CGFloat { max(0, sidebarWidth - 2 * Metrics.space3) }
+
+    /// The room the slot takes above the footer in a sidebar `width` wide: its card and a gap above
+    /// and below it; 0 without a card. The Updated card's height before its page reports is the one
+    /// it last had at its width.
+    func height(width sidebarWidth: CGFloat) -> CGFloat {
+        updated.slotWidth = Self.cardWidth(in: sidebarWidth)
+        updated.holdFirstFrame()
+        return switch shown {
         case .update: (update.card.map(SidebarUpdateCardView.height(for:)) ?? 0) + 2 * Metrics.space2
         case .nowPlaying: (nowPlaying.nowPlaying.map(SidebarNowPlayingCardView.height(for:)) ?? 0) + 2 * Metrics.space2
         case .updated: updated.height + 2 * Metrics.space2
-        case .notice: (notice.notice.map(SidebarNoticeCardView.height(for:)) ?? 0) + 2 * Metrics.space2
+        case .notice: (notice.notice.map { notice.height(for: $0, width: Self.cardWidth(in: sidebarWidth)) } ?? 0) + 2 * Metrics.space2
         case nil: 0
         }
     }
@@ -84,7 +90,7 @@ struct SidebarBottomCardSlot {
     /// Lays the card out in the slot, which ends at `bottom`, inset like the
     /// card stack's cards across a sidebar `width` wide.
     func place(above bottom: CGFloat, width sidebarWidth: CGFloat, slotHeight: CGFloat) {
-        let inset = Metrics.space3, width = max(0, sidebarWidth - 2 * inset)
+        let inset = Metrics.space3, width = Self.cardWidth(in: sidebarWidth)
         let shown = slotHeight > 0 ? shown : nil
         func frame(_ which: Shown, height: CGFloat) -> NSRect {
             shown == which ? NSRect(x: inset, y: bottom - Metrics.space2 - height, width: width, height: height).integral : .zero
@@ -99,7 +105,7 @@ struct SidebarBottomCardSlot {
         }
         notice.presence.setShown(shown == .notice)
         if shown == .notice || !notice.isLeaving {
-            notice.frame = frame(.notice, height: notice.notice.map(SidebarNoticeCardView.height(for:)) ?? 0)
+            notice.frame = frame(.notice, height: notice.notice.map { notice.height(for: $0, width: width) } ?? 0)
         }
     }
 }

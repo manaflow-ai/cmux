@@ -18,9 +18,11 @@ public nonisolated struct AgentPaneCloudReservationRequest: Equatable, Sendable 
         composeKey = params["composeKey"]?.stringValue
     }
 
-    /// Supplies only the native client's trusted platform and human-session credentials to Rust.
+    /// Supplies only the native client's trusted platform and human-session credentials to Rust. `team` is the
+    /// backend team the reservation names: the one the app's machine list reads (CloudService.reservationTeam).
     @MainActor
-    public func run(allowed: Bool, binary: URL?, configuration: CloudConfiguration, auth: CloudAuth) async -> [String: Any] {
+    public func run(allowed: Bool, binary: URL?, configuration: CloudConfiguration, auth: CloudAuth,
+                    team: () async throws -> String?) async -> [String: Any] {
         guard allowed, let binary, let platform = configuration.artifactsAPIBaseURL() else {
             return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled")
         }
@@ -28,7 +30,7 @@ public nonisolated struct AgentPaneCloudReservationRequest: Equatable, Sendable 
             let data = try JSONEncoder().encode(params)
             var object = (try JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
             object["platform"] = platform.absoluteString
-            object["team"] = try auth.accessTokenTeam(requested: nil)
+            object["team"] = try await team()
             let payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
             let token = try await auth.tokens().access
             let answer = try await CloudMoveCLI(binary: binary).startChatReservation(

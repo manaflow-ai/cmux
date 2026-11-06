@@ -27,8 +27,12 @@ public nonisolated final class FocusInput {
         return window
     }
 
-    /// Closes `window` in the router: its focus state goes with it.
+    /// Closes `window` in the router: its focus state goes with it. Its one caller is a machine's `deinit`, the only
+    /// call into the router the compiler does not keep on the main actor (a machine is freed where its last owner is):
+    /// a machine freed off the main thread would race the main thread's calls into this shared router. Debug builds
+    /// and tests stop there.
     func closeWindow(_ window: [UInt8]) {
+        assert(Thread.isMainThread, "a FocusMachine was freed off the main thread: its window close races the shared input router")
         window.withUnsafeBufferPointer { cmux_input_window_close(handle, $0.baseAddress, $0.count) }
     }
 }

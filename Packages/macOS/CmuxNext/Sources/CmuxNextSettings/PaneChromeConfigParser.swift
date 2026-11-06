@@ -3,7 +3,7 @@ import CoreGraphics
 
 /// Parses the pane chrome keys under `layout` in cmux.json:
 /// `layout.panePadding` (points, 0 allowed), `layout.paneCornerRadius`
-/// (points, 0 allowed), `layout.paneSeparation` ("none", "dividers",
+/// (points, 0 allowed; panes and tabs), `layout.cornerPadding` (points, 0 to 12), `layout.paneSeparation` ("none", "dividers",
 /// "borders" or "cards"; unset follows the legacy `layout.paneBorder`),
 /// `layout.paneBorder` ("subtle" or "none"),
 /// `layout.paneBorderColor` ("#RRGGBB" or "#RRGGBBAA"; unset follows the
@@ -23,6 +23,8 @@ enum PaneChromeConfigParser {
                                    range: PaneChromeOverrides.paddingRange, diagnostics: &diagnostics)
         overrides.cornerRadius = points(members["paneCornerRadius"], path: "layout.paneCornerRadius",
                                         range: PaneChromeOverrides.cornerRadiusRange, diagnostics: &diagnostics)
+        overrides.cornerPadding = points(members["cornerPadding"], path: "layout.cornerPadding",
+                                         range: PaneChromeOverrides.cornerPaddingRange, diagnostics: &diagnostics)
         if let value = members["paneBorder"] {
             if let text = value.stringValue, let style = PaneBorderStyle(rawValue: text) {
                 overrides.border = style

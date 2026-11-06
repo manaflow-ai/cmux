@@ -9,7 +9,11 @@ use serde_json::{Value, json};
 
 /// How long a start spends asking a DEV daemon to hand over and waiting for it to let go, before
 /// going on as usual. Under the app's launch stall limit (20 s without a log write).
+///
+/// A DEV daemon asked to hand over may accept and never let go, or never answer at all; a launch
+/// the person is watching has to go on serving rather than wait on it forever.
 #[cfg(unix)]
+// timeout: hazard is a hung hand-over holder; the fallback is to go on with the normal start.
 const RECLAIM_WAIT: Duration = Duration::from_secs(15);
 
 pub(super) enum Started {
@@ -154,7 +158,11 @@ mod tests {
     use super::*;
     use std::cell::Cell;
 
+    // Production reclaim waits on `RECLAIM_WAIT` and on the holder's liveness; these two only
+    // drive the paused-clock assertions below.
+    // timeout: test-only bound for the paused-clock reclaim assertions.
     const BUDGET: Duration = Duration::from_secs(15);
+    // timeout: test-only retry cadence for the same paused-clock assertions.
     const RETRY: Duration = Duration::from_millis(50);
 
     #[tokio::test(start_paused = true)]

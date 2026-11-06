@@ -34,6 +34,15 @@
 //!    (set again during the start by another process) is retried once, and the retry is logged.
 //! 4. A start that misses its deadline says what its harness was doing ([`HarnessSeen`]): alive or
 //!    not, its class and priority, how long it ran, its CPU time and its threads on a CPU.
+//! 5. What a harness did is read over its whole process tree, never its first process alone: a
+//!    launcher (`sr2 claude`) does nothing itself while the agent it started does the work. And a
+//!    page-in is work: on 2026-11-04 (swap 26.8 of 27.6 GB full, about 60 `git fetch` processes
+//!    of 0.5 to 1.5 GB each) every Chief start failed at 90 s with "0.1 s of CPU, 0 of 12 threads
+//!    running", read off the `sr2` launcher, while its `claude` was in uninterruptible page-in
+//!    waits (ps state `U`, 24 MB resident after 14 minutes). Such a harness is slow, not hung.
+//!    The cost: any process of the tree that works (an MCP server's timer) keeps a hung harness
+//!    counted as working, so that case falls to its caller's longer bound (Chief's start ceiling,
+//!    the pool's `START_HAZARD`).
 //!
 //! The class, first set wins: the profile's env `ACPMUX_SESSION_CPU_CLASS` as the harness gets it
 //! (its `${env:…}` references resolved; one build-heavy profile can opt out), the daemon's env
@@ -159,8 +168,26 @@ pub struct HarnessState {
     pub cpu_ms: u64,
     pub threads: i32,
     /// Its threads on a CPU or ready for one when read: 0 while every thread waits (on the disk,
-    /// a lock or input).
+    /// memory, a lock or input).
     pub threads_running: i32,
+    /// Its processes: the harness and those it started (a launcher's agent, its MCP servers).
+    /// CPU time, threads and page-ins are the sums over them.
+    pub processes: i32,
+    /// Pages it read in from disk or swap: the work a harness does while memory is short and
+    /// every thread waits on a page.
+    pub pageins: u64,
+}
+
+impl HarnessState {
+    /// Whether it did any work between `earlier` and this read: a thread on a CPU, CPU time
+    /// used, a page read in, or a process started or ended. A loaded host or short memory slows
+    /// that down; only a harness that waits on input or a lock does none of it.
+    pub fn worked_since(&self, earlier: &HarnessState) -> bool {
+        self.threads_running > 0
+            || self.cpu_ms != earlier.cpu_ms
+            || self.pageins != earlier.pageins
+            || self.processes != earlier.processes
+    }
 }
 
 /// The state of the running process `pid` (macOS; elsewhere None). None once it ended or when the
@@ -221,14 +248,17 @@ impl std::fmt::Display for HarnessState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "its agent process (pid {}) is alive at {} CPU class (priority {}), ran {} s, used {:.1} s of CPU, {} of {} threads running",
+            "its agent process (pid {}, {} process{} in all) is alive at {} CPU class (priority {}), ran {} s, used {:.1} s of CPU, {} of {} threads running, {} page-ins",
             self.pid,
+            self.processes,
+            if self.processes == 1 { "" } else { "es" },
             self.class(),
             self.priority,
             self.ran_secs,
             self.cpu_ms as f64 / 1000.0,
             self.threads_running,
             self.threads,
+            self.pageins,
         )
     }
 }
@@ -268,6 +298,34 @@ mod imp {
         (n == size).then(|| unsafe { out.assume_init() })
     }
 
+    /// The most processes of one harness's tree it reads: a launcher, its agent and their MCP
+    /// servers are a handful; the bound keeps a harness that forks a build from costing more.
+    const TREE_MAX: usize = 64;
+
+    /// The processes `root` started, and theirs, at most [`TREE_MAX`] in all with `root`. Only
+    /// the descendants of a harness acpmux spawned and holds: no other process is listed.
+    fn tree(root: libc::c_int) -> Vec<libc::c_int> {
+        let mut all = vec![root];
+        let mut next = 0;
+        while next < all.len() && all.len() < TREE_MAX {
+            let mut kids = [0 as libc::c_int; TREE_MAX];
+            let bytes = libc::c_int::try_from(std::mem::size_of_val(&kids)).unwrap_or(0);
+            // SAFETY: the buffer holds `bytes` bytes of pids, which the kernel fills.
+            let n = unsafe { libc::proc_listchildpids(all[next], kids.as_mut_ptr().cast(), bytes) };
+            let n = usize::try_from(n).unwrap_or(0).min(TREE_MAX);
+            for kid in kids[..n].iter().copied() {
+                if all.len() == TREE_MAX {
+                    break;
+                }
+                if kid > 0 && !all.contains(&kid) {
+                    all.push(kid);
+                }
+            }
+            next += 1;
+        }
+        all
+    }
+
     // The Mach timebase's struct and call are deprecated in favour of the `mach2` crate, which
     // acpmux does not depend on; they are not defective.
     #[allow(deprecated)]
@@ -284,9 +342,19 @@ mod imp {
         } else {
             (1, 1)
         };
-        let cpu_ns = u128::from(task.pti_total_user.saturating_add(task.pti_total_system))
-            .saturating_mul(numer)
-            / denom;
+        let (mut ticks, mut threads, mut running, mut pageins, mut processes) =
+            (0u128, 0i32, 0i32, 0u64, 0i32);
+        // The harness itself, then each process under it that is still there to read.
+        let rest =
+            tree(id).into_iter().skip(1).filter_map(|kid| pidinfo(kid, libc::PROC_PIDTASKINFO));
+        for t in std::iter::once(task).chain(rest) {
+            ticks += u128::from(t.pti_total_user.saturating_add(t.pti_total_system));
+            threads = threads.saturating_add(t.pti_threadnum);
+            running = running.saturating_add(t.pti_numrunning);
+            pageins = pageins.saturating_add(u64::try_from(t.pti_pageins).unwrap_or(0));
+            processes += 1;
+        }
+        let cpu_ns = ticks.saturating_mul(numer) / denom;
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -298,8 +366,10 @@ mod imp {
             background: task.pti_priority <= 4,
             ran_secs: now.saturating_sub(bsd.pbi_start_tvsec),
             cpu_ms: u64::try_from(cpu_ns / 1_000_000).unwrap_or(u64::MAX),
-            threads: task.pti_threadnum,
-            threads_running: task.pti_numrunning,
+            threads,
+            threads_running: running,
+            processes,
+            pageins,
         })
     }
 
@@ -378,6 +448,53 @@ mod tests {
         // A value that names no class is skipped.
         assert_eq!(CpuClass::resolve(Some("utility"), Some("normal".into()), bg), CpuClass::Normal);
         assert_eq!(CpuClass::resolve(Some(""), None, None), CpuClass::Background);
+    }
+
+    /// The 2026-11-04 stall: `sr2 claude` waits on its `claude`, which does the work. A launcher
+    /// that only waits must not read as a harness that does nothing.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_launchers_harness_state_counts_the_work_of_the_agent_it_started() {
+        use std::io::BufRead;
+        // The launcher (`sh`, kept by the `; :` after its one command) waits on its agent, which
+        // spends CPU, says so, then waits on its input.
+        let agent = "i=0; while [ $i -lt 100000 ]; do i=$((i+1)); done; echo worked; cat";
+        let mut launcher = std::process::Command::new("/bin/sh")
+            .args(["-c", &format!("/bin/sh -c '{agent}'; :")])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .expect("spawn the launcher");
+        let mut said = String::new();
+        let stdout = launcher.stdout.take().expect("its stdout");
+        std::io::BufReader::new(stdout).read_line(&mut said).expect("the agent's line");
+        assert_eq!(said.trim(), "worked");
+        let state = harness_state(launcher.id()).expect("read the launcher");
+        drop(launcher.stdin.take());
+        let _ = launcher.kill();
+        let _ = launcher.wait();
+        // The launcher alone used a few ms; its agent's loop took far more.
+        assert!(state.cpu_ms >= 100, "the agent's CPU time counts: {state:?}");
+    }
+
+    #[test]
+    fn a_page_in_or_a_process_change_is_work_and_waiting_alone_is_not() {
+        let idle = HarnessState {
+            pid: 1,
+            priority: 31,
+            background: false,
+            ran_secs: 60,
+            cpu_ms: 100,
+            threads: 12,
+            threads_running: 0,
+            processes: 2,
+            pageins: 500,
+        };
+        assert!(!idle.worked_since(&idle));
+        assert!(HarnessState { pageins: 501, ..idle.clone() }.worked_since(&idle));
+        assert!(HarnessState { processes: 3, ..idle.clone() }.worked_since(&idle));
+        assert!(HarnessState { cpu_ms: 101, ..idle.clone() }.worked_since(&idle));
+        assert!(HarnessState { threads_running: 1, ..idle.clone() }.worked_since(&idle));
     }
 
     #[cfg(target_os = "linux")]
