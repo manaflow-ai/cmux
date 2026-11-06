@@ -161,6 +161,7 @@ function ModePicker({ focused }: { focused: boolean }) {
             <input
               type="radio"
               name={`${labelId}-mode`}
+              aria-label={titles.get(mode) ?? mode}
               value={mode}
               checked={state.value === mode}
               disabled={disabled}
@@ -322,12 +323,11 @@ function Approvals({ approvals, run, disabled }: { approvals: ComputerUseApprova
                       <input
                         type="radio"
                         name={`${labelId}-${approval.app_id}`}
+                        aria-label={t(`settingsWindow.computerUse.approval.${decision}`)}
                         value={decision}
                         checked={approval.decision === decision}
                         disabled={disabled}
-                        onChange={() =>
-                          run("computerUse.approval.set", { app_id: approval.app_id, decision })
-                        }
+                        onChange={() => run("computerUse.approval.set", { app_id: approval.app_id, decision })}
                       />
                       {t(`settingsWindow.computerUse.approval.${decision}`)}
                     </label>

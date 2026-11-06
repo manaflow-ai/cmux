@@ -16,6 +16,7 @@ import { Session, type EventSourceContext } from "../../protocol/session";
 import {
   settingsPageActions,
   type BrowserProfile,
+  type ComputerUseApproval,
   type HostLists,
   type AccountsCmux,
   type AccountsRow,
@@ -1292,7 +1293,7 @@ export class MockSettingsProvider {
     const computerUse = this.host.computer_use;
     if (!computerUse) return;
     const approvals = computerUse.approvals ?? [];
-    const next =
+    const next: ComputerUseApproval[] =
       action === "computerUse.approval.forget"
         ? approvals.filter((approval) => approval.app_id !== args.app_id)
         : approvals.map((approval) =>

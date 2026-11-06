@@ -37,8 +37,7 @@ const ran = (log: Entry[], action: string, args?: Record<string, unknown>) =>
     (entry) =>
       entry.op === "cmux.app.action.run" &&
       (entry.params as { action: string }).action === action &&
-      (args === undefined ||
-        JSON.stringify((entry.params as { args: unknown }).args) === JSON.stringify(args)),
+      (args === undefined || JSON.stringify((entry.params as { args: unknown }).args) === JSON.stringify(args)),
   );
 
 test("Computer Use is its own category, and Agents no longer draws it", async () => {
@@ -124,7 +123,7 @@ test("off, the status says so and hides the grants", async () => {
   expect(grants(element)).toEqual([]);
   expect(element.querySelector("[data-worker]")).toBeNull();
   expect(element.textContent).toContain("Computer Use is off");
-  expect(element.querySelector('[data-mode="off"]')!.dataset.checked).toBe("");
+  expect(element.querySelector<HTMLElement>('[data-mode="off"]')!.dataset.checked).toBe("");
   page.unmount();
 });
 
@@ -141,7 +140,8 @@ test("the denied apps editor removes, adds by id or running app, and restores th
   );
   await settle();
   const element = card(page.container)!;
-  const listed = () => [...element.querySelectorAll<HTMLElement>("[data-denied-app]")].map((row) => row.dataset.deniedApp);
+  const listed = () =>
+    [...element.querySelectorAll<HTMLElement>("[data-denied-app]")].map((row) => row.dataset.deniedApp);
   expect(listed()).toEqual(["com.apple.Terminal", "com.1password.*"]);
   await act(async () =>
     element.querySelector<HTMLButtonElement>('[data-denied-app="com.apple.Terminal"] button')!.click(),

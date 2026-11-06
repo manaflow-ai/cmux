@@ -2218,17 +2218,17 @@ button.menu-disclosure {
 }
 
 .computer-use-mode input {
-  margin: 2px 0 0;
+  margin: var(--ds-space-1) 0 0;
 }
 
 .computer-use-mode-text {
   display: grid;
-  gap: 2px;
+  gap: var(--ds-space-1);
   min-width: 0;
 }
 
 .computer-use-mode-title {
-  font-weight: 500;
+  font-weight: var(--weight-emphasis);
 }
 
 .computer-use-list {
