@@ -813,6 +813,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             print_json(&serde_json::to_value(&load)?);
             Ok(())
         }
+        // Pure: judges the readings on stdin, no daemon (`cli/host_budget.rs`).
+        Command::Host(PeerCmd::Verdict) => crate::cli::host_budget::verdict_stdin(),
         // Only a running daemon's chats: no daemon, no chats to tell.
         Command::Host(PeerCmd::Notice { text }) => {
             let client = crate::client::Client::connect(&crate::config::socket_path()).await?;
@@ -953,8 +955,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     }
                     return Ok(());
                 }
-                PeerCmd::Load | PeerCmd::Notice { .. } => {
-                    return Err(anyhow!("machine load and notice are handled before connecting"));
+                PeerCmd::Load | PeerCmd::Verdict | PeerCmd::Notice { .. } => {
+                    return Err(anyhow!(
+                        "machine load, verdict and notice are handled before connecting"
+                    ));
                 }
                 PeerCmd::Rm { name } => {
                     client.request("_acpmux/peer_remove", json!({"name": name})).await?
