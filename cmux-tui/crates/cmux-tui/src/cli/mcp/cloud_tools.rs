@@ -59,15 +59,21 @@ const SCREEN: (u32, u32) = (1280, 800);
 
 /// Every desktop step's start, as the work user on the agent display: `cmux-cua serve` started when
 /// it is not running (the image's unit; `sudo -n systemctl start` returns once its socket listens),
-/// desktop capture scope (screen coordinates for screenshots and clicks), and three helpers:
-/// - `cua TOOL JSON`: one cmux-cua tool. cmux-cua exits 0 on a refusal too, so its answer is read:
-///   a `"code"` field or a refusal line fails the step with cmux-cua's words.
+/// desktop capture scope for this step (screen coordinates for screenshots and clicks; the
+/// daemon's setting is shared with agents on the machine, so the previous value comes back on
+/// exit), and four helpers:
+/// - `cua TOOL JSON`: one cmux-cua tool. It fails on a non-zero exit, on an answer that is neither
+///   JSON nor a known success line, and on a top-level `code` or `error` field (cmux-cua answers a
+///   refusal with exit 0), with cmux-cua's words on stderr.
 /// - `cua_win "X Y" TOOL JSON`: the tool on the frontmost app window at X,Y (any window for ""):
-///   its pid and window id added, coordinates made window-local, input delivered to the front
-///   (the agent display has no person on it; background delivery cannot type into Chrome there).
+///   its pid and window id added, coordinates made window-local and kept inside it, input
+///   delivered to the front (no person uses this display; background delivery cannot type into
+///   Chrome there).
+/// - `pointer_to X Y`: the real pointer there (agent-desktop; cmux-cua's `move_cursor` moves only
+///   the agent cursor overlay), then the overlay too.
 /// - `chief_chrome URL`: the image's Chrome for Testing (the browser role), else a system Chrome,
-///   in a new window on the agent display, then a bounded wait for its window.
-const DESKTOP_PRELUDE: &str = r##"export HOME=/home/cmux PATH=/opt/cmux/current/bin:$PATH DISPLAY=:99 XAUTHORITY=/home/cmux/.cache/cmux-display/Xauthority-99 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/cmux-agent-a11y-99/bus; command -v cmux-cua >/dev/null 2>&1 || { echo 'this machine has no cmux-cua: it is too old for computer use' >&2; exit 127; }; cmux-cua status >/dev/null 2>&1 || sudo -n systemctl start cmux-agent-cua.service >/dev/null 2>&1 || { echo 'the computer-use driver did not start (systemctl status cmux-agent-cua.service)' >&2; exit 1; }; cua() { out=$(cmux-cua call "$1" "$2" 2>&1); if printf '%s' "$out" | grep -Eq '^[[:space:]]*"code"[[:space:]]*:|^(Missing|No windows|Failed|Error|Unknown|Invalid|error|unknown|invalid)'; then printf 'cmux-cua %s: %s\n' "$1" "$out" | tail -c 800 >&2; return 1; fi; printf '%s\n' "$out"; }; cua set_config '{"capture_scope":"desktop"}' >/dev/null || exit 1; CUA_PICK='import json,os,sys
+///   in a new window on the agent display; it fails unless a new window shows within 8 s.
+const DESKTOP_PRELUDE: &str = r##"export HOME=/home/cmux PATH=/opt/cmux/current/bin:$PATH DISPLAY=:99 XAUTHORITY=/home/cmux/.cache/cmux-display/Xauthority-99 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/cmux-agent-a11y-99/bus; command -v cmux-cua >/dev/null 2>&1 || { echo 'this machine has no cmux-cua: it is too old for computer use' >&2; exit 127; }; cmux-cua status >/dev/null 2>&1 || sudo -n systemctl start cmux-agent-cua.service >/dev/null 2>&1 || { echo 'the computer-use driver did not start (systemctl status cmux-agent-cua.service)' >&2; exit 1; }; cua() { e=$(mktemp); out=$(cmux-cua call "$1" "$2" 2>"$e"); rc=$?; err=$(cat "$e"); rm -f "$e"; first=$(printf '%s\n' "$out" | sed -n '/[^[:space:]]/{p;q;}'); case "$first" in '{'*|'✅'*|'Agent cursor '*) ok=1 ;; *) ok= ;; esac; if [ "$rc" -ne 0 ] || [ -z "$ok" ] || printf '%s\n' "$out" | grep -Eq '^  "(code|error)"[[:space:]]*:|^[{][[:space:]]*"(code|error)"[[:space:]]*:'; then printf 'cmux-cua %s: %s %s\n' "$1" "$out" "$err" | tail -c 800 >&2; return 1; fi; printf '%s\n' "$out"; }; cua_scope=$(cmux-cua call get_config '{}' 2>/dev/null | sed -n 's/^[[:space:]]*"capture_scope":[[:space:]]*"\([a-z]*\)".*/\1/p'); if [ "$cua_scope" != desktop ]; then cua set_config '{"capture_scope":"desktop"}' >/dev/null || exit 1; trap "cmux-cua call set_config '{\"capture_scope\":\"${cua_scope:-window}\"}' >/dev/null 2>&1" EXIT; fi; CUA_PICK='import json,os,sys
 ws=[w for w in json.loads(os.environ["CUA_WINDOWS"]).get("windows",[]) if w.get("pid") and w.get("is_on_screen",True)]
 ws.sort(key=lambda w:-w.get("z_index",0))
 at=os.environ["CUA_AT"].split()
@@ -76,12 +82,10 @@ if at:
     ws=[w for w in ws if w["x"]<=px<w["x"]+w["width"] and w["y"]<=py<w["y"]+w["height"]]
 if not ws: sys.exit("no app window there on the desktop: open one with open_url, or take a screenshot")
 w=ws[0]; a=json.loads(os.environ["CUA_ARGS"])
-for k in ("x","from_x","to_x"):
-    if k in a: a[k]-=w["x"]
-for k in ("y","from_y","to_y"):
-    if k in a: a[k]-=w["y"]
+for k,o,n in (("x","x","width"),("from_x","x","width"),("to_x","x","width"),("y","y","height"),("from_y","y","height"),("to_y","y","height")):
+    if k in a: a[k]=int(min(max(a[k]-w[o],0),w[n]-1))
 a.update(pid=w["pid"],window_id=w["window_id"],delivery_mode="foreground")
-print(json.dumps(a))'; cua_win() { j=$(cua list_windows '{"on_screen_only":true}') || return 1; a=$(CUA_WINDOWS="$j" CUA_AT="$1" CUA_ARGS="$3" python3 -c "$CUA_PICK") || return 1; cua "$2" "$a"; }; chief_chrome() { c=$(python3 -c 'import json;print(json.load(open("/etc/cmux/roles.json"))["roles"]["browser"]["env"]["CMUX_BROWSER_HOST_CHROMIUM"])' 2>/dev/null); [ -x "$c" ] || c=$(command -v google-chrome-stable || command -v google-chrome || command -v chromium); [ -n "$c" ] || { echo 'this machine has no Chrome' >&2; return 1; }; setsid -f "$c" --user-data-dir=/home/cmux/.cache/cmux-computer/chrome --no-first-run --no-default-browser-check --force-renderer-accessibility --window-position=0,0 --window-size=1280,800 --new-window "$1" >/dev/null 2>&1 </dev/null; i=0; while [ "$i" -lt 40 ] && ! cmux-cua call list_windows '{"on_screen_only":true}' 2>/dev/null | grep -q '"pid": [0-9]'; do i=$((i+1)); sleep 0.25; done; echo '{"opened":true}'; }; "##;
+print(json.dumps(a))'; cua_win() { j=$(cua list_windows '{"on_screen_only":true}') || return 1; a=$(CUA_WINDOWS="$j" CUA_AT="$1" CUA_ARGS="$3" python3 -c "$CUA_PICK") || return 1; cua "$2" "$a"; }; pointer_to() { out=$(agent-desktop --headed mouse-move --xy "$1,$2" 2>&1); printf '%s' "$out" | grep -q '"ok":true' || { printf 'agent-desktop mouse-move: %s\n' "$out" | tail -c 600 >&2; return 1; }; cua move_cursor "{\"x\":$1,\"y\":$2}"; }; app_windows() { cmux-cua call list_windows '{"on_screen_only":true}' 2>/dev/null | grep -c '"pid": *[0-9]'; }; chief_chrome() { c=$(python3 -c 'import json;print(json.load(open("/etc/cmux/roles.json"))["roles"]["browser"]["env"]["CMUX_BROWSER_HOST_CHROMIUM"])' 2>/dev/null); [ -x "$c" ] || c=$(command -v google-chrome-stable || command -v google-chrome || command -v chromium); [ -n "$c" ] || { echo 'this machine has no Chrome' >&2; return 1; }; n0=$(app_windows); setsid -f "$c" --user-data-dir=/home/cmux/.cache/cmux-computer/chrome --no-first-run --no-default-browser-check --force-renderer-accessibility --window-position=0,0 --window-size=1280,800 --new-window "$1" >/dev/null 2>&1 </dev/null; end=$(($(date +%s) + 8)); while [ "$(date +%s)" -lt "$end" ]; do [ "$(app_windows)" -gt "$n0" ] && { echo '{"opened":true}'; return 0; }; sleep 0.25; done; echo 'Chrome showed no new window in 8 s' >&2; return 1; }; "##;
 
 pub(super) fn descriptors() -> [Value; 6] {
     let machine = json!({"type":"string","minLength":1,"description":"machine:<id> (cloud_machines lists them)."});
@@ -704,7 +708,7 @@ fn desktop_step(op: &str, arguments: &Map<String, Value>) -> Result<DesktopStep,
         "move" => {
             only(arguments, tool, &["op", "machine", "x", "y"])?;
             let (x, y) = point(arguments)?;
-            call("move_cursor", json!({"x": x, "y": y}))
+            format!("pointer_to {x} {y}")
         }
         "drag" => {
             only(arguments, tool, &["op", "machine", "x", "y", "to_x", "to_y"])?;
@@ -781,9 +785,19 @@ mod tests {
     use super::*;
 
     /// The prelude and a step run in a real `sh` against a stand-in `cmux-cua` that logs each
-    /// call and answers like the real one (exit 0, a refusal as a `"code"` field or a line).
-    fn run_on_stub_desktop(op: &str, arguments: Value) -> (i32, String, String) {
-        let dir = std::env::temp_dir().join(format!("cloud-computer-{}-{op}", std::process::id()));
+    /// call and answers like the real one (exit 0, a refusal as a `"code"` field or a line);
+    /// `mode` picks a misbehaviour. None when this host has no `python3` (the machine image has it).
+    fn run_on_stub_desktop(
+        op: &str,
+        arguments: Value,
+        mode: &str,
+    ) -> Option<(i32, String, String)> {
+        if std::process::Command::new("python3").arg("-c").arg("").status().is_err() {
+            eprintln!("skipped: no python3 on this host");
+            return None;
+        }
+        let dir =
+            std::env::temp_dir().join(format!("cloud-computer-{}-{op}-{mode}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let log = dir.join("calls.log");
@@ -791,9 +805,12 @@ mod tests {
             r#"#!/bin/sh
 [ "$1" = status ] && exit 0
 echo "$2 $3" >> {log}
-case "$2" in
-  list_windows) printf '%s\n' '{{"windows":[{{"pid":null,"window_id":1,"x":0,"y":0,"width":1280,"height":800,"z_index":2,"is_on_screen":true}},{{"pid":42,"window_id":7,"x":100,"y":50,"width":800,"height":600,"z_index":1,"is_on_screen":true}}]}}' ;;
-  press_key) printf '%s\n' '{{' '  "code": "background_unavailable"' '}}' ;;
+case "{mode}:$2" in
+  *:get_config) printf '%s\n' '{{' '  "capture_scope": "window"' '}}' ;;
+  *:list_windows) printf '%s\n' '{{"windows":[{{"pid":null,"window_id":1,"x":0,"y":0,"width":1280,"height":800,"z_index":2,"is_on_screen":true}},{{"pid":42,"window_id":7,"x":100,"y":50,"width":800,"height":600,"z_index":1,"is_on_screen":true}}]}}' ;;
+  *:press_key) printf '%s\n' '{{' '  "code": "background_unavailable"' '}}' ;;
+  crash:click) echo 'thread main panicked' >&2; exit 101 ;;
+  garbage:click) echo 'Socket /home/cmux/.cache/cmux-cua/cmux-cua.sock not found' ;;
   *) echo '{{"ok":true}}' ;;
 esac
 "#,
@@ -803,58 +820,82 @@ esac
         std::fs::write(&bin, stub).unwrap();
         std::process::Command::new("chmod").arg("+x").arg(&bin).status().unwrap();
         let step = desktop_step(op, arguments.as_object().unwrap()).unwrap();
-        // The machine's paths become the stand-in's: its bin dir first, no Chrome to launch.
+        // The machine's bin dir becomes the stand-in's.
         let prelude = DESKTOP_PRELUDE.replace("/opt/cmux/current/bin", &dir.display().to_string());
         let output = std::process::Command::new("sh")
             .arg("-c")
             .arg(format!("{prelude}{}", step.script))
             .output()
             .unwrap();
-        (
+        Some((
             output.status.code().unwrap_or(-1),
             std::fs::read_to_string(&log).unwrap_or_default(),
             String::from_utf8_lossy(&output.stderr).into_owned(),
-        )
+        ))
     }
 
     #[test]
     fn input_on_a_window_goes_to_the_frontmost_app_window_there_in_its_own_coordinates() {
-        let (code, calls, stderr) = run_on_stub_desktop(
-            "drag",
-            json!({"op": "drag", "x": 300, "y": 200, "to_x": 500, "to_y": 260}),
-        );
+        let drag = json!({"op": "drag", "x": 300, "y": 200, "to_x": 2000, "to_y": 10});
+        let Some((code, calls, stderr)) = run_on_stub_desktop("drag", drag, "") else { return };
         assert_eq!(code, 0, "{stderr}");
-        let drag = calls.lines().find(|line| line.starts_with("drag ")).expect(&calls);
-        let sent: Value = serde_json::from_str(drag.trim_start_matches("drag ")).unwrap();
-        // The pid-less cursor overlay is skipped; window 7 starts at 100,50.
+        let sent = calls.lines().find(|line| line.starts_with("drag ")).expect(&calls);
+        let sent: Value = serde_json::from_str(sent.trim_start_matches("drag ")).unwrap();
+        // The pid-less cursor overlay is skipped; window 7 spans 100..900 x 50..650, and the end
+        // point is kept inside it.
         assert_eq!(
             sent,
-            json!({"from_x": 200, "from_y": 150, "to_x": 400, "to_y": 210, "pid": 42,
+            json!({"from_x": 200, "from_y": 150, "to_x": 799, "to_y": 0, "pid": 42,
                    "window_id": 7, "delivery_mode": "foreground"})
         );
-        assert!(calls.starts_with("set_config {\"capture_scope\":\"desktop\"}"), "{calls}");
 
-        let (code, calls, stderr) = run_on_stub_desktop(
-            "scroll",
-            json!({"op": "scroll", "x": 5, "y": 5, "direction": "down"}),
-        );
+        let scroll = json!({"op": "scroll", "x": 5, "y": 5, "direction": "down"});
+        let Some((code, calls, stderr)) = run_on_stub_desktop("scroll", scroll, "") else { return };
         assert_eq!(code, 1, "no app window at 5,5: {calls}");
         assert!(stderr.contains("no app window there"), "{stderr}");
         assert!(!calls.contains("scroll "), "nothing scrolled: {calls}");
     }
 
     #[test]
-    fn a_refusal_cmux_cua_answers_with_exit_0_fails_the_step() {
-        let (code, _, stderr) = run_on_stub_desktop("key", json!({"op": "key", "keys": "Return"}));
+    fn the_step_uses_desktop_scope_and_gives_the_daemon_its_own_back() {
+        let click = json!({"op": "click", "x": 3, "y": 4});
+        let Some((code, calls, stderr)) = run_on_stub_desktop("click", click, "") else { return };
+        assert_eq!(code, 0, "{stderr}");
+        let lines = calls.lines().collect::<Vec<_>>();
+        assert_eq!(
+            lines,
+            [
+                "get_config {}",
+                "set_config {\"capture_scope\":\"desktop\"}",
+                "click {\"button\":\"left\",\"x\":3,\"y\":4}",
+                "set_config {\"capture_scope\":\"window\"}",
+            ],
+            "{calls}"
+        );
+    }
+
+    #[test]
+    fn a_refusal_a_crash_or_an_unknown_answer_fails_the_step() {
+        let key = json!({"op": "key", "keys": "Return"});
+        let Some((code, _, stderr)) = run_on_stub_desktop("key", key, "") else { return };
         assert_eq!(code, 1);
         assert!(
             stderr.contains("cmux-cua press_key") && stderr.contains("background_unavailable"),
             "{stderr}"
         );
-        let (code, calls, stderr) =
-            run_on_stub_desktop("click", json!({"op": "click", "x": 3, "y": 4}));
-        assert_eq!(code, 0, "{stderr}");
-        assert!(calls.contains("click {\"button\":\"left\",\"x\":3,\"y\":4}"), "{calls}");
+        for mode in ["crash", "garbage"] {
+            let click = json!({"op": "click", "x": 3, "y": 4});
+            let Some((code, _, stderr)) = run_on_stub_desktop("click", click, mode) else { return };
+            assert_eq!(code, 1, "{mode}: {stderr}");
+            assert!(stderr.contains("cmux-cua click"), "{mode}: {stderr}");
+        }
+    }
+
+    #[test]
+    fn move_moves_the_real_pointer() {
+        let step = desktop_step("move", json!({"op": "move", "x": 5, "y": 6}).as_object().unwrap())
+            .unwrap();
+        assert_eq!(step.script, "pointer_to 5 6");
     }
 
     #[test]

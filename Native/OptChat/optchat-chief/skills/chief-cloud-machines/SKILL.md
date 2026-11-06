@@ -166,9 +166,14 @@ machine attached to you as your computer. One op per call:
   them; never type a password or card number yourself.
 - `computer.failed` says what `cmux-cua` reported; a machine without
   `cmux-cua` is too old: say so. For anything the ops do not cover, run
-  `cmux-cua call <tool> '<json>'` through `cloud exec` with
-  `HOME=/home/cmux PATH=/opt/cmux/current/bin:$PATH DISPLAY=:99`
-  (`cmux-cua describe <tool>` lists a tool's arguments).
+  `cmux-cua call <tool> '<json>'` through `cloud exec` after
+  `export HOME=/home/cmux PATH=/opt/cmux/current/bin:$PATH DISPLAY=:99
+  XAUTHORITY=/home/cmux/.cache/cmux-display/Xauthority-99
+  DBUS_SESSION_BUS_ADDRESS=unix:path=/run/cmux-agent-a11y-99/bus` and
+  `sudo -n systemctl start cmux-agent-cua.service` (`cmux-cua describe <tool>`
+  lists a tool's arguments). cmux-cua answers a refusal with exit 0: read the
+  answer, and treat a `"code"` field or a line such as "Missing …" as a failure.
+  Most input tools need the window's `pid` and `window_id` from `list_windows`.
 - A long desktop task (many steps, a whole flow to test) goes to a coding
   agent on the machine instead: its Codex, Claude Code and OpenCode get
   `cmux-cua mcp` as a tool on first launch. Check its sign-in first
