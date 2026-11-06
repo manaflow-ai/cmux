@@ -173,6 +173,7 @@ mod seen;
 mod session;
 pub(crate) mod session_pages;
 mod settings_watch;
+mod silent_listing;
 mod silent_turn;
 mod stalled_turn;
 mod start_retry;
