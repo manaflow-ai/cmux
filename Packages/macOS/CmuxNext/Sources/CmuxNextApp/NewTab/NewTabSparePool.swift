@@ -278,7 +278,7 @@ final class NewTabSparePool {
     /// `refit` is true when the spare waited at another size than `size`, the one it shows at
     /// (nil: not known yet, Cmd-N): its adoption resizes it.
     func take(for window: NSWindow?, size: NSSize?, refill: AgentPaneSpareRefill = .now, still: AgentPaneSpareRefiller.Still? = nil) -> (view: AgentPaneView, crossWindow: Bool, refit: Bool)? {
-        usedThisSession = true
+        if refill != .idle { usedThisSession = true } // idle work (Cmd-N's reservation) served no open: a launch keeps one page
         observeWindows()
         if target == nil, let window { retarget(window) }
         guard let view = slot.take() else { return nil }
