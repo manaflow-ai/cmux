@@ -102,6 +102,18 @@ async fn cancel_refuses_a_used_fork_and_a_chat_that_is_no_fork() {
     let chat = c.request(method::MUX_KILL, json!({"sessionId": id, "cancelFork": true})).await;
     assert!(chat.unwrap_err().contains("only a fork"));
     assert!(hub.resolve(&id).is_ok());
+
+    // By its token too: a fork used since it was made is refused, not answered as cancelled
+    // (review of #36979: the token's Cancel said cancelled and the fork stayed).
+    let request = json!({"sessionId": id, "live": true, "cancelToken": "used-1"});
+    let f = c.request(FORK_OP, request).await.unwrap();
+    let fid = f["sessionId"].as_str().unwrap().to_owned();
+    let prompt = json!({"sessionId": fid, "prompt": [{"type": "text", "text": "mine too"}]});
+    c.request(method::SESSION_PROMPT, prompt).await.unwrap();
+    let by_token = json!({"sessionId": id, "cancelFork": true, "cancelToken": "used-1"});
+    let refused = c.request(method::MUX_KILL, by_token).await;
+    assert!(refused.unwrap_err().contains("delete it instead"));
+    assert!(hub.resolve(&fid).is_ok());
     let _ = std::fs::remove_dir_all(&root);
 }
 
