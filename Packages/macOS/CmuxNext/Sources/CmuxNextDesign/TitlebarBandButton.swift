@@ -70,14 +70,26 @@ public final class TitlebarBandButton: NSButton {
         menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: button, gap: Metrics.space1), in: button)
     }
 
+    /// The right-click (and Control-click) menu opens while the button is disabled too (Back
+    /// with nowhere to go still lists Recently Closed); its click and long press stay off.
+    public var opensMenuWhenDisabled = false
+    /// Shows the right-click menu (tests record it instead).
+    public var presentContextMenu: @MainActor (NSMenu, NSEvent, TitlebarBandButton) -> Void = { menu, event, button in
+        NSMenu.popUpContextMenu(menu, with: event, for: button)
+    }
+
     override public func rightMouseDown(with event: NSEvent) {
-        guard isEnabled else { return }
+        guard isEnabled || opensMenuWhenDisabled else { return }
         guard let menu = menuProvider?() else { return super.rightMouseDown(with: event) }
-        NSMenu.popUpContextMenu(menu, with: event, for: self)
+        presentContextMenu(menu, event, self)
     }
 
     /// A long press shows the menu like a browser's Back button; a click runs.
     override public func mouseDown(with event: NSEvent) {
+        // Control-click is a right-click: a disabled button may still open its menu.
+        if event.modifierFlags.contains(.control), menuProvider != nil, pressMenu == nil {
+            return rightMouseDown(with: event)
+        }
         guard isEnabled else { return }
         if let pressMenu {
             guard let menu = pressMenu(), !menu.items.isEmpty else { return }

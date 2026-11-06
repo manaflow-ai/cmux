@@ -2,6 +2,7 @@ import CmuxNextBrowser
 import CryptoKit
 import CmuxNextDaemon
 import CmuxNextHistory
+import CmuxNextHistoryDaemon
 import Foundation
 
 /// The daemon history module as the owner (`history-v1`, react-pages.md H3). When the local daemon
@@ -16,17 +17,21 @@ extension HistoryService {
         return DaemonHistoryClient(connection: connection)
     }
 
-    /// Entries from the daemon (every kind but commands) merged with every machine's command rows.
-    func daemonEntries(_ query: HistoryQuery, _ daemon: DaemonHistoryClient) async -> [HistoryEntry] {
+    /// Entries from the daemon (every kind but commands and closed items) merged with every machine's command rows
+    /// and the mirrored closed history. A daemon read is retried a few times; one that never answers is reported, not empty.
+    func daemonEntries(_ query: HistoryQuery, _ daemon: DaemonHistoryClient) async -> HistoryRead {
         let wantsCommands = query.kinds.isEmpty || query.kinds.contains(.command)
-        // Commands are every connected daemon's terminal command rows (terminal-command-history-v1),
-        // read by `commands`; the local daemon lists only its own.
-        let appRead: Set<HistoryEntry.Kind> = [.command]
+        // Commands are every connected daemon's terminal command rows (terminal-command-history-v1), read by
+        // `commands`; the local daemon lists only its own. Closed items are the store's mirror of every daemon's
+        // closed history (`closed-history-v2`), the rows Cmd-Shift-T and `history.reopen` read.
+        let appRead: Set<HistoryEntry.Kind> = [.command, .closed]
         let kinds = query.kinds.isEmpty ? Set(HistoryEntry.Kind.allCases).subtracting(appRead) : query.kinds.subtracting(appRead)
-        var all: [HistoryEntry] = []
+        var all = query.kinds.isEmpty || query.kinds.contains(.closed) ? query.apply(to: closedEntries()) : []
+        var unavailable = false
         if !kinds.isEmpty {
-            let rows = (try? await daemon.list(kinds: kinds, text: query.text, range: query.range, limit: query.limit)) ?? []
-            all = rows.compactMap { $0.historyEntry(untitled: Strings.untitledTerminal) }.map { reachable($0) }
+            let rows = await DaemonHistoryClient.retrying { try await daemon.list(kinds: kinds, text: query.text, range: query.range, limit: query.limit) }
+            all += (rows ?? []).compactMap { $0.historyEntry(untitled: Strings.untitledTerminal) }.map { reachable($0) }
+            unavailable = rows == nil
         }
         if wantsCommands {
             await commands.refresh()
@@ -34,16 +39,17 @@ extension HistoryService {
         }
         all.sort { ($0.time, $0.id) > ($1.time, $1.id) }
         if let limit = query.limit, all.count > limit { all.removeLast(all.count - limit) }
-        return all
+        return HistoryRead(entries: all, unavailable: unavailable)
     }
 
-    /// One entry by id: commands from every machine's rows, everything else from the daemon's newest
+    /// One entry by id: commands from every machine's rows, closed items from the mirror, everything else from the daemon's newest
     /// entries of the id's kind.
     func daemonEntry(id: String, _ daemon: DaemonHistoryClient) async -> HistoryEntry? {
         if id.hasPrefix("command:") {
             await commands.refresh()
             return commands.entries().first { $0.id == id }
         }
+        if id.hasPrefix("closed:") { return closedEntries().first { $0.id == id } }
         guard let kind = id.split(separator: ":").first.flatMap({ HistoryEntry.Kind(rawValue: String($0)) }) else { return nil }
         let rows = (try? await daemon.list(kinds: [kind], text: "", range: .all, limit: 5_000)) ?? []
         return rows.first { $0.id == id }?.historyEntry(untitled: Strings.untitledTerminal).map { reachable($0) }

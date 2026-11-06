@@ -29,9 +29,24 @@ extension LocationTrailService {
         let workspaceID = workspace?.id ?? state.topology.workspace ?? ""
         return HistoryLocation(
             key: .init(machine: daemon.machineID, tab: tab.id), window: controller.state.id, workspace: workspaceID,
-            pane: paneModel.id, content: content, title: tab.displayTitle.isEmpty ? Strings.untitledTerminal : tab.displayTitle,
+            pane: paneModel.id, content: content, title: title(of: tab, in: workspace),
             workspaceTitle: workspace?.displayName, machineName: daemon.machineID == MachineRegistry.localID ? nil : daemon.machineID,
             url: tab.url, cwd: tab.cwd, isIncognito: services.windows.isIncognito(workspace: workspaceID))
+    }
+
+    /// A trail entry's name for `tab`: the tab strip's (`TabTitleResolver`: a chat's, page's or user-set name), never
+    /// the `about:blank` a chat or page tab's record carries.
+    func title(of tab: TabModel, in workspace: WorkspaceModel?) -> String {
+        var titles = TabTitleResolver(services: services, workspace: workspace?.handle)
+        if tab.agentSession != nil { titles.workspaceName = AgentChatTabTitle.workspaceName(workspace) }
+        return titles.title(tab)
+    }
+
+    /// The current title of an entry's tab while it is open on its machine; nil for a top page or a closed tab.
+    func liveTitle(_ location: HistoryLocation) -> String? {
+        guard location.page == nil, let (tab, pane) = services.locateTab(location.key.tab) else { return nil }
+        let daemon = services.daemon(for: pane)
+        return daemon.machineID == location.key.machine ? title(of: tab, in: daemon.store.workspace(containing: pane.handle)) : nil
     }
 
     /// Whether the location's tab exists on a connected machine now.

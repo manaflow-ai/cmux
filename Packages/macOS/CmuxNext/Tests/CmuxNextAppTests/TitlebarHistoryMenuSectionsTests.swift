@@ -1,4 +1,10 @@
+import AppKit
+@testable import CmuxNextApp
+import CmuxNextDesign
 import CmuxNextHistory
+import CmuxNextHistoryDaemon
+import CmuxNextWakeups
+import CmuxNextPalette
 import Foundation
 import Testing
 
@@ -90,5 +96,171 @@ struct TitlebarHistoryMenuSectionsTests {
         let others = trail.menuSections(.back, scope: .workspace, layout: .scopeThenWindow).first { $0.kind == .otherWorkspaces }
         #expect(others?.items.count == LocationTrail.menuSectionLimit)
         #expect(others?.items.first?.entry.location.title == "t19")
+    }
+}
+
+/// The list's Recently Closed section, its footer, its row styles, and titles that arrive late
+/// (Leo's ask relayed 2026-11-06: right-click Back or Forward lists the direction's history,
+/// Recently Closed, and Show Full History).
+@MainActor struct TitlebarHistoryMenuContentTests {
+    static let now = Date(timeIntervalSince1970: 10_000)
+
+    static func closedRow(_ id: String, _ title: String, kind: CmuxNextHistory.ClosedItem.Kind = .terminalTab) -> TitlebarHistoryClosedRow {
+        TitlebarHistoryClosedRow(id: id, kind: kind, title: title, detail: "~/src", time: now.addingTimeInterval(-300))
+    }
+
+    static func sections() -> [LocationTrailMenuSection] {
+        let trail = TitlebarHistoryMenuSectionsTests.trail([
+            TitlebarHistoryMenuSectionsTests.place("a", workspace: "one"),
+            TitlebarHistoryMenuSectionsTests.place("c", workspace: "one"),
+        ])
+        return trail.menuSections(.back, scope: .workspace, layout: .scopeThenWindow)
+    }
+
+    @Test func recentlyClosedSitsBetweenTheTrailAndShowFullHistory() {
+        let footer = NSMenuItem(title: "Show History", action: nil, keyEquivalent: "")
+        let menu = TitlebarHistoryMenu.make(Self.sections(), closed: .rows([Self.closedRow("daemon:closed_1", "build")]),
+                                            choose: { _ in }, showAll: footer)
+        let titles = menu.items.map { $0.isSeparatorItem ? "—" : $0.title }
+        #expect(titles == ["a", "—", "Recently Closed", "build — ~/src", "—", "Show Full History"])
+        #expect(menu.items.last === footer)
+    }
+
+    @Test func aClosedRowReopensItsOwnItem() throws {
+        var reopened: [String] = []
+        let menu = TitlebarHistoryMenu.make([], closed: .rows([Self.closedRow("daemon:closed_new", "new"),
+                                                               Self.closedRow("daemon:closed_old", "old")]),
+                                            choose: { _ in }, reopen: { reopened.append($0) }, showAll: nil)
+        let old = try #require(menu.items.first { $0.title.hasPrefix("old") })
+        let action = try #require(old.action)
+        _ = (old.target as? NSObject)?.perform(action, with: old)
+        #expect(reopened == ["daemon:closed_old"])
+    }
+
+    @Test func anEmptyOrUnservedClosedHistorySaysSo() {
+        for (state, text) in [(TitlebarHistoryClosedSection.empty, "Nothing closed yet"),
+                              (.unavailable, "Closed items appear once cmux connects")] {
+            let menu = TitlebarHistoryMenu.make([], closed: state, choose: { _ in }, showAll: nil)
+            #expect(menu.items.map(\.title) == ["Recently Closed", text])
+            #expect(menu.items.last?.isEnabled == false)
+        }
+    }
+
+    @Test func closedRowsAreCapped() {
+        let rows = (0..<20).map { Self.closedRow("daemon:closed_\($0)", "t\($0)") }
+        let menu = TitlebarHistoryMenu.make([], closed: .rows(rows), choose: { _ in }, showAll: nil)
+        #expect(menu.items.count == 1 + TitlebarHistoryMenu.closedLimit)
+    }
+
+    @Test func roomyRowsShowAnIconAndASecondLine() throws {
+        let menu = TitlebarHistoryMenu.make([], closed: .rows([Self.closedRow("daemon:closed_1", "build")]),
+                                            style: .roomyTimed, now: Self.now, choose: { _ in }, showAll: nil)
+        let row = try #require(menu.items.last)
+        #expect(row.title == "build")
+        #expect(row.image != nil)
+        let text = try #require(row.attributedTitle?.string)
+        #expect(text.hasPrefix("build\n~/src · "))
+        #expect(menu.minimumWidth == TitlebarHistoryMenu.roomyMinimumWidth)
+    }
+
+    @Test func aLateTitleRenamesEntriesInPlace() {
+        var trail = TitlebarHistoryMenuSectionsTests.trail([
+            TitlebarHistoryMenuSectionsTests.place("chat", workspace: "one"),
+            TitlebarHistoryMenuSectionsTests.place("b", workspace: "one"),
+            TitlebarHistoryMenuSectionsTests.place("chat", workspace: "one"),
+            TitlebarHistoryMenuSectionsTests.place("c", workspace: "one"),
+        ])
+        let before = trail.entries.map(\.location.key)
+        #expect(trail.retitle(.init(machine: "m", tab: "chat"), title: "Fix the build"))
+        #expect(trail.entries.map(\.location.key) == before)
+        #expect(trail.cursor == 3)
+        #expect(trail.entries.map(\.location.title) == ["Fix the build", "b", "Fix the build", "c"])
+        #expect(!trail.retitle(.init(machine: "m", tab: "chat"), title: "Fix the build"))
+    }
+}
+
+/// A dimmed Back or Forward still opens its list on right-click; its click stays off.
+@MainActor struct TitlebarBandButtonDisabledMenuTests {
+    static func rightClick() throws -> NSEvent {
+        try #require(NSEvent.mouseEvent(with: .rightMouseDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
+                                        context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+    }
+
+    @Test func aDisabledHistoryButtonOpensItsMenu() throws {
+        let band = TitlebarToolbarBand(frame: .zero)
+        band.historyMenu = { _ in NSMenu(title: "list") }
+        band.setHistoryEnabled(back: false, forward: false)
+        var shown: [String] = []
+        for button in [band.backButton, band.forwardButton] {
+            button.presentContextMenu = { menu, _, _ in shown.append(menu.title) }
+            button.rightMouseDown(with: try Self.rightClick())
+        }
+        #expect(shown == ["list", "list"])
+    }
+
+    @Test func otherDisabledButtonsStayQuiet() throws {
+        let button = TitlebarBandButton(symbol: "sidebar.left")
+        button.menuProvider = { NSMenu(title: "list") }
+        button.isEnabled = false
+        var shown = 0
+        button.presentContextMenu = { _, _, _ in shown += 1 }
+        button.rightMouseDown(with: try Self.rightClick())
+        #expect(shown == 0)
+    }
+}
+
+/// A history palette page never reads "No Results" for an empty query: a read the daemon did not
+/// answer offers Try Again, and an empty Recently Closed says nothing was closed.
+@MainActor struct HistoryPaletteStatusTests {
+    @Test func anUnansweredReadOffersTryAgain() throws {
+        let status = try #require(HistoryRead(entries: [], unavailable: true).status(kinds: [.closed]))
+        let row = HistoryPalettePages.statusItem(status)
+        #expect(row.id == "history.status.unavailable")
+        #expect(row.isEnabled)
+        #expect(row.primary.togglesInPlace)
+    }
+
+    @Test func anEmptyRecentlyClosedSaysSo() throws {
+        let status = try #require(HistoryRead(entries: []).status(kinds: [.closed]))
+        #expect(status.id == "history.status.empty")
+        #expect(!HistoryPalettePages.statusItem(status).isEnabled)
+        #expect(HistoryRead(entries: []).status(kinds: [.page]) == nil)
+    }
+
+    @Test func rowsNeedNoStatus() {
+        let entry = HistoryEntry(id: "closed:daemon:closed_1", kind: .closed, time: Date(), title: "build",
+                                 payload: .closed(CmuxNextHistory.ClosedItem(id: "daemon:closed_1", kind: .terminalTab, title: "build", machine: "local")))
+        #expect(HistoryRead(entries: [entry], unavailable: true).status(kinds: [.closed]) == nil)
+    }
+
+    static let quick = Backoff(initial: .milliseconds(1), maximum: .milliseconds(1), jitter: 0)
+
+    @Test func aReadIsRetriedABoundedNumberOfTimes() async {
+        var calls = 0
+        let none: Int? = await DaemonHistoryClient.retrying(attempts: 3, backoff: Self.quick) {
+            calls += 1
+            throw CancellationError()
+        }
+        #expect(none == nil)
+        #expect(calls == 3)
+        calls = 0
+        let second = await DaemonHistoryClient.retrying(attempts: 3, backoff: Self.quick) { () throws -> Int in
+            calls += 1
+            if calls < 2 { throw CancellationError() }
+            return 7
+        }
+        #expect(second == 7)
+        #expect(calls == 2)
+    }
+
+    @Test func closedRowsBecomeTheMenuSection() {
+        let entry = HistoryEntry(id: "closed:daemon:closed_1", kind: .closed, time: Date(), title: "build", detail: "~/src",
+                                 machineName: "lane-2",
+                                 payload: .closed(CmuxNextHistory.ClosedItem(id: "daemon:closed_1", kind: .terminalTab, title: "build", machine: "lane-2")))
+        #expect(TitlebarHistoryClosedSection([entry], served: false) == .unavailable)
+        #expect(TitlebarHistoryClosedSection([], served: true) == .empty)
+        guard case .rows(let rows) = TitlebarHistoryClosedSection([entry], served: true) else { return #expect(Bool(false)) }
+        #expect(rows.map(\.id) == ["daemon:closed_1"])
+        #expect(rows.first?.detail == "~/src · lane-2")
     }
 }
