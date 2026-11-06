@@ -1,4 +1,4 @@
-import type { TabKind } from "./NewTabPage";
+import type { TabKind } from "./newTabModel";
 
 /// What the omnibar can suggest besides the typed text: the window's open tabs and
 /// workspaces (jumping to one beats opening a duplicate), recent sessions, folders,
@@ -18,6 +18,10 @@ export type OmnibarContext = {
   /// `action:ID`): each key's decayed use count. The bar orders matches of one kind by it, as the
   /// palette does (cmuxterm-hq lenses slack-firefox-frecency.md).
   uses?: Record<string, number>;
+  /// This Mac's browser profiles, in their order (Default first), when the host opens an address in
+  /// a profile the page names (`tab.open` `profile` / `newProfile`). Unset: the page offers no
+  /// profile rows.
+  profiles?: OmnibarProfile[];
 };
 
 /// The most pick-history keys accepted from the host (AgentPaneOmnibar.maximumUses).
@@ -34,6 +38,13 @@ export function omnibarUses(value: unknown): Record<string, number> | undefined 
     .slice(0, MAX_NEW_TAB_USES);
   return entries.length ? Object.fromEntries(entries) : undefined;
 }
+
+/// One browser profile the page can open an address in: its id (`default` or a UUID), the name the
+/// person gave it and its color name (`blue`), if any.
+export type OmnibarProfile = { id: string; name: string; color?: string };
+
+/// The most browser profiles accepted from the host.
+export const MAX_NEW_TAB_PROFILES = 200;
 
 /// One Commands palette action the host offers the bar (CmuxNextPalette PaletteCommandEntry).
 export type OmnibarAction = { id: string; title: string; detail?: string; keywords: string[]; keycaps?: string[] };
@@ -116,7 +127,23 @@ export function omnibarContext(value: unknown): OmnibarContext | undefined {
       .slice(0, MAX_NEW_TAB_ENTRIES),
     actions: omnibarActions(object.actions),
     ...(omnibarUses(object.uses) ? { uses: omnibarUses(object.uses) } : {}),
+    ...(Array.isArray(object.profiles) ? { profiles: omnibarProfiles(object.profiles) } : {}),
   };
+}
+
+/// Reads the host's browser profiles, dropping one without an id or a name.
+export function omnibarProfiles(value: unknown): OmnibarProfile[] {
+  const seen = new Set<string>();
+  return records(value)
+    .flatMap((profile): OmnibarProfile[] => {
+      const id = string(profile.id);
+      const name = string(profile.name);
+      if (!id || !name || seen.has(id)) return [];
+      seen.add(id);
+      const color = string(profile.color);
+      return [{ id, name, ...(color ? { color } : {}) }];
+    })
+    .slice(0, MAX_NEW_TAB_PROFILES);
 }
 
 /// Reads the host's palette actions, dropping one without an id or a title.

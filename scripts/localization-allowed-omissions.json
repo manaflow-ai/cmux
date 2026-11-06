@@ -7206,6 +7206,17 @@
       "de": "Host is the usual German term for the computer that shares its screen."
     }
   },
+  "settingsWindow.harnesses.accounts.name": {
+    "source": "Name",
+    "identityLocales": {
+      "de": {
+        "reason": "Name is the standard German noun for a name.",
+        "values": [
+          "Name"
+        ]
+      }
+    }
+  },
   "chatDisplay.uiFontInter": {
     "class": "brand",
     "source": "Inter"
@@ -7299,6 +7310,17 @@
     "identityLocales": {
       "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
       "pt-BR": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "onboarding.agents.title": {
+    "source": "Agents",
+    "identityLocales": {
+      "fr": {
+        "reason": "Agents is the standard French plural noun for AI agents (the Agents onboarding window's title).",
+        "values": [
+          "Agents"
+        ]
+      }
     }
   }
 }

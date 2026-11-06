@@ -1,5 +1,5 @@
 {
-  "$comment": "HAND-EDITED source of the Updates and Announcements settings (cx-d5b5d). scripts/cmux-next/gen-settings-sources.py writes the Swift descriptors and the parser constants (paths, defaults, ranges, choice values) from this file; schemas/settings/settings-schema.json is still exported from Swift and must not change when this file moves. Row fields: key (dotted cmux.json path), name (identifier for generated constants; default the last path part), title/help/summary {key: string catalog key, text: English}, kind (toggle | number | choice | folder_list | string_list), choices [{value, title}], range {min, max, step, unit, placeholder (default min)}, default, aliases {old value: value it loads as}, keywords, note (developer note, not shown).",
+  "$comment": "HAND-EDITED source of the Updates and Announcements settings (cx-d5b5d). scripts/cmux-next/gen-settings-sources.py writes the Swift descriptors and the parser constants (paths, defaults, ranges, choice values) from this file; schemas/settings/settings-schema.json is still exported from Swift and must not change when this file moves. Row fields: key (dotted cmux.json path), name (identifier for generated constants; default the last path part), title/help/summary {key: string catalog key, text: English}, kind (toggle | number | choice | folder_list | string_list), choices [{value, title}], range {min, max, step, unit, placeholder (default min)}, default, aliases {old value: value it loads as}, keywords, placeholder {key, text} (what an empty list field shows; a list row only), note (developer note, not shown).",
   "lists": [
     {
       "name": "updates",
@@ -142,6 +142,29 @@
             "restart",
             "relaunch",
             "one click"
+          ]
+        },
+        {
+          "key": "updates.whatsNewInstall",
+          "note": "What's New's Versions list offers Install on each build (Leo 2026-11-05: \"Like literally with a click to a past nightly\", cmux#36375). Off until a nightly proves the install end to end on a fleet Mac; then a follow-up turns it on.",
+          "title": {
+            "key": "settings.updates.whatsNewInstall",
+            "text": "Install Versions from What's New"
+          },
+          "help": {
+            "key": "settings.updates.whatsNewInstall.help",
+            "text": "Each day in What's New lists its versions with an Install button. cmux checks the download's signature, then restarts into that version with your terminals and agents."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "update",
+            "install",
+            "version",
+            "rollback",
+            "earlier",
+            "nightly",
+            "what's new"
           ]
         },
         {

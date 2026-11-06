@@ -42,6 +42,7 @@ below are for slots, pull requests and built bundles. Agents in cmux learn all o
 | The shipped pages back | `scripts/cmux-next/web-overlay.sh off` (ignores the file; run `server off` first to stop the server) |
 | Your Rust edits to the daemon live, terminals kept | `cmux live start --rust [--build-host HOST]` ([below](#the-daemons-rust-live)) |
 | What's running | `cmux live status` |
+| Your Swift live too, in a tagged build | `cmux live start --swift` restarts it into the live code build of its commit, sessions kept, and patches your edits in and every save; `cmux live stop --swift` restarts into the optimized build of your edits ([live-code.md](live-code.md#live-mode-restart-into-the-live-code-build-and-back)) |
 | Turn the feature off | Settings > General > **Live Web Reload**, or `cmux settings set updates.liveWebReload false` |
 
 ## On and off
@@ -220,8 +221,10 @@ all take the dev build instead, and the script says which one it was. The build'
 `CMUXCommit`, which reload.sh, the fleet and the nightly stamp. A build marked `CMUXCommitDirty` (tracked files had
 local changes) or one that records no commit takes the dev build too. Only Debug and bench builds load patches
 today, so the installed nightly still takes the dev build. `scripts/measure/try-pr-live-code.sh` runs the whole
-path on a fleet Mac: a live code bench build, a PR that turns Home red (it applies, captured before and after) and
-one that calls a method only its newer base has (it takes the dev build).
+path on a fleet Mac: a live code bench build, a PR that turns Home red and insets Home's transcript so the red
+shows around it (it applies, captured before and after), and one that calls a method only its newer base has (it
+takes the dev build). At 0f92b5e9 the first PR applied 10.87 s after try-pr started (compile 4.1 s, link 0.24 s,
+70 functions, a 135 ms load into the running copy), and its red went from 6 to 180,171 pixels with no relaunch.
 `scripts/measure/try-pr-side-instance.sh` times a set of PRs from the command to the PR's page
 loading in the side instance.
 
@@ -290,14 +293,28 @@ On each saved `.rs`, `Cargo.toml` or `Cargo.lock` under `cmux-tui/`, the loop
 2. brings the binaries back (rsync, compressed) into a new folder per build, so the running daemon's
    file is never written over;
 3. swaps the daemon the way `scripts/cmux-next/daemon-swap-check.py` measures it: the old owner
-   stops and leaves its terminal hosts running, the new one adopts them (`server restart` when the
-   build has it, else `server stop` and `server ensure`; `daemon restart` for acpmux).
+   stops and leaves its terminal hosts running, the new one adopts them. How depends on who runs the
+   daemon:
+   - **A cmux app's daemon** (it runs from the app's `Contents/Resources/bin/cmux`) swaps the way the
+     app hands off its own. The build is renamed over that file (the `cmux-tui` link next to it
+     stays, so both names are one build), and the owner gets SIGTERM. The app's reconnect then runs
+     its own `server ensure` from the file, with its own install key, so the app keeps its launch
+     identity and pid. A new owner that doesn't answer in 35 s puts the file back.
+     `cmux live stop --rust` puts the app's own build back and hands the daemon back to it.
+   - **Any other daemon:** `server restart` when the build has it, else `server stop` and
+     `server ensure`. acpmux uses `daemon restart`.
 
 The build host builds for the daemon's platform: a Mac build box for the app's daemon on a Mac, any
 Linux box for a daemon on Linux. Pass `--session NAME` for a daemon other than the default session
-(`cmux-app-<tag>` for a tagged build). A build error is logged (`cmux live status` shows it) and the
-running daemon stays as it was. The next app launch hands the session back to the daemon bundled in
-the app.
+(`cmux-app-<tag>` for a tagged build), or `--socket PATH` when the app's daemon socket isn't the
+session's default (an app sets its daemon's `TMPDIR`). A build error is logged (`cmux live status`
+shows it), and the running daemon stays as it was.
+
+On a side copy of a DEV app (cmux#36389, base 1773603b, PR eddb05df, cmux-tui built on the fleet), the
+app handoff took 1.38 s to the PR's daemon, 1.34 s back and 1.16 s forward again. The app's pid and
+three shells stayed the same and kept echoing. The PR's new `conductor_import.record` answered, and
+its replay held across the rollback. These are swap times only, on a loaded Mac, after builds that
+already existed. They are not save-to-swap times.
 
 Measured with `scripts/measure/rust-live-swap.sh OUT` (a scratch daemon with three shells, then
 one-line edits to `identify` in cmux-tui-core, each timed from the save to the swapped daemon
@@ -321,6 +338,92 @@ The in-place patch (`hotpatch` feature, `scripts/cmux-next/daemon-hotpatch-check
 daemon's process and its client connections, but on the same box it is slower: 64.2 s for its edit
 in cmux-tui-core (dx replays cmux-tui-core's rustc, then rebuilds the program crate), after a 353 s
 first build. So the loop swaps instead.
+
+### Editing while it runs: what survives
+
+`bun run hot-reload:proof` (in `webviews/`) checks this on the real agent pane with no app: it
+starts the dev server `server --local` runs and opens `/agent-pane/?mock`. For each source edit it
+sends a prompt so a fresh turn streams, types a draft, saves the edit, and checks that it shows up
+in the same page with the draft, the transcript and the streaming turn kept. `--audit` also saves every pane
+component the page loaded, one at a time, and lists the ones that reload the page instead. It
+edits a copy of your checkout in a temporary directory, not the checkout itself, so a file you save
+while it runs is never touched; the copy is deleted when it exits. Run it on the fleet with
+`cmux-ci test -- bash -c 'cd webviews && node scripts/hot-reload-proof.mjs --audit "$FAST_CHECKS_OUT"'`.
+
+Measured on `feat-cmux-next` (2026-11-05, fleet Linux runner, Chromium):
+
+| Edit, mid-turn | Result |
+|---|---|
+| A stylesheet (`bottomStack.css`) | Shown in 0.7 s, same page; the draft, transcript and turn are kept |
+| A component (`ComposerFoot.tsx`) | The page reloads (2.2 s); the draft and transcript are lost and the turn stops streaming |
+| Every loaded pane component (`--audit`) | 246 of 369 hot-swap in place; 123 reload the page |
+
+A component reloads the page when React Fast Refresh can't swap its module: the file also exports
+something that is not a component (a context, a constant, a helper), so Vite passes the update up
+to the files that import it. `ComposerFoot.tsx` exports the `InQuietRow` context; its importer
+`NewTabPage.tsx` (constants and helpers) can't take the update either, nor can `App.tsx`, which
+imports that (`applyPaneTheme`, `saveSnapshot` and others), and the update reaches the page root,
+which reloads. Vite logs
+`Could not Fast Refresh ("NAME" export is incompatible)` for each. Moving those exports into
+sibling `.ts` files makes the component edits swap in place.
+
+Beyond the web UI, Swift views take live code today only in the view shell
+(`Prototypes/ViewShell`, "Live code" in its README): function bodies and new files apply to the
+running shell with no relaunch. The app itself still needs a build for Swift; `try-pr.sh` says
+which PRs do.
+
+## Chromium's renderer code, live
+
+cmux's own pages and Chromium tabs run on the CEF fork (manaflow-ai/cef). An edit to Blink or other
+renderer code there can show in the running app without a relaunch: the app, its windows and every
+session stay up, and only the renderer processes start again on the new build.
+
+```sh
+cmux live start --chromium --build-host HOST --src ~/cef/chromium/src   # a warm CEF tree on HOST
+cmux live status                                                         # the last swap and its times
+cmux live stop --chromium                                                # put the tree back, stop watching
+```
+
+Put each file you edit under `.cmux-dev/chromium/<path in chromium/src>` in your checkout (or pass
+`--edits DIR`). On each save the loop (`scripts/cmux-next/chromium-live.py`):
+
+1. sends the file to the warm tree on the build host; the tree's own copy is kept and `stop` puts it
+   back;
+2. builds `libcef` incrementally (`--out`, `--target`), which relinks Chromium Embedded Framework;
+3. brings the framework back with rsync, so only the change crosses the network;
+4. signs the copy ad hoc and renames it over the framework inside the app. The app's browser process
+   keeps the file it mapped at launch; a helper started after the rename maps the new one;
+5. ends the app's renderer processes (and the GPU process with `--gpu`) and reloads every Chromium
+   tab with `cmux browser TAB reload`, which starts a renderer on the new code.
+
+Use it on a tagged DEV build, against a tree at the CEF commit the app was built with, so the new
+framework matches the app's CEF wrapper. Give the loop a tree of its own (an APFS clone of a warm
+tree with `cp -c -Rp`, which keeps the timestamps the build needs), never a CI worker's cache: the
+loop edits the tree while it runs. Browser-process code, and any edit that changes an interface both
+processes use, still needs a relaunch, because the browser process keeps the old framework.
+
+What sets the time is the relink of the one large framework, not the compile. On a fleet Mac (an
+M4 Pro) an incremental CEF build relinked Chromium Embedded Framework in 60 s, with its debug symbols,
+after a few seconds of compiling. Splitting Blink out of the framework in a development-only
+configuration is what would bring that down; see the notes for the CEF fork's owners in the PR that
+added this loop.
+
+### A merged CLI change, before the nightly
+
+A cmux terminal puts its app's `Contents/Resources/bin` first on PATH, so the `cmux` you type there
+is the app's own file, which is also the file the app runs its daemon from. That file never changes
+before the app updates. To run a merged commit's CLI sooner:
+
+```sh
+scripts/cmux-next/cli-swap.py apply --tree-key KEY --name 37024   # in a cmux terminal
+cmux-37024 machine new                                            # the merged CLI, beside the app's
+scripts/cmux-next/cli-swap.py undo
+```
+
+KEY is `scripts/cmux-next/pin-cmux-tui.sh key` at the merged commit; the macOS CLI is published under
+it after the merge. `apply` checks its sha256 and puts it on PATH as `cmux-NAME` (in `~/.local/bin`).
+The app, its daemon and its terminals are untouched. A `cmux` that is a link outside any app is
+repointed instead, and `undo` points it back.
 
 ## Every merge, no checkout
 

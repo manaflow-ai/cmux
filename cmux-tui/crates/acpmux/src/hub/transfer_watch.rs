@@ -154,8 +154,15 @@ impl Hub {
                     let _ = std::fs::remove_dir_all(entry.path());
                     break;
                 }
+                // Under the `moving` lock: an abort logs `transfer_aborted` before it ends the
+                // move and removes the bundle (`transfer_out.rs`), so a bundle read here before
+                // that removal is no move to freeze again once the log says it ended (an abort
+                // just after a restart, or a crash before the bundle was removed).
                 let mut moving = session.moving.lock().unwrap_or_else(|e| e.into_inner());
-                if moving.is_none() && session.meta().moved_to.is_none() {
+                if moving.is_none()
+                    && session.meta().moved_to.is_none()
+                    && session.transfer_blocked() != Some(false)
+                {
                     *moving = Some(transfer_id.clone());
                 }
             }

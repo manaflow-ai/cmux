@@ -39,8 +39,8 @@ use super::trajectory::Layout;
 use super::trajectory_thread::{AcpmuxImporter, Trajectories};
 use super::wire::{
     AGENT_SOCKET, AGENT_STATE_FILE, BIND_FILE, BOUND_FILE, Bound, DAEMON_ACTIVITY_CAPABILITY,
-    DAEMON_INFO_FILE, DAEMON_SOCKET_FILE, DaemonInfo, STATE_DIR, daemon_info_from_identify,
-    heartbeat_ms_for,
+    DAEMON_INFO_FILE, DAEMON_SOCKET_FILE, DESKTOP_CAPABILITY, DESKTOP_SOCKET_UNIT, DaemonInfo,
+    STATE_DIR, daemon_info_from_identify, heartbeat_ms_for,
 };
 use crate::config::Paths;
 use crate::daemon_spec::{ROOT_HOME, WORK_HOME, WORK_USER, binary_path};
@@ -235,6 +235,10 @@ impl Http for PosterHttp {
     ) -> Result<(u16, Vec<u8>), String> {
         self.0.request_with_deadline(url, body, bearer, deadline)
     }
+
+    fn reset(&self) {
+        self.0.reset();
+    }
 }
 
 /// One `identify` on the daemon's control socket. `timeout` bounds the whole
@@ -284,17 +288,28 @@ pub fn daemon_socket(paths: &Paths) -> Option<PathBuf> {
 }
 
 /// Live identify first; the bake-recorded `daemon.json` when the daemon
-/// does not answer. Never an empty list.
+/// does not answer. Never an empty list. Either way the image's own
+/// desktop ([`DESKTOP_CAPABILITY`]) is added when it has one.
 pub fn resolve_daemon_info(paths: &Paths) -> Result<DaemonInfo, String> {
     if let Some(socket) = daemon_socket(paths)
         && let Ok(identify) = query_identify(&socket, Duration::from_secs(2))
     {
-        return Ok(daemon_info_from_identify(&identify, false));
+        return Ok(with_desktop(paths, daemon_info_from_identify(&identify, false)));
     }
     let recorded = fs::read_to_string(paths.at(DAEMON_INFO_FILE))
         .map_err(|_| "no daemon identify and no recorded daemon.json".to_owned())?;
     let info: DaemonInfo = serde_json::from_str(&recorded).map_err(|e| e.to_string())?;
-    Ok(info.with_activity(false, false, false))
+    Ok(with_desktop(paths, info.with_activity(false, false, false)))
+}
+
+/// `info` with [`DESKTOP_CAPABILITY`] exactly when the image installed the
+/// desktop's socket unit (a recorded daemon.json never decides it).
+fn with_desktop(paths: &Paths, mut info: DaemonInfo) -> DaemonInfo {
+    info.capabilities.retain(|c| c != DESKTOP_CAPABILITY);
+    if paths.at(DESKTOP_SOCKET_UNIT).is_file() {
+        info.capabilities.push(DESKTOP_CAPABILITY.to_owned());
+    }
+    info
 }
 
 /// `wg genkey | wg pubkey` (wireguard-tools in the base image).
@@ -661,8 +676,24 @@ impl Worker {
         let words: Vec<String> = take_lines(&mut self.control_buf);
         for word in words {
             match word.as_str() {
-                "stop" => return Ok(true),
+                "stop" => {
+                    // cmux-host is stopping (a restart, an update): the relay's chats keep their turns in acpmux,
+                    // and the next cmux-host reattaches. Dropping the Relay instead (a rebind) cancels them.
+                    if let Some(relay) = self.relay.take() {
+                        relay.detach();
+                    }
+                    return Ok(true);
+                }
                 "resume" => {
+                    // Connections from before a pause are stale, and the guest's clock did not count the pause, so
+                    // nothing here would notice for a minute: the relay dials again before a chat can go down its
+                    // old socket, and the resume report below gets a fresh HTTPS connection instead of hanging.
+                    if let Some(relay) = &self.relay {
+                        relay.resumed();
+                    }
+                    if let Some(live) = &self.live {
+                        live.client.reset_transport();
+                    }
                     self.bootstrap_retry_at = None;
                     self.bootstrap_backoff.reset();
                     if let Some(bridge) = &mut self.bootstrap {

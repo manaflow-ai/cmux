@@ -42,11 +42,16 @@ const label = (name: string): string | undefined => {
 
 /**
  * Mints the box's join token for `user` in `team`. A deployment without the platform binding (local, tests), or whose
- * platform refuses (4xx), mints none and pairs as before; a platform that refuses or cannot be reached fails the approval before any install or
- * host is written, so a retry finishes it.
+ * platform refuses (4xx: no machine join there, or its own role rule), mints none and pairs as before. Only a platform
+ * that cannot be reached, or answers 5xx or a bad body, fails the approval before any install or host is written, so a
+ * retry finishes it.
  */
 export const mintPairMachineJoin = async (env: Pick<Env, "PLATFORM" | "INTERNAL_TOKEN">, input: { team: string; user: string; name: string }): Promise<Minted> => {
-  if (!env.PLATFORM || !env.INTERNAL_TOKEN) return { ok: true, join: null }
+  if (!env.PLATFORM || !env.INTERNAL_TOKEN) {
+    // Says which is missing (never a value): a deployment that should mint shows why it did not.
+    console.warn(JSON.stringify({ msg: env.PLATFORM ? "pair.machine_join.no_platform_token" : "pair.machine_join.no_platform" }))
+    return { ok: true, join: null }
+  }
   const unavailable = (message = "the machine credential could not be made, try again"): Minted => ({ ok: false, code: "owner.unreachable", message, retryable: true })
   let response: Response
   try {
@@ -78,4 +83,33 @@ export const mintPairMachineJoin = async (env: Pick<Env, "PLATFORM" | "INTERNAL_
   const expires = typeof body.expiresAt === "string" ? Date.parse(body.expiresAt) : Number.NaN
   const join = { token: typeof body.token === "string" ? body.token : "", expires_at: expires, join_token_id: typeof body.joinTokenId === "string" ? body.joinTokenId : "" }
   return machineJoinLive(join, Date.now()) ? { ok: true, join } : unavailable()
+}
+
+/**
+ * Revokes what join token `join_token_id` made on the platform (POST /internal/v1/machines/join-tokens/:id/revoke):
+ * the box's `cmm_` machine, revoked and out of the mesh as `cmux machine revoke` leaves it, or the token itself while
+ * unredeemed. TeamDO calls it for a revoked server (flushServerRevocations). `done` once the platform answered or
+ * has no machine join (no binding, 404); `retry` on an outage, so the revocation stays pending and TeamDO retries.
+ */
+export const revokePairMachineJoin = async (env: Pick<Env, "PLATFORM" | "INTERNAL_TOKEN">, input: { team: string; join_token_id: string }): Promise<"done" | "retry"> => {
+  if (!JOIN_TOKEN_ID.test(input.join_token_id)) return "done"
+  if (!env.PLATFORM || !env.INTERNAL_TOKEN) {
+    console.warn(JSON.stringify({ msg: env.PLATFORM ? "pair.machine_revoke.no_platform_token" : "pair.machine_revoke.no_platform" }))
+    return "done"
+  }
+  let response: Response
+  try {
+    response = await env.PLATFORM.fetch(`https://platform/internal/v1/machines/join-tokens/${encodeURIComponent(input.join_token_id)}/revoke`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${env.INTERNAL_TOKEN}` },
+      body: JSON.stringify({ teamId: input.team }),
+      signal: AbortSignal.timeout(10_000)
+    })
+  } catch {
+    return "retry"
+  }
+  if (response.ok) return "done"
+  console.warn(JSON.stringify({ msg: "pair.machine_revoke.failed", status: response.status }))
+  // 404: this platform runs no machine join (nothing to revoke); another 4xx never changes on a retry.
+  return response.status >= 400 && response.status < 500 ? "done" : "retry"
 }

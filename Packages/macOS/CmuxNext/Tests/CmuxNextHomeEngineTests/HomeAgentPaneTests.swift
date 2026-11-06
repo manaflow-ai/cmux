@@ -206,4 +206,22 @@ import Testing
         pane.open("a1", outside: { _ in false })
         #expect(pane.tabs == ["a2", "a1"] && pane.selected == "a1")
     }
+
+    /// User 2026-11-05 (msg 23140): a1017's chat said "a1017 · Working" and "Working for 6m 50s" while it waited behind
+    /// the cap. A queued agent's chat says Queued and how long it has waited, and none of the Working words.
+    @Test func aQueuedAgentsChatSaysQueuedNotWorking() {
+        var thread = Self.thread("a1017", title: "Chief teleport indicator")
+        thread.state = .queued
+        thread.entries = []
+        thread.endedAt = nil
+        thread.newestReportAt = nil
+        let content = HomeAgentChatContent(thread, now: Self.start.addingTimeInterval(410))
+        #expect(content.status == HomeAgentChatContent.status(.queued))
+        #expect(content.status != HomeAgentChatContent.status(.told))
+        #expect(content.workedFor == HomeAgentChatContent.timeLine(.queued, duration: HomeAgentChatContent.duration(410)))
+        #expect(content.workedFor != HomeAgentChatContent.timeLine(.told, duration: HomeAgentChatContent.duration(410)))
+        // Once it runs (it was told and its session started) the same chat says Working.
+        thread.state = .told
+        #expect(HomeAgentChatContent(thread, now: Self.start.addingTimeInterval(410)).status == HomeAgentChatContent.status(.told))
+    }
 }

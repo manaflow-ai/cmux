@@ -77,7 +77,7 @@ and changes both with the code).
 | **Per-stream lanes** | Not on feat-cmux-next yet (PL-conn, `pl-conn`) | | | Added here when it lands |
 | **Holder** (`cmux-holder`, one `poll` loop; daemon side `holder-link`) | PTYs that outlive the daemon | `poll` | not set | 1 MiB ring per terminal, 1 MiB link queue, 512 KiB credit window; daemon attached: the holder stops reading the PTY (the shell blocks); no daemon: the ring keeps the newest bytes |
 | **acpmux** (tokio multi-thread; `acpmux-socket-read` / `-write` bridges) | Agent sessions | Socket I/O on its runtime | not set | In 256 / out 4096 per connection, full outbox drops (`try_send`), oversized notices become `_acpmux/lagged`; hub broadcast 8192 with `lagged {dropped}`. Owner PL-acpmux (cmux-4f) |
-| **acpmux event journal** (`store.journal`, default off; R-DURABILITY S2/S2c): the `cmux-journal` writer thread, `acpmux-journal-checkpoint` (one thread), `acpmux-journal-folders` (one thread, S3a), one outbound gate task per connection (tokio) | Durable event-log records (group commit); the checkpoint (log syncs, retirement); the sync of `sessions/` after a new chat's folder, before its record counts as durable; holding a connection's lines until what they show is durable | The writer: disk syncs. The checkpointer: log syncs. The folder syncer: one `sessions/` sync per batch of new chats. A gate task: nothing (an async wait on the durable watch). Appends and reads take the appends' lock only around memory work and one buffered log write | With the journal on, the daemon keeps the default disk tier (a reply the person waits for never waits on a throttled sync); the checkpointer runs at utility (thread scope); the folder syncer keeps the daemon's tier (a new chat's reply waits for it) | The writer's queue (a refused append fails the request); a gate waits at most 10 s for the journal, then the store asks the daemon to stop for a restart (exit 74); a checkpoint every 30 s while there is work, past 64 MiB of journal, at shutdown. Owner R-DURABILITY |
+| **acpmux event journal** (always on; R-DURABILITY S2/S2c): the `cmux-journal` writer thread, `acpmux-journal-checkpoint` (one thread), `acpmux-journal-folders` (one thread, S3a), one outbound gate task per connection (tokio) | Durable event-log records (group commit); the checkpoint (log syncs, retirement); the sync of `sessions/` after a new chat's folder, before its record counts as durable; holding a connection's lines until what they show is durable | The writer: disk syncs. The checkpointer: log syncs. The folder syncer: one `sessions/` sync per batch of new chats. A gate task: nothing (an async wait on the durable watch). Appends and reads take the appends' lock only around memory work and one buffered log write | The daemon keeps the default disk tier (a reply the person waits for never waits on a throttled sync); the checkpointer runs at utility (thread scope); the folder syncer keeps the daemon's tier (a new chat's reply waits for it) | The writer's queue (a refused append fails the request); a gate waits at most 10 s for the journal, then the store asks the daemon to stop for a restart (exit 74); a checkpoint every 30 s while there is work, past 64 MiB of journal, at shutdown. Owner R-DURABILITY |
 | **Chromium** (in-process browser: UI thread = the app's main thread; Chromium's own IO and worker threads; renderer, GPU and utility helper processes; out-of-process host prototype `com.cmuxterm.chromium-host.read` / `.exit`) | Web pages | Chromium's IO thread blocks on its own sockets, never the UI thread | Chromium's | Child exits on `com.cmuxterm.app.next.cef-children`; host prototype: 256 KiB send buffer, 4096 frames, over: the connection ends |
 
 ### Open question: per-request dispatch on a daemon connection (owner PL-daemon, 2026-11-04)
@@ -159,6 +159,9 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   one thread per call: its pipe write blocks only it; it ends when the child has read the request or closed its
   stdin, and a kill at the call's deadline or a cancel closes it, so it never outlives the child; CloudMachineIO),
   `com.cmuxterm.next.remote-fetch`, `cmux.remote-view.render`, `cmux.remote-view.rd-transport`,
+  `cmux.daemon-bridge.stream` (one Cloud desktop session's `link dial --service desktop` bridge socket,
+  user-initiated, serial: DispatchIO delivers the stream's bytes here and it blocks on nothing; the rd transport
+  reads them in order, a few MB/s of H.264 at most, and the session's end closes it; DaemonBridgeStream),
   `com.cmuxterm.mac-screen.rd-stdin` (one Mac Screen session's JSON lines into its bundled `cmux rd`
   process, user-initiated, serial: its pipe writes block only it; a few lines per session, candidates and
   stop, so no back-pressure; MacScreenRdProcess), `com.cmuxterm.mac-screen.rd-socket` (the viewer's
@@ -178,7 +181,11 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
 - Design: `com.cmuxterm.next.desktop-picture` (the desktop wallpaper watch's reads, utility, serial: its
   `NSWorkspace.desktopImageURL(for:)` WindowServer round trip and file stat block this queue, never main
   (#26394); one read at a time, and events during it fold into one more read, so no back-pressure)
-- Agents: `com.cmuxterm.app.next.agent-pane.prompt-journal`, `com.cmuxterm.app.next.agent-pane.inbound`,
+- Agents: `com.cmuxterm.app.next.agent-pane.tail-disk` (each chat's kept tail on disk, AgentPaneTailDisk, utility,
+  serial: its file reads and writes block this queue, never main; saves of one chat coalesce to the newest, at most
+  20 files of 1 MiB, and a read waits only behind the saves queued before it; the quit awaits its saves with the
+  state files', holding no thread, under the quit deadline),
+  `com.cmuxterm.app.next.agent-pane.prompt-journal`, `com.cmuxterm.app.next.agent-pane.inbound`,
   `cmux.next.agent-pane.acpmux-exit.<pid>`, `cmux.next.agent-pane.acpmux-log-progress`,
   `cmux.next.agent-pane.acpmux-launch-reap.<pid>`, `cmux.next.agent-pane.acpmux-status`, `cmux.acpmux.checked-line`,
   `cmux.next.agent-pane.acpmux-socket-wait` (one person-socket exchange's readiness wait, userInitiated, serial, one

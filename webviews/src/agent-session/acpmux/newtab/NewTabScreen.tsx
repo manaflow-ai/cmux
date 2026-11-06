@@ -8,7 +8,7 @@ import { useScrollEdges } from "../../../ui/scrollEdges";
 import type { ConnectKind } from "../environments";
 import type { CloudMachine } from "../cloudMachines";
 import { isActive, type Dictation, type DictationField } from "../dictation";
-import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../NewTabPage";
+import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../newTabModel";
 import { acpmuxPerf } from "../perf";
 import type { AcpmuxSnapshot } from "../model";
 import { EMPTY_OMNIBAR, stepSelection, type OmnibarContext } from "../omnibar";
@@ -63,6 +63,7 @@ import {
   pairingLinkRefused,
   inlineCompletion,
   needsYouCards,
+  profileRows,
   recentChatCards,
   screenRows,
   inStrip,
@@ -138,7 +139,7 @@ export type NewTabScreenActions = NewTabCommandActions & {
   onSetup?(continueWith: (harness: string) => void): void;
   /// Enter on a prompt: a chat with `harness` in `cwd` (the project picked on the page).
   /// `model`: the one the chip names, so the chat starts on what the page showed.
-  /// `noProject`: Do not work in a project was picked, so the chat starts in no project.
+  /// `noProject`: No folder was picked, so the chat starts in no project.
   /// `attachments`: what was pasted or dropped on the page (composer/attachmentIntake.tsx), sent
   /// with the chat's first prompt.
   /// `saved`: a saved environment picked the place. `cwd` is its folder, used even when it is the
@@ -153,6 +154,10 @@ export type NewTabScreenActions = NewTabCommandActions & {
     saved?: { peer?: string },
   ): unknown;
   onOpen(url: string): void;
+  /// Open in Profile…'s pick (Lawrence 2026-11-05): `url` in the browser profile `id`.
+  onOpenInProfile?(url: string, id: string): void;
+  /// Open in New Profile: `url` in a profile made for it, named `name` (else the host's default name).
+  onOpenInNewProfile?(url: string, name?: string): void;
   onSearch(text: string): void;
   /// Enter in shell mode (`!` first): the page becomes a chat in its folder that runs `command`.
   onShell(command: string): void;
@@ -384,13 +389,16 @@ export function NewTabScreen(props: Props) {
   const [selected, setSelected] = useState<string | undefined>(undefined);
   /// Shell mode: the field holds a command (its `!` shown as the glyph), Enter runs it in a chat.
   const [shell, setShell] = useState(false);
+  /// Open in Profile…: the field searches the browser profiles to open `url` in; `text` is what it
+  /// held, back in the field when the search is left (Escape, or Backspace in an empty field).
+  const [profilePick, setProfilePick] = useState<{ url: string; text: string }>();
   /// A dictation session runs: Send ends it and sends (submit).
   const listening = !shell && props.dictation !== undefined && isActive(props.dictation.state);
   const [seeded, setProject] = useState(props.cwd && !isAgentHome(props.cwd) ? props.cwd : undefined);
   // A tab with no project of its own (none, the home folder or a private agent-home folder) and no
   // start folder from the host starts on the most recent project (Leo 2026-10-18), until a pick.
   const [picked, setPicked] = useState(false);
-  // Do not work in a project (Leo 2026-10-18): no project, no start folder, until a folder pick.
+  // No folder (Leo 2026-10-18): no project, no start folder, until a folder pick.
   const [none, setNone] = useState(false);
   // Another machine acpmux lists, picked in the location row's machine list: the chat starts there
   // (screenActions onAsk with its `peer`), in a folder on it once one is picked.
@@ -896,23 +904,39 @@ export function NewTabScreen(props: Props) {
     ],
     [props.onCreate, harness],
   );
+  const profiles = props.onOpenInProfile && props.onOpenInNewProfile ? omnibar.profiles : undefined;
   const suggested = useMemo(
     () =>
-      touched && !shell && !commandTyping
-        ? screenRows(typed, {
-            omnibar,
-            home,
-            create: creates,
-            ...(ask ? { ask } : {}),
-            createNames: {
-              terminal: nt("create.terminal"),
-              browser: nt("create.browser"),
-              chat: nt("create.chat"),
-            },
-            ...(props.suggestionOrder ? { order: props.suggestionOrder } : {}),
-          })
-        : [],
-    [touched, shell, typed, omnibar, home, ask, creates, commandTyping, props.suggestionOrder, nt],
+      profilePick
+        ? profileRows(typed, profilePick.url, profiles ?? [])
+        : touched && !shell && !commandTyping
+          ? screenRows(typed, {
+              omnibar: profiles ? omnibar : { ...omnibar, profiles: undefined },
+              home,
+              create: creates,
+              ...(ask ? { ask } : {}),
+              createNames: {
+                terminal: nt("create.terminal"),
+                browser: nt("create.browser"),
+                chat: nt("create.chat"),
+              },
+              ...(props.suggestionOrder ? { order: props.suggestionOrder } : {}),
+            })
+          : [],
+    [
+      profilePick,
+      profiles,
+      touched,
+      shell,
+      typed,
+      omnibar,
+      home,
+      ask,
+      creates,
+      commandTyping,
+      props.suggestionOrder,
+      nt,
+    ],
   );
   const rows = text !== dismissed ? suggested : [];
   // The strip's labels are measured again when their words change (another language): a new ref.
@@ -1145,11 +1169,43 @@ export function NewTabScreen(props: Props) {
         return row.kind === "chat" ? startChat() : create(row.kind);
       case "action":
         return props.onAction?.(row.id);
+      case "inProfile":
+        return enterProfilePick(row.url, row.text);
+      case "profile":
+        return props.onOpenInProfile?.(row.url, row.id);
+      case "newProfile":
+        return props.onOpenInNewProfile?.(row.url, row.name);
     }
+  };
+  /// Open in Profile…: the field empties to search the profiles; the rows list them all.
+  const enterProfilePick = (url: string, typedText: string) => {
+    setProfilePick({ url, text: text || typedText });
+    setText("");
+    setSelected(undefined);
+    setDismissed(undefined);
+    requestAnimationFrame(() => field.current?.focus());
+  };
+  /// Back from the profile search to the address as it was typed.
+  const leaveProfilePick = () => {
+    if (!profilePick) return;
+    const restored = profilePick.text;
+    setProfilePick(undefined);
+    setText(restored);
+    setSelected(undefined);
+    requestAnimationFrame(() => {
+      field.current?.focus();
+      field.current?.setCaret(field.current.plainText().length);
+    });
   };
   const edit = (next: string) => {
     touch();
     setTouched(true);
+    // The profile search's text names a profile: no shell mode, no prompt to warm an agent for.
+    if (profilePick) {
+      setText(next);
+      setSelected(undefined);
+      return;
+    }
     const entry = composing.current || shell ? undefined : shellEntry(text, next, wholeSelection.current);
     wholeSelection.current = false;
     if (entry) {
@@ -1180,6 +1236,12 @@ export function NewTabScreen(props: Props) {
           dictationEnded.current = false;
         }
       });
+      return;
+    }
+    // The profile search: Return opens the address in the highlighted profile (the first one).
+    if (profilePick) {
+      const row = rows[current] ?? suggested[defaultSelection(suggested)];
+      if (row) activate(row);
       return;
     }
     const prompt = typed.trim();
@@ -1370,7 +1432,7 @@ export function NewTabScreen(props: Props) {
     input.focus();
     input.setCaret(input.plainText().length);
   };
-  const placeholder = nt("placeholder");
+  const placeholder = profilePick ? nt("profile.placeholder", { site: shortHost(profilePick.url) }) : nt("placeholder");
   // A dictation waiting for words says so in the empty field, in italic (dictation.css).
   const dictating = props.dictating === true;
   const keyDown = (event: KeyboardEvent) => {
@@ -1380,6 +1442,23 @@ export function NewTabScreen(props: Props) {
     const input = field.current;
     const state = fieldText();
     if (!input) return;
+    if (profilePick) {
+      // The profile search keeps the rows' keys; Escape, or Backspace in its empty field, goes back.
+      if (event.key === "Escape" || (event.key === "Backspace" && !state.value)) {
+        event.preventDefault();
+        leaveProfilePick();
+        return;
+      }
+      const step = listStep(event) ?? (event.key === "Tab" && !event.shiftKey ? 1 : undefined);
+      if (step && rows.length) {
+        event.preventDefault();
+        pick(stepSelection(current < 0 ? 0 : current, step, rows.length));
+      } else if (event.key === "Enter") {
+        event.preventDefault();
+        submit();
+      }
+      return;
+    }
     if (commandsOpen) {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -1529,7 +1608,7 @@ export function NewTabScreen(props: Props) {
     saved.pick(undefined);
     touch();
     // A machine picked with a folder there (the location row picks its first known folder) is a
-    // project pick: the chat starts in that folder, so Do not work in a project ends, and the
+    // project pick: the chat starts in that folder, so No folder ends, and the
     // headline, the location row and the send all name it. A machine alone keeps the choice.
     if (next?.folder) setNone(false);
     setMachine(next);
@@ -2468,6 +2547,8 @@ function rowKey(row: ScreenRow): string {
       return `create:${row.kind}`;
     case "action":
       return `action:${row.id}`;
+    case "profile":
+      return `profile:${row.id}`;
     default:
       return row.type;
   }
@@ -2500,6 +2581,12 @@ function rowTitle(nt: NewTabTranslate, row: ScreenRow): string {
       return row.title;
     case "create":
       return nt(`create.${row.kind}`);
+    case "inProfile":
+      return nt("row.openInProfile");
+    case "newProfile":
+      return row.name ? nt("row.openInNamedProfile", { name: row.name }) : nt("row.openInNewProfile");
+    case "profile":
+      return nt("row.openInThisProfile", { name: row.name });
   }
 }
 
@@ -2515,6 +2602,10 @@ function rowDetail(row: ScreenRow): string | undefined {
       return row.detail;
     case "ask":
       return row.model;
+    case "inProfile":
+    case "newProfile":
+    case "profile":
+      return shortHost(row.url);
     default:
       return undefined;
   }
@@ -2537,5 +2628,10 @@ function rowAction(t: Translate, nt: NewTabTranslate, row: ScreenRow): string {
       return t("newTabPage.row.open");
     case "action":
       return row.keycaps?.join("") ?? nt("row.run");
+    case "inProfile":
+      return nt("row.chooseProfile");
+    case "newProfile":
+    case "profile":
+      return t("newTabPage.row.open");
   }
 }

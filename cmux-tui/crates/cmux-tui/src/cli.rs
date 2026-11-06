@@ -76,6 +76,8 @@ mod host_mount;
 mod internal;
 mod launch_credential;
 mod lifecycle;
+#[cfg(unix)]
+mod live_code;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
 #[cfg(unix)]
 mod sandbox_run;
@@ -538,6 +540,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| automation::run_if_requested(args))
         .or_else(|| billing::run_if_requested(args))
         .or_else(|| auth_token::run_if_requested(args))
+        .or_else(|| live_code::run_if_requested(args))
         .or_else(|| sandbox_run::run_if_requested(args))
         .or_else(|| vm::run_if_requested(args))
         .or_else(|| vnc::run_if_requested(args))
@@ -821,7 +824,7 @@ fn parse_command(
             ["server", action, ..]
                 if matches!(
                     *action,
-                    "start" | "ensure" | "status" | "stats" | "stop" | "reload-config"
+                    "start" | "ensure" | "status" | "stats" | "stop" | "restart" | "reload-config"
                 ) =>
             {
                 Some(format!("server {action}"))
@@ -1192,6 +1195,7 @@ fn scope_help_for(
         "server status" => Cow::Borrowed(catalog.local_server.status_help),
         "server stats" => Cow::Borrowed(catalog.local_server.stats_help),
         "server stop" => Cow::Borrowed(catalog.local_server.stop_help),
+        "server restart" => Cow::Borrowed(catalog.local_server.restart_help),
         "server reload-config" => Cow::Borrowed(catalog.local_server.reload_config_help),
         "machine" => Cow::Owned(format!("{MACHINE_HELP}\n{}", surface::MACHINE_VM_HELP)),
         "session" => Cow::Owned(session_help(&catalog.session_reset, &catalog.local_server)),

@@ -49,6 +49,9 @@ pub struct SessionCfg {
     /// Frames the engine may have unacknowledged (1 on the development carriers; a hub
     /// session sizes it to its path's round trip).
     pub frames_in_flight: u32,
+    /// After injected input, frames skip the frame-rate cap for a short window
+    /// (`--input-frame-now 1`; the engine's `input_frame_now`).
+    pub input_frame_now: bool,
     /// macOS: stream at most this many pixels wide (`--max-width`; the display's aspect is
     /// kept). Encode time grows with the pixel count (remote-desktop-mac-host.md section 6).
     #[cfg_attr(target_os = "linux", allow(dead_code))]
@@ -112,8 +115,6 @@ impl Timing {
 
 /// No feedback for this long ends the session.
 const LIVENESS_NS: u64 = 3_000_000_000;
-/// How soon the loop looks again at viewer input waiting to be injected.
-const INPUT_WAIT_NS: u64 = 20_000_000;
 
 fn now_us() -> u64 {
     now_ns() / 1000
@@ -156,6 +157,7 @@ impl MediaSession {
                 max_datagram,
                 path: PathKind::ViaCloudRegion,
                 frames_in_flight: cfg.frames_in_flight,
+                input_frame_now: cfg.input_frame_now,
                 ..EngineConfig::default()
             },
             now_us(),
@@ -223,13 +225,18 @@ impl MediaSession {
             let stats_in = self.next_stats_ns.saturating_sub(now_ns());
             // The engine's deadline covers held frames and input held behind a gap.
             let timeout = timeout.map_or(stats_in, |t| t.min(stats_in)).min(LIVENESS_NS);
-            // Viewer input waiting behind the agent's held button: look again in 20 ms.
-            let waiting = table.may_inject_input(session, viewer)
-                && self.desktop.pump().unwrap_or_else(|e| {
+            // Timed input work: a press waiting behind the agent's held button, the person
+            // master going idle.
+            let wake = if table.may_inject_input(session, viewer) {
+                self.desktop.pump().unwrap_or_else(|e| {
                     eprintln!("inject failed: {e}");
-                    false
-                });
-            let timeout = if waiting { timeout.min(INPUT_WAIT_NS) } else { timeout };
+                    None
+                })
+            } else {
+                None
+            };
+            let timeout = wake
+                .map_or(timeout, |d| timeout.min(u64::try_from(d.as_nanos()).unwrap_or(u64::MAX)));
             let timeout = Some(timeout.max(1_000_000));
             let mut fds = carrier.fds();
             fds.push(self.desktop.fd());
