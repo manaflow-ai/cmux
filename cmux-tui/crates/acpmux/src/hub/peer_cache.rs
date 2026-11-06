@@ -818,6 +818,49 @@ mod tests {
     }
 
     #[test]
+    fn a_cache_worker_and_full_list_notice_complete_without_lock_order_deadlock() {
+        let (hub, _dir) = test_hub();
+        let peer = add_idle_peer(&hub, "builder");
+        hub.apply_peer_notice(
+            "builder",
+            peer.generation,
+            PeerNotice::Sessions(vec![remote("m1", "builder")]),
+        );
+        hub.cache_test_write_started.store(false, std::sync::atomic::Ordering::SeqCst);
+        hub.cache_test_write_delay_ms.store(100, std::sync::atomic::Ordering::SeqCst);
+        let saving = {
+            let hub = hub.clone();
+            let generation = peer.generation;
+            std::thread::spawn(move || hub.save_peer_cache("builder", generation, true))
+        };
+        for _ in 0..100_000 {
+            if hub.cache_test_write_started.load(std::sync::atomic::Ordering::Acquire) {
+                break;
+            }
+            std::thread::yield_now();
+        }
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let applying = {
+            let hub = hub.clone();
+            let generation = peer.generation;
+            std::thread::spawn(move || {
+                hub.apply_peer_notice(
+                    "builder",
+                    generation,
+                    PeerNotice::Sessions(vec![remote("m1", "builder")]),
+                );
+                done_tx.send(()).unwrap();
+            })
+        };
+        done_rx
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .expect("cache worker and full-list notice deadlocked on hub locks");
+        applying.join().unwrap();
+        saving.join().unwrap();
+        hub.cache_test_write_delay_ms.store(0, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    #[test]
     fn held_ask_release_after_sessions_does_not_reenter_a_notice_lock() {
         let (hub, _dir) = test_hub();
         let peer = add_idle_peer(&hub, "builder");

@@ -599,8 +599,8 @@ pub struct Hub {
     /// Each parent's children by tag, for an approval card's label (`permissions/display.rs`).
     pub(super) child_tags: permissions::ChildTags,
     /// Leased peers by name, with the generation of the peer each lease
-    /// started (`peer_lease.rs`); never saved. Lock order: this, then
-    /// `peers`; never `peers` first.
+    /// started (`peer_lease.rs`); never saved. Lock order for shared hub locks is the per-peer
+    /// writer gate, then this, then `peers`, then `remote_sessions`; never invert those edges.
     pub(super) peer_leases: StdMutex<HashMap<String, u64>>,
     /// Per-peer cache writers; held through the atomic rename so removal cannot be followed by
     /// an older snapshot landing on disk. Entries are removed with the peer.

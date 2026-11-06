@@ -10,8 +10,8 @@
 //! disk (`peer_cache.rs`), and stops with its connection
 //! (`Conn::end_peer_leases` in `server/mod.rs`).
 //!
-//! Lock order: `peer_leases`, then `remote_sessions`, then `peers`; never
-//! the other way round. A peer leaves the `peers` registry before its rows
+//! Lock order: the per-peer writer gate, then `peer_leases`, then `peers`, then
+//! `remote_sessions`; never the other way round. A peer leaves the `peers` registry before its rows
 //! are dropped, and a notice changes rows only while its instance is still
 //! registered (`apply_peer_notice` checks under the rows lock), so a late
 //! notice of a replaced or removed peer never adds rows back.

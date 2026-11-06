@@ -28,11 +28,11 @@ impl Hub {
     pub(super) fn note_peer_drop(&self, peer: &str, generation: u64, reason: &str) {
         // Purge fencing and transcript persistence belong to the real link
         // boundary, never to its later row deadline (a new handshake may be busy).
+        let Some(current) = self.peer(peer).filter(|p| p.generation == generation) else {
+            return;
+        };
         {
             let _rows = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
-            let Some(current) = self.peer(peer).filter(|p| p.generation == generation) else {
-                return;
-            };
             let link = current.link();
             if link.attempts <= 1 {
                 tracing::warn!(peer, "peer disconnected: {reason}");
