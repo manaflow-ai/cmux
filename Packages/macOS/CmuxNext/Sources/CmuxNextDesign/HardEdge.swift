@@ -2,9 +2,8 @@ public import AppKit
 public import CmuxNextDesignTokens
 
 /// Hard-edge tech chrome (Debug Settings, `chrome.hardEdge`; Thunderdome round 2 D, Leo
-/// 2026-11-05). The game UI of Zenless Zone Zero and Honkai: Star Rail draws panels as layered
-/// frames with 45° cuts, diamond markers and thin accent lines; this brings that language to the
-/// corner where the sidebar meets the tabs, kept calm enough for a pro tool.
+/// 2026-11-05): panels drawn as layered frames with 45° cuts, diamond markers and thin accent
+/// lines, brought to the corner where the sidebar meets the tabs, kept calm enough for a pro tool.
 ///
 /// Every value but `off` draws the same frame: the window is the outer glass frame (one shaded
 /// surface across the sidebar, the titlebar row and the tab strip, so the top area is the top bar
@@ -21,10 +20,10 @@ public nonisolated enum HardEdge: String, Sendable, CaseIterable, TunableChoice 
     /// The cuts alone: card, tabs and rows share one chamfered shape on the shaded frame.
     case chamfer
     /// The cuts plus the accent: a lit line along each cut edge and a diamond on the selected
-    /// tab and workspace, the ZZZ look.
+    /// tab and workspace.
     case blade
     /// The cuts plus layered frames: a hairline frame inside the gap around the card, parallel to
-    /// its cuts, with diamond rivets where it turns, the Star Rail panel look.
+    /// its cuts, with diamond rivets where it turns.
     case hud
 
     public var tunableTitle: String {
