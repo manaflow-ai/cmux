@@ -3,7 +3,8 @@
 
 Uses only debug socket calls (`debug.pointer_hover {row}`, `debug.pointer_sweep`, `debug.frames`,
 `debug.surfaces`), so the same run measures a build without hover preload (the base, with this harness
-cherry-picked) and one with it, on one mini. The synthetic pointer aims at a row by its workspace id, read
+cherry-picked) and one with it, on one mini. The synthetic pointer aims at a row by its sidebar row id (the
+store id in the row key; the bench names each workspace uniquely and maps its ws_ id by that title), read
 in the app at the move (rows a reveal scroll moved are followed), and the sweep runs in the app, one move
 per main-actor turn paced by the clock (not one socket round trip, a display frame, per move).
 
@@ -108,6 +109,8 @@ def wait_for(predicate, seconds: float, step: float = 0.25):
 class Bench:
     def __init__(self, sock: str, app: bm.App):
         self.sock, self.app = sock, app
+        self.titles: dict[str, str] = {}  # daemon workspace id -> the unique title the bench gave it
+        self.mapped_by = "none"  # how row_keys mapped them: by "title", or by "order" when a rename was refused
 
     def rpc(self, method: str, params: dict | None = None, timeout: float = 30):
         return bp.rpc(self.sock, method, params, timeout=timeout) or {}
@@ -127,9 +130,33 @@ class Bench:
         return (time.perf_counter() - started) * 1000
 
     def hover_row(self, workspace: str) -> dict:
-        """The pointer to the middle of `workspace`'s sidebar row as the app draws it now; the reply says which
-        workspace's row shows hovered after the move (`row_hovered`)."""
+        """The pointer to the middle of `workspace`'s sidebar row as the app draws it now (`workspace` is the row's
+        store id, `row_key`); the reply says which workspace's row shows hovered after the move (`row_hovered`)."""
         return self.rpc("debug.pointer_hover", {"row": workspace})
+
+    def row_keys(self, titles: dict[str, str]) -> dict[str, str]:
+        """Each daemon workspace id (ws_..., what actions take) -> its sidebar row's store id (the UUID in the row
+        key `workspace(<id>)`, what `debug.pointer_hover {row}` and `debug.pointer_sweep` take), by the unique
+        title the bench gave each workspace. Waits until every title shows in the sidebar's rows."""
+        def listed() -> list[tuple[str, str]]:
+            windows = self.rpc("debug.sidebar_rows").get("windows") or []
+            return [(key[len("workspace("):-1], str(row.get("title") or "")) for row in (windows[0] if windows else {}).get("rows") or []
+                    for key in [str(row.get("key", ""))] if key.startswith("workspace(") and key.endswith(")")]
+
+        def read():
+            by_title = {title: key for key, title in listed()}
+            found = {ws: by_title[title] for ws, title in titles.items() if title in by_title}
+            return found if len(found) == len(titles) else None
+        found = wait_for(read, 15, 0.25)
+        if found:
+            self.mapped_by = "title"
+            return found
+        # A rename the app refused: the bench's workspaces are the last rows, in the order newAtBottom made them.
+        rows = listed()
+        if len(rows) < len(titles):
+            return {}
+        self.mapped_by = "order"
+        return {ws: key for ws, (key, _) in zip(titles, rows[-len(titles):])}
 
     def still(self) -> bool:
         """The sidebar's rows hold still (no reveal scroll or row motion in flight): two reads 0.3 s apart agree."""
@@ -160,6 +187,13 @@ class Bench:
             print(f"   workspace.newAtBottom: {made.get('error') or made}", file=sys.stderr)
             return None, []
         self.app.run("workspace.selectLast")
+        # A unique title, so the bench finds this workspace's sidebar row (rows are keyed by store id, not ws_).
+        self.titles[created[0]] = f"hover-bench-{len(self.titles)}"
+        named = self.app.action("renameWorkspace", workspace=created[0], name=self.titles[created[0]])
+        if named.get("error"):  # then through the CLI's --target
+            named = self.app.run("renameWorkspace", target=created[0], name=self.titles[created[0]])
+        if named.get("error"):
+            print(f"   renameWorkspace {created[0]}: {named['error']}", file=sys.stderr)
         tabs = []
         for index, url in enumerate(urls):
             if index:
@@ -242,7 +276,8 @@ def sweep(bench: Bench, args, report: dict, rows: list[str]):
           + (f" error={moved.get('error')}" if moved.get("error") else ""), flush=True)
 
 
-def click_trials(bench: Bench, args, report: dict, target: str, tabs: list[str], away: str, hoverable: bool):
+def click_trials(bench: Bench, args, report: dict, target: str, row: str, tabs: list[str], away: str, hoverable: bool):
+    """`target` is the workspace's daemon id (for actions), `row` its sidebar row id (for the pointer)."""
     trials = []
     for trial in range(args.trials):
         if report.get("click_stopped"):
@@ -258,7 +293,7 @@ def click_trials(bench: Bench, args, report: dict, target: str, tabs: list[str],
                 report["click_stopped"] = f"trial {trial} {mode}: pages did not hibernate"
                 break
             if mode == "dwell":
-                landed = str(bench.hover_row(target).get("row_hovered") or "").endswith(target) if hoverable else False
+                landed = str(bench.hover_row(row).get("row_hovered") or "").endswith(row) if hoverable else False
                 if not landed:
                     trials.append({"trial": trial, "mode": mode, "error": "row not hoverable"})
                     print(f"PERF-HOVER-CLICK trial={trial} mode={mode} error=row_not_hoverable", flush=True)
@@ -291,7 +326,7 @@ def click_trials(bench: Bench, args, report: dict, target: str, tabs: list[str],
     print(f"PERF-HOVER-CLICK-SUMMARY cold={json.dumps(summary['cold'])} dwell={json.dumps(summary['dwell'])}", flush=True)
 
 
-def grace(bench: Bench, args, report: dict, pid: int, bundle: str, tabs: list[str], away: str, target: str,
+def grace(bench: Bench, args, report: dict, pid: int, bundle: str, tabs: list[str], away: str, row: str,
           hoverable: bool):
     bench.hover(None)
     bench.app.action("goToWorkspace", workspace=away)
@@ -301,7 +336,7 @@ def grace(bench: Bench, args, report: dict, pid: int, bundle: str, tabs: list[st
         return
     time.sleep(5)  # test script: renderers of the discarded pages exit
     asleep = bm.sample(pid, bundle, "asleep", 1)
-    if not hoverable or not str(bench.hover_row(target).get("row_hovered") or "").endswith(target):
+    if not hoverable or not str(bench.hover_row(row).get("row_hovered") or "").endswith(row):
         report["grace"] = {"error": "row not hoverable"}
         print("PERF-HOVER-GRACE error=row_not_hoverable", flush=True)
         return
@@ -373,14 +408,24 @@ def main():
         # Which rows the pointer really hovers, found once now, while every page is still live: a probe step that
         # rests past the dwell then wakes nothing, and any hover grace it starts (30 s) ends long before the settle
         # wait below. The pointer aims at each row as drawn when it moves, so a later scroll does not matter.
-        kept, refused = bench.hoverable(([target] if target else []) + sweep_workspaces)
+        keys = bench.row_keys(bench.titles)
+        report["row_keys"] = {"mapped": len(keys), "workspaces": len(bench.titles), "by": bench.mapped_by}
+        print(f"PERF-HOVER-ROWKEYS mapped={len(keys)}/{len(bench.titles)} by={bench.mapped_by} sample={json.dumps(dict(list(keys.items())[:2]))}",
+              flush=True)
+        if len(keys) < len(bench.titles):
+            print("PERF-HOVER-SETUP invalid=rows_not_mapped", flush=True)
+            raise SystemExit(3)
+        # The pointer names rows by their sidebar row id; actions keep the daemon id (target, home).
+        target_row = keys.get(target) if target else None
+        sweep_rows = [keys[w] for w in sweep_workspaces]
+        kept, refused = bench.hoverable(([target_row] if target_row else []) + sweep_rows)
         why = (refused[0]["reply"].get("why") if refused else None) or {}
         if not kept and isinstance(why, dict) and (why.get("presentation") != "shown" or why.get("list_hidden")):
             # The window opened with its sidebar hidden (a narrow fleet display): show it, then look again.
             print(f"PERF-HOVER-ROWS sidebar_hidden why={json.dumps(why)}", flush=True)
             report["sidebar_shown_by_bench"] = bench.app.action("toggleSidebar")
-            kept, refused = bench.hoverable(([target] if target else []) + sweep_workspaces)
-        target_hoverable = bool(target) and target in kept
+            kept, refused = bench.hoverable(([target_row] if target_row else []) + sweep_rows)
+        target_hoverable = bool(target_row) and target_row in kept
         report["rows_hoverable"] = len(kept)
         report["target_row_hoverable"] = target_hoverable
         report["rows_refused"] = refused[:5]
@@ -395,15 +440,15 @@ def main():
             wait_s = 30 + 2.5 * (len(sweep_tabs) + len(target_tabs)) + 30
             report["sweep_pages_settled"] = bool(wait_for(settled, wait_s, 1))
             if report["sweep_pages_settled"]:
-                sweep(bench, args, report, [w for w in kept if w != target])
+                sweep(bench, args, report, [w for w in kept if w != target_row])
             else:
                 report["sweep"] = {"error": "invalid: the swept pages did not all freeze or hibernate first",
                                    "diag": bench.diagnose("sweep", sweep_tabs)}
                 print("PERF-HOVER-SWEEP invalid=not_settled", flush=True)
         if "click" in phases and target:
-            click_trials(bench, args, report, target, target_tabs, home, target_hoverable)
+            click_trials(bench, args, report, target, target_row, target_tabs, home, target_hoverable)
         if "grace" in phases and target:
-            grace(bench, args, report, pid, bundle, target_tabs, home, target, target_hoverable)
+            grace(bench, args, report, pid, bundle, target_tabs, home, target_row, target_hoverable)
     finally:
         app.run("quit")
         bm.wait_gone(pid, 20)
