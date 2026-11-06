@@ -10,7 +10,7 @@
 // 2026-10-21, #22896 grew into "#22896 · cmux-next updates: …" after a hover). Titles and favicons
 // live in the shared link card (LinkHoverCard.tsx) that hovering opens: Open and Open in, and a
 // pull request's title, state, author and checks.
-import { useContext, useLayoutEffect, useState, type ReactNode } from "react";
+import { useContext, useLayoutEffect, useState, type FocusEvent, type PointerEvent, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { callChipHost } from "./host";
 import { useMessageScope } from "./messageScope";
@@ -176,7 +176,24 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
     return now === "chat" ? session.trigger : hover.trigger;
   };
   useLayoutEffect(() => {
-    if (entered !== "site" || now !== "chat" || !anchor) return;
+    if (!anchor) return;
+    if (entered === "chat" && now === "site") {
+      // The chat left the list: the link is the site's again, and the site's card picks up a
+      // pointer or focus still on it, with no leaving and coming back (review of #36360, F2).
+      setEntered("site");
+      if (anchor === document.activeElement) {
+        hover.trigger.onFocus({ currentTarget: anchor } as unknown as FocusEvent<HTMLElement>);
+      } else if (anchor.matches(":hover")) {
+        const box = anchor.getBoundingClientRect();
+        hover.trigger.onPointerEnter({
+          currentTarget: anchor,
+          clientX: (box.left + box.right) / 2,
+          clientY: (box.top + box.bottom) / 2,
+        } as unknown as PointerEvent<HTMLElement>);
+      }
+      return;
+    }
+    if (entered !== "site" || now !== "chat") return;
     setEntered("chat");
     const here = anchor.matches(":hover") || anchor === document.activeElement;
     if (!hover.open && !here) return;

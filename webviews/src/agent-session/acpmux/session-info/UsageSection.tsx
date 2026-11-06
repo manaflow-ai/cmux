@@ -127,7 +127,7 @@ export const UsageSection = memo(function UsageSection({
   locale,
   sort: initialSort = "cost",
   expanded: initialExpanded = false,
-  ownRowLayout = "slot",
+  ownRowLayout = "flush",
   cacheLayout = "rows",
   planLimits,
   now,
