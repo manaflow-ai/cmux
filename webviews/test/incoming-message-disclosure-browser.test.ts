@@ -369,10 +369,9 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
     }
   });
 
-  // A scroll made from code right after a close at the view's end (scrollIntoView, Find, a link to a
-  // row) stays where the code put it: the close's bottom pin never pins it back within its fold
-  // (#34780). An open at the end no longer pins (Codex parity), so the close is the pin to check.
-  test("a scroll from code just after closing the chat's last row at the end stays where it was put", async () => {
+  // A scroll made from code right after that open (scrollIntoView, Find, a link to a row) stays
+  // where the code put it: no hold puts it back within the open's fold (#34780).
+  test("a scroll from code just after opening the chat's last row stays where it was put", async () => {
     const page = await openChat(
       [...Array.from({ length: 6 }, (_, index) => turn(index)).flat(), fromAgent(LONG, "Grid fix", "child-3", "m-end")],
       "Paragraph 1 of the landing report",
@@ -384,30 +383,18 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       expect(await atLatest(page)).toBe(true);
       await toggle.click();
       expect(await toggle.getAttribute("aria-expanded")).toBe("true");
-      await rest(page);
-      // Back at the end, as the reader's wheel goes there (it lets go of the open's hold).
-      await page.locator(".acpmux-scroll").evaluate((el) => {
-        el.dispatchEvent(new WheelEvent("wheel", { deltaY: 1, bubbles: true }));
-        el.scrollTop = el.scrollHeight;
-        el.dispatchEvent(new Event("scroll"));
-      });
-      await rest(page);
-      expect(await atLatest(page)).toBe(true);
-      await toggle.click();
-      expect(await toggle.getAttribute("aria-expanded")).toBe("false");
-      // A frame into the close, inside its bottom pin: up by two views, from code, so what the close
-      // still takes off the end never clamps it.
+      // A frame into the open, inside its hold: up from the end by one view, from code.
       const put = await page.locator(".acpmux-scroll").evaluate(async (el) => {
         await new Promise<void>((done) => requestAnimationFrame(() => done()));
-        el.scrollTop = Math.max(0, el.scrollTop - el.clientHeight * 2);
+        el.scrollTop = el.scrollHeight - el.clientHeight * 2;
         return el.scrollTop;
       });
-      // The regression is a re-pin inside the close's hold (400 ms, or the fold's length plus 150 ms).
+      // The regression is a re-pin inside the open's hold (400 ms, or the fold's length plus 150 ms).
       // fixed-wait: waiting past the hold is the behavior under test
       await page.waitForTimeout(600);
       await rest(page);
       const after = await page.locator(".acpmux-scroll").evaluate((el) => el.scrollTop);
-      console.log(`code scroll after close: put ${put} -> ${after}`);
+      console.log(`code scroll after open: put ${put} -> ${after}`);
       expect(await atLatest(page)).toBe(false);
       expect(Math.abs(after - put)).toBeLessThan(2);
     } finally {
