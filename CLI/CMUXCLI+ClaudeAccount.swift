@@ -6,27 +6,22 @@ import Foundation
 /// to another one and continue the same conversation there.
 extension CMUXCLI {
     static var claudeAccountUsage: String {
-        String(
-            localized: "cli.claudeAccount.usage",
-            defaultValue: "Usage: cmux claude-account [list] [--json]\n       cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]",
-            bundle: claudeAccountStringsBundle
-        )
+        CMUXDiffViewerLocalization.string("cli.claudeAccount.usage", defaultValue: "Usage: cmux claude-account [list] [--json]\n       cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]")
     }
 
-    /// The bundle the `claude-account` strings come from. The CLI executable has no catalog of
-    /// its own, so its text is the enclosing app's, as for the rest of the CLI.
-    private static var claudeAccountStringsBundle: Bundle {
-        CLIExecutableLocator.enclosingAppBundle() ?? .main
-    }
+    // Every claude-account string goes through `CMUXDiffViewerLocalization.string`: the CLI
+    // executable has no catalog of its own, and Foundation resolves other bundles in the
+    // executable's language, so only that helper reads the enclosing app's catalog in the
+    // language `AppleLanguages` names.
 
     static var claudeAccountHelp: String {
-        claudeAccountUsage + "\n\n" + String(localized: "cli.claudeAccount.help", defaultValue: """
+        claudeAccountUsage + "\n\n" + CMUXDiffViewerLocalization.string("cli.claudeAccount.help", defaultValue: """
         list: print the registered Claude Code accounts (agents.claudeAccounts in cmux.json, plus the default ~/.claude account). Works without a running cmux.
 
         switch <name>: move a Claude terminal to that account and continue the same conversation there. The terminal restarts under the account and cmux types the resume command. It switches the calling terminal unless --surface names another. --force also switches while Claude is responding, which stops the response.
 
         <surface> is a UUID, a ref like surface:3, or an index with --workspace. --workspace only scopes --surface and can't be used alone.
-        """, bundle: claudeAccountStringsBundle)
+        """)
     }
 
     /// Only `switch` talks to the app; `list` reads cmux.json directly, so it works while cmux
@@ -60,7 +55,7 @@ extension CMUXCLI {
             return
         }
         let nameWidth = registry.accounts.map(\.name.count).max() ?? 0
-        let defaultMarker = String(localized: "cli.claudeAccount.list.defaultMarker", defaultValue: "(default)", bundle: Self.claudeAccountStringsBundle)
+        let defaultMarker = CMUXDiffViewerLocalization.string("cli.claudeAccount.list.defaultMarker", defaultValue: "(default)")
         for account in registry.accounts {
             let name = account.name.padding(toLength: nameWidth, withPad: " ", startingAt: 0)
             let directory = Self.claudeAccountDisplayPath(account.exhaustionKey(homeDirectory: home), home: home)
@@ -90,11 +85,7 @@ extension CMUXCLI {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard let surfaceRaw = surfaceOption ?? (workspaceOption == nil ? callerSurface : nil),
               !surfaceRaw.isEmpty else {
-            throw CLIError(message: String(
-                localized: "cli.claudeAccount.error.noTarget",
-                defaultValue: "No terminal to switch: run this inside a cmux terminal, or pass --surface.",
-                bundle: Self.claudeAccountStringsBundle
-            ))
+            throw CLIError(message: CMUXDiffViewerLocalization.string("cli.claudeAccount.error.noTarget", defaultValue: "No terminal to switch: run this inside a cmux terminal, or pass --surface."))
         }
 
         var params: [String: Any] = ["account": accountName, "force": force]
@@ -116,11 +107,7 @@ extension CMUXCLI {
             return
         }
         print(String(
-            format: String(
-                localized: "cli.claudeAccount.switched",
-                defaultValue: "OK switched %1$@ from %2$@ to %3$@",
-                bundle: Self.claudeAccountStringsBundle
-            ),
+            format: CMUXDiffViewerLocalization.string("cli.claudeAccount.switched", defaultValue: "OK switched %1$@ from %2$@ to %3$@"),
             surfaceOption ?? (response["surface_id"] as? String) ?? surfaceRaw,
             (response["from"] as? String) ?? "",
             (response["to"] as? String) ?? accountName
@@ -131,29 +118,13 @@ extension CMUXCLI {
         let explanation: String
         let notResumedReason = response["not_resumed_reason"] as? String
         if notResumedReason == "previous_claude_running" {
-            explanation = String(
-                localized: "cli.claudeAccount.previousClaudeStillRunning",
-                defaultValue: "The previous Claude is still running, so cmux didn't resume the conversation: it would run in two places. Once that Claude has quit, run this command in that terminal:",
-                bundle: Self.claudeAccountStringsBundle
-            )
+            explanation = CMUXDiffViewerLocalization.string("cli.claudeAccount.previousClaudeStillRunning", defaultValue: "The previous Claude is still running, so cmux didn't resume the conversation: it would run in two places. Once that Claude has quit, run this command in that terminal:")
         } else if notResumedReason == "transcript_resync_failed" {
-            explanation = String(
-                localized: "cli.claudeAccount.transcriptResyncFailed",
-                defaultValue: "cmux couldn't copy the conversation's latest messages to the new account, so it didn't resume the conversation: the copy there may be missing them. To continue from that copy anyway, run this command in that terminal:",
-                bundle: Self.claudeAccountStringsBundle
-            )
+            explanation = CMUXDiffViewerLocalization.string("cli.claudeAccount.transcriptResyncFailed", defaultValue: "cmux couldn't copy the conversation's latest messages to the new account, so it didn't resume the conversation: the copy there may be missing them. To continue from that copy anyway, run this command in that terminal:")
         } else if response["pane_closed"] as? Bool == true {
-            explanation = String(
-                localized: "cli.claudeAccount.resumeManuallyPaneClosed",
-                defaultValue: "The terminal was closed, moved or restarted before cmux could resume the conversation. To continue it, run this command in a terminal:",
-                bundle: Self.claudeAccountStringsBundle
-            )
+            explanation = CMUXDiffViewerLocalization.string("cli.claudeAccount.resumeManuallyPaneClosed", defaultValue: "The terminal was closed, moved or restarted before cmux could resume the conversation. To continue it, run this command in a terminal:")
         } else {
-            explanation = String(
-                localized: "cli.claudeAccount.resumeManually",
-                defaultValue: "cmux couldn't resume the conversation automatically. To continue it, run this command in that terminal:",
-                bundle: Self.claudeAccountStringsBundle
-            )
+            explanation = CMUXDiffViewerLocalization.string("cli.claudeAccount.resumeManually", defaultValue: "cmux couldn't resume the conversation automatically. To continue it, run this command in that terminal:")
         }
         print("\n\(explanation)\n\n\(command)")
     }
