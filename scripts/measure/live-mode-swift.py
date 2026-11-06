@@ -5,6 +5,9 @@ A person's normal tagged build runs with a few workspaces, and they edit HomeHos
 `live-mode.py start` builds the live code build of that commit, turns Labs > Live Code on (its
 confirmation sheet is answered here through debug.dialog), restarts into it and patches the edit in
 (Home red). A save while live (Home blue) is patched in by the watcher, in the same process.
+Then a patch that cannot load is refused with the app unchanged, and a rollback undoes the save's
+patch (Home red again), all in the same process. Two terminals run a command throughout; each must
+be the same live shell after start and after stop.
 `live-mode.py stop` restarts into the optimized build of the edited checkout (Home still blue).
 Each restart's time, and whether every workspace, tab and running terminal came back, go into
 result.json; each step's window is counted for red and blue pixels.
@@ -19,6 +22,7 @@ import re
 import signal
 import subprocess
 import sys
+import tarfile
 import threading
 import time
 
@@ -102,11 +106,73 @@ def wait_log(pattern, since, seconds):
     return None
 
 
-def seed(path):
-    """Two more workspaces, each with its terminal, beside the first."""
-    for _ in range(2):
-        rpc_at(path, "workspace.create", {}, timeout=30)
+def seed(path, out):
+    """Two more terminals beside the first, each running a long command, and each shell's pid in a
+    file: a terminal kept across a restart is the same shell, so the same pid. Returns the files."""
+    surfaces = (rpc_at(path, "surface.list", timeout=30) or {}).get("surfaces") or []
+    pane = next((s.get("pane_id") for s in surfaces if s.get("pane_id")), None)
+    if pane:
+        for _ in range(2):
+            rpc_at(path, "surface.create", {"pane_id": pane, "type": "terminal"}, timeout=30)
     time.sleep(3)
+    files = []
+    for n, surface in enumerate((rpc_at(path, "surface.list", timeout=30) or {}).get("surfaces") or []):
+        if surface.get("type", "terminal") != "terminal":
+            continue
+        pid_file = os.path.join(out, f"shell-{n}.pid")
+        # The shell writes its pid, then runs a command that outlives every restart in the test.
+        rpc_at(path, "surface.send_text", {"surface_id": surface["id"],
+                                           "text": f"echo $$ > '{pid_file}'; sleep 86400\n"}, timeout=10)
+        files.append(pid_file)
+    time.sleep(2)
+    return files
+
+
+def shells(files):
+    """{file: the shell pid it holds, and whether that process still runs}."""
+    out = {}
+    for name in files:
+        try:
+            pid = int(open(name).read().strip())
+            os.kill(pid, 0)
+            out[os.path.basename(name)] = {"pid": pid, "alive": True}
+        except (OSError, ValueError):
+            out[os.path.basename(name)] = {"pid": None, "alive": False}
+    return out
+
+
+def terminals_kept(result):
+    """At least two terminals ran a command before start, and each is the same live shell after
+    start and after stop (the daemon holds terminals; the app only reattaches)."""
+    before = result.get("shells_before") or {}
+    if sum(v["alive"] for v in before.values()) < 2:
+        return False
+    return all(result.get(phase, {}).get(name) == shell
+               for phase in ("shells_live", "shells_after") for name, shell in before.items() if shell["alive"])
+
+
+def forced_rollback(tag, out, live_pid):
+    """A patch that cannot load (not a Mach-O file) is refused and the app keeps the code it runs;
+    then a rollback undoes the newest patch (the save), so Home goes back to the live build's red."""
+    folder = os.path.dirname(LIVE_LOG)
+    stamp = int(time.time() * 1000)
+    since = len(log_text())
+    with open(os.path.join(folder, f"zz-bad-{stamp}.dylib"), "wb") as f:
+        f.write(b"not a dylib\n")
+    refused = wait_log(rf"zz-bad-{stamp}\.dylib refused", since, 60)
+    time.sleep(1)
+    path = socket(tag)
+    bad = {"refused": bool(refused), "same_pid": rpc_at(path, "system.identify").get("pid") == live_pid,
+           **snap(tag, out, "bad-patch")}
+    since = len(log_text())
+    with open(os.path.join(folder, f"zz-undo-{stamp}.rollback"), "w") as f:
+        f.write("")
+    undone = wait_log(r"rolled back \S+ functions=(\d+) rollback_ms=(\d+)", since, 60)
+    time.sleep(1)
+    back = {"rolled_back": bool(undone), "functions": int(undone.group(1)) if undone else None,
+            "rollback_ms": int(undone.group(2)) if undone else None,
+            "same_pid": rpc_at(socket(tag), "system.identify").get("pid") == live_pid, **snap(tag, out, "rolled-back")}
+    return bad, back
 
 
 def pixels(png):
@@ -148,7 +214,8 @@ def main():
     result = {"tag": opts.tag, "normal_build_s": opts.build_seconds}
     subprocess.run(["open", "-n", "-g", opts.app], check=True)  # the person's normal build, as they start it
     path = wait_socket(opts.tag, 180)
-    seed(path)
+    pid_files = seed(path, opts.out)
+    result["shells_before"] = shells(pid_files)
     result["normal_pid"] = rpc_at(path, "system.identify").get("pid")
     result["before"] = snap(opts.tag, opts.out, "before")
     confirmer = Confirmer(opts.tag)
@@ -185,8 +252,12 @@ def main():
                                "same_pid": rpc_at(path, "system.identify").get("pid") == result["live_pid"],
                                **snap(opts.tag, opts.out, "live-blue")}
         result["status_saved"] = status_line(opts.tag)
+        result["shells_live"] = shells(pid_files)
 
-        # 3. Stop: the optimized build of the edited checkout (blue kept), sessions kept.
+        # 3. Forced rollback: a patch that fails to load, then the app back to its last good code.
+        result["bad_patch"], result["rollback"] = forced_rollback(opts.tag, opts.out, result["live_pid"])
+
+        # 4. Stop: the optimized build of the edited checkout (blue kept), sessions kept.
         started = time.time()
         code, result["stop"] = live_mode("stop", opts.tag)
         result["stop"]["exit"], result["stop"]["wall_s"] = code, round(time.time() - started, 1)
@@ -194,6 +265,7 @@ def main():
         time.sleep(2)
         result["after"] = snap(opts.tag, opts.out, "after-stop")
         result["status_after"] = status_line(opts.tag)
+        result["shells_after"] = shells(pid_files)
         result["confirm_presses"] = confirmer.pressed
     finally:
         with open(VIEW, "w") as f:
@@ -221,9 +293,19 @@ def main():
         and stop.get("exit") == 0 and stop.get("sessions", {}).get("all")
         and after.get("blue_px", 0) > base.get("blue_px", 0) + 1000
         and "Swift live mode: on" in result.get("status_live", "")
-        and "Swift live mode: off" in result.get("status_after", ""))
+        and "Swift live mode: off" in result.get("status_after", "")
+        and terminals_kept(result)
+        and result.get("bad_patch", {}).get("refused") and result["bad_patch"].get("same_pid")
+        and result["bad_patch"].get("blue_px", 0) > base.get("blue_px", 0) + 1000
+        and result.get("rollback", {}).get("rolled_back") and result["rollback"].get("same_pid")
+        and result["rollback"].get("red_px", 0) > base.get("red_px", 0) + 1000)
     with open(os.path.join(opts.out, "result.json"), "w") as f:
         json.dump(result, f, indent=2)
+    # One file for the step's artifact (cmux-ci uploads a regular file, not a folder).
+    with tarfile.open(os.path.join(opts.out, "live-mode-e2e.tar.gz"), "w:gz") as bundle:
+        for name in sorted(os.listdir(opts.out)):
+            if name != "live-mode-e2e.tar.gz":
+                bundle.add(os.path.join(opts.out, name), arcname=name)
     print(json.dumps(result, indent=2))
     for verb in ("start", "stop"):
         step = result.get(verb, {})
