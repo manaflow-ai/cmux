@@ -46,8 +46,12 @@ on:
 
 permissions: {}
 
+# One group per run: a shared group let a newer request replace a waiting one,
+# so a pulled build could stay on the feed. Two rollbacks never overwrite each
+# other: the feed write is a compare-and-swap on the bytes the plan read
+# (--replace-sha256), and the loser writes nothing and says to run again.
 concurrency:
-  group: nightly-next-rollback
+  group: nightly-next-rollback-${{ github.run_id }}
   cancel-in-progress: false
 
 env:
@@ -66,7 +70,7 @@ jobs:
     permissions:
       contents: read
     # A literal ephemeral label: this job holds the feed's write token.
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

@@ -23,6 +23,7 @@ const {
   SELECT_ACCOUNT_PROMPT,
   accountInitials,
   handlerHref,
+  authErrorHref,
   hostedAuthErrorRedirect,
   isReturningFromOAuth,
   oauthLoginHint,
@@ -267,6 +268,19 @@ describe("hosted error pages", () => {
     expect(hostedAuthErrorRedirect("error", q("errorCode=CONTACT_CHANNEL_ALREADY_USED_FOR_AUTH_BY_SOMEONE_ELSE"))).toBe(
       "/handler/auth-error?code=email-unverified",
     );
+  });
+
+  test("a failed app sign-in keeps its app return target on the recovery page", () => {
+    const href = authErrorHref(
+      "email-unverified",
+      q("code=abc&native_app_return_to=cmux%3A%2F%2Fauth-callback&after_auth_return_to=%2Fhandler%2Fafter-sign-in"),
+    );
+    const url = new URL(href, "https://cmux.test");
+    expect(url.pathname).toBe("/handler/auth-error");
+    expect(url.searchParams.get("code")).toBe("email-unverified");
+    expect(url.searchParams.get("native_app_return_to")).toBe("cmux://auth-callback");
+    expect(url.searchParams.get("after_auth_return_to")).toBe("/handler/after-sign-in");
+    expect(authErrorHref(null, q(""))).toBe("/handler/auth-error");
   });
 
   test("any other failure maps to the generic page, and a normal return is left alone", () => {

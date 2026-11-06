@@ -62,7 +62,10 @@ DB_EXACT = {
     "web/bun.lock",
     "web/drizzle.config.ts",
     "web/package.json",
+    # The migration runner every database uses; its DB tests apply fixtures through it.
+    "web/scripts/cloud-vm/apply-migrations.mjs",
     "web/scripts/db-local.sh",
+    "web/scripts/db-migrate.mjs",
     "web/scripts/run-db-behavior-tests.sh",
 }
 DB_PREFIXES = (

@@ -8,7 +8,7 @@ import {
   runFanout,
   runTimings,
 } from "../scripts/cloud-vm/run-fanout.mjs";
-import { normalizeRunSpec } from "../services/runs/spec";
+import { normalizeRunSpec } from "../services/runs/legacy/spec";
 
 const commit = "a".repeat(40);
 const setupManifestDigest = `sha256:${"b".repeat(64)}`;

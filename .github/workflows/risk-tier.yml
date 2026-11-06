@@ -36,7 +36,7 @@ jobs:
     concurrency:
       group: risk-evidence-${{ github.event.pull_request.number }}
       cancel-in-progress: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     timeout-minutes: 8
     permissions:
       contents: read
@@ -51,7 +51,11 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.base.ref }}
           persist-credentials: false
-          sparse-checkout: scripts/ci/risk_tier.py
+          # receipt_grammar.py: risk_tier.py imports it for the review receipt grammar (feat-cmux-next
+          # #36941). A base before that has no such file; the pattern then matches nothing.
+          sparse-checkout: |
+            scripts/ci/risk_tier.py
+            scripts/ci/receipt_grammar.py
           sparse-checkout-cone-mode: false
       # The base's last 9 days of history, for the check that flags taking back a change another
       # pull request merged recently (a stale base). A fresh repository with full blobs, not the
@@ -59,16 +63,22 @@ jobs:
       # one fetches blobs one by one, past its timeout on busy files. This takes about 60 s and
       # 270 MB, then blame takes seconds. Capped at 120 s so the job (8 min) always finishes: a
       # slow fetch skips the check with a warning instead of turning the check red.
+      # The pull request's head goes in the same repository, as data that is never checked out, so
+      # the classifier takes the merge base from git instead of a `compare` call on every run. When it
+      # can't (a slow fetch, or a merge base past the window), the classifier calls `compare` as before.
       - name: Fetch the base's recent history
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.pull_request.number }}
         run: |
           history="$RUNNER_TEMP/base-history"
           git init -q "$history"
           if timeout 120 git -C "$history" fetch -q --no-tags --shallow-since="9 days ago" "https://github.com/$REPO.git" \
               "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"; then
             echo "BASE_HISTORY=$history" >> "$GITHUB_ENV"
+            timeout 60 git -C "$history" fetch -q --no-tags --shallow-since="9 days ago" "https://github.com/$REPO.git" \
+              "+refs/pull/$NUMBER/head:refs/remotes/pull/head" || echo "head not fetched; the merge base comes from compare"
           else
             echo "::warning::recent-revert check skipped: base history unavailable"
           fi
@@ -90,6 +100,21 @@ jobs:
           permission-contents: read
           permission-issues: read
           permission-pull-requests: read
+          skip-token-revoke: true
+      # The glaeda-route App installation's budget around the reads below (a free
+      # rate_limit read): the installation is shared, so the delta between `before`
+      # and `after` is this step's reads plus whatever else ran meanwhile.
+      - name: Log the glaeda-route App budget before
+        if: ${{ (steps.glaeda-token.outputs.token) != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ steps.glaeda-token.outputs.token }}
+          PROBE: ${{ github.workflow }}/evidence/before
+        run: >-
+          gh api rate_limit --jq
+          '"app-budget \(env.PROBE) used=\(.resources.core.used) reset=\(.resources.core.reset) at=\(now | floor)"'
+
       - name: Grade the pull request
         id: grade
         env:
@@ -151,6 +176,17 @@ jobs:
               gh pr edit "$NUMBER" --repo "$REPO" --add-label "$LABEL"
             }
           fi
+
+      - name: Log the glaeda-route App budget after
+        if: ${{ !cancelled() && (steps.glaeda-token.outputs.token) != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ steps.glaeda-token.outputs.token }}
+          PROBE: ${{ github.workflow }}/evidence/after
+        run: >-
+          gh api rate_limit --jq
+          '"app-budget \(env.PROBE) used=\(.resources.core.used) reset=\(.resources.core.reset) at=\(now | floor)"'
       # Enforced from ENFORCE_FROM: the feat-cmux-next copy's advisory window (to 2026-10-24) let high
       # pull requests merge unchecked, so this one holds from the start. gh-merge-green reads the value
       # from the base's copy.

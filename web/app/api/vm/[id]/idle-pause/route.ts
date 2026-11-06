@@ -12,9 +12,8 @@ import { parseIdlePauseBody } from "../../../../../services/vms/idlePauseRoute";
 /**
  * Set how long a machine may sit idle before it pauses by itself
  * (services/vms/idlePause.ts): `{ "minutes": 15 | 30 | 60 | 120 }`, or `0` /
- * `"off"` to never auto-pause it. cmux.com does not pause idle machines yet,
- * so only Off is stored; a timeout answers 409 `idle_pause_unavailable`.
- * Answers `{ id, idlePauseMinutes }`.
+ * `"off"` to never auto-pause it. The `vm-idle-pause` cron reads it on its next
+ * run. Answers `{ id, idlePauseMinutes }`.
  */
 export async function PUT(
   request: Request,

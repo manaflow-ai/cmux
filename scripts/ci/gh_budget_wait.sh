@@ -30,8 +30,13 @@ ledger_dir="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/gh-budget-wait"
 max_total="${GH_BUDGET_WAIT_MAX_SECONDS:-3600}"
 attempts="${GH_BUDGET_WAIT_ATTEMPTS:-6}"
 
+# No ledger yet is nothing waited; one that cannot be read or parsed counts as the whole
+# budget spent (fail closed: an earlier step's waits are unknown).
 waited_so_far() {
-  cat "$ledger_dir/waited" 2>/dev/null || echo 0
+  local spent
+  [ -e "$ledger_dir/waited" ] || { echo 0; return; }
+  spent="$(cat "$ledger_dir/waited" 2>/dev/null)" || { echo "$max_total"; return; }
+  case "$spent" in '' | *[!0-9]*) echo "$max_total" ;; *) echo "$spent" ;; esac
 }
 
 # Seconds until the exhausted budget resets (core, graphql or search). When none reads
@@ -67,8 +72,7 @@ seconds_to_reset_core() {
 # compare an exact status do) would get the notice in its data, so then it goes to the step
 # summary instead. Every wait is also kept in the job's ledger directory.
 log_wait() {
-  mkdir -p "$ledger_dir"
-  echo "$(date -u +%H:%M:%SZ) $1" >>"$ledger_dir/waits.log"
+  { mkdir -p "$ledger_dir" && echo "$(date -u +%H:%M:%SZ) $1" >>"$ledger_dir/waits.log"; } 2>/dev/null
   if [ /dev/fd/1 -ef /dev/fd/2 ]; then
     [ -z "${GITHUB_STEP_SUMMARY:-}" ] || echo "- GitHub API budget: $1" >>"$GITHUB_STEP_SUMMARY"
   else
@@ -108,10 +112,16 @@ wait_for_budget() {
   remaining=$((max_total - spent))
   [ "$remaining" -gt 0 ] || return 1
   [ "$want" -le "$remaining" ] || want="$remaining"
+  # Reserved before sleeping, so a caller's timeout that kills this mid-wait still leaves it counted.
+  # A reservation that cannot be written is not waited (later steps could not see it).
+  mkdir -p "$ledger_dir" 2>/dev/null &&
+    echo $((spent + want)) 2>/dev/null >"$ledger_dir/waited.$$" &&
+    mv -f "$ledger_dir/waited.$$" "$ledger_dir/waited" 2>/dev/null || {
+    log_wait "could not record a ${want}s wait in $ledger_dir/waited; not waiting"
+    return 1
+  }
   log_wait "$why; waiting ${want}s for the budget to reset (${spent}s waited in this job so far)"
   sleep "$want"
-  mkdir -p "$ledger_dir"
-  echo $((spent + want)) >"$ledger_dir/waited"
 }
 
 if [ "${1:-}" = "--install" ]; then

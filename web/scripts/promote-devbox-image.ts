@@ -8,10 +8,9 @@
  * Usage:
  *   bun scripts/promote-devbox-image.ts freestyle [--slug cmux-devbox-<tag>]
  *       [--kinds desktop,base] [--pointer-slug cmux-devbox]
- *       [--image <existing snapshot id>] [--skip-verify] [--out <json>]
+ *       [--skip-verify] [--out <json>]
  *       [--replace-slug] [--no-desktop] [--dry-run]
  *
- *   --image     promote an already-baked image (still verified) instead of baking.
  *   --bake-result <json>  adopt a bake script's --out file (its manifest entry
  *               and image id) instead of baking; still verified.
  *   --sizes-result <json>  adopt a derive-devbox-sizes.ts --out file instead
@@ -63,19 +62,15 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { VM_IMAGE_SIZE_NAMES, isVmImageSizeName, type VmImageSize } from "../services/vms/images/sizes";
 import {
   appendImageManifestEntries,
   argValue,
-  bakeMetadata,
-  bakePreflight,
   defaultBakeTag,
   devboxSourceDriftProblems,
   hasFlag,
   imageManifestPath,
   imageManifestProblems,
-  manifestEntrySkeleton,
   promoteImageManifestEntry,
   readImageManifest,
   webRoot,
@@ -92,6 +87,9 @@ import {
 const provider = process.argv[2] as DevboxProvider | undefined;
 if (provider !== "freestyle") {
   throw new Error("usage: bun scripts/promote-devbox-image.ts freestyle [options]");
+}
+if (hasFlag("--image")) {
+  throw new Error("--image cannot establish snapshot provenance; use --bake-result <json> from the original bake instead.");
 }
 
 const withDesktop = !hasFlag("--no-desktop");
@@ -117,11 +115,9 @@ if (new Set(sizeNames).size !== sizeNames.length) {
   throw new Error("--sizes: each machine size may appear only once");
 }
 const dryRun = hasFlag("--dry-run");
-const existingImage = argValue("--image");
 const tag = defaultBakeTag();
 const slug = argValue("--slug") ?? `cmux-${tag}`;
 
-const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
 const workDir = mkdtempSync(path.join(tmpdir(), "cmux-devbox-promote-"));
 
 function run(label: string, args: string[]): number {
@@ -136,7 +132,7 @@ function commitManifest(label: string, manifest: DevboxImageManifest, next: Devb
   const added = next.images.slice(manifest.images.length);
   // The rows being written must describe the machine this checkout
   // describes: they carry its epoch and source digest, so a stale bake (an
-  // --image baked before a Dockerfile change, an epoch bumped after the bake)
+  // bake result from before a Dockerfile change, an epoch bumped after the bake)
   // is refused here rather than caught by CI after the PR is open. Only the
   // new rows are judged so historical entries remain available for rollback;
   // CI checks every active default against the current sources.
@@ -199,7 +195,7 @@ if (replayPath) {
   process.exit(0);
 }
 
-// 1. Bake (or adopt an existing image / a previous bake's result file).
+// 1. Bake (or adopt a previous bake's result file with its original provenance).
 let entry: DevboxManifestEntry;
 let imageId: string;
 const bakeResultPath = argValue("--bake-result");
@@ -211,19 +207,6 @@ if (bakeResultPath) {
   entry = bake.manifestEntry;
   imageId = bake.imageId;
   console.log(`adopting bake result ${bakeResultPath}: ${imageId}`);
-} else if (existingImage) {
-  const preflight = bakePreflight({ desktop: withDesktop });
-  const metadata = bakeMetadata(preflight, path.join(scriptsDir, `build-devbox-${provider}.ts`), withDesktop ? "desktop" : "base");
-  imageId = existingImage;
-  entry = manifestEntrySkeleton(
-    provider,
-    `${provider}-${argValue("--slug") ?? existingImage}`,
-    existingImage,
-    "FREESTYLE_SANDBOX_SNAPSHOT",
-    metadata,
-    `Promoted from an existing ${provider} image by promote-devbox-image.ts --image.`,
-    withDesktop ? "desktop" : "base",
-  );
 } else {
   const bakeOut = path.join(workDir, "bake.json");
   const bakeArgs = [
