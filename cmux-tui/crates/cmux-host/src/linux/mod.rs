@@ -669,13 +669,8 @@ impl Platform for LinuxPlatform {
             procs::find_session_host(&self.cfg.paths.at(DAEMON_PID_FILE), &layout.bin, layout.uid)?;
         self.epoll.add(pidfd.raw(), T_DAEMON).ok()?;
         let carrier = crate::carrier_entry::args_in(&procs::cmdline(pid).unwrap_or_default());
-        self.daemon = Some(Daemon {
-            pid,
-            pidfd: Some(pidfd),
-            child: None,
-            started: Instant::now(),
-            carrier,
-        });
+        self.daemon =
+            Some(Daemon { pid, pidfd: Some(pidfd), child: None, started: Instant::now(), carrier });
         Some(pid)
     }
 
@@ -807,7 +802,7 @@ pub(crate) fn carrier_route(
 }
 
 /// The directory of `carrier.json`, when it exists.
-fn carrier_dir(paths: &crate::config::Paths) -> Option<std::path::PathBuf> {
+fn carrier_dir(paths: &crate::config::Paths) -> Option<PathBuf> {
     let file = paths.at(crate::carrier_entry::CARRIER_FILE);
     file.parent().filter(|dir| dir.is_dir()).map(std::path::Path::to_path_buf)
 }

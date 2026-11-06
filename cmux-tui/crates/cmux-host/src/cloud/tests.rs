@@ -159,7 +159,8 @@ const SLOT: &str = "AAAAAAAAAAAAAAAAAAAAAA";
 
 fn bind_with_carrier(machine: &str) -> String {
     let mut bind: Value = serde_json::from_str(&bind_text()).unwrap();
-    bind["carrier"] = json!({"relay": "relay+do://relay.cmux.dev", "machine": machine, "slot": SLOT});
+    bind["carrier"] =
+        json!({"relay": "relay+do://relay.cmux.dev", "machine": machine, "slot": SLOT});
     bind.to_string()
 }
 
