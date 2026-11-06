@@ -44,7 +44,10 @@ impl Hub {
             self.store_deferred(session),
             "could not store the chat's newest tool output"
         );
-        let meta = session.meta();
+        let mut meta = session.meta();
+        // A fork by reference names a chat the other machine does not have: the log below
+        // holds that history itself (`store/fork_view.rs` scans through it).
+        meta.history_from = None;
         let dir = dest.join(&meta.id);
         std::fs::create_dir_all(dir.join("events"))?;
         std::fs::write(dir.join("session.json"), serde_json::to_string_pretty(&meta)?)?;
@@ -143,6 +146,9 @@ impl Hub {
         meta.parent_id = None;
         meta.fork_seq = None;
         meta.fork_before = None;
+        // Nor a fork's reference to a chat of the machine it came from: its log holds that
+        // history (`export`).
+        meta.history_from = None;
         meta.fork_requests.clear();
         meta.fork_parent_verified = Some(false);
         // A store comes from this machine's chat index, never from a bundle.
@@ -819,6 +825,9 @@ impl Hub {
     }
 }
 
+#[cfg(test)]
+#[path = "fork_reference_export_tests.rs"]
+mod fork_reference_export_tests;
 #[cfg(test)]
 #[path = "import_publish_tests.rs"]
 mod import_publish_tests;

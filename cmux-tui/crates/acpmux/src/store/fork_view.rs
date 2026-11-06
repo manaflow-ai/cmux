@@ -366,10 +366,13 @@ impl Store for ForkView {
         self.refs.write().unwrap_or_else(|e| e.into_inner()).remove(id);
         Ok(())
     }
-    /// Its files as files: a fork's history is in them first.
+    /// Its files as files: a fork's history is in them first. None when it cannot be written
+    /// there: a caller that read, moved or removed the files would take a fork without its
+    /// history, so it gets no files at all.
     fn session_dir(&self, id: &str) -> Option<PathBuf> {
         if let Err(e) = self.materialize(id) {
-            tracing::warn!(session = %id, "fork history not written before its files are read: {e}");
+            tracing::warn!(session = %id, "fork history not written, so its files are not given: {e}");
+            return None;
         }
         self.inner.session_dir(id)
     }
