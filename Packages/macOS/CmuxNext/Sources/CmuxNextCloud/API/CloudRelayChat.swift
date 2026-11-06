@@ -52,6 +52,12 @@ public nonisolated struct CloudRelayChat: Sendable {
         /// From the request to the first `text` event, and to the end.
         public var firstText: Duration?
         public var total: Duration?
+        /// From the request to the first `queued`, `sent` and `started` event (cmuxterm-hq#7415's stage trace): how long the
+        /// machine took to connect, to take the prompt, and to start its turn.
+        public var queuedAt: Duration?, sentAt: Duration?, startedAt: Duration?
+        /// The platform's own stage times for this chat, when its `sent` or `done` event carries `stages_ms` (name to
+        /// milliseconds since the platform took the request). Passed through as they came; nil from an older platform.
+        public var platformStages: [String: Int]?
         /// Whether the machine was not connected yet when the chat arrived (it waited for it).
         public var queued = false
         /// The platform sent the chat down the machine's socket (`sent`).
@@ -72,9 +78,15 @@ public nonisolated struct CloudRelayChat: Sendable {
                   let event = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
                   let kind = event["kind"] as? String else { return }
             switch kind {
-            case "queued": queued = true
-            case "sent": sent = true
+            case "queued":
+                queued = true
+                queuedAt = queuedAt ?? at
+            case "sent":
+                sent = true
+                sentAt = sentAt ?? at
+                takeStages(event)
             case "started":
+                startedAt = startedAt ?? at
                 session = event["session"] as? String
                 promptID = event["prompt_id"] as? String
             case "text":
@@ -88,6 +100,7 @@ public nonisolated struct CloudRelayChat: Sendable {
                     reply = whole
                 }
                 total = at
+                takeStages(event)
             case "error":
                 errorCode = (event["code"] as? String) ?? "cloud.relay.failed"
                 errorMessage = (event["message"] as? String) ?? ""
@@ -97,6 +110,12 @@ public nonisolated struct CloudRelayChat: Sendable {
                 total = at
             default: return
             }
+        }
+
+        /// Merges an event's `stages_ms` into ``platformStages``; a later event's value for a name wins.
+        private mutating func takeStages(_ event: [String: Any]) {
+            guard let stages = event["stages_ms"] as? [String: Any] else { return }
+            for case let (name, ms as NSNumber) in stages { platformStages[name, default: 0] = ms.intValue }
         }
     }
 
