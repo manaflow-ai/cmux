@@ -18,15 +18,19 @@ extension HomeNativeTranscriptView: CmuxToastReserving {
     }
 
     /// The room the transcript keeps under its newest message for toasts in `rect` (window
-    /// coordinates): from the field's top up to the toasts' top, when they lie over the transcript.
+    /// coordinates): from where the rows end at rest up to the toasts' top and a gap, when the toasts
+    /// lie over the transcript.
     func toastClearance(for rect: NSRect?) -> CGFloat {
         guard let rect, window != nil, !rect.isEmpty else { return 0 }
         let local = convert(rect, from: nil)
         let place = transcript.frame
         guard local.maxX > place.minX, local.minX < place.maxX else { return 0 }
-        let field = place.minY + transcript.fieldTop
+        let rowsBottom = place.minY + transcript.restingRowsBottom
         // Never past the header: the newest message keeps some room to show in a short pane.
-        let most = max(0, field - place.minY - transcript.headerHeight)
-        return min(most, max(0, field - local.minY))
+        let most = max(0, rowsBottom - place.minY - transcript.headerHeight)
+        return min(most, max(0, rowsBottom - local.minY + Self.toastRowsGap))
     }
+
+    /// The gap between the toasts' top and the newest row above them.
+    static let toastRowsGap: CGFloat = 8
 }

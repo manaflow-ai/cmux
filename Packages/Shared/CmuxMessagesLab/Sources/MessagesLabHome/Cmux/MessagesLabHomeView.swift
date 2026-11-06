@@ -905,6 +905,11 @@ public final class MessagesLabHomeView: NSView {
     /// The top of the area under the header (the first-run panel's top); with no header
     /// (``setBareTop()``), the rows' top. In this view's frame (zoomed) points.
     public var headerHeight: CGFloat { (controller.host.bareTop ? controller.host.bareRowsTop : Fixture.headerHeight) * zoom }
+    /// cmux: where the newest row ends with no ``rowsBottomClearance``, in this view's frame (zoomed) points: the
+    /// rows' anchor, which can sit under the field's top (a receipt row's lines run past it).
+    public var restingRowsBottom: CGFloat {
+        controller.demo.map { ($0.anchorY + $0.rowsBottomInset) * zoom } ?? frame.height
+    }
     /// The field's top in this view's frame (zoomed) points (the first-run panel's bottom).
     public var fieldTop: CGFloat { controller.demo.map { $0.fieldTop * zoom } ?? frame.height }
 

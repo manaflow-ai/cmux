@@ -122,8 +122,10 @@ import Testing
         let higher = try expectClear(window, view, "details shown")
         #expect(higher > lifted + 8, "the details covered the newest message (\(higher) vs \(lifted))")
 
-        // The toast gone, the newest message rests where it was.
+        // The toast gone (its fade over), the newest message rests where it was.
         handle.dismiss()
+        for _ in 0..<150 where !toastFrames(in: window).isEmpty { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(toastFrames(in: window).isEmpty, "the toast never finished fading")
         await settle()
         await pass(window, view)
         let back = try expectClear(window, view, "toast gone")
