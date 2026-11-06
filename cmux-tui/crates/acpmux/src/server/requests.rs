@@ -1635,6 +1635,11 @@ async fn dispatch_request_with_identity(
                 (provenance, _) => provenance,
             };
             let declared = crate::hub::declared_sender(&params)?;
+            // Keep a caller's `--from` label beside authenticated caller provenance. The label
+            // is display-only; `fromSessionId` is still stamped below from the caller token.
+            let provenance = provenance.map(|provenance| {
+                crate::prompt_provenance::stamp_declared(provenance, declared.as_deref())
+            });
             // What another agent's message asks of this chat (`prompt_class.rs`).
             let class = crate::prompt_class::declared(&params)?;
             // The inbox thread its sender named (`hub/inbox.rs`).
@@ -1777,6 +1782,15 @@ async fn dispatch_request_with_identity(
                 steer_now: steer && flag("steerNow") == Some(true),
                 interrupt_turn: None,
                 provenance,
+                human_authenticated: person_message
+                    && (conn.is_person()
+                        || (conn.origin == super::Origin::Peer
+                            && mux_meta(&params)
+                                .and_then(|meta| {
+                                    meta.get(crate::prompt_provenance::PERSON_VERIFIED)
+                                })
+                                .and_then(Value::as_bool)
+                                == Some(true))),
                 agent,
                 class,
                 after_turn: None,
@@ -1876,11 +1890,19 @@ async fn dispatch_request_with_identity(
                     .unwrap_or_default();
                 Box::pin(hub.fork_before(&s, prompt, request, ask(conn, &params, &who))).await?
             } else {
-                let admitted = hub.admit_new(ask(conn, &params, &who)).await?;
-                let new = admitted
-                    .run(hub.fork(&s, name, cwd, env, workspace_id, through, start_later))
-                    .await?;
-                (new, admitted.warning.clone())
+                // Fork Conversation's Cancel names the fork by this token (`hub/fork_cancel.rs`),
+                // from before its admission: a Cancel while it is admitted stops it too.
+                let token = params.pointer("/_meta/acpmux/cancelToken").and_then(Value::as_str);
+                let fork = async {
+                    let admitted = hub.admit_new(ask(conn, &params, &who)).await?;
+                    if crate::hub::fork_cancel::cancelled() {
+                        return Err(crate::hub::fork_cancel::cancelled_refusal());
+                    }
+                    let fork = hub.fork(&s, name, cwd, env, workspace_id, through, start_later);
+                    let new = admitted.run(fork).await?;
+                    Ok((new, admitted.warning.clone()))
+                };
+                hub.fork_cancellable(token, fork).await?
             };
             attach(hub, conn, &new.id);
             let meta = new.meta();
@@ -2700,7 +2722,19 @@ async fn dispatch_request_with_identity(
             Ok(json!({"sessionId": id, "ephemeral": false}))
         }
         method::MUX_KILL => {
+            // Cancel on a fork still being made, or made and not yet answered: its request's
+            // token names it (`hub/fork_cancel.rs`).
+            if params.get("cancelFork").and_then(Value::as_bool) == Some(true)
+                && let Some(token) = params.get("cancelToken").and_then(Value::as_str)
+            {
+                return Ok(json!({"cancelled": hub.cancel_pending_fork(token).await}));
+            }
             let s = hub.resolve(session_key(&params)?)?;
+            // A Fork Conversation the person cancelled before using it (`hub/fork_cancel.rs`).
+            if params.get("cancelFork").and_then(Value::as_bool) == Some(true) {
+                heap(|| hub.cancel_fork(&s)).await?;
+                return Ok(json!({"sessionId": s.id, "purged": true}));
+            }
             let purge = params.get("purge").and_then(Value::as_bool).unwrap_or(false);
             // `ifIdle`: refused unless idle, checked under the turn lock (`stop_if_idle.rs`).
             let condition = crate::hub::stop_if_idle::StopCondition::from_params(&params)?;

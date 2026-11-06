@@ -10,11 +10,16 @@ export interface AcpmuxRequestMeta {
   author?: unknown;
   beforePromptId?: unknown;
   callerSession?: unknown;
+  cancelToken?: unknown;
+  class?: unknown;
   cliHost?: unknown;
+  compression?: unknown;
   context?: unknown;
   cwd?: unknown;
   decisionNonce?: unknown;
+  disallowedTools?: unknown;
   dispatchSource?: unknown;
+  effort?: unknown;
   env?: unknown;
   ephemeral?: unknown;
   forceAdmit?: unknown;
@@ -62,13 +67,16 @@ export interface AcpmuxRequestMeta {
   steerOnly?: unknown;
   supersede?: unknown;
   surface?: unknown;
+  tags?: unknown;
   teamMessage?: unknown;
   throughSeq?: unknown;
+  topic?: unknown;
   via?: unknown;
   vmBoundary?: unknown;
   waitStart?: unknown;
   workflowAllowedTools?: unknown;
   workspaceId?: unknown;
+  worktree?: unknown;
 }
 
 export interface AgentHoldParams {
@@ -387,6 +395,11 @@ export interface ForkParams {
   _meta?: unknown;
   /** Recorded prompt identity, nonempty and at most 512 UTF-8 bytes. Claude/Codex only. */
   beforePromptId?: (string | null);
+  /**
+   * The caller's name for this fork while it is made, at most 128 bytes: `_acpmux/kill` with
+   * `cancelFork` and this token stops it, or takes it back once made (`hub/fork_cancel.rs`).
+   */
+  cancelToken?: (string | null);
   live?: (boolean | null);
   /** Persisted retry identity, nonempty and at most 512 UTF-8 bytes; scoped to the source. */
   requestId?: (string | null);
@@ -486,6 +499,8 @@ export type Isolation = "unverified";
 
 export interface KillParams {
   _meta?: RequestMeta;
+  cancelFork?: unknown;
+  cancelToken?: unknown;
   purge?: unknown;
   sessionId?: unknown;
 }

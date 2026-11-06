@@ -51,6 +51,18 @@ pub(crate) const MODES: [(&str, &str, &str); 5] = [
     ("bypassPermissions", "Bypass permissions", "Accepts all permissions"),
 ];
 
+/// Claude Code's own start mode, the one acpmux runs a chat in when it sets no other: Auto
+/// (Claude handles permission decisions), which Claude Code recommends and its `defaultMode`
+/// setting usually names. Never Manual (`default`): a chat whose start level is the harness's
+/// own (`standard`), whose full access cannot run (a Claude Code that refuses bypassPermissions
+/// as root) or that is pooled before its level is set started in Manual, and every tool call
+/// then waited on the person (cmux 2026-11-05: "cmux is launching these workers in Manual"). A
+/// chat that must ask still asks: a narrower policy or an asking starter moves it to Manual
+/// (`hub/policy_mode.rs`, `hub/start_mode.rs`), a chat that leaves full access because
+/// `sessions.allowFullAccess` is off goes to Manual (`start_mode::mode_below_full_access`), and
+/// a Web start settles in an asking mode (`server/remote_guard.rs`).
+pub const OWN_MODE: &str = "auto";
+
 /// The launch flag that lets a running Claude Code switch to
 /// bypassPermissions (it does not turn the mode on by itself).
 pub const ALLOW_BYPASS_FLAG: &str = "--allow-dangerously-skip-permissions";
@@ -467,7 +479,7 @@ pub fn spawn_plan(
         .argv
         .iter()
         .any(|a| a == ALLOW_BYPASS_FLAG || a == "--dangerously-skip-permissions");
-    let mode = if mode == "bypassPermissions" && !bypass && !own_skip { "default" } else { mode };
+    let mode = if mode == "bypassPermissions" && !bypass && !own_skip { OWN_MODE } else { mode };
     if !profile.argv.iter().any(|a| a == "--permission-mode") && !mode.is_empty() {
         args.push("--permission-mode".into());
         args.push(mode.into());
