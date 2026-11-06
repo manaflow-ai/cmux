@@ -23,9 +23,9 @@ Usage history (`FrecencyStore`: +1 per use, half-life 3 days, 500 keys) is recor
 
 ## 3. Eval set (measured, not guessed)
 
-- Fixture: `cmux-tui/crates/cmux-palette-ranker/tests/eval/root-entries.json`, the exact ranker input of a tagged build's root page, written by `debug.palette.entries` (DEBUG socket verb) through `scripts/cmux-next/palette-eval-live.py`. `overlay.json` adds the workspace and tab rows a real session has (fresh builds have one workspace), in the providers' shape.
+- Fixture: `cmux-tui/crates/cmux-palette-eval/tests/eval/root-entries.json`, the exact ranker input of a tagged build's root page, written by `debug.palette.entries` (DEBUG socket verb) through `scripts/cmux-next/palette-eval-live.py`. `overlay.json` adds the workspace and tab rows a real session has (fresh builds have one workspace), in the providers' shape.
 - Cases: `cases.json`, 111 queries with expected rows (any listed id is correct; the first is the best): exact titles, partial words, concepts and synonyms, acronyms, typos, workspaces and tabs, Lawrence's real usage profile (aggregated read-only from the frecency keys of his dogfood builds; action ids only), and the empty query.
-- Metrics: top-1 rate, top-3 rate and MRR over the rows in display order (sections flattened as shown). `cargo run -p cmux-palette-ranker --example eval` (in cmux-tui) prints the report and every miss; `-- --live FILE` scores rows a real build returned through `palette.query`. `cmux-palette-ranker/tests/eval.rs` fails when a metric drops below the recorded floor, so every ranking change reports before and after numbers.
+- Metrics: top-1 rate, top-3 rate and MRR over the rows in display order (sections flattened as shown). `cargo run -p cmux-palette-eval --example eval` (in cmux-tui) prints the report and every miss; `-- --live FILE` scores rows a real build returned through `palette.query`. `cmux-palette-eval/tests/eval.rs` fails when a metric drops below the recorded floor, so every ranking change reports before and after numbers.
 
 ## 4. Research summary
 
@@ -72,7 +72,7 @@ Lawrence 2026-10-09: "think from first principles how raycast does sorting/order
 - Memory switch and clear: cmux.json `palette.searchHistory` (default on; agents refused, privacy) turns recording and history ranking off (hidden rows stay hidden). `palette.clearSearchHistory` (palette, the General Settings button, `cmux settings clear-palette-history`) forgets every use and learned pick: the mirror empties at once and the daemon gets one `palette_usage.forget` per row it held. A local history (an older daemon, tests) learns and saves picks with the daemon's rules (`FrecencyStore.recordPick`).
 - Next: Suggested on the empty query, aliases and pins (cmux.json), and a 30-day frequency half-life beside the 3-day one.
 
-The eval has learning cases (cases.json `replay`: a sequence of runs, then a query) with a 100% floor; `replay_history` in the crate's `tests/support/eval.rs` models the daemon's record for the eval.
+The eval has learning cases (cases.json `replay`: a sequence of runs, then a query) with a 100% floor; `replay_history` in `cmux-palette-eval/tests/support/eval.rs` models the daemon's record for the eval.
 
 ### 5.3 Ownership
 
@@ -93,7 +93,7 @@ Leo 2026-10-20: keep the useful commands, push the rest down, consolidate; nothi
 
 ## 6. Landings
 
-Eval: `cargo run -p cmux-palette-ranker --example eval` in cmux-tui (fixture), and the same cases against a live tagged build (`--live`). The "before" row is the ranker at the fork point on the original dump.
+Eval: `cargo run -p cmux-palette-eval --example eval` in cmux-tui (fixture), and the same cases against a live tagged build (`--live`). The "before" row is the ranker at the fork point on the original dump.
 
 | step | what | top-1 | top-3 | MRR |
 | --- | --- | --- | --- | --- |

@@ -1,9 +1,9 @@
 //! Prints the palette ranking eval report (plans/cmux-next/palette-ranking.md).
 //!
-//!   cargo run -p cmux-palette-ranker --example eval                      # the checked-in fixture
-//!   cargo run -p cmux-palette-ranker --example eval -- --live FILE       # rows a tagged build returned (palette-eval-live.py)
-//!   cargo run -p cmux-palette-ranker --example eval -- --fixture F       # another dump
-//!   cargo run -p cmux-palette-ranker --example eval -- --explain "query" # the top 12 rows with scores and sections
+//!   cargo run -p cmux-palette-eval --example eval                      # the checked-in fixture
+//!   cargo run -p cmux-palette-eval --example eval -- --live FILE       # rows a tagged build returned (palette-eval-live.py)
+//!   cargo run -p cmux-palette-eval --example eval -- --fixture F       # another dump
+//!   cargo run -p cmux-palette-eval --example eval -- --explain "query" # the top 12 rows with scores and sections
 
 #[path = "../tests/support/eval.rs"]
 mod eval;

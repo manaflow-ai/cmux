@@ -1,7 +1,7 @@
 //! The palette ranking eval (plans/cmux-next/palette-ranking.md section 3): real root-palette
 //! entries, 114 queries with expected rows (2 guard cases, 2 for the agent harness actions) and
 //! 17 learning (replay) cases. A ranking change must not lower these floors; raise them when a
-//! change improves the numbers, and paste the report (`cargo run -p cmux-palette-ranker
+//! change improves the numbers, and paste the report (`cargo run -p cmux-palette-eval
 //! --example eval`) into the landing.
 
 #[path = "support/eval.rs"]
