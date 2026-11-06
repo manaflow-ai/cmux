@@ -111,7 +111,7 @@ fn go(request: &Request) -> Result<Value, Failure> {
 
 fn go_with(request: &Request, tail: Vec<u8>) -> Result<Value, Failure> {
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-    runtime.block_on(perform(request, zeroize::Zeroizing::new(tail)))
+    runtime.block_on(perform(request, Zeroizing::new(tail)))
 }
 
 fn ok(body: &str) -> Reply {

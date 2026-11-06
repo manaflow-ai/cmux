@@ -181,7 +181,7 @@ impl Http {
             Err(_) => return Err(Failure::TimedOut(path.to_owned())),
             Ok(Err(e)) if e.is_timeout() => return Err(Failure::TimedOut(path.to_owned())),
             Ok(Err(e)) if self.local_only && e.is_connect() => return Err(Failure::NoBackend),
-            Ok(Err(e)) => return Err(Failure::Transport(transport_text(&e))),
+            Ok(Err(e)) => return Err(Failure::Transport(transport_text(e))),
             Ok(Ok(response)) => response,
         };
         let status = response.status().as_u16();
@@ -193,7 +193,7 @@ impl Http {
         let body = match tokio::time::timeout(timeout, response.bytes()).await {
             Err(_) => return Err(Failure::TimedOut(path.to_owned())),
             Ok(Err(e)) if e.is_timeout() => return Err(Failure::TimedOut(path.to_owned())),
-            Ok(Err(e)) => return Err(Failure::Transport(transport_text(&e))),
+            Ok(Err(e)) => return Err(Failure::Transport(transport_text(e))),
             Ok(Ok(bytes)) => bytes.to_vec(),
         };
         Ok(Reply { status, header_code, body })
@@ -224,7 +224,7 @@ impl Http {
     }
 }
 
-fn transport_text(error: &reqwest::Error) -> String {
+fn transport_text(error: reqwest::Error) -> String {
     format!("the Cloud API did not answer: {}", error.without_url())
 }
 

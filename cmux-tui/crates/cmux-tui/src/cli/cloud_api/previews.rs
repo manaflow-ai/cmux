@@ -27,8 +27,8 @@ pub(super) async fn run(
         "previews.create_link" => {
             let port = port(args)?;
             let body = cmux_cloud_client::types::CloudPreviewsCreateLinkBody {
-                expires_at: optional_int(args, "expiresAt"),
-                max_uses: optional_int(args, "maxUses"),
+                expires_at: positive(args, "expiresAt"),
+                max_uses: positive(args, "maxUses"),
             };
             client
                 .cloud_previews_create_link(machine, &port, &body)
@@ -61,4 +61,9 @@ fn port(args: &Map<String, Value>) -> Result<String, Failure> {
     optional_int(args, "port")
         .map(|p| p.to_string())
         .ok_or_else(|| Failure::Transport("the call needs port".into()))
+}
+
+/// A positive whole number field of `args`; absent, zero or negative is none.
+fn positive(args: &Map<String, Value>, name: &str) -> Option<std::num::NonZeroU64> {
+    args.get(name).and_then(Value::as_u64).and_then(std::num::NonZeroU64::new)
 }
