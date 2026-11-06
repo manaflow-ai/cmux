@@ -137,9 +137,10 @@ async fn a_watcher_hears_a_fork_once_not_its_copied_history() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// Cancel by the token the fork's request named it with, sent while acpmux makes it (review of
-/// #36979: Cancel only hid the line and the copy went on). Whenever it lands (during the copy,
-/// after the fork is made, or after its answer), no fork is left, and the chat goes on.
+/// Cancel by the token the fork's request named it with, sent once while acpmux makes it (review
+/// of #36979: Cancel only hid the line and the copy went on). Whenever it lands (before the
+/// request, during admission or the copy, after the fork is made, or after its answer), no fork
+/// is left, and the chat goes on.
 #[tokio::test]
 async fn a_fork_cancelled_while_it_is_made_leaves_nothing() {
     let root = std::env::temp_dir().join(format!("acpmux-fork-stop-{}", uuid::Uuid::now_v7()));
@@ -153,16 +154,12 @@ async fn a_fork_cancelled_while_it_is_made_leaves_nothing() {
     let request = json!({"sessionId": id, "live": true, "cancelToken": "stop-1"});
     let fork = tokio::spawn(async move { forking.request(FORK_OP, request).await });
     let cancel = json!({"sessionId": id, "cancelFork": true, "cancelToken": "stop-1"});
-    let started = std::time::Instant::now();
-    loop {
-        let r = c.request(method::MUX_KILL, cancel.clone()).await.unwrap();
-        if r["cancelled"] == true {
-            break;
-        }
-        // The fork's request has not named it yet.
-        assert!(started.elapsed() < Duration::from_secs(10), "no fork took the token");
-        tokio::task::yield_now().await;
-    }
+    // Sent once, as the pane does: before the fork's request came, while it is admitted or
+    // copied, or after it is made, it stops the fork (review of #36979, round 4: a Cancel while
+    // the fork was admitted was lost).
+    tokio::task::yield_now().await;
+    let r = c.request(method::MUX_KILL, cancel).await.unwrap();
+    assert_eq!(r["cancelled"], true, "{r}");
     match fork.await.unwrap() {
         // Stopped while it was made: refused, and discarded whole.
         Err(e) => assert!(format!("{e:?}").contains("fork.cancelled"), "{e:?}"),
@@ -178,12 +175,15 @@ async fn a_fork_cancelled_while_it_is_made_leaves_nothing() {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     assert_eq!(hub.sessions().len(), chats, "a fork was left");
-    // A token whose fork is gone names nothing to stop, and the chat goes on.
-    let r = c.request(
-        method::MUX_KILL,
-        json!({"sessionId": id, "cancelFork": true, "cancelToken": "other"}),
-    );
-    assert_eq!(r.await.unwrap()["cancelled"], false);
+    // A Cancel that comes before its fork's request (it may come on another connection): the
+    // fork is refused when it comes, and nothing is made.
+    let early = json!({"sessionId": id, "cancelFork": true, "cancelToken": "early-1"});
+    assert_eq!(c.request(method::MUX_KILL, early).await.unwrap()["cancelled"], true);
+    let late = json!({"sessionId": id, "live": true, "cancelToken": "early-1"});
+    let refused = c.request(FORK_OP, late).await.unwrap_err();
+    assert!(format!("{refused:?}").contains("fork.cancelled"), "{refused:?}");
+    assert_eq!(hub.sessions().len(), chats, "a fork cancelled first was made");
+    // The chat goes on.
     let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": "after"}]});
     assert_eq!(c.request(method::SESSION_PROMPT, prompt).await.unwrap()["stopReason"], "end_turn");
     let _ = std::fs::remove_dir_all(&root);

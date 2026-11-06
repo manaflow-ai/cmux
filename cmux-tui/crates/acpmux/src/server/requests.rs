@@ -1876,12 +1876,19 @@ async fn dispatch_request_with_identity(
                     .unwrap_or_default();
                 Box::pin(hub.fork_before(&s, prompt, request, ask(conn, &params, &who))).await?
             } else {
-                let admitted = hub.admit_new(ask(conn, &params, &who)).await?;
-                // Fork Conversation's Cancel names the fork by this token (`hub/fork_cancel.rs`).
+                // Fork Conversation's Cancel names the fork by this token (`hub/fork_cancel.rs`),
+                // from before its admission: a Cancel while it is admitted stops it too.
                 let token = params.pointer("/_meta/acpmux/cancelToken").and_then(Value::as_str);
-                let fork = hub.fork(&s, name, cwd, env, workspace_id, through, start_later);
-                let new = admitted.run(hub.fork_cancellable(token, fork)).await?;
-                (new, admitted.warning.clone())
+                let fork = async {
+                    let admitted = hub.admit_new(ask(conn, &params, &who)).await?;
+                    if crate::hub::fork_cancel::cancelled() {
+                        return Err(crate::hub::fork_cancel::cancelled_refusal());
+                    }
+                    let fork = hub.fork(&s, name, cwd, env, workspace_id, through, start_later);
+                    let new = admitted.run(fork).await?;
+                    Ok((new, admitted.warning.clone()))
+                };
+                hub.fork_cancellable(token, fork).await?
             };
             attach(hub, conn, &new.id);
             let meta = new.meta();
