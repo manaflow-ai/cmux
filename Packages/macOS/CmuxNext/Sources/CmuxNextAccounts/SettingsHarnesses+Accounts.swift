@@ -109,12 +109,13 @@ extension SettingsHarnesses {
     }
 
     /// Reads `_acpmux/accounts`; an older daemon (method not found) clears the list, another failure
-    /// keeps what is shown. Only the newest refresh writes.
+    /// keeps what is shown. Only the newest refresh writes; `accountsRead` counts the reads that did.
     func readAccounts(_ environment: AcpmuxEnvironment, generation mine: Int) async {
         do {
             let data = try await callAccounts(environment, .accounts, [:])
             guard mine == generation else { return }
             accounts = SettingsProviderAccount.list(data)
+            accountsRead += 1
         } catch let error as AcpmuxRPCError where error.isMethodMissing {
             guard mine == generation else { return }
             accounts = nil
@@ -225,10 +226,14 @@ extension SettingsHarnesses {
 
     /// Settings came forward (`focus`): reads the accounts again when a sign-in or sign-out was typed into a
     /// terminal tab since the last time, else nothing, so coming back costs no daemon call.
+    /// The marks stay until a read of the accounts answers, so a failed read tries again next time; a
+    /// sign-in marked during the read stays for the next one.
     func refocused() async {
         guard !pendingLogins.isEmpty else { return }
-        pendingLogins = []
+        let marked = pendingLogins
+        let before = accountsRead
         await refresh()
+        if accountsRead > before { pendingLogins.subtract(marked) }
     }
 
     /// The CLI's own logout, in an added account's folder: `codex logout`, `claude auth logout`. Nil for a

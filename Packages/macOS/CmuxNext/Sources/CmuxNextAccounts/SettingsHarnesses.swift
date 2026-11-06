@@ -41,6 +41,8 @@ public final class SettingsHarnesses {
     /// Accounts whose sign-in or sign-out was typed into a terminal tab: Settings coming forward reads
     /// them back (`focus`), as Accounts does for its logins.
     @ObservationIgnored var pendingLogins: Set<String> = []
+    /// Reads of the accounts that answered (`readAccounts`): `refocused` keeps its marks until one does.
+    @ObservationIgnored var accountsRead = 0
     /// Claude logins' plans by account id, from `claude auth status` (SettingsHarnesses+ClaudePlan.swift).
     var claudePlans: [String: String] = [:]
     @ObservationIgnored let environment: @MainActor () -> AcpmuxEnvironment?

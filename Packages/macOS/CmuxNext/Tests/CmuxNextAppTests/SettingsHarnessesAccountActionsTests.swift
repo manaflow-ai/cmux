@@ -13,6 +13,11 @@ import Testing
         var lines: [String] = []
     }
 
+    /// False fails `_acpmux/accounts` (the daemon restarting).
+    final class Answers: Sendable {
+        let accounts = OSAllocatedUnfairLock(initialState: true)
+    }
+
     struct Call: Sendable, Equatable {
         let method: String
         let params: [String: String]
@@ -34,7 +39,7 @@ import Testing
     """.utf8)
 
     private func make() async -> (harnesses: SettingsHarnesses, terminal: Terminal, calls: OSAllocatedUnfairLock<[Call]>,
-                                  reads: OSAllocatedUnfairLock<Int>) {
+                                  reads: OSAllocatedUnfairLock<Int>, answers: Answers) {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cn-account-actions-\(UUID().uuidString)")
         let environment = AcpmuxEnvironment(executable: directory.appending(path: "acpmux"), home: directory,
             socketPath: directory.appending(path: "a.sock").path, daemonArguments: [], childEnvironment: [:])
@@ -42,6 +47,7 @@ import Testing
         let calls = OSAllocatedUnfairLock<[Call]>(initialState: [])
         // `_acpmux/accounts` reads, apart from the gestures' calls.
         let reads = OSAllocatedUnfairLock(initialState: 0)
+        let answers = Answers()
         let harnesses = SettingsHarnesses(environment: { environment },
             fetch: { _ in [.init(id: "claude", kind: "claude-stdio", source: "path")] },
             fetchHealth: { _, _ in Data(#"{"harnesses":[]}"#.utf8) },
@@ -57,7 +63,10 @@ import Testing
                     return nil
                 }
                 // Each refresh's usage reads are SettingsHarnessesAccountsTests'.
-                if method == .accounts { reads.withLock { $0 += 1 } }
+                if method == .accounts {
+                    reads.withLock { $0 += 1 }
+                    guard answers.accounts.withLock({ $0 }) else { throw AcpmuxRPCError(code: -32000, message: "daemon restarting") }
+                }
                 if method != .accounts, method != .accountUsage {
                     calls.withLock { $0.append(Call(method: method.rawValue, params: flat)) }
                 }
@@ -65,7 +74,7 @@ import Testing
             },
             userHome: URL(fileURLWithPath: "/Users/alex", isDirectory: true))
         await harnesses.refresh()
-        return (harnesses, terminal, calls, reads)
+        return (harnesses, terminal, calls, reads, answers)
     }
 
     private func gesture() -> PageCallContext {
@@ -157,6 +166,21 @@ import Testing
         #expect(h.reads.withLock { $0 } == signedOut + 1)
         _ = try await h.harnesses.run(["action": "focus"], context: nil)
         #expect(h.reads.withLock { $0 } == signedOut + 1)
+    }
+
+    /// A read that fails when Settings comes forward keeps the sign-out to read again next time.
+    @Test func aFailedReadAfterASignOutReadsAgainNextTime() async throws {
+        let h = await make()
+        _ = try await h.harnesses.run(["action": "accountSignOut", "account": "claude-2"], context: gesture())
+        h.answers.accounts.withLock { $0 = false }
+        let failed = h.reads.withLock { $0 }
+        _ = try await h.harnesses.run(["action": "focus"], context: nil)
+        #expect(h.reads.withLock { $0 } == failed + 1)
+        #expect(h.harnesses.pendingLogins == ["claude-2"])
+        h.answers.accounts.withLock { $0 = true }
+        _ = try await h.harnesses.run(["action": "focus"], context: nil)
+        #expect(h.reads.withLock { $0 } == failed + 2)
+        #expect(h.harnesses.pendingLogins.isEmpty)
     }
 
     @Test func signInTypesTheLoginInTheAccountsFolderAndAKeyHasNone() async throws {
