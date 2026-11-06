@@ -58,6 +58,10 @@ fn the_selection_names_every_origin_and_scopes_auth() {
     // Another backend's namespace is another store.
     let other = configure(selection("staging", NEXT_DEV_BUNDLE_ID, "other-backend", false, None), &[], false);
     assert_ne!(other.storage, config.storage);
+    // A selected local backend is available: development, not local-only.
+    let mut local = selection("local", NEXT_DEV_BUNDLE_ID, "staging-2", false, None);
+    local.api_origin = "http://localhost:8787".to_owned();
+    assert_eq!(configure(local, &[], false).backend, Backend::Development("http://localhost:8787".to_owned()));
 }
 
 #[test]

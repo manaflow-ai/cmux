@@ -136,6 +136,9 @@ pub fn from_selection(inputs: &Inputs) -> Configuration {
             }
         });
     let production = selection.name == "prod";
+    // A selected local backend (`name: local`, a loopback origin) is development, never `LocalOnly`:
+    // the person chose it, so it is reachable (the app's CloudRuntimeSelectionTests before this move:
+    // "a selected local backend is available"). `LocalOnly` is only the placeholder configuration's.
     Configuration {
         backend: if production {
             Backend::Production
