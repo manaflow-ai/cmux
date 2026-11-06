@@ -562,6 +562,7 @@ impl DurableObject for RelaySlot {
             generation: 0,
             expires_at: 0,
             idle_deadline_ms,
+            parked: None,
         })?;
         self.state.accept_websocket_with_tags(&pair.server, &[tag]);
         if let Err(error) = self.ensure_cleanup_alarm(idle_deadline_ms).await {
