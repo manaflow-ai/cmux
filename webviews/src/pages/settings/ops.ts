@@ -403,7 +403,18 @@ export type ComputerUseState = {
   host_unverified?: boolean;
   /** Driver "upstream" was chosen, but this build has no upstream helper: the legacy helper runs. */
   upstream_fallback?: boolean;
+  /** The engine's version line ("cmux Computer Use 1.0"), localized by the host; absent while unknown. */
+  engine?: string | null;
+  /** The worker process: `running` (with its pid), `starting`, `stopped` or `failed`; absent while unknown. */
+  worker?: { state: "running" | "starting" | "stopped" | "failed"; pid?: number | null } | null;
+  /** Saved per-app answers (Approved apps): "Always allow" or "Never", newest first. */
+  approvals?: ComputerUseApproval[];
+  /** Apps running now, offered by the Denied Apps editor's Add menu. */
+  running_apps?: Array<{ id: string; name: string }>;
 };
+
+/** One saved Computer Use answer for an app (`computerUse.approval.*` actions change it). */
+export type ComputerUseApproval = { app_id: string; name: string; decision: "always" | "never" };
 
 /** One button of the Accounts part; the host localizes every text. */
 export type AccountsButton = {
@@ -1303,6 +1314,10 @@ export const settingsPageActions = [
   "palette.computerUse.restart",
   "palette.computerUse.accessibility",
   "palette.computerUse.screenRecording",
+  // Settings > Computer Use > Saved Approvals: forget an app's answer or change it (args `{app_id}`,
+  // `{app_id, decision}`); the host runs them through the worker's approvals control message.
+  "computerUse.approval.forget",
+  "computerUse.approval.set",
   "import.card",
   "importFromBrowser",
   // Settings > Mobile's Sign In, where the iPhone card says to sign in (msg 3790).

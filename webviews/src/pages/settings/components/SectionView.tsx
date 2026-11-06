@@ -103,7 +103,7 @@ export function SectionView({
   const chiefsCard = [...category.lead, ...category.trail].includes("chiefs");
   // The density card draws appearance.density and the custom density keys.
   const densityCard = [...category.lead, ...category.trail].includes("density");
-  // The Computer Use card draws computerUse.enabled, .driver and .livePreview beside its setup.
+  // The Computer Use card draws every computerUse.* row (mode, denied apps, switches) itself.
   const computerUseCard = [...category.lead, ...category.trail].includes("computerUse");
   // The Machines card draws appearance.machineColors: a color well on each machine's row.
   const machinesCard = [...category.lead, ...category.trail].includes("machines");

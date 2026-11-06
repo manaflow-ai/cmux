@@ -144,7 +144,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
         sidebarSection("app", nil, [general, updates]),
         sidebarSection("look", SettingsText.keyed("settings.sidebarSection.lookAndFeel", "Look and Feel"), [theme, appearance]),
         sidebarSection("tools", SettingsText.keyed("settings.sidebarSection.tools", "Tools"), [terminal, editor, browser]),
-        sidebarSection("ai", SettingsText.keyed("settings.sidebarSection.ai", "AI"), [agents, chief]),
+        sidebarSection("ai", SettingsText.keyed("settings.sidebarSection.ai", "AI"), [agents, computerUse, chief]),
         sidebarSection("interaction", SettingsText.keyed("settings.sidebarSection.interaction", "Interaction"), [notifications, keyboard, menus]),
         sidebarSection("devices", SettingsText.keyed("settings.sidebarSection.devices", "Accounts and Devices"), [accounts, mobile, devices, server]),
         sidebarSection("system", SettingsText.keyed("settings.sidebarSection.system", "Data and System"), [importCategory, privacy, advanced, experimental, development]),
@@ -311,7 +311,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 "agentPane.links.outsideRoots", "agentPane.images.remote", "agentPane.editedFiles.show",
                 "agentPane.editedFiles.maxRows", "agentPane.editedFiles.scope",
             ]),
-            group("settings.group.computerUse"), group("settings.group.cmuxRemote"),
+            group("settings.group.cmuxRemote"),
             // The free AI model while signed out (cx-ds09i).
             group("settings.group.freeModel"),
             // What this Mac does while agents work (keep awake).
@@ -325,13 +325,20 @@ public nonisolated struct SettingsPageLayout: Sendable {
             // Folders that start an agent without the trust question.
             group("settings.group.folderTrust"),
         ],
-        // Computer Use (#28997) comes first: its card draws the on/off switch, the guided setup
-        // and the helper's grants together, and the `settings.group.computerUse` rows (the page
-        // does not draw that group a second time). Harnesses lists every harness; Your Agents
-        // (BRING-YOUR-OWN-HARNESS) adds, checks and removes the ones you added. Agent integrations
-        // (optional help, collapsed) installs the hooks that report an agent's state, through
-        // `cmux agent hook`.
-        trail: [.computerUse, .harnesses, .agentHarnesses, .agentIntegrations])
+        // Harnesses lists every harness; Your Agents (BRING-YOUR-OWN-HARNESS) adds, checks and
+        // removes the ones you added. Agent integrations (optional help, collapsed) installs the
+        // hooks that report an agent's state, through `cmux agent hook`. Computer Use has its own
+        // category (below).
+        trail: [.harnesses, .agentHarnesses, .agentIntegrations])
+
+    // Every Computer Use setting on one page (Aziz 2026-11-05: "all CU settings in their own
+    // Settings tab"): the Computer Use card draws the status (engine, permissions, worker), the
+    // mode, the denied apps, the saved approvals and the switches from the
+    // `settings.group.computerUse` rows; the page does not draw that group a second time.
+    private static let computerUse = CategorySpec(
+        id: "computer-use", title: SettingsText.keyed("settings.category.computerUse", "Computer Use"),
+        symbol: "cursorarrow.click.2",
+        groups: [group("settings.group.computerUse")], lead: [.computerUse])
 
     // Every Chief setting on one page (Leo 2026-10-20: the name pill's popover is the quick
     // version; its All Chief Settings link opens this): Chiefs lists every Chief, each opening

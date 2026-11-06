@@ -31,7 +31,7 @@ import Testing
     }
 
     @Test func agentsComesAheadOfImportAndComputerUse() {
-        #expect(OnboardingModel.Step.allCases == [.agents, .importData, .computerUse])
+        #expect(OnboardingModel.Step.allCases == [.agents, .computerUseWelcome, .importData, .computerUse])
     }
 
     /// `_acpmux/harnesses` rows joined with `_acpmux/harness/health`: a terminal profile, a

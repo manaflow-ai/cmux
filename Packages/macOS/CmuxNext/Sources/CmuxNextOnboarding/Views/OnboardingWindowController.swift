@@ -21,6 +21,7 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
         window.titleVisibility = .hidden
         window.title = switch model.step {
         case .agents: OnboardingStrings.agentsTitle
+        case .computerUseWelcome: OnboardingStrings.computerUseTitle
         case .importData: OnboardingStrings.importTitle
         case .computerUse: OnboardingStrings.computerUseTitle
         }

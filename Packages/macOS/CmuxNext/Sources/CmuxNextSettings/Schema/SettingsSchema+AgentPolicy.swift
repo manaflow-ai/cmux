@@ -48,8 +48,6 @@ extension SettingsSchema {
 
     private static let agentSettableTable: Set<String> = [
         "window.titlebar",
-        // Whether a chat shows the live view of the app its agent uses: looks only.
-        "computerUse.livePreview",
         "shortcuts.showModifierHoldHints",
         // Whether right-click menus end with Customize Menu… (looks only; the layouts stay the person's).
         "contextMenus.showCustomizeItem",
@@ -386,13 +384,19 @@ extension SettingsSchema {
         "announcements.fetch": .network,
         // Whether this Mac sends hang reports (stacks and timings) to cmux: the person's choice only.
         "diagnostics.hangReports": .privacy,
-        // On, cmux starts a helper that sees and controls other apps; only the person turns it on.
         // What a new chat may do without asking: an agent must not widen its own approvals.
         "agents.defaultPermissionMode": .userOnly,
         // How long Claude Code chats keep their prompt cache: it moves the person's model bill.
         "agents.promptCache": .userOnly,
-        "computerUse.enabled": .userOnly,
-        "computerUse.driver": .userOnly,
+        // Computer Use: what agents may do with the person's apps. An agent must never widen
+        // (or even change) its own access, so every computerUse.* key is the person's alone.
+        "computerUse.mode": .userOnly,
+        "computerUse.deniedApps": .userOnly,
+        "computerUse.allowOwnMachines": .userOnly,
+        "computerUse.pauseOnTakeover": .userOnly,
+        "computerUse.allowForeground": .userOnly,
+        "computerUse.showCursor": .userOnly,
+        "computerUse.livePreview": .userOnly,
         // How hard cmux pulls the person back from another app: theirs to pick, not an agent's.
         "notifications.dockBounce": .userOnly,
         // Privacy: whether banners show what agents said is the person's call.
