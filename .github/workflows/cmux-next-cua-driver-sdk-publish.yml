@@ -84,7 +84,7 @@ jobs:
           sha="$(gh api "repos/$GH_REPO/branches/$BRANCH" --jq .commit.sha)"
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::cannot resolve branch $BRANCH" >&2; exit 1; }
           { echo "sha=$sha"; echo "tag=$tag"; echo "commit=$commit"; } >> "$GITHUB_OUTPUT"
-          echo "Building $tag ($commit) with build-cua-driver-sdk.sh from $BRANCH $sha" >> "$GITHUB_STEP_SUMMARY"
+          echo "Release $tag ($commit); script from $BRANCH $sha" >> "$GITHUB_STEP_SUMMARY"
 
   build:
     name: Build the SDK
