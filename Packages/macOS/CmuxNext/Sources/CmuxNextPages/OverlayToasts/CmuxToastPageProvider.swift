@@ -3,7 +3,7 @@ public import CmuxNextSettings
 public import Foundation
 
 /// The toast stack's ops on the overlay page (`cmux-page://cmux.overlay/`, route `/toasts`): one per
-/// window, for ``CmuxToastWebHost``.
+/// page view, which ``CmuxToastWebHost`` claims for a window while it shows toasts there.
 ///
 /// - stream `cmux.overlay.toasts.state` (native to page): the window's toasts, oldest first, and the
 ///   lowest bottom edge the stack may take (`floor`, CSS px from the page's bottom), on every change.
@@ -31,15 +31,15 @@ public final class CmuxToastPageProvider: PageProvider {
         case layout(rects: [Rect], fading: [Rect])
     }
 
-    private let onReport: @MainActor (Report) -> Void
+    /// Where the page's reports go: set by the host when it claims the page for a window, cleared
+    /// when it gives the page back (a report from a released page goes nowhere).
+    public var onReport: (@MainActor (Report) -> Void)?
     /// The last state sent, so a new subscription (the page loaded again) starts from it.
     public private(set) var state: JSONValue = ["toasts": .array([]), "floor": 0]
     private var listeners: [Int: @MainActor (JSONValue) -> Void] = [:]
     private var nextListener = 1
 
-    public init(onReport: @escaping @MainActor (Report) -> Void) {
-        self.onReport = onReport
-    }
+    public init() {}
 
     /// Sends `state` to the page when it changed.
     public func publish(_ state: JSONValue) {
@@ -62,7 +62,7 @@ public final class CmuxToastPageProvider: PageProvider {
         default:
             throw PageError.unknownOp(op)
         }
-        onReport(report)
+        onReport?(report)
         return .null
     }
 
