@@ -6,7 +6,8 @@
 //! Code gives the count a 1 to 3 s deadline it did not keep there. When a turn logs `turn_silent`
 //! (`silent_turn.rs`), acpmux sends SIGTERM to every such listing under the chat's own agent
 //! (found as `ChildAgent::harness_processes` finds them, never from a bare pid, each checked by
-//! pid and start time before its signal) and logs `listing_ended` {turnId, pid, args}: a count Claude Code loses only reads as unknown.
+//! pid and start time before its signal) and logs `listing_ended` {turnId, pid, args}: a count
+//! Claude Code loses only reads as unknown.
 //! A listing a tool asked for (Glob's `--null`, a `--glob` that picks files) or one with a depth
 //! bound is left alone, as is every process outside the chat's own agent.
 
