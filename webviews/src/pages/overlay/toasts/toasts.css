@@ -85,7 +85,6 @@
   background: transparent;
   color: var(--cmux-toast-ink);
   font: inherit;
-  cursor: pointer;
 }
 .cmux-toast-action {
   margin-inline-start: var(--ds-space-2);
