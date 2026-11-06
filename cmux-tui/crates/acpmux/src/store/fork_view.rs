@@ -54,11 +54,33 @@ pub struct ForkView {
     inner: Box<dyn Store>,
     /// What this view knows of the references ([`Refs`]).
     refs: RwLock<Refs>,
-    /// Held by `materialize` for the whole write, so one fork's history is written once, and by a
-    /// save of a meta that names a reference, from its check to its write: a save that read the
+    /// Held exclusively by `materialize` for the whole write, so one fork's history is written
+    /// once, by the delete and compaction of a chat, and by a save of a meta that names a
+    /// reference, from its check to its write; shared by each read of a fork's history: a save that read the
     /// reference first cannot write it back after the drop (review of #37020: after a restart
     /// the fork named its deleted chat again; two writes of one fork's history raced).
-    dropping: std::sync::Mutex<()>,
+    dropping: RwLock<()>,
+}
+
+thread_local! {
+    /// Whether this thread holds `dropping` already: a fork of a fork reads its parent through
+    /// this view again, and a write reads the history it writes, under the hold they started.
+    static HELD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// A hold of [`ForkView`]'s `dropping`, or none when this thread holds it already.
+enum Held<'a> {
+    Shared(#[allow(dead_code)] std::sync::RwLockReadGuard<'a, ()>),
+    Exclusive(#[allow(dead_code)] std::sync::RwLockWriteGuard<'a, ()>),
+    Nested,
+}
+
+impl Drop for Held<'_> {
+    fn drop(&mut self) {
+        if !matches!(self, Held::Nested) {
+            HELD.with(|h| h.set(false));
+        }
+    }
 }
 
 /// Every reference is read from a session's stored meta before it is used, and once dropped it
@@ -84,6 +106,23 @@ fn is_history(kind: &str) -> bool {
 impl ForkView {
     pub fn new(inner: Box<dyn Store>) -> Self {
         Self { inner, refs: Default::default(), dropping: Default::default() }
+    }
+
+    /// Held by every read of a fork's history for its whole run: a write of that history and the
+    /// delete or compaction of its chat wait for it, so a read never takes a reference and then
+    /// reads a chat already gone (review of #37020: an export wrote a fork with no history).
+    fn shared(&self) -> Held<'_> {
+        if HELD.with(|h| h.replace(true)) {
+            return Held::Nested;
+        }
+        Held::Shared(self.dropping.read().unwrap_or_else(|e| e.into_inner()))
+    }
+
+    fn exclusive(&self) -> Held<'_> {
+        if HELD.with(|h| h.replace(true)) {
+            return Held::Nested;
+        }
+        Held::Exclusive(self.dropping.write().unwrap_or_else(|e| e.into_inner()))
     }
 
     fn reference(&self, id: &str) -> Option<HistoryRef> {
@@ -120,7 +159,7 @@ impl ForkView {
     /// chat goes, or before its files are read or moved as files. Nothing for a session that
     /// references none. A failure leaves the reference as it was.
     pub fn materialize(&self, id: &str) -> Result<()> {
-        let _dropping = self.dropping.lock().unwrap_or_else(|e| e.into_inner());
+        let _dropping = self.exclusive();
         self.materialize_locked(id)
     }
 
@@ -201,7 +240,7 @@ impl Store for ForkView {
             self.note(meta);
             return Ok(());
         }
-        let _dropping = self.dropping.lock().unwrap_or_else(|e| e.into_inner());
+        let _dropping = self.exclusive();
         let mut meta = meta.clone();
         let dropped =
             self.refs.read().unwrap_or_else(|e| e.into_inner()).dropped.get(&meta.id).copied();
@@ -227,6 +266,7 @@ impl Store for ForkView {
         self.inner.flush_session(id)
     }
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
+        let _held = self.shared();
         let Some(r) = self.reference(id) else { return self.inner.events(id, after, limit) };
         let mut out = Vec::new();
         if after < r.through_seq && limit > 0 {
@@ -246,6 +286,7 @@ impl Store for ForkView {
         Ok(out)
     }
     fn scan(&self, id: &str, after: u64, visit: &mut dyn FnMut(EventRecord) -> bool) -> Result<()> {
+        let _held = self.shared();
         let Some(r) = self.reference(id) else { return self.inner.scan(id, after, visit) };
         if !self.prefix(&r, after, visit)? {
             return Ok(());
@@ -258,6 +299,7 @@ impl Store for ForkView {
         after: u64,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
+        let _held = self.shared();
         let Some(r) = self.reference(id) else { return self.inner.scan_strict(id, after, visit) };
         let mut going = true;
         if after < r.through_seq {
@@ -284,6 +326,7 @@ impl Store for ForkView {
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
+        let _held = self.shared();
         let Some(r) = self.reference(id) else {
             return self.inner.scan_back(id, after, before, skip, visit);
         };
@@ -305,6 +348,7 @@ impl Store for ForkView {
         })
     }
     fn tail_after(&self, id: &str, after: u64) -> Result<(u64, u64)> {
+        let _held = self.shared();
         let Some(r) = self.reference(id) else { return self.inner.tail_after(id, after) };
         let (mut count, mut last) = (0, after);
         self.prefix(&r, after, &mut |rec| {
@@ -321,6 +365,7 @@ impl Store for ForkView {
         kinds: &[&str],
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
+        let _held = self.shared();
         let Some(r) = self.reference(id) else { return self.inner.scan_kinds(id, kinds, visit) };
         let shown: Vec<&str> = kinds.iter().copied().filter(|k| is_history(k)).collect();
         let mut going = true;
@@ -344,6 +389,7 @@ impl Store for ForkView {
         kinds: &[&str],
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
+        let _held = self.shared();
         let Some(r) = self.reference(id) else {
             return self.inner.scan_kinds_strict(id, kinds, visit);
         };
@@ -364,6 +410,7 @@ impl Store for ForkView {
         self.inner.scan_kinds_strict(id, kinds, &mut |rec| rec.seq <= r.through_seq || visit(rec))
     }
     fn scan_heads(&self, id: &str, visit: &mut dyn FnMut(&RecordHead<'_>) -> bool) -> Result<()> {
+        let _held = self.shared();
         let Some(r) = self.reference(id) else { return self.inner.scan_heads(id, visit) };
         let mut going = true;
         self.scan_heads(&r.session, &mut |head| {
@@ -385,6 +432,7 @@ impl Store for ForkView {
         id: &str,
         visit: &mut dyn FnMut(crate::session_search::Entry),
     ) -> Result<()> {
+        let _held = self.shared();
         if self.reference(id).is_none() {
             return self.inner.text_entries(id, visit);
         }
@@ -426,7 +474,7 @@ impl Store for ForkView {
     /// Retention trims a chat's records in place: the forks that show them get them first, as
     /// they were (review of #37020: a fork lost the long tool output a copy had kept).
     fn commit_compaction(&self, id: &str, staged: Staged) -> Result<bool> {
-        let _dropping = self.dropping.lock().unwrap_or_else(|e| e.into_inner());
+        let _dropping = self.exclusive();
         for fork in self.forks_of(id)? {
             self.materialize_locked(&fork)?;
         }
@@ -435,7 +483,7 @@ impl Store for ForkView {
     /// A chat that forks reference goes only once each holds its history itself. Under
     /// `dropping`, as a reservation is: a fork being made is either known here or refused.
     fn delete(&self, id: &str) -> Result<()> {
-        let _dropping = self.dropping.lock().unwrap_or_else(|e| e.into_inner());
+        let _dropping = self.exclusive();
         for fork in self.forks_of(id)? {
             self.materialize_locked(&fork)?;
         }
@@ -473,7 +521,7 @@ impl Store for ForkView {
     /// one after writes the history into the fork first (review of #37020: the reference was
     /// known only once the fork's meta was saved, after a delete or compaction could pass it).
     fn reserve_reference(&self, fork: &str, reference: &HistoryRef) -> Result<()> {
-        let _dropping = self.dropping.lock().unwrap_or_else(|e| e.into_inner());
+        let _dropping = self.exclusive();
         anyhow::ensure!(self.inner.load(&reference.session)?.is_some(), "the chat is gone");
         let mut refs = self.refs.write().unwrap_or_else(|e| e.into_inner());
         refs.known.insert(fork.to_owned());

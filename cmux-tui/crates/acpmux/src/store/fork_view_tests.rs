@@ -341,3 +341,67 @@ fn a_forks_own_records_never_go_into_its_history_segment() {
     view.materialize("fork").unwrap();
     assert_eq!(seqs(&view.events("fork", 0, usize::MAX).unwrap()), expected(20, 1));
 }
+
+/// A store whose scan of the chat stalls before it reads, as a slow disk's may.
+struct SlowScan(LocalStore);
+
+impl Store for SlowScan {
+    fn list(&self) -> Result<Vec<SessionMeta>> {
+        self.0.list()
+    }
+    fn load(&self, id: &str) -> Result<Option<SessionMeta>> {
+        self.0.load(id)
+    }
+    fn save(&self, meta: &SessionMeta) -> Result<()> {
+        self.0.save(meta)
+    }
+    fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
+        self.0.append(id, record)
+    }
+    fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
+        self.0.events(id, after, limit)
+    }
+    fn scan(&self, id: &str, after: u64, visit: &mut dyn FnMut(EventRecord) -> bool) -> Result<()> {
+        if id == "chat" {
+            std::thread::sleep(std::time::Duration::from_millis(150));
+        }
+        self.0.scan(id, after, visit)
+    }
+    fn delete(&self, id: &str) -> Result<()> {
+        self.0.delete(id)
+    }
+    fn history_writer(&self, id: &str) -> Result<Option<Box<dyn HistoryWriter + '_>>> {
+        self.0.history_writer(id)
+    }
+}
+
+/// A read of a fork that the chat's delete lands in the middle of still reads the whole history
+/// (review of #37020: the read took the reference, the delete wrote the history in and removed
+/// the chat, and the read went on in a chat that was gone, so an export held no history).
+#[test]
+fn a_read_that_a_delete_lands_in_still_reads_the_history() {
+    let dir = tempfile::tempdir().unwrap().keep();
+    let view = std::sync::Arc::new(forked(
+        Box::new(SlowScan(LocalStore::new(dir, 1 << 20).unwrap())),
+        30,
+        20,
+        4,
+    ));
+    view.reference("fork").expect("the fork names its chat");
+    let reading = {
+        let view = view.clone();
+        std::thread::spawn(move || {
+            let mut seen = Vec::new();
+            view.scan("fork", 0, &mut |r| {
+                seen.push(r.seq);
+                true
+            })
+            .unwrap();
+            seen
+        })
+    };
+    std::thread::sleep(std::time::Duration::from_millis(30));
+    view.delete("chat").unwrap();
+    assert_eq!(reading.join().unwrap(), expected(20, 4), "the read lost the history");
+    assert_eq!(seqs(&view.events("fork", 0, usize::MAX).unwrap()), expected(20, 4));
+}
