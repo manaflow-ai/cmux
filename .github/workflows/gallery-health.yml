@@ -14,8 +14,9 @@ name: gallery health
 # If this check is ever made required, move the filter into a router job first (cmux-next.yml
 # path_route), so a skipped pull request reports a pass instead of waiting forever.
 #
-# A routed file outside webviews/src/ that no entry imports renders every entry
-# (scripts/gallery-matrix/unplaced.py): it is global to every page.
+# A routed file that no entry imports renders every entry (scripts/gallery-matrix/unplaced.py): a file
+# outside webviews/src/, or a webviews/src/ file that is not source (a string catalog, an untraced
+# asset). It is global to every page. An unreached webviews/src/ source file renders nothing.
 #
 # A dispatch (workflow_dispatch) renders every entry at the dispatched ref: the nightly full render
 # of the base. A schedule here would never fire: GitHub runs schedules only from the default

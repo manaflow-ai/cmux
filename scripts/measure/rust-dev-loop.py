@@ -437,6 +437,8 @@ def main() -> int:
             subprocess.run(["blaze", "stop"], capture_output=True, text=True)
             home = os.environ.get("BLAZE_HOME", "")
             if Path(home).name.startswith("cmux-rust-dev-loop-blaze-home-"):
+                size = subprocess.run(["du", "-sk", home], capture_output=True, text=True).stdout.split()[:1]
+                log(f"DEVLOOP-BLAZE-HOME {size[0] if size else '?'}KB")
                 shutil.rmtree(home, ignore_errors=True)
 
     if a.timings and "base" in chosen:

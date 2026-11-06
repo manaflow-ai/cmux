@@ -28,7 +28,7 @@ final class ImportConsentView: NSView {
         csv.setAccessibilityIdentifier("cmux.onboarding.import.passwordsCSV")
         let lock = NSImageView(image: NSImage.icon(.credentialConsent, size: 18))
         lock.contentTintColor = Palette.textSecondary
-        let title = OnboardingLabel.make(OnboardingStrings.unlockTitle, font: .systemFont(ofSize: 15, weight: .semibold), lines: 2)
+        let title = OnboardingLabel.make(OnboardingStrings.unlockTitle, font: Typography.system(size: TypeScale.title, weight: TypeScale.emphasis), lines: 2)
         let heading = NSStackView(views: [lock, title])
         heading.spacing = 8
         // Pinned to the stack's width below, so the title wraps to its full two-line height.

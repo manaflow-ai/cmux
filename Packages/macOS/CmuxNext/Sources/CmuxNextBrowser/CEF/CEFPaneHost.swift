@@ -54,6 +54,11 @@ final class CEFPaneHost {
         self.contextMenus = contextMenus
         hostView.liveResizeWillStart = { [weak self] in self?.visibleTab?.samplePageBackdrop() }
         hostView.fileDrag.target = { [weak self] in self?.visibleTab }
+        // The page holds the keyboard: its window is key, or its focus ask waits (a resize motion keeps it attached).
+        hostView.layerHosting.holdsFocus = { [weak self] in
+            guard let self else { return false }
+            return self.visibleTab?.pendingFocus == true || CEFLayerHosting.pageWindowIsKey(over: self.hostView)
+        }
     }
 
     /// The viewport of a tab no pane has shown (Playwright's default page

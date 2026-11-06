@@ -12,6 +12,29 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### The reflow preview re-wraps each frame's grid off the terminal lock (ghostty-next)
+
+- Fork `main` at the merge commit `850bb9849` (fork PR #84, on `383b27d73`). #84 ports fork PR #83 (merged on
+  `release/cmux-9ce9b7d0-e2` as `510ca45ff`); the source is byte-identical to #83's reviewed head `79d62f7c5`.
+  GhosttyNextKit `xcframework-850bb98497044f6632310c303a68974b6289af4b-apple-v6` (zip sha256 `f8b0c657...3006f`, run 42047067774). No C API
+  change: `ghostty_surface_set_reflow_preview` and `ghostty_surface_set_size` per frame, as before.
+- What: the preview (`src/renderer/ReflowPreview.zig`) keeps the live terminal's last copy (`base`, not reflowed).
+  A frame whose only change is the grid (each frame of a key resize or a divider drag) re-wraps a copy of `base`
+  with no terminal lock held. The live terminal is copied under the lock only when it changed: a dirty flag, a
+  color epoch, the watch's cursor (position, style, visibility, blink, password input) or colors (bg, fg, cursor),
+  a new grid of the live terminal, or `base` lacking the history the new grid needs. The watch's dirty state is
+  reset after it is read. A frame that draws the live terminal ends the preview.
+- Why: cmux-ad m18 (T-REWRAP). Before, the watch's dirty state was never reset, so every preview frame copied the
+  live terminal under the terminal lock (0.43-0.55 ms p50 at 200x60, M5 Max), against the output parser and the
+  main thread's lock users. Now 1 copy serves 800 frames of a drag.
+- Tests: `reflow preview:` in `src/renderer/ReflowPreview.zig` (6 tests, in the fork CI filter list); bench
+  `ghostty-bench +reflow-preview` (ReleaseFast). Release line: reds 42018811302 and 42024684069, green 42025379357.
+  Main (Zig 0.17): tests + bench 42040022802 (84/84; 1 copy for 800 frames), PR build 42040024043 (224/224, lib-vt
+  481/481). Independent reviews: SHIP at `79d62f7c5` (#83), delta SHIP at `f9048ee65` (#84).
+- Conflict notes: keep `self.watch.dirty = .false` right after the watch's `endUpdate` in `update`, and the
+  `watchSnapshot` comparison around `beginUpdate`: without either, a frame either copies under the lock every time or
+  draws a stale cursor. Keep `end()` in `source` when the live terminal is drawn.
+
 ### The embedder presents a new host size with its bounds (ghostty-next)
 
 - Fork release branch `release/cmux-9ce9b7d0-e2` at the merge commit `12ec155e1` (fork PR #79, on `ae7c1f741` = fork

@@ -13385,6 +13385,51 @@
       "args" : [
         {
           "kind" : "string",
+          "name" : "title",
+          "required" : true
+        },
+        {
+          "kind" : "string",
+          "name" : "members",
+          "required" : false
+        },
+        {
+          "kind" : "string",
+          "name" : "chief",
+          "required" : false
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "chat channel create",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.createChannel",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "New Channel…",
+      "title_key" : "action.home.createChannel",
+      "title_table" : "HomeActions"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
           "name" : "conversation",
           "required" : false
         },
@@ -24443,6 +24488,46 @@
     {
       "args" : [
         {
+          "kind" : "string",
+          "name" : "url",
+          "required" : false
+        },
+        {
+          "kind" : "string",
+          "name" : "name",
+          "required" : false
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "browser-profile open-link-in-new",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browserProfile.openLinkInNew",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Open Link in New Browser Profile…",
+      "title_key" : "action.browserProfile.openLinkInNew",
+      "title_table" : "BrowserProfileActions"
+    },
+    {
+      "args" : [
+        {
           "kind" : "target",
           "name" : "browserProfile",
           "required" : true,
@@ -32580,9 +32665,9 @@
           "name" : "viewer",
           "required" : false,
           "values" : [
+            "rd",
             "web",
-            "native",
-            "rd"
+            "native"
           ]
         }
       ],

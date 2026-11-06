@@ -55,6 +55,7 @@ public struct WorkspaceScreen: View {
         makeSource = {
             let source = WorkspaceTabsSource(store: store, workspaceID: workspaceID, terminal: terminal, creator: creator)
             source.offersScreenSharing = screenSharing != nil
+            source.screenSharing = screenSharing
             return source
         }
         _showsGrid = State(initialValue: startsInGrid)
@@ -118,6 +119,12 @@ public struct WorkspaceScreen: View {
                                 ToolbarItem(placement: .cancellationAction) {
                                     Button("Done") { source.showingScreenSharing = false }
                                         .accessibilityIdentifier("screenSharing.done")
+                                }
+                                // Screen Sharing as a tab of this workspace (user 2026-11-05).
+                                ToolbarItem(placement: .primaryAction) {
+                                    Button("Open as Tab", systemImage: "plus.rectangle.on.rectangle") { source.openScreenSharingTab() }
+                                        .labelStyle(.titleOnly)
+                                        .accessibilityIdentifier("screenSharing.openAsTab")
                                 }
                             }
                     }

@@ -104,6 +104,8 @@ final class FeedCollectionView: UITableView {
 final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelegate {
     enum Section: Hashable { case header, events }
     static let headerID = "feed.header"
+    /// How many rows before the end the next page of spilled events is read.
+    static let loadOlderLead = 30
 
     let context: FeedRowContext
     let swipe: FeedSwipeCoordinator
@@ -736,6 +738,11 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
             if cell.shownRead != item.isRead { cell.redraw(item) }
             if CACurrentMediaTime() - cell.timeDrawnAt > 30 { cell.refreshTime() }
         }
+        // Near the end: the events that left memory come back from disk before the person gets there.
+        if indexPath.section != 0, store.olderOnDisk > 0,
+           indexPath.row >= tableView.numberOfRows(inSection: indexPath.section) - Self.loadOlderLead {
+            store.loadOlder()
+        }
         #if DEBUG
         if FeedCellTiming.enabled { FeedCellTiming.logger.notice("FEEDCELL willDisplay \(indexPath.row, privacy: .public) y=\(Int(tableView.contentOffset.y), privacy: .public)") }
         #endif
@@ -749,6 +756,8 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         if top {
             if control.newAbove != 0 { control.newAbove = 0 }
             store.clearUnseen()
+            // Back at the top: what scrolling brought back from disk goes back there.
+            if !scrollView.isTracking { store.restoreWindow() }
         }
         markMoving()
     }

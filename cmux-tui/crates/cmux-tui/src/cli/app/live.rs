@@ -19,11 +19,19 @@
 //! the app is built, so `start --swift` restarts a tagged build into the live code build of its own
 //! commit with every session kept, and `stop --swift` restarts it back into the normal build. The
 //! work is `scripts/live-code/live-mode.py` in the checkout (it builds with that tree's build.sh).
+//!
+//! `--chromium` does it for the browser engine's renderer and Blink C++: `start --chromium` watches
+//! the checkout's `.cmux-dev/chromium/`, builds the engine incrementally on `--build-host`'s warm
+//! tree, swaps the new framework into the running app and restarts only its renderer processes,
+//! so open Chromium pages reload on the build while the app and every session stay up
+//! (`scripts/cmux-next/chromium-live.py`, [`chromium`]).
 
 use cmux_process::Command as Process;
 use std::path::{Path, PathBuf};
 
 use super::UsageError;
+
+mod chromium;
 
 /// The script in a cmux checkout that runs the dev server and writes `web-dev.json`.
 const SCRIPT: &str = "scripts/cmux-next/web-overlay.sh";
@@ -52,9 +60,12 @@ pub(crate) enum Command {
     },
     /// `start|stop --swift`: restart the tagged build into its live code build, or back.
     Swift(Swift),
+    /// `start|stop|status --chromium`: the engine loop of `worktree`'s `chromium-live.py`;
+    /// `args` are its own `start` flags (`--build-host`, `--src`, `--out`, ...), passed through.
+    Chromium { verb: RustVerb, worktree: Option<PathBuf>, args: Vec<String> },
 }
 
-/// What `--rust` does.
+/// What `--rust` (or `--chromium`) does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RustVerb {
     /// Watch the checkout; each saved .rs swaps the running daemon for its build.
@@ -92,6 +103,8 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
     let mut worktree = None;
     let mut port = None;
     let mut rust = false;
+    let mut chromium = false;
+    let mut passthrough: Vec<String> = Vec::new();
     let mut build_host = None;
     let mut session = None;
     let (mut swift, mut tag, mut detach, mut setting_done, mut discard) =
@@ -113,6 +126,14 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
         match flag {
             "--worktree" => worktree = Some(PathBuf::from(value()?)),
             "--rust" if inline.is_none() => rust = true,
+            "--chromium" if inline.is_none() => chromium = true,
+            "--src" | "--out" | "--target" | "--app" | "--edits" if verb == Some("start") => {
+                let value = value()?;
+                passthrough.extend([flag.to_owned(), value]);
+            }
+            "--gpu" if inline.is_none() && verb == Some("start") => {
+                passthrough.push(flag.to_owned());
+            }
             "--build-host" if verb == Some("start") => build_host = Some(value()?),
             "--session" if verb == Some("start") => session = Some(value()?),
             "--swift" if switches => swift = true,
@@ -132,12 +153,22 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
             }
         }
     }
-    if rust && swift {
-        return Err(UsageError::new(messages.unexpected_argument.replace("{value}", "--swift")));
-    }
+    let unexpected =
+        |flag: &str| UsageError::new(messages.unexpected_argument.replace("{value}", flag));
     if swift {
-        if port.is_some() {
-            return Err(UsageError::new(messages.unexpected_argument.replace("{value}", "--port")));
+        // The Swift switch takes none of the other loops' flags (a flag it would drop unread).
+        let other = [
+            (rust, "--rust"),
+            (chromium, "--chromium"),
+            (port.is_some(), "--port"),
+            (build_host.is_some(), "--build-host"),
+            (session.is_some(), "--session"),
+        ]
+        .into_iter()
+        .find_map(|(given, flag)| given.then_some(flag))
+        .or(passthrough.first().map(String::as_str));
+        if let Some(flag) = other {
+            return Err(unexpected(flag));
         }
         return Ok(Command::Swift(Swift {
             on: verb == Some("start"),
@@ -158,11 +189,36 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
     .find_map(|(given, flag)| given.then_some(flag))
     {
         // Only the Swift switch takes these.
-        return Err(UsageError::new(messages.unexpected_argument.replace("{value}", flag)));
+        return Err(unexpected(flag));
     }
-    if (build_host.is_some() || session.is_some()) && !rust {
-        let flag = if build_host.is_some() { "--build-host" } else { "--session" };
-        return Err(UsageError::new(messages.unexpected_argument.replace("{value}", flag)));
+    let unexpected =
+        |flag: &str| UsageError::new(messages.unexpected_argument.replace("{value}", flag));
+    if rust && chromium {
+        return Err(unexpected("--chromium"));
+    }
+    if let (false, Some(flag)) = (chromium, passthrough.first()) {
+        return Err(unexpected(flag));
+    }
+    if build_host.is_some() && !rust && !chromium {
+        return Err(unexpected("--build-host"));
+    }
+    if session.is_some() && !rust {
+        return Err(unexpected("--session"));
+    }
+    if chromium {
+        if port.is_some() {
+            return Err(unexpected("--port"));
+        }
+        let verb = match verb {
+            Some("start") => RustVerb::Start,
+            Some("stop") => RustVerb::Stop,
+            Some("status") => RustVerb::Status,
+            _ => return Err(UsageError::new(messages.live.usage)),
+        };
+        if let Some(host) = build_host {
+            passthrough.splice(0..0, ["--build-host".to_owned(), host]);
+        }
+        return Ok(Command::Chromium { verb, worktree, args: passthrough });
     }
     if rust {
         if port.is_some() {
@@ -203,6 +259,7 @@ pub(super) fn run(command: &Command) -> i32 {
         Command::Status { worktree } => (worktree, vec!["status".to_owned()]),
         Command::Rust { .. } => return run_rust(command),
         Command::Swift(swift) => return run_swift(swift),
+        Command::Chromium { verb, worktree, args } => return chromium::run(*verb, worktree, args),
     };
     let started = matches!(command, Command::Stop { .. } | Command::Status { .. });
     let Some(tree) = checkout(worktree.as_deref(), started) else {
@@ -236,6 +293,7 @@ pub(super) fn run(command: &Command) -> i32 {
                         .current_dir(&tree)
                         .status();
                 }
+                chromium::status_if_used(&tree);
             }
             code
         }
