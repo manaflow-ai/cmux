@@ -87,9 +87,9 @@ pub struct Delivery {
     pub relay_post: Option<crate::mesh::OutMessage>,
     /// Delivered to a peer's session, and not yet seen in that peer's journal after a later
     /// link: the machine may have lost it with its disk (a session moved to a fresh machine,
-    /// a VM back on an older snapshot), so every full list of the peer delivers it again under
-    /// its own prompt id (`server/outbox.rs` `redeliver_open`) until the peer answers that its
-    /// journal holds it.
+    /// a VM back on an older snapshot), so every link of the peer that comes up delivers it again
+    /// under its own prompt id (`server/outbox.rs` `redeliver_open`) until the peer answers that
+    /// its journal holds it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub open_on_peer: bool,
     #[serde(default)]

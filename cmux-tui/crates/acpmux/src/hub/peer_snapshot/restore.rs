@@ -2,15 +2,15 @@
 //! its chats past where its journal ends (cmuxterm-hq plans/cloud ARCHITECTURE-2026-11.md, P4/E4:
 //! kill the machine mid-turn, start a fresh one from an older snapshot, and nothing is lost).
 //!
-//! Every full list of a peer names each chat's generation (`createdAt`) and its journal's end
-//! (`lastSeq`). A copy of the same generation that holds every record past that end (`ahead`) is
-//! sent to the peer as `_acpmux/journal_restore` (`hub/journal_restore.rs`), with the seqs it
+//! Once a peer's link is ready, its list names each chat's generation (`createdAt`) and its
+//! journal's end (`lastSeq`). A copy of the same generation that holds every record past that
+//! end (`ahead`) is sent to the peer as `_acpmux/journal_restore` (`hub/journal_restore.rs`), with the seqs it
 //! had. Until it answers, a page of the peer does not replace the copy (`Store::keeps_ahead`);
 //! once it took the records the peer's journal ends where the copy does, and its pages join the
 //! copy again (`Store::restored`). A peer that refuses them (its journal ran past that end, or a
 //! turn runs there) has another history: the copy goes, as before.
 //!
-//! While a list's restores run, prompts to that peer wait for them (`Gate`, at most
+//! While a link's restores run, prompts to that peer wait for them (`Gate`, at most
 //! [`GATE_WITHIN`]): a prompt the fresh machine ran first would take the seqs the restore
 //! needs. Then the deliveries the peer accepted and may have lost with its disk are delivered
 //! again under their own prompt ids (`server/outbox.rs` `redeliver_open`).
@@ -154,14 +154,11 @@ impl Store {
 }
 
 impl Hub {
-    /// Peer `peer` (instance `generation`) listed every session: copies ahead of its journals
-    /// go back to it, then what it accepted and may have lost is delivered again.
-    pub(in crate::hub) fn restore_peer_journals(
-        self: &Arc<Self>,
-        peer: &str,
-        generation: u64,
-        rows: Vec<Row>,
-    ) {
+    /// Peer `peer` (instance `generation`) is ready on a new link, its sessions listed: copies
+    /// ahead of its journals go back to it, then what it accepted and may have lost is delivered
+    /// again.
+    pub(in crate::hub) fn restore_peer_journals(self: &Arc<Self>, peer: &str, generation: u64) {
+        let rows = self.journal_ends(peer);
         let gate = &self.peer_snapshots.restoring;
         gate.open(peer);
         let (hub, peer) = (self.clone(), peer.to_owned());
@@ -213,14 +210,16 @@ fn refused(e: &RpcError) -> bool {
     matches!(reason, Some("generation" | "diverged" | "busy"))
 }
 
-/// Each row's session id, generation and `lastSeq`, of a peer's full list.
-pub(crate) fn journal_ends(list: &[Value]) -> Vec<Row> {
-    list.iter()
-        .filter_map(|row| {
-            let id = row.get("sessionId").and_then(Value::as_str)?;
-            let created = row.get("createdAt").and_then(Value::as_u64)?;
-            let last = row.get("lastSeq").and_then(Value::as_u64)?;
-            Some((id.to_owned(), created, last))
-        })
-        .collect()
+impl Hub {
+    /// Each listed session of `peer`: its id, its generation and its journal's `lastSeq`.
+    fn journal_ends(&self, peer: &str) -> Vec<Row> {
+        let map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+        map.of_peer(peer)
+            .filter_map(|(_, r)| {
+                let created = r.summary.get("createdAt").and_then(Value::as_u64)?;
+                let last = r.summary.get("lastSeq").and_then(Value::as_u64)?;
+                Some((r.receipt.mux_session_id.clone(), created, last))
+            })
+            .collect()
+    }
 }

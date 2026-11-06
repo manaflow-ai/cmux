@@ -697,7 +697,7 @@ fn duplicate(accepted: &Value) -> bool {
         || accepted.pointer("/_meta/acpmux/duplicate") == Some(&Value::Bool(true))
 }
 
-/// Peer `peer` listed its sessions on a new link, after its journals took back what this daemon
+/// Peer `peer`'s link is ready again, and its journals took back what this daemon
 /// kept of them (`hub/peer_snapshot/restore.rs`): every delivery it accepted and was not seen to
 /// keep (`Delivery::open_on_peer`) goes again, in the order it was sent, as a resend of its own
 /// prompt id. A machine that kept it (its journal, or the records given back) answers with its
