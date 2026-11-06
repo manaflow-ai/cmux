@@ -482,7 +482,7 @@ public final class BrowserChromeView: NSView {
             let surface = paints ? Palette.surfaceBackground.cgColor : nil
             layer?.backgroundColor = surface
             // The flush corner (`chrome.cornerFlush`): the card's own color, the selected tab's, so the tab,
-            // the toolbar and the page read as one surface (Chrome's active tab is its toolbar's color).
+            // the toolbar and the page read as one surface.
             let card = paints && CornerFlush.current.isOn ? Palette.windowBackground.cgColor : surface
             toolbar.layer?.backgroundColor = Palette.surfaceOverride(.browserChrome)?.cgColor ?? card
             contentContainer.layer?.borderColor = Palette.separator.cgColor
