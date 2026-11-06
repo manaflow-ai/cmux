@@ -384,6 +384,7 @@ async fn stopping_settles_every_request_and_the_report_shows_the_state() {
     assert_eq!(parsed["hands"][1]["level"], Value::Null);
     assert_eq!(parsed["secure_enclave"], true);
     assert!(text.find("\"hands\"").unwrap() < text.find("\"pending\"").unwrap(), "keys sorted");
+    app.backlog.clear();
     app.send(json!({"t": "stop"}));
     assert_eq!(app.next("settled").await["outcome"], Value::Null);
     assert_eq!(app.next("hands").await["hands"], json!([]));
