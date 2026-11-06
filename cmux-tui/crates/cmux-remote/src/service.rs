@@ -1468,7 +1468,7 @@ fn default_lane(service: Service) -> Lane {
         | Service::TerminalBytes
         | Service::ComputerUse => Lane::Interactive,
         Service::WorkspaceRpc => Lane::Control,
-        Service::TcpTunnel => Lane::Tunnel,
+        Service::TcpTunnel | Service::LocalSocket => Lane::Tunnel,
     }
 }
 
