@@ -302,6 +302,11 @@ public final class AgentPaneModel {
     /// The App's upload for this chat (a chat moved to a Cloud machine), nil when it takes none (``AgentPaneUpload``).
     @ObservationIgnored public var onUpload: (@MainActor () -> AgentPaneUploader?)?
     @ObservationIgnored public var onUploadStage: (@MainActor () -> AgentPaneUploadStager?)?
+    /// A failed staged begin may be retried by the same upload without another person gesture.
+    /// This credit is deliberately held by this pane and keyed to the file's begin request, so it
+    /// cannot authorize an unrelated command or a different attachment.
+    @ObservationIgnored private var uploadRetryCredit: (key: String, expires: TimeInterval)?
+    private static let uploadRetryLifetime: TimeInterval = 30
     /// App-owned, explicitly confirmed provider credential setup for this pane's Cloud chat.
     @ObservationIgnored public var onCloudCredentialTransfer: (@MainActor (AgentPaneCloudCredentialTransferRequest) async -> Bool)?
     /// Runs the Cloud machine + latest transcript fork and opens its sibling without selecting this chat.
@@ -737,8 +742,26 @@ public final class AgentPaneModel {
             // whether it can take one. Refusing it as unsupported told the page this host is too old
             // to stream, so a recording over the one-frame size failed with Retry (#28647).
             guard let stager = onUploadStage?() else { return Self.unsupported("chat.upload.stage") }
-            if case .begin(_, _, let batchToken, _) = stage, batchToken == nil, !transport.gestures.consumeUpload() { return Self.transportFailure(.gestureRequired) }
-            return await stager(stage, sessionId)
+            guard case .begin(let name, let size, let batchToken, _) = stage, batchToken == nil else {
+                return await stager(stage, sessionId)
+            }
+            let key = "\(name)\u{0}\(size)"
+            let now = transport.gestures.uptime
+            let retry = uploadRetryCredit.map { $0.key == key && now <= $0.expires }
+            if retry == true {
+                uploadRetryCredit = nil
+            } else {
+                guard transport.gestures.consumeUpload() else { return Self.transportFailure(.gestureRequired) }
+            }
+            let reply = await stager(stage, sessionId)
+            if reply["ok"] as? Bool == true {
+                uploadRetryCredit = nil
+            } else if (reply["error"] as? [String: Any])?["code"] as? String == "upload_failed" {
+                uploadRetryCredit = (key, now + Self.uploadRetryLifetime)
+            } else {
+                uploadRetryCredit = nil
+            }
+            return reply
         case .unsupported(let method): return Self.unsupported(method)
         }
     }

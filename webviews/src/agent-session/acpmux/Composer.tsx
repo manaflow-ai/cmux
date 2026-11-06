@@ -908,10 +908,8 @@ export function Composer({
         }
         if (restoredAttachments.length)
           setAttachments((current) => {
-            const others = current.filter(
-              (attachment) => !restoredAttachments.some((back) => back.id === attachment.id),
-            );
-            return behind ? [...others, ...restoredAttachments] : [...restoredAttachments, ...others];
+            const others = current.filter((attachment) => !restoredAttachments.some((back) => back.id === attachment.id));
+            return behind ? appendAttachments(others, restoredAttachments) : appendAttachments(restoredAttachments, others);
           });
       },
       attach(attachment) {

@@ -303,6 +303,23 @@ test("re-dropping the same local link replaces the chip instead of duplicating i
   expect(appendAttachments([first], [replacement, other])).toEqual([replacement, other]);
 });
 
+test("the same screenshot payload with a different generated name keeps one chip", async () => {
+  const { appendAttachments } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
+  const image = (id: string, name: string, data: string): ComposerAttachment => ({
+    id,
+    kind: "image",
+    name,
+    mimeType: "image/png",
+    size: 4,
+    data,
+  });
+  const first = image("one", "Screenshot.png", "AA==");
+  const duplicate = image("two", "2-Screenshot.png", "AA==");
+  const different = image("three", "Screenshot-2.png", "AQ==");
+  expect(appendAttachments(appendAttachments([], [first]), [duplicate])).toEqual([duplicate]);
+  expect(appendAttachments([first], [duplicate, different])).toEqual([duplicate, different]);
+});
+
 test("re-attaching design selection chips replaces both stable ids", async () => {
   const { appendAttachments } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
   const { designSelectionChips } = await import("../src/agent-session/acpmux/designSelection");

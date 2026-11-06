@@ -109,26 +109,45 @@ export type AttachmentIntakeOptions = {
 export function appendAttachments(
   current: readonly ComposerAttachment[],
   added: readonly ComposerAttachment[],
+  options: { dedupeContent?: boolean } = {},
 ): ComposerAttachment[] {
+  const dedupeContent = options.dedupeContent ?? true;
   const result = [...current];
   const ids = new Map<string, number>();
   const links = new Map<string, number>();
+  const content = new Map<string, number>();
+  const contentKey = (attachment: ComposerAttachment): string | undefined => {
+    if (attachment.data !== undefined)
+      return `${attachment.kind}:${attachment.mimeType}:${attachment.size}:${attachment.data}`;
+    if (attachment.text !== undefined) return `${attachment.kind}:${attachment.mimeType}:${attachment.size}:${attachment.text}`;
+    if (attachment.kind === "link" && attachment.path) return `link:${attachment.path}`;
+    return undefined;
+  };
   result.forEach((attachment, index) => {
     ids.set(attachment.id, index);
     if (attachment.kind === "link" && attachment.path) links.set(attachment.path, index);
+    const key = dedupeContent ? contentKey(attachment) : undefined;
+    if (key) content.set(key, index);
   });
   for (const attachment of added) {
+    const key = dedupeContent ? contentKey(attachment) : undefined;
     const previous =
       ids.get(attachment.id) ??
-      (attachment.kind === "link" && attachment.path ? links.get(attachment.path) : undefined);
+      (attachment.kind === "link" && attachment.path ? links.get(attachment.path) : undefined) ??
+      (key ? content.get(key) : undefined);
     if (previous !== undefined) {
+      const old = result[previous];
+      const oldKey = dedupeContent ? contentKey(old) : undefined;
+      if (oldKey && content.get(oldKey) === previous) content.delete(oldKey);
       result[previous] = attachment;
       ids.set(attachment.id, previous);
       if (attachment.kind === "link" && attachment.path) links.set(attachment.path, previous);
+      if (key) content.set(key, previous);
       continue;
     }
     ids.set(attachment.id, result.length);
     if (attachment.kind === "link" && attachment.path) links.set(attachment.path, result.length);
+    if (key) content.set(key, result.length);
     result.push(attachment);
   }
   return result;
@@ -164,6 +183,8 @@ export type PendingAttachment = {
   /// Its upload failed (the host's words, after its own tries again): a send waits for its Retry
   /// or x. A file the composer refused (`failed` alone, which Retry cannot change) holds none.
   uploadFailed?: boolean;
+  /// Its upload is waiting for the next automatic retry; the tooltip stays plain and says so.
+  retrying?: boolean;
 };
 
 /// What Retry needs of a pending chip: its file and how it came in.
@@ -427,7 +448,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       staged.add(attachment.id);
       setAttachments((staged) => {
         const at = staged.findIndex((chip) => (places.current.get(chip.id) ?? -1) > place);
-        if (at < 0 || staged.some((chip) => chip.id === attachment.id)) return appendAttachments(staged, [attachment]);
+        if (at < 0 || staged.some((chip) => chip.id === attachment.id))
+          return appendAttachments(staged, [attachment], { dedupeContent: false });
         return [...staged.slice(0, at), attachment, ...staged.slice(at)];
       });
     };
@@ -436,20 +458,26 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       if (!owns(index)) return;
       marked.add(index);
       const failed = intakeErrorText(error, live.current.t);
-      // An upload that failed (its host's words, never a file the composer refused) is tried again
-      // on its own first; its chip keeps loading meanwhile, and shows Retry only once that fails.
-      // One the host refused outright (the app could not save it) shows Retry at once.
+      // An upload that failed is tried again on its own first; its chip keeps loading meanwhile and
+      // says plainly that it is retrying. It shows Retry only once the bounded attempts are spent.
       if (uploads && "text" in error) {
         const kept = autoRetries.current.get(id);
         kept?.stop();
         const tries = error.final ? UPLOAD_AUTO_RETRIES : (kept?.tries ?? 0);
         const source = owned[index];
         const still = () => sources.current.get(id) === source;
+        const retrying = () =>
+          `${live.current.t("upload.notStarted")} ${live.current.t("retry.waiting", {
+            attempt: Math.min(tries + 1, UPLOAD_AUTO_RETRIES),
+            of: UPLOAD_AUTO_RETRIES,
+          })}`;
         const giveUp = () => {
           if (!still()) return;
           setPending((chips) =>
             chips.map((chip) =>
-              chip.id === id ? { ...chip, failed, uploadFailed: true, uploading: false, progress: undefined } : chip,
+              chip.id === id
+                ? { ...chip, failed: live.current.t("upload.notStarted"), uploadFailed: true, retrying: false, uploading: false, progress: undefined }
+                : chip,
             ),
           );
         };
@@ -475,7 +503,11 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         );
         autoRetries.current.set(id, { tries: tries + 1, stop });
         if (tries < UPLOAD_AUTO_RETRIES)
-          setPending((chips) => chips.map((chip) => (chip.id === id ? { ...chip, progress: undefined } : chip)));
+          setPending((chips) =>
+            chips.map((chip) =>
+              chip.id === id ? { ...chip, failed: retrying(), retrying: true, progress: undefined, uploading: true } : chip,
+            ),
+          );
         return;
       }
       setPending((chips) =>
@@ -1059,9 +1091,23 @@ function PendingChip({
   // video. ... Just do the square.").
   const square = chip.image || chip.video;
   const kind = square ? "acpmux-attachment-image" : "acpmux-attachment-file";
+  // One whose upload is waiting for an automatic retry keeps its shape and spinner. Its tooltip is
+  // plain and says both what happened and that another attempt is in progress.
+  if (chip.retrying)
+    return (
+      <div
+        className={`acpmux-attachment ${kind} acpmux-attachment-pending`}
+        aria-busy="true"
+        aria-label={`${name}: ${chip.failed ?? t("upload.notStarted")}`}
+        title={chip.failed}
+      >
+        <Spinner loading size={16} className="acpmux-attachment-spinner" />
+        {!square && <span>{chip.name}</span>}
+        {remove}
+      </div>
+    );
   // One that could not be attached keeps its shape: what it is (its kind's glyph, a file's name),
-  // one small retry button, and its ×; why is in its tooltip (Leo, 2026-10-31: "video attachments
-  // (big attachments?) still sucks", over a strip of empty tiles with only an underlined Retry).
+  // one small retry button, and its ×; why is in its tooltip.
   if (chip.failed)
     return (
       <div

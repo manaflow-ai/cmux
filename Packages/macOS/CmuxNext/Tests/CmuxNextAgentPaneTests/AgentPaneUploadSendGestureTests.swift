@@ -79,4 +79,24 @@ struct AgentPaneUploadSendGestureTests {
         let send = try #require(AgentPaneGestureIntent(gestureParams: ["intent": ["method": "session/prompt", "params": ["promptId": "p-1"]]]))
         #expect(model.transport.gestures.reserve(connection: 0, intent: send) != nil)
     }
+
+    /// A transient staged-begin failure gives only that same attachment one short-lived retry
+    /// credit. The timer retry therefore does not surface the transport's gesture refusal, while
+    /// a different attachment still needs a real gesture.
+    @Test func aFailedBeginCanRetryWithoutAuthorizingAnotherAttachment() async {
+        let model = AgentPaneModel(host: NoHost())
+        var attempts = 0
+        model.onUploadStage = {
+            { _, _ in
+                attempts += 1
+                if attempts == 1 { return AgentPaneReply.failure(code: "upload_failed", message: "temporary") }
+                return AgentPaneReply.success(["token": "t", "size": 3, "chunkSize": 512 * 1024])
+            }
+        }
+        model.transport.gestures.record()
+        #expect(!(await begins(model, "shot.png")))
+        #expect(await begins(model, "shot.png"), "the retry credit should pay for the same begin")
+        #expect(!(await begins(model, "other.png")), "the retry credit must not authorize another file")
+        #expect(attempts == 2)
+    }
 }
