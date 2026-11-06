@@ -8,6 +8,7 @@ import CmuxNextHistory
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextAppCore
@@ -47,6 +48,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// Workspaces Toggle Left/Right/Top/Bottom Dock created for an empty edge, docked there once the daemon reports
     /// them (`arrangeOnScreen`). In memory only.
     var pendingDocks: [String: DockEdge] = [:]
+    /// A link clicked in the Chief while Home fills the window: the next workspace shown goes beside Home docked
+    /// (``ChiefDockLeave``, `WindowDockFrame+Operations`). In memory only.
+    var chiefDockOnLeave: ChiefDockLeave?
     unowned let services: AppServices
     private var workspaceObservation: Task<Void, Never>?
     private var titleObservation: Task<Void, Never>?
@@ -291,6 +295,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private func show(_ workspace: WorkspaceModel, on daemon: DaemonService) {
         if state.workspaceID != workspace.id { state.workspaceID = workspace.id }
         if state.machineID != daemon.machineID { state.machineID = daemon.machineID }
+        dockChiefOnLeave(for: workspace.id) // a link from the Chief: Home docks before it leaves the stage
         guard content?.workspace !== workspace else { return arrangeOnScreen() }
         // Parking the current one never trims the one to show; a current one of the same id (a rebuilt model) is torn down below.
         if let current = content { park(current, leaving: workspace.id) }
