@@ -818,6 +818,11 @@
       color-mix(in srgb, var(--cmux-tone-light, #fff) 18%, transparent);
   --acpmux-composer-shadow: var(--acpmux-stack-shadow);
 }
+:root[data-composer-edge="before"] .acpmux-dock > .acpmux-running-tray[data-card] + .acpmux-composer
+  > .acpmux-composer-box.ui-glass-material {
+  /* Gallery baseline: retain the pre-fix material rim so the before capture shows the doubled edge. */
+  --acpmux-composer-rim: var(--glass-material-rim);
+}
 /* Send, Stop and ↵ are the bar's 28 px, plain line glyphs in the secondary text color, as the mic is
    (Leo 2026-10-21: no discs; the secondary text color, only a hover background). Stop's square and a
    ready Send are the secondary color, a step above an empty draft's 45% Send. Their hover pill is
