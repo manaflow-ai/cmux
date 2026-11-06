@@ -405,7 +405,9 @@ public nonisolated final class AgentSessionCarrierSwitch: AgentSessionRemoteClie
             if !watch || state.page == nil { state.page = page }
             state.nextGeneration += 1
             state.live = state.nextGeneration
-            state.alsoLive = nil
+            // `AgentSessionAttachClient` serializes attaches: the earlier handler keeps pushing until
+            // this attach is sent, so its attachment stays live until this one is answered.
+            state.alsoLive = before.live
             return (state.current, state.live, before)
         }
         let answer: Data
@@ -424,9 +426,9 @@ public nonisolated final class AgentSessionCarrierSwitch: AgentSessionRemoteClie
             }
             throw error
         }
-        if !watch {
-            let covered = Self.covered(answer, by: page)
-            state.withLock { $0.newest = max($0.newest, covered) }
+        state.withLock { state in
+            if state.live == generation { state.alsoLive = nil }
+            if !watch { state.newest = max(state.newest, Self.covered(answer, by: page)) }
         }
         return answer
     }
