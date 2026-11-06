@@ -82,7 +82,7 @@ public struct TitlebarHistoryMenu {
 
     /// The width closed rows may use when the rows above them are narrower: room for a title and
     /// some of its address, so a short history does not squeeze them to a few letters.
-    public static let closedMinWidth: CGFloat = 240
+    public static let closedMinWidth: CGFloat = 200
 
     /// `showAll` is the registry's `history.show` row (it runs the registered action, as the
     /// palette does), retitled Show Full History; nil: no footer. `closed` nil leaves the Recently
