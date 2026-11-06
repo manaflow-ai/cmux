@@ -584,6 +584,53 @@ async fn quit_helpers_a_running_turn_keeps_the_daemon_after_its_app_is_gone() {
     assert!(alive, "the daemon stopped under a running turn after its app quit");
 }
 
+/// A daemon a test started stops with that test's process also while it waits for another
+/// process's lock on its home (`daemon/owner_exit.rs`): the watch is armed before that wait, which
+/// has no limit while the holder lives. The test holds the lock itself and never makes a socket;
+/// a `sleep` stands in for the test process.
+// Debug builds only, as the watch.
+#[cfg(debug_assertions)]
+#[tokio::test]
+async fn a_daemon_waiting_for_its_lock_ends_with_the_test_process() {
+    use std::os::fd::AsRawFd as _;
+    use std::os::unix::fs::OpenOptionsExt as _;
+    let dir = scratch("towner-lock");
+    let held = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .mode(0o600)
+        .open(dir.join("daemon.lock"))
+        .unwrap();
+    // SAFETY: flock on a descriptor this test owns; released when it is dropped.
+    assert_eq!(unsafe { libc::flock(held.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+    let mut owner = std::process::Command::new("sleep").arg("600").spawn().expect("a fake test");
+    let mut child = daemon_env::acpmux(&dir)
+        .args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "warn"])
+        .env("ACPMUX_HOME", &dir)
+        .env("ACPMUX_SOCKET", dir.join("s.sock"))
+        .env("TMPDIR", &dir)
+        .env("ACPMUX_LOGIN_ENV", "0")
+        .env("ACPMUX_TEST_OWNER_PID", owner.id().to_string())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::inherit())
+        .spawn()
+        .unwrap();
+    // It waits for the lock while the test process runs.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    if let Some(status) = child.try_wait().unwrap() {
+        end(&mut owner);
+        panic!("the daemon did not wait for the held lock: {status:?}");
+    }
+    end(&mut owner);
+    let exited = exits_within(&mut child, Duration::from_secs(10)).await;
+    drop(held);
+    let _ = std::fs::remove_dir_all(&dir);
+    exited.expect("the daemon still waited for its lock 10 s after its test process was killed");
+}
+
 /// A daemon a test started stops with that test's process, mid-turn too (`daemon/owner_exit.rs`):
 /// a test that panicked, timed out or was killed left its daemon, its agent hosts and their
 /// stand-in harnesses running for days (34 hosts and 8 daemons on one lane VM, 130-144 h old),

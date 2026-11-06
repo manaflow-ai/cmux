@@ -4,8 +4,8 @@
 cmux-next ships once, under the existing nightly bundle id (`com.cmuxterm.app.nightly`;
 hq#7156). cmux.com/next, the release body and every "latest" link name the rolling
 asset releases/download/nightly-next/cmux-nightly-next-macos-arm64.dmg, which
-publish-nightly-next-github-names moves to the build it just published, only while
-that build is the feed's newest.
+publish-nightly-next-github moves to the build it just uploaded, only while that
+build is the feed's newest.
 
 The step script runs here against a fake publisher, and the recorded call is checked.
 """

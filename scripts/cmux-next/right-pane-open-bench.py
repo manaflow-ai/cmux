@@ -39,6 +39,12 @@ Each as p50 / p95 / max over the opens of a surface. Three conditions (--conditi
   restart  the app quit as a person quits (state kept) and launched again on the light state: each relaunch's
            first open of every surface (--restarts relaunches)
 
+The whole run is on a 1920 x 1200 virtual main display (--vdisplay, perf-stress-session's helper): STRESS's
+1600 x 1000 pt window does not fit a 1920 x 1080 display under the menu bar and Dock. A condition that fails
+is that condition's record (`conditions.<name>.error`), and the next condition still runs; the run then exits
+non-zero. The chat is followed by its tab, not its pane: closing what an open added can fold the chat's pane
+into another one.
+
 The budget (CLAUDE.md, perf-lead.md): every action < 10 ms to its committed frame, the content in that frame. A
 frame strip sees a change only in a display frame, so a surface is OVER when its p95 commit_ms is past one display
 frame plus 10 ms, or its p95 final_ms past its p95 commit_ms by more than a frame (content after the first frame).
@@ -88,6 +94,9 @@ parser.add_argument("--strip-ms", type=float, default=2500, help="how long each 
 parser.add_argument("--strip-tolerance", type=float, default=0.001)
 parser.add_argument("--settle-frames", type=int, default=10)
 parser.add_argument("--settle", type=float, default=6, help="stress: seconds the load runs before the first open")
+parser.add_argument("--vdisplay", type=float, default=120,
+                    help="a 1920 x 1200 virtual main display at this rate for the whole run (perf-stress-session's), so "
+                         "STRESS's 1600 x 1000 pt window fits under the menu bar and Dock; 0 measures on the host's display")
 parser.add_argument("--tag", default="rpopen")
 parser.add_argument("--json")
 parser.add_argument("--md")
@@ -204,7 +213,8 @@ def seed(root, repo):
         session = peer.new_chat("turn: 0")
         if not session:
             raise SystemExit("right-pane-open: the seeding daemon made no chat")
-        for text in ("turn: 1", f"subagents: {SUBAGENTS}"):
+        # The edit last: Changes shows only for a chat whose transcript has an edit turn (App.tsx lastEditTurn).
+        for text in ("turn: 1", f"subagents: {SUBAGENTS}", f"edit: {repo}"):
             sent = peer.acpmux("send", session, text, timeout=180)
             if sent.returncode != 0:
                 raise SystemExit(f"right-pane-open: send {text!r}: {(sent.stdout + sent.stderr).strip()[-2000:]}")
@@ -300,7 +310,7 @@ class Chat:
     def __init__(self, run):
         self.run = run
         self.stress = STRESS.Stress(lambda m, p=None, timeout=60: run.rpc(m, p, timeout), log=say)
-        self.workspace = self.pane = None
+        self.workspace = self.pane = self.tab = None
 
     def open(self, session):
         key = str(uuid.uuid4())
@@ -325,12 +335,28 @@ class Chat:
                 break
             time.sleep(0.3)  # test script: waiting for the chat to show
         self.workspace = self.stress.focused_workspace()
+        panes = self.stress.panes(self.stress.workspace(self.workspace))
         if not self.pane:
-            panes = self.stress.panes(self.stress.workspace(self.workspace))
             self.pane = panes[0]["id"] if panes else None
+        mine = next((p for p in panes if p.get("id") == self.pane), {})
+        tabs = mine.get("tabs") or []
+        self.tab = next((t.get("id") for t in tabs if t.get("kind") == "conversation"), tabs[0].get("id") if tabs else None)
         time.sleep(1.5)  # test script: the page's own reads after its first content end before the first click
 
+    def repane(self):
+        """The pane that holds the chat's tab now: closing what an open added can fold the chat's pane into a new one
+        (light run at 05efe285: after Changes closed, the chat's tab was in another pane and every later open
+        clicked into the old pane id, "shows no agent tab")."""
+        if not self.tab:
+            return
+        panes = self.stress.panes(self.stress.workspace(self.workspace))
+        found = next((p.get("id") for p in panes if any(t.get("id") == self.tab for t in p.get("tabs") or [])), None)
+        if found and found != self.pane:
+            say(f"right-pane-open: the chat's tab moved from pane {self.pane} to {found}")
+            self.pane = found
+
     def show(self):
+        self.repane()
         self.stress.show(self.workspace)
         self.stress.focus_pane(self.pane)
         time.sleep(0.5)  # test script: the switch settles
@@ -339,13 +365,30 @@ class Chat:
         return {t.get("id") for p in self.stress.panes(self.stress.workspace(self.workspace)) for t in p.get("tabs") or [] if t.get("id")}
 
     def close_new(self, before):
-        """Closes every tab an open added (the chat alone again), and waits for the layout to be back."""
+        """Closes every tab an open added (the chat alone again), and waits for the layout to be back. Returns
+        None, or what was left when the chat's pane never took focus back (the topology, for the record)."""
         for tab in self.tabs() - before:
             self.stress.action("closeTab", target=f"tab:{tab}", focus=False)
         STRESS.wait(lambda: not (self.tabs() - before), 10, step=0.1)
         STRESS.wait(lambda: len(self.stress.panes(self.stress.workspace(self.workspace))) <= 1, 10, step=0.1)
-        self.stress.focus_pane(self.pane)
+        left = sorted(self.tabs() - before)
+        problem = None
+        for _ in range(3):
+            try:
+                self.repane()
+                self.stress.show(self.workspace)
+                self.stress.focus_pane(self.pane)
+                problem = None
+                break
+            except STRESS.StressShapeError as error:
+                problem = str(error)[:600]
+                time.sleep(0.5)  # test script: an open's own focus move ends before the retry
         time.sleep(0.6)  # test script: the close's own motion ends before the next click
+        panes = self.stress.panes(self.stress.workspace(self.workspace))
+        if problem or left or len(panes) > 1:
+            return {"focus": problem, "left_tabs": left, "panes": [{"id": p.get("id"), "tabs": [(t.get("id"), t.get("kind"), t.get("page"))
+                                                 for t in p.get("tabs") or []]} for p in panes]}
+        return None
 
 
 # ---------------------------------------------------------------------------------------------
@@ -374,6 +417,7 @@ def clicks(surface, round_index):
 
 
 def measure(run, chat, surface, label, round_index):
+    chat.repane()
     before = chat.tabs()
     if surface == "side_chat":
         # The "..." menu first (not timed): New side chat is its row.
@@ -387,13 +431,12 @@ def measure(run, chat, surface, label, round_index):
         if NO_MATCH not in str(reply.get("error") or ""):
             break
     if reply.get("error"):
-        chat.close_new(before)
-        return {"error": str(reply["error"])[:400], "click": target}
+        return {"error": str(reply["error"])[:400], "click": target, "close": chat.close_new(before)}
     # A click that failed in the app comes back in `key` (the gesture's own reply), not as the strip's error.
     clicked = reply.get("key") if isinstance(reply.get("key"), dict) else {}
     if clicked.get("error") or clicked.get("clicked") is False:
-        chat.close_new(before)
-        return {"error": f"click: {clicked.get('error') or 'not clicked'}", "click": target, "key": clicked}
+        return {"error": f"click: {clicked.get('error') or 'not clicked'}", "click": target, "key": clicked,
+                "close": chat.close_new(before)}
     record = cof.final_frame(reply.get("frames"), settle_frames=opts.settle_frames, tolerance=opts.strip_tolerance)
     record.update({"click": target, "commit_ms": reply.get("first_change_ms"), "final_ms": record.get("final_frame_ms"),
                    "strip_settled_ms": reply.get("settled_ms"), "frame_count": reply.get("frame_count"),
@@ -404,7 +447,9 @@ def measure(run, chat, surface, label, round_index):
                    "frames_columns": ["ms", "content_vs_before", "content_vs_final", "flatness", "blank"]})
     if not record["opened_tabs"]:
         record["error"] = "the click opened no tab"
-    chat.close_new(before)
+    record["close"] = chat.close_new(before)
+    if record["close"]:
+        say(f"right-pane-open: {label}: the close left the layout changed (the next open runs in it): {json.dumps(record['close'])[:800]}")
     return record
 
 
@@ -488,7 +533,10 @@ def run_surfaces(run, chat, condition, results, rounds):
     for surface in WANTED:
         records = results["raw"].setdefault(surface, {}).setdefault(condition, [])
         for index in range(rounds):
-            record = measure(run, chat, surface, f"{condition}-{surface}-{len(records)}", len(records))
+            try:
+                record = measure(run, chat, surface, f"{condition}-{surface}-{len(records)}", len(records))
+            except STRESS.StressShapeError as error:  # one open's broken layout is its row's miss, not the run's end
+                record = {"error": f"layout: {str(error)[:400]}"}
             records.append(record)
             say(f"right-pane-open: {condition} {surface} {len(records) - 1}: commit_ms={record.get('commit_ms')} "
                 f"first_content_ms={record.get('first_content_ms')} final_ms={record.get('final_ms')} "
@@ -503,45 +551,28 @@ def main():
                "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "surfaces": {}, "raw": {}, "conditions": {}}
     signal.signal(signal.SIGTERM, bm.interrupted)
     load = Load(root)
-    run = None
+    runs, display = {}, None
     try:
+        if opts.vdisplay:
+            try:
+                display = STRESS.start_vdisplay(opts.vdisplay, root, hold=6 * 3600)
+                results["display"] = {"vdisplay_hz": opts.vdisplay, "size": STRESS.VDISPLAY_SIZE}
+            except STRESS.StressShapeError as error:
+                # Measured on the host's display; STRESS then says why its window does not fit.
+                results["display"] = {"vdisplay_hz": opts.vdisplay, "error": str(error)[:400]}
+                say(f"right-pane-open: VDISPLAY-FALLBACK {error}")
+            time.sleep(2)  # test script: WindowServer settles the new main display before the app opens on it
         repo = make_repo(root)
         say("right-pane-open: seeding")
         home, chats, meta_keys = seed(root, repo)
         results["seed"] = {"subagents": SUBAGENTS, "meta_keys": meta_keys}
         for condition in CONDITIONS:
-            if run:
-                run.end()
-            wipe_state(APP)
-            run = Run(home)
-            run.launch()
-            if not results.get("app_version"):
-                results["app_version"] = (run.app.identify() or {}).get("version")
-            time.sleep(5)  # test script: let launch work end before the chat opens
-            chat = Chat(run)
-            chat.open(chats[condition])
             info = {}
-            if condition == "stress":
-                stress = chat.stress
-                stress.busy_where = "elsewhere"
-                started = time.monotonic()
-                stress.build_background()
-                stress.build_measured()
-                info["stress_build_s"] = round(time.monotonic() - started, 1)
-                info["busy_terminals"] = len(getattr(stress, "busy", []))
-                chat.show()
-                load.start(run.sock)
-                time.sleep(opts.settle)  # test script: the load reaches steady state
-            if condition == "restart":
-                for restart in range(opts.restarts):
-                    run.quit()
-                    run.launch()
-                    chat = Chat(run)
-                    chat.find()
-                    info.setdefault("restored_panes", []).append(chat.pane)
-                    run_surfaces(run, chat, condition, results, 1)
-            else:
-                run_surfaces(run, chat, condition, results, opts.runs)
+            try:
+                run_condition(condition, runs, home, chats, load, results, info)
+            except (Exception, SystemExit) as error:  # noqa: BLE001 - one condition's failure is its record; the next still runs
+                info["error"] = f"{type(error).__name__}: {str(error)[:600]}"
+                say(f"right-pane-open: {condition} did not finish: {info['error']}")
             results["load_avg"] = {**results.get("load_avg", {}), condition: load_average()}
             results["conditions"][condition] = info
             load.stop()
@@ -554,10 +585,51 @@ def main():
             write_results(results)  # before teardown: a teardown that stalls never loses the run
         except Exception as error:  # noqa: BLE001 - a report that fails must not hide the run's own error
             say(f"right-pane-open: writing the results failed: {error!r}")
-        if run:
-            run.end()
+        if runs.get("run"):
+            runs["run"].end()
+        if display:
+            display.terminate()  # the helper this script started, by its process
+            display.wait()
         shutil.rmtree(root, ignore_errors=True)
+    failed = [c for c in CONDITIONS if results["conditions"].get(c, {}).get("error")]
+    if failed:
+        raise SystemExit(f"right-pane-open: {', '.join(failed)} did not finish (the table has every condition that did)")
 
+
+def run_condition(condition, runs, home, chats, load, results, info):
+    """One condition on a fresh app. `runs` holds the app now launched (["run"]), so an error part way through
+    still ends it before the next condition."""
+    if runs.get("run"):
+        runs["run"].end()
+    wipe_state(APP)
+    run = runs["run"] = Run(home)
+    run.launch()
+    if not results.get("app_version"):
+        results["app_version"] = (run.app.identify() or {}).get("version")
+    time.sleep(5)  # test script: let launch work end before the chat opens
+    chat = Chat(run)
+    chat.open(chats[condition])
+    if condition == "stress":
+        stress = chat.stress
+        stress.busy_where = "elsewhere"
+        started = time.monotonic()
+        stress.build_background()
+        stress.build_measured()
+        info["stress_build_s"] = round(time.monotonic() - started, 1)
+        info["busy_terminals"] = len(getattr(stress, "busy", []))
+        chat.show()
+        load.start(run.sock)
+        time.sleep(opts.settle)  # test script: the load reaches steady state
+    if condition == "restart":
+        for _ in range(opts.restarts):
+            run.quit()
+            run.launch()
+            chat = Chat(run)
+            chat.find()
+            info.setdefault("restored_panes", []).append(chat.pane)
+            run_surfaces(run, chat, condition, results, 1)
+    else:
+        run_surfaces(run, chat, condition, results, opts.runs)
 
 if __name__ == "__main__":
     main()

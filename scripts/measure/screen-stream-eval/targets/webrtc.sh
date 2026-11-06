@@ -17,7 +17,10 @@ host_start() {
     "$EVAL_BIN/cmux-vnc-host" --capture --name "screen stream eval" >>"$EVAL_STATE/host.log" 2>&1 &
   echo $! >"$EVAL_STATE/host.pid"
   for _ in $(seq 1 300); do
-    grep -q "waiting for a viewer" "$EVAL_STATE/host.log" && return 0
+    if grep -q "waiting for a viewer" "$EVAL_STATE/host.log"; then
+      watch_encode
+      return 0
+    fi
     kill -0 "$(cat "$EVAL_STATE/host.pid")" 2>/dev/null || break
     sleep 0.1 # bounded wait for the host's ready line (30 s: it registers with the device hub)
   done
@@ -26,7 +29,9 @@ host_start() {
   return 1
 }
 
-link() { grep -m1 -o 'cmux-vnc://pair[^ ]*' "$EVAL_STATE/host.log"; }
+# The pairing link: from the host's log, or from the host Mac (CMUX_VNC_STREAM_LINK, peer.py) when
+# this viewer runs on another Mac.
+link() { [[ -n "${CMUX_VNC_STREAM_LINK:-}" ]] && echo "$CMUX_VNC_STREAM_LINK" || grep -m1 -o 'cmux-vnc://pair[^ ]*' "$EVAL_STATE/host.log"; }
 
 # viewer FILTER LOG: one test viewer from the built test bundle, with the caller's env.
 viewer() {
@@ -35,14 +40,20 @@ viewer() {
 
 # The host's `video:` lines (every 3 s) carry libwebrtc's encode time averaged since the stream
 # started and the frames encoded so far; a watcher stamps each with the Unix ms it appeared at
-# (encode.jsonl), and per_interval turns consecutive lines into each interval's own mean.
+# (encode.jsonl), and the report verbs turn consecutive lines into each interval's own mean. It runs
+# with the host (host-start to host-stop), and ends by itself when the host process is gone.
 watch_encode() {
   python3 -I -u -c '
 import json, os, re, sys, time
-path, parent = sys.argv[1], os.getppid()
+path, host = sys.argv[1], int(sys.argv[2])
+def alive():
+    try:
+        os.kill(host, 0)
+        return True
+    except OSError:
+        return False
 with open(path) as log:
-    log.seek(0, os.SEEK_END)
-    while os.getppid() == parent:  # ends with the target script that started it
+    while alive():
         line = log.readline()
         if not line:
             time.sleep(0.2)  # follow the host log
@@ -50,7 +61,7 @@ with open(path) as log:
         m = re.search(r" encoded (\d+) .* encode ([0-9.]+) ms ", line)
         if m:
             print(json.dumps({"unix_ms": int(time.time() * 1000), "encoded": int(m.group(1)), "mean_ms": float(m.group(2))}), flush=True)
-' "$EVAL_STATE/host.log" >"$EVAL_STATE/encode.jsonl" &
+' "$EVAL_STATE/host.log" "$(cat "$EVAL_STATE/host.pid")" >"$EVAL_STATE/encode.jsonl" &
   echo $! >"$EVAL_STATE/encode-watch.pid"
 }
 stop_watch() {
@@ -69,6 +80,7 @@ case "$verb" in
     ;;
   host-start) host_start ;;
   host-stop)
+    stop_watch
     if [[ -f "$EVAL_STATE/host.pid" ]]; then
       pid=$(cat "$EVAL_STATE/host.pid")
       kill "$pid" 2>/dev/null || true
@@ -80,8 +92,9 @@ case "$verb" in
       rm -f "$EVAL_STATE/host.pid"
     fi
     ;;
-  latency)
-    input=$1 samples=$2 out=$3
+  latency-view)
+    # latency-view INPUT SAMPLES RAW
+    input=$1 samples=$2 raw=$3
     # The marker logs its geometry in cmux.rd stream pixels (that stream is capped at 3840 px wide)
     # and in points. The WebRTC host captures the display at its native size, so the reader gets
     # fractions of the frame, which do not depend on either stream's scale: one cell is cell_pt
@@ -105,18 +118,23 @@ print(cell / dw, top / (int(width * dh / dw) & ~1))' "$width" "$cell" "$top" "$d
     origin_fraction=${fractions#* }
     kind=key
     [[ $input == pointer ]] && kind=click
-    watch_encode
     CMUX_RD_MARKER_CELL_FRACTION=$cell_fraction CMUX_RD_MARKER_ORIGIN_Y=$origin_fraction \
       CMUX_RD_MARKER_SAMPLES=$samples CMUX_RD_MARKER_INPUT=$kind \
-      viewer RdMarkerClickLatencyTests "$EVAL_STATE/latency-$input.log" || true
-    stop_watch
-    sed -n 's/^rdmarker: //p' "$EVAL_STATE/latency-$input.log" | tail -1 >"$EVAL_STATE/latency-$input.raw.json"
-    python3 -I - "$EVAL_STATE/latency-$input.raw.json" "$out" "$EVAL_STATE/encode.jsonl" <<'EOF'
-import json, sys
-text = open(sys.argv[1]).read().strip()
-raw = json.loads(text) if text else {}
-lines = [json.loads(l) for l in open(sys.argv[3]) if l.strip()]
-# The run's own encode mean: the first and last cumulative lines' difference.
+      viewer RdMarkerClickLatencyTests "$raw" || true
+    ;;
+  latency-report)
+    # latency-report INPUT RAW OUT: RAW.span (the view's start and end, on this Mac's wall clock) cuts
+    # the host's encode lines to the view.
+    input=$1 raw=$2 out=$3
+    python3 -I - "$raw" "$out" "$EVAL_STATE/encode.jsonl" "$raw.span" <<'EOF'
+import json, os, sys
+line = next((l[len("rdmarker: "):] for l in reversed(open(sys.argv[1]).read().splitlines()) if l.startswith("rdmarker: ")), "")
+raw = json.loads(line) if line.strip() else {}
+span = json.load(open(sys.argv[4])) if os.path.exists(sys.argv[4]) else {}
+lines = [json.loads(l) for l in open(sys.argv[3]) if l.strip()] if os.path.exists(sys.argv[3]) else []
+if span:
+    lines = [l for l in lines if span["start_unix_ms"] <= l["unix_ms"] <= span["end_unix_ms"]]
+# The view's own encode mean: the first and last cumulative lines' difference.
 encode = None
 if len(lines) >= 2 and lines[-1]["encoded"] > lines[0]["encoded"]:
     a, b = lines[0], lines[-1]
@@ -133,38 +151,49 @@ json.dump({
 }, open(sys.argv[2], "w"))
 EOF
     ;;
-  window)
-    seconds=$1 snapshot=$2 go=$3 out=$4
-    watch_encode
-    log="$EVAL_STATE/window.log"
-    : >"$log"
-    CMUX_EVAL_WINDOW_S=$seconds CMUX_EVAL_SNAPSHOT=$snapshot viewer StreamWindowTests "$log" &
+  window-view)
+    # window-view SECONDS SNAPSHOT GO RAW
+    seconds=$1 snapshot=$2 go=$3 raw=$4
+    : >"$raw"
+    # The viewer creates GO itself at its first frame: swift test holds its output back until the
+    # test ends, so a printed line would start the scene late (2026-11-05: GO 60 s late, after the
+    # wait below ran out, put typing and scrolling past the window's end).
+    CMUX_EVAL_WINDOW_S=$seconds CMUX_EVAL_SNAPSHOT=$snapshot CMUX_EVAL_GO=$go viewer StreamWindowTests "$raw" &
     pid=$!
     for _ in $(seq 1 600); do
-      grep -q 'streamwindow: first frame' "$log" && break
+      [[ -e "$go" ]] && break
       kill -0 "$pid" 2>/dev/null || break
       sleep 0.1 # bounded wait for the first frame (60 s: the test viewer starts, then connects)
     done
+    [[ -e "$go" ]] || echo "webrtc: no first frame within 60 s; the scene starts anyway" >&2
     touch "$go"
     wait "$pid" || true
-    stop_watch
-    python3 -I - "$log" "$out" "$EVAL_STATE/encode.jsonl" <<'EOF'
-import json, sys
+    ;;
+  window-report)
+    # window-report RAW OUT: the per-second rows on the host's wall clock (EVAL_PEER_WALL_OFFSET_MS),
+    # each with the host's encode mean over the 3 s interval it falls in.
+    raw=$1 out=$2
+    python3 -I - "$raw" "$out" "$EVAL_STATE/encode.jsonl" "${EVAL_PEER_WALL_OFFSET_MS:-0}" <<'EOF'
+import json, os, sys
 lines = [l[len("streamwindow: "):] for l in open(sys.argv[1]) if l.startswith("streamwindow: {")]
 if not lines:
     sys.exit("webrtc: the window viewer printed no report")
 raw = json.loads(lines[-1])
+offset = float(sys.argv[4])
 # Each 3 s interval's own encode mean, from consecutive cumulative lines, given to the seconds it covers.
-stamps = [json.loads(l) for l in open(sys.argv[3]) if l.strip()]
+stamps = [json.loads(l) for l in open(sys.argv[3]) if l.strip()] if os.path.exists(sys.argv[3]) else []
 intervals = []
 for a, b in zip(stamps, stamps[1:]):
     if b["encoded"] > a["encoded"]:
         intervals.append((a["unix_ms"], b["unix_ms"], (b["mean_ms"] * b["encoded"] - a["mean_ms"] * a["encoded"]) / (b["encoded"] - a["encoded"])))
 def encode_at(ms):
     return next((v for start, end, v in intervals if start < ms <= end), None)
-series = [{"unix_ms": s["unix_ms"], "bytes": s["bytes"], "frames": s["frames"],
-           "decode_ms": s["decode_ms_mean"] if s["decode_ms_mean"] >= 0 else None,
-           "encode_ms": encode_at(s["unix_ms"]), "rtt_ms": s.get("rtt_ms"), "jitter_buffer_ms": s.get("jitter_buffer_ms")} for s in raw["series"]]
+series = []
+for s in raw["series"]:
+    at = round(s["unix_ms"] + offset)
+    series.append({"unix_ms": at, "bytes": s["bytes"], "frames": s["frames"],
+                   "decode_ms": s["decode_ms_mean"] if s["decode_ms_mean"] >= 0 else None,
+                   "encode_ms": encode_at(at), "rtt_ms": s.get("rtt_ms"), "jitter_buffer_ms": s.get("jitter_buffer_ms")})
 json.dump({"series": series,
            "extra": {k: raw.get(k) for k in ("codec", "decoder", "packets_lost", "frames_dropped", "freezes")}}, open(sys.argv[2], "w"))
 EOF

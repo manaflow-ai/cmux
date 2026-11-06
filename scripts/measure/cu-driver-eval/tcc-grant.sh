@@ -57,7 +57,34 @@ for path in "$@"; do
   done
   echo "tcc-grant.sh: granted ${clients[*]} (csreq ${csreq:0:4})"
 done
-sudo -n launchctl kickstart -k system/com.apple.tccd >/dev/null 2>&1 || true
+# The system tccd must restart to read the new rows: one that kept running answered a run's checks
+# from its old state ("Query for current DB state returns error: 1") and denied every grant. So
+# restart it until its pid changes, and say so. It starts on demand, so gone counts as restarted. A
+# restart that can't be confirmed is only a warning: guest-start.sh runs this under set -e, and the
+# eval checks the grants itself.
+tccd_pid() { sudo -n launchctl print "$1" 2>/dev/null | awk '$1 == "pid" {print $3; exit}'; }
+# The system daemon's label is com.apple.tccd.system (com.apple.tccd is the per-user agent, and
+# system/com.apple.tccd does not exist, so restarting it silently did nothing); use whichever is loaded.
+tccd=system/com.apple.tccd.system
+for label in system/com.apple.tccd.system system/com.apple.tccd; do
+  sudo -n launchctl print "$label" >/dev/null 2>&1 && { tccd=$label; break; }
+done
+before=$(tccd_pid "$tccd")
+after=$before
+for attempt in 1 2 3; do
+  if (( attempt < 3 )); then
+    sudo -n launchctl kickstart -k "$tccd" >/dev/null 2>&1 || true
+  else
+    sudo -n launchctl kill SIGKILL "$tccd" >/dev/null 2>&1 || true
+  fi
+  for _ in $(seq 1 20); do
+    sleep 0.5
+    after=$(tccd_pid "$tccd")
+    [[ "$after" != "$before" ]] && break 2
+  done
+done
+echo "tcc-grant.sh: $tccd pid ${before:-none} -> ${after:-none}"
+[[ "$after" != "$before" ]] || echo "tcc-grant.sh: warning: the system tccd did not restart" >&2
 # The user's tccd may hold an earlier answer; from inside the login session this restarts it too.
 launchctl kickstart -k "gui/$(id -u)/com.apple.tccd" >/dev/null 2>&1 || true
 sleep 2 # tccd answers once it has reread the databases

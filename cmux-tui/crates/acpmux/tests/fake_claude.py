@@ -47,7 +47,8 @@ turn (with FAKE_CLAUDE_BACKGROUND_SILENT_END=1 the turn ends at once and the
 shell moves <ms> after). FAKE_CLAUDE_BACKGROUND_TWICE waits for two requests,
 answers the first `backgrounded: true` and the second false, and moves the
 shell before the second answer ("moved") or after it ("answered"); the
-shell's tool result then names its output file. FAKE_CLAUDE_FG_WAIT_S (20
+shell's tool result then names its output file. FAKE_CLAUDE_FG_TIMEOUT_MS gives the
+Bash call that `timeout` (a wait the agent declared). FAKE_CLAUDE_FG_WAIT_S (20
 by default) is how long the shell waits for a control request before the
 turn ends by itself. With FAKE_CLAUDE_FLOOD_GATE=<fifo>, the shell first
 says "before-flood", reads the fifo, then streams FAKE_CLAUDE_FLOOD (8000)
@@ -153,13 +154,13 @@ def is_cmux_guidance(block):
     if not isinstance(block, dict):
         return False
     source = (block.get("_meta") or {}).get("acpmux", {}).get("contextSource")
-    if source in {"cmux-default", "cmux-user", "cmux-project"}:
+    if source in {"cmux-default", "cmux-user", "cmux-project", "cmux-guidance"}:
         return True
     # Only the guidance blocks (`context_inventory::override_block`): the forum's rules, a side
     # question's chat and attachments are cmux-*-context blocks Claude must read.
     text = block.get("text", "")
     return isinstance(text, str) and text.lstrip().startswith(
-        ("<cmux-default-context>", "<cmux-user-context>", "<cmux-project-context>"))
+        ("<cmux-default-context>", "<cmux-user-context>", "<cmux-project-context>", "<cmux-guidance-context>"))
 
 
 def command_text(content):
@@ -476,8 +477,11 @@ def flood():
 def fg_shell():
     """The "fg-shell" turn (module doc). Like Claude Code 2.1.305, background_tasks
     answers `backgrounded`: false when its tool_use_id names no foreground task."""
+    shell = {"command": "npm run build", "description": "Build"}
+    if os.environ.get("FAKE_CLAUDE_FG_TIMEOUT_MS"):
+        shell["timeout"] = int(os.environ["FAKE_CLAUDE_FG_TIMEOUT_MS"])
     send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_fg", "name": "Bash",
-          "input": {"command": "npm run build", "description": "Build"}}]}})
+          "input": shell}]}})
     send({"type": "system", "subtype": "task_started", "task_id": "f1", "tool_use_id": "toolu_fg",
           "description": "Build", "task_type": "local_bash", "is_backgrounded": False})
     flood()

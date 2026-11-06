@@ -17,7 +17,7 @@ import { Spinner } from "./icons";
 import { BackgroundHint } from "./BackgroundHint";
 import { useSubsessionInfo } from "../subagents/subsessions";
 import { ShimmerText } from "./ShimmerText";
-import { formatDuration } from "./turns";
+import { formatDuration, spanDuration } from "./turns";
 import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
 import { compactTokens, hasTokens, tokenDetail, TurnTokens } from "./TurnTokens";
 import { verbLeads } from "./ToolVerb";
@@ -79,6 +79,31 @@ function useQuiet(key: string | undefined, ms: number, since?: number, now: () =
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- `since` only seeds the mounted key
   }, [key, ms]);
   return quiet;
+}
+
+/// The words the live line said before its latest change, and how many changes it has rolled.
+type Roll = { key?: string; label: string; lead?: { lead: string; rest: string }; turns: number; out?: Roll };
+
+/// The live line rolls its words when they change (Leo, 2026-11-05, on another app's status line:
+/// "this is quite good too how it animates the changing text!!! we need to have that!!! for
+/// changing tool calls at the bottom"): the old words rise and fade out above as the new rise in
+/// from below (conversation.css `cv-roll-*`). `key` names what the line says; the playful verb's
+/// own rotation keeps one key, so only a new call or state rolls. Undefined (the line waits on the
+/// person, retries or shows a start look) rolls nothing, and neither do the first words after it.
+function useRoll(key: string | undefined, label: string, lead: Roll["lead"]): Roll {
+  const [roll, setRoll] = useState<Roll>({ key, label, lead, turns: 0 });
+  if (key !== roll.key) {
+    const rolls = key !== undefined && roll.key !== undefined;
+    setRoll({
+      key,
+      label,
+      lead,
+      // Away clears the count too: the words that come back draw no roll in.
+      turns: key === undefined ? 0 : roll.turns + (rolls ? 1 : 0),
+      out: rolls ? { ...roll, out: undefined } : undefined,
+    });
+  } else if (label !== roll.label) setRoll({ ...roll, label, lead });
+  return roll;
 }
 
 /// The live line's words split as Claude Code draws them: the action in full ink ("Using repo",
@@ -223,6 +248,9 @@ export function Thinking({
               : t(done ? "tools.ranUnnamed" : "tools.runningUnnamed")
           : doing;
   const lead = doing === undefined ? undefined : liveLead(label, verbLeads(t), !doingShell && sendName === undefined);
+  // A retry or a start look draws other words in place of the line: coming back rolls nothing.
+  const away = waiting !== undefined || retry !== undefined || startLook !== "thinking";
+  const roll = useRoll(away ? undefined : decorative ? "" : label, label, lead);
   const turnTime = timed ? formatDuration(Math.max(0, time - from)) : undefined;
   // Past the first step a finished step's own time stands beside the label, and the turn's clock
   // follows it after a dot: "Ran grep -n x 2s · 15s" (Leo, 2026-11-03: "i think the "thinking"
@@ -235,7 +263,8 @@ export function Thinking({
   // What stands beside the label then, never a clock that starts again at a call (Leo, 2026-11-01:
   // "it should just keep going"): a finished step's own start to end, or the turn's summed thinking.
   const ownMs = doing === undefined ? (waitsOnAgents || writing ? undefined : thoughtMs) : done ? doneMs : undefined;
-  const own = total && ownMs !== undefined ? formatDuration(ownMs) : undefined;
+  // Under a second it says its milliseconds, as the step's own row does ("856ms"), never "0s".
+  const own = total && ownMs !== undefined ? spanDuration(t, ownMs) : undefined;
   const elapsed = own ?? turnTime;
   // The turn's generated output tokens so far (WorkingFor.tsx), on the line while it times the turn; and, with the
   // running tray off, the work still going in the background, each count opening what it counts
@@ -303,8 +332,21 @@ export function Thinking({
         </output>
       ) : (
         <span className="cv-shimmer__row">
+          {/* The words before, rolling out above: drawn from attributes, so no reader, Find or copy
+              meets them twice (conversation.css `cv-roll-out`); keyed by the change, so each rolls. */}
+          {roll.out && (
+            <span
+              key={roll.turns}
+              className="cv-roll-out"
+              aria-hidden="true"
+              inert
+              data-lead={roll.out.lead?.lead}
+              data-text={roll.out.lead ? roll.out.lead.rest : roll.out.label}
+            />
+          )}
           <output
             className="cv-thinking is-shimmer"
+            data-roll={roll.turns === 0 ? undefined : roll.turns % 2 ? "odd" : "even"}
             aria-label={decorative ? t("thinking") : undefined}
             aria-live={decorative ? "off" : undefined}
           >

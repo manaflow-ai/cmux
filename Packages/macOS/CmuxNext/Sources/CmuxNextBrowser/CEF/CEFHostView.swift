@@ -108,18 +108,16 @@ final class CEFHostView: NSView {
         updateBackground()
     }
 
-    /// Until Chromium's page window shows its first frame, the page area
-    /// follows the shared pane ground. It stays clear over Liquid Glass so
-    /// the window backdrop remains visible. During a live resize it takes
-    /// the page's own background (`pageBackdrop`). Under a see-through page
-    /// (`pageSeeThrough`) it paints nothing, so the page shows what a WebKit
-    /// page shows.
+    /// Once the page's own background is known (`pageBackdrop`) the page area takes it, so the gap beside a page that is
+    /// still at its last, smaller frame shows the page's color in every motion frame (m20 item 1: a key resize, a drag, a
+    /// spring and the window's live resize); at rest the page covers it. Before that it follows the shared pane ground,
+    /// clear over Liquid Glass so the window backdrop shows. Under a see-through page (`pageSeeThrough`) it paints nothing.
     private func updateBackground() {
         if pageSeeThrough {
             layer?.backgroundColor = nil
             return
         }
-        if inLiveResize, let pageBackdrop {
+        if let pageBackdrop {
             layer?.backgroundColor = pageBackdrop
             return
         }
@@ -379,13 +377,16 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     /// The edges a key resize's hold keeps the page on (FRAME OWNER S3); nil: a drag's top-leading corner.
     var pageMotionHold: PaneMotionHold?
     /// The key resize's hold keeps the page on the page area's top-left corner, as a drag does
-    /// (`BrowserResizeTunables.keyResizeTopLeft`, latched when the hold begins: a flip applies from the next hold).
+    /// (set when a key hold begins).
     var pageHoldTopLeft = false
     /// The page windows told of a page sync (a resize-sync drag, or an S5 key resize or drag: `CEFTabContentView+PageSync`),
     /// to tell its end wherever the page is by then; empty otherwise.
     var syncedDragHostings: [CEFLayerHosting] = []
     /// Why this container's page windows wait for their frame at each pane size now; empty: they do not.
     var pageSyncReasons: Set<CEFPageSyncReason> = []
+    /// The page window this container told of a resize motion (a drag or a key hold), to tell its end wherever the
+    /// page is by then (``CEFLayerHosting/resizeMotion(active:)``); nil otherwise.
+    var motionHosting: CEFLayerHosting?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -409,8 +410,10 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     }
 
     override func setFrameSize(_ newSize: NSSize) {
+        let wasEmpty = bounds.isEmpty
         super.setFrameSize(newSize)
         tab?.deviceEmulationViewDidResize()
+        tab?.pageWindowHostDidResize(wasEmpty: wasEmpty)
     }
 
     override func viewDidMoveToWindow() {
@@ -419,6 +422,7 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
             dropHold()
             // A container leaving the window (its tab closed or moved mid-resize) may never hear the resize's end.
             endAllPageSync()
+            paneMotion(active: false)
         }
         guard let tab else { return }
         tab.pageThemeDidChange()
@@ -544,17 +548,16 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
         guard active else {
             endPageSync(.drag)
             // A key resize's page hold (FRAME OWNER S3) is its pane's to end, not the drag's.
-            guard heldPageSize != nil, pageMotionHold == nil else { return }
-            dropHold()
-            layoutContent()
+            if heldPageSize != nil, pageMotionHold == nil {
+                dropHold()
+                layoutContent()
+            }
+            // After the landing's layout: the page window comes back once, at the final size.
+            if pageMotionHold == nil { paneMotion(active: false) }
             return
         }
-        if Self.syncsDragResize {
-            beginPageSync(.drag)
-            return
-        }
-        guard BrowserResizeTunables.dragResize.value == .hold else { return }
-        startPageHold()
+        paneMotion(active: true)
+        beginPageSync(.drag)
     }
 
     /// The page keeps the size it has now; false when it cannot (not a plain page here, no size, out of a window).

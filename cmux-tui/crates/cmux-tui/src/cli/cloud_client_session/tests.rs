@@ -589,3 +589,20 @@ fn create_on_a_machine_without_client_sessions_still_fails() {
         .unwrap_err();
     assert!(message.contains("cloud.provider.unsupported"), "{message}");
 }
+
+/// A machine named on one backend is never minted on another: the fake behind the second scope
+/// gets no request (lens review 2026-11-05, finding 2).
+#[test]
+fn a_machine_from_another_backend_is_refused_before_any_request() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let (origin, seen) = fake(1);
+    let here = Scope::new(&origin, Some("team_a")).unwrap();
+    let elsewhere = Scope::new("https://cloud-api.cmux.dev", Some("team_a")).unwrap();
+    let machine = elsewhere.machine(VM).unwrap();
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let client = reqwest::Client::new();
+    let refusal =
+        runtime.block_on(mint_session(&client, &here, "cred", &machine, None)).unwrap_err();
+    assert!(refusal.message.contains("nothing was sent"), "{}", refusal.message);
+    assert!(seen.recv_timeout(Duration::from_millis(200)).is_err());
+}
