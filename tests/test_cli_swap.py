@@ -96,6 +96,37 @@ class CliSwapTests(unittest.TestCase):
         self.run_cli("undo")
         self.assertEqual(os.readlink(link), str(other))
 
+    def test_a_name_someone_else_has_is_never_replaced_or_removed(self):
+        os.environ["PATH"] = f"{self.bundled.parent}:/usr/bin:/bin"
+        theirs = self.home / ".local/bin/cmux-37024"
+        theirs.parent.mkdir(parents=True)
+        theirs.write_text("a person's own script\n")
+        code, out = self.apply("--name", "37024")
+        self.assertEqual(code, 1)
+        self.assertIn("not from cli-swap", out)
+        self.run_cli("undo")
+        self.assertEqual(theirs.read_text(), "a person's own script\n")
+        # Its own name, applied twice, is replaced and then removed.
+        self.assertEqual(self.apply("--name", "mine")[0], 0)
+        self.assertEqual(self.apply("--name", "mine")[0], 0)
+        self.run_cli("undo")
+        self.assertFalse((self.home / ".local/bin/cmux-mine").is_symlink())
+
+    def test_a_link_applied_twice_goes_back_to_what_it_was_first(self):
+        links = self.tmp / "usr-local-bin"
+        links.mkdir()
+        other = self.tmp / "installed" / "cmux"
+        other.parent.mkdir()
+        other.write_text("install script's build\n")
+        other.chmod(0o755)
+        link = links / "cmux"
+        link.symlink_to(other)
+        os.environ["PATH"] = f"{links}:/usr/bin:/bin"
+        self.assertEqual(self.apply()[0], 0)
+        self.assertEqual(self.apply()[0], 0)
+        self.run_cli("undo")
+        self.assertEqual(os.readlink(link), str(other))
+
     def test_a_wrong_sha256_changes_nothing(self):
         os.environ["PATH"] = f"{self.bundled.parent}:/usr/bin:/bin"
         code, out = self.apply("--sha", "0" * 64)

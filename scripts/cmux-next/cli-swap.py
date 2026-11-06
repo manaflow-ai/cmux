@@ -107,15 +107,25 @@ def command_apply(args) -> int:
     found = terminal_cmux(args.app)
     records = load(state)
     if found and not in_app_bundle(found) and found.is_symlink():
-        records.append({"kind": "link", "path": str(found), "previous": os.readlink(found)})
+        # A second apply keeps the first's record, so undo points the link at what it was before any.
+        record = next((r for r in records if r["kind"] == "link" and r["path"] == str(found)), None)
+        if record is None:
+            record = {"kind": "link", "path": str(found), "previous": os.readlink(found)}
+            records.append(record)
         relink(found, str(copy))
         save(state, records)
-        print(f"cli-swap: `cmux` is {copy} now ({found} pointed at {records[-1]['previous']})")
+        print(f"cli-swap: `cmux` is {copy} now ({found} pointed at {record['previous']})")
         return 0
     name = f"cmux-{args.name or args.tree_key[:12]}"
     alias = Path.home() / ".local/bin" / name
     alias.parent.mkdir(parents=True, exist_ok=True)
-    if not any(r["kind"] == "alias" and r["path"] == str(alias) for r in records):
+    ours = any(r["kind"] == "alias" and r["path"] == str(alias) for r in records)
+    if not ours and (alias.exists() or alias.is_symlink()):
+        # Someone else's file or link: never replaced, so undo never removes it.
+        print(f"cli-swap: {alias} is already there and not from cli-swap; nothing changed (pick another --name)",
+              file=sys.stderr)
+        return 1
+    if not ours:
         records.append({"kind": "alias", "path": str(alias)})
     relink(alias, str(copy))
     save(state, records)
