@@ -742,3 +742,44 @@ fn clone_job_releases_only_successful_repository_sync() {
     assert_eq!(seed(&world, &clone_params(&failed, Some("no-such-branch")))["state"], "failed");
     assert!(matches!(probe(&failed).unwrap(), Probe::Incomplete));
 }
+
+/// A clone that went through `cmux github credential` leaves the checkout
+/// asking it, so the agent's own `git push` there gets a token; an
+/// anonymous clone leaves no helper.
+#[test]
+fn a_clone_through_the_cloud_agent_keeps_its_helper_for_push() {
+    const HELPER: &str = "!'/opt/cmux/bin/cmux' github credential";
+    let world = World::new("keephelper");
+    let remote = format!("file://{}", world.remote.display());
+    let config = Config {
+        git: Git {
+            extra_config: vec![
+                format!("url.{remote}.insteadOf={URL}"),
+                "protocol.file.allow=always".into(),
+            ],
+        },
+        credentials: Some(vec![Credential::CmuxGithub(HELPER.into())]),
+    };
+    let service = GitSeedService::with_config(Roots::new([world.home.path.clone()]), config);
+    let folder = world.home.join("pushable");
+    let job = start(&service, &clone_params(&folder, None)).unwrap();
+    assert_eq!(wait(&service, &job)["state"], "done");
+    let helpers =
+        git(&folder, &["config", "--local", "--get-all", "credential.https://github.com.helper"]);
+    assert_eq!(helpers, format!("\n{HELPER}"), "an empty reset, then the agent's helper");
+    assert_eq!(
+        git(&folder, &["config", "--local", "credential.https://github.com.useHttpPath"]),
+        "true"
+    );
+    // Anonymous: nothing to keep.
+    let anonymous = world.home.join("anonymous");
+    assert_eq!(seed(&world, &clone_params(&anonymous, None))["state"], "done");
+    let none = Command::new("git")
+        .arg("-C")
+        .arg(&anonymous)
+        .args(["config", "--local", "--get-all", "credential.https://github.com.helper"])
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .output()
+        .unwrap();
+    assert!(!none.status.success(), "an anonymous clone keeps no helper");
+}
