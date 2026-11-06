@@ -235,10 +235,16 @@ struct WindowDockWindowTests {
                                                     invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.id)))
                 }
             }
-            let refused = moveToDock(pane)
+            // The fixture has no daemon connection, so no move echoes: the run shows one move-tab-to-workspace per
+            // tab of the pane, each the daemon's work the run tracks (and each fails here for want of a daemon).
+            var refused: String?
+            let work = f.services.registry.capturingWork { refused = moveToDock(pane) }
             #expect(refused == nil, "refused: \(refused ?? "-")")
-            try await PasswordManagerRouteTests.until({ Set(moving).isSubset(of: Set(f.tabs("k0"))) },
-                                                     report: { "k0 \(f.tabs("k0")), k2 \(f.tabs("k2"))" })
+            #expect(work.count == moving.count, "\(work.count) moves for \(moving.count) tabs")
+            for task in work {
+                let failure = await task.value
+                #expect(failure?.message.contains("move-tab-to-workspace") == true, "not a tab move: \(String(describing: failure))")
+            }
 
             let docked = try #require(f.services.workspace(id: "k0")?.screens.first?.panes.first)
             #expect(moveToDock(docked) == RefusalStrings.paneAlreadyInDock)
