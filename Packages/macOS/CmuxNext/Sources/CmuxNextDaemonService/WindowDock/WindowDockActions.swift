@@ -126,7 +126,7 @@ public struct WindowDockActions {
             return .done
         }
         // task-owner: one Home for this window (one daemon round trip), then the dock; nothing to show before it.
-        registry.track(Task { @MainActor [weak frame] in
+        registry.track(Task { [weak frame] in
             guard let frame, let made = await host.chiefMakeHome(in: frame.frameWindowID) else {
                 return ActionWorkFailure(RefusalStrings.chiefDockUnavailable)
             }
@@ -152,7 +152,7 @@ public struct WindowDockActions {
         }
         let edge = host.chiefDockEdge
         // task-owner: the pane's moves into a new workspace (bounded by the daemon's replies), then the dock.
-        registry.track(Task { @MainActor [weak frame] in
+        registry.track(Task { [weak frame] in
             guard let made = await host.dockMovePaneToNewWorkspace(invocation) else { return ActionWorkFailure(RefusalStrings.dockWorkspaceGone) }
             frame?.frameClaim(made)
             frame?.frameDockWhenReported(made, at: edge)
