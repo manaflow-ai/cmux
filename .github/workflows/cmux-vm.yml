@@ -867,8 +867,10 @@ jobs:
     if: >-
       always() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' &&
       startsWith(github.event.head_commit.message, 'cmux-vm: image roll ')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 15
+    # The push App key is a repository secret; the environment (feat-cmux-next only) bounds who can reach it.
+    environment: cmux-vm-production
     permissions:
       contents: write
       issues: write

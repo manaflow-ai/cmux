@@ -127,13 +127,15 @@ jobs:
       layered: true
       roll: true
       cmux_tui_commit: ${{ needs.plan.outputs.pin }}
-    secrets: inherit
+    # No secrets pass: the bake job reads its Freestyle key from its own environment (cmux-next-vm-image-dev).
 
   promote:
     needs: [plan, bake]
     if: needs.plan.outputs.roll == 'true' && needs.bake.result == 'success' && needs.bake.outputs.candidate != ''
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 15
+    # A production change: the environment that deploys production (feat-cmux-next only) bounds the push App key.
+    environment: cmux-vm-production
     permissions:
       contents: read
     outputs:
@@ -208,7 +210,7 @@ jobs:
             ${{ runner.temp }}/message.txt
             ${{ runner.temp }}/approve.json
           if-no-files-found: ignore
-          retention-days: 30
+          retention-days: 3
 
   # The record and, on a red gate or promotion, the loud part: an ::error, the summary and a comment on the
   # one open cloud-image-roll issue. The GITHUB_TOKEN writes both; its push to the record branch starts nothing.
