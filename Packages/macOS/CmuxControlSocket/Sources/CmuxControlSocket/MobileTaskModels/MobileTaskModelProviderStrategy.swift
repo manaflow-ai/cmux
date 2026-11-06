@@ -2,8 +2,6 @@ public import Foundation
 
 /// Provider-specific model discovery with injected process and filesystem I/O.
 public struct MobileTaskModelProviderStrategy: Sendable {
-    private static let codexModelsCommand = "exec codex debug models"
-
     /// Runs one login-shell command under a bounded timeout.
     public typealias CommandRunner = @Sendable (
         _ command: String,
@@ -13,6 +11,7 @@ public struct MobileTaskModelProviderStrategy: Sendable {
     public typealias FileReader = @Sendable (_ url: URL) async -> Data?
 
     private let homeDirectory: URL
+    private let environment: [String: String]
     private let commandRunner: CommandRunner
     private let fileReader: FileReader
     private let parser: MobileTaskModelParser
@@ -21,16 +20,20 @@ public struct MobileTaskModelProviderStrategy: Sendable {
     ///
     /// - Parameters:
     ///   - homeDirectory: User home containing provider configuration.
+    ///   - environment: Environment the provider runs in. Codex honors
+    ///     `CODEX_HOME` and the cmux `CMUX_CUSTOM_CODEX_PATH` executable.
     ///   - commandRunner: Injected bounded login-shell command runner.
     ///   - fileReader: Injected asynchronous file reader.
     ///   - parser: Pure provider-output parser.
     public init(
         homeDirectory: URL,
+        environment: [String: String] = [:],
         commandRunner: @escaping CommandRunner,
         fileReader: @escaping FileReader,
         parser: MobileTaskModelParser = MobileTaskModelParser()
     ) {
         self.homeDirectory = homeDirectory
+        self.environment = environment
         self.commandRunner = commandRunner
         self.fileReader = fileReader
         self.parser = parser
@@ -62,7 +65,7 @@ public struct MobileTaskModelProviderStrategy: Sendable {
             }
             return discovered(models)
         case .codex:
-            let output = await commandRunner(Self.codexModelsCommand, .seconds(5))
+            let output = await commandRunner(codexModelsCommand, .seconds(5))
             let discoveredModels = output.map(parser.codexModels(from:)) ?? []
             if !discoveredModels.isEmpty {
                 return discovered(
@@ -70,8 +73,7 @@ public struct MobileTaskModelProviderStrategy: Sendable {
                     defaultModel: await codexDefaultModel(in: discoveredModels)
                 )
             }
-            let url = homeDirectory
-                .appendingPathComponent(".codex", isDirectory: true)
+            let url = codexHomeDirectory
                 .appendingPathComponent("models_cache.json")
             let models = await fileReader(url)
                 .map(parser.codexModels(from:)) ?? []
@@ -108,8 +110,11 @@ public struct MobileTaskModelProviderStrategy: Sendable {
         if commandReturnedOutput {
             error = .queryFailed
         } else {
+            let executable = provider == .codex
+                ? codexExecutable
+                : provider.rawValue
             let availability = await commandRunner(
-                "command -v \(provider.rawValue)",
+                "command -v \(executable)",
                 .seconds(2)
             )
             error = availability == nil ? .providerUnavailable : .queryFailed
@@ -136,14 +141,58 @@ public struct MobileTaskModelProviderStrategy: Sendable {
         in models: [MobileTaskModel]
     ) async -> MobileTaskModel? {
         guard !models.isEmpty else { return nil }
-        let url = homeDirectory
-            .appendingPathComponent(".codex", isDirectory: true)
+        let url = codexHomeDirectory
             .appendingPathComponent("config.toml")
         guard let data = await fileReader(url),
               let configuredID = parser.codexConfiguredModel(from: data) else {
             return nil
         }
         return models.first { $0.id == configuredID }
+    }
+
+    private var codexModelsCommand: String {
+        let command = "exec \(codexExecutable) debug models"
+        // Pin the home the fallback files are read from, so a login-shell
+        // profile cannot point the command at a different account.
+        guard nonEmptyEnvironmentValue("CODEX_HOME") != nil else {
+            return command
+        }
+        return "CODEX_HOME=\(Self.shellQuoted(codexHomeDirectory.path)) \(command)"
+    }
+
+    /// Shell token for the Codex executable cmux sessions launch.
+    private var codexExecutable: String {
+        nonEmptyEnvironmentValue("CMUX_CUSTOM_CODEX_PATH").map(Self.shellQuoted) ?? "codex"
+    }
+
+    /// Codex state directory, following `CODEX_HOME` like the Codex CLI.
+    private var codexHomeDirectory: URL {
+        guard let codexHome = nonEmptyEnvironmentValue("CODEX_HOME") else {
+            return homeDirectory.appendingPathComponent(".codex", isDirectory: true)
+        }
+        let path: String
+        if codexHome == "~" {
+            path = homeDirectory.path
+        } else if codexHome.hasPrefix("~/") {
+            path = homeDirectory.path + "/" + codexHome.dropFirst(2)
+        } else {
+            path = codexHome
+        }
+        return URL(fileURLWithPath: path, isDirectory: true, relativeTo: homeDirectory)
+            .standardizedFileURL
+    }
+
+    private func nonEmptyEnvironmentValue(_ key: String) -> String? {
+        guard let value = environment[key]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+
+    private static func shellQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: #"'\''"#) + "'"
     }
 
     private static let claudeModelListCommand = #"""
