@@ -314,3 +314,23 @@ fn a_too_deep_file_is_refused() {
     assert_eq!(reply["error"]["details"]["extra"]["reason"], "too_deep", "{reply}");
     mux.shutdown();
 }
+
+/// Review 4 F1: a browser import whose rows are all unusable is refused and leaves the source's
+/// folder as it was.
+#[test]
+fn an_all_bad_source_import_leaves_the_folder_intact() {
+    let (mux, conn) = app();
+    let params = |items: Value| {
+        json!({"browser_profile_id": "default", "title": "Imported from Chrome",
+               "source_key": "chrome:Default", "items": items})
+    };
+    let items = json!([{"title": "A", "url": "https://a.test", "folder_path": []}]);
+    ok(send(&mux, &conn, "bookmarks.import_source", params(items), Some("b1")));
+    let bad = json!([{"title": "Bad", "url": "http://[bad", "folder_path": []}]);
+    let reply = send(&mux, &conn, "bookmarks.import_source", params(bad), Some("b2"));
+    assert_eq!(reply["ok"], false, "{reply}");
+    let listing =
+        ok(send(&mux, &conn, "bookmarks.list", json!({"browser_profile_id": "default"}), None));
+    assert_eq!(titles(&listing), ["Imported from Chrome", "A"]);
+    mux.shutdown();
+}

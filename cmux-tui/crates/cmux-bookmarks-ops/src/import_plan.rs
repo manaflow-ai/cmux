@@ -53,12 +53,17 @@ pub fn source(
     // Rows the store would refuse go first, so they never change the layout of the rest.
     let usable = items.iter().filter(|item| validate_url(&item.url).is_ok()).collect::<Vec<_>>();
     let skipped = items.len() - usable.len();
-    // The source's folder and its first level sit above each path.
-    if usable.iter().any(|item| item.folder_path.len() + 1 > MAX_BOOKMARK_DEPTH) {
-        return Err(too_deep());
+    // Rows, but none usable: refused, so the source's folder is not replaced by an empty one.
+    if !items.is_empty() && usable.is_empty() {
+        return Err(BookmarkError::invalid("no usable bookmarks: every row's URL is refused"));
     }
     let shared = usable.first().and_then(|item| item.folder_path.first());
     let strip = shared.is_some() && usable.iter().all(|item| item.folder_path.first() == shared);
+    // The source's folder, the path's folders (less the dropped first level) and the bookmark.
+    let levels = |item: &&SourceItem| 1 + item.folder_path.len() - usize::from(strip) + 1;
+    if usable.iter().any(|item| levels(item) > MAX_BOOKMARK_DEPTH) {
+        return Err(too_deep());
+    }
     let mut root = Builder::default();
     let mut added = 0;
     for item in usable {

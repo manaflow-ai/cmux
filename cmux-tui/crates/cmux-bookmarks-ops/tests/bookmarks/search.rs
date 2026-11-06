@@ -111,3 +111,14 @@ fn a_query_uses_at_most_max_terms_terms() {
     let ranked = rank([&github], &long, 0, 5);
     assert_eq!(ranked.len(), 1);
 }
+
+/// Review 4 F3: only the host is lowercased; user info holding the host's text keeps its case.
+#[test]
+fn the_same_page_key_lowercases_only_the_host() {
+    assert_eq!(
+        url_key("https://EXAMPLE:pw@Example.COM:8080/a"),
+        "https://EXAMPLE:pw@example.com:8080/a"
+    );
+    assert_eq!(url_key("https://Example.COM"), "https://example.com/");
+    assert_eq!(url_key("https://User@[::1]:80/x"), "https://User@[::1]:80/x");
+}

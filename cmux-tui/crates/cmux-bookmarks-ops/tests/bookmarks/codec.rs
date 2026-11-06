@@ -222,3 +222,29 @@ fn a_skipped_row_does_not_keep_the_shared_folder() {
     assert_eq!(plan.skipped, 1);
     assert_eq!(titles(plan.import.nodes[0].children.as_deref().unwrap_or_default()), ["A", "Work"]);
 }
+
+/// Review 4 F1: rows, but none usable, are refused, so the source's folder is not replaced.
+#[test]
+fn a_source_with_no_usable_row_is_refused() {
+    let items = [item("Bad", "http://[bad", &["Bar"]), item("Worse", "nope", &["Bar"])];
+    let refusal = import_plan::source("default", "T", "k", &items).unwrap_err();
+    assert!(refusal.message().contains("no usable bookmarks"), "{refusal}");
+}
+
+/// Review 4 F2: the bookmark counts toward the depth: under mixed first folders, a 63-folder path
+/// is 65 levels with the source's folder and the bookmark, and is refused here.
+#[test]
+fn a_sixty_three_folder_path_counts_the_bookmark() {
+    let deep = (0..63).map(|level| format!("F{level}")).collect::<Vec<_>>();
+    let deep = deep.iter().map(String::as_str).collect::<Vec<_>>();
+    let items =
+        [item("Deep", "https://deep.test/", &deep), item("Top", "https://top.test/", &["Other"])];
+    let refusal = import_plan::source("default", "T", "k", &items).unwrap_err();
+    assert_eq!(refusal.reason(), cmux_bookmarks_core::Reason::TooDeep);
+    // 62 folders is 64 levels: allowed.
+    let items = [
+        item("Deep", "https://deep.test/", &deep[..62]),
+        item("Top", "https://top.test/", &["Other"]),
+    ];
+    assert!(import_plan::source("default", "T", "k", &items).is_ok());
+}

@@ -165,7 +165,16 @@ pub fn url_key(url: &str) -> String {
     let scheme = scheme.to_ascii_lowercase();
     let Some(authority) = authority else { return format!("{scheme}:{tail}") };
     let host = host_of(authority);
-    let lowered = authority.replacen(host, &host.to_lowercase(), 1);
+    // Only the host component is lowercased; user info and port keep their case.
+    let (userinfo, host_port) = match authority.rsplit_once('@') {
+        Some((userinfo, host_port)) => (Some(userinfo), host_port),
+        None => (None, authority),
+    };
+    let port = host_port.get(host.len()..).unwrap_or_default();
+    let lowered = match userinfo {
+        Some(userinfo) => format!("{userinfo}@{}{port}", host.to_lowercase()),
+        None => format!("{}{port}", host.to_lowercase()),
+    };
     let tail = if tail.is_empty() || tail.starts_with(['?', '#']) && !host.is_empty() {
         format!("/{tail}")
     } else {
