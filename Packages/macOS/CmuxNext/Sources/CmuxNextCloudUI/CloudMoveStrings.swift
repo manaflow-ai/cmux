@@ -59,10 +59,10 @@ public struct CloudMoveStrings {
                machine, detail)
     }
     /// A Cloud start's folder that left this Mac after the start checked it (a worktree removed while the machine came up).
-    public static func folderGone(_ folder: String) -> String {
+    nonisolated public static func folderGone(_ folder: String) -> String {
         String(format: String(localized: "cloud.move.folderGone", defaultValue: "“%@” is no longer on this Mac. Pick another folder, or start without one.", table: "Cloud", bundle: .module), folder)
     }
-    public static var startWithoutFolder: String {
+    nonisolated public static var startWithoutFolder: String {
         String(localized: "cloud.move.startWithoutFolder", defaultValue: "Start Without a Folder", table: "Cloud", bundle: .module)
     }
     public static var unresolved: String {
