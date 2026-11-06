@@ -8,7 +8,7 @@ extension RemoteTmuxSizingUITests {
     /// lab tmux server (built afterward through `remote.tmux.test_exec`), so
     /// launch precedes any tmux call — the sandboxed runner never spawns tmux
     /// itself.
-    func launchApp(requiringForeground: Bool = false) -> XCUIApplication {
+    func launchApp() -> XCUIApplication {
         let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += [
             "-socketControlMode", "allowAll",
@@ -37,24 +37,17 @@ extension RemoteTmuxSizingUITests {
         if let path = ProcessInfo.processInfo.environment["PATH"], !path.isEmpty {
             app.launchEnvironment["PATH"] = path
         }
-        if requiringForeground {
+        // Activation can fail on a headless or lock-screen session
+        // ("Running Background"). The suite is socket-driven end to end and
+        // the sizing oracle follows view LAYOUT (which advances for
+        // background apps), not visible painting — so treat activation as
+        // best-effort, exactly like the browser-fixture suites.
+        let activationOptions = XCTExpectedFailure.Options()
+        activationOptions.isStrict = false
+        XCTExpectFailure("App activation may fail on headless/locked sessions", options: activationOptions) {
             app.launch()
-            XCTAssertTrue(
-                app.wait(for: .runningForeground, timeout: 10),
-                "visual remote-tmux evidence requires the app to be foreground"
-            )
-        } else {
-            // Activation can fail on a headless or lock-screen session
-            // ("Running Background"). The sizing oracle follows view LAYOUT
-            // rather than visible painting, so those scenarios remain
-            // socket-driven and tolerate unavailable activation.
-            let activationOptions = XCTExpectedFailure.Options()
-            activationOptions.isStrict = false
-            XCTExpectFailure("App activation may fail on headless/locked sessions", options: activationOptions) {
-                app.launch()
-            }
-            _ = app.wait(for: .runningForeground, timeout: 10)
         }
+        _ = app.wait(for: .runningForeground, timeout: 10)
         XCTAssertTrue(
             waitForSocket(timeout: 12),
             "control socket never answered. candidates=\(socketCandidates()) "

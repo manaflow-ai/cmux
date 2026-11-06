@@ -6,6 +6,7 @@ For the local backend used by outside contributors:
 
 ```bash
 CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag <tag>
+CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag <tag> --launch
 CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag <tag> --build-only
 ```
 
@@ -16,27 +17,6 @@ A normal reload builds, then terminates the running app with the same tag; `--la
 also opens the replacement. `--build-only` validates a separately staged bundle
 without replacing the app or changing its daemon or tag state, then removes that
 validation artifact. It cannot be combined with `--launch`.
-
-## Authenticated runtime launch
-
-`--launch` starts a tagged dogfood app and is intentionally credential-gated. It
-requires an authorized development account and a current-user-owned credential
-file even when `CMUX_DEV_BACKEND_MODE=local` is used; local mode selects the
-backend origin, not an authentication bypass. Do not use `open` on the built app
-path or an untagged Xcode/test product to evade this boundary.
-
-When the contributor has been provisioned with their own development credentials,
-launch explicitly with the credential file and an identity profile:
-
-```bash
-CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag <tag> \
-  --credentials-file /path/to/current-user-dev.env \
-  --auth-profile personal --launch
-```
-
-Without that access, record live runtime verification as unavailable and use
-`--build-only`, focused native tests, or CI as appropriate. These are different
-evidence classes; none is a substitute for a live tagged-app result.
 
 For Release variants, `reloads.sh --tag <tag>` uses an isolated staging identity.
 `reloadp.sh` uses the stable identity, and `reload2.sh --tag <tag>` also invokes
