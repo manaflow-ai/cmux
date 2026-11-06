@@ -197,9 +197,10 @@ class GoldenPathReceiptTests(unittest.TestCase):
         platform["failure"] = {**failure("auth.not_observable"), "stage": "auth"}
         result = receipt.normalize([cli_receipt(), platform, provider()])
 
-        self.assertEqual(result["status"], "blocked")
-        self.assertEqual(result["golden_path_stages"]["lease"], "ok")
-        self.assertEqual(result["golden_path_stages"]["auth"], "not_observable")
+        # Its auth stage passed, so the receipt-level gap repeats no gap stage of its own: a real failure.
+        self.assertEqual(result["status"], "fail")
+        self.assertEqual(result["golden_path_stages"]["lease"], "missing")
+        self.assertEqual(result["golden_path_stages"]["auth"], "failed")
 
     def test_receipt_level_failure_beside_passed_outcome_proves_nothing(self) -> None:
         platform = platform_receipt()

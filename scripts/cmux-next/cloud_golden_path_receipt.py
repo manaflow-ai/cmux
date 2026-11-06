@@ -65,10 +65,13 @@ _NESTED_TYPES = {"pause": {"state": str}, "resume": {"state": str}, "second_repl
 
 GAP_REASONS = ("not_observable", "no_route")
 
-def _gap(code: object) -> str | None:
-    """The gap reason of a `<stage>.<reason>` code that names what a route cannot see or run, else None."""
-    reason = code.rsplit(".", 1)[-1] if isinstance(code, str) and "." in code else None
-    return reason if reason in GAP_REASONS else None
+def _gap(stage: str, code: object) -> str | None:
+    """The gap reason when CODE is exactly `<stage>.not_observable` or `<stage>.no_route` for STAGE itself, else
+    None: a gap code naming another stage is a real failure."""
+    for reason in GAP_REASONS:
+        if code == f"{stage}.{reason}":
+            return reason
+    return None
 
 def _typed(value: dict[str, object], types: dict[str, type]) -> bool:
     return all(type(value[key]) is kind for key, kind in types.items() if key in value)
@@ -218,7 +221,8 @@ def normalize(records: list[object]) -> dict[str, object]:
     reported_failure = False
 
     for index, record in enumerate(receipts):
-        codes: list[object] = []
+        real_failure = False
+        stage_gaps: set[tuple[str, str]] = set()  # (stage, reason) of this receipt's own gap stages
         ok_here: dict[str, list[dict[str, object]]] = {}
         failed_here: set[str] = set()
         for item in record["stages"]:
@@ -233,26 +237,26 @@ def normalize(records: list[object]) -> dict[str, object]:
                 ok_here.setdefault(name, []).append(value)
                 continue
             stage_failure = item.get("failure")
-            code = stage_failure.get("code") if stage_failure else None
-            codes.append(code)
+            reason = _gap(name, stage_failure.get("code") if stage_failure else None)
             failed_here.add(name)
             failures.append(_failure_entry(name, stage_failure, record["probeId"]))
-            if _gap(code):
-                gaps.append((index, name, _gap(code)))
+            if reason:
+                gaps.append((index, name, reason))
+                stage_gaps.add((name, reason))
             else:
                 failed.add(name)
+                real_failure = True
         receipt_failure = record.get("failure")
         if receipt_failure is not None:
-            codes.append(receipt_failure["code"])
             name = receipt_failure["stage"]
             if name not in failed_here:
                 failures.append(_failure_entry(name, receipt_failure, record["probeId"]))
-            if _gap(receipt_failure["code"]):
-                gaps.append((index, name, _gap(receipt_failure["code"])))
-            else:
+            # A receipt-level gap must repeat one of this receipt's own gap stage failures exactly.
+            if (name, _gap(name, receipt_failure["code"])) not in stage_gaps:
                 failed.add(name)
-        clean = record["outcome"] == "passed" and not codes
-        gaps_only = bool(codes) and all(_gap(code) for code in codes)
+                real_failure = True
+        clean = record["outcome"] == "passed" and receipt_failure is None and not failed_here
+        gaps_only = bool(failed_here) and not real_failure
         if not (clean or gaps_only):
             # A failed or contradicted receipt proves nothing positive.
             reported_failure = True
