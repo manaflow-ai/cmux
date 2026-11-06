@@ -513,4 +513,19 @@ fn a_codex_config_that_can_reach_another_provider_refuses_the_login() {
         .secrets
         .install_harness_login(&fixture.seal(Purpose::HarnessLogin, "codex", &auth), false)
         .unwrap();
+    // What the devbox image writes (agent-config.sh): its own provider, which
+    // never takes the OpenAI login.
+    std::fs::write(
+        fixture.home.join(".codex/config.toml"),
+        "model_provider = \"cmux\"\n\n[model_providers.cmux]\nname = \"cmux\"\n\
+         base_url = \"https://example.invalid/v1\"\nenv_key = \"OPENAI_API_KEY\"\n\
+         wire_api = \"responses\"\nrequires_openai_auth = false\nsupports_websockets = false\n\n\
+         [model_providers.cmux.env_http_headers]\n\"x-cmux-workspace-id\" = \"CMUX_WORKSPACE_ID\"\n\n\
+         [history]\npersistence = \"save-all\"\n",
+    )
+    .unwrap();
+    fixture
+        .secrets
+        .install_harness_login(&fixture.seal(Purpose::HarnessLogin, "codex", &auth), false)
+        .unwrap();
 }

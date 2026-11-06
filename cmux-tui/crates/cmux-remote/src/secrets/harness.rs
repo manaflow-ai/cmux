@@ -240,7 +240,7 @@ fn read_json_object(
 /// reach another endpoint: the top level and every profile (a launch can pick
 /// any with `--profile`) name only `openai` or `cmux` and store logins in a
 /// file, no base URL is overridden, and no `model_providers` entry redefines
-/// `openai` or `cmux` or asks for the OpenAI login.
+/// `openai` or asks for the OpenAI login (`requires_openai_auth`).
 fn check_codex_config(path: &Path) -> Result<(), LoginRefusal> {
     match std::fs::symlink_metadata(path) {
         Ok(metadata) if !metadata.file_type().is_file() => return Err(LoginRefusal::Conflict),
@@ -271,9 +271,10 @@ fn check_codex_config(path: &Path) -> Result<(), LoginRefusal> {
     match config.get("model_providers") {
         None => Ok(()),
         Some(toml::Value::Table(providers)) => {
+            // The image's own `cmux` provider (agent-config.sh, agent-auth.sh) says
+            // `requires_openai_auth = false`: the login never reaches it.
             let plain = providers.iter().all(|(name, provider)| {
                 name != "openai"
-                    && name != "cmux"
                     && provider
                         .get("requires_openai_auth")
                         .is_none_or(|value| value.as_bool() == Some(false))
