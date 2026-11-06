@@ -373,6 +373,9 @@ pub struct Session {
     /// Bumps on every sign of the model and every new or held count (`stalled_turn.rs`): a
     /// stalled end decided at one value is not carried out at another.
     pub(super) stalled_gen: AtomicU64,
+    /// The turn a refused sign-in's end is scheduled for (`turn_retry.rs`): its later retries
+    /// schedule no second end.
+    pub(super) sign_in_refused_turn: StdMutex<Option<String>>,
     /// Unix ms of the agent's last sign of its model at work (as `heard`); 0: none since load.
     /// A running turn quiet since then, with no tool call in flight, stalls (`views.rs`).
     pub(super) last_model_at: AtomicU64,
