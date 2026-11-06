@@ -10,7 +10,8 @@ import CmuxNextWakeups
     var awaitsEcho: Bool { get }
 }
 
-/// Sends terminal grid changes to the daemon the next frame, with at most one
+/// Sends terminal grid changes to the daemon (a grid its view reported in the
+/// report's turn, ``submitNow(_:size:window:)``; others the next frame), with at most one
 /// grid in flight per terminal (perf I7; Lawrence 2026-10-17: everything in a
 /// drag is real time). A divider drag, a live window resize, a sidebar slide
 /// or a layout spring changes a pane's size every frame, and the text reflows
