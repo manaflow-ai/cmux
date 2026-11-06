@@ -11,6 +11,11 @@ the import (and so whether the Apple support request is needed).
 
 This runs decide's own import block from nightly.yml in node, with a fake
 `core`, and checks the outputs the build and publish jobs read.
+
+Run 42176643049 (2026-11-06) built `full` and Apple accepted it, so the hold
+is gone: published nightly-next builds carry the import again. The workflow's
+own NIGHTLY_NEXT_BROWSER_DATA_IMPORT is what a published run sees, and
+`compiled-out` stays the one-line switch back.
 """
 from __future__ import annotations
 
@@ -28,6 +33,19 @@ def import_block() -> str:
     end_marker = "core.setOutput('no_publish', notaryPaused || notaryTest ? 'true' : 'false');"
     end = WORKFLOW.index(end_marker, start)
     return WORKFLOW[start:end] + end_marker
+
+
+def workflow_env(name: str) -> str:
+    """The value nightly.yml's top-level env gives every job (what a published run sees)."""
+    top = WORKFLOW.index("\nenv:\n")
+    block = WORKFLOW[top + len("\nenv:\n"):]
+    for line in block.splitlines():
+        if line and not line.startswith(" "):
+            break
+        key, _, value = line.strip().partition(": ")
+        if key == name:
+            return value.strip().strip("'\"")
+    raise KeyError(name)
 
 
 def decide(env: dict[str, str], track: str = "nightly-next") -> dict[str, str]:
@@ -70,7 +88,19 @@ class NotaryTestFullImport(unittest.TestCase):
         got = decide({"NOTARY_IMPORT_PART": "full"}, track="nightly")
         self.assertTrue(any("only on nightly-next" in f for f in got["failures"]), got)
 
-    def test_published_builds_still_compile_the_import_out(self):
+    def test_published_nightly_next_builds_carry_the_import(self):
+        imported = workflow_env("NIGHTLY_NEXT_BROWSER_DATA_IMPORT")
+        got = decide({"NIGHTLY_NEXT_BROWSER_DATA_IMPORT": imported})
+        self.assertEqual(got["failures"], [])
+        out = got["outputs"]
+        self.assertEqual(out["import_variant"], "full")
+        self.assertEqual(out["swift_import_flags"], "")
+        self.assertEqual(out["empty_browser_sources"], "false")
+        self.assertEqual(out["password_readers_out"], "false")
+        self.assertEqual(out["notary_test"], "false")
+        self.assertEqual(out["no_publish"], "false")
+
+    def test_compiled_out_still_compiles_the_import_out(self):
         out = decide({})["outputs"]
         self.assertEqual(out["import_variant"], "no-browser-data")
         self.assertEqual(out["empty_browser_sources"], "true")
