@@ -152,6 +152,31 @@ class CliSwapTests(unittest.TestCase):
         source = (ROOT / "scripts/cmux-next/cli-swap.py").read_text()
         self.assertIn("from __future__ import annotations", source)
 
+    def test_a_key_or_name_that_leads_out_of_its_directory_changes_nothing(self):
+        os.environ["PATH"] = f"{self.bundled.parent}:/usr/bin:/bin"
+        for argv in (["apply", "--tree-key", "../../x", "--target", TRIPLE],
+                     ["apply", "--tree-key", "/tmp/x", "--target", TRIPLE],
+                     ["apply", "--tree-key", KEY, "--target", TRIPLE, "--name", "../../bin/cmux"],
+                     ["apply", "--tree-key", KEY, "--target", TRIPLE, "--name", ".."]):
+            code, out = self.run_cli(*argv)
+            self.assertEqual(code, 2, out)
+            self.assertIn("nothing changed", out)
+        self.assertFalse((self.tmp / "state").exists())
+        self.assertFalse((self.home / ".local/bin").exists())
+
+    def test_a_link_inside_the_bundle_is_never_repointed(self):
+        # The bundle's own bin/cmux as a link to a file outside: still the signed bundle's, never written.
+        outside = self.tmp / "outside-cmux"
+        outside.write_text("outside build\n")
+        outside.chmod(0o755)
+        self.bundled.unlink()
+        self.bundled.symlink_to(outside)
+        os.environ["PATH"] = "/usr/bin:/bin"
+        code, out = self.apply("--app", str(self.app))
+        self.assertEqual(code, 0, out)
+        self.assertEqual(os.readlink(self.bundled), str(outside))
+        self.assertIn("inside an app bundle", out)
+
     def test_a_wrong_sha256_changes_nothing(self):
         os.environ["PATH"] = f"{self.bundled.parent}:/usr/bin:/bin"
         code, out = self.apply("--sha", "0" * 64)

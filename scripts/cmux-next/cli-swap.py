@@ -29,6 +29,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import shutil
 import sys
 import tempfile
@@ -67,7 +68,14 @@ def terminal_cmux(app: str | None) -> Path | None:
 
 
 def in_app_bundle(path: Path) -> bool:
-    return ".app/Contents/" in str(path.resolve())
+    # The path itself as well as where it leads: a link inside a bundle is part of the signed bundle.
+    return ".app/Contents/" in str(path.absolute()) or ".app/Contents/" in str(path.resolve())
+
+
+# A tree key is a git hash; a name is one plain word. Either one becomes a path, so neither may hold a
+# `/` or `..` that leads out of the cache or ~/.local/bin.
+TREE_KEY = re.compile(r"[0-9a-f]{40}")
+NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 
 
 def load(state: Path) -> list[dict]:
@@ -90,6 +98,12 @@ def relink(link: Path, to: str) -> None:
 
 
 def command_apply(args) -> int:
+    if not TREE_KEY.fullmatch(args.tree_key):
+        print(f"cli-swap: --tree-key {args.tree_key!r} is not a tree hash; nothing changed", file=sys.stderr)
+        return 2
+    if args.name is not None and (not NAME.fullmatch(args.name) or ".." in args.name):
+        print(f"cli-swap: --name {args.name!r} must be one plain word; nothing changed", file=sys.stderr)
+        return 2
     state = state_dir()
     triple = args.target or target_triple()
     url = f"{BASE}/{args.tree_key}/cmux-tui-{triple}"
