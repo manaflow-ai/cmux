@@ -87,8 +87,12 @@ extension WorkspaceDetailView {
                 artifactGalleryRefreshSignal = signal
             }
         },
-        onSharedSizingChipTapped: presentTerminalSizeSheet
+        onSharedSizingChipTapped: presentTerminalSizeSheet,
+        onTextSelectionRequested: openTextSheetFromMenu
     )
+    .accessibilityAction(named: L10n.string("mobile.terminal.viewAsText", defaultValue: "View as Text")) {
+        openTextSheetFromMenu()
+    }
     .popover(
         isPresented: terminalArtifactFilesPresentation.isPresented,
         attachmentAnchor: .point(terminalArtifactFilesContext?.anchor ?? .bottom),

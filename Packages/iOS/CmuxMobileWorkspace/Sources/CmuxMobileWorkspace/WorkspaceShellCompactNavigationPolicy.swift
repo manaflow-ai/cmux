@@ -10,6 +10,25 @@ public struct WorkspaceShellCompactNavigationPolicy {
     /// Creates a compact workspace navigation policy.
     public init() {}
 
+    /// Restores the selected split detail when a window folds into compact navigation.
+    /// - Parameters:
+    ///   - currentPath: The retained compact navigation path.
+    ///   - selectedWorkspaceID: The workspace currently selected in the store.
+    ///   - usesCompactStack: Whether the new layout uses stack navigation.
+    ///   - hasPresentedSplitDetail: Whether a split detail has been displayed.
+    /// - Returns: The selected workspace on collapse, or the retained path otherwise.
+    public func pathForLayoutChange<ID: Hashable>(
+        currentPath: [ID],
+        selectedWorkspaceID: ID?,
+        usesCompactStack: Bool,
+        hasPresentedSplitDetail: Bool
+    ) -> [ID] {
+        guard usesCompactStack, hasPresentedSplitDetail, let selectedWorkspaceID else {
+            return currentPath
+        }
+        return [selectedWorkspaceID]
+    }
+
     /// Computes the navigation path after the selected workspace changes.
     /// - Parameters:
     ///   - currentPath: The current navigation path.

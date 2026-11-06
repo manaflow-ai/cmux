@@ -360,7 +360,10 @@ struct WorkspaceDetailView: View {
     /// retains the existing system toolbar unchanged.
     @ViewBuilder
     private func detailNavigationChrome<Content: View>(_ content: Content) -> some View {
-        if horizontalSizeClass == .regular {
+        if #available(iOS 27.0, *) {
+            content
+                .toolbar { workspaceDetailToolbar }
+        } else if horizontalSizeClass == .regular {
             content
                 .toolbar(.hidden, for: .navigationBar)
                 .safeAreaInset(edge: .top, spacing: 0) {
@@ -407,6 +410,11 @@ struct WorkspaceDetailView: View {
 
     @ToolbarContentBuilder
     private var workspaceDetailToolbar: some ToolbarContent {
+        if showsSidebarToggle, let toggleSidebar {
+            ToolbarItem(id: "workspace-sidebar", placement: .topBarLeading) {
+                WorkspaceSidebarToggleButton(action: toggleSidebar, usesSystemToolbarChrome: true)
+            }
+        }
         if backButtonConfiguration != nil {
             ToolbarItem(id: "workspace-back", placement: .topBarLeading) {
                 workspaceBackToolbarButton
@@ -1003,7 +1011,7 @@ struct WorkspaceDetailView: View {
 
     /// Opens the "View as Text" sheet: the terminal's content as selectable
     /// plain text, because the render surface itself has no copy affordance.
-    private func openTextSheetFromMenu() {
+    func openTextSheetFromMenu() {
         store.recordAppEvent(
             .terminalTextViewOpened,
             correlationID: selectedTerminal?.id.rawValue

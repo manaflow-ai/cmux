@@ -28,6 +28,9 @@ public struct MobileTerminalSafeAreaExpansionPolicy {
         includesBottom: Bool = true,
         preservesHorizontalSafeArea: Bool = false
     ) -> MobileTerminalSafeAreaExpansionEdges {
+        if preservesHorizontalSafeArea {
+            return MobileTerminalSafeAreaExpansionEdges(horizontal: false, bottom: includesBottom)
+        }
         switch context {
         case .fullWidth:
             return MobileTerminalSafeAreaExpansionEdges(

@@ -74,6 +74,7 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
     var onArtifactGalleryRefreshSignal: @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void = { _ in }
     /// Called when the shared-sizing chip on the terminal is tapped.
     var onSharedSizingChipTapped: @MainActor () -> Void = {}
+    var onTextSelectionRequested: @MainActor () -> Void = {}
 
     /// Who answers terminal queries: the Mac (mirror), the server's
     /// cmux-tui emulator (input only), or this phone (plain/tmux SSH).
@@ -133,6 +134,7 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
         // Stamp the shell-level id so id-scoped registry lookups (the
         // "View as Text" capture) resolve this exact terminal.
         view.hostSurfaceID = surfaceID
+        view.onTextSelectionRequested = onTextSelectionRequested
         context.coordinator.attach(surfaceView: view)
         view.seedThemeParityPreviewIfRequested()
         // Mount the composer band immediately if the composer was already open when
@@ -173,6 +175,7 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
         )
         context.coordinator.attemptPendingOutputConsumerRecoveryPresentation()
         guard let surfaceView = (uiView as? GhosttySurfaceHostView)?.surfaceView else { return }
+        surfaceView.onTextSelectionRequested = onTextSelectionRequested
         surfaceView.terminalWorkPopulation = terminalWorkPopulation
         surfaceView.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         surfaceView.useLegacyTerminalSizing = useLegacyTerminalSizing
@@ -239,6 +242,7 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
     }
 
     static func dismantleUIViewController(_ controller: UIViewController, coordinator: Coordinator) {
+        (controller.view as? GhosttySurfaceHostView)?.surfaceView.onTextSelectionRequested = nil
         (controller.view as? GhosttySurfaceHostView)?.surfaceView.prepareForDismantle()
         coordinator.tearDownArtifactChip()
         coordinator.tearDownComposer()

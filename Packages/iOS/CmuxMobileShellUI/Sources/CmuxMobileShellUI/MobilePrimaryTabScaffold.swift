@@ -60,24 +60,31 @@ struct MobilePrimaryTabScaffold<
     }
 
     var body: some View {
-        if #available(iOS 26.0, *) {
-            ZStack(alignment: .bottomTrailing) {
-                TabView(selection: tabSelection) {
-                    primaryTabs
-
-                    if selection == .search || selection.searchScope != nil {
-                        Tab(value: MobilePrimaryTab.search, role: .search) {
-                            search
-                                .environment(\.mobilePrimarySearchDestination, true)
+        #if compiler(>=6.4)
+        if #available(iOS 27.0, *) {
+            nativeTabs
+                .tabViewBottomAccessory(isEnabled: selection == .workspaces && taskComposerAction != nil) {
+                    if let taskComposerAction {
+                        HStack {
+                            Spacer(minLength: 0)
+                            TaskComposerButton(action: taskComposerAction, diameter: 44)
                         }
-                        .accessibilityIdentifier("MobilePrimaryTabSearch")
+                        .padding(.horizontal, 16)
                     }
                 }
-                .tabViewSearchActivation(.searchTabSelection)
-                .accessibilityIdentifier("MobilePrimaryTabs")
-                .onChange(of: selection, initial: true) { _, selection in
-                    searchCoordinator.synchronizeSelection(selection)
-                }
+        } else {
+            legacyTabs
+        }
+        #else
+        legacyTabs
+        #endif
+    }
+
+    @ViewBuilder
+    private var legacyTabs: some View {
+        if #available(iOS 26.0, *) {
+            ZStack(alignment: .bottomTrailing) {
+                nativeTabs
 
                 if selection == .workspaces, let taskComposerAction {
                     TaskComposerButton(
@@ -130,13 +137,32 @@ struct MobilePrimaryTabScaffold<
         }
     }
 
+    @available(iOS 26.0, *)
+    private var nativeTabs: some View {
+        TabView(selection: tabSelection) {
+            primaryTabs
+
+            if selection == .search || selection.searchScope != nil {
+                Tab(value: MobilePrimaryTab.search, role: .search) {
+                    search
+                        .environment(\.mobilePrimarySearchDestination, true)
+                }
+                .accessibilityIdentifier("MobilePrimaryTabSearch")
+            }
+        }
+        .tabViewSearchActivation(.searchTabSelection)
+        .accessibilityIdentifier("MobilePrimaryTabs")
+        .onChange(of: selection, initial: true) { _, selection in
+            searchCoordinator.synchronizeSelection(selection)
+        }
+    }
+
     private var resolvedFeedNeedsInputCount: Int {
         feedNeedsInputCountProvider?() ?? feedNeedsInputCount
     }
 
-    /// A tab-view bottom accessory always adds a full-width plate, which is
-    /// intended for mini-player content. Compose remains a standalone action
-    /// aligned with the detached Search control instead.
+    /// Earlier systems retain the standalone Compose action above Search.
+    /// iOS 27 uses a native tab accessory that follows the system bar layout.
     private var iOS26BottomControlDiameter: CGFloat { 62 }
     private var iOS26BottomControlInset: CGFloat { 21 }
     private var iOS26BottomControlSpacing: CGFloat { 12 }

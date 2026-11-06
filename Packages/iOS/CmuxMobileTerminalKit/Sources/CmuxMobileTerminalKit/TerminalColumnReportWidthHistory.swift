@@ -32,7 +32,7 @@ public struct TerminalColumnReportWidthHistory {
         return TerminalColumnReportWidthSelection(
             currentWidth: currentWidth,
             widestRenderedWidth: widestWidth,
-            preservesWidestRenderedWidth: true
+            preservesWidestRenderedWidth: isCompactLayout
         ).width ?? currentWidth
     }
 }

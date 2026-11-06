@@ -6,23 +6,15 @@ import UIKit
 
 @MainActor
 extension GhosttySurfaceView {
-    /// Keeps phone overlay-sidebar transitions from replacing a proven
-    /// full-width report with a temporary split-column width. iPad panes always
-    /// report their current drawable width.
+    /// Preserves compact overlay transitions while regular split panes report
+    /// their actual width, including on an unfolded iPhone.
     func columnReportContainerWidth(currentWidth: CGFloat) -> CGFloat {
-        let currentWindowSize = window?.bounds.size ?? bounds.size
-        if abs(currentWindowSize.width - reportWidthWindowSize.width) > 1 ||
-            abs(currentWindowSize.height - reportWidthWindowSize.height) > 1 {
-            reportWidthWindowSize = currentWindowSize
-            widestRenderedContainerWidth = currentWidth
-        } else {
-            widestRenderedContainerWidth = max(widestRenderedContainerWidth, currentWidth)
-        }
-        return TerminalColumnReportWidthSelection(
+        columnReportWidthHistory.width(
             currentWidth: currentWidth,
-            widestRenderedWidth: widestRenderedContainerWidth,
-            preservesWidestRenderedWidth: traitCollection.userInterfaceIdiom == .phone
-        ).width ?? currentWidth
+            windowSize: window?.bounds.size ?? bounds.size,
+            isCompactLayout: traitCollection.horizontalSizeClass == .compact
+                || traitCollection.verticalSizeClass == .compact
+        )
     }
 
     /// The viewport report for the current geometry: base-font row and column

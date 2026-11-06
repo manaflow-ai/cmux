@@ -682,10 +682,15 @@ struct WorkspaceShellView: View {
                 selectedPrimaryTab = primarySearchCoordinator.scope.primaryTab
             }
             #endif
-            guard isCompact, hasPresentedSplitDetail, let selectedWorkspaceID = store.selectedWorkspaceID else {
-                return
+            let restoredPath = compactNavigationPolicy.pathForLayoutChange(
+                currentPath: compactNavigationPath,
+                selectedWorkspaceID: store.selectedWorkspaceID,
+                usesCompactStack: isCompact,
+                hasPresentedSplitDetail: hasPresentedSplitDetail
+            )
+            if compactNavigationPath != restoredPath {
+                compactNavigationPath = restoredPath
             }
-            compactNavigationPath = [selectedWorkspaceID]
         }
         #if os(iOS)
         .taskComposerPresentation(

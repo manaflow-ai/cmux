@@ -6,6 +6,31 @@ import Testing
 @Suite struct WorkspaceShellCompactNavigationPolicyTests {
     private let policy = WorkspaceShellCompactNavigationPolicy()
 
+    @Test func foldingRestoresTheWorkspaceSelectedOnTheInnerDisplay() {
+        #expect(policy.pathForLayoutChange(
+            currentPath: ["outer-workspace"], selectedWorkspaceID: "inner-workspace",
+            usesCompactStack: true, hasPresentedSplitDetail: true
+        ) == ["inner-workspace"])
+    }
+
+    @Test func unfoldingRetainsTheCompactPathUntilTheNextFold() {
+        #expect(policy.pathForLayoutChange(
+            currentPath: ["workspace"], selectedWorkspaceID: "workspace",
+            usesCompactStack: false, hasPresentedSplitDetail: true
+        ) == ["workspace"])
+    }
+
+    @Test func layoutChangesDoNotPushAnUnopenedDetailOrClearRecoveryState() {
+        #expect(policy.pathForLayoutChange(
+            currentPath: [String](), selectedWorkspaceID: "workspace",
+            usesCompactStack: true, hasPresentedSplitDetail: false
+        ).isEmpty)
+        #expect(policy.pathForLayoutChange(
+            currentPath: ["workspace"], selectedWorkspaceID: nil,
+            usesCompactStack: true, hasPresentedSplitDetail: true
+        ) == ["workspace"])
+    }
+
     @Test func doesNotAutoPushWhenAttachSelectsWorkspace() {
         let path = policy.pathForSelectionChange(
             currentPath: [MobileWorkspacePreview.ID](),

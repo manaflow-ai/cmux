@@ -686,11 +686,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
     private var viewportReportSettleFrames = 0
-    /// Widest container this surface has actually rendered in the current
-    /// window geometry. A phone split-view sidebar is an overlay, but UIKit can
-    /// briefly size the detail view as a split column while it transitions.
-    var widestRenderedContainerWidth: CGFloat = 0
-    var reportWidthWindowSize: CGSize = .zero
+    var columnReportWidthHistory = TerminalColumnReportWidthHistory()
+    /// Opens the host's selectable-text sheet for this terminal.
+    public var onTextSelectionRequested: (@MainActor () -> Void)?
     /// Bounded retries for the viewport report round-trip. The report goes to
     /// the Mac, which echoes back the effective grid via `applyViewSize`. If the
     /// round-trip yields no effective grid (RPC timeout / lost reply), the
@@ -1148,6 +1146,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
         tap.delegate = self
         addGestureRecognizer(tap)
+
+        let selectionPress = UILongPressGestureRecognizer(target: self, action: #selector(handleTextSelectionPress(_:)))
+        selectionPress.delegate = self
+        addGestureRecognizer(selectionPress)
 
         let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
         addGestureRecognizer(pinch)
@@ -6512,11 +6514,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 extension GhosttySurfaceView: UIGestureRecognizerDelegate {
     /// Keep a tap that lands on the visible zoom HUD from also focusing the
     /// terminal (which would pop the keyboard). Only the focus tap carries this
-    /// delegate, so scroll/pinch are unaffected.
+    /// delegate alongside the text-selection press, so scroll/pinch are unaffected.
     public func gestureRecognizer(
         _ gestureRecognizer: UIGestureRecognizer,
         shouldReceive touch: UITouch
     ) -> Bool {
+        if gestureRecognizer is UILongPressGestureRecognizer,
+           !terminalViewportRect.contains(touch.location(in: self)) {
+            return false
+        }
         if let zoomOverlay, zoomOverlayShown, zoomOverlay.alpha > 0.01,
            let touched = touch.view, touched.isDescendant(of: zoomOverlay) {
             return false

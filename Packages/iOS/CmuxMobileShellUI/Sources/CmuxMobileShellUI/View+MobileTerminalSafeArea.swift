@@ -17,6 +17,11 @@ private struct MobileCompactLandscapeTerminalSafeAreaCompensation: ViewModifier 
     @Environment(\.layoutDirection) private var layoutDirection
     @State private var windowOrientation: MobileTerminalWindowOrientation = .unknown
 
+    private var preservesHorizontalSafeArea: Bool {
+        if #available(iOS 27.0, *) { return true }
+        return false
+    }
+
     func body(content: Content) -> some View {
         let edges = MobileTerminalSafeAreaExpansionPolicy.edges(
             context: context,
@@ -25,7 +30,8 @@ private struct MobileCompactLandscapeTerminalSafeAreaCompensation: ViewModifier 
                 for: windowOrientation,
                 isRightToLeft: layoutDirection == .rightToLeft
             ),
-            includesBottom: includesBottom
+            includesBottom: includesBottom,
+            preservesHorizontalSafeArea: preservesHorizontalSafeArea
         )
         Group {
             if edges.hasEdges {
@@ -48,11 +54,13 @@ private struct MobileCompactLandscapeTerminalSafeAreaCompensation: ViewModifier 
         // `WorkspaceDetailView.terminalArtifactSurface`).
         .ignoresSafeArea(.keyboard, edges: .bottom)
         .background {
-            MobileTerminalWindowOrientationReader { orientation in
-                windowOrientation = orientation
+            if !preservesHorizontalSafeArea {
+                MobileTerminalWindowOrientationReader { orientation in
+                    windowOrientation = orientation
+                }
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
             }
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
         }
     }
 }
