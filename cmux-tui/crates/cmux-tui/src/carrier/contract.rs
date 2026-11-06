@@ -193,3 +193,10 @@ pub(super) fn valid_machine(id: &str) -> bool {
         tail.len() == 20 && tail.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
     })
 }
+
+/// `team_` and 20 lowercase hex digits (cmux-platform's team id).
+pub(super) fn valid_team(id: &str) -> bool {
+    id.strip_prefix("team_").is_some_and(|tail| {
+        tail.len() == 20 && tail.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    })
+}

@@ -9,8 +9,8 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::SocketAddr;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use base64::Engine as _;
@@ -87,6 +87,7 @@ async fn platform(
     daemon_key: [u8; 32],
     status: u16,
     asked: Arc<AtomicUsize>,
+    teams: Teams,
 ) -> SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
@@ -95,9 +96,11 @@ async fn platform(
             let Ok((mut stream, _)) = listener.accept().await else { return };
             let signer = signer.clone();
             let asked = asked.clone();
+            let teams = teams.clone();
             tokio::spawn(async move {
                 let mut reader = tokio::io::BufReader::new(&mut stream);
-                let (mut length, mut authorized, mut path) = (0, false, String::new());
+                let (mut length, mut authorized, mut path, mut team) =
+                    (0, false, String::new(), None);
                 let mut line = String::new();
                 reader.read_line(&mut line).await.unwrap();
                 path.push_str(line.split_whitespace().nth(1).unwrap_or(""));
@@ -108,6 +111,9 @@ async fn platform(
                     if header.is_empty() {
                         break;
                     }
+                    if let Some(value) = header.strip_prefix("x-cmux-team:") {
+                        team = Some(value.trim().to_owned());
+                    }
                     if let Some(value) = header.strip_prefix("content-length:") {
                         length = value.trim().parse().unwrap();
                     }
@@ -117,6 +123,7 @@ async fn platform(
                 let mut body = vec![0; length];
                 reader.read_exact(&mut body).await.unwrap();
                 let request: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+                teams.lock().unwrap().push(team);
                 let n = asked.fetch_add(1, Ordering::SeqCst);
                 assert_eq!(path, format!("/v1/cloud/machines/{MACHINE}/carrier"));
                 let (code, answer) = if status != 200 || !authorized {
@@ -169,8 +176,12 @@ async fn fake_mux(path: &Path) {
     });
 }
 
+/// The `x-cmux-team` header of each platform request (`None` when absent).
+type Teams = Arc<Mutex<Vec<Option<String>>>>;
+
 struct World {
     platform: SocketAddr,
+    teams: Teams,
     dir: tempfile::TempDir,
     _registration: cmux_remote::provider::RelayDaemonRegistration,
     _runtime: tokio::runtime::Runtime,
@@ -187,6 +198,7 @@ fn world_granting(status: u16, asked: Arc<AtomicUsize>, service: &'static str) -
     let dir = tempfile::tempdir().unwrap();
     let mux = dir.path().join("mux.sock");
     let state = dir.path().join("daemon");
+    let teams = Teams::default();
     let (platform, registration) = runtime.block_on(async {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let relay_address = listener.local_addr().unwrap();
@@ -220,16 +232,28 @@ fn world_granting(status: u16, asked: Arc<AtomicUsize>, service: &'static str) -
             let local = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
             local.block_on(services.run(accepted));
         });
-        let platform =
-            platform(signer, relay_address, auth.identity().public_key(), status, asked).await;
+        let platform = platform(
+            signer,
+            relay_address,
+            auth.identity().public_key(),
+            status,
+            asked,
+            teams.clone(),
+        )
+        .await;
         (platform, registration)
     });
-    World { platform, dir, _registration: registration, _runtime: runtime }
+    World { platform, teams, dir, _registration: registration, _runtime: runtime }
 }
 
 fn dial(world: &World) -> Child {
+    dial_with(world, &[])
+}
+
+fn dial_with(world: &World, extra: &[&str]) -> Child {
     Command::new(BIN)
         .args(["carrier", "dial", "--machine", MACHINE, "--deadline-ms", "30000"])
+        .args(extra)
         .args(["--cloud-api", &format!("http://{}", world.platform)])
         .env_clear()
         .env("HOME", world.dir.path())
@@ -282,6 +306,27 @@ fn a_carrier_dial_carries_the_daemon_stream_both_ways() {
     drop(stdin);
     let status = wait(&mut child, Duration::from_secs(20));
     assert_eq!(status, Some(0), "the dial ends when its stream ends");
+    let teams = world.teams.lock().unwrap().clone();
+    assert!(
+        !teams.is_empty() && teams.iter().all(Option::is_none),
+        "no team, no header: {teams:?}"
+    );
+}
+
+#[test]
+fn a_named_team_goes_to_the_platform_as_x_cmux_team() {
+    let world = world(200, Arc::new(AtomicUsize::new(0)));
+    let mut child = dial_with(&world, &["--team", TEAM]);
+    let mut stderr = BufReader::new(child.stderr.take().unwrap());
+    let reply: Value = serde_json::from_str(&line(&mut stderr)).unwrap();
+    assert_eq!(reply["ok"], true, "{reply}");
+    drop(child.stdin.take());
+    assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(0));
+    let teams = world.teams.lock().unwrap().clone();
+    assert!(
+        !teams.is_empty() && teams.iter().all(|t| t.as_deref() == Some(TEAM)),
+        "every request names the team: {teams:?}"
+    );
 }
 
 #[test]
