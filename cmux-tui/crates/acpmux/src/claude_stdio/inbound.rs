@@ -735,6 +735,10 @@ impl Translator {
                 }
                 // A call named early whose whole call never came ends with its turn.
                 out.extend(self.end_announced().await);
+                // Every result ends the step its calls ran in, also one that returns below
+                // (an abandoned prompt's, or a stopped turn that still runs an unread steer):
+                // a call whose result never came runs in the foreground no more.
+                self.foreground_ended().await;
                 // The window Claude Code reports for the chat's model: the pane's
                 // context ring fills by used over it (cx-ncc.79).
                 if let Some(window) = self.result_context_window(line).await {
@@ -812,7 +816,6 @@ impl Translator {
                 *self.prompt_echo.lock().await = None;
                 // A Ctrl-B still unanswered leaves no mark past its turn.
                 self.end_background_asks(false, |_, _| true).await;
-                self.foreground_ended().await;
                 // What the context holds now, as Claude Code's /context breaks it down; its
                 // answer comes after the turn ended (`context_breakdown`). `summary` answers
                 // from the last response's usage, with no token-count API call.
