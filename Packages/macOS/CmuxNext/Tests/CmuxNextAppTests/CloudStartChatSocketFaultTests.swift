@@ -25,11 +25,13 @@ struct CloudStartChatSocketFaultTests {
         return answer
     }
 
-    /// The copy with `answers` in turn (the last repeats) and a link whose handshake changes after the first copy.
-    private func copied(_ answers: [CloudMoveCLI.Answer], calls: Calls) async throws -> CloudMoveCLI.Answer {
+    /// The copy with `answers` in turn (the last repeats). Its link's handshake changes after each copy unless `relinks` is false.
+    private func copied(_ answers: [CloudMoveCLI.Answer], calls: Calls, relinks: Bool = true, reconnect: Duration = .seconds(20),
+                        stillOurs: () throws -> Void = {}) async throws -> CloudMoveCLI.Answer {
         try await CloudOutdatedMachine.copy(socket: { "/tmp/cmux-link-\(calls.links).sock" }, link: { "link-\(calls.links)" },
-                                            notConnected: CloudMoveFailure(message: CloudMoveStrings.notConnected(Self.machine)), relink: .zero) { _ in
-            defer { calls.copies += 1; calls.links += 1 }
+                                            notConnected: CloudMoveFailure(message: CloudMoveStrings.notConnected(Self.machine)),
+                                            relink: .zero, reconnect: reconnect, stillOurs: stillOurs) { _ in
+            defer { calls.copies += 1; if relinks { calls.links += 1 } }
             return answers[min(calls.copies, answers.count - 1)]
         } answer: { ($0.ok, $0.errorCode, $0.side) } update: { calls.updates += 1; return true }
     }
@@ -101,11 +103,43 @@ struct CloudStartChatSocketFaultTests {
         #expect(failure.retry == Self.retry)
     }
 
-    @Test func aCopyThatFailedOnAnAnsweringMachineIsNotCopiedAgain() async throws {
+    /// A machine that refused `identify` (or a copy that failed) is never copied again: the refusal is the answer.
+    @Test func aRefusedIdentifyOrAFailedCopyIsNotCopiedAgain() async throws {
+        for words in ["the machine refused identify (refused)", "fs.failure"] {
+            let calls = Calls()
+            let answer = try await copied([CloudMoveCLI.Answer(ok: false, errorCode: "sync_failed", error: words), CloudMoveCLI.Answer(ok: true)], calls: calls)
+            #expect(!answer.ok && calls.copies == 1)
+            #expect(CloudMove.failure(syncing: answer, machine: Self.machine, retry: Self.retry).message == CloudMoveStrings.syncFailed(Self.machine, words))
+        }
+    }
+
+    /// A link whose handshake never changes in time (or changes only after the deadline) is no new link: no copy again, and the
+    /// first answer says the machine didn't connect.
+    @Test func aLinkThatDoesNotComeBackInTimeGetsNoMoreCopies() async throws {
         let calls = Calls()
-        var failed = CloudMoveCLI.Answer(ok: false, error: "fs.failure")
-        failed.errorCode = "sync_failed"
-        #expect(try await !copied([failed, CloudMoveCLI.Answer(ok: true)], calls: calls).ok)
+        let late = Task { @MainActor in try await Task.sleep(for: .milliseconds(400)); calls.links += 1 }
+        let answer = try await copied([Self.notAnswering, CloudMoveCLI.Answer(ok: true)], calls: calls, relinks: false, reconnect: .milliseconds(50))
+        #expect(answer.errorCode == "machine_not_answering" && calls.copies == 1)
+        #expect(CloudMove.failure(syncing: answer, machine: Self.machine, retry: Self.retry).message == CloudMoveStrings.notConnected(Self.machine))
+        late.cancel()
+    }
+
+    @Test func aStartCancelledWhileItsLinkComesBackCopiesNothingMore() async throws {
+        let calls = Calls()
+        let start = Task { @MainActor in try await copied([Self.notAnswering, CloudMoveCLI.Answer(ok: true)], calls: calls, relinks: false, reconnect: .seconds(30)) }
+        while calls.copies == 0 { await Task.yield() }
+        start.cancel()
+        await #expect(throws: CancellationError.self) { try await start.value }
+        #expect(calls.copies == 1)
+    }
+
+    @Test func anAccountChangedWhileItsLinkComesBackCopiesNothingMore() async throws {
+        let calls = Calls()
+        struct Switched: Error, Equatable {}
+        let switched = Switched()
+        await #expect(throws: switched) {
+            try await copied([Self.notAnswering, CloudMoveCLI.Answer(ok: true)], calls: calls) { throw switched }
+        }
         #expect(calls.copies == 1)
     }
 }
