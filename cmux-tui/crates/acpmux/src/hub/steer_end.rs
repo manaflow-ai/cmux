@@ -497,6 +497,15 @@ impl Hub {
             }
             r => r?,
         };
+        // Read: the log says so at once, so a chat stops offering the X on its row then. Until
+        // now a chat learned it only from the agent's next words, which may come a minute later
+        // or never (a reply that is only a tool call), and a take-back meanwhile was refused
+        // with nothing to show why (Leo, 2026-11-06: "I can't ... cancel and edit these
+        // messages").
+        if r.get("stopReason").and_then(Value::as_str) == Some("steered") {
+            let msg = json!({"promptId": prompt_id, "turnId": turn_id});
+            self.append(session, "mux", "steer_read", msg);
+        }
         merge_mux_meta(&mut r, json!({"promptId": prompt_id, "turnId": turn_id, "steer": true}));
         Ok(r)
     }
