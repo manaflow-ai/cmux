@@ -137,6 +137,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `palette.scopes.scopes.prefix` | string | `"?"` | `@`, `#`, `>`, `,`, `?`, `!`, `/`, `;`, `:`, `%`, `&`, `+`, `=`, `~`, `$`, `^`, `*`, `.`, `none` | Scope List Prefix. Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope. |
 | `palette.aliases` | dictionary | `{}` |  | Command Aliases. A word that names a command by its action id ("vs": "splitRight"). Typing the whole word in the command palette puts that command first. |
 | `palette.pins` | array | `[]` |  | Pinned Commands. Commands shown first when the command palette opens, in this order, by action id. |
+| `palette.searchHistory` | boolean | `true` |  | Remember Palette Searches. The row you pick for what you typed comes first the next time you type it, and rows you use often rank higher. Off, the palette records nothing and ranks by match and sidebar order only. |
 | `agents.chats.enabled` | boolean | `true` |  | Enable Chats. Show chats stored on this device. Nothing is uploaded. |
 | `agents.chats.discovery` | boolean | `true` |  | Discover Chat Folders. Find harness chat folders automatically. When off, only the listed folders are used. |
 | `agents.chats.roots` | array | `[]` |  | Chat Folders. Add absolute paths to harness data folders. Protected folders are refused. Your organization can add locked folders. |

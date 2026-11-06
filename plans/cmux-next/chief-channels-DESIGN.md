@@ -62,5 +62,5 @@ Builds on group chats with Chief (`chief-group-chats-DESIGN.md`), the Invite Peo
 ## 5. Gaps
 
 1. Channel admins other than the creator cannot edit the channel Chief's profile (record ownership).
-2. This Mac's local Chief cannot be a channel Chief yet (same as group chats gap 6.1); the daemon's chief_manage has no create_channel.
+2. This Mac's local Chief cannot be a channel Chief yet (same as group chats gap 6.1). It makes channels: its `chiefs` create_channel runs the app's `home.createChannel` on the control socket (optchat-chief `chief_channel.rs`; the daemon holds no cloud session, so the daemon's chief_manage is not the path), under its `chiefs` grant. Its `chiefs` has no `invite` yet.
 3. The `invite` action and the Mac's New Channel invite through the owner's own session (`agent:<id> via chief` acting as the owner): the reach and role rules of participants.add and invite.create still apply, and the Chief acts only on its owner's word (effect-policy).
