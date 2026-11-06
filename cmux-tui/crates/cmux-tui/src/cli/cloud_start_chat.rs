@@ -470,6 +470,8 @@ pub(super) fn start_stage(runner: &mut dyn Runner, started: &Value) -> StartStag
             machine_id: at(row, "machine_id").as_str().map(str::to_owned).or(id),
             status: at(row, "status").as_str().map(str::to_owned),
             listed: true,
+            // A failed machine's own error (`list-machines`' `error`), e.g. the VM API's machine cap.
+            reason: at(row, "error").get("message").and_then(Value::as_str).map(str::to_owned),
             ..StartStage::default()
         };
     }
@@ -554,11 +556,23 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     start.push("--json".to_owned());
     let started = match step_result(&runner.cmux(&start)) {
         Ok(started) => started,
-        Err(error) => return app_failure(error),
+        Err(error) => return start_refused(error, &listed, request),
     };
     if at(&started, "pending").as_bool() == Some(true) {
         let again = again_command(request, &machine);
         let stage = start_stage(runner, &started);
+        let capped = stage
+            .reason
+            .as_deref()
+            .filter(|_| stage.is_final())
+            .and_then(|why| cap::cap_of("", why));
+        if let Some(found) = capped {
+            let why = stage.reason.as_deref().unwrap_or_default();
+            let (message, details) = cap::at_cap(found, why, &listed, |id| {
+                again_command(request, &Machine::Target(id.to_owned()))
+            });
+            return failed("cloud.machine_cap", message, details, 1);
+        }
         if stage.is_final() {
             return failed(
                 "cloud.start_failed",
@@ -805,7 +819,7 @@ fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Value) -> Rel
             let made = match step_result(&runner.cmux(&words(&["cloud", "new-machine", "--json"])))
             {
                 Ok(made) => made,
-                Err(error) => return Relayed::Answered(app_failure(error)),
+                Err(error) => return Relayed::Answered(start_refused(error, listed, request)),
             };
             match at(&made, "machine_id").as_str() {
                 Some(id) if at(&made, "pending").as_bool() != Some(true) => id.to_owned(),
@@ -858,6 +872,24 @@ fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Value) -> Rel
             ));
         }
     };
+    // The app gave the machine no usable login before the send (`cloud.relay.login_*`): the link path would only
+    // reach the same signed-out agent, so the app's typed answer and its recovery command are the outcome.
+    let undelivered = at(&relayed, "delivered").as_bool() == Some(false);
+    if let Some(code) = at(&relayed, "error_code")
+        .as_str()
+        .filter(|code| undelivered && code.starts_with(RELAY_LOGIN_CODES))
+    {
+        let message =
+            at(&relayed, "error_message").as_str().unwrap_or("the machine has no login").to_owned();
+        let exit = if code == "cloud.relay.login_pending" { 75 } else { 1 };
+        return Relayed::Answered(failed(
+            code,
+            message,
+            json!({"machine_id": machine_id, "command": at(&relayed, "command"),
+                   "login_reason": at(&relayed, "login_reason"), "sent": false}),
+            exit,
+        ));
+    }
     // Certainly never on the machine (the relay refused it, no machine took it, an image without the relay): the
     // link path sends it.
     if at(&relayed, "delivered").as_bool() == Some(false) {
@@ -951,6 +983,11 @@ fn typed_error(relayed: &Value) -> Value {
     }
     Value::Object(typed)
 }
+
+/// The app's `cloud relay-chat` refusals about the machine's harness login (refused, missing, declined, failed,
+/// pending, account changed, skipped, unverified): nothing was sent, and nothing else is. Each answer carries the
+/// start-session command that recovers it.
+const RELAY_LOGIN_CODES: &str = "cloud.relay.login_";
 
 /// The app has no `cloud relay-chat` (an older app): the CLI's own usage error, or the app's unknown action.
 fn lacks_action(error: &Value) -> bool {
@@ -1090,6 +1127,25 @@ fn app_failure(error: Value) -> Outcome {
     failed(&code, message, details, 1)
 }
 
+/// A start the app refused: a machine cap names the account's machines and the commands that
+/// make room ([`cap`]); any other refusal is [`app_failure`].
+fn start_refused(error: Value, listed: &Value, request: &Request) -> Outcome {
+    let code = at(&error, "code").as_str().unwrap_or_default();
+    let message = at(&error, "message").as_str().unwrap_or_default();
+    match cap::cap_of(code, message) {
+        Some(found) if !signed_out(&error) => {
+            let (text, mut details) = cap::at_cap(found, message, listed, |id| {
+                again_command(request, &Machine::Target(id.to_owned()))
+            });
+            if let Some(fields) = details.as_object_mut() {
+                fields.insert("app".to_owned(), error);
+            }
+            failed("cloud.machine_cap", text, details, 1)
+        }
+        _ => app_failure(error),
+    }
+}
+
 /// A failure after the chat started: the answer so far goes with it.
 fn sent_failure(error: Value, answer: Value) -> Outcome {
     let message = at(&error, "message").as_str().unwrap_or("cloud exec failed");
@@ -1189,6 +1245,8 @@ fn at<'a>(value: &'a Value, key: &str) -> &'a Value {
     const NULL: &Value = &Value::Null;
     value.get(key).unwrap_or(NULL)
 }
+
+mod cap;
 
 #[cfg(test)]
 pub(in crate::cli) mod tests;

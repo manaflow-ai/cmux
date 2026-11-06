@@ -2,16 +2,22 @@ public import Foundation
 import CmuxNextCompat
 
 /// The host's record of the user's last real gesture in a pane (a key or mouse event in its web
-/// view, or a native action such as a permission shortcut). Each gesture gives two single-use
+/// view, or a native action such as a permission shortcut). Each gesture gives three single-use
 /// credits: one GRANT (a frame that grants something, ``AcpmuxPaneMethods/needsGesture(_:options:)``,
-/// ``consume()``) and one SCOPE-ADD (one attach of a session that is not yet the pane's,
-/// ``consumeScope()``). Using one leaves the other. A gesture older than ``lifetime`` is gone (it
+/// ``consume()``), one SCOPE-ADD (one attach of a session that is not yet the pane's,
+/// ``consumeScope()``) and one UPLOAD (one batch of files the person pasted, dropped or chose,
+/// ``consumeUpload()``). Using one leaves the others. A gesture older than ``lifetime`` is gone (it
 /// covers a prompt held while a harness starts). Page script cannot set it.
 @MainActor public final class AgentPaneUserGestures {
     public static let lifetime: TimeInterval = 30
     private var last: TimeInterval?
     /// The same gesture's scope-add credit.
     private var lastScope: TimeInterval?
+    /// The same gesture's upload credit: one Enter pays for its send and for the upload of a file
+    /// pasted just before, which begins only once the host answered where the paste's files are
+    /// (Leo, 2026-11-06: the send held for that file came back "Not sent: it needs your own key
+    /// press or click."). Only the person's own gesture gives it; posted input never does.
+    private var lastUpload: TimeInterval?
     private let now: @MainActor () -> TimeInterval
 
     public init(now: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
@@ -24,6 +30,7 @@ import CmuxNextCompat
         questionReturn = nil
         last = now()
         lastScope = last
+        lastUpload = last
         if click { lastClick = last }
     }
 
@@ -99,6 +106,14 @@ import CmuxNextCompat
         guard let lastScope else { return false }
         self.lastScope = nil
         return now() - lastScope <= Self.lifetime
+    }
+
+    /// Uses the gesture's upload credit (one batch of the person's files, ``AgentPaneUpload``): true
+    /// once per recorded gesture within ``lifetime``; the grant and scope-add credits stay.
+    public func consumeUpload() -> Bool {
+        guard let lastUpload else { return false }
+        self.lastUpload = nil
+        return now() - lastUpload <= Self.lifetime
     }
 
     /// The record for logs and the DEBUG `debug.agent_pane gesture_state` verb: whether a gesture
@@ -308,8 +323,26 @@ import CmuxNextCompat
         dropTickets { _, ticket in ticket.intent.method != "session/prompt" }
     }
 
-    /// Drops the tickets of `connection` (it closed).
-    public func clearTickets(connection: Int) { dropTickets { $1.connection == connection } }
+    /// Drops the tickets of `connection` (it closed), but the person's own send tickets
+    /// (``isCarriedSend(_:)``): ``carrySendTickets(to:)`` gives them to the pane's next connection.
+    public func clearTickets(connection: Int) { dropTickets { $1.connection == connection && !Self.isCarriedSend($1) } }
+
+    /// The pane's connection `connection` opened: every ticket of an earlier one ends but the person's
+    /// own send tickets, which are its now. The page binds the person's Enter to its prompt at once and
+    /// sends the prompt after its waits; under load the connection is replaced in between (a stalled
+    /// stream reconnects, acpmux restarts), and the Enter's gesture is already in the ticket (Leo,
+    /// 2026-11-06: his typed message came back "Not sent" at load 150-330 after a relaunch). Each still
+    /// redeems once, for its own promptId, within its lifetime; a posted gesture's ticket, a pick and an
+    /// upload's hold still end with their connection.
+    public func carrySendTickets(to connection: Int) {
+        dropTickets { _, ticket in !Self.isCarriedSend(ticket) }
+        for key in tickets.keys { tickets[key]?.connection = connection }
+    }
+
+    /// A send ticket the person's own gesture paid for, with no upload holding it.
+    private static func isCarriedSend(_ ticket: Ticket) -> Bool {
+        ticket.intent.method == "session/prompt" && ticket.postedUnder == nil && ticket.uploads.isEmpty
+    }
 
     // MARK: A send ticket held by its uploads
 

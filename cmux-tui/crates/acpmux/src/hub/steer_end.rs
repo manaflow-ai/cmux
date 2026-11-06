@@ -276,6 +276,7 @@ impl Hub {
                 text: text.clone(),
                 line: super::prompt_line::prompt_line(&text, client, opts.provenance.as_ref()),
                 control,
+                needs_withdrawal: from_agent,
                 continues: super::carried_turn::Continues {
                     from,
                     trust_gate,
@@ -371,8 +372,17 @@ impl Hub {
                     self.inbox_prompt_written(session, &prompt_id);
                 }
             },
-        )
-        .await;
+        );
+        // The person's message does not wait behind a long foreground call: it goes to the
+        // background until the agent reads the message (`auto_background.rs`).
+        let answer = if super::auto_background::persons_message(
+            opts.provenance.as_ref(),
+            opts.agent.as_deref(),
+        ) {
+            self.answer_moving_work(session, &child, answer).await
+        } else {
+            answer.await
+        };
         // A Stop ended the turn before its agent answered another agent's message. Never
         // written (it waited behind the Stop), it comes back and starts the next turn (module
         // docs of `cancel.rs`). Written, it comes back only once its agent confirms it dropped it
@@ -380,7 +390,10 @@ impl Hub {
         // the turn's end (codex-acp), one whose line went in batched with others, or one that
         // does not answer may have read it, and a second copy would repeat its work.
         let stopped = stopped_unread_answer(&answer);
-        let forced_err = super::cancel::forced_turn(session, turn_id)
+        // A restart can close this request before its forced-end watch is delivered,
+        // including a steer sent into the predecessor of the cancelled carried turn.
+        let restarted = session.stopped_agent.load(Ordering::SeqCst) == child.generation;
+        let forced_err = (super::cancel::forced_turn(session, turn_id) || restarted)
             && answer.is_err()
             && steer_entered_turn(&answer)
             && stopped.is_none();
@@ -394,6 +407,7 @@ impl Hub {
             // Anyone else's (the person's) steer a Stop ended, and one its agent may have read,
             // ends with the turn, as before.
             (Err(_), Some((turn, _))) if !unread => Ok(turn),
+            (Err(_), None) if forced_err && !unread => Ok(super::cancel::forced_answer(restarted)),
             (answer, _) => answer,
         };
         // Read in a turn its agent ran on after the one it was steered into ended: it went into

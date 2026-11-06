@@ -176,6 +176,7 @@ export function tasksSection(
       ),
     );
   const { active, finished: ended } = splitScheduled(scheduled, now);
+  const showCall = input.onShowCall;
   const scheduledRow = (entry: ScheduledEntry): NativeInfoRow => {
     const trailing = scheduledTrailing(t, input.language ?? "en", entry);
     const ended = entry.status.state !== "scheduled";
@@ -185,6 +186,13 @@ export function tasksSection(
       title: entry.item.text,
       ...(trailing ? { trailing } : {}),
       ...(ended ? { tone: SCHEDULED_TONE[entry.status.state] } : {}),
+      // The call that made it (sessionSummary `scheduled`, keyed by the call): while the loaded
+      // transcript holds it, a click shows it, and with an action the App lights the row on hover as
+      // it does a command's (Leo, 2026-11-06: the "Fallback heartbeat ... doesn't get highlighted in
+      // the same way that the other ones do").
+      ...(showCall && input.calls?.has(entry.item.id)
+        ? { action: actions.add(`tasks.showCall:${entry.item.id}`, () => void showCall(entry.item.id)) }
+        : {}),
       help: entry.item.cron && !ended ? `${entry.item.text} (${entry.item.cron})` : entry.item.text,
     };
   };
