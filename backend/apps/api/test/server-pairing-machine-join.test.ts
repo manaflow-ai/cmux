@@ -133,24 +133,28 @@ describe("server pairing mints the box's machine join token (workerd)", () => {
     const teamStub = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team)) as any
     expect((await teamStub.debug(team)).state.server_machine_joins).toEqual({ [install]: "join_1" })
 
-    // The platform is down for the first call, then answers.
+    // The platform is down until `up`; TeamDO's own alarm may retry meanwhile, and keeps the item while it is down.
+    let up = false
     const calls: Array<[string, string]> = []
     await inDO(teamStub, async (instance) => {
-      instance.machineJoins = async (t: string, id: string) => (calls.push([t, id]), calls.length === 1 ? "retry" : "done")
+      instance.machineJoins = async (t: string, id: string) => (calls.push([t, id]), up ? "done" : "retry")
     })
     const revoked = await op(owner, "server.revoke", { host })
     expect(revoked.json).toMatchObject({ ok: true, value: { host, install_revoked: true } })
-    expect(calls).toEqual([[team, "join_1"]])
+    expect(calls.length).toBeGreaterThanOrEqual(1)
+    expect(new Set(calls.map((c) => c.join(" ")))).toEqual(new Set([`${team} join_1`]))
     // The install is revoked at once; the machine's revocation stays pending until the platform confirms.
     expect((await call("/v1/auth/challenge", undefined, { user, install })).status).toBe(403)
     const state = async () => (await teamStub.debug(team)).state
     expect((await state()).server_revocations?.[install]).toMatchObject({ machine_join_token: "join_1" })
     expect((await state()).server_machine_joins ?? {}).toEqual({})
+    up = true
+    const before = calls.length
     await inDO(teamStub, async (instance) => {
       instance.revokeRetryAt = 0
     })
     await runAlarm(teamStub)
-    expect(calls).toEqual([[team, "join_1"], [team, "join_1"]])
+    expect(calls.length).toBeGreaterThan(before)
     expect((await state()).server_revocations ?? {}).toEqual({})
   })
 
