@@ -970,8 +970,7 @@ fn a_copy_of_the_root_a_system_folder_or_home_is_refused() {
     }
     let dir = scratch();
     let path = ledger_in(dir.path());
-    let never =
-        |_: &Path, _: &Path, _: &str| -> Result<Value, PushFailure> { panic!("copied") };
+    let never = |_: &Path, _: &Path, _: &str| -> Result<Value, PushFailure> { panic!("copied") };
     let answer = copy_of("/System", "").run(&path, &never);
     assert_eq!(answer["error_code"], json!("folder_too_broad"), "{answer}");
 }
