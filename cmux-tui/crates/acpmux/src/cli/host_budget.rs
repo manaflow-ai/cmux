@@ -38,7 +38,10 @@ const MAX_VERDICT_INPUT: u64 = 4 << 20;
 pub(crate) fn verdict_stdin() -> anyhow::Result<()> {
     use std::io::Read as _;
     let mut text = String::new();
-    std::io::stdin().take(MAX_VERDICT_INPUT).read_to_string(&mut text)?;
+    std::io::stdin().take(MAX_VERDICT_INPUT + 1).read_to_string(&mut text)?;
+    if text.len() as u64 > MAX_VERDICT_INPUT {
+        anyhow::bail!("machine verdict: stdin is over {} MiB", MAX_VERDICT_INPUT >> 20);
+    }
     let out = verdicts_for(&text, crate::store::now_ms())?;
     crate::cli::output::print_json(&out);
     Ok(())

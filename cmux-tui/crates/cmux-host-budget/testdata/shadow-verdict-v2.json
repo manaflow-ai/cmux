@@ -1,5 +1,5 @@
 {
-  "formula_version": "shadow-admission/1",
+  "formula_version": "shadow-admission/2",
   "about": "Inputs to `acpmux machine verdict` (cmux-host-budget shadow_verdict) and the verdict fields each must give. `next` is the state to pass back as `previous`.",
   "vectors": [
     {
@@ -267,7 +267,7 @@
     },
     {
       "name": "swap-30.8-of-31.7-gb-no-buffer",
-      "note": "Swap 30.8 of 31.7 GB used with 11% available: memory saturated on one sample, CPU calm.",
+      "note": "Swap 30.8 of 31.7 GB used with 11% available, second hot sample in a row: memory saturated, CPU calm.",
       "input": {
         "host": "mac-host",
         "now_ms": 1762400000000,
@@ -279,7 +279,20 @@
         "ram_total_bytes": 51539607552,
         "swap_used_bytes": 30800000000,
         "swap_total_bytes": 31700000000,
-        "swap_growth_mb_per_min": 12.0
+        "swap_growth_mb_per_min": 12.0,
+        "previous": {
+          "sample_at_ms": 1762399920000,
+          "cpu": {
+            "state": "ok",
+            "hot": 0,
+            "calm": 0
+          },
+          "mem": {
+            "state": "pressured",
+            "hot": 1,
+            "calm": 0
+          }
+        }
       },
       "expect": {
         "would_defer": true,
@@ -296,6 +309,42 @@
           "mem": {
             "state": "saturated",
             "hot": 0,
+            "calm": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "swap-30.8-of-31.7-gb-first-sample-is-pressured",
+      "note": "The same swap on a first sample: memory pressured, one hot sample of the two it needs.",
+      "input": {
+        "host": "mac-host",
+        "now_ms": 1762400000000,
+        "health_at_ms": 1762399980000,
+        "cores": 15,
+        "load1": 9.0,
+        "mem_pressure": "normal",
+        "available_fraction": 0.11,
+        "ram_total_bytes": 51539607552,
+        "swap_used_bytes": 30800000000,
+        "swap_total_bytes": 31700000000,
+        "swap_growth_mb_per_min": 12.0
+      },
+      "expect": {
+        "would_defer": false,
+        "reason": "ok",
+        "cpu": "ok",
+        "mem": "pressured",
+        "next": {
+          "sample_at_ms": 1762399980000,
+          "cpu": {
+            "state": "ok",
+            "hot": 0,
+            "calm": 0
+          },
+          "mem": {
+            "state": "pressured",
+            "hot": 1,
             "calm": 0
           }
         }
@@ -445,8 +494,8 @@
       }
     },
     {
-      "name": "memory-pressure-warn-saturates-at-once",
-      "note": "Memory pressure warn saturates memory on one sample.",
+      "name": "warn-with-42-percent-available-stays-pressured",
+      "note": "macOS pressure warn with 42% available, after an earlier hot sample: warn alone is warm, so memory stays pressured and never saturates.",
       "input": {
         "host": "lane-host",
         "now_ms": 1762400000000,
@@ -454,7 +503,141 @@
         "cores": 16,
         "load1": 4.0,
         "mem_pressure": "warn",
-        "available_fraction": 0.3,
+        "available_fraction": 0.42,
+        "ram_total_bytes": 137438953472,
+        "swap_used_bytes": 1073741824,
+        "swap_total_bytes": 34359738368,
+        "swap_growth_mb_per_min": 0.0,
+        "previous": {
+          "sample_at_ms": 1762399920000,
+          "cpu": {
+            "state": "ok",
+            "hot": 0,
+            "calm": 0
+          },
+          "mem": {
+            "state": "pressured",
+            "hot": 1,
+            "calm": 0
+          }
+        }
+      },
+      "expect": {
+        "would_defer": false,
+        "reason": "ok",
+        "cpu": "ok",
+        "mem": "pressured",
+        "next": {
+          "sample_at_ms": 1762399980000,
+          "cpu": {
+            "state": "ok",
+            "hot": 0,
+            "calm": 0
+          },
+          "mem": {
+            "state": "pressured",
+            "hot": 0,
+            "calm": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "warn-with-low-available-first-sample-is-pressured",
+      "note": "Pressure warn with 12% available on a first sample: hot, pressured.",
+      "input": {
+        "host": "lane-host",
+        "now_ms": 1762400000000,
+        "health_at_ms": 1762399980000,
+        "cores": 16,
+        "load1": 4.0,
+        "mem_pressure": "warn",
+        "available_fraction": 0.12,
+        "ram_total_bytes": 137438953472,
+        "swap_used_bytes": 1073741824,
+        "swap_total_bytes": 34359738368,
+        "swap_growth_mb_per_min": 0.0
+      },
+      "expect": {
+        "would_defer": false,
+        "reason": "ok",
+        "cpu": "ok",
+        "mem": "pressured",
+        "next": {
+          "sample_at_ms": 1762399980000,
+          "cpu": {
+            "state": "ok",
+            "hot": 0,
+            "calm": 0
+          },
+          "mem": {
+            "state": "pressured",
+            "hot": 1,
+            "calm": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "warn-streak-with-low-available-saturates",
+      "note": "Pressure warn with 12% available on a second hot sample in a row: memory saturated.",
+      "input": {
+        "host": "lane-host",
+        "now_ms": 1762400000000,
+        "health_at_ms": 1762399980000,
+        "cores": 16,
+        "load1": 4.0,
+        "mem_pressure": "warn",
+        "available_fraction": 0.12,
+        "ram_total_bytes": 137438953472,
+        "swap_used_bytes": 1073741824,
+        "swap_total_bytes": 34359738368,
+        "swap_growth_mb_per_min": 0.0,
+        "previous": {
+          "sample_at_ms": 1762399920000,
+          "cpu": {
+            "state": "ok",
+            "hot": 0,
+            "calm": 0
+          },
+          "mem": {
+            "state": "pressured",
+            "hot": 1,
+            "calm": 0
+          }
+        }
+      },
+      "expect": {
+        "would_defer": true,
+        "reason": "saturated:mem",
+        "cpu": "ok",
+        "mem": "saturated",
+        "next": {
+          "sample_at_ms": 1762399980000,
+          "cpu": {
+            "state": "ok",
+            "hot": 0,
+            "calm": 0
+          },
+          "mem": {
+            "state": "saturated",
+            "hot": 0,
+            "calm": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "critical-saturates-at-once",
+      "note": "Pressure critical saturates memory on one sample, whatever is available.",
+      "input": {
+        "host": "lane-host",
+        "now_ms": 1762400000000,
+        "health_at_ms": 1762399980000,
+        "cores": 16,
+        "load1": 4.0,
+        "mem_pressure": "critical",
+        "available_fraction": 0.4,
         "ram_total_bytes": 137438953472,
         "swap_used_bytes": 1073741824,
         "swap_total_bytes": 34359738368,
@@ -474,6 +657,89 @@
           },
           "mem": {
             "state": "saturated",
+            "hot": 0,
+            "calm": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "busy-mac-load-9.28-per-core-warn-swap-96-first-sample",
+      "note": "A captured row from a 15-core Mac: load 9.28 per core, pressure warn, swap 96.4% full, 42% available, no swap growth read. First sample: CPU pressured (hot), memory pressured (warn alone).",
+      "input": {
+        "host": "mac-host",
+        "now_ms": 1762400000000,
+        "health_at_ms": 1762399980000,
+        "cores": 15,
+        "load1": 139.2,
+        "mem_pressure": "warn",
+        "available_fraction": 0.42,
+        "ram_total_bytes": 51539607552,
+        "swap_used_bytes": 30558800000,
+        "swap_total_bytes": 31700000000
+      },
+      "expect": {
+        "would_defer": false,
+        "reason": "ok",
+        "cpu": "pressured",
+        "mem": "pressured",
+        "next": {
+          "sample_at_ms": 1762399980000,
+          "cpu": {
+            "state": "pressured",
+            "hot": 1,
+            "calm": 0
+          },
+          "mem": {
+            "state": "pressured",
+            "hot": 0,
+            "calm": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "busy-mac-load-9.28-per-core-warn-swap-96-second-sample",
+      "note": "The same row a minute later: CPU saturated, memory still only pressured.",
+      "input": {
+        "host": "mac-host",
+        "now_ms": 1762400000000,
+        "health_at_ms": 1762399980000,
+        "cores": 15,
+        "load1": 139.2,
+        "mem_pressure": "warn",
+        "available_fraction": 0.42,
+        "ram_total_bytes": 51539607552,
+        "swap_used_bytes": 30558800000,
+        "swap_total_bytes": 31700000000,
+        "previous": {
+          "sample_at_ms": 1762399920000,
+          "cpu": {
+            "state": "pressured",
+            "hot": 1,
+            "calm": 0
+          },
+          "mem": {
+            "state": "pressured",
+            "hot": 0,
+            "calm": 0
+          }
+        }
+      },
+      "expect": {
+        "would_defer": true,
+        "reason": "saturated:cpu",
+        "cpu": "saturated",
+        "mem": "pressured",
+        "next": {
+          "sample_at_ms": 1762399980000,
+          "cpu": {
+            "state": "saturated",
+            "hot": 0,
+            "calm": 0
+          },
+          "mem": {
+            "state": "pressured",
             "hot": 0,
             "calm": 0
           }
@@ -788,6 +1054,88 @@
             "state": "pressured",
             "hot": 1,
             "calm": 0
+          }
+        }
+      },
+      "expect": {
+        "would_defer": true,
+        "reason": "saturated:mem",
+        "cpu": "ok",
+        "mem": "saturated",
+        "next": {
+          "sample_at_ms": 1762399980000,
+          "cpu": {
+            "state": "ok",
+            "hot": 0,
+            "calm": 0
+          },
+          "mem": {
+            "state": "saturated",
+            "hot": 0,
+            "calm": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "swap-growth-only-reading-is-hot",
+      "note": "No pressure and no available reading, but swap growing 120 MB/min: memory pressured (hot), not unknown.",
+      "input": {
+        "host": "lane-host",
+        "now_ms": 1762400000000,
+        "health_at_ms": 1762399980000,
+        "cores": 32,
+        "load1": 8.0,
+        "ram_total_bytes": 137438953472,
+        "swap_used_bytes": 1073741824,
+        "swap_total_bytes": 34359738368,
+        "swap_growth_mb_per_min": 120.0
+      },
+      "expect": {
+        "would_defer": false,
+        "reason": "ok",
+        "cpu": "ok",
+        "mem": "pressured",
+        "next": {
+          "sample_at_ms": 1762399980000,
+          "cpu": {
+            "state": "ok",
+            "hot": 0,
+            "calm": 0
+          },
+          "mem": {
+            "state": "pressured",
+            "hot": 1,
+            "calm": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "saturated-memory-without-available-stays",
+      "note": "Saturated memory with pressure normal and no available reading: not calm, so it stays saturated.",
+      "input": {
+        "host": "lane-host",
+        "now_ms": 1762400000000,
+        "health_at_ms": 1762399980000,
+        "cores": 32,
+        "load1": 8.0,
+        "mem_pressure": "normal",
+        "ram_total_bytes": 137438953472,
+        "swap_used_bytes": 1073741824,
+        "swap_total_bytes": 34359738368,
+        "swap_growth_mb_per_min": 0.0,
+        "previous": {
+          "sample_at_ms": 1762399920000,
+          "cpu": {
+            "state": "ok",
+            "hot": 0,
+            "calm": 0
+          },
+          "mem": {
+            "state": "saturated",
+            "hot": 0,
+            "calm": 2
           }
         }
       },

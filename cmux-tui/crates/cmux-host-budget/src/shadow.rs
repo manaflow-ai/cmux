@@ -5,16 +5,20 @@
 //! readings and the state the last call returned are all inputs, so acpmux's
 //! placement, its daemon's create check and lane-place's `sessions` (through
 //! `acpmux machine verdict`) give one set of readings the same verdict.
-//! `testdata/shadow-verdict-v1.json` pins inputs to verdicts.
+//! `testdata/shadow-verdict-v2.json` pins inputs to verdicts.
 //!
 //! CPU and memory each get a state: `ok`, `pressured` or `saturated`, or
 //! `unknown` while the host reads nothing for it. Each sample is classed first:
 //! - CPU is hot at load1 per core >= 1.25 or PSI cpu `some avg10` >= 30; calm
 //!   at load1 per core <= 0.90 with PSI cpu, when read, <= 15; else warm.
-//! - Memory is severe at pressure `warn` or `critical`, available (free plus
-//!   compressible) under 8%, or swap at least 90% full with available under
-//!   15%; hot at swap growth >= 64 MB/min; calm with pressure `normal` or
-//!   unread, swap growth <= 16 MB/min or unread, and available >= 15%; else warm.
+//! - Memory is severe only at pressure `critical`. It is hot at swap growth
+//!   >= 64 MB/min, available (free plus compressible) under 8%, swap at least
+//!   90% full with available under 15%, or pressure `warn` with available under
+//!   15%. Pressure `warn` alone is warm: macOS reports it for long stretches
+//!   with plenty available, so it saturates nothing by itself. Calm is pressure
+//!   `normal` or unread, swap growth <= 16 MB/min or unread, and available read
+//!   and >= 15%; anything else is warm. With neither pressure nor available
+//!   read, only swap growth speaks: hot at its line, else unknown.
 //!
 //! A signal enters `saturated` on one severe sample or two hot samples in a row,
 //! and leaves it after three calm samples in a row. Outside `saturated`, a hot
@@ -38,7 +42,7 @@ use serde::{Deserialize, Serialize};
 
 /// Names this formula in every logged line. A change to a threshold, a class
 /// rule or the digest's input bumps it, with new golden vectors.
-pub const SHADOW_FORMULA_VERSION: &str = "shadow-admission/1";
+pub const SHADOW_FORMULA_VERSION: &str = "shadow-admission/2";
 
 /// A reading older than this is `unknown:stale`: three missed 60 s peer refreshes.
 pub const MAX_HEALTH_AGE_MS: u64 = 180_000;
@@ -51,7 +55,7 @@ const CPU_HOT_LOAD_PER_CORE: f64 = 1.25;
 const CPU_CALM_LOAD_PER_CORE: f64 = 0.90;
 const CPU_HOT_PSI: f64 = 30.0;
 const CPU_CALM_PSI: f64 = 15.0;
-const MEM_SEVERE_AVAILABLE: f64 = 0.08;
+const MEM_LOW_AVAILABLE: f64 = 0.08;
 const MEM_CALM_AVAILABLE: f64 = 0.15;
 const MEM_SWAP_FULL: f64 = 0.90;
 const MEM_HOT_SWAP_GROWTH: f64 = 64.0;
@@ -270,7 +274,7 @@ pub fn shadow_verdict(inputs: &ShadowInputs) -> ShadowVerdict {
         },
         mem: match (inputs.available_fraction, inputs.ram_total_bytes) {
             (Some(avail), Some(total)) => {
-                Some((avail - MEM_SEVERE_AVAILABLE) * total as f64 >= new.rss_bytes as f64)
+                Some((avail - MEM_LOW_AVAILABLE) * total as f64 >= new.rss_bytes as f64)
             }
             _ => None,
         },
@@ -324,22 +328,25 @@ fn mem_class(
 ) -> Class {
     let pressure = pressure.filter(|p| *p != "unknown");
     let available = available.filter(|a| a.is_finite());
+    let growing = growth.is_some_and(|g| g >= MEM_HOT_SWAP_GROWTH);
     if pressure.is_none() && available.is_none() {
-        return Class::Unknown;
+        return if growing { Class::Hot } else { Class::Unknown };
     }
-    let short = |line: f64| available.is_some_and(|a| a < line);
-    if matches!(pressure, Some("warn" | "critical"))
-        || short(MEM_SEVERE_AVAILABLE)
-        || (swap_used.is_some_and(|s| s >= MEM_SWAP_FULL) && short(MEM_CALM_AVAILABLE))
-    {
+    if pressure == Some("critical") {
         return Class::Severe;
     }
-    if growth.is_some_and(|g| g >= MEM_HOT_SWAP_GROWTH) {
+    let short = |line: f64| available.is_some_and(|a| a < line);
+    let low = short(MEM_CALM_AVAILABLE);
+    if growing
+        || short(MEM_LOW_AVAILABLE)
+        || (swap_used.is_some_and(|s| s >= MEM_SWAP_FULL) && low)
+        || (pressure == Some("warn") && low)
+    {
         return Class::Hot;
     }
     let calm = pressure.is_none_or(|p| p == "normal")
         && growth.is_none_or(|g| g <= MEM_CALM_SWAP_GROWTH)
-        && available.is_none_or(|a| a >= MEM_CALM_AVAILABLE);
+        && available.is_some_and(|a| a >= MEM_CALM_AVAILABLE);
     if calm { Class::Calm } else { Class::Warm }
 }
 

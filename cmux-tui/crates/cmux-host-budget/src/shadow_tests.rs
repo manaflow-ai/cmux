@@ -1,7 +1,7 @@
 use super::*;
 use serde_json::{Value, json};
 
-const VECTORS: &str = include_str!("../testdata/shadow-verdict-v1.json");
+const VECTORS: &str = include_str!("../testdata/shadow-verdict-v2.json");
 
 fn vectors() -> Vec<Value> {
     let file: Value = serde_json::from_str(VECTORS).expect("the vector file is JSON");
@@ -39,6 +39,10 @@ fn the_named_incidents_are_in_the_vectors() {
         "cpu-saturated-load-205-on-32-cores",
         "swap-30.8-of-31.7-gb-no-buffer",
         "stale-health-240s",
+        "warn-with-42-percent-available-stays-pressured",
+        "warn-streak-with-low-available-saturates",
+        "critical-saturates-at-once",
+        "busy-mac-load-9.28-per-core-warn-swap-96-first-sample",
     ] {
         assert!(names.iter().any(|n| n == wanted), "missing vector {wanted}");
     }
