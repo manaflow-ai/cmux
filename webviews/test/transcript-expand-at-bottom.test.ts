@@ -1,9 +1,9 @@
 // l10n-allow-file: the gallery fixture supplies the transcript's messages.
-// Opening a line with the transcript at its very bottom pushes the text up (Leo, 2026-11-02: "YOU
-// EXPAND UP WHILE YOUR SCCROLL IS AT THE VERY BOTTOM AKA YOU FUCKING PUSH THE TEXT UP VISUALLY INSTEAD
-// OF EXPANDING DOWN LIKE USUAL / JUST THAT CASE"): the view stays at its end, the rows under the
-// opened line stay on their pixels, and the line itself moves up by what opened. Anywhere else the
-// line stays put and its body grows down (#28780).
+// Opening a line with the transcript at its very bottom grows down, as Codex opens a call at the end
+// of a chat (Lucas, 2026-11-06, Codex parity; it replaces the bottom pin on open, Leo 2026-11-02): the
+// line and the text above it stay on their pixels, what opens goes under the composer, and the view
+// stops following. Anywhere else the line stays put and its body grows down too (#28780). Closing at
+// the very bottom still pins it: the text above comes down and no blank room is left (Leo, 2026-11-03).
 //
 // Real Chromium from Playwright on the agent pane's gallery scene (ExpandAtBottom.gallery.ts).
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
@@ -110,7 +110,7 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
     return page;
   }
 
-  test("at the very bottom, opening a line keeps the bottom and pushes the text above up", async () => {
+  test("at the very bottom, opening a line keeps it on its pixel and grows its body down", async () => {
     const page = await open();
     await page.locator(".acpmux-scroll").evaluate((node) => {
       node.scrollTop = node.scrollHeight;
@@ -123,16 +123,18 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
     await settled(page);
     const after = await measure(page);
     expect(after.open).toBe("true");
-    // Still at the very bottom, and the rows under the line did not move.
-    expect(after.fromEnd).toBeLessThanOrEqual(2);
-    expect(Math.abs(after.lastFoot - before.lastFoot)).toBeLessThanOrEqual(2);
-    // What opened pushed the line (and the text above it) up by its height.
+    // The line and the view stayed; what opened grew the chat down, past the view's end.
+    expect(Math.abs(after.line - before.line)).toBeLessThanOrEqual(1);
+    expect(Math.abs(after.scrollTop - before.scrollTop)).toBeLessThanOrEqual(1);
     expect(after.scrollHeight).toBeGreaterThan(before.scrollHeight + 40);
-    expect(before.line - after.line).toBeGreaterThan(40);
+    expect(after.fromEnd).toBeGreaterThan(40);
     await page.close();
   });
 
-  test("at the very bottom, a long prompt's Show more opens it by pushing the text above up", async () => {
+  // A long prompt's Show more at the very bottom opens as an open does anywhere in the chat (Codex
+  // parity): the prompt's row and the view stay where they were, the text it shows grows down and
+  // the reply under it moves down under the composer.
+  test("at the very bottom, a long prompt's Show more opens it downward", async () => {
     const MORE = '.cv-user__more[aria-expanded="false"]';
     const page = await open("prompt", MORE);
     await page.locator(".acpmux-scroll").evaluate((node) => {
@@ -145,7 +147,7 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
         const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")];
         const bubbles = [...scroller.querySelectorAll<HTMLElement>(".cv-user__text")];
         return {
-          prompt: bubbles.at(-1)!.getBoundingClientRect().top,
+          prompt: bubbles.at(-1)!.closest(".acpmux-row")!.getBoundingClientRect().top,
           lastFoot: rows.at(-1)!.getBoundingClientRect().bottom,
           scrollHeight: scroller.scrollHeight,
           fromEnd: scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop,
@@ -157,22 +159,24 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
     await page.locator('.cv-user__more[aria-expanded="true"]').waitFor();
     await settled(page);
     const after = await where();
-    expect(after.fromEnd).toBeLessThanOrEqual(2);
-    expect(Math.abs(after.lastFoot - before.lastFoot)).toBeLessThanOrEqual(2);
+    console.log(`prompt Show more: ${JSON.stringify(before)} -> ${JSON.stringify(after)}`);
+    expect(Math.abs(after.prompt - before.prompt)).toBeLessThanOrEqual(1);
     expect(after.scrollHeight).toBeGreaterThan(before.scrollHeight + 40);
-    expect(before.prompt - after.prompt).toBeGreaterThan(40);
+    expect(after.lastFoot - before.lastFoot).toBeGreaterThan(40);
+    expect(after.fromEnd).toBeGreaterThan(40);
     await page.close();
   });
 
-  /// Clicks `query` (unless `click` is false) and reads every painted frame for `ms`: the opened row's
-  /// top (a Show more under its text stays at the row's foot, the text above it rises), the first row
+  /// Clicks `query` (unless `click` is false) and reads every painted frame for `ms`: `query`'s own
+  /// top (`control`), the opened row's top (a Show more under its text stays at the row's foot, the text above it rises), the first row
   /// under it and the last row's foot, how far the view is from its end, and how far below the row
   /// under it the opened row is drawn (its foot less its clip).
+  type Frame = { line: number; control: number; under: number; last: number; fromEnd: number; over: number };
   const watchOpen = async (page: Page, query: string, ms = 700, click = true) => {
     const watching = page.evaluate(
       ({ selector, duration }) =>
-        new Promise<{ line: number; under: number; last: number; fromEnd: number; over: number }[]>((resolve) => {
-          const frames: { line: number; under: number; last: number; fromEnd: number; over: number }[] = [];
+        new Promise<Frame[]>((resolve) => {
+          const frames: Frame[] = [];
           const start = performance.now();
           window.cmuxAfterPaint(() => {
             const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
@@ -186,6 +190,7 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
             const cut = /inset\(\S+ \S+ ([\d.]+)px/.exec(getComputedStyle(row).clipPath);
             frames.push({
               line: box.top,
+              control: line.getBoundingClientRect().top,
               under: next.getBoundingClientRect().top,
               last: rows.at(-1)!.getBoundingClientRect().bottom,
               fromEnd: scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop,
@@ -202,15 +207,13 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
     return watching;
   };
 
-  /// Leo, 2026-11-03: "you guys adding fake space or whatever / it grows and shrinks right / ... when
-  /// you expand tool calls at the very bottom / you push the text above upwards / you don't expand
-  /// down IN THAT CASE". Not only where it settles: on every frame of the fold the rows under the line
-  /// keep their pixels and nothing of what opened shows under the line's old foot.
+  /// Not only where it settles: on every frame of the fold the opened line keeps its pixel, the rows
+  /// under it only move down, and nothing of what opened draws over the row under it (Codex parity).
   for (const [variant, query] of [
     [VARIANT, GROUP],
     ["prompt", '.cv-user__more[aria-expanded="false"]'],
   ] as const) {
-    test(`at the very bottom (${variant}), no frame opens room under the line: only the text above moves up`, async () => {
+    test(`at the very bottom (${variant}), every frame keeps the line still and grows down`, async () => {
       const page = await open(variant, query);
       await page.locator(".acpmux-scroll").evaluate((node, selector) => {
         node.querySelector<HTMLElement>(selector)!.dataset.openProbe = "true";
@@ -221,26 +224,24 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
       const before = (await watchOpen(page, PROBE, 0, false))[0]!;
       const frames = await watchOpen(page, PROBE);
       expect(frames.length).toBeGreaterThan(5);
-      let line = before.line;
+      let under = before.under;
       for (const [index, frame] of frames.entries()) {
         const at = { index, ...frame };
-        expect({ at, under: Math.abs(frame.under - before.under) <= 1 }).toEqual({ at, under: true });
-        expect({ at, last: Math.abs(frame.last - before.last) <= 1 }).toEqual({ at, last: true });
-        expect({ at, end: frame.fromEnd <= 2 }).toEqual({ at, end: true });
+        expect({ at, still: Math.abs(frame.line - before.line) <= 1 }).toEqual({ at, still: true });
         expect({ at, covered: frame.over <= 1 }).toEqual({ at, covered: true });
-        expect({ at, up: frame.line <= line + 0.5 }).toEqual({ at, up: true });
-        line = frame.line;
+        expect({ at, down: frame.under >= under - 0.5 }).toEqual({ at, down: true });
+        under = frame.under;
       }
-      expect(before.line - frames.at(-1)!.line).toBeGreaterThan(40);
+      expect(frames.at(-1)!.under - before.under).toBeGreaterThan(40);
       await page.close();
     });
   }
 
   /// Leo, 2026-11-04: "how come there aren't animatiosn for expanding/collapsing tool calls
-  /// anymore???", and on the bottom case: "it's not a smooth eough/graceful enough/minimally shifting
-  /// animation". Opening and then closing "Ran 2 commands" at the very bottom glides: the line moves
-  /// over several painted frames, never most of the way in one, while the view stays at its end and
-  /// the rows under the line keep their pixels on every frame.
+  /// anymore???". Opening "Ran 2 commands" at the very bottom glides the rows under it down while the
+  /// line stays; back at the very end, closing it glides the text above down (the bottom pin), while
+  /// the view stays at its end and the last row keeps its pixels. Each moves over several painted
+  /// frames, never most of the way in one.
   // In Chromium and in WebKit, the app's own engine (where the thread slide this replaced jumped).
   for (const engineName of ["chromium", "webkit"] as const)
     test(`at the very bottom (${engineName}), opening and closing a group glide the text above over several frames`, async () => {
@@ -263,23 +264,33 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
       await settled(page);
       const PROBE = "[data-glide-probe]";
       for (const direction of ["open", "close"] as const) {
+        // An open at the end leaves the view short of it: the close starts at the very end again.
+        if (direction === "close") {
+          await page.locator(".acpmux-scroll").evaluate((node) => {
+            node.scrollTop = node.scrollHeight;
+          });
+          await settled(page);
+        }
         const before = (await watchOpen(page, PROBE, 0, false))[0]!;
         const frames = await watchOpen(page, PROBE);
         await settled(page);
         const after = (await watchOpen(page, PROBE, 0, false))[0]!;
-        const total = after.line - before.line;
-        // Opening moves the line up, closing brings it back down, by what opened.
-        expect({ direction, moved: direction === "open" ? total < -40 : total > 40 }).toEqual({
-          direction,
-          moved: true,
-        });
-        const tops = [before.line, ...frames.map((frame) => frame.line)];
+        // Opening moves the rows under the line down; closing brings the line down by what closed.
+        const moving = direction === "open" ? "under" : "line";
+        const total = after[moving] - before[moving];
+        expect({ direction, moved: total > 40 }).toEqual({ direction, moved: true });
+        if (direction === "open")
+          for (const [index, frame] of frames.entries()) {
+            const at = { direction, index, ...frame };
+            expect({ at, still: Math.abs(frame.line - before.line) <= 1 }).toEqual({ at, still: true });
+          }
+        const tops = [before[moving], ...frames.map((frame) => frame[moving])];
         let largest = 0;
         for (let index = 1; index < tops.length; index++)
           largest = Math.max(largest, Math.abs(tops[index]! - tops[index - 1]!));
         // Frames strictly between where it was and where it settles: the glide, not a jump.
         const between = frames.filter(
-          (frame) => Math.abs(frame.line - before.line) > 1 && Math.abs(frame.line - after.line) > 1,
+          (frame) => Math.abs(frame[moving] - before[moving]) > 1 && Math.abs(frame[moving] - after[moving]) > 1,
         ).length;
         expect({ direction, between: between >= 3 }).toEqual({ direction, between: true });
         expect({ direction, largest, smooth: largest <= Math.abs(total) * 0.7 }).toEqual({
@@ -287,20 +298,21 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
           largest,
           smooth: true,
         });
-        for (const [index, frame] of frames.entries()) {
-          const at = { direction, index, ...frame };
-          expect({ at, end: frame.fromEnd <= 2 }).toEqual({ at, end: true });
-          expect({ at, last: Math.abs(frame.last - before.last) <= 1 }).toEqual({ at, last: true });
-        }
+        if (direction === "close")
+          for (const [index, frame] of frames.entries()) {
+            const at = { direction, index, ...frame };
+            expect({ at, end: frame.fromEnd <= 2 }).toEqual({ at, end: true });
+            expect({ at, last: Math.abs(frame.last - before.last) <= 1 }).toEqual({ at, last: true });
+          }
       }
       await page.close();
       if (engine !== browser) await engine.close();
     });
 
-  /// A control with no height fold of its own (a shell block's "Show all N lines", a failure's
-  /// Details) glides too at the very bottom: the thread slides to what it laid out in one step, over
-  /// several painted frames, never most of the way in one (router-review F1 on #34780).
-  test("at the very bottom, a shell block's Show all lines glides the text above over several frames", async () => {
+  /// A shell block's "Show all N lines" under a log whose top is above the view holds the control
+  /// itself, as anywhere in the chat (foldAnchor.ts `foldHoldTarget`): it stays under the pointer on
+  /// every frame, the lines it shows come in above it, and the rows under it and the view's end stay.
+  test("at the very bottom, a shell block's Show all lines stays under the pointer and its log rises", async () => {
     // Its play opens and closes the group (three toggles at once mid-play): wait on the row itself.
     const page = await open("collapse-tall-group", '[data-row-id="expand-at-bottom-run"]');
     await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay), undefined, {
@@ -342,22 +354,15 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
     await settled(page);
     const after = (await watchOpen(page, PROBE, 0, false))[0]!;
     expect(await page.locator(PROBE).getAttribute("aria-expanded")).toBe("true");
-    const total = after.line - before.line;
-    expect(total).toBeLessThan(-40);
-    const tops = [before.line, ...frames.map((frame) => frame.line)];
-    let largest = 0;
-    for (let index = 1; index < tops.length; index++)
-      largest = Math.max(largest, Math.abs(tops[index]! - tops[index - 1]!));
-    const between = frames.filter(
-      (frame) => Math.abs(frame.line - before.line) > 1 && Math.abs(frame.line - after.line) > 1,
-    ).length;
-    expect({ between: between >= 3, largest, total }).toEqual({ between: true, largest, total });
-    expect({ largest, total, smooth: largest <= Math.abs(total) * 0.7 }).toEqual({ largest, total, smooth: true });
+    console.log(`shell Show all lines: ${JSON.stringify(before)} -> ${JSON.stringify(after)}`);
     for (const [index, frame] of frames.entries()) {
       const at = { index, ...frame };
-      expect({ at, end: frame.fromEnd <= 2 }).toEqual({ at, end: true });
+      expect({ at, still: Math.abs(frame.control - before.control) <= 1 }).toEqual({ at, still: true });
       expect({ at, last: Math.abs(frame.last - before.last) <= 1 }).toEqual({ at, last: true });
     }
+    expect(Math.abs(after.control - before.control)).toBeLessThanOrEqual(1);
+    expect(before.line - after.line).toBeGreaterThan(40);
+    expect(after.fromEnd).toBeLessThanOrEqual(2);
     await page.close();
   });
 

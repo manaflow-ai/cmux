@@ -802,7 +802,7 @@ export default agentPaneEntry({
       ready: { newSession: true, cwd: AGENT_HOME, chooseFolder: true },
       // A new chat's session starts at once (the prewarmed process), so the snapshot and its
       // summary name the same session, as the app's do; the folder control is then the new chat's
-      // folder menu (Choose folder…), not the path field.
+      // folder menu (Add folder…), not the path field.
       snapshot: noChat([], {
         sessionId: "prewarmed",
         summary: {

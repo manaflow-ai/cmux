@@ -55,6 +55,12 @@ pub enum PeerCmd {
     /// whether a turn runs here, and a build or test that is running. Reads
     /// only; never starts a daemon. Fields it cannot read are left out.
     Load,
+    /// The shadow admission verdict (cmuxterm-hq#7342) for host readings on
+    /// stdin: one JSON object, or an array of them, in; the verdict (or an
+    /// array of verdicts) out, as JSON. Pure: reads no host and starts no
+    /// daemon. A reading with no `now_ms` is judged at this machine's clock.
+    /// Nothing is deferred on it; lane-place and placement log it.
+    Verdict,
     /// Add one muted line to every live chat on this machine's daemon, such
     /// as the note cmux Cloud adds after it resizes the machine.
     Notice {

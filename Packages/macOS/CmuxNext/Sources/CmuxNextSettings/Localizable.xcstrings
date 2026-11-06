@@ -1,6 +1,487 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.placeholder.wordOrPhrase": {
+      "comment": "Placeholder of a free-text list of words (Settings > Chief > Subagents show and hide words).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Add a word or phrase"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "أضف كلمة أو عبارة"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Dodajte riječ ili frazu"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Tilføj et ord eller en sætning"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Wort oder Ausdruck hinzufügen"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Añade una palabra o frase"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Ajouter un mot ou une expression"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Aggiungi una parola o una frase"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "単語またはフレーズを追加"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បន្ថែមពាក្យ ឬឃ្លា"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "단어 또는 구문 추가"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Legg til et ord eller en frase"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Dodaj słowo lub frazę"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Adicione uma palavra ou frase"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Добавьте слово или фразу"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เพิ่มคำหรือวลี"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Bir kelime veya ifade ekleyin"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Додайте слово або фразу"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Thêm một từ hoặc cụm từ"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "添加字词或短语"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "新增字詞或片語"}}
+      }
+    },
+    "settings.placeholder.githubOwner": {
+      "comment": "Placeholder of Trusted GitHub Owners (a GitHub user or organization name).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Add a user or organization"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "أضف مستخدمًا أو مؤسسة"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Dodajte korisnika ili organizaciju"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Tilføj en bruger eller organisation"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Benutzer oder Organisation hinzufügen"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Añade un usuario u organización"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Ajouter un utilisateur ou une organisation"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Aggiungi un utente o un'organizzazione"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ユーザーまたは組織を追加"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បន្ថែមអ្នកប្រើ ឬស្ថាប័ន"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "사용자 또는 조직 추가"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Legg til en bruker eller organisasjon"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Dodaj użytkownika lub organizację"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Adicione um usuário ou organização"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Добавьте пользователя или организацию"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เพิ่มผู้ใช้หรือองค์กร"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Bir kullanıcı veya kuruluş ekleyin"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Додайте користувача або організацію"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Thêm người dùng hoặc tổ chức"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "添加用户或组织"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "新增使用者或組織"}}
+      }
+    },
+    "settings.group.terminalCompatibility": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Compatibility"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "التوافق"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Kompatibilnost"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Kompatibilitet"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Kompatibilität"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Compatibilidad"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Compatibilité"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Compatibilità"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "互換性"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ភាពត្រូវគ្នា"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "호환성"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Kompatibilitet"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Zgodność"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Compatibilidade"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Совместимость"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ความเข้ากันได้"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Uyumluluk"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Сумісність"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Tương thích"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "兼容性"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "相容性"}}
+      }
+    },
+    "settings.terminal.term": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Terminal Type (TERM)"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "نوع الطرفية (TERM)"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Vrsta terminala (TERM)"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Terminaltype (TERM)"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Terminaltyp (TERM)"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Tipo de terminal (TERM)"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Type de terminal (TERM)"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Tipo di terminale (TERM)"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ターミナルの種類 (TERM)"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ប្រភេទទែមីណាល់ (TERM)"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "터미널 유형 (TERM)"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Terminaltype (TERM)"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Typ terminala (TERM)"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Tipo de terminal (TERM)"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Тип терминала (TERM)"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ประเภทเทอร์มินัล (TERM)"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Terminal türü (TERM)"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Тип термінала (TERM)"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Loại terminal (TERM)"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "终端类型 (TERM)"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "終端機類型 (TERM)"}}
+      }
+    },
+    "settings.terminal.term.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The TERM new terminals start with. xterm-256color works on every host you ssh to. xterm-ghostty needs Ghostty's terminfo on each of those hosts, and applies only when it is installed on this Mac."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "قيمة TERM التي تبدأ بها الطرفيات الجديدة. يعمل xterm-256color على كل مضيف تتصل به عبر ssh. يحتاج xterm-ghostty إلى terminfo الخاص بـ Ghostty على كل مضيف منها، ولا يُطبَّق إلا إذا كان مثبتًا على هذا الـ Mac."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "TERM s kojim počinju novi terminali. xterm-256color radi na svakom hostu na koji se spajate preko ssh. xterm-ghostty treba Ghosttyjev terminfo na svakom od tih hostova i primjenjuje se samo kad je instaliran na ovom Macu."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Den TERM, nye terminaler starter med. xterm-256color virker på alle værter, du bruger ssh til. xterm-ghostty kræver Ghosttys terminfo på hver af de værter og bruges kun, når den er installeret på denne Mac."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Der TERM-Wert, mit dem neue Terminals starten. xterm-256color funktioniert auf jedem Host, zu dem Sie sich per ssh verbinden. xterm-ghostty braucht Ghosttys terminfo auf jedem dieser Hosts und gilt nur, wenn es auf diesem Mac installiert ist."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "El TERM con el que empiezan las terminales nuevas. xterm-256color funciona en todos los hosts a los que te conectas por ssh. xterm-ghostty necesita el terminfo de Ghostty en cada uno de esos hosts y solo se aplica cuando está instalado en este Mac."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Le TERM avec lequel démarrent les nouveaux terminaux. xterm-256color fonctionne sur tous les hôtes auxquels vous vous connectez en ssh. xterm-ghostty nécessite le terminfo de Ghostty sur chacun de ces hôtes et ne s'applique que s'il est installé sur ce Mac."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Il TERM con cui partono i nuovi terminali. xterm-256color funziona su ogni host a cui ti colleghi via ssh. xterm-ghostty richiede il terminfo di Ghostty su ciascuno di questi host e si applica solo se è installato su questo Mac."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "新しいターミナルが使う TERM です。xterm-256color は ssh 先のどのホストでも動きます。xterm-ghostty はそれぞれのホストに Ghostty の terminfo が必要で、この Mac にインストールされている場合にのみ使われます。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "TERM ដែលទែមីណាល់ថ្មីចាប់ផ្ដើមជាមួយ។ xterm-256color ដំណើរការលើគ្រប់ម៉ាស៊ីនដែលអ្នក ssh ទៅ។ xterm-ghostty ត្រូវការ terminfo របស់ Ghostty នៅលើម៉ាស៊ីននីមួយៗ ហើយប្រើតែនៅពេលវាត្រូវបានដំឡើងលើ Mac នេះ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "새 터미널이 시작할 때 쓰는 TERM입니다. xterm-256color는 ssh로 접속하는 모든 호스트에서 동작합니다. xterm-ghostty는 각 호스트에 Ghostty의 terminfo가 있어야 하며, 이 Mac에 설치된 경우에만 적용됩니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "TERM-verdien nye terminaler starter med. xterm-256color virker på alle verter du bruker ssh mot. xterm-ghostty trenger Ghosttys terminfo på hver av disse vertene, og brukes bare når den er installert på denne Macen."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "TERM, z którym uruchamiają się nowe terminale. xterm-256color działa na każdym hoście, z którym łączysz się przez ssh. xterm-ghostty wymaga terminfo Ghostty na każdym z tych hostów i jest używany tylko, gdy jest zainstalowany na tym Macu."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "O TERM com que os novos terminais iniciam. xterm-256color funciona em todos os hosts em que você entra por ssh. xterm-ghostty precisa do terminfo do Ghostty em cada um desses hosts e só é aplicado quando está instalado neste Mac."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "TERM, с которым запускаются новые терминалы. xterm-256color работает на любом хосте, к которому вы подключаетесь по ssh. xterm-ghostty требует terminfo Ghostty на каждом таком хосте и применяется, только если он установлен на этом Mac."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ค่า TERM ที่เทอร์มินัลใหม่ใช้เริ่มต้น xterm-256color ใช้ได้กับทุกโฮสต์ที่คุณ ssh เข้าไป xterm-ghostty ต้องมี terminfo ของ Ghostty บนแต่ละโฮสต์ และจะใช้เฉพาะเมื่อติดตั้งไว้บน Mac เครื่องนี้"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Yeni terminallerin başladığı TERM değeri. xterm-256color, ssh ile bağlandığınız her ana makinede çalışır. xterm-ghostty, bu ana makinelerin her birinde Ghostty'nin terminfo'sunu gerektirir ve yalnızca bu Mac'te yüklüyse uygulanır."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "TERM, з яким запускаються нові термінали. xterm-256color працює на будь-якому хості, до якого ви підключаєтеся через ssh. xterm-ghostty потребує terminfo Ghostty на кожному такому хості й застосовується, лише якщо він встановлений на цьому Mac."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "TERM mà các terminal mới dùng khi khởi động. xterm-256color hoạt động trên mọi máy chủ bạn ssh tới. xterm-ghostty cần terminfo của Ghostty trên từng máy chủ đó và chỉ được dùng khi đã cài trên máy Mac này."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "新终端启动时使用的 TERM。xterm-256color 在你 ssh 连接的任何主机上都可用。xterm-ghostty 需要每台主机都装有 Ghostty 的 terminfo，并且仅在这台 Mac 上已安装时才生效。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "新終端機啟動時使用的 TERM。xterm-256color 在你以 ssh 連線的任何主機上都能用。xterm-ghostty 需要每台主機都裝有 Ghostty 的 terminfo，且僅在這台 Mac 已安裝時才會套用。"}}
+      }
+    },
+    "settings.choice.xterm256color": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "xterm-256color (standard)"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "xterm-256color (قياسي)"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "xterm-256color (standardno)"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "xterm-256color (standard)"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "xterm-256color (Standard)"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "xterm-256color (estándar)"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "xterm-256color (standard)"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "xterm-256color (standard)"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "xterm-256color (標準)"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "xterm-256color (ស្តង់ដារ)"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "xterm-256color (표준)"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "xterm-256color (standard)"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "xterm-256color (standardowy)"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "xterm-256color (padrão)"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "xterm-256color (стандартный)"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "xterm-256color (มาตรฐาน)"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "xterm-256color (standart)"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "xterm-256color (стандартний)"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "xterm-256color (tiêu chuẩn)"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "xterm-256color（标准）"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "xterm-256color（標準）"}}
+      }
+    },
+    "settings.choice.xtermGhostty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "xterm-ghostty"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "xterm-ghostty"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "xterm-ghostty"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "xterm-ghostty"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "xterm-ghostty"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "xterm-ghostty"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "xterm-ghostty"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "xterm-ghostty"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "xterm-ghostty"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "xterm-ghostty"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "xterm-ghostty"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "xterm-ghostty"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "xterm-ghostty"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "xterm-ghostty"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "xterm-ghostty"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "xterm-ghostty"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "xterm-ghostty"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "xterm-ghostty"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "xterm-ghostty"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "xterm-ghostty"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "xterm-ghostty"}}
+      }
+    },
+    "settings.chief.subagentSidebar": {
+      "comment": "Chief subagent sidebar choice (a1018, 2026-11-05).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Subagents in the Sidebar"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "サイドバーのサブエージェント"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "الوكلاء الفرعيون في الشريط الجانبي"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Subagenten in der Seitenleiste"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Subagentes en la barra lateral"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Sous-agents dans la barre latérale"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "사이드바의 하위 에이전트"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "侧边栏中的子代理"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "側邊欄中的子代理"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Podagenti na bočnoj traci"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Underagenter i sidepanelet"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Subagenti nella barra laterale"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ភ្នាក់ងាររងនៅរបារចំហៀង"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Underagenter i sidefeltet"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Podagenci na pasku bocznym"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Subagentes na barra lateral"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Субагенты на боковой панели"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เอเจนต์ย่อยในแถบด้านข้าง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kenar çubuğunda alt ajanlar"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Субагенти на бічній панелі"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Tác tử con trên thanh bên"}}
+      }
+    },
+    "settings.chief.subagentSidebar.help": {
+      "comment": "Chief subagent sidebar choice (a1018, 2026-11-05).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Automatic lets the Chief decide for each subagent: work you will want to watch or join shows, short errands stay hidden. Always and Never override the Chief."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "「Chief が判断」では、Chief がサブエージェントごとに決めます。見守ったり参加したりしたい作業は表示され、短い用事は非表示のままです。「常に」と「しない」は Chief の判断より優先されます。"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يتيح خيار «يقرر Chief» لـ Chief أن يقرر لكل وكيل فرعي: يظهر العمل الذي ستريد متابعته أو الانضمام إليه، وتبقى المهام القصيرة مخفية. «دائمًا» و«أبدًا» يتجاوزان قرار Chief."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Bei „Chief entscheidet“ legt der Chief es für jeden Subagenten fest: Arbeit, die du verfolgen oder bei der du mitmachen willst, wird angezeigt, kurze Erledigungen bleiben verborgen. „Immer“ und „Nie“ haben Vorrang vor dem Chief."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Con «Lo decide Chief», el Chief decide para cada subagente: el trabajo que querrás seguir o al que querrás unirte se muestra y las tareas breves quedan ocultas. «Siempre» y «Nunca» anulan al Chief."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Avec « Le Chief décide », le Chief choisit pour chaque sous-agent : le travail que vous voudrez suivre ou rejoindre s’affiche, les petites tâches restent masquées. « Toujours » et « Jamais » l’emportent sur le Chief."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "\"Chief가 결정\"에서는 Chief가 하위 에이전트마다 정합니다. 지켜보거나 참여하고 싶은 작업은 표시되고 짧은 잡무는 숨겨집니다. \"항상\"과 \"안 함\"은 Chief의 결정보다 우선합니다."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "选择“由 Chief 决定”时，Chief 会为每个子代理做出决定：你想查看或加入的工作会显示，简短的杂务保持隐藏。“始终”和“从不”会覆盖 Chief 的决定。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "選擇「由 Chief 決定」時，Chief 會為每個子代理做出決定：你想查看或加入的工作會顯示，簡短的雜務保持隱藏。「一律」和「永不」會覆寫 Chief 的決定。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Uz „Chief odlučuje“ Chief odlučuje za svakog podagenta: posao koji želiš pratiti ili mu se pridružiti se prikazuje, kratki zadaci ostaju skriveni. „Uvijek“ i „Nikad“ imaju prednost nad Chiefom."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Med \"Chief bestemmer\" afgør Chief det for hver underagent: arbejde, du vil følge eller deltage i, vises, og korte ærinder forbliver skjult. \"Altid\" og \"Aldrig\" tilsidesætter Chief."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Con «Decide il Chief», il Chief sceglie per ogni subagente: il lavoro che vorrai seguire o a cui vorrai unirti viene mostrato, le piccole commissioni restano nascoste. «Sempre» e «Mai» prevalgono sul Chief."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "«Chief សម្រេច» អនុញ្ញាតឱ្យ Chief សម្រេចសម្រាប់ភ្នាក់ងាររងនីមួយៗ៖ ការងារដែលអ្នកចង់មើល ឬចូលរួមនឹងបង្ហាញ ហើយកិច្ចការខ្លីៗនៅលាក់។ «ជានិច្ច» និង «កុំ» មានអាទិភាពលើ Chief។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Med «Chief bestemmer» avgjør Chief det for hver underagent: arbeid du vil følge med på eller bli med i, vises, og korte ærend forblir skjult. «Alltid» og «Aldri» overstyrer Chief."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Przy opcji „Decyduje Chief” Chief rozstrzyga dla każdego podagenta: praca, którą zechcesz obserwować lub do której dołączyć, jest widoczna, a krótkie zadania pozostają ukryte. „Zawsze” i „Nigdy” mają pierwszeństwo przed Chiefem."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Com \"O Chief decide\", o Chief escolhe para cada subagente: o trabalho que você vai querer acompanhar ou do qual vai querer participar aparece, e tarefas rápidas ficam ocultas. \"Sempre\" e \"Nunca\" se sobrepõem ao Chief."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "В режиме «Решает Chief» Chief выбирает для каждого субагента: работа, за которой вы захотите следить или к которой присоединиться, показывается, а короткие поручения остаются скрытыми. «Всегда» и «Никогда» важнее решения Chief."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "«Chief ตัดสินใจ» ให้ Chief เลือกสำหรับเอเจนต์ย่อยแต่ละตัว: งานที่คุณอยากดูหรือเข้าร่วมจะแสดง ส่วนงานสั้นๆ จะซ่อนไว้ «เสมอ» และ «ไม่เลย» มีผลเหนือ Chief"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "\"Chief karar verir\" seçeneğinde Chief her alt ajan için karar verir: izlemek veya katılmak isteyeceğin işler gösterilir, kısa ayak işleri gizli kalır. \"Her zaman\" ve \"Asla\" Chief'in kararını geçersiz kılar."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "У режимі «Вирішує Chief» Chief обирає для кожного субагента: робота, за якою ви захочете стежити чи до якої приєднатися, показується, а короткі доручення лишаються прихованими. «Завжди» і «Ніколи» важливіші за рішення Chief."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Với \"Chief quyết định\", Chief chọn cho từng tác tử con: việc bạn muốn theo dõi hoặc tham gia sẽ hiện, việc vặt ngắn được ẩn. \"Luôn luôn\" và \"Không bao giờ\" ghi đè lựa chọn của Chief."}}
+      }
+    },
+    "settings.choice.subagentSidebarAuto": {
+      "comment": "Chief subagent sidebar choice (a1018, 2026-11-05).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Chief Decides"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Chief が判断"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يقرر Chief"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Chief entscheidet"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Lo decide Chief"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Le Chief décide"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "Chief가 결정"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "由 Chief 决定"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "由 Chief 決定"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Chief odlučuje"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Chief bestemmer"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Decide il Chief"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "Chief សម្រេច"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Chief bestemmer"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Decyduje Chief"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "O Chief decide"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Решает Chief"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "Chief ตัดสินใจ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Chief karar verir"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Вирішує Chief"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Chief quyết định"}}
+      }
+    },
+    "settings.choice.subagentSidebarAlways": {
+      "comment": "Chief subagent sidebar choice (a1018, 2026-11-05).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Always"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "常に"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "دائمًا"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Immer"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Siempre"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Toujours"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "항상"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "始终"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "一律"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Uvijek"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Altid"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Sempre"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ជានិច្ច"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Alltid"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Zawsze"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Sempre"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Всегда"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เสมอ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Her zaman"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Завжди"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Luôn luôn"}}
+      }
+    },
+    "settings.choice.subagentSidebarNever": {
+      "comment": "Chief subagent sidebar choice (a1018, 2026-11-05).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Never"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "しない"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "أبدًا"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Nie"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Nunca"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Jamais"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "안 함"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "从不"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "永不"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Nikad"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Aldrig"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Mai"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "កុំ"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Aldri"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Nigdy"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Nunca"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Никогда"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ไม่เลย"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Asla"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Ніколи"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Không bao giờ"}}
+      }
+    },
+    "settings.chief.subagentSidebarShowWords": {
+      "comment": "Chief subagent sidebar choice (a1018, 2026-11-05).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Show Tasks That Mention"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "次を含むタスクを表示"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "إظهار المهام التي تذكر"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Aufgaben anzeigen, die erwähnen"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Mostrar tareas que mencionen"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Afficher les tâches qui mentionnent"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "다음을 언급하는 작업 표시"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "显示提及以下内容的任务"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "顯示提及以下內容的任務"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Prikaži zadatke koji spominju"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Vis opgaver, der nævner"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Mostra le attività che citano"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បង្ហាញកិច្ចការដែលនិយាយពី"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Vis oppgaver som nevner"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Pokazuj zadania, które wspominają"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Mostrar tarefas que mencionam"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Показывать задачи, где упоминается"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "แสดงงานที่กล่าวถึง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Şunlardan bahseden görevleri göster"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Показувати завдання, де згадується"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Hiện việc có nhắc đến"}}
+      }
+    },
+    "settings.chief.subagentSidebarShowWords.help": {
+      "comment": "Chief subagent sidebar choice (a1018, 2026-11-05).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Words or phrases that show a subagent when the Chief leaves it to these rules. They add to the built-in ones, such as UI, design, screenshots and needs you."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Chief がこれらのルールに任せたときにサブエージェントを表示する語句です。UI、design、screenshots、needs you などの組み込みの語句に追加されます。"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "كلمات أو عبارات تُظهر الوكيل الفرعي عندما يترك Chief القرار لهذه القواعد. تُضاف إلى الكلمات المدمجة، مثل UI وdesign وscreenshots وneeds you."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Wörter oder Wendungen, die einen Subagenten anzeigen, wenn der Chief es diesen Regeln überlässt. Sie ergänzen die eingebauten, etwa UI, design, screenshots und needs you."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Palabras o frases que muestran un subagente cuando el Chief deja la decisión a estas reglas. Se suman a las incluidas, como UI, design, screenshots y needs you."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Mots ou expressions qui affichent un sous-agent quand le Chief s’en remet à ces règles. Ils s’ajoutent aux mots intégrés, comme UI, design, screenshots et needs you."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "Chief가 이 규칙에 맡길 때 하위 에이전트를 표시하는 단어나 구문입니다. UI, design, screenshots, needs you 같은 기본 단어에 더해집니다."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "当 Chief 交由这些规则决定时，会显示子代理的词语或短语。它们会添加到内置词语中，例如 UI、design、screenshots 和 needs you。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "當 Chief 交由這些規則決定時，會顯示子代理的詞語或片語。它們會加入內建詞語，例如 UI、design、screenshots 和 needs you。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Riječi ili izrazi koji prikazuju podagenta kada Chief odluku prepusti ovim pravilima. Dodaju se ugrađenim, kao što su UI, design, screenshots i needs you."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Ord eller udtryk, der viser en underagent, når Chief overlader det til disse regler. De kommer oven i de indbyggede, fx UI, design, screenshots og needs you."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Parole o frasi che mostrano un subagente quando il Chief lascia la scelta a queste regole. Si aggiungono a quelle integrate, come UI, design, screenshots e needs you."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ពាក្យ ឬឃ្លាដែលបង្ហាញភ្នាក់ងាររង នៅពេល Chief ទុកឱ្យច្បាប់ទាំងនេះសម្រេច។ វាបន្ថែមលើពាក្យដែលមានស្រាប់ ដូចជា UI, design, screenshots និង needs you។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Ord eller uttrykk som viser en underagent når Chief overlater det til disse reglene. De kommer i tillegg til de innebygde, for eksempel UI, design, screenshots og needs you."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Słowa lub wyrażenia, które pokazują podagenta, gdy Chief zostawia decyzję tym regułom. Dochodzą do wbudowanych, takich jak UI, design, screenshots i needs you."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Palavras ou frases que mostram um subagente quando o Chief deixa a decisão para estas regras. Elas se somam às incluídas, como UI, design, screenshots e needs you."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Слова или фразы, при которых субагент показывается, когда Chief оставляет решение этим правилам. Добавляются к встроенным, например UI, design, screenshots и needs you."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "คำหรือวลีที่ทำให้เอเจนต์ย่อยแสดง เมื่อ Chief ปล่อยให้กฎเหล่านี้ตัดสิน คำเหล่านี้เพิ่มจากคำในตัว เช่น UI, design, screenshots และ needs you"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Chief kararı bu kurallara bıraktığında bir alt ajanı gösteren sözcükler veya ifadeler. UI, design, screenshots ve needs you gibi yerleşik olanlara eklenir."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Слова або фрази, за яких субагент показується, коли Chief залишає рішення цим правилам. Додаються до вбудованих, як-от UI, design, screenshots і needs you."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Từ hoặc cụm từ làm hiện tác tử con khi Chief để các quy tắc này quyết định. Chúng được thêm vào các từ có sẵn, như UI, design, screenshots và needs you."}}
+      }
+    },
+    "settings.chief.subagentSidebarHideWords": {
+      "comment": "Chief subagent sidebar choice (a1018, 2026-11-05).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Hide Tasks That Mention"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "次を含むタスクを非表示"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "إخفاء المهام التي تذكر"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Aufgaben ausblenden, die erwähnen"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Ocultar tareas que mencionen"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Masquer les tâches qui mentionnent"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "다음을 언급하는 작업 숨기기"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "隐藏提及以下内容的任务"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "隱藏提及以下內容的任務"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Sakrij zadatke koji spominju"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Skjul opgaver, der nævner"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Nascondi le attività che citano"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "លាក់កិច្ចការដែលនិយាយពី"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Skjul oppgaver som nevner"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Ukrywaj zadania, które wspominają"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Ocultar tarefas que mencionam"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Скрывать задачи, где упоминается"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ซ่อนงานที่กล่าวถึง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Şunlardan bahseden görevleri gizle"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Приховувати завдання, де згадується"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Ẩn việc có nhắc đến"}}
+      }
+    },
+    "settings.chief.subagentSidebarHideWords.help": {
+      "comment": "Chief subagent sidebar choice (a1018, 2026-11-05).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Words or phrases that keep a subagent hidden when the Chief leaves it to these rules. They add to the built-in ones, such as lookup, cleanup and land queue. A show word wins."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Chief がこれらのルールに任せたときにサブエージェントを非表示にする語句です。lookup、cleanup、land queue などの組み込みの語句に追加されます。表示の語句が優先されます。"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "كلمات أو عبارات تُبقي الوكيل الفرعي مخفيًا عندما يترك Chief القرار لهذه القواعد. تُضاف إلى الكلمات المدمجة، مثل lookup وcleanup وland queue. كلمة الإظهار هي التي تغلب."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Wörter oder Wendungen, die einen Subagenten verborgen halten, wenn der Chief es diesen Regeln überlässt. Sie ergänzen die eingebauten, etwa lookup, cleanup und land queue. Ein Anzeigewort hat Vorrang."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Palabras o frases que mantienen oculto un subagente cuando el Chief deja la decisión a estas reglas. Se suman a las incluidas, como lookup, cleanup y land queue. Una palabra para mostrar tiene prioridad."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Mots ou expressions qui gardent un sous-agent masqué quand le Chief s’en remet à ces règles. Ils s’ajoutent aux mots intégrés, comme lookup, cleanup et land queue. Un mot d’affichage l’emporte."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "Chief가 이 규칙에 맡길 때 하위 에이전트를 숨기는 단어나 구문입니다. lookup, cleanup, land queue 같은 기본 단어에 더해집니다. 표시 단어가 우선합니다."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "当 Chief 交由这些规则决定时，会让子代理保持隐藏的词语或短语。它们会添加到内置词语中，例如 lookup、cleanup 和 land queue。显示词语优先。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "當 Chief 交由這些規則決定時，會讓子代理保持隱藏的詞語或片語。它們會加入內建詞語，例如 lookup、cleanup 和 land queue。顯示詞語優先。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Riječi ili izrazi koji drže podagenta skrivenim kada Chief odluku prepusti ovim pravilima. Dodaju se ugrađenim, kao što su lookup, cleanup i land queue. Riječ za prikaz ima prednost."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Ord eller udtryk, der holder en underagent skjult, når Chief overlader det til disse regler. De kommer oven i de indbyggede, fx lookup, cleanup og land queue. Et vis-ord vinder."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Parole o frasi che tengono nascosto un subagente quando il Chief lascia la scelta a queste regole. Si aggiungono a quelle integrate, come lookup, cleanup e land queue. Una parola per mostrare prevale."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ពាក្យ ឬឃ្លាដែលរក្សាភ្នាក់ងាររងឱ្យលាក់ នៅពេល Chief ទុកឱ្យច្បាប់ទាំងនេះសម្រេច។ វាបន្ថែមលើពាក្យដែលមានស្រាប់ ដូចជា lookup, cleanup និង land queue។ ពាក្យបង្ហាញមានអាទិភាព។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Ord eller uttrykk som holder en underagent skjult når Chief overlater det til disse reglene. De kommer i tillegg til de innebygde, for eksempel lookup, cleanup og land queue. Et vis-ord vinner."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Słowa lub wyrażenia, które ukrywają podagenta, gdy Chief zostawia decyzję tym regułom. Dochodzą do wbudowanych, takich jak lookup, cleanup i land queue. Słowo pokazujące ma pierwszeństwo."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Palavras ou frases que mantêm um subagente oculto quando o Chief deixa a decisão para estas regras. Elas se somam às incluídas, como lookup, cleanup e land queue. Uma palavra de mostrar prevalece."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Слова или фразы, при которых субагент остаётся скрытым, когда Chief оставляет решение этим правилам. Добавляются к встроенным, например lookup, cleanup и land queue. Слово для показа важнее."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "คำหรือวลีที่ทำให้เอเจนต์ย่อยยังซ่อนอยู่ เมื่อ Chief ปล่อยให้กฎเหล่านี้ตัดสิน คำเหล่านี้เพิ่มจากคำในตัว เช่น lookup, cleanup และ land queue คำที่ให้แสดงมีผลเหนือกว่า"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Chief kararı bu kurallara bıraktığında bir alt ajanı gizli tutan sözcükler veya ifadeler. lookup, cleanup ve land queue gibi yerleşik olanlara eklenir. Gösterme sözcüğü önceliklidir."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Слова або фрази, за яких субагент лишається прихованим, коли Chief залишає рішення цим правилам. Додаються до вбудованих, як-от lookup, cleanup і land queue. Слово для показу важливіше."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Từ hoặc cụm từ giữ tác tử con ở trạng thái ẩn khi Chief để các quy tắc này quyết định. Chúng được thêm vào các từ có sẵn, như lookup, cleanup và land queue. Từ hiện được ưu tiên."}}
+      }
+    },
+    "settings.chief.subagentSidebarMinWords": {
+      "comment": "Chief subagent sidebar choice (a1018, 2026-11-05).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Show Tasks Longer Than"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "次より長いタスクを表示"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "إظهار المهام الأطول من"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Aufgaben anzeigen, die länger sind als"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Mostrar tareas de más de"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Afficher les tâches de plus de"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "다음보다 긴 작업 표시"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "显示长于此值的任务"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "顯示長於此值的任務"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Prikaži zadatke duže od"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Vis opgaver længere end"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Mostra le attività più lunghe di"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បង្ហាញកិច្ចការវែងជាង"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Vis oppgaver lengre enn"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Pokazuj zadania dłuższe niż"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Mostrar tarefas com mais de"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Показывать задачи длиннее"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "แสดงงานที่ยาวกว่า"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Şundan uzun görevleri göster"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Показувати завдання, довші за"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Hiện việc dài hơn"}}
+      }
+    },
+    "settings.chief.subagentSidebarMinWords.help": {
+      "comment": "Chief subagent sidebar choice (a1018, 2026-11-05).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "A task with no show or hide word shows when it has at least this many words, and stays hidden when it is shorter."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "表示や非表示の語句を含まないタスクは、この語数以上なら表示され、短ければ非表示のままです。"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تظهر المهمة التي لا تحتوي على كلمة إظهار أو إخفاء عندما يبلغ طولها هذا العدد من الكلمات على الأقل، وتبقى مخفية إذا كانت أقصر."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Eine Aufgabe ohne Anzeige- oder Ausblendwort wird angezeigt, wenn sie mindestens so viele Wörter hat, und bleibt verborgen, wenn sie kürzer ist."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Una tarea sin palabras para mostrar ni ocultar se muestra si tiene al menos este número de palabras y queda oculta si es más corta."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Une tâche sans mot d’affichage ni de masquage s’affiche si elle compte au moins ce nombre de mots, et reste masquée si elle est plus courte."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "표시 단어나 숨김 단어가 없는 작업은 단어 수가 이 값 이상이면 표시되고, 더 짧으면 숨겨집니다."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "不含显示或隐藏词语的任务，字数至少达到此值时显示，较短时保持隐藏。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "不含顯示或隱藏詞語的任務，字數至少達到此值時顯示，較短時保持隱藏。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Zadatak bez riječi za prikaz ili skrivanje prikazuje se kada ima barem ovoliko riječi, a ostaje skriven kada je kraći."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "En opgave uden vis- eller skjul-ord vises, når den har mindst så mange ord, og forbliver skjult, når den er kortere."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Un’attività senza parole per mostrare o nascondere viene mostrata se ha almeno questo numero di parole e resta nascosta se è più breve."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "កិច្ចការដែលគ្មានពាក្យបង្ហាញ ឬលាក់ នឹងបង្ហាញនៅពេលវាមានពាក្យយ៉ាងហោចណាស់ចំនួននេះ ហើយនៅលាក់នៅពេលវាខ្លីជាង។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "En oppgave uten vis- eller skjul-ord vises når den har minst så mange ord, og forblir skjult når den er kortere."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Zadanie bez słowa pokazującego ani ukrywającego jest widoczne, gdy ma co najmniej tyle słów, a pozostaje ukryte, gdy jest krótsze."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Uma tarefa sem palavra de mostrar ou ocultar aparece quando tem pelo menos este número de palavras e fica oculta quando é mais curta."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Задача без слов для показа или скрытия показывается, если в ней не меньше этого числа слов, и остаётся скрытой, если она короче."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "งานที่ไม่มีคำให้แสดงหรือซ่อนจะแสดงเมื่อมีจำนวนคำอย่างน้อยเท่านี้ และซ่อนไว้เมื่อสั้นกว่า"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Gösterme ya da gizleme sözcüğü olmayan bir görev en az bu kadar sözcük içeriyorsa gösterilir, daha kısaysa gizli kalır."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Завдання без слів для показу чи приховування показується, якщо в ньому щонайменше стільки слів, і лишається прихованим, якщо воно коротше."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Việc không có từ hiện hoặc ẩn sẽ hiện khi có ít nhất số từ này, và được ẩn khi ngắn hơn."}}
+      }
+    },
     "settings.group.agentGuidance": {
       "comment": "Settings > Agents: group title for cmux's guidance and the person's skills",
       "extractionState": "manual",
@@ -294,6 +775,1854 @@
         "vi": {"stringUnit": {"state": "translated", "value": "Hàng bạn chọn cho nội dung đã gõ sẽ xuất hiện đầu tiên ở lần gõ sau, và các hàng bạn dùng thường xuyên được xếp cao hơn. Khi tắt, bảng lệnh không ghi lại gì và chỉ xếp theo mức khớp và thứ tự thanh bên."}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "你为输入内容选中的行，下次输入时会排在最前，常用的行也会排得更靠前。关闭后，面板不记录任何内容，只按匹配度和侧边栏顺序排序。"}},
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "你為輸入內容選取的列，下次輸入時會排在最前，常用的列也會排得更前面。關閉後，面板不記錄任何內容，只依符合程度和側邊欄順序排序。"}}
+      }
+    },
+    "settings.group.chiefDock": {
+      "comment": "Settings > Chief: the Chief window dock group.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief Dock"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "رصيف Chief"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief dok"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief-dock"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief-Dock"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dock de Chief"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dock Chief"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dock Chief"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiefドック"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចត Chief"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 도크"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief-dokk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dok Chief"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dock do Chief"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Док Chief"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ด็อก Chief"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief Yuvası"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Док Chief"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dock Chief"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 停靠栏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 停駐區"
+          }
+        }
+      }
+    },
+    "settings.home.chiefDockEdge": {
+      "comment": "Settings > Chief > Chief Dock: which window edge the Chief docks to.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock Edge"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حافة الرصيف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rub doka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dockens kant"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dock-Rand"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Borde del dock"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bord du dock"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bordo del dock"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドックの位置"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គែមចត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "도크 위치"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dokkens kant"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Krawędź doku"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Borda do dock"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Край дока"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขอบด็อก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yuva Kenarı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Край дока"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cạnh dock"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "停靠位置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "停駐位置"
+          }
+        }
+      }
+    },
+    "settings.home.chiefDockEdge.help": {
+      "comment": "Settings > Chief > Chief Dock > Dock Edge help.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The window edge the Chief docks to when you press Cmd-I or open a workspace from the Chief. The rest of the window shows the workspace you pick."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حافة النافذة التي يرسو عليها Chief عند الضغط على Cmd-I أو فتح مساحة عمل من Chief. يعرض باقي النافذة مساحة العمل التي تختارها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rub prozora uz koji se Chief usidri kada pritisnete Cmd-I ili otvorite radni prostor iz Chiefa. Ostatak prozora prikazuje radni prostor koji odaberete."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den vindueskant, Chief dockes til, når du trykker Cmd-I eller åbner et arbejdsområde fra Chief. Resten af vinduet viser det arbejdsområde, du vælger."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Fensterrand, an dem der Chief andockt, wenn du Cmd-I drückst oder aus dem Chief einen Workspace öffnest. Der Rest des Fensters zeigt den gewählten Workspace."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El borde de la ventana donde se ancla el Chief al pulsar Cmd-I o abrir un espacio de trabajo desde el Chief. El resto de la ventana muestra el espacio que elijas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le bord de la fenêtre où le Chief s’ancre quand vous appuyez sur Cmd-I ou ouvrez un espace de travail depuis le Chief. Le reste de la fenêtre affiche l’espace choisi."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il bordo della finestra a cui si aggancia il Chief quando premi Cmd-I o apri un’area di lavoro dal Chief. Il resto della finestra mostra l’area scelta."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-Iを押したとき、またはChiefからワークスペースを開いたときにChiefが置かれるウインドウの端です。ウインドウの残りの部分には選んだワークスペースが表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គែមបង្អួចដែល Chief ចតនៅពេលអ្នកចុច Cmd-I ឬបើកកន្លែងធ្វើការពី Chief។ ផ្នែកដែលនៅសល់នៃបង្អួចបង្ហាញកន្លែងធ្វើការដែលអ្នកជ្រើស។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cmd-I를 누르거나 Chief에서 워크스페이스를 열 때 Chief가 붙는 윈도우 가장자리입니다. 나머지 영역에는 선택한 워크스페이스가 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vinduskanten Chief dokkes til når du trykker Cmd-I eller åpner et arbeidsområde fra Chief. Resten av vinduet viser arbeidsområdet du velger."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Krawędź okna, do której dokuje Chief po naciśnięciu Cmd-I lub otwarciu obszaru roboczego z Chief. Reszta okna pokazuje wybrany obszar."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A borda da janela onde o Chief fica fixado ao pressionar Cmd-I ou abrir um espaço de trabalho pelo Chief. O resto da janela mostra o espaço escolhido."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Край окна, к которому крепится Chief, когда вы нажимаете Cmd-I или открываете рабочую область из Chief. Остальная часть окна показывает выбранную область."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขอบหน้าต่างที่ Chief วางอยู่เมื่อคุณกด Cmd-I หรือเปิดเวิร์กสเปซจาก Chief ส่วนที่เหลือของหน้าต่างแสดงเวิร์กสเปซที่คุณเลือก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cmd-I'ya bastığınızda veya Chief'ten bir çalışma alanı açtığınızda Chief'in yerleştiği pencere kenarı. Pencerenin geri kalanı seçtiğiniz çalışma alanını gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Край вікна, до якого кріпиться Chief, коли ви натискаєте Cmd-I або відкриваєте робочий простір із Chief. Решта вікна показує вибраний простір."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cạnh cửa sổ mà Chief neo vào khi bạn nhấn Cmd-I hoặc mở một không gian làm việc từ Chief. Phần còn lại của cửa sổ hiển thị không gian bạn chọn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "按 Cmd-I 或从 Chief 打开工作区时，Chief 停靠的窗口边缘。窗口其余部分显示你选择的工作区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "按 Cmd-I 或從 Chief 打開工作區時，Chief 停駐的視窗邊緣。視窗其餘部分顯示你選擇的工作區。"
+          }
+        }
+      }
+    },
+    "settings.choice.chiefDockEdge.left": {
+      "comment": "Dock Edge choice: the window's left edge.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Left"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يسار"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lijevo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venstre"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Links"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Izquierda"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gauche"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sinistra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឆ្វេង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "왼쪽"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venstre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lewa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esquerda"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Слева"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ซ้าย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sol"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ліворуч"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trái"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "左侧"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "左側"
+          }
+        }
+      }
+    },
+    "settings.choice.chiefDockEdge.right": {
+      "comment": "Dock Edge choice: the window's right edge.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Right"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يمين"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Højre"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rechts"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Derecha"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Droite"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Destra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្តាំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "오른쪽"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Høyre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prawa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Direita"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Справа"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขวา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sağ"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Праворуч"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phải"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "右侧"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "右側"
+          }
+        }
+      }
+    },
+    "settings.choice.chiefDockEdge.top": {
+      "comment": "Dock Edge choice: the window's top edge.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Top"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أعلى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gore"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Top"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arriba"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Haut"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In alto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ខាងលើ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "위"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Topp"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Góra"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Topo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сверху"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Üst"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Угорі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "顶部"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "頂部"
+          }
+        }
+      }
+    },
+    "settings.choice.chiefDockEdge.bottom": {
+      "comment": "Dock Edge choice: the window's bottom edge.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bottom"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أسفل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dolje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bund"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Unten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bas"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In basso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ខាងក្រោម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "아래"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bunn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dół"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Base"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Снизу"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ล่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alt"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Унизу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dưới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "底部"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "底部"
+          }
+        }
+      }
+    },
+    "settings.home.chiefDockOpenBeside": {
+      "comment": "Settings > Chief > Chief Dock: links clicked in the Chief open beside the docked Chief.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep Chief Docked When Opening Workspaces"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إبقاء Chief مرسى عند فتح مساحات العمل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zadrži Chief usidren pri otvaranju radnih prostora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hold Chief docket, når arbejdsområder åbnes"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief beim Öffnen von Workspaces angedockt lassen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mantener el Chief anclado al abrir espacios de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Garder le Chief ancré à l’ouverture des espaces de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mantieni il Chief agganciato quando apri aree di lavoro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを開くときChiefをドックに残す"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រក្សា Chief ឱ្យចតនៅពេលបើកកន្លែងធ្វើការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "워크스페이스를 열 때 Chief를 도크에 유지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hold Chief dokket når arbeidsområder åpnes"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zostaw Chief w doku przy otwieraniu obszarów roboczych"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Manter o Chief fixado ao abrir espaços de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оставлять Chief в доке при открытии рабочих областей"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ให้ Chief อยู่ในด็อกเมื่อเปิดเวิร์กสเปซ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalışma alanları açılırken Chief'i yuvada tut"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Залишати Chief у доці під час відкриття робочих просторів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Giữ Chief trong dock khi mở không gian làm việc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "打开工作区时保持 Chief 停靠"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "打開工作區時保持 Chief 停駐"
+          }
+        }
+      }
+    },
+    "settings.home.chiefDockOpenBeside.help": {
+      "comment": "Settings > Chief > Chief Dock > Keep Chief Docked help.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A workspace, tab or agent link clicked in the Chief opens beside it. The Chief stays docked with your draft and scroll position."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يفتح رابط مساحة العمل أو علامة التبويب أو الوكيل الذي تنقر عليه في Chief بجانبه. يبقى Chief مرسى مع مسودتك وموضع التمرير."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Link radnog prostora, kartice ili agenta kliknut u Chiefu otvara se pored njega. Chief ostaje usidren s vašim nacrtom i položajem pomicanja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et link til et arbejdsområde, en fane eller en agent, som du klikker på i Chief, åbnes ved siden af. Chief forbliver docket med din kladde og rulleposition."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein im Chief angeklickter Workspace-, Tab- oder Agent-Link öffnet sich daneben. Der Chief bleibt mit deinem Entwurf und deiner Scrollposition angedockt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un enlace a un espacio, pestaña o agente pulsado en el Chief se abre a su lado. El Chief sigue anclado con tu borrador y tu posición de desplazamiento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un lien d’espace, d’onglet ou d’agent cliqué dans le Chief s’ouvre à côté. Le Chief reste ancré avec votre brouillon et votre position de défilement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un link a un’area, una scheda o un agente cliccato nel Chief si apre accanto. Il Chief resta agganciato con la tua bozza e la posizione di scorrimento."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiefでクリックしたワークスペース、タブ、エージェントのリンクはChiefの横に開きます。Chiefは下書きとスクロール位置を保ったままドックに残ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តំណកន្លែងធ្វើការ ផ្ទាំង ឬភ្នាក់ងារដែលបានចុចក្នុង Chief បើកនៅជាប់វា។ Chief នៅតែចតជាមួយសេចក្តីព្រាង និងទីតាំងរំកិលរបស់អ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief에서 클릭한 워크스페이스, 탭 또는 에이전트 링크는 옆에 열립니다. Chief는 초안과 스크롤 위치를 유지한 채 도크에 남습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En lenke til et arbeidsområde, en fane eller en agent du klikker i Chief, åpnes ved siden av. Chief blir dokket med utkastet og rulleposisjonen din."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Link do obszaru, karty lub agenta kliknięty w Chief otwiera się obok. Chief zostaje w doku z Twoim szkicem i pozycją przewijania."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um link de espaço, aba ou agente clicado no Chief abre ao lado. O Chief continua fixado com seu rascunho e posição de rolagem."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ссылка на рабочую область, вкладку или агента, нажатая в Chief, открывается рядом. Chief остаётся в доке с вашим черновиком и позицией прокрутки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลิงก์เวิร์กสเปซ แท็บ หรือเอเจนต์ที่คลิกใน Chief จะเปิดข้าง ๆ Chief ยังอยู่ในด็อกพร้อมฉบับร่างและตำแหน่งเลื่อนของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief'te tıklanan bir çalışma alanı, sekme veya ajan bağlantısı onun yanında açılır. Chief taslağınız ve kaydırma konumunuzla yuvada kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Посилання на робочий простір, вкладку чи агента, натиснуте в Chief, відкривається поруч. Chief залишається в доці з вашою чернеткою та позицією прокручування."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Liên kết không gian làm việc, tab hoặc tác tử được nhấp trong Chief sẽ mở bên cạnh. Chief vẫn ở trong dock với bản nháp và vị trí cuộn của bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 Chief 中点击的工作区、标签页或代理链接会在其旁边打开。Chief 保持停靠，草稿和滚动位置不变。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 Chief 中點擊的工作區、標籤頁或代理連結會在其旁邊打開。Chief 保持停駐，草稿與捲動位置不變。"
+          }
+        }
+      }
+    },
+    "settings.sidebar.groupHeader.background": {
+      "comment": "Settings row title: how a sidebar group's background draws (glass or solid).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Group Background"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "خلفية المجموعة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pozadina grupe"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gruppebaggrund"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gruppenhintergrund"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fondo de grupo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arrière-plan des groupes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sfondo dei gruppi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "グループの背景"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទៃខាងក្រោយក្រុម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "그룹 배경"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gruppebakgrunn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tło grupy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fundo do grupo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фон группы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พื้นหลังกลุ่ม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grup Arka Planı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Тло групи"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nền nhóm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "群组背景"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "群組背景"
+          }
+        }
+      }
+    },
+    "settings.sidebar.groupHeader.background.help": {
+      "comment": "Settings help: the group background choices.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "طريقة رسم خلفية المجموعة في الشريط الجانبي. يُظهر الزجاج خلفية النافذة من خلاله، والصلب معتم. يستخدم الوضع التلقائي مظهر المجموعات الخاص بـ cmux، وهو الزجاج. للمجموعة دائمًا خلفية مرئية، حتى عندما لا يكون لها لون."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kako se pozadina grupe crta u bočnoj traci. Staklo propušta pozadinu prozora; Puna je neprozirna. Automatski koristi cmuxov izgled grupa, a to je staklo. Grupa uvijek ima vidljivu pozadinu, i kada nema boju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvordan en gruppes baggrund tegnes i sidepanelet. Glas lader vinduets baggrund skinne igennem; Ensfarvet er uigennemsigtig. Automatisk bruger cmux' eget gruppeudseende, som er glas. En gruppe har altid en synlig baggrund, også når den ikke har nogen farve."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wie der Hintergrund einer Gruppe in der Seitenleiste gezeichnet wird. Glas lässt den Fensterhintergrund durchscheinen; Deckend ist undurchsichtig. Automatisch verwendet das Gruppenaussehen von cmux, also Glas. Eine Gruppe hat immer einen sichtbaren Hintergrund, auch ohne Farbe."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cómo se dibuja el fondo de un grupo en la barra lateral. Vidrio deja ver el fondo de la ventana; Sólido es opaco. Automático usa el aspecto de grupo propio de cmux, que es vidrio. Un grupo siempre tiene un fondo visible, también cuando no tiene color."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Façon dont l’arrière-plan d’un groupe s’affiche dans la barre latérale. Verre laisse transparaître l’arrière-plan de la fenêtre ; Opaque est plein. Automatique utilise l’apparence de groupe de cmux, c’est-à-dire le verre. Un groupe a toujours un arrière-plan visible, même sans couleur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Come viene disegnato lo sfondo di un gruppo nella barra laterale. Vetro lascia trasparire lo sfondo della finestra; Pieno è opaco. Automatico usa l’aspetto dei gruppi di cmux, cioè il vetro. Un gruppo ha sempre uno sfondo visibile, anche senza colore."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サイドバーでのグループの背景の描き方です。ガラスはウインドウの背景を透かし、ソリッドは不透明です。自動は cmux 標準のグループの見た目（ガラス）を使います。色のないグループにも、常に見える背景があります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "របៀបដែលផ្ទៃខាងក្រោយក្រុមត្រូវបានគូរក្នុងរបារចំហៀង។ កញ្ចក់អនុញ្ញាតឱ្យផ្ទៃខាងក្រោយបង្អួចមើលឃើញ ហើយរឹងគឺស្រអាប់។ ស្វ័យប្រវត្តិប្រើរូបរាងក្រុមរបស់ cmux ដែលជាកញ្ចក់។ ក្រុមតែងតែមានផ្ទៃខាងក្រោយដែលមើលឃើញ សូម្បីតែគ្មានពណ៌។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사이드바에서 그룹 배경을 그리는 방식입니다. 유리는 윈도우 배경이 비쳐 보이고, 단색은 불투명합니다. 자동은 cmux 기본 그룹 모양인 유리를 사용합니다. 그룹에는 색상이 없어도 항상 보이는 배경이 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvordan bakgrunnen til en gruppe tegnes i sidepanelet. Glass lar vinduets bakgrunn skinne gjennom; Heldekkende er ugjennomsiktig. Automatisk bruker cmux sitt eget gruppeutseende, som er glass. En gruppe har alltid en synlig bakgrunn, også uten farge."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sposób rysowania tła grupy na pasku bocznym. Szkło przepuszcza tło okna; Pełne jest nieprzezroczyste. Automatycznie używa wyglądu grup cmux, czyli szkła. Grupa zawsze ma widoczne tło, także bez koloru."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Como o fundo de um grupo é desenhado na barra lateral. Vidro deixa o fundo da janela aparecer; Sólido é opaco. Automático usa a aparência de grupo do próprio cmux, que é vidro. Um grupo sempre tem um fundo visível, mesmo sem cor."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Как рисуется фон группы на боковой панели. Стекло пропускает фон окна; Сплошной непрозрачен. Автоматически использует вид групп cmux, то есть стекло. У группы всегда есть видимый фон, даже без цвета."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "วิธีวาดพื้นหลังของกลุ่มในแถบด้านข้าง กระจกให้พื้นหลังของหน้าต่างมองทะลุได้ ทึบจะไม่โปร่งใส อัตโนมัติใช้รูปลักษณ์กลุ่มของ cmux ซึ่งเป็นกระจก กลุ่มมีพื้นหลังที่มองเห็นได้เสมอ แม้ไม่มีสี"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir grubun arka planının kenar çubuğunda nasıl çizildiği. Cam, pencerenin arka planını gösterir; Düz opaktır. Otomatik, cmux'un kendi grup görünümünü, yani camı kullanır. Bir grubun rengi olmasa da her zaman görünür bir arka planı vardır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Як малюється тло групи на бічній панелі. Скло пропускає тло вікна; Суцільне непрозоре. Автоматично використовує вигляд груп cmux, тобто скло. Група завжди має видиме тло, навіть без кольору."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cách vẽ nền của một nhóm trong thanh bên. Kính cho nền cửa sổ hiện qua; Đặc thì không trong suốt. Tự động dùng giao diện nhóm của cmux, tức là kính. Một nhóm luôn có nền nhìn thấy được, kể cả khi không có màu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "群组背景在边栏中的绘制方式。玻璃会透出窗口背景；实色为不透明。自动使用 cmux 自己的群组外观，即玻璃。群组始终有可见的背景，即使没有颜色。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "群組背景在側邊欄中的繪製方式。玻璃會透出視窗背景；實色為不透明。自動使用 cmux 自己的群組外觀，即玻璃。群組始終有可見的背景，即使沒有顏色。"
+          }
+        }
+      }
+    },
+    "settings.choice.groupBackgroundAuto": {
+      "comment": "Group background choice: glass where the sidebar is see-through.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تلقائي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatski"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatisk"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatisch"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automático"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatique"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatico"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自動"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្វ័យប្រវត្តិ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "자동"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatisk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatycznie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automático"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Автоматически"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otomatik"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Автоматично"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tự động"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自動"
+          }
+        }
+      }
+    },
+    "settings.choice.groupBackgroundGlass": {
+      "comment": "Group background choice: translucent glass.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glass"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "زجاج"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Staklo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Glas"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Glas"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vidrio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vetro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ガラス"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កញ្ចក់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "유리"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Glass"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Szkło"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vidro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Стекло"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กระจก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cam"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скло"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kính"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "玻璃"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "玻璃"
+          }
+        }
+      }
+    },
+    "settings.choice.groupBackgroundSolid": {
+      "comment": "Group background choice: opaque fill.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solid"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "صلب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Puna"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ensfarvet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Deckend"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sólido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opaque"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pieno"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ソリッド"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រឹង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "단색"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Heldekkende"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pełne"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sólido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сплошной"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ทึบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Düz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Суцільне"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đặc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "实色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "實色"
+          }
+        }
       }
     },
     "settings.cloud.useMyCodexLogin": {
@@ -4865,6 +7194,1316 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "休眠"
+          }
+        }
+      }
+    },
+    "settings.workspaceHibernation.freeingEnabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحرير الطرفيات الخاملة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oslobodi neaktivne terminale"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frigør inaktive terminaler"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inaktive Terminals freigeben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Free Idle Terminals"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liberar terminales inactivos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Libérer les terminaux inactifs"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Libera i terminali inattivi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイドル状態のターミナルを解放"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដោះលែងទែមីណាល់ដែលទំនេរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "유휴 터미널 해제"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frigjør inaktive terminaler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zwalniaj bezczynne terminale"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liberar terminais ociosos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Освобождать неактивные терминалы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปล่อยเทอร์มินัลที่ไม่ได้ใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boştaki terminalleri serbest bırak"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Звільняти неактивні термінали"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giải phóng terminal không hoạt động"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "释放闲置终端"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "釋放閒置終端機"
+          }
+        }
+      }
+    },
+    "settings.workspaceHibernation.freeingEnabled.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ينهي الصدفات في مساحات العمل التي لم تستخدمها منذ مدة طويلة عندما تكون عند موجه فارغ. عند فتح مساحة العمل تبدأ كل صدفة من جديد في المجلد نفسه، وفوقها شاشتها المحفوظة. لا تُحرَّر أبدًا مساحات العمل المثبتة والمُبقاة مستيقظة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Završava shellove radnih prostora koje dugo niste koristili kada čekaju na praznom promptu. Otvaranje radnog prostora ponovo pokreće svaki shell u istoj mapi, sa sačuvanim ekranom iznad. Zakačeni radni prostori i oni ostavljeni budnim se nikad ne oslobađaju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afslutter shells i arbejdsområder, du ikke har brugt længe, når de står ved en tom prompt. Når du åbner arbejdsområdet, starter hver shell igen i samme mappe med den gemte skærm over sig. Fastgjorte arbejdsområder og dem, der holdes vågne, frigøres aldrig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beendet die Shells von Workspaces, die du lange nicht benutzt hast, wenn sie an einem leeren Prompt stehen. Beim Öffnen startet jede Shell im selben Ordner neu, mit ihrem gespeicherten Bildschirm darüber. Angeheftete und wach gehaltene Workspaces werden nie freigegeben."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ends the shells of workspaces you have not used for a long time when they sit at an empty prompt. Opening the workspace starts each shell again in the same folder, with its saved screen above it. Pinned workspaces and workspaces kept awake are never freed."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cierra los shells de los espacios de trabajo que no usas desde hace tiempo cuando están en un prompt vacío. Al abrir el espacio, cada shell vuelve a iniciarse en la misma carpeta, con su pantalla guardada encima. Los espacios fijados y los mantenidos activos nunca se liberan."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Termine les shells des espaces de travail inutilisés depuis longtemps lorsqu'ils attendent sur une invite vide. À l'ouverture, chaque shell redémarre dans le même dossier, avec son écran enregistré au-dessus. Les espaces épinglés et ceux gardés éveillés ne sont jamais libérés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiude le shell degli spazi di lavoro che non usi da molto quando sono ferme su un prompt vuoto. Aprendo lo spazio, ogni shell riparte nella stessa cartella, con la schermata salvata sopra. Gli spazi fissati e quelli tenuti attivi non vengono mai liberati."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "長い間使っていないワークスペースのシェルが空のプロンプトで待機している場合に終了します。ワークスペースを開くと、各シェルが同じフォルダで再起動し、保存された画面がその上に表示されます。ピン留めされたワークスペースとスリープしないワークスペースは解放されません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ចប់ shell នៃកន្លែងធ្វើការដែលអ្នកមិនបានប្រើយូរ នៅពេលវានៅត្រង់ prompt ទទេ។ ការបើកកន្លែងធ្វើការចាប់ផ្តើម shell នីមួយៗឡើងវិញក្នុងថតដដែល ជាមួយអេក្រង់ដែលបានរក្សាទុកនៅខាងលើ។ កន្លែងធ្វើការដែលបានខ្ទាស់ និងដែលរក្សាឱ្យភ្ញាក់ មិនត្រូវបានដោះលែងទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오랫동안 사용하지 않은 워크스페이스의 셸이 빈 프롬프트에서 대기하면 종료합니다. 워크스페이스를 열면 각 셸이 같은 폴더에서 다시 시작되고 저장된 화면이 위에 표시됩니다. 고정된 워크스페이스와 깨어 있게 유지된 워크스페이스는 해제되지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avslutter skallene i arbeidsområder du ikke har brukt på lenge når de står ved en tom ledetekst. Når du åpner arbeidsområdet, starter hvert skall igjen i samme mappe med den lagrede skjermen over. Festede arbeidsområder og de som holdes våkne, frigjøres aldri."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kończy powłoki obszarów roboczych, których dawno nie używasz, gdy czekają na pustym monicie. Otwarcie obszaru uruchamia każdą powłokę ponownie w tym samym folderze, z zapisanym ekranem nad nią. Przypięte obszary i te utrzymywane w gotowości nigdy nie są zwalniane."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encerra os shells de espaços de trabalho que você não usa há muito tempo quando estão num prompt vazio. Ao abrir o espaço, cada shell recomeça na mesma pasta, com a tela salva acima. Espaços fixados e espaços mantidos ativos nunca são liberados."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Завершает оболочки рабочих пространств, которыми вы давно не пользовались, если они ждут на пустом приглашении. При открытии пространства каждая оболочка запускается снова в той же папке, над ней — сохранённый экран. Закреплённые пространства и пространства, которые не засыпают, никогда не освобождаются."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิดเชลล์ของเวิร์กสเปซที่คุณไม่ได้ใช้มานานเมื่อค้างอยู่ที่พรอมต์ว่าง การเปิดเวิร์กสเปซจะเริ่มเชลล์แต่ละตัวใหม่ในโฟลเดอร์เดิม พร้อมหน้าจอที่บันทึกไว้ด้านบน เวิร์กสเปซที่ปักหมุดและที่ตั้งให้ตื่นอยู่จะไม่ถูกปล่อย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uzun süredir kullanmadığınız çalışma alanlarının kabuklarını boş bir istemde beklerken sonlandırır. Çalışma alanını açınca her kabuk aynı klasörde yeniden başlar, kayıtlı ekranı üstünde görünür. Sabitlenmiş ve uyanık tutulan çalışma alanları asla serbest bırakılmaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Завершує оболонки робочих просторів, якими ви давно не користувалися, коли вони чекають на порожньому запрошенні. Під час відкриття кожна оболонка запускається знову в тій самій теці, над нею — збережений екран. Закріплені простори та ті, що не засинають, ніколи не звільняються."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kết thúc shell của các workspace bạn đã lâu không dùng khi chúng đang ở dấu nhắc trống. Khi mở workspace, mỗi shell khởi động lại trong cùng thư mục, với màn hình đã lưu ở phía trên. Workspace được ghim và workspace được giữ thức không bao giờ bị giải phóng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当长时间未使用的工作区的 shell 停在空提示符时将其结束。打开工作区时，每个 shell 会在同一文件夹中重新启动，上方显示保存的屏幕。已固定的工作区和保持唤醒的工作区永远不会被释放。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當長時間未使用的工作區的 shell 停在空白提示字元時將其結束。開啟工作區時，每個 shell 會在同一檔案夾重新啟動，上方顯示儲存的畫面。已釘選的工作區與保持喚醒的工作區絕不會被釋放。"
+          }
+        }
+      }
+    },
+    "settings.workspaceHibernation.freeingIdleMinutes": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحرير الطرفيات بعد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oslobodi terminale nakon"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frigør terminaler efter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminals freigeben nach"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Free Terminals After"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liberar terminales tras"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Libérer les terminaux après"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Libera i terminali dopo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルを解放するまでの時間"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដោះលែងទែមីណាល់បន្ទាប់ពី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 해제까지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frigjør terminaler etter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zwalniaj terminale po"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liberar terminais após"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Освобождать терминалы через"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปล่อยเทอร์มินัลหลังจาก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalleri şu süre sonra serbest bırak"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Звільняти термінали через"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giải phóng terminal sau"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "释放终端的时间"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "釋放終端機的時間"
+          }
+        }
+      }
+    },
+    "settings.workspaceHibernation.freeingIdleMinutes.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تنتهي الصدفات الخاملة في مساحة العمل الموجودة في وضع السبات بعد هذا العدد من الدقائق دون استخدام (1440 يوم واحد)."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neaktivni shellovi uspavanog radnog prostora završavaju nakon ovoliko minuta bez korištenja (1440 je jedan dan)."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et dvalende arbejdsområdes inaktive shells afsluttes efter så mange minutter uden brug (1440 er én dag)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die inaktiven Shells eines ruhenden Workspaces enden nach so vielen Minuten ohne Nutzung (1440 ist ein Tag)."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A hibernated workspace's idle shells end after this many minutes without use (1440 is one day)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los shells inactivos de un espacio hibernado se cierran tras estos minutos sin uso (1440 es un día)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les shells inactifs d'un espace en veille se terminent après ce nombre de minutes sans utilisation (1440 = un jour)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le shell inattive di uno spazio ibernato si chiudono dopo questi minuti senza uso (1440 è un giorno)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "休止中のワークスペースのアイドル状態のシェルは、この分数使われないと終了します（1440 は 1 日）。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shell ទំនេរនៃកន្លែងធ្វើការដែលកំពុងសម្រាក បញ្ចប់បន្ទាប់ពីប៉ុន្មាននាទីនេះដោយគ្មានការប្រើ (1440 គឺមួយថ្ងៃ)។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최대 절전 중인 워크스페이스의 유휴 셸은 이 시간(분) 동안 사용하지 않으면 종료됩니다(1440은 하루)."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et dvalende arbeidsområdes inaktive skall avsluttes etter så mange minutter uten bruk (1440 er én dag)."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bezczynne powłoki uśpionego obszaru kończą się po tylu minutach bez użycia (1440 to jeden dzień)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os shells ociosos de um espaço hibernado terminam após esta quantidade de minutos sem uso (1440 é um dia)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неактивные оболочки спящего пространства завершаются после стольких минут без использования (1440 — один день)."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เชลล์ที่ไม่ได้ใช้งานของเวิร์กสเปซที่จำศีลจะปิดหลังไม่ได้ใช้เป็นเวลาเท่านี้นาที (1440 คือหนึ่งวัน)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uykudaki bir çalışma alanının boştaki kabukları bu kadar dakika kullanılmazsa sonlanır (1440 bir gündür)."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неактивні оболонки сплячого простору завершуються після стількох хвилин без використання (1440 — одна доба)."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các shell không hoạt động của workspace đang ngủ đông kết thúc sau số phút không dùng này (1440 là một ngày)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "休眠工作区中闲置的 shell 在这么多分钟未使用后结束（1440 为一天）。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "休眠工作區中閒置的 shell 在這麼多分鐘未使用後結束（1440 為一天）。"
+          }
+        }
+      }
+    },
+    "settings.workspaceHibernation.freeingAgents": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحرير الوكلاء الخاملين"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oslobodi neaktivne agente"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frigør inaktive agenter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inaktive Agenten freigeben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Free Idle Agents"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liberar agentes inactivos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Libérer les agents inactifs"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Libera gli agenti inattivi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイドル状態のエージェントを解放"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដោះលែងភ្នាក់ងារទំនេរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "유휴 에이전트 해제"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frigjør inaktive agenter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zwalniaj bezczynnych agentów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liberar agentes ociosos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Освобождать неактивных агентов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปล่อยเอเจนต์ที่ว่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boştaki ajanları serbest bırak"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Звільняти неактивних агентів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giải phóng agent nhàn rỗi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "释放空闲代理"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "釋放閒置代理程式"
+          }
+        }
+      }
+    },
+    "settings.workspaceHibernation.freeingAgents.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ينهي أيضًا جلسات Claude Code وCodex التي تنتظر رسالتك التالية. فتح علامة التبويب يستأنف الجلسة نفسها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Završava i Claude Code i Codex sesije koje čekaju vašu sljedeću poruku. Otvaranje kartice nastavlja istu sesiju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afslutter også Claude Code- og Codex-sessioner, der venter på din næste besked. Når du åbner fanen, genoptages den samme session."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beendet auch Claude-Code- und Codex-Sitzungen, die auf deine nächste Nachricht warten. Beim Öffnen des Tabs wird dieselbe Sitzung fortgesetzt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Also ends Claude Code and Codex sessions that wait for your next message. Opening the tab resumes the same session."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "También cierra las sesiones de Claude Code y Codex que esperan tu próximo mensaje. Al abrir la pestaña se reanuda la misma sesión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Termine aussi les sessions Claude Code et Codex qui attendent votre prochain message. Ouvrir l’onglet reprend la même session."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiude anche le sessioni di Claude Code e Codex in attesa del tuo prossimo messaggio. Aprendo la scheda riprende la stessa sessione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次のメッセージを待っている Claude Code と Codex のセッションも終了します。タブを開くと同じセッションが再開されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ចប់វគ្គ Claude Code និង Codex ដែលកំពុងរង់ចាំសាររបស់អ្នកបន្ទាប់ផងដែរ។ ការបើកផ្ទាំងបន្តវគ្គដដែល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다음 메시지를 기다리는 Claude Code 및 Codex 세션도 종료합니다. 탭을 열면 같은 세션이 재개됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avslutter også Claude Code- og Codex-økter som venter på neste melding fra deg. Når du åpner fanen, gjenopptas den samme økten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kończy też sesje Claude Code i Codex, które czekają na Twoją następną wiadomość. Otwarcie karty wznawia tę samą sesję."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Também encerra sessões do Claude Code e do Codex que esperam sua próxima mensagem. Abrir a aba retoma a mesma sessão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Также завершает сеансы Claude Code и Codex, которые ждут вашего следующего сообщения. При открытии вкладки тот же сеанс возобновляется."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิดเซสชัน Claude Code และ Codex ที่รอข้อความถัดไปของคุณด้วย การเปิดแท็บจะทำเซสชันเดิมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonraki mesajınızı bekleyen Claude Code ve Codex oturumlarını da sonlandırır. Sekmeyi açmak aynı oturumu sürdürür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Також завершує сеанси Claude Code і Codex, що чекають на ваше наступне повідомлення. Відкриття вкладки відновлює той самий сеанс."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cũng kết thúc các phiên Claude Code và Codex đang chờ tin nhắn tiếp theo của bạn. Mở tab sẽ tiếp tục đúng phiên đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "也会结束正在等待你下一条消息的 Claude Code 和 Codex 会话。打开标签页会恢复同一会话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "也會結束正在等待你下一則訊息的 Claude Code 與 Codex 工作階段。開啟分頁會恢復同一工作階段。"
+          }
+        }
+      }
+    },
+    "settings.workspaceHibernation.freeingRunningCommands": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الأوامر قيد التشغيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokrenute naredbe"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kørende kommandoer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laufende Befehle"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Running Commands"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comandos en ejecución"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commandes en cours"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comandi in esecuzione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中のコマンド"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពាក្យបញ្ជាកំពុងដំណើរការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 중인 명령"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kjørende kommandoer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uruchomione polecenia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comandos em execução"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выполняющиеся команды"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำสั่งที่กำลังทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışan komutlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запущені команди"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lệnh đang chạy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在运行的命令"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "執行中的指令"
+          }
+        }
+      }
+    },
+    "settings.workspaceHibernation.freeingRunningCommands.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ما يحدث لأمر لا يزال يعمل في مساحة عمل تحرّر طرفياتها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Šta se dešava s naredbom koja još radi u radnom prostoru koji oslobađa svoje terminale."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvad der sker med en kommando, der stadig kører i et arbejdsområde, som frigør sine terminaler."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Was mit einem Befehl geschieht, der noch in einem Workspace läuft, der seine Terminals freigibt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What happens to a command that still runs in a workspace that frees its terminals."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qué ocurre con un comando que sigue en ejecución en un espacio que libera sus terminales."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce qui arrive à une commande encore en cours dans un espace qui libère ses terminaux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cosa succede a un comando ancora in esecuzione in uno spazio che libera i suoi terminali."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "端末を解放するワークスペースでまだ実行中のコマンドをどうするか。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អ្វីដែលកើតឡើងចំពោះពាក្យបញ្ជាដែលនៅតែដំណើរការក្នុងកន្លែងធ្វើការដែលដោះលែងស្ថានីយរបស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널을 해제하는 워크스페이스에서 아직 실행 중인 명령을 어떻게 처리할지 정합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hva som skjer med en kommando som fortsatt kjører i et arbeidsområde som frigjør terminalene sine."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Co dzieje się z poleceniem, które nadal działa w obszarze zwalniającym swoje terminale."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O que acontece com um comando que ainda roda num espaço que libera seus terminais."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Что происходит с командой, которая ещё выполняется в пространстве, освобождающем свои терминалы."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สิ่งที่เกิดกับคำสั่งที่ยังทำงานอยู่ในเวิร์กสเปซที่ปล่อยเทอร์มินัลของตน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminallerini serbest bırakan bir çalışma alanında hâlâ çalışan bir komuta ne olacağı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Що відбувається з командою, яка ще працює в просторі, що звільняє свої термінали."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Điều gì xảy ra với lệnh vẫn đang chạy trong workspace giải phóng terminal của nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在释放终端的工作区中仍在运行的命令如何处理。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在釋放終端機的工作區中仍在執行的指令如何處理。"
+          }
+        }
+      }
+    },
+    "settings.choice.freeingRunningNever": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إبقاؤها قيد التشغيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ostavi da radi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bliv ved med at køre"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weiterlaufen lassen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep Running"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seguir ejecutando"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laisser tourner"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lascia in esecuzione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行し続ける"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្តដំណើរការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "계속 실행"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La kjøre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pozostaw uruchomione"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manter em execução"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не останавливать"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ให้ทำงานต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışmaya devam etsin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не зупиняти"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giữ chạy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保持运行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保持執行"
+          }
+        }
+      }
+    },
+    "settings.choice.freeingRunningRelaunch": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إنهاؤها وعرضها مرة أخرى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Završi i ponudi ponovo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afslut og tilbyd igen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beenden und erneut anbieten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "End and Offer Again"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerrar y volver a ofrecer"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminer et reproposer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiudi e riproponi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終了して再提示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ចប់ ហើយផ្តល់ជូនម្តងទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "종료 후 다시 제안"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avslutt og tilby igjen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zakończ i zaproponuj ponownie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encerrar e oferecer de novo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Завершить и предложить снова"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิดแล้วเสนอใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonlandır ve yeniden öner"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Завершити й запропонувати знову"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kết thúc và đề xuất lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "结束并再次提供"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "結束並再次提供"
           }
         }
       }
@@ -93001,6 +96640,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "資料夾"
+          }
+        }
+      }
+    },
+    "settings.choice.groupByRecents": {
+      "comment": "Sidebar Group Projects By choice: groups under Projects, then other workspaces under Recents (the ChatGPT app's layout).",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المشاريع والأخيرة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projekti i nedavno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projekter og seneste"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projekte und Zuletzt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projects and Recents"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proyectos y recientes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projets et récents"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Progetti e recenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロジェクトと最近"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គម្រោង និងថ្មីៗ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로젝트 및 최근"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prosjekter og nylige"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projekty i ostatnie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projetos e recentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проекты и недавние"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โปรเจกต์และล่าสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projeler ve Son Kullanılanlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проєкти та нещодавні"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dự án và gần đây"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "项目和最近"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "專案與最近"
           }
         }
       }
