@@ -21,8 +21,13 @@ const look = params.get("look") === "flat" ? "flat" : "harness";
 const catalog = params.get("catalog") === "deepseek" ? DEEPSEEK_SEARCH_CATALOG : SOL_SEARCH_CATALOG;
 const theme = params.get("theme");
 if (theme === "light" || theme === "dark") {
-  document.documentElement.dataset.theme = theme;
-  document.documentElement.style.colorScheme = theme;
+  // The page theme the app hands a light or dark pane (WebTheme.swift), with an opaque menu surface
+  // in place of the native glass, so screenshots read as the app's menu.
+  const root = document.documentElement;
+  root.dataset.theme = theme;
+  root.style.colorScheme = theme;
+  root.style.setProperty("--cmux-text", theme === "light" ? "#1d1d1f" : "#ececec");
+  root.style.setProperty("--cmux-popup-surface", theme === "light" ? "#f7f7f7" : "#262626");
 }
 const picked: unknown[] = [];
 (window as unknown as { picked: unknown[] }).picked = picked;
