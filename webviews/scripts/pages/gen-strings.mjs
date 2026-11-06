@@ -327,6 +327,12 @@ export const PAGES = {
     out: "webviews/src/pages/icon-picker/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/icon-picker/Localizable.xcstrings" }],
   },
+  // Chat Colors (cmux-page://cmux.home-chat-colors/): the `home.chatColors.*` keys moved here from
+  // CmuxNextHome's catalog with the AppKit panel; its table lives next to it.
+  "home-chat-colors": {
+    out: "webviews/src/pages/home-chat-colors/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/home-chat-colors/Localizable.xcstrings" }],
+  },
   // The markdown editor (cmux-page://cmux.markdown/) has no Swift page; its table lives next to it.
   markdown: {
     out: "webviews/src/pages/markdown/generated/strings.json",

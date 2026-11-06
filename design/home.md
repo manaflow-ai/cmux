@@ -90,6 +90,9 @@ the app. Opening it for another chat switches the panel to that chat.
 Gallery: `home.chat-colors` (variants: default, custom colours on both sides, a chat with only text
 colours, dark and light). The picked layout is recorded here when it lands.
 
+Picked: `rows` (the AppKit panel's layout: each row's label in a 48 pt column beside its swatches),
+over `caption-labels` and `grouped`, on the 4 pt grid: 340 x 340 pt.
+
 ## Rules every seam keeps
 
 - **Constant interaction cost.** The list and the transcript render the visible window first, and

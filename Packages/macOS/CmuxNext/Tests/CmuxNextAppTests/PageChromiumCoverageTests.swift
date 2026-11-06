@@ -1,6 +1,7 @@
 import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextBrowser
+import CmuxNextHome
 import CmuxNextPages
 import Foundation
 import Testing
@@ -18,6 +19,7 @@ import Testing
         (.keybindings, .standard), (.diff, DiffPageService.engineOptions), (.markdown, FilePageService.engineOptions),
         (.editor, FilePageService.engineOptions), (.iconPicker, IconPickerService.engineOptions), (.passwords, .standard),
         (.chiefInspector, .standard), (.debugSettings, .standard), (.homeChannels, PageFactory.homeChannelsEngineOptions),
+        (.homeChatColors, HomeChatColorsService.engineOptions),
         (.changelog, .standard), (.coderouter, .standard), (.files, .standard), (.stats, .standard),
         (.chiefUsage, .standard), (.mobilePairing, .standard), (.agentActivity, .standard), (.github, .standard),
     ]
