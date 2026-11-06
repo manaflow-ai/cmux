@@ -44,7 +44,9 @@ await requireBrowserLane("agent-pane-table-capture.test.ts", async () => {
     for (const { variant, width, arm } of cases)
       test(`${variant} at ${width}${arm ? ` (${arm})` : ""}`, async () => {
         const page = await browser!.newPage({ viewport: { width, height: 760 }, deviceScaleFactor: 2 });
-        await page.goto(`http://127.0.0.1:${port()}${galleryFrame("agent-pane.table-block", { variant, width, arm })}`);
+        await page.goto(
+          `http://127.0.0.1:${port()}${galleryFrame("agent-pane.table-block", { variant, width, arm, exp: arm ? "table-actions-place" : undefined })}`,
+        );
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
           timeout: 120_000,
         });
