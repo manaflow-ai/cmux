@@ -418,7 +418,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         guard !plan.isEmpty || dataSource.snapshot().numberOfSections == 0 else { return }
         // A jump to the top in flight keeps no anchor: restoring one would set the offset and cut the
         // jump's animation short wherever it was (the pill then left the person mid-list).
-        let anchor = control.atTop || jumpingToTop ? nil : visibleAnchor()
+        let anchor = syncAtTop() || jumpingToTop ? nil : visibleAnchor()
         let previousOrder = shownOrder
         let previousSet = shownSet
         shownOrder = next.map(\.id)
@@ -649,7 +649,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         // above the screen (Show less at the end of a long body) keeps the row after it instead, so
         // its end stays where the person tapped and its start is not left far above the screen.
         let anchor = jumpingToTop ? nil
-            : kept.flatMap { toggledRowAnchor($0) } ?? (control.atTop ? nil : visibleAnchor(excluding: Set(present)))
+            : kept.flatMap { toggledRowAnchor($0) } ?? (syncAtTop() ? nil : visibleAnchor(excluding: Set(present)))
         for (id, key) in keys {
             shownKeys[id] = key
             shownHeights[id] = layouts.cached(key)?.height ?? 1
@@ -752,6 +752,20 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         // it until then and keeps it when a touch stops the jump on the way.
     }
 
+    /// Whether the list shows its top (within 60 pt), read from the live offset and published to
+    /// the screen. Read where it decides something, never from the last scroll callback: a jump's
+    /// landing can reach the top with no `scrollViewDidScroll` at the final offset, and a stale
+    /// "not at top" made every new event keep the reader's row in place, pushing the list back down
+    /// by each event's height right after the pill landed it at the top.
+    @discardableResult
+    private func syncAtTop() -> Bool {
+        guard let collectionView else { return control.atTop }
+        let top = collectionView.contentOffset.y + collectionView.adjustedContentInset.top < 60
+        if top != control.atTop { control.atTop = top }
+        if top { reachedTop() }
+        return top
+    }
+
     /// The events above have been seen: the pill's count clears.
     private func reachedTop() {
         if control.newAbove != 0 { control.newAbove = 0 }
@@ -778,7 +792,8 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     }
 
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
-        trace("animation end at \(Int(scrollView.contentOffset.y)) jumping=\(jumpingToTop)")
+        trace("animation end at \(Int(scrollView.contentOffset.y)) jumping=\(jumpingToTop) top=\(control.atTop)")
+        defer { syncAtTop() }
         guard jumpingToTop else { return }
         jumpingToTop = false
         // Land exactly at the top, whatever changed while the list moved.
@@ -819,9 +834,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     // MARK: Scrolling
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        let top = scrollView.contentOffset.y + scrollView.adjustedContentInset.top < 60
-        if top != control.atTop { control.atTop = top }
-        if top { reachedTop() }
+        syncAtTop()
         #if DEBUG
         // A jump moves only toward the top: a step away from it is something else moving the list.
         if jumpingToTop, scrollView.contentOffset.y > lastTracedOffset + 0.5 {
