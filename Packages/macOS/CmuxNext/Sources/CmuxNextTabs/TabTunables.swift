@@ -24,6 +24,20 @@ public nonisolated enum TabLoadingAnimation: String, Sendable, CaseIterable, Tun
     }
 }
 
+/// How a hovered tab's x takes its status's slot (`TabStripMetrics.hoverCloseSwap`; the tab bar
+/// playground's Hover Close page compares them). In every treatment but `beside` only the x shows on
+/// hover, in the slot the spinner or status mark holds at rest (Leo 2026-11-05).
+public nonisolated enum TabHoverCloseSwap: String, Sendable, CaseIterable {
+    /// The status fades out on the hover curve while the x fades in, and back on leaving.
+    case crossFade
+    /// The status gives way at once and the x fades in, as a sidebar workspace row's hover controls.
+    case instant
+    /// As `crossFade`, with the x's hover fill drawn while it stands in for the status.
+    case disc
+    /// Before: the x appears beside the status. The playground's comparison only.
+    case beside
+}
+
 /// What the tab bar's trailing controls (the plus, the pane's pins and "…") show at rest
 /// (`TabTunables.crowdedControls`). Their room is kept either way, so no tab moves on hover.
 public nonisolated enum TabCrowdedControls: String, Sendable, CaseIterable, TunableChoice {

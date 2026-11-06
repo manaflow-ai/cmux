@@ -3,7 +3,7 @@
 // worktree or folder (one inside the other), or on the same feature branch anywhere (a branch with
 // a `/`, `lane/x` or `fix/y`: `main` and `feat-cmux-next` are every clone's, not one task's). This
 // chat's own family (its sub-sessions, forks and side chats) is not someone else, nor is a closed,
-// archived or day-old chat. Which files two chats share is acpmux's `who_else` (the transcript's
+// archived or day-old chat (one still running a turn counts: it is working there now). Which files two chats share is acpmux's `who_else` (the transcript's
 // card); this list needs no request. Leo, 2026-11-05: "CMUX next can maybe do that, like for other
 // agents, other harnesses as well."
 import type { AcpmuxSessionEntry } from "../sessionList";
@@ -67,4 +67,15 @@ export function alsoHere(
     else if (branch && e.branch === branch) out.push({ entry: e, why: "branch" });
   }
   return out.sort((a, b) => Number(a.why === "branch") - Number(b.why === "branch") || at(b.entry) - at(a.entry));
+}
+
+/// When the next listed chat goes a day idle and leaves the list (`rows` from `alsoHere`); a day
+/// from `now` when none will (each running chat stays). Session Info redraws the list then.
+export function alsoHereExpiry(rows: readonly AlsoHere[], now: number): number {
+  let next = now + ALSO_HERE_WINDOW_MS;
+  for (const { entry: e } of rows) {
+    if (e.status === "running") continue;
+    next = Math.min(next, (e.activityAt ?? e.updatedAt ?? 0) + ALSO_HERE_WINDOW_MS + 1);
+  }
+  return next;
 }
