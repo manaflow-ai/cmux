@@ -15,9 +15,9 @@ cancels or re-runs target jobs itself. Each pass:
 
 - lists the repository's in-flight (`queued`, `in_progress`) pull request runs, created STALL_SECONDS to WINDOW
   ago, in one repository-wide listing per status (the newest page; the second while the first is full; one
-  rotating overflow page from the third while the second is full), and keeps those of the workflow files that declare a hosted light job. One listing per
-  status, not one per workflow and status: 2-3 requests a pass instead of 24-48 (cmux#35099 measured 50-100
-  requests a minute against the repository's 1,000-an-hour GITHUB_TOKEN pool);
+  rotating overflow page from the third while the second is full), and keeps those of the workflow files that
+  declare a hosted light job: 2-6 requests a pass instead of 24-48 (cmux#35099 measured 50-100 requests a minute
+  against the repository's 1,000-an-hour GITHUB_TOKEN pool);
 - retains discovered candidates within WINDOW and reads the jobs of at most MAX_RUNS of them (plus one re-read
   per rescue, so at most MAX_RUNS + MAX_RESCUES) (attempt 1 only, at the pull request's current head); the first
   pass is oldest first and later passes rotate from an in-memory cursor;
@@ -33,10 +33,14 @@ recovery attempts a pass, and a run with any other unfinished job is left alone 
 cancellations have durable log receipts. A later minute or successor may resume only those receipts, after reading
 the live attempt and current open PR again; incomplete history and unmarked cancellations never authorize a rerun.
 
-Quota: the workflow token's pool is the repository's one GITHUB_TOKEN pool (1,000 requests an hour on this plan),
-shared by every workflow, the NEXT nightly's tick and notarization among them. A pass makes no new listing or job
-read once a response says that pool is down to POOL_RESERVE until its reset (owned recovery still finishes), and an
-unreadable recovery journal is read again only every JOURNAL_RETRY, not every minute.
+Quota: reads go out as the cmux-bot App (HOSTED_LIGHT_TOKEN is its installation token when the workflow minted one;
+with BOT_APP_ID and BOT_APP_KEY a new one is minted before the hour is up), whose installation pool is its own. The
+workflow token (HOSTED_LIGHT_FALLBACK_TOKEN) is the repository's one GITHUB_TOKEN pool (1,000 requests an hour on this
+plan), shared by every workflow, the NEXT nightly's tick and notarization among them; it is read only while the
+App's pool is down to POOL_RESERVE or the App token is refused. A pass makes no new listing or job read once both
+pools are down to POOL_RESERVE until a reset (owned recovery still finishes), and an unreadable recovery journal is
+read again only every JOURNAL_RETRY, not every minute. Cancels, re-runs and the sweeper wake stay on the workflow
+token, as before.
 """
 
 from __future__ import annotations
@@ -140,33 +144,79 @@ def with_callers(workflows: Sequence[str], directory: Path | None) -> list[str]:
         found |= callers
 
 
-class GitHub:
-    def __init__(self, token: str, repo: str, write_token: str | None = None) -> None:
-        self.repo = repo
-        self.token = token
-        self.write_token = write_token or token
+APP_TOKEN_SECONDS = 50 * 60  # an installation token lasts an hour; mint the next one before it ends
 
-        self.etags: dict[str, tuple[str, Any]] = {}
-        self.history: Any = None
-        # The token's pool as the last response reported it: None until a response carries it.
+
+class Pool:
+    """One token's rate-limit pool as its last response reported it: None until a response carries it."""
+
+    def __init__(self) -> None:
         self.remaining: int | None = None
         self.reset: float = 0.0
 
-    def note_limit(self, headers: Any) -> None:
+    def spare(self, now: float) -> bool:
+        return self.remaining is None or self.remaining > POOL_RESERVE or now >= self.reset
+
+
+class GitHub:
+    def __init__(self, token: str, repo: str, write_token: str | None = None, *, fallback: str | None = None,
+                 mint: Callable[[], str] | None = None, clock: Callable[[], float] = time.time) -> None:
+        """READS go out with `token`; with `fallback` (the workflow token) they move to it while `token`'s pool is at
+        POOL_RESERVE or `token` is refused. `mint` replaces `token` before its hour is up. Writes use `write_token`
+        (default: `fallback`, else `token`)."""
+        self.repo = repo
+        self.token = token
+        self.fallback = fallback if fallback and fallback != token else None
+        self.write_token = write_token or self.fallback or token
+        self.mint, self.clock = mint, clock
+        self.minted_at = clock()
+        self.pools: dict[str, Pool] = {"primary": Pool(), "fallback": Pool()}
+        self.primary_refused_until = 0.0
+
+        self.etags: dict[str, tuple[str, Any]] = {}
+        self.history: Any = None
+    @property
+    def remaining(self) -> int | None:
+        """The pool reads use now (for the pass's log line)."""
+        return self.pools[self.read_pool()].remaining
+
+    @property
+    def reset(self) -> float:
+        return self.pools[self.read_pool()].reset
+
+    def note_limit(self, headers: Any, pool: str = "primary") -> None:
         """Record X-RateLimit-Remaining and -Reset from any response, a refusal or a 304 included."""
         try:
             remaining = headers.get("X-RateLimit-Remaining") if headers is not None else None
             reset = headers.get("X-RateLimit-Reset") if headers is not None else None
             if remaining is not None:
-                self.remaining = int(remaining)
+                self.pools[pool].remaining = int(remaining)
             if reset is not None:
-                self.reset = float(reset)
+                self.pools[pool].reset = float(reset)
         except (AttributeError, TypeError, ValueError):
             pass
 
+    def read_pool(self, now: float | None = None) -> str:
+        """`primary` while its pool is spare and it is not refused, else `fallback` when there is one."""
+        now = self.clock() if now is None else now
+        if self.fallback is None:
+            return "primary"
+        if now >= self.primary_refused_until and self.pools["primary"].spare(now):
+            return "primary"
+        return "fallback"
+
     def spare(self, now: dt.datetime) -> bool:
-        """The pool is above POOL_RESERVE, unknown, or past its reset: a pass may read."""
-        return self.remaining is None or self.remaining > POOL_RESERVE or now.timestamp() >= self.reset
+        """A read pool is above POOL_RESERVE, unknown, or past its reset: a pass may read."""
+        return self.pools[self.read_pool(now.timestamp())].spare(now.timestamp())
+
+    def read_token(self) -> tuple[str, str]:
+        if self.mint is not None and self.clock() - self.minted_at >= APP_TOKEN_SECONDS:
+            try:
+                self.token, self.minted_at = self.mint(), self.clock()
+            except Exception:  # noqa: BLE001 - keep the old token; a refusal moves reads to the fallback
+                self.minted_at = self.clock() - APP_TOKEN_SECONDS + 300  # try again in five minutes
+        pool = self.read_pool()
+        return pool, (self.token if pool == "primary" else str(self.fallback))
 
     def pending_cancellations(self, now: dt.datetime) -> set[int]:
         """Restore only this worker's confirmed cancellations from the existing durable rescue log journal.
@@ -176,7 +226,7 @@ class GitHub:
         """
         import owned_pool_rescue
         if self.history is None:
-            self.history = owned_pool_rescue.GitHub(self.token, self.repo)
+            self.history = owned_pool_rescue.GitHub(self.read_token()[1], self.repo)
             self.history.own_run = int(os.environ.get("GITHUB_RUN_ID") or 0)
             self.history.no_rate_limit_waits()
         states: dict[tuple[int, int], str] = {}
@@ -190,29 +240,47 @@ class GitHub:
                 if attempt == 1 and state == "sent hosted-light"}
 
     def request(self, method: str, path: str, payload: Mapping[str, Any] | None = None) -> Any:
-        token = self.token if method == "GET" else self.write_token
+        if method != "GET":
+            return self._send(method, path, payload, self.write_token, "fallback" if self.fallback else "primary")
+        pool, token = self.read_token()
+        try:
+            return self._send(method, path, payload, token, pool)
+        except RuntimeError as error:
+            refused = getattr(error, "code", None)
+            if pool != "primary" or self.fallback is None or refused not in (401, 403, 429):
+                raise
+            # The App token was refused (expired, revoked or rate limited): the same read on the workflow token. A
+            # refused GET did nothing, so the retry is safe; the App is tried again after its reset or 5 minutes.
+            primary = self.pools["primary"]
+            self.primary_refused_until = max(self.clock() + 300, primary.reset if primary.remaining == 0 else 0)
+            return self._send(method, path, payload, str(self.fallback), "fallback")
+
+    def _send(self, method: str, path: str, payload: Mapping[str, Any] | None, token: str, pool: str) -> Any:
         request = urllib.request.Request(
             f"https://api.github.com/repos/{self.repo}{path}", method=method,
             data=json.dumps(payload).encode() if payload is not None else b"" if method != "GET" else None,
             headers={"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
                      "Content-Type": "application/json",
                      "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "cmux-hosted-light-rescue"})
+        # An ETag is per URL, not per token: a 304 answers whichever token asked.
         cached = self.etags.get(path) if method == "GET" else None
         if cached:
             request.add_header("If-None-Match", cached[0])
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
-                self.note_limit(response.headers)
+                self.note_limit(response.headers, pool)
                 body = response.read()
                 result = json.loads(body) if body.strip() else {}
                 if method == "GET" and response.headers.get("ETag"):
                     self.etags[path] = (response.headers["ETag"], result)
                 return result
         except urllib.error.HTTPError as error:
-            self.note_limit(error.headers)
+            self.note_limit(error.headers, pool)
             if error.code == 304 and cached:
                 return cached[1]
-            raise RuntimeError(f"{method} {path}: HTTP {error.code}") from error
+            refusal = RuntimeError(f"{method} {path}: HTTP {error.code}")
+            refusal.code = error.code  # type: ignore[attr-defined]
+            raise refusal from error
 
     def runs(self, workflow: str | None, status: str, start: dt.datetime, end: dt.datetime, *,
              page: int = 1) -> list[dict[str, Any]]:
@@ -430,7 +498,7 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
         rescued += int(reran)
         lines.append(f"run {run_id}: {outcome}")
     if pool_low(client, now):
-        lines.append(f"the workflow token's pool is down to {client.remaining} (reserve {POOL_RESERVE}); "
+        lines.append(f"the read token's pool is down to {client.remaining} (reserve {POOL_RESERVE}); "
                      f"no listing or job read until its reset at {iso(dt.datetime.fromtimestamp(client.reset, UTC))}")
         return lines
     start, end = now - WINDOW, now - dt.timedelta(seconds=STALL_SECONDS)
@@ -481,7 +549,7 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
         lines.append(f"{candidate_count} candidate runs; read a rotating slice of {MAX_RUNS}")
     for read, run in enumerate(runs):
         if pool_low(client, now):
-            lines.append(f"the workflow token's pool is down to {client.remaining} (reserve {POOL_RESERVE}); "
+            lines.append(f"the read token's pool is down to {client.remaining} (reserve {POOL_RESERVE}); "
                          f"{len(runs) - read} job reads left to a later pass")
             break
         try:
@@ -582,14 +650,19 @@ def follow(pass_once: Callable[[], Any], *, stopped: Callable[[float], bool], se
 
 def from_env(env: Mapping[str, str], repo: str, *, now: Callable[[], dt.datetime],
              log: Callable[[str], None]) -> Callable[[], None] | None:
-    """Build a pass with its own workflow token, never the routing App's read or write client."""
+    """Build a pass that reads as cmux-bot (its own pool) with the workflow token as fallback, never the routing App."""
     token = env.get("HOSTED_LIGHT_TOKEN", "").strip()
+    fallback = env.get("HOSTED_LIGHT_FALLBACK_TOKEN", "").strip() or None
     directory = Path(env.get("HOSTED_LIGHT_POLICY", ".rescue-workflows/.github"))
     if env.get("HOSTED_LIGHT_DISABLED") == "1" or not token:
         return None
     runners = json.loads((directory / "runners.json").read_text(encoding="utf-8"))
     workflows = with_callers(declared_workflows(runners), directory / "workflows")
-    client = GitHub(token, repo)
+    mint = None
+    if fallback and env.get("BOT_APP_ID") and env.get("BOT_APP_KEY"):
+        import owned_pool_rescue
+        mint = owned_pool_rescue.app_token_minter(env["BOT_APP_ID"], env["BOT_APP_KEY"], repo)
+    client = GitHub(token, repo, fallback=fallback, mint=mint) if fallback else GitHub(token, repo)
     scan_state = ScanState()
     pending: set[int] = set()
     restored = False

@@ -43,7 +43,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
-        run: python3 scripts/ci/auto_triage.py --issue "$ISSUE_NUMBER"
+        # The event already carries the issue (state, labels, title, body): no GET of it
+        # on the repository token's shared REST budget. The label and comment writes stay
+        # on GITHUB_TOKEN, whose writes start no `issues: labeled` workflows.
+        run: python3 scripts/ci/auto_triage.py --issue "$ISSUE_NUMBER" --event "$GITHUB_EVENT_PATH"
 
   backfill:
     permissions:

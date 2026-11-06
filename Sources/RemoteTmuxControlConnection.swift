@@ -191,7 +191,7 @@ final class RemoteTmuxControlConnection {
     /// than a dedicated per-session connection. Enables the host-wide session-digest
     /// subscription and the extra topology notifications a shared stream needs.
     var isSharedViewStream = false
-    /// Whether the ``sessionDigestSubscriptionName`` `refresh-client -B` is active.
+    /// Whether the stream's order digest (see ``subscribeSessionDigest()``) is subscribed.
     var sessionDigestSubscribed = false
     var newWindowCompletions: [UUID: (Int?) -> Void] = [:]
     var newPaneCompletions: [UUID: (Int?) -> Void] = [:]
@@ -1477,7 +1477,7 @@ final class RemoteTmuxControlConnection {
         // A `refresh-client -B` subscription belongs to the client too, so the
         // session digest dies with it. The reconnect's attach drain calls
         // `subscribeSessionDigest()` again, and it returns early unless this flag is
-        // cleared here — leaving the shared view blind to session create/kill/rename.
+        // cleared here — leaving the stream blind to session changes and window reorders.
         sessionDigestSubscribed = false
         pendingPostAttachAction = nil
         teardownProcessHandles()
@@ -1722,6 +1722,7 @@ final class RemoteTmuxControlConnection {
             // ledger above keeps any moved pane's control identity alive until
             // the authoritative window snapshot publishes its destination.
             observers.notifyTopologyChanged()
+        case let .windowUnlinkedElsewhere(id): handleWindowUnlinkedElsewhere(windowId: id)
         case let .windowRenamed(id, name):
             record("window-renamed @\(id)")
             // Update published AND quarantined topology. A rename racing a
@@ -1815,15 +1816,14 @@ final class RemoteTmuxControlConnection {
                 // to re-list and rebuild multiplexed mirrors (coalesced by the view
                 // coordinator's in-flight reconcile guard).
                 observers.notifyTopologyChanged()
-            }
+            } else if name == Self.windowOrderSubscriptionName { handleWindowOrderDigest(value) }
         case let .commandResult(_, lines, isError):
             // The first block on each control stream is the attach command's own —
             // consume it explicitly so it can never pop a queued command's slot off
             // the positional FIFO (see ``attachBlockDrained``).
             if !attachBlockDrained {
                 attachBlockDrained = true
-                if isSharedViewStream { subscribeSessionDigest() }
-                requestWindows()
+                requestWindowsAndSubscribeAfterAttach()
             } else {
                 handleCommandResult(lines: lines, isError: isError)
             }
