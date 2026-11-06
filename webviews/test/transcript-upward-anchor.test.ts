@@ -306,8 +306,8 @@ await requireBrowserLane("transcript-upward-anchor.test.ts", async () => {
       await page.evaluate(() => document.fonts.ready);
       await card.evaluate((node) => node.scrollIntoView({ block: "start" }));
       // Off the very bottom: the card sits in the last turns, so scrolling it to the top lands at
-      // the physical end, and there opening a line pushes the text above it up (#32644, Leo
-      // 2026-11-02: "YOU EXPAND UP WHILE YOUR SCCROLL IS AT THE VERY BOTTOM ... JUST THAT CASE").
+      // the physical end, and there closing a line pins the bottom and pulls the text above it down
+      // (Leo 2026-11-03; an open there grows down, Codex parity).
       // This trace is about a fold that keeps its place while the reply streams, so start at least
       // 48px up. Whether scrollIntoView lands on the end depended on timing (base runs read 128 to
       // 136 compared frames), so the start is pinned here: never further down than end - 48, and

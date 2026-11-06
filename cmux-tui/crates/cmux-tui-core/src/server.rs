@@ -136,11 +136,12 @@ mod mobile_chat;
 #[cfg(unix)]
 pub use agent_session_attach::{
     AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_FOLDERS_CAPABILITY,
-    AGENT_SESSION_START_CAPABILITY, AGENT_SESSION_START_KEYED_REASON_CAPABILITY,
-    AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_NO_CWD_CAPABILITY,
-    AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY, AGENT_SESSION_START_VM_KIND_CAPABILITY,
-    AGENT_SESSION_TRUST_CAPABILITY, AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter,
-    AgentStartHost, AgentStartHostSource, start_link_share_bridge,
+    AGENT_SESSION_FORK_CAPABILITY, AGENT_SESSION_START_CAPABILITY,
+    AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_START_MODEL_CAPABILITY,
+    AGENT_SESSION_START_NO_CWD_CAPABILITY, AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY,
+    AGENT_SESSION_START_VM_KIND_CAPABILITY, AGENT_SESSION_TRUST_CAPABILITY,
+    AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
+    start_link_share_bridge,
 };
 #[cfg(unix)]
 pub(crate) use agent_session_attach::{
@@ -178,7 +179,6 @@ use line_connection::{handle_connection_with_permit, serve_line_connection};
 mod attachment_http;
 mod bookmarks;
 mod browser_host_command;
-mod remote_host_command;
 mod browser_profiles;
 pub(crate) mod clipboard_read;
 mod close_tabs_command;
@@ -189,6 +189,7 @@ mod conversation_attachments;
 mod conversation_live;
 mod conversation_resource;
 mod conversation_runs;
+mod remote_host_command;
 mod resource_trust;
 use resource_trust::{
     conversation_resource_client, handles_resource_connection_operation,
@@ -405,6 +406,10 @@ pub const TERMINAL_COLOR_OVERRIDES_CAPABILITY: &str = "terminal-color-overrides-
 /// to receive the replay's incomplete sequence as a separate `pending` field.
 /// Other attachments get it appended to the replay bytes, in the legacy shape.
 pub const TERMINAL_PENDING_SEQUENCE_CAPABILITY: &str = "terminal-pending-sequence-v1";
+/// `replay_history_rows` on a bytes `attach-surface`: the `vt-state` replay
+/// keeps only that many of the newest history rows above the active area
+/// and says how many older ones it left out (`history_rows_omitted`).
+pub const ATTACH_REPLAY_HISTORY_ROWS_CAPABILITY: &str = "attach-replay-history-rows-v1";
 pub const CREATION_RECEIPTS_CAPABILITY: &str = "creation-receipts-v1";
 pub const CREATION_ATTEMPT_KEYS_CAPABILITY: &str = "creation-attempt-keys-v1";
 pub const CREATION_SELECTOR_FALLBACKS_CAPABILITY: &str = "creation-selector-fallbacks-v1";
@@ -2325,6 +2330,11 @@ enum Command {
         cols: Option<u16>,
         #[serde(default)]
         rows: Option<u16>,
+        /// Bytes mode: the replay keeps at most this many rows of history
+        /// above the active area (`attach-replay-history-rows-v1`); omitted,
+        /// the whole history.
+        #[serde(default)]
+        replay_history_rows: Option<u32>,
         #[serde(flatten)]
         snapshot: terminal_snapshot::SnapshotAttachParams,
     },

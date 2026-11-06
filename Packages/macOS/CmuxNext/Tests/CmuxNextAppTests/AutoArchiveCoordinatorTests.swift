@@ -188,3 +188,46 @@ import Testing
         try #require(condition())
     }
 }
+
+/// Archive Other Workspaces, Archive Workspaces Above and Below (user, 2026-11-05): the rows a person
+/// names archive as one undo step, pinned and already archived rows stay, and the toast's Undo brings
+/// the whole batch back.
+@MainActor @Suite struct BulkArchiveByHandTests {
+    let host = AutoArchiveCoordinatorTests.Host()
+    let document = AutoArchiveCoordinatorTests.Document(workspaces: ["a", "b", "c", "d"])
+    let coordinator: AutoArchiveCoordinator
+
+    init() {
+        let defaults = UserDefaults(suiteName: "BulkArchiveByHandTests.\(UUID().uuidString)") ?? UserDefaults()
+        let document = document
+        coordinator = AutoArchiveCoordinator(host: host, document: { document }, ledgerStore: AutoArchiveLedgerStore(defaults: defaults),
+                                             now: { AutoArchiveCoordinatorTests.start })
+    }
+
+    func archived() -> Set<String> { Set(document.records.items.values.filter(\.archived).map(\.id)) }
+
+    @Test func theNamedRowsArchiveInOneStepAndOneUndoBringsThemAllBack() throws {
+        #expect(try coordinator.archive(workspaces: ["b", "c", "d"]) == 3)
+        #expect(archived() == ["itm_b", "itm_c", "itm_d"])
+        #expect(document.sent.count == 1, "one change, one undo step")
+        let toast = try #require(host.toasts.first)
+        #expect(toast.0 == "Archived 3 workspaces", "a hand archive is not called idle")
+        toast.1()
+        #expect(archived().isEmpty, "Undo restores the whole batch")
+    }
+
+    @Test func pinnedAndArchivedRowsStay() throws {
+        document.records.items["itm_b"]?.pinnedInGroup = true
+        document.records.items["itm_c"]?.archived = true
+        #expect(coordinator.archivableItems(workspaces: ["a", "b", "c", "d"]) == ["itm_a", "itm_d"])
+        #expect(try coordinator.archive(workspaces: ["a", "b", "c", "d"]) == 2)
+        #expect(document.sent.first?.items == ["itm_a", "itm_d"])
+        #expect(host.toasts.first?.0 == "Archived 2 workspaces")
+    }
+
+    @Test func nothingToArchiveSendsNothing() throws {
+        document.records.items["itm_a"]?.pinnedInGroup = true
+        #expect(try coordinator.archive(workspaces: ["a", "unplaced-is-skipped"]) == 0)
+        #expect(document.sent.isEmpty && host.toasts.isEmpty)
+    }
+}

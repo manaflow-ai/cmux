@@ -124,6 +124,21 @@ import PackageDescription
 // empty transaction on the GPU completion thread), and one shared drop rule
 // with its test (#77).
 //
+// Since 12ec155e1..383b27d73 (ghostty-next main after PR #74, which merged
+// both the release line up to 12ec155e1 and its sync-line ports #76, #78,
+// #80; same source tree as 706c6963a): the fork takes upstream Ghostty main c7f68a7f4 (2026-11-03,
+// after v1.4.0) and needs Zig 0.17.0. Upstream's main-thread CVDisplayLink
+// start and stop (ffaaf5d7a) ends the freeze where ghostty_surface_free joined
+// a renderer stuck in CVDisplayLinkStop (cmux #35300). Upstream also declares
+// pointer nullability in ghostty.h (0e067ded7, assume_nonnull); the fork's
+// declarations are annotated to match, and the Swift callers follow it.
+//
+// Since 383b27d73..850bb9849 (fork PR #84, the port of #83 to main): a reflow
+// preview frame whose only change is the grid (each frame of a key resize or a
+// divider drag) re-wraps a kept copy of the terminal with no terminal lock
+// held; the live terminal is copied under the lock only when it changed. No C
+// API change (cmux-ad m18, T-REWRAP).
+//
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
 // a7c40619a or 3e9dfca98 (apple-v6 without the lib prefix on the macOS
@@ -147,8 +162,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-12ec155e1e67f8f33a1cee5fd2e129f59277465c-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "5defd8f8b83a4fc8a7f74d805be380d5c566702cf35a19c2b92c0adda1730aa7"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-850bb98497044f6632310c303a68974b6289af4b-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "f8b0c65707292cce8fa34fa195b529206a45b6f2b53b187c5b401339e233006f"
         ),
     ]
 )

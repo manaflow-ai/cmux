@@ -234,7 +234,8 @@ extension AgentPaneRequest {
                 self = .openTab(AgentPaneOpenTab(kind: kind, text: String(text.prefix(Self.maximumOpenTabText)), cwd: kind == .terminal ? cwd : nil,
                                                  search: kind == .browser && params?["search"] as? Bool == true,
                                                  run: kind != .terminal || params?["run"] as? Bool != false,
-                                                 keep: params?["keep"] as? Bool == true))
+                                                 keep: params?["keep"] as? Bool == true,
+                                                 profile: kind == .browser ? AgentPaneOpenTabProfile(params: params) : nil))
             } else {
                 self = .unsupported(method)
             }
@@ -495,17 +496,19 @@ extension AgentPaneRequest {
         case "chat.subagentPane":
             if let id = params?["subagent"] as? String, !id.isEmpty, id.count <= 256 {
                 // `title`: the subagent's own name, which its pane's tab shows (SubagentTabTitles).
-                self = .subagentPane(id, focus: params?["focus"] as? Bool == true, title: params?["title"] as? String)
+                self = .subagentPane(id, focus: params?["focus"] as? Bool == true, title: params?["title"] as? String, tone: params?["tone"] as? Int)
             } else { self = .unsupported(method) }
         case "chat.subagentShown":
             let id = params?["subagent"] as? String
             if let id, id.isEmpty || id.count > 256 { self = .unsupported(method) } else {
-                self = .subagentShown(id, title: id == nil ? nil : params?["title"] as? String)
+                self = .subagentShown(id, title: id == nil ? nil : params?["title"] as? String, tone: id == nil ? nil : params?["tone"] as? Int)
             }
         case "chat.processTerminal":
             if let id = params?["toolCallId"] as? String, AgentPaneProcessViewer.isToken(id) { self = .processTerminal(toolCall: id) } else { self = .unsupported(method) }
         case "chat.newHere":
             if let cwd = (params?["cwd"] as? String).flatMap(Self.headerFolder) { self = .newChatHere(cwd) } else { self = .unsupported(method) }
+        case AgentPaneTryAnotherApproach.method:
+            self = AgentPaneTryAnotherApproach(params: params).map(AgentPaneRequest.tryAnotherApproach) ?? .unsupported(method)
         case "chat.openTab":
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .chatTab(id, AgentForkDestination(placement: params?["placement"] as? String)) } else { self = .unsupported(method) }
         case "chat.asks.open":

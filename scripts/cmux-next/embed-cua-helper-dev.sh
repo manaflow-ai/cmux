@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Xcode "Embed Computer Use helper (dev)" phase of the cmux-next target. DEV
-# builds only: copies the pinned, Apple Development signed
+# builds only: copies the pinned, team-signed (the pin's "signing" field)
 # "cmux Computer Use (dev).app" (cua-helper-dev.pin.json) to
 #   Contents/Library/cmux Computer Use (dev).app
 # where ComputerUseHelperV2 starts it for computerUse.driver = "upstream".

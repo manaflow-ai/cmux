@@ -4201,127 +4201,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The cmux-tui there speaks link protocol %1$d; this app needs %2$d. Install cmux-tui to update it."
+            "value": "The cmux-tui there is a different version than this app uses (%1$d, not %2$d). Install cmux-tui to update it."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يستخدم cmux-tui هناك بروتوكول الربط %1$d؛ يحتاج هذا التطبيق إلى %2$d. ثبّت cmux-tui لتحديثه."
+            "value": "إصدار cmux-tui هناك مختلف عن الإصدار الذي يستخدمه هذا التطبيق (%1$d، وليس %2$d). ثبّت cmux-tui لتحديثه."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui tamo koristi protokol veze %1$d; ova aplikacija treba %2$d. Instalirajte cmux-tui da ga ažurirate."
+            "value": "cmux-tui tamo je drugačije verzije od one koju ova aplikacija koristi (%1$d, a ne %2$d). Instalirajte cmux-tui da ga ažurirate."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui der bruger linkprotokol %1$d; denne app kræver %2$d. Installér cmux-tui for at opdatere den."
+            "value": "cmux-tui derovre er en anden version end den, appen bruger (%1$d, ikke %2$d). Installer cmux-tui for at opdatere den."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Das cmux-tui dort spricht Link-Protokoll %1$d; diese App braucht %2$d. Installiere cmux-tui, um es zu aktualisieren."
+            "value": "Das cmux-tui dort ist eine andere Version, als diese App nutzt (%1$d statt %2$d). Installiere cmux-tui, um es zu aktualisieren."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "El cmux-tui de allí usa el protocolo de enlace %1$d; esta app necesita el %2$d. Instala cmux-tui para actualizarlo."
+            "value": "El cmux-tui de allí es una versión distinta de la que usa esta app (%1$d, no %2$d). Instala cmux-tui para actualizarlo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le cmux-tui présent parle le protocole de liaison %1$d ; cette app a besoin du %2$d. Installez cmux-tui pour le mettre à jour."
+            "value": "Le cmux-tui de cette machine n’est pas la version qu’utilise cette app (%1$d au lieu de %2$d). Installez cmux-tui pour le mettre à jour."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Il cmux-tui lì usa il protocollo di collegamento %1$d; questa app richiede il %2$d. Installa cmux-tui per aggiornarlo."
+            "value": "Il cmux-tui lì è una versione diversa da quella usata da questa app (%1$d, non %2$d). Installa cmux-tui per aggiornarlo."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "そこの cmux-tui はリンクプロトコル %1$d を使っています。このアプリには %2$d が必要です。更新するには cmux-tui をインストールしてください。"
+            "value": "そこの cmux-tui はこのアプリが使うバージョンと異なります（%1$d、必要なのは %2$d）。cmux-tui をインストールして更新してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui នៅទីនោះប្រើពិធីការតភ្ជាប់ %1$d ប៉ុន្តែកម្មវិធីនេះត្រូវការ %2$d។ ដំឡើង cmux-tui ដើម្បីធ្វើបច្ចុប្បន្នភាព។"
+            "value": "cmux-tui នៅទីនោះជាកំណែខុសពីកំណែដែលកម្មវិធីនេះប្រើ (%1$d មិនមែន %2$d)។ ដំឡើង cmux-tui ដើម្បីអាប់ដេតវា។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "그곳의 cmux-tui는 링크 프로토콜 %1$d을(를) 사용합니다. 이 앱은 %2$d이(가) 필요합니다. 업데이트하려면 cmux-tui를 설치하세요."
+            "value": "그곳의 cmux-tui는 이 앱이 쓰는 버전과 다릅니다(%1$d, 필요한 버전 %2$d). cmux-tui를 설치해 업데이트하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui der bruker lenkeprotokoll %1$d; denne appen trenger %2$d. Installer cmux-tui for å oppdatere den."
+            "value": "cmux-tui der er en annen versjon enn den appen bruker (%1$d, ikke %2$d). Installer cmux-tui for å oppdatere den."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tamtejszy cmux-tui używa protokołu łącza %1$d; ta aplikacja wymaga %2$d. Zainstaluj cmux-tui, aby go zaktualizować."
+            "value": "cmux-tui tam ma inną wersję niż ta, której używa aplikacja (%1$d zamiast %2$d). Zainstaluj cmux-tui, aby go zaktualizować."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O cmux-tui lá usa o protocolo de link %1$d; este app precisa do %2$d. Instale o cmux-tui para atualizá-lo."
+            "value": "O cmux-tui lá é uma versão diferente da que este app usa (%1$d, não %2$d). Instale o cmux-tui para atualizá-lo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui там использует протокол связи %1$d; этому приложению нужен %2$d. Установите cmux-tui, чтобы обновить его."
+            "value": "cmux-tui там другой версии, чем использует это приложение (%1$d вместо %2$d). Установите cmux-tui, чтобы обновить его."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui ที่นั่นใช้โปรโตคอลลิงก์ %1$d แต่แอปนี้ต้องการ %2$d ติดตั้ง cmux-tui เพื่ออัปเดต"
+            "value": "cmux-tui ที่นั่นเป็นเวอร์ชันต่างจากที่แอปนี้ใช้ (%1$d ไม่ใช่ %2$d) ติดตั้ง cmux-tui เพื่ออัปเดต"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Oradaki cmux-tui %1$d bağlantı protokolünü kullanıyor; bu uygulama %2$d gerektiriyor. Güncellemek için cmux-tui kurun."
+            "value": "Oradaki cmux-tui, bu uygulamanın kullandığından farklı bir sürüm (%2$d değil, %1$d). Güncellemek için cmux-tui'yi yükleyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui там використовує протокол зв’язку %1$d; цьому застосунку потрібен %2$d. Установіть cmux-tui, щоб оновити його."
+            "value": "cmux-tui там іншої версії, ніж використовує цей застосунок (%1$d замість %2$d). Установіть cmux-tui, щоб оновити його."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui ở đó dùng giao thức liên kết %1$d; ứng dụng này cần %2$d. Cài cmux-tui để cập nhật."
+            "value": "cmux-tui ở đó khác phiên bản ứng dụng này dùng (%1$d, không phải %2$d). Hãy cài cmux-tui để cập nhật."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "那里的 cmux-tui 使用链路协议 %1$d；此应用需要 %2$d。请安装 cmux-tui 进行更新。"
+            "value": "那里的 cmux-tui 与此应用使用的版本不同（%1$d，而非 %2$d）。请安装 cmux-tui 以更新。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "那裡的 cmux-tui 使用連結協定 %1$d；此 App 需要 %2$d。請安裝 cmux-tui 進行更新。"
+            "value": "那裡的 cmux-tui 與此 App 使用的版本不同（%1$d，而非 %2$d）。請安裝 cmux-tui 以更新。"
           }
         }
       }
@@ -9310,127 +9310,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui on %@ is too old for browser tabs. Update it, then try again."
+            "value": "cmux on %@ is too old for browser tabs. Update it, then try again."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "إصدار cmux-tui على %@ قديم جدًا لعلامات تبويب المتصفح. حدّثه ثم حاول مرة أخرى."
+            "value": "إصدار cmux على %@ قديم جدًا لعلامات تبويب المتصفح. حدّثه، ثم أعد المحاولة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui na %@ je prestar za kartice preglednika. Ažurirajte ga, pa pokušajte ponovo."
+            "value": "cmux na %@ je prestar za kartice preglednika. Ažurirajte ga, pa pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui på %@ er for gammel til browserfaner. Opdater den, og prøv igen."
+            "value": "cmux på %@ er for gammel til browserfaner. Opdater den, og prøv igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui auf %@ ist zu alt für Browser-Tabs. Aktualisiere es und versuche es erneut."
+            "value": "cmux auf %@ ist zu alt für Browser-Tabs. Aktualisiere es und versuche es erneut."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui en %@ es demasiado antiguo para las pestañas del navegador. Actualízalo y vuelve a intentarlo."
+            "value": "cmux en %@ es demasiado antiguo para pestañas del navegador. Actualízalo y vuelve a intentarlo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui sur %@ est trop ancien pour les onglets de navigateur. Mettez-le à jour, puis réessayez."
+            "value": "cmux sur %@ est trop ancien pour les onglets de navigateur. Mettez-le à jour, puis réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui su %@ è troppo vecchio per le schede del browser. Aggiornalo, poi riprova."
+            "value": "cmux su %@ è troppo vecchio per le schede del browser. Aggiornalo, poi riprova."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ の cmux-tui は古いため、ブラウザタブを使えません。更新してから、もう一度お試しください。"
+            "value": "%@ の cmux はブラウザタブには古すぎます。アップデートしてから再試行してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui នៅលើ %@ ចាស់ពេកសម្រាប់ផ្ទាំងកម្មវិធីរុករក។ សូមធ្វើបច្ចុប្បន្នភាព រួចព្យាយាមម្តងទៀត។"
+            "value": "cmux នៅលើ %@ ចាស់ពេកសម្រាប់ផ្ទាំងកម្មវិធីរុករក។ អាប់ដេតវា រួចព្យាយាមម្តងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@의 cmux-tui가 너무 오래되어 브라우저 탭을 사용할 수 없습니다. 업데이트한 후 다시 시도하세요."
+            "value": "%@의 cmux는 브라우저 탭을 쓰기에 너무 오래되었습니다. 업데이트한 다음 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui på %@ er for gammel for nettleserfaner. Oppdater den, og prøv igjen."
+            "value": "cmux på %@ er for gammel for nettleserfaner. Oppdater den, og prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui na %@ jest za stary na karty przeglądarki. Zaktualizuj go i spróbuj ponownie."
+            "value": "cmux na %@ jest za stary na karty przeglądarki. Zaktualizuj go, a potem spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O cmux-tui em %@ é antigo demais para abas do navegador. Atualize-o e tente novamente."
+            "value": "O cmux em %@ é antigo demais para abas do navegador. Atualize-o e tente de novo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui на %@ слишком старый для вкладок браузера. Обновите его и повторите попытку."
+            "value": "cmux на %@ слишком старый для вкладок браузера. Обновите его и повторите попытку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui บน %@ เก่าเกินไปสำหรับแท็บเบราว์เซอร์ อัปเดตแล้วลองอีกครั้ง"
+            "value": "cmux บน %@ เก่าเกินไปสำหรับแท็บเบราว์เซอร์ อัปเดตแล้วลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ üzerindeki cmux-tui, tarayıcı sekmeleri için çok eski. Güncelleyip yeniden deneyin."
+            "value": "%@ üzerindeki cmux tarayıcı sekmeleri için çok eski. Güncelleyin, sonra yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui на %@ застарий для вкладок браузера. Оновіть його та спробуйте ще раз."
+            "value": "cmux на %@ застарий для вкладок браузера. Оновіть його і спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui trên %@ quá cũ cho các thẻ trình duyệt. Hãy cập nhật rồi thử lại."
+            "value": "cmux trên %@ quá cũ cho thẻ trình duyệt. Hãy cập nhật rồi thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ 上的 cmux-tui 版本过旧，无法使用浏览器标签页。请更新后重试。"
+            "value": "%@ 上的 cmux 太旧，无法使用浏览器标签页。请更新后重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ 上的 cmux-tui 版本過舊，無法使用瀏覽器分頁。請更新後再試一次。"
+            "value": "%@ 上的 cmux 太舊，無法使用瀏覽器分頁。請更新後再試。"
           }
         }
       }

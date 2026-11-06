@@ -49,7 +49,10 @@ struct Caller {
 
 fn caller(mux: &Mux, client: u64) -> Result<Caller, RemoteRefused> {
     let state = mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    let record = state.clients.get(&client).ok_or_else(|| forbidden("needs a registered local connection"))?;
+    let record = state
+        .clients
+        .get(&client)
+        .ok_or_else(|| forbidden("needs a registered local connection"))?;
     if !matches!(record.transport, ClientTransport::Unix) {
         return Err(forbidden("needs a local Unix socket connection"));
     }
@@ -106,18 +109,27 @@ pub(super) fn call(mux: &Mux, client: u64, method: &str, params: Value) -> anyho
     match method {
         "status" | "refresh" | "request" | "open_settings" | "restart" | "screen.stop_session" => {}
         "screen.share" => {
-            let on = params.get("on").and_then(Value::as_bool).ok_or_else(|| {
-                RemoteRefused { code: "bad_request", message: "screen.share needs on: true or false".into() }
+            let on = params.get("on").and_then(Value::as_bool).ok_or_else(|| RemoteRefused {
+                code: "bad_request",
+                message: "screen.share needs on: true or false".into(),
             })?;
             if on && !caller.verified_app {
-                return Err(forbidden("Share This Mac on needs the cmux app (palette or Settings)").into());
+                return Err(forbidden(
+                    "Share This Mac on needs the cmux app (palette or Settings)",
+                )
+                .into());
             }
         }
         "screen.access" => {
             let device = params.get("device").and_then(Value::as_str).unwrap_or_default();
-            let wanted = params.get("scope").and_then(Value::as_str).and_then(rank).ok_or_else(|| {
-                RemoteRefused { code: "bad_request", message: "screen.access needs device and scope (none, ask, view, full)".into() }
-            })?;
+            let wanted =
+                params.get("scope").and_then(Value::as_str).and_then(rank).ok_or_else(|| {
+                    RemoteRefused {
+                        code: "bad_request",
+                        message: "screen.access needs device and scope (none, ask, view, full)"
+                            .into(),
+                    }
+                })?;
             if !caller.verified_app {
                 // The worker and the hub refuse a raise too; this is the daemon's own first check.
                 let current = host
@@ -128,12 +140,19 @@ pub(super) fn call(mux: &Mux, client: u64, method: &str, params: Value) -> anyho
                     .and_then(|entry| entry["access"].as_str())
                     .and_then(rank);
                 if current.is_none_or(|current| wanted > current) {
-                    return Err(forbidden("raising a device's access needs the cmux app (palette or Settings)").into());
+                    return Err(forbidden(
+                        "raising a device's access needs the cmux app (palette or Settings)",
+                    )
+                    .into());
                 }
             }
         }
         _ => {
-            return Err(RemoteRefused { code: "bad_request", message: format!("unknown cmux Remote method {method}") }.into());
+            return Err(RemoteRefused {
+                code: "bad_request",
+                message: format!("unknown cmux Remote method {method}"),
+            }
+            .into());
         }
     }
     let mut answer = host.call(method, params).map_err(unavailable)?;
@@ -165,7 +184,8 @@ pub(super) fn app(mux: &Mux, client: u64) -> anyhow::Result<Value> {
 
 #[cfg(target_os = "macos")]
 fn app_stamp(pid: u32) -> Option<Value> {
-    crate::remote_host::process_stamp(pid).map(|(seconds, micros)| json!({"pid": pid, "start_sec": seconds, "start_usec": micros}))
+    crate::remote_host::process_stamp(pid)
+        .map(|(seconds, micros)| json!({"pid": pid, "start_sec": seconds, "start_usec": micros}))
 }
 
 #[cfg(not(target_os = "macos"))]
