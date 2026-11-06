@@ -657,7 +657,8 @@ function settleNextSteps(out: AcpmuxRow[], cards: NextStepAt[], from: number): n
   };
   // An answer clicked on a card (waitingAskStore.ts `claimAnswer`) is that card's, wherever it came:
   // with several questions waiting, the person's "Yes" on an older card is not the newest's. The
-  // first prompt of the claimed words sent since the click is it, by the drawn row's index.
+  // first prompt of the claimed words past the click's boundary is it: the claim's `seen` prompts of
+  // those words that already followed the card are not, whatever their time.
   const claimed = new Map<number, number>();
   const own = new Map<number, number>();
   for (let index = from; index < cards.length; index += 1) {
@@ -726,8 +727,8 @@ function settleNextSteps(out: AcpmuxRow[], cards: NextStepAt[], from: number): n
 /// with another turn after it, so it is no
 /// longer the chat's last word above the composer (PendingAsks.tsx pins these there). A prompt the
 /// person sent after a newer card answers that card, not an older one still waiting before it. Walks
-/// back from the newest card until one was taken over: every card before that one has the person's
-/// words after it too, so it costs the waiting cards, never the chat's length.
+/// back over every card: one taken over by a later card can sit after an older one still waiting,
+/// so it costs the chat's cards, never its rows.
 export function waitingAsks(view: Pick<TurnView, "nextSteps" | "rows">): readonly AcpmuxRow[] {
   const { nextSteps, rows } = view;
   const waiting: AcpmuxRow[] = [];
@@ -748,6 +749,18 @@ export function waitingAsks(view: Pick<TurnView, "nextSteps" | "rows">): readonl
   return waiting.length ? waiting.reverse() : NO_ASKS;
 }
 const NO_ASKS: readonly AcpmuxRow[] = [];
+
+/// How many of the person's prompts reading `text` already follow card `key` in `view`: the send
+/// boundary of an answer clicked on it now (waitingAskStore.ts `claimAnswer`). Undefined when the
+/// view does not draw the card. Walks the rows after the card, once per click.
+export function answersSent(view: Pick<TurnView, "nextSteps" | "rows">, key: string, text: string): number | undefined {
+  const card = view.nextSteps.find(({ row }) => askKey(row) === key);
+  if (!card) return undefined;
+  let seen = 0;
+  for (let later = card.at + 1; later < view.rows.length; later += 1)
+    if (personPrompt(view.rows[later]!) === text) seen += 1;
+  return seen;
+}
 
 /// A turn as drawn, kept while its rows (by identity) and what shapes them stay the same: a long
 /// chat's snapshot rebuilds only the turns that changed, and an unchanged turn's derived rows stay

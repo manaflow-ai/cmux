@@ -26,6 +26,7 @@ export const NextStepCard = memo(function NextStepCard({
   onAnswer,
   registerKey,
   answerKey,
+  answersSent,
 }: {
   ask: NextStepAsk;
   /// The answer a later prompt picked, or once `superseded`, what the person said after the card.
@@ -39,6 +40,9 @@ export const NextStepCard = memo(function NextStepCard({
   /// The card's key (waitingAskStore.ts `askKey`): its copies share one answer on its way, and the
   /// answer it sends settles this card, not a newer one with the same answers.
   answerKey?: string;
+  /// How many prompts with an answer's words already follow this card (turns.ts `answersSent`): the
+  /// click's send boundary, so an earlier prompt with the same words is never this card's answer.
+  answersSent?: (key: string, text: string) => number | undefined;
 }) {
   const t = useT();
   // The answer on its way and whether the last one failed: the card says so and keeps its
@@ -80,7 +84,7 @@ export const NextStepCard = memo(function NextStepCard({
   }
   const send = (label: string) => {
     if (!onAnswer || sending !== undefined) return;
-    if (answerKey) claimAnswer(answerKey, label);
+    if (answerKey) claimAnswer(answerKey, label, Date.now(), answersSent?.(answerKey, label));
     update({ sending: label });
     void onAnswer(label).then(
       () => update({}),

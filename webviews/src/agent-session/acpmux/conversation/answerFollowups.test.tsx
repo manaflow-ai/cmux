@@ -3,7 +3,9 @@
 // F1 an answer clicked on an older pinned card settles that card, not the newest with the same answers;
 // F2 the transcript's card and its pinned copy share the answer on its way, so two clicks send once;
 // F3 a send acpmux already took is sent, never "Not sent" (a retry would answer twice);
-// F4 pinned questions show the asks stack without taking the composer's empty ⌘↩.
+// F4 pinned questions show the asks stack without taking the composer's empty ⌘↩;
+// then, a card taken over by a later one never hides an older one still waiting, and a clicked answer
+// matches only a prompt sent past the click, not an earlier one with the same words.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -12,7 +14,7 @@ import type { AcpmuxRow } from "../model";
 import { NextStepCard } from "./NextStepCard";
 import { nextStepAsk } from "./nextStepAsk";
 import { answerThrough } from "./turnActions";
-import { NEXT_STEP, turnViewFrom, waitingAsks } from "./turns";
+import { answersSent, NEXT_STEP, turnViewFrom, waitingAsks } from "./turns";
 import { askKey, bottomAsks, claimAnswer, dismissAsk, dismissedAsks, resetAnswerClaims } from "./waitingAskStore";
 
 let dom: JSDOM | undefined;
@@ -174,4 +176,67 @@ test("F4: pinned questions show the stack but leave the composer's keys alone", 
   expect(bottomAsks(false, 2)).toEqual({ shows: true, holdsKeys: false });
   expect(bottomAsks(true, 0)).toEqual({ shows: true, holdsKeys: true });
   expect(bottomAsks(false, 0)).toEqual({ shows: false, holdsKeys: false });
+});
+
+test("an older question stays pinned behind a later one the person answered and a newer one took over", () => {
+  const rows = [
+    line("p1", "user", { text: "Why does it stop on lock?" }),
+    line("a1", "assistant", { text: "[taste] Should agents keep working while the Mac is locked?" }),
+    line("s1", "turnSummary", { status: "completed" }),
+    inbound("m1", "Gallery ready."),
+    line("a2", "assistant", { text: "[outward] Should I post the gallery?" }),
+    line("s2", "turnSummary", { status: "completed" }),
+    line("p2", "user", { text: "Yes" }),
+    line("a3", "assistant", { text: "[taste] Should I pin it above the composer?" }),
+    line("s3", "turnSummary", { status: "completed" }),
+    inbound("m2", "Checks green."),
+    line("a4", "assistant", { text: "Noted." }),
+    line("s4", "turnSummary", { status: "completed" }),
+  ];
+  const view = turnViewFrom(rows, new Set());
+  const cards = view.rows.filter((row) => row.kind === NEXT_STEP);
+  expect(cards[1]?.nextStep?.superseded).toBe(true);
+  expect(waitingAsks(view).map((card) => card.nextStep?.ask.question)).toEqual([
+    "Should agents keep working while the Mac is locked?",
+    "Should I pin it above the composer?",
+  ]);
+});
+
+test("a clicked answer settles its card only with a prompt sent past the click", () => {
+  const rows = [
+    line("p1", "user", { text: "Why does it stop on lock?" }),
+    line("a1", "assistant", { text: "[taste] Should agents keep working while the Mac is locked?" }),
+    line("s1", "turnSummary", { status: "completed" }),
+    inbound("m1", "Gallery ready."),
+    line("a2", "assistant", { text: "[outward] Should I post the gallery?" }),
+    line("s2", "turnSummary", { status: "completed" }),
+    // The person answers the newer card Yes...
+    line("p2", "user", { text: "Yes" }),
+    line("a3", "assistant", { text: "Posting it." }),
+    line("s3", "turnSummary", { status: "completed" }),
+  ];
+  const before = turnViewFrom(rows, new Set());
+  const [older] = waitingAsks(before);
+  expect(older?.nextStep?.ask.question).toBe("Should agents keep working while the Mac is locked?");
+  // ...then clicks Yes on the older one, seconds later: the earlier Yes is past its boundary.
+  const key = askKey(older!);
+  claimAnswer(key, "Yes", at, answersSent(before, key, "Yes"));
+  const waiting = turnViewFrom(rows, new Set(), {}, before);
+  let cards = waiting.rows.filter((row) => row.kind === NEXT_STEP);
+  expect(cards.map((row) => row.nextStep?.answer)).toEqual([undefined, "Yes"]);
+  // Its own Yes, once sent, settles it; the newer keeps the one before.
+  const answered = [...rows, line("p3", "user", { text: "Yes" })];
+  const view = turnViewFrom(answered, new Set(), {}, waiting);
+  cards = view.rows.filter((row) => row.kind === NEXT_STEP);
+  expect(cards.map((row) => row.nextStep?.answer)).toEqual(["Yes", "Yes"]);
+  expect(waitingAsks(view)).toEqual([]);
+  // A reload settles the same way.
+  const reloaded = turnViewFrom(
+    answered.map((row) => ({ ...row })),
+    new Set(),
+  );
+  expect(reloaded.rows.filter((row) => row.kind === NEXT_STEP).map((row) => row.nextStep?.answer)).toEqual([
+    "Yes",
+    "Yes",
+  ]);
 });

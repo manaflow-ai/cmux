@@ -67,14 +67,16 @@ export function shownAsks(asks: readonly AcpmuxRow[], dismissed: ReadonlySet<str
 /// Which card an answer was for. With several questions waiting, "Yes" clicked on an older card
 /// reads the same as "Yes" for the newest, so the click records its card here before it sends; the
 /// person's prompt with that text, sent from then on, settles that card and no other (turns.ts
-/// `settleNextSteps`). Kept in local storage so a reload settles the same card; bounded to the
-/// newest CLAIMS_CAP. A typed answer, or one from another device, has no claim and settles as before.
-export type AnswerClaim = { key: string; text: string; at: number };
+/// `settleNextSteps`). `seen` is the send boundary: how many prompts with that text already followed
+/// the card at the click (turns.ts `answersSent`), so a "Yes" sent earlier for a newer card is never
+/// this one's. Kept in local storage so a reload settles the same card; bounded to the newest
+/// CLAIMS_CAP. A typed answer, or one from another device, has no claim and settles as before.
+export type AnswerClaim = { key: string; text: string; at: number; seen?: number };
 
 const CLAIMS_KEY = "cmux.agentPane.answerClaims.v1";
 const CLAIMS_CAP = 100;
-/// How much earlier than the click a prompt's own time may read: its row is stamped by acpmux's
-/// clock, which the pane's can trail.
+/// A claim without its boundary (the card was not in the shown view): how much earlier than the click
+/// a prompt's own time may read, since its row is stamped by acpmux's clock, which the pane's can trail.
 export const CLAIM_SLACK_MS = 60_000;
 
 let claims: AnswerClaim[] | undefined;
@@ -86,7 +88,11 @@ function readClaims(): AnswerClaim[] {
     claims = Array.isArray(parsed)
       ? parsed.filter(
           (c): c is AnswerClaim =>
-            !!c && typeof c.key === "string" && typeof c.text === "string" && typeof c.at === "number",
+            !!c &&
+            typeof c.key === "string" &&
+            typeof c.text === "string" &&
+            typeof c.at === "number" &&
+            (c.seen === undefined || typeof c.seen === "number"),
         )
       : [];
   } catch {
@@ -102,9 +108,10 @@ export function answerClaim(key: string): AnswerClaim | undefined {
   return undefined;
 }
 
-/// Records that `text` was sent as the answer to card `key`, now.
-export function claimAnswer(key: string, text: string, at = Date.now()): void {
-  claims = [...readClaims().filter((c) => c.key !== key), { key, text, at }].slice(-CLAIMS_CAP);
+/// Records that `text` was sent as the answer to card `key`, now, after `seen` prompts with that text.
+export function claimAnswer(key: string, text: string, at = Date.now(), seen?: number): void {
+  const claim: AnswerClaim = { key, text, at, ...(seen !== undefined && { seen }) };
+  claims = [...readClaims().filter((c) => c.key !== key), claim].slice(-CLAIMS_CAP);
   try {
     globalThis.localStorage?.setItem(CLAIMS_KEY, JSON.stringify(claims));
   } catch {

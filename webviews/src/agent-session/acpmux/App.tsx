@@ -358,6 +358,7 @@ import {
   withEarlierPlan,
   samePlanEntries as sameEntries,
   waitingAsks,
+  answersSent,
 } from "./conversation/turns";
 import { PendingAsks } from "./conversation/PendingAsks";
 import { bottomAsks, dismissAsk, dismissedAsks, shownAsks } from "./conversation/waitingAskStore";
@@ -3332,6 +3333,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setNextStepFire({ fire });
     return () => setNextStepFire((now) => (now?.fire === fire ? undefined : now));
   }, []);
+  // A clicked answer's send boundary, read from the view drawn at the click (turns.ts `answersSent`).
+  const answersSentNow = useCallback(
+    (key: string, text: string) => (lastTurns.current ? answersSent(lastTurns.current.turns, key, text) : undefined),
+    [],
+  );
   // A background command's Bash call in the transcript (`showToolRow` below, which needs what the
   // Inspector draws): what its task row opens where its terminal cannot (a peer's or Cloud chat),
   // and a turn's waterfall bar opens (conversation/TurnWaterfall.tsx).
@@ -3444,6 +3450,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // A tagged ask's answer (NextStepCard.tsx) sends as Continue does, with the same reach.
       ...(restartChat && {
         nextStepKey,
+        answersSent: answersSentNow,
         // A pane that moved to another chat since sends nothing there, and says so on the card.
         answer: (
           (owner: string) => (text: string) =>
@@ -3600,6 +3607,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       snapshot.commands,
       queueRunsNext,
       nextStepKey,
+      answersSentNow,
     ],
   );
   // Each turn's checkpoint pair, named by the row that starts the turn: the checkpoints acpmux
@@ -9204,6 +9212,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           asks={pinnedAsks}
           onAnswer={turnActions.answer}
           registerKey={turnActions.nextStepKey}
+          answersSent={turnActions.answersSent}
           onDismiss={dismissPinnedAsk}
         />
       )}

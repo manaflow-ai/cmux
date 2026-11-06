@@ -87,6 +87,9 @@ export type TurnActions = {
   /// rules hold: never in the Quick Composer (whose ⌘↩ opens a window), shell mode or a running turn.
   /// Returns the release, which clears it only while it is still that card's.
   nextStepKey?: (fire: () => void) => () => void;
+  /// How many prompts with `text` already follow tagged-ask card `key` in the shown view (turns.ts
+  /// `answersSent`): an answer clicked on it now settles it only with a prompt past these.
+  answersSent?: (key: string, text: string) => number | undefined;
   /// Compact the chat (a context-full failure's Compact): sends the harness's own `/compact` through
   /// the composer's send path. Only where the agent lists `compact` among its slash commands.
   compact?: () => Promise<void>;
