@@ -60,8 +60,9 @@ public struct CloudConfiguration: Sendable, Equatable {
     public var callbackScheme: String
     public var bundleID: String?
     public var isDebugBuild: Bool
-    /// The bundled CLI's selection for this launch; nil only for ``unavailable``.
-    public var runtimeSelection: CloudRuntimeSelection?
+    /// The bundled CLI's selection for this launch; nil only for ``unavailable``. Read-only: the token store's names
+    /// are made from it, so another selection is another configuration (``selecting(_:)``).
+    public private(set) var runtimeSelection: CloudRuntimeSelection?
     public var storage: StorageNames
     /// The namespaced store a legacy default used before #36384, adopted once.
     public var namespacedLegacyStore: LegacyStore?
@@ -137,6 +138,14 @@ public struct CloudConfiguration: Sendable, Equatable {
             callbackScheme: made.callbackScheme, bundleID: made.bundleId, isDebugBuild: made.isDebugBuild,
             runtimeSelection: selection, storage: made.storage, namespacedLegacyStore: made.namespacedLegacyStore,
             adoptsNightlySession: made.adoptsNightlySession)
+    }
+
+    /// This build's configuration for another selection, everything Rust makes of it made again (the callback
+    /// scheme, which reads the bundle and the launch, is kept).
+    public func selecting(_ selection: CloudRuntimeSelection) -> CloudConfiguration {
+        var made = Self.from(selection: selection, bundleID: bundleID, bundled: [:], process: [:], isDebugBuild: isDebugBuild)
+        made.callbackScheme = callbackScheme
+        return made
     }
 
     /// The selected backend's API origin. Rust has already validated and
