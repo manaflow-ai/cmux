@@ -7,12 +7,12 @@ use cmux_remote::provider::ProviderError;
 use serde_json::{Value, json};
 
 use super::answer::{TicketCache, key_text, parse_answer, read_reply};
-use super::client::classify;
+use super::client::{classify, pinned_daemon, resume_outcome};
 use super::contract::{
     Backoff, Failure, INITIAL_BACKOFF, MAX_BACKOFF, Phase, Step, connected_line, failure_line,
     parse_deadline, route_line,
 };
-use super::{DialArgs, parse};
+use super::{DialArgs, parse, with_team_env};
 
 fn words(text: &str) -> Vec<String> {
     text.split_whitespace().map(str::to_owned).collect()
@@ -78,6 +78,7 @@ fn arguments_are_the_machine_and_one_deadline() {
             deadline: Duration::from_secs(180),
             api: None,
             token_file: None,
+            team: None,
         })
     );
     let full = parse(&words(&format!(
@@ -96,6 +97,10 @@ fn arguments_are_the_machine_and_one_deadline() {
         format!("dial --machine {VM} --deadline-ms 600001"),
         format!("dial --machine {VM} --deadline-ms"),
         format!("dial --machine {VM} --host x"),
+        format!("dial --machine {VM} --team team_0123"),
+        format!("dial --machine {VM} --team team_0123456789ABCDEF0123"),
+        format!("dial --machine {VM} --team user_0123456789abcdef0123"),
+        format!("dial --machine {VM} --team {TEAM} --team {TEAM}"),
     ] {
         assert_eq!(parse(&words(&bad)), None, "{bad}");
     }
@@ -161,6 +166,10 @@ fn failures_name_the_step_they_did_not_get_past() {
         ConnectionError::Crypto(CryptoError::HandshakeTimeout { timeout: Duration::from_secs(1) });
     let handshake = classify(&slow, Step::Handshake);
     assert_eq!((handshake.step, handshake.retryable), (Step::Handshake, true));
+    // A resume names the relay for a relay failure, not the handshake.
+    assert_eq!(resume_outcome(&dropped), Step::Relay);
+    assert_eq!(resume_outcome(&allocation), Step::Parked);
+    assert_eq!(resume_outcome(&slow), Step::Handshake);
     assert_eq!(Failure::deadline(Step::Parked).step.error_code(), "parked_timeout");
     assert!(!Failure::deadline(Step::Ticket).retryable);
 }
@@ -189,6 +198,16 @@ fn the_carrier_answer_is_checked_before_use() {
     no_extras["daemon_key"] = Value::Null;
     let answer = parse_answer(&no_extras).unwrap();
     assert!(answer.grant.is_none() && answer.daemon_key.is_none());
+    // The dial pins the key: none, or a malformed one, fails at the ticket.
+    let none = pinned_daemon(&answer).unwrap_err();
+    assert_eq!(none, Failure::fatal(Step::Ticket, "the machine has no daemon key"));
+    for malformed in [json!("short"), json!(key_text(&[1; 32]) + "A"), json!(7)] {
+        let mut bad = answer_value();
+        bad["daemon_key"] = malformed.clone();
+        let answer = parse_answer(&bad).unwrap();
+        assert_eq!(pinned_daemon(&answer).unwrap_err().step, Step::Ticket, "{malformed}");
+    }
+    assert_eq!(pinned_daemon(&parse_answer(&answer_value()).unwrap()), Ok([7; 32]));
 
     // A loopback relay+ws is a local relay; anything else is refused.
     let mut local = answer_value();
@@ -205,8 +224,6 @@ fn the_carrier_answer_is_checked_before_use() {
         ("ticket", json!("")),
         ("expires_at", json!("soon")),
         ("grant", json!(7)),
-        ("daemon_key", json!("short")),
-        ("daemon_key", json!(key_text(&[1; 32]) + "A")),
     ] {
         let mut bad = answer_value();
         bad[key] = value.clone();
@@ -240,4 +257,32 @@ fn a_ticket_is_reused_until_shortly_before_it_expires() {
     assert!(!TicketCache::usable(1_000, 970));
     assert!(!TicketCache::usable(1_000, 1_000));
     assert!(!TicketCache::usable(0, u64::MAX));
+}
+
+const TEAM: &str = "team_0123456789abcdef0123";
+
+#[test]
+fn the_team_comes_from_the_flag_else_the_environment_and_is_checked() {
+    let flagged = parse(&words(&format!("dial --machine {VM} --team {TEAM}"))).unwrap();
+    assert_eq!(flagged.team.as_deref(), Some(TEAM));
+    // The flag wins over the environment.
+    let other = "team_ffffffffffffffffffff".to_owned();
+    assert_eq!(with_team_env(flagged.clone(), Some(other.clone())), Some(flagged));
+    let bare = parse(&words(&format!("dial --machine {VM}"))).unwrap();
+    assert_eq!(with_team_env(bare.clone(), None).unwrap().team, None, "unset sends no team");
+    assert_eq!(with_team_env(bare.clone(), Some("  ".into())).unwrap().team, None);
+    assert_eq!(with_team_env(bare.clone(), Some(other.clone())).unwrap().team, Some(other));
+    assert_eq!(with_team_env(bare, Some("team_nothex".into())), None, "a bad value is refused");
+}
+
+#[test]
+fn the_connect_log_is_only_appended_and_stops_at_its_cap() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("carrier").join("connect.log");
+    super::route_log::append(&path, "a\n");
+    super::route_log::append(&path, "b\n");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "a\nb\n");
+    std::fs::write(&path, vec![b'x'; super::route_log::MAX_BYTES as usize - 1]).unwrap();
+    super::route_log::append(&path, "c\n");
+    assert_eq!(std::fs::metadata(&path).unwrap().len(), super::route_log::MAX_BYTES - 1);
 }

@@ -1,6 +1,7 @@
 //! The carrier answer from cmux-platform (`POST /v1/cloud/machines/{id}/carrier`,
 //! cmux-platform#924 and #926): `{ok, value: {relay, slot, ticket,
-//! expires_at, grant?, daemon_key?}}`, and where it comes from.
+//! expires_at, grant?, daemon_key?}}`, and where it comes from. A dial needs
+//! `daemon_key`; a ticket-only refresh does not read it.
 //!
 //! A body with `noise_key` (base64url of the device's 32-byte Noise key)
 //! asks for a grant naming that key as well as the Connect ticket; an empty
@@ -24,6 +25,8 @@ const MAX_SECRET_BYTES: usize = 4096;
 pub(super) const FETCH_TIMEOUT: Duration = Duration::from_secs(20);
 /// A cached ticket is reused until this long before it expires.
 const TICKET_MARGIN_SECS: u64 = 30;
+/// The team selector cmux-platform reads (`TeamSelect.ts` `TEAM_HEADER`).
+const TEAM_HEADER: &str = "x-cmux-team";
 
 /// One checked carrier answer.
 #[derive(Clone)]
@@ -35,7 +38,8 @@ pub(super) struct CarrierAnswer {
     /// Unix seconds.
     pub expires_at: u64,
     pub grant: Option<Zeroizing<String>>,
-    /// The machine daemon's Noise static key, pinned when present.
+    /// The machine daemon's Noise static key: 32 canonical base64url bytes,
+    /// else None (missing or malformed). A dial refuses to handshake without it.
     pub daemon_key: Option<[u8; 32]>,
 }
 
@@ -123,12 +127,7 @@ pub(super) fn parse_answer(value: &Value) -> Result<CarrierAnswer, String> {
         None | Some(Value::Null) => None,
         Some(_) => Some(secret(value, "grant")?),
     };
-    let daemon_key = match value.get("daemon_key") {
-        None | Some(Value::Null) => None,
-        Some(key) => Some(
-            key.as_str().and_then(key_bytes).ok_or("daemon_key is not base64url of 32 bytes")?,
-        ),
-    };
+    let daemon_key = value.get("daemon_key").and_then(Value::as_str).and_then(key_bytes);
     Ok(CarrierAnswer { relay, slot: slot.to_owned(), ticket, expires_at, grant, daemon_key })
 }
 
@@ -189,12 +188,18 @@ impl Credential {
 pub(super) struct HttpSource {
     api: String,
     credential: Credential,
+    /// Sent as `x-cmux-team` when set (a machine of a shared team).
+    team: Option<String>,
     client: reqwest::Client,
 }
 
 impl HttpSource {
     /// `api` is an origin checked by `secure_origin`.
-    pub(super) fn new(api: String, credential: Credential) -> Result<Self, String> {
+    pub(super) fn new(
+        api: String,
+        credential: Credential,
+        team: Option<String>,
+    ) -> Result<Self, String> {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
@@ -202,7 +207,7 @@ impl HttpSource {
             .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|_| "the HTTP client is unavailable".to_owned())?;
-        Ok(Self { api, credential, client })
+        Ok(Self { api, credential, team, client })
     }
 }
 
@@ -218,14 +223,16 @@ impl CarrierSource for HttpSource {
             Some(key) => json!({ "noise_key": key_text(key) }),
             None => json!({}),
         };
-        let response = self
+        let mut request = self
             .client
             .post(format!("{}/v1/cloud/machines/{machine}/carrier", self.api))
             .bearer_auth(credential.as_str())
-            .json(&body)
-            .send()
-            .await
-            .map_err(|_| SourceError::retry("cmux-platform did not answer"))?;
+            .json(&body);
+        if let Some(team) = &self.team {
+            request = request.header(TEAM_HEADER, team);
+        }
+        let response =
+            request.send().await.map_err(|_| SourceError::retry("cmux-platform did not answer"))?;
         let status = response.status().as_u16();
         let body: Value = response.json().await.unwrap_or(Value::Null);
         read_reply(status, &body)

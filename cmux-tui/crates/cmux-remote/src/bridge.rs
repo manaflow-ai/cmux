@@ -207,35 +207,45 @@ pub async fn serve_mux_bridge(
     connections.shutdown().await;
 }
 
-/// Carry one local `cmux.protocol/2` line stream (`reader`, `writer`) over a
-/// new mux control stream: the same bytes the Mac's bridge socket carries,
-/// for a caller that has the stream on its own pipes (`cmux carrier dial`).
-/// Returns when either side ends.
-pub async fn bridge_mux_control<R, W>(
-    multiplexer: &Arc<ServiceMultiplexer>,
-    reader: R,
-    writer: W,
-) -> Result<(), BridgeError>
-where
-    R: AsyncRead + Unpin,
-    W: AsyncWrite + Unpin,
-{
-    let stream = multiplexer.open(Service::MuxControl, BTreeMap::new()).await?;
-    let opened = match await_opened(&stream).await {
-        Ok(opened) => opened,
-        Err(error) => {
-            let _ = stream.close().await;
-            return Err(error);
+/// A mux control stream the daemon has opened: its `cmux.protocol/2` lines
+/// are ready to carry. A caller that reports success before it carries them
+/// (`cmux carrier dial`) opens it first, so a daemon that refuses the
+/// service is a failure, not a stream that ends at once.
+pub struct OpenedMuxControl {
+    stream: ServiceStream,
+    opened: OpenedStream,
+}
+
+impl OpenedMuxControl {
+    /// Opens a mux control stream and waits for the daemon's answer.
+    pub async fn open(multiplexer: &Arc<ServiceMultiplexer>) -> Result<Self, BridgeError> {
+        let stream = multiplexer.open(Service::MuxControl, BTreeMap::new()).await?;
+        match await_opened(&stream).await {
+            Ok(opened) => Ok(Self { stream, opened }),
+            Err(error) => {
+                let _ = stream.close().await;
+                Err(error)
+            }
         }
-    };
-    pump_mux_client_buffered(
-        Arc::new(stream),
-        reader,
-        writer,
-        opened.features.mux_input_v1,
-        opened.buffered,
-    )
-    .await
+    }
+
+    /// Carry one local `cmux.protocol/2` line stream (`reader`, `writer`):
+    /// the same bytes the Mac's bridge socket carries, for a caller that has
+    /// the stream on its own pipes. Returns when either side ends.
+    pub async fn bridge<R, W>(self, reader: R, writer: W) -> Result<(), BridgeError>
+    where
+        R: AsyncRead + Unpin,
+        W: AsyncWrite + Unpin,
+    {
+        pump_mux_client_buffered(
+            Arc::new(self.stream),
+            reader,
+            writer,
+            self.opened.features.mux_input_v1,
+            self.opened.buffered,
+        )
+        .await
+    }
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]

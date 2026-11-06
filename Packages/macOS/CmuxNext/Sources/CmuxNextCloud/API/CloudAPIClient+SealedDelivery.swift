@@ -42,6 +42,8 @@ extension CloudAPIClient {
         var request = fields
         request["api"] = baseURL.absoluteString
         request["credential"] = access
+        // The machine's team: without it the platform resolves the credential to the person's own team.
+        if let team = await teamID() { request["team"] = team }
         let input = try JSONSerialization.data(withJSONObject: request)
         let output: Data
         do {

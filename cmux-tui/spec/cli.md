@@ -18,7 +18,7 @@ cmux relay [ROUTING OPTIONS]
 cmux machine-agent [OPTIONS]
 cmux wg hub --config <wg-quick file | -> --socket <unix socket> [--client-token-stdin]
 cmux wg dial --hub <unix socket> <host> <port>
-cmux carrier dial --machine <vm_id> [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH]
+cmux carrier dial --machine <vm_id> [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…]
 cmux link dial --host <install or host id> [--service daemon|ssh|owner_session|desktop] [--socket <absolute path>]
 cmux link ensure --state-dir <dir> [--install ID] [--port PORT] [--session-socket PATH] [--server-config PATH] [--cloud-token-file PATH] [--handoff]
 cmux link stop --state-dir <dir>
@@ -56,7 +56,9 @@ relay slot (`relay+do`), admitted by a carrier grant for this device's Noise key
 with the daemon key from the machine record pinned. Its ticket and grant come from
 cmux-platform (`POST /v1/cloud/machines/{id}/carrier`) with the caller's credential
 (`--cloud-api` or `CMUX_CLOUD_API_URL`, `--cloud-token-file` or
-`CMUX_CLOUD_ACCESS_TOKEN`); a grant is single-use, so each connect attempt asks
+`CMUX_CLOUD_ACCESS_TOKEN`). `--team` or `CMUX_CLOUD_TEAM` (`team_` and 20 lowercase
+hex digits, else `bad_request`) is sent as `x-cmux-team`, so a machine of a shared team
+is found; unset, no header is sent. A grant is single-use, so each connect attempt asks
 again, and a resume of the session presents none. stderr gets one JSON line first, `{"ok":true,"path_state":"relay",
 "route":"carrier"}` or `{"ok":false,"error_code":...,"error_detail"?:...}`, where
 `error_code` names the step the dial did not get past: `ticket`, `relay`,
@@ -64,7 +66,9 @@ again, and a resume of the session presents none. stderr gets one JSON line firs
 daemon never registered) or `handshake` (`bad_request` for bad usage). On `ok`,
 stdin and stdout carry `cmux.protocol/2` lines on the session's mux control service.
 Each attempt then writes `cloud.connect route=carrier machine=<vm_id>
-phase=<connect|reconnect|resume> outcome=<ok|error_code> ms=<n>` on stderr. One
+phase=<connect|reconnect|resume> outcome=<ok|error_code> ms=<n>` on stderr and appends it to
+`<workspace state dir>/carrier/connect.log`, a file only the dial writes, never
+emptied or replaced (it stops growing at 4 MiB). One
 deadline (`--deadline-ms`, default 180000) covers every step, with full-jitter
 retries inside it. Exit codes: 0, 2 ticket, 3 relay, 4 parked_timeout, 5 handshake,
 64 usage. On a Mac the Noise key is a login Keychain item (accessible after first

@@ -32,11 +32,15 @@ pub(super) fn device_identity() -> Result<StaticIdentity, String> {
 #[cfg(target_os = "macos")]
 mod keychain {
     use core_foundation::base::TCFType;
+    use core_foundation::data::CFData;
+    use core_foundation::dictionary::CFDictionary;
     use core_foundation::string::{CFString, CFStringRef};
-    use security_framework::passwords::{generic_password, set_generic_password_options};
+    use security_framework::passwords::generic_password;
     use security_framework::passwords_options::PasswordOptions;
     use security_framework_sys::access_control::kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly;
-    use security_framework_sys::base::errSecItemNotFound;
+    use security_framework_sys::base::{errSecDuplicateItem, errSecItemNotFound, errSecSuccess};
+    use security_framework_sys::item::kSecValueData;
+    use security_framework_sys::keychain_item::SecItemAdd;
 
     #[link(name = "Security", kind = "framework")]
     unsafe extern "C" {
@@ -68,19 +72,30 @@ mod keychain {
             .map_err(|e| format!("no Noise key: {e}"))?;
         let key = *identity.private_key();
         let mut add = options(service, account);
-        // SAFETY: both are static CFStrings the Security framework exports.
-        let (attribute, value) = unsafe {
+        // SAFETY: all three are static CFStrings the Security framework exports.
+        let (accessible, after_first_unlock, value_data) = unsafe {
             (
                 CFString::wrap_under_get_rule(kSecAttrAccessible),
                 CFString::wrap_under_get_rule(kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly),
+                CFString::wrap_under_get_rule(kSecValueData),
             )
         };
         #[allow(deprecated)] // `query` is the only way to set kSecAttrAccessible.
-        add.query.push((attribute, value.into_CFType()));
-        // Two first dials at once may each store a key; the later one stays.
-        // Each dial's grant names the key it holds, so both still connect.
-        set_generic_password_options(&key, add)
-            .map_err(|e| format!("the Keychain refused the carrier key ({})", e.code()))?;
+        let query = &mut add.query;
+        query.push((accessible, after_first_unlock.into_CFType()));
+        query.push((value_data, CFData::from_buffer(&key).into_CFType()));
+        let attributes = CFDictionary::from_CFType_pairs(query);
+        // Add only, never update: when two first dials race, the one whose
+        // add loses reads the key the other stored, so the device keeps one key.
+        // SAFETY: `attributes` is a live dictionary; no result is asked for.
+        let status = unsafe { SecItemAdd(attributes.as_concrete_TypeRef(), std::ptr::null_mut()) };
+        if status == errSecDuplicateItem {
+            return read(service, account)?
+                .ok_or_else(|| "the Keychain carrier key vanished while it was stored".to_owned());
+        }
+        if status != errSecSuccess {
+            return Err(format!("the Keychain refused the carrier key ({status})"));
+        }
         Ok(key)
     }
 }

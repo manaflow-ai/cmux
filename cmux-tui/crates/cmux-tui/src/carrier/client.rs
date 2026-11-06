@@ -17,6 +17,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use cmux_remote::bridge::OpenedMuxControl;
 use cmux_remote::connection::{
     ClientConnection, ClientConnectionConfig, ConnectionError, ReconnectPolicy, ResumeHooks,
 };
@@ -45,6 +46,8 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
 pub(super) struct Dialed {
     pub connection: Arc<ClientConnection>,
     pub multiplexer: Arc<ServiceMultiplexer>,
+    /// The daemon stream, opened before the dial reports success.
+    pub mux: OpenedMuxControl,
     /// The daemon key the carrier answer named, which the handshake was
     /// pinned to; `None` when the platform named none.
     pub pinned_daemon_key: Option<[u8; 32]>,
@@ -85,6 +88,11 @@ pub(super) fn classify(error: &ConnectionError, step: Step) -> Failure {
         }
         _ => Failure::fatal(step.max(Step::Handshake), detail),
     }
+}
+
+/// The daemon key a dial pins: required, never learned from the handshake.
+pub(super) fn pinned_daemon(answer: &CarrierAnswer) -> Result<[u8; 32], Failure> {
+    answer.daemon_key.ok_or_else(|| Failure::fatal(Step::Ticket, "the machine has no daemon key"))
 }
 
 fn source_failure(error: SourceError) -> Failure {
@@ -195,6 +203,7 @@ async fn attempt(
     step.set(Step::Ticket);
     let key = plan.identity.public_key();
     let answer = plan.source.fetch(&plan.machine, Some(&key)).await.map_err(source_failure)?;
+    let daemon = pinned_daemon(&answer)?;
     let grant = answer
         .grant
         .clone()
@@ -226,7 +235,7 @@ async fn attempt(
     let remaining = plan.deadline.saturating_duration_since(Instant::now());
     let config = ClientConnectionConfig {
         identity: plan.identity.clone(),
-        expected_daemon: answer.daemon_key,
+        expected_daemon: Some(daemon),
         auth: ClientAuthMode::Grant { token: Zeroizing::new(grant.to_string()) },
         device_name: "cmux-carrier".into(),
         session,
@@ -246,7 +255,26 @@ async fn attempt(
     };
     connection.set_resume_hooks(resume.clone());
     let multiplexer = ServiceMultiplexer::new(connection.clone(), EndpointRole::Client);
-    Ok(Dialed { connection, multiplexer, pinned_daemon_key: answer.daemon_key })
+    // A grant that does not admit mux control is refused here, before the
+    // reply line says ok.
+    let mux = match OpenedMuxControl::open(&multiplexer).await {
+        Ok(mux) => mux,
+        Err(error) => {
+            multiplexer.shutdown().await;
+            let _ = connection.close().await;
+            return Err(Failure::fatal(
+                Step::Handshake,
+                format!("the daemon did not open its mux control stream: {error}"),
+            ));
+        }
+    };
+    Ok(Dialed { connection, multiplexer, mux, pinned_daemon_key: answer.daemon_key })
+}
+
+/// The step a failed resume names: a provider error is the relay's (or the
+/// park's), anything else the handshake's.
+pub(super) fn resume_outcome(error: &ConnectionError) -> Step {
+    classify(error, Step::Relay).step
 }
 
 /// Route lines for an established session's resumes.
@@ -257,7 +285,7 @@ pub(super) struct Resume {
 
 impl ResumeHooks for Resume {
     fn attempt_ended(&self, result: Result<(), &ConnectionError>, elapsed: Duration) {
-        let outcome = result.err().map(|error| classify(error, Step::Handshake).step);
+        let outcome = result.err().map(resume_outcome);
         (self.log)(route_line(&self.machine, Phase::Resume, outcome, elapsed));
     }
 }

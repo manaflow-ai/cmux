@@ -7,7 +7,7 @@
 //! argv or the environment:
 //!
 //! ```json
-//! {"api": "https://…", "credential": "…",
+//! {"api": "https://…", "credential": "…", "team": "team_…"?,
 //!  "op": "replace-machine-secrets", "values": [{"name": "NAME", "value": "…"}]}
 //! {"api": "https://…", "credential": "…",
 //!  "op": "install-harness-login", "harness": "claude", "login_base64": "…",
@@ -108,6 +108,9 @@ struct Request {
     api: String,
     #[serde(deserialize_with = "zeroizing")]
     credential: Zeroizing<String>,
+    /// The machine's team (`team_…`), sent as `x-cmux-team`; none: the person's own.
+    #[serde(default)]
+    team: Option<String>,
     #[serde(flatten)]
     op: Op,
 }
@@ -208,8 +211,15 @@ pub(super) fn run(args: &[String]) -> i32 {
     let source = match crate::cli::secure_cloud_origin(request.api.trim())
         .map_err(|why| Failure::fatal(contract::Step::Ticket, why))
         .and_then(|api| {
-            answer::HttpSource::new(api, answer::Credential::Value(request.credential.clone()))
-                .map_err(|why| Failure::fatal(contract::Step::Ticket, why))
+            if request.team.as_deref().is_some_and(|team| !contract::valid_team(team)) {
+                return Err(Failure::fatal(contract::Step::Ticket, "the team is not a team id"));
+            }
+            answer::HttpSource::new(
+                api,
+                answer::Credential::Value(request.credential.clone()),
+                request.team.clone(),
+            )
+            .map_err(|why| Failure::fatal(contract::Step::Ticket, why))
         }) {
         Ok(source) => Arc::new(source),
         Err(failure) => return dial_failed(&failure),
