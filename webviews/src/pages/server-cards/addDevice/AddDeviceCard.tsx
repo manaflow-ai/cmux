@@ -3,6 +3,7 @@
 // way, button and phase comes from the model (model.ts); the card only draws it and sends each
 // click or key as one action.
 import { useEffect, useRef, type CSSProperties } from "react";
+import { Spinner } from "../../../agent-session/acpmux/conversation/icons";
 import { DialogButton } from "../../../ui/DialogButton";
 import { Tabs, TabsList, TabsTrigger } from "../../../ui/Tabs";
 import { VirtualList } from "../../../ui/VirtualList";
@@ -488,7 +489,7 @@ function CheckRow({ check }: { check: JoinCheck }) {
 function Waiting({ text }: { text: string }) {
   return (
     <p className="server-card-waiting">
-      <span className="server-card-spinner" aria-hidden="true" />
+      <Spinner size={12} loading className="server-card-spinner" />
       <span>{text}</span>
     </p>
   );
