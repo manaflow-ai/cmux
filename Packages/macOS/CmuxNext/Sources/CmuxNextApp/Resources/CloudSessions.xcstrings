@@ -1081,6 +1081,60 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "Bạn đã chọn không đưa đăng nhập của mình cho %2$@ trên %1$@, nên lời nhắc chưa được gửi. Chạy `%3$@` và đăng nhập ở đó bằng Đăng nhập Claude, hoặc cho phép sao chép khi cmux hỏi."}}
       }
     },
+    "cloud.relayChat.loginUnverified": {
+      "comment": "Relay chat refusal: with no link to the machine, its ownership could not be checked, so no login was given. %1$@ machine, %2$@ agent, %3$@ the cmux command (keep in English).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "cmux couldn't check that %1$@ is yours without a link to it, so %2$@ there didn't get your login and the prompt wasn't sent. Run `%3$@`, which connects first."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "リンクがないため %1$@ があなたのものか確認できず、そこの %2$@ にログインを渡せなかったので、プロンプトは送信されませんでした。先に接続する `%3$@` を実行してください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Ohne Verbindung konnte cmux nicht prüfen, ob %1$@ dir gehört, daher hat %2$@ dort deine Anmeldung nicht erhalten und der Prompt wurde nicht gesendet. Führe `%3$@` aus, das zuerst verbindet."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Sans lien, cmux n'a pas pu vérifier que %1$@ vous appartient, donc %2$@ n'y a pas reçu votre connexion et le prompt n'a pas été envoyé. Exécutez `%3$@`, qui se connecte d'abord."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Sin un enlace, cmux no pudo comprobar que %1$@ es tuya, así que %2$@ no recibió tu inicio de sesión y el prompt no se envió. Ejecuta `%3$@`, que se conecta primero."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تعذّر على cmux التحقق من أن %1$@ لك دون رابط إليه، لذلك لم يتلقَّ %2$@ هناك تسجيل دخولك ولم تُرسل المطالبة. شغّل `%3$@` الذي يتصل أولًا."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "링크가 없어 cmux가 %1$@이(가) 내 것인지 확인하지 못해 그곳의 %2$@에 로그인을 주지 못했고, 프롬프트를 보내지 않았습니다. 먼저 연결하는 `%3$@`을(를) 실행하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "没有到 %1$@ 的连接，cmux 无法确认它属于你，所以那里的 %2$@ 没有拿到你的登录，提示也没有发送。运行会先连接的 `%3$@`。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "沒有到 %1$@ 的連線，cmux 無法確認它屬於你，所以那裡的 %2$@ 沒有拿到你的登入，提示也沒有送出。執行會先連線的 `%3$@`。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Bez veze cmux nije mogao provjeriti da je %1$@ tvoj, pa %2$@ tamo nije dobio tvoju prijavu i prompt nije poslan. Pokreni `%3$@`, koji se prvo poveže."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Uden forbindelse kunne cmux ikke tjekke, at %1$@ er din, så %2$@ der fik ikke dit login, og prompten blev ikke sendt. Kør `%3$@`, som forbinder først."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Senza un collegamento cmux non ha potuto verificare che %1$@ sia tua, quindi %2$@ non ha ricevuto il tuo accesso e il prompt non è stato inviato. Esegui `%3$@`, che si collega prima."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "គ្មានតំណទៅ %1$@ ទេ cmux មិនអាចពិនិត្យថាវាជារបស់អ្នក ដូច្នេះ %2$@ នៅទីនោះមិនបានទទួលការចូលរបស់អ្នក ហើយប្រអប់បញ្ចូលមិនត្រូវបានផ្ញើទេ។ ដំណើរការ `%3$@` ដែលភ្ជាប់មុន។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Uten tilkobling kunne ikke cmux sjekke at %1$@ er din, så %2$@ der fikk ikke påloggingen din, og ledeteksten ble ikke sendt. Kjør `%3$@`, som kobler til først."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Bez połączenia cmux nie mógł sprawdzić, że %1$@ jest twoja, więc %2$@ tam nie dostał twojego logowania i prompt nie został wysłany. Uruchom `%3$@`, które najpierw się łączy."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Sem um link, o cmux não pôde verificar que %1$@ é sua, então %2$@ lá não recebeu seu login e o prompt não foi enviado. Execute `%3$@`, que conecta primeiro."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Без связи cmux не смог проверить, что %1$@ ваша, поэтому %2$@ там не получил ваш вход и запрос не отправлен. Запустите `%3$@`, который сначала подключается."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "cmux ตรวจไม่ได้ว่า %1$@ เป็นของคุณเพราะไม่มีลิงก์ไปยังเครื่องนั้น %2$@ ที่นั่นจึงไม่ได้รับการลงชื่อเข้าใช้ของคุณ และไม่ได้ส่งพรอมต์ เรียกใช้ `%3$@` ซึ่งจะเชื่อมต่อก่อน"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Bağlantı olmadan cmux %1$@ makinesinin sizin olduğunu doğrulayamadı, bu yüzden oradaki %2$@ oturumunuzu almadı ve istem gönderilmedi. Önce bağlanan `%3$@` komutunu çalıştırın."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Без з'єднання cmux не зміг перевірити, що %1$@ ваша, тому %2$@ там не отримав ваш вхід і запит не надіслано. Запустіть `%3$@`, який спершу підключається."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Không có liên kết, cmux không thể kiểm tra %1$@ là của bạn, nên %2$@ ở đó không nhận được đăng nhập và lời nhắc chưa được gửi. Chạy `%3$@`, lệnh này kết nối trước."}}
+      }
+    },
+    "cloud.relayChat.loginSkipped": {
+      "comment": "Relay chat refusal: the login step skipped (this machine or build takes no login copy) and the machine has none. %1$@ machine, %2$@ agent, %3$@ the cmux command (keep in English; keep the Sign in to Claude button name as the app shows it).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "%2$@ on %1$@ didn't get your login (this machine or build doesn't take it), so the prompt wasn't sent. Run `%3$@` and use Sign in to Claude in its chat."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "%1$@ の %2$@ はあなたのログインを受け取らなかった（このマシンまたはビルドでは渡せません）ため、プロンプトは送信されませんでした。`%3$@` を実行し、そのチャットの「Claude にサインイン」を使ってください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "%2$@ auf %1$@ hat deine Anmeldung nicht erhalten (diese Maschine oder dieser Build nimmt sie nicht), daher wurde der Prompt nicht gesendet. Führe `%3$@` aus und nutze im Chat „Bei Claude anmelden“."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "%2$@ sur %1$@ n'a pas reçu votre connexion (cette machine ou cette version ne la prend pas), donc le prompt n'a pas été envoyé. Exécutez `%3$@` et utilisez Se connecter à Claude dans son chat."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "%2$@ en %1$@ no recibió tu inicio de sesión (esta máquina o compilación no lo acepta), así que el prompt no se envió. Ejecuta `%3$@` y usa Iniciar sesión en Claude en su chat."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "لم يتلقَّ %2$@ على %1$@ تسجيل دخولك (هذا الجهاز أو الإصدار لا يقبله)، لذلك لم تُرسل المطالبة. شغّل `%3$@` واستخدم تسجيل الدخول إلى Claude في محادثته."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "%1$@의 %2$@이(가) 내 로그인을 받지 않아(이 머신이나 빌드에서는 받지 않음) 프롬프트를 보내지 않았습니다. `%3$@`을(를) 실행하고 채팅의 Claude에 로그인을 사용하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "%1$@ 上的 %2$@ 没有拿到你的登录（这台机器或这个版本不接收），所以提示没有发送。运行 `%3$@`，并在其聊天中使用“登录 Claude”。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "%1$@ 上的 %2$@ 沒有拿到你的登入（這台機器或這個版本不接收），所以提示沒有送出。執行 `%3$@`，並在其聊天中使用「登入 Claude」。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "%2$@ na %1$@ nije dobio tvoju prijavu (ova mašina ili verzija je ne prima), pa prompt nije poslan. Pokreni `%3$@` i u njegovom chatu koristi Prijava na Claude."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "%2$@ på %1$@ fik ikke dit login (denne maskine eller version tager det ikke), så prompten blev ikke sendt. Kør `%3$@`, og brug Log ind på Claude i dens chat."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "%2$@ su %1$@ non ha ricevuto il tuo accesso (questa macchina o versione non lo accetta), quindi il prompt non è stato inviato. Esegui `%3$@` e usa Accedi a Claude nella sua chat."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "%2$@ នៅលើ %1$@ មិនបានទទួលការចូលរបស់អ្នកទេ (ម៉ាស៊ីន ឬកំណែនេះមិនទទួលវា) ដូច្នេះប្រអប់បញ្ចូលមិនត្រូវបានផ្ញើទេ។ ដំណើរការ `%3$@` ហើយប្រើ ចូល Claude នៅក្នុងការជជែករបស់វា។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "%2$@ på %1$@ fikk ikke påloggingen din (denne maskinen eller versjonen tar den ikke), så ledeteksten ble ikke sendt. Kjør `%3$@`, og bruk Logg på Claude i chatten."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "%2$@ na %1$@ nie dostał twojego logowania (ta maszyna lub wersja go nie przyjmuje), więc prompt nie został wysłany. Uruchom `%3$@` i użyj Zaloguj się do Claude w jego czacie."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "%2$@ em %1$@ não recebeu seu login (esta máquina ou versão não o aceita), então o prompt não foi enviado. Execute `%3$@` e use Entrar no Claude no chat dele."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "%2$@ на %1$@ не получил ваш вход (эта машина или сборка его не принимает), поэтому запрос не отправлен. Запустите `%3$@` и нажмите «Войти в Claude» в его чате."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "%2$@ บน %1$@ ไม่ได้รับการลงชื่อเข้าใช้ของคุณ (เครื่องหรือบิลด์นี้ไม่รับ) จึงไม่ได้ส่งพรอมต์ เรียกใช้ `%3$@` แล้วใช้ ลงชื่อเข้าใช้ Claude ในแชทของมัน"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "%1$@ üzerindeki %2$@ oturumunuzu almadı (bu makine veya sürüm bunu kabul etmiyor), bu yüzden istem gönderilmedi. `%3$@` komutunu çalıştırın ve sohbetindeki Claude'da Oturum Aç'ı kullanın."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "%2$@ на %1$@ не отримав ваш вхід (ця машина або збірка його не приймає), тому запит не надіслано. Запустіть `%3$@` і скористайтеся «Увійти в Claude» в його чаті."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "%2$@ trên %1$@ không nhận được đăng nhập của bạn (máy hoặc bản dựng này không nhận), nên lời nhắc chưa được gửi. Chạy `%3$@` và dùng Đăng nhập Claude trong cuộc trò chuyện của nó."}}
+      }
+    },
     "cloud.relayChat.replyTitle": {
       "comment": "Title of the sheet that shows a relay chat's reply to the person who ran it.",
       "extractionState": "manual",

@@ -971,7 +971,8 @@ fn typed_error(relayed: &Value) -> Value {
 }
 
 /// The app's `cloud relay-chat` refusals about the machine's harness login (refused, missing, declined, failed,
-/// pending): nothing was sent, and nothing else is.
+/// pending, account changed, skipped, unverified): nothing was sent, and nothing else is. Each answer carries the
+/// start-session command that recovers it.
 const RELAY_LOGIN_CODES: &str = "cloud.relay.login_";
 
 /// The app has no `cloud relay-chat` (an older app): the CLI's own usage error, or the app's unknown action.

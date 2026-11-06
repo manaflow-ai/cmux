@@ -262,7 +262,7 @@ struct CloudStartSession {
                 started = try await Self.starting(name: name, id: id, agent: agent, account: account, now: { services.cloud.account }, asked: request.asked(machine: name)) {
                     try await CloudWait.retriedOnce({ try await remote.startNow(cwd: request.cwd, harness: agent) { @MainActor [services] in
                         try Self.check(account, now: services.cloud.account, CloudStartSessionStrings.Asked(machine: name, agent: agent, command: command))
-                    } }, closed: { if case DaemonError.connectionClosed = $0 { true } else { false } }, relink: { await session.linkUp(within: Self.connectWait) && session.linkHeld() })
+                    } }, closed: CloudWait.linkDropped, relink: { await session.linkUp(within: Self.connectWait) && session.linkHeld() })
                 }
             case let refused as AgentTabRefusedHost: throw refused.refusal
             default: throw AgentRemoteStartRefusal.startUnsupported(machine: name)

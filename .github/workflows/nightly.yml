@@ -78,7 +78,7 @@ on:
         default: false
         type: boolean
       notary_test_import_part:
-        description: nightly-next only. cx-f58x notary bisect. One diagnostic notary submission of a build with exactly this one browser-import part compiled out (cookies = CMUX_NO_COOKIE_IMPORT, safe-storage = CMUX_NO_SAFE_STORAGE_READ, history = CMUX_NO_HISTORY_IMPORT, registry = empty browser-sources.json). Every other import part stays in. Nothing is published.
+        description: nightly-next only. cx-f58x notary bisect. One diagnostic notary submission of a build with exactly this one browser-import part compiled out (cookies = CMUX_NO_COOKIE_IMPORT, safe-storage = CMUX_NO_SAFE_STORAGE_READ, history = CMUX_NO_HISTORY_IMPORT, registry = empty browser-sources.json), or full = nothing compiled out (the import exactly as it would ship: is Apple's status 7000 hold still there?). Every other import part stays in. Nothing is published.
         required: false
         default: none
         type: choice
@@ -88,6 +88,7 @@ on:
           - safe-storage
           - history
           - registry
+          - full
       notary_probe_nightly_identity:
         description: nightly-next only. The production probe's run (one app notary submission, nothing published, text receipts only), signed as cmux NIGHTLY (com.cmuxterm.app.nightly, cmux.nightly.entitlements, NIGHTLY profile). The dogfood of shipping nightly-next as cmux NIGHTLY (a979).
         required: false
@@ -737,6 +738,8 @@ jobs:
               'safe-storage': '-DCMUX_NO_SAFE_STORAGE_READ',
               history: '-DCMUX_NO_HISTORY_IMPORT',
               registry: '',
+              // Nothing out: the import as it would ship (cx-f58x: does Apple still hold it?).
+              full: '',
             };
             if (importPart !== 'none' && !(importPart in partFlags)) {
               core.setFailed(`unknown notary_test_import_part ${importPart}`);
@@ -764,7 +767,7 @@ jobs:
             let swiftImportFlags = '';
             let emptyBrowserSources = false;
             if (notaryTest && importPart !== 'none') {
-              importVariant = `no-${importPart}`;
+              importVariant = importPart === 'full' ? 'full' : `no-${importPart}`;
               swiftImportFlags = partFlags[importPart] || '';
               emptyBrowserSources = importPart === 'registry';
             } else if (notaryTest && process.env.NOTARY_TEST_PASSWORDS === 'true') {

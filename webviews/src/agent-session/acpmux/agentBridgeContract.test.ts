@@ -160,6 +160,37 @@ function sentMethods(files: { path: string; text: string }[]): Sent[] {
       });
     });
   }
+  // A sender handed over as an object's property (`run({ send: postNative })`, `run({ callNative })`): the
+  // function's parameter at that index, destructured (`{ send }`, `{ send: post }`) or read (`opts.send(...)`),
+  // is a sender too. Keyed by function name, argument index and property name.
+  const passedProps = new Map<string, Map<number, Set<string>>>();
+  for (const { source } of sources) {
+    walk(source, (node) => {
+      if (!ts.isCallExpression(node)) return;
+      const callee = calleeName(node);
+      if (!callee) return;
+      node.arguments.forEach((arg, index) => {
+        if (!ts.isObjectLiteralExpression(arg)) return;
+        for (const property of arg.properties) {
+          const value = ts.isPropertyAssignment(property)
+            ? property.initializer
+            : ts.isShorthandPropertyAssignment(property)
+              ? property.name
+              : undefined;
+          const key =
+            property.name && (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name))
+              ? property.name.text
+              : undefined;
+          if (!key || !value || !ts.isIdentifier(value) || !senders.has(value.text)) continue;
+          const byIndex = passedProps.get(callee) ?? new Map<number, Set<string>>();
+          const keys = byIndex.get(index) ?? new Set<string>();
+          keys.add(key);
+          byIndex.set(index, keys);
+          passedProps.set(callee, byIndex);
+        }
+      });
+    });
+  }
   for (const { path, source } of sources) {
     walk(source, (node) => {
       let name: string | undefined;
@@ -178,17 +209,63 @@ function sentMethods(files: { path: string; text: string }[]): Sent[] {
       }
       if (!name || !fn) return;
       const callbacks = new Map<string, boolean>();
+      // `opts` -> the property names that hold a sender (`opts.send(...)`).
+      const objectParams = new Map<string, Set<string>>();
       fn.parameters.forEach((parameter, index) => {
+        const props = passedProps.get(name!)?.get(index);
+        if (ts.isObjectBindingPattern(parameter.name)) {
+          for (const element of parameter.name.elements) {
+            if (!ts.isIdentifier(element.name)) continue;
+            const key =
+              element.propertyName && ts.isIdentifier(element.propertyName)
+                ? element.propertyName.text
+                : element.name.text;
+            const initial = element.initializer;
+            if (initial && ts.isIdentifier(initial) && senders.has(initial.text))
+              callbacks.set(element.name.text, senders.get(initial.text)!);
+            else if (props?.has(key)) callbacks.set(element.name.text, true);
+          }
+          return;
+        }
         if (!ts.isIdentifier(parameter.name)) return;
         const initial = parameter.initializer;
         if (initial && ts.isIdentifier(initial) && senders.has(initial.text))
           callbacks.set(parameter.name.text, senders.get(initial.text)!);
         else if (passed.get(name!)?.has(index)) callbacks.set(parameter.name.text, true);
+        else if (props) objectParams.set(parameter.name.text, props);
       });
-      if (callbacks.size === 0) return;
+      if (callbacks.size === 0 && objectParams.size === 0) return;
       walk(fn, (inner) => {
+        // `const { send } = opts` destructures a sender out of an object parameter.
+        if (
+          ts.isVariableDeclaration(inner) &&
+          ts.isObjectBindingPattern(inner.name) &&
+          inner.initializer &&
+          ts.isIdentifier(inner.initializer) &&
+          objectParams.has(inner.initializer.text)
+        ) {
+          const props = objectParams.get(inner.initializer.text)!;
+          for (const element of inner.name.elements) {
+            if (!ts.isIdentifier(element.name)) continue;
+            const key =
+              element.propertyName && ts.isIdentifier(element.propertyName)
+                ? element.propertyName.text
+                : element.name.text;
+            if (props.has(key)) callbacks.set(element.name.text, true);
+          }
+        }
         if (!ts.isCallExpression(inner)) return;
-        const callee = calleeName(inner);
+        let callee = calleeName(inner);
+        const target = inner.expression;
+        if (
+          !callee &&
+          ts.isPropertyAccessExpression(target) &&
+          ts.isIdentifier(target.expression) &&
+          objectParams.get(target.expression.text)?.has(target.name.text)
+        ) {
+          callee = `${target.expression.text}.${target.name.text}`;
+          callbacks.set(callee, true);
+        }
         const arg = inner.arguments[0];
         if (!callee || !callbacks.has(callee) || !arg) return;
         if (ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg)) {
@@ -344,6 +421,27 @@ describe("agent bridge contract (schemas/agent-bridge/contract.json)", () => {
         function daemonRead(daemon: (method: string, params: object) => Promise<unknown>) {
           return daemon("_acpmux/info", {});
         }
+        function viaObject(opts: { send: (method: string, params: object) => Promise<unknown> }) {
+          return opts.send("run.objct", {});
+        }
+        viaObject({ send: postNative });
+        function viaDestructure({ post }: { post: (method: string, params: object) => Promise<unknown> }) {
+          return post("run.destructd", {});
+        }
+        viaDestructure({ post: callNative });
+        function viaRename({ send: s }: { send: (method: string, params: object) => Promise<unknown> }) {
+          return s("run.renamd", {});
+        }
+        viaRename({ send: postNative });
+        function viaBody(deps: { postNative: (method: string, params: object) => Promise<unknown> }) {
+          const { postNative: post } = deps;
+          return post("run.bdy", {});
+        }
+        viaBody({ postNative });
+        function daemonObject({ send }: { send: (method: string, params: object) => Promise<unknown> }) {
+          return send("_acpmux/info", {});
+        }
+        daemonObject({ send: daemonSend });
         const H = "cmuxNope";
         window.webkit?.messageHandlers?.[H]?.postMessage({});
       `,
@@ -354,6 +452,10 @@ describe("agent bridge contract (schemas/agent-bridge/contract.json)", () => {
       expect.stringContaining("link.inspect takes"),
       "webviews/src/agent-session/acpmux/fake.ts:11: the app has no method 'run.atach'",
       "webviews/src/agent-session/acpmux/fake.ts:14: the app has no method 'pane.setRemoteContrl'",
+      expect.stringContaining("the app has no method 'run.objct'"),
+      expect.stringContaining("the app has no method 'run.destructd'"),
+      expect.stringContaining("the app has no method 'run.renamd'"),
+      expect.stringContaining("the app has no method 'run.bdy'"),
     ]);
     expect([...handlerNames([file]).keys()]).toEqual(["cmuxNope"]);
   });
