@@ -191,16 +191,62 @@ function stepSlot(steps: NodeListOf<HTMLElement>): number {
   return slots[Math.floor(slots.length / 2)]!;
 }
 
+/// How long after an opened run's last deferred rows drew it still keeps what the reader sees (a
+/// thumbnail decoding late).
+const KEEP_MS = 1000; // motion-allow: a watch window after the last draw, not an animation
+
+/// What the reader sees first inside a run scrolled into: a drawn step (its top) or, past the drawn
+/// steps, the run's foot, each as its distance from the run's row's top. Measured from the row, a
+/// move of the whole row (rows above it) is the transcript's to keep (scrollAnchor.ts), not this.
+type ViewAnchor = { node: HTMLElement; foot: boolean; at: number };
+
+/// Puts back what the reader saw first (`before`) if a change above it in the run moved it, by
+/// moving the offset the same distance, then returns what is first in view now. Nothing while the
+/// run's top is in view: then every change in it is under what the reader sees first.
+function keepView(list: HTMLElement, before: ViewAnchor | undefined): ViewAnchor | undefined {
+  const scroller = list.closest<HTMLElement>(".acpmux-scroll");
+  const row = list.closest<HTMLElement>(".acpmux-row");
+  if (!scroller || !row) return undefined;
+  const edge = (anchor: ViewAnchor) => {
+    const box = anchor.node.getBoundingClientRect();
+    return (anchor.foot ? box.bottom : box.top) - row.getBoundingClientRect().top;
+  };
+  if (before?.node.isConnected) {
+    const moved = edge(before) - before.at;
+    if (Math.abs(moved) >= 0.5) scroller.scrollTop += moved;
+  }
+  const view = scroller.getBoundingClientRect().top;
+  if (list.getBoundingClientRect().top >= view) return undefined;
+  // The first drawn step whose foot is under the view's top: they are in order, so a binary search.
+  const steps = list.querySelectorAll<HTMLElement>(":scope > .cv-step");
+  let low = 0;
+  let high = steps.length;
+  while (low < high) {
+    const mid = (low + high) >> 1;
+    if (steps[mid]!.getBoundingClientRect().bottom > view) high = mid;
+    else low = mid + 1;
+  }
+  const first = steps[low];
+  const anchor: ViewAnchor | undefined = first
+    ? { node: first, foot: false, at: 0 }
+    : row.getBoundingClientRect().bottom > view
+      ? { node: row, foot: true, at: 0 }
+      : undefined;
+  if (anchor) anchor.at = edge(anchor);
+  return anchor;
+}
+
 /// An opened run's step rows. Opened by the reader's click, it draws only the rows the window can
-/// show (`firstStepCount`) in the click's frame, and a box under them for the rest (`stepSlot` each),
-/// set before the fold reads its height (a child's layout effect runs before its parent's), so the
-/// fold opens to the run's height in one motion. The rest draw once the fold is over, a window's
-/// worth per task, into that box: off screen while the fold plays. A row taller or shorter than its
-/// room moves only what is under it, and when that is what the reader sees (scrolled down past
-/// where it draws), the offset moves with it, so nothing in view moves. It stops when every row is drawn, the run closes (the list
-/// unmounts with its body) or it unmounts. Opened any other way (Find, a view switch, a run that
-/// opens itself), every row draws at once, and Find on a run still drawing draws the rest at once (Leo, 2026-11-06: "The tool call expansion, when it has
-/// several tool calls, I think sometimes it lags a bit").
+/// show (`firstStepCount`) in the click's frame, and a box under them for the rest (`stepSlot`
+/// each), set before the fold reads its height (a child's layout effect runs before its parent's),
+/// so the fold opens in one motion. The rest draw once the fold is over, a window's worth per task,
+/// into that box, off screen while the fold plays. A row taller or shorter than its room moves
+/// only what is under it; when the reader has scrolled into the run, what they see first stays
+/// where it is (`keepView`), so nothing in view moves. The draws stop when every row is drawn or
+/// the list unmounts (the run closed). Opened any other way (Find, a view switch, a run that opens
+/// itself), every row draws at once, and Find into a run still drawing draws the rest at once (Leo,
+/// 2026-11-06: "The tool call expansion, when it has several tool calls, I think sometimes it lags
+/// a bit").
 function StepList({
   id,
   disclosureKey,
@@ -229,39 +275,46 @@ function StepList({
   const rest = entries.length - count;
   const list = useRef<HTMLDivElement>(null);
   const spacer = useRef<HTMLDivElement>(null);
-  /// What the last commit drew: where its drawn rows ended (from the list's top), the rows it held
-  /// back, and the height it reserved for each of them (set once, from the first rows drawn).
-  const drawn = useRef<{ end: number; rest: number; slot: number } | undefined>(undefined);
-  // Before paint: the box for the rows not drawn yet, and the view kept still as rows replace it.
+  /// The height each row not drawn yet is given, set once from the first rows drawn.
+  const slot = useRef<number | undefined>(undefined);
+  /// What the reader sees first, once scrolled into the run, kept where it is (`keepView`).
+  const anchor = useRef<ViewAnchor | undefined>(undefined);
+  // Late sizes (an image that decodes after its row drew) are kept too, until KEEP_MS after the
+  // last rows drew: then the run is the reader's again.
+  const [keeping, setKeeping] = useState(chunk > 0);
+  // Before paint: the box for the rows not drawn yet, and what the reader sees kept still as rows
+  // replace it.
   useLayoutEffect(() => {
     const node = list.current;
-    const before = drawn.current;
-    if (!node || (!before && rest <= 0)) return;
-    const steps = node.querySelectorAll<HTMLElement>(":scope > .cv-step");
-    const last = steps[steps.length - 1];
-    if (!last) return;
-    const top = node.getBoundingClientRect().top;
-    const end = last.getBoundingClientRect().bottom - top;
-    const slot = before?.slot ?? stepSlot(steps);
-    if (spacer.current) spacer.current.style.height = `${rest * slot}px`;
-    drawn.current = rest > 0 ? { end, rest, slot } : undefined;
-    if (!before) return;
-    // The run grew or shrank by how far the rows just drawn differ from the room they had, at the
-    // point where they start (`before.end`); everything under that point moved by `delta`.
-    const delta = end + rest * slot - (before.end + before.rest * slot);
-    if (Math.abs(delta) < 0.5) return;
-    // The rows under the run are placed before this frame paints (VirtualTranscript).
-    markHeightFold(node, 0);
-    const scroller = node.closest<HTMLElement>(".acpmux-scroll");
-    const row = node.closest<HTMLElement>(".acpmux-row");
-    if (!scroller || !row) return;
-    const view = scroller.getBoundingClientRect().top;
-    // Under the view's top, only what is under the new rows moves: the blank they fill, and whatever
-    // the run pushes down, which is off screen or was blank. Above it, all that is in view sat under
-    // the change: the offset moves with it, so nothing in view moves. When the run's row was wholly
-    // above the view, the transcript keeps the row at the view's top itself (scrollAnchor.ts).
-    if (top + before.end <= view && row.getBoundingClientRect().bottom - delta > view) scroller.scrollTop += delta;
-  }, [rest]);
+    if (!node || !keeping) return;
+    if (rest > 0) {
+      slot.current ??= stepSlot(node.querySelectorAll<HTMLElement>(":scope > .cv-step"));
+      if (spacer.current) spacer.current.style.height = `${rest * slot.current}px`;
+    }
+    // The rows under the run are placed before each frame paints while its rows draw (VirtualTranscript).
+    markHeightFold(node, KEEP_MS);
+    anchor.current = keepView(node, anchor.current);
+  }, [rest, keeping]);
+  // While rows draw and a little after: a size change inside the run, or the reader's scroll, keeps
+  // or picks again what is first in view. Stops KEEP_MS after the last rows drew, or on unmount.
+  useEffect(() => {
+    const node = list.current;
+    const scroller = node?.closest<HTMLElement>(".acpmux-scroll");
+    if (!keeping || !node || !scroller || typeof ResizeObserver !== "function") return;
+    const sizes = new ResizeObserver(() => (anchor.current = keepView(node, anchor.current)));
+    sizes.observe(node);
+    const scrolled = () => (anchor.current = keepView(node, undefined));
+    scroller.addEventListener("scroll", scrolled, { passive: true });
+    return () => {
+      sizes.disconnect();
+      scroller.removeEventListener("scroll", scrolled);
+    };
+  }, [keeping]);
+  useEffect(() => {
+    if (!keeping || rest > 0) return;
+    const timer = window.setTimeout(() => setKeeping(false), KEEP_MS);
+    return () => window.clearTimeout(timer);
+  }, [keeping, rest]);
   // The rest, a window's worth per task, from the fold's end: one timer at a time, none once all show.
   useEffect(() => {
     if (rest <= 0 || !chunk) return;
