@@ -23,7 +23,7 @@ struct TerminalCommandsView: View {
                             .foregroundStyle(.secondary)
                     }
                     ForEach(commands) { command in
-                        commandRow(command)
+                        commandRow(command, copied: copiedID == command.id)
                     }
                     Button(L10n.string("mobile.commands.refresh", defaultValue: "Refresh")) { attempt += 1 }
                 } else if failed {
@@ -52,24 +52,37 @@ struct TerminalCommandsView: View {
         }
     }
 
-    private func commandRow(_ command: TerminalCommandSuggestion) -> some View {
+    private func commandRow(_ command: TerminalCommandSuggestion, copied: Bool) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(command.text)
                 .font(.callout.monospaced())
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            HStack(spacing: 12) {
-                Button { copy(command.text) } label: {
-                    Label(L10n.string("mobile.commands.copy", defaultValue: "Copy"), systemImage: "doc.on.doc")
-                }
-                Button { review(command) } label: {
-                    Label(L10n.string("mobile.commands.reviewRun", defaultValue: "Review & Run"), systemImage: "terminal")
-                }
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) { commandActions(command, copied: copied) }
+                VStack(alignment: .leading, spacing: 8) { commandActions(command, copied: copied) }
             }
             .buttonStyle(.bordered)
+            .controlSize(.large)
         }
         .padding()
         .background(.quaternary, in: RoundedRectangle(cornerRadius: 12))
     }
+    @ViewBuilder
+    private func commandActions(_ command: TerminalCommandSuggestion, copied: Bool) -> some View {
+        Button {
+            copy(command.text)
+            copiedID = command.id
+        } label: {
+            Label(copied
+                ? L10n.string("mobile.textSheet.copied", defaultValue: "Copied")
+                : L10n.string("mobile.commands.copy", defaultValue: "Copy"),
+                systemImage: copied ? "checkmark" : "doc.on.doc")
+        }
+        Button { review(command) } label: {
+            Label(L10n.string("mobile.commands.reviewRun", defaultValue: "Review & Run"), systemImage: "terminal")
+        }
+    }
+
 }
 #endif

@@ -28,7 +28,7 @@ extension MobileShellComposite {
         return commands
     }
 
-    /// Sends an explicitly reviewed command as one paste and one submit to its original Claude terminal.
+    /// Sends a reviewed command through the original Claude session's validated input path.
     /// A changed session or connection is rejected without sending any input.
     @discardableResult
     public func runSuggestedTerminalCommand(
@@ -40,14 +40,16 @@ extension MobileShellComposite {
         guard !editedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               let client = suggestedCommandsClient(workspaceID: workspaceID, terminalID: terminalID) else { return false }
         do {
-            let session = try await MobileChatEventSource(client: client).session(sessionID: suggestion.sessionID)
+            let source = MobileChatEventSource(client: client)
+            let session = try await source.session(sessionID: suggestion.sessionID)
             try Task.checkCancellation()
             guard session.id == suggestion.sessionID,
                   session.agentKind == .claude, session.kind == .agent, session.state != .ended,
                   TerminalCommandSuggestionsLoader.matches(session.workspaceID, remoteWorkspaceID(for: workspaceID).rawValue),
                   TerminalCommandSuggestionsLoader.matches(session.terminalID, terminalID.rawValue),
                   suggestedCommandsClient(workspaceID: workspaceID, terminalID: terminalID) === client else { return false }
-            return await sendTerminalPaste(editedText, workspaceID: workspaceID, terminalID: terminalID)
+            try await source.send(text: editedText, attachments: [], sessionID: suggestion.sessionID)
+            return true
         } catch {
             return false
         }

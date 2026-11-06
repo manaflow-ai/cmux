@@ -27,7 +27,7 @@ struct TerminalCommandReviewView: View {
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 12) {
-                Text(L10n.string("mobile.commands.reviewHint", defaultValue: "Edit the command, then tap Run to send it to this terminal."))
+                Text(L10n.string("mobile.commands.reviewHint", defaultValue: "Edit the command, then tap Run. This replaces unfinished input in the current Claude session."))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 CommandTextEditor(text: $text, enabled: !sending)

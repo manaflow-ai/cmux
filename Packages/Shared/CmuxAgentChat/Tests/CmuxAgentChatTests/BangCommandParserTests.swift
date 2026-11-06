@@ -12,6 +12,16 @@ struct BangCommandParserTests {
         #expect(BangCommandParser.commands(in: command) == [command])
     }
 
+    @Test func dashHereDocumentAcceptsATabIndentedTerminator() {
+        let command = "! bash <<-EOF\n\techo before\n\tEOF"
+        #expect(BangCommandParser.commands(in: command + "\nExplanatory prose.") == [command])
+    }
+
+    @Test func withholdsUnsupportedShellGroupsAndUnclosedQuotedArguments() {
+        #expect(BangCommandParser.commands(in: "! (echo first\necho second)") == [])
+        #expect(BangCommandParser.commands(in: "! printf '%s' 'unfinished") == [])
+    }
+
     @Test func quotedArgumentsPreserveRealNewlines() {
         let command = "! printf '%s\\n' 'first\nsecond'"
         #expect(BangCommandParser.commands(in: command) == [command])

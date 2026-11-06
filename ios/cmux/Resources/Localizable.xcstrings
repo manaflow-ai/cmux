@@ -107561,55 +107561,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edit the command, then tap Run to send it to this terminal."
+            "value": "Edit the command, then tap Run. This replaces unfinished input in the current Claude session."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bearbeite den Befehl und tippe auf „Ausführen“, um ihn an dieses Terminal zu senden."
+            "value": "Bearbeite den Befehl und tippe auf „Ausführen“. Dadurch wird unvollständige Eingabe in der aktuellen Claude-Sitzung ersetzt."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Modifiez la commande, puis touchez Exécuter pour l’envoyer à ce terminal."
+            "value": "Modifiez la commande, puis touchez Exécuter. Cela remplace la saisie inachevée dans la session Claude actuelle."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "عدّل الأمر، ثم اضغط على تشغيل لإرساله إلى هذه الطرفية."
+            "value": "عدّل الأمر، ثم اضغط على تشغيل. سيحلّ هذا محل الإدخال غير المكتمل في جلسة Claude الحالية."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edita el comando y pulsa Ejecutar para enviarlo a este terminal."
+            "value": "Edita el comando y pulsa Ejecutar. Esto reemplaza la entrada sin terminar en la sesión actual de Claude."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "編輯指令，然後點一下「執行」以傳送至此終端機。"
+            "value": "編輯指令，然後點一下「執行」。這會取代目前 Claude 工作階段中尚未完成的輸入。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "编辑命令，然后轻点“运行”以发送到此终端。"
+            "value": "编辑命令，然后轻点“运行”。这会替换当前 Claude 会话中尚未完成的输入。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "명령을 편집한 다음 실행을 눌러 이 터미널로 보내세요."
+            "value": "명령을 편집한 다음 실행을 누르세요. 현재 Claude 세션에서 작성 중인 입력이 이 명령으로 바뀝니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コマンドを編集し、「実行」をタップしてこのターミナルに送信します。"
+            "value": "コマンドを編集して「実行」をタップします。現在のClaudeセッションで入力途中の内容がこのコマンドに置き換わります。"
           }
         }
       }
