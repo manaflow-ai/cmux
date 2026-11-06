@@ -24,12 +24,13 @@ extension CloudStartSession {
         var loginWithin: Duration = CloudStartSession.loginWithin
         /// The app link up before the login, as start-session connects first, so the login reads its owner answer (false: none came up).
         var link: @MainActor (CloudMachineSession) async -> Bool = { $0.appLink == nil ? true : await $0.linkHop(origin: .script) }
+        var account: (@MainActor () -> [String?])? // the signed-in account now; nil: the Cloud service's (a test switches it)
         static func live(_ services: AppServices) -> RelaySteps { RelaySteps(login: { try await CloudStartSession(services: services).passHarnessLogin($0, agent: $1.agent, login: $1.login, still: $2) }, relay: { services.cloud.relayChat }) }
     }
 
     static func bindRelayChat(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?,
                               steps: RelaySteps? = nil) {
-        let cloud = context.services.cloud, steps = steps ?? .live(context.services)
+        let cloud = context.services.cloud, steps = steps ?? .live(context.services), now = { steps.account?() ?? cloud.account }
         // action-wait-allow: the reply comes from the machine over the network; nothing local can stand in for it.
         CloudHandlers.bind("cloudRelayChat", registry, reason: reason) { invocation in
             // A refusal here sent nothing: it answers undelivered, so `cloud start-chat` goes the start-session way,
@@ -50,17 +51,17 @@ extension CloudStartSession {
                 let code = isAgent(invocation) ? "cloud.relay.agent_run" : "cloud.relay.refused"
                 return CloudHandlers.result("cloud relay chat", context) { notSent(code, refusal.message) }
             }
-            let machineID = machine.machineID, account = cloud.account
+            let machineID = machine.machineID, account = now()
             let promptID = (invocation["promptId"]?.stringValue?.trimmingCharacters(in: .whitespaces)).flatMap { $0.isEmpty ? nil : $0 }
-            // The machine takes the login first; the account that asked is checked after its wait, as start-session's is.
             let login: @MainActor () async throws -> (code: String, message: String)? = {
-                // This entry (the `cloudRelayChat` action) never resumes: a paused or resuming machine outlasts its 15 s. It sends nothing and
-                // runs no login (`machine_not_ready`); `cloud start-chat` then runs start-session on it, which resumes or waits, connects, logs in.
+                // This entry never resumes a paused or resuming machine (it outlasts 15 s): no login, no send; start-chat's start-session resumes it.
                 if machine.machine.status == .paused || machine.machine.shownStatus.isChanging { return ("cloud.relay.machine_not_ready", CloudStartSessionStrings.notConnected(machine.machine.title, id: machineID, agent: started.agent)) }
-                // The link first, for the account that asked; none: no login, nothing sent, and start-chat's start-session resumes and connects.
-                try Self.checked(account, now: cloud.account, started.asked(machine: machine.machine.title))
+                // The link for the account that asked (none: no login, no send); after its wait the account again, and a run not yet answered.
+                let linking = ContinuousClock.now, asked = started.asked(machine: machine.machine.title)
+                try Self.checked(account, now: now(), asked)
                 guard await steps.link(machine) else { return ("cloud.relay.not_connected", CloudStartSessionStrings.notConnected(machine.machine.title, id: machineID, agent: started.agent)) }
-                try await steps.login(machine, started) { try Self.checked(account, now: cloud.account, started.asked(machine: machine.machine.title)) }
+                try Self.checked(account, now: now(), asked); guard ContinuousClock.now - linking < steps.loginWithin else { return ("cloud.relay.login_pending", CloudStartSessionStrings.relayLoginPending(asked)) }
+                try await steps.login(machine, started) { try Self.checked(account, now: now(), asked) }
                 let link = machine.appLink, ownership = await link?.callerOwnership ?? .unknown, state = await link?.stateWord ?? "none", decision = machine.harnessLogin
                 let refusal = relayLoginRefusal(decision, started, machine: machine.machine.title, ownership: ownership)
                 let cached = decision.map { $0.machineProbe == nil && $0.machineLogin == nil ? "unqueried" : $0.cached ? "yes" : "no" } ?? "unqueried" // verdicts only: no id, token, path or provider output
@@ -72,20 +73,19 @@ extension CloudStartSession {
                 return CloudHandlers.runTracked("cloud relay chat", context) {
                     guard let relay = steps.relay() else { throw ActionFailure(message: CloudStartSessionStrings.relayUnavailable) }
                     if let refusal = try await login() { throw ActionFailure(message: refusal.message) }
-                    try Self.checked(account, now: cloud.account, started.asked(machine: machine.machine.title)) // the sender's account, right before the send
-                    let answer = try await relay.chat(machineID, agent: started.agent, prompt: prompt, cwd: started.cwd, promptID: promptID)
+                    try Self.checked(account, now: now(), started.asked(machine: machine.machine.title)); let answer = try await relay.chat(machineID, agent: started.agent, prompt: prompt, cwd: started.cwd, promptID: promptID)
                     let text = answer.errorMessage.map { answer.reply.isEmpty ? $0 : answer.reply + "\n\n" + $0 } ?? answer.reply
                     CloudPresenter.show(CloudStartSessionStrings.relayReplyTitle, text, copyable: true, in: CloudHandlers.window(context))
                 }
             }
             CloudHandlers.result("cloud relay chat", context) {
                 guard let relay = steps.relay() else { return notSent("cloud.relay.unavailable", CloudStartSessionStrings.relayUnavailable) }
-                // Link and login get `loginWithin` of the result deadline, the turn the rest; a step still running sends nothing (start-session waits).
                 let clock = ContinuousClock(), begun = clock.now, asked = started.asked(machine: machine.machine.title)
-                // Each login refusal carries the start-session that recovers: the caller's `--login`, else (a bare rerun refuses again) `--login none`, whose chat signs in.
+                // Link and login get `loginWithin` of the deadline (still running: nothing sent). A refusal's command recovers: the caller's
+                // `--login`, else `--login none` (a bare rerun refuses again), whose chat signs in.
                 let refused = { (code: String, message: String) in notSent(code, message).merging(["command": .string(asked.command)]) { $1 } }
                 let decided: (code: String, message: String)??
-                do { decided = try await Self.first(within: steps.loginWithin, login); try Self.checked(account, now: cloud.account, asked) } catch let failure as ActionFailure { return refused("cloud.relay.login_account_changed", failure.message) }
+                do { decided = try await Self.first(within: steps.loginWithin, login); try Self.checked(account, now: now(), asked) } catch let failure as ActionFailure { return refused("cloud.relay.login_account_changed", failure.message) }
                 guard let refusal = decided else { return refused("cloud.relay.login_pending", CloudStartSessionStrings.relayLoginPending(asked)) }
                 if let refusal { let reason = machine.harnessLogin?.reason; return refused(refusal.code, refusal.message).merging(["command": .string(asked.command + (reason == .needsLoginChoice ? " --login none" : ""))].merging(reason.map { ["login_reason": .string($0.rawValue)] } ?? [:]) { $1 }) { $1 } }
                 let answer = try await relay.answer(machineID, agent: started.agent, prompt: prompt, cwd: started.cwd,

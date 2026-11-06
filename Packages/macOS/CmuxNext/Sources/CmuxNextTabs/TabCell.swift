@@ -69,10 +69,6 @@ final class TabCell {
     static let backgroundWindowSelectionShare: CGFloat = 0.55
     /// Hover may start the title marquee (off while a drag or rename runs).
     var allowsMarquee = true { didSet { if !allowsMarquee { titleFade.stopMarquee(animated: false) } } }
-    /// A closing tab keeps the content it showed when the close began
-    /// (`TabCell+Motion`).
-    var isClosing = false { didSet { if oldValue != isClosing { closingChanged() } } }
-    var closingVisibility: TabChromeVisibility?
     /// The parts following a moving width (`TabCell+InnerPath`); nil at rest.
     var innerPath: InnerPath?
     /// The title's geometry of the last `layoutParts(onPath: true)` sample; nil when it hides there.
@@ -189,7 +185,6 @@ final class TabCell {
     }
 
     func update(item newItem: TabItem) {
-        isClosing = false // a tab the model still lists is not closing
         guard newItem != item else { return }
         let previous = item
         item = newItem
@@ -413,7 +408,7 @@ final class TabCell {
         // The pill leaves the gap to the next tab at its trailing side (the
         // first pill starts on the border's line); content lays out in it.
         let bounds = m.pillFrame(slotWidth: slot.width, height: slot.height)
-        visibility = closingVisibility ?? form ?? TabChromeVisibility.resolve(
+        visibility = form ?? TabChromeVisibility.resolve(
             width: slot.width,
             isPinned: item.isPinned,
             isSelected: isSelected,
