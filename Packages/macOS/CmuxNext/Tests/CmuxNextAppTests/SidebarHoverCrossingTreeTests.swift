@@ -1,4 +1,5 @@
 import AppKit
+@testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 import CmuxNextTestSupport
 import Foundation
@@ -106,10 +107,12 @@ struct SidebarHoverCrossingTreeTests {
             let center = a.convert(NSPoint(x: control.frame.midX, y: control.frame.midY), to: a.superview)
             #expect(a.hitTest(center) == nil, "a cleared control took the click")
             #expect(control.isHiddenOrHasHiddenAncestor || !control.isAccessibilityElement(), "a cleared control stayed in the accessibility tree")
+            #expect(control.isHiddenOrHasHiddenAncestor || TooltipPresenter.isClear(control), "a cleared control would show its tooltip")
         }
         let shownClose = try #require(b.closeSlot.made)
         let center = b.convert(NSPoint(x: shownClose.frame.midX, y: shownClose.frame.midY), to: b.superview)
         #expect(b.hitTest(center) === shownClose, "the hovered row's x takes no click")
         #expect(!shownClose.isHiddenOrHasHiddenAncestor && shownClose.isAccessibilityElement(), "the hovered row's x left the accessibility tree")
+        #expect(!TooltipPresenter.isClear(shownClose), "the hovered row's x shows no tooltip")
     }
 }

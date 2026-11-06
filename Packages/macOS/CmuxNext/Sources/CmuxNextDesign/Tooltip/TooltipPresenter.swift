@@ -152,7 +152,7 @@ public final class TooltipPresenter {
 
     /// Shows `current`: fading in when `fade` (the first of a warm group), else at once.
     private func show(fade: Bool = false) {
-        guard let tracker = current, let view = tracker.view, let window = view.window,
+        guard let tracker = current, let view = tracker.view, let window = view.window, !Self.isClear(view),
               let text = tracker.text, let anchor = tracker.screenRect else { return }
         let center = NSPoint(x: anchor.midX, y: anchor.midY)
         let screen = NSScreen.screens.first { $0.frame.contains(center) } ?? window.screen ?? NSScreen.main
@@ -199,8 +199,19 @@ public final class TooltipPresenter {
         return under.isEmpty ? trackers : under
     }
 
+    /// The view or an ancestor draws nothing (opacity 0): a hover control cleared by paint (the sidebar row's x and ⋮,
+    /// HOVER COMMIT) keeps its tracking area, but shows no tooltip while it is clear, as a hidden one showed none.
+    static func isClear(_ view: NSView) -> Bool {
+        var next: NSView? = view
+        while let current = next {
+            if current.alphaValue == 0 { return true }
+            next = current.superview
+        }
+        return false
+    }
+
     static func stillShows(_ tracker: TooltipTracker) -> Bool {
-        guard let view = tracker.view, let window = view.window, window.isVisible, !view.isHiddenOrHasHiddenAncestor,
+        guard let view = tracker.view, let window = view.window, window.isVisible, !view.isHiddenOrHasHiddenAncestor, !isClear(view),
               WindowPlacement.noActivate || NSApp.isActive, let anchor = tracker.screenRect,
               let pointer = PointerHover.pointer(in: window) else { return false }
         // `PointerHover`: the real pointer, or DEBUG's synthesized one (a recording on a headless host).
