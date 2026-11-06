@@ -51,6 +51,9 @@ export type PullRequestAnswer = {
   readonly readFrom?: number;
   /** The host is reading it now, so the page asks again shortly. */
   readonly reading: boolean;
+  /** Only the host's cache was asked (a chip's ask): a card that opens asks for a read next, so
+   * "nothing" here is not yet the host's last word. */
+  readonly cacheOnly?: boolean;
 };
 
 /** How long the page waits before asking the host again while it reads. */
@@ -78,6 +81,7 @@ function changed() {
 function same(previous: PullRequestAnswer | undefined, next: PullRequestAnswer): boolean {
   if (!previous) return false;
   if (previous.reading !== next.reading || previous.fetchedAt !== next.fetchedAt) return false;
+  if (previous.cacheOnly !== next.cacheOnly) return false;
   return previous.fetchedAt != null || previous.pullRequest === next.pullRequest;
 }
 
@@ -130,6 +134,8 @@ function ask(url: string, cached = false) {
         // When that answer's read began goes with the answer: a reply with no new one keeps ours.
         ...readFromOf(value, answers.get(url)),
         reading: value.reading === true,
+        // Cache-only until a full ask answers: a later cache poll never reopens a settled answer.
+        ...(cached && (answers.get(url)?.cacheOnly ?? !answers.has(url)) ? { cacheOnly: true } : {}),
       };
       if (same(answers.get(url), answer)) return;
       if (!answers.has(url) && answers.size >= MAX_KEPT) answers.delete(answers.keys().next().value!);

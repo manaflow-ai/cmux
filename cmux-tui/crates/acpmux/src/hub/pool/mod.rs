@@ -61,30 +61,30 @@ pub use reaper::tree_rss_bytes;
 #[cfg(test)]
 pub(super) use start::held_reports_full_access;
 
-/// Most a pooled start's `initialize` and harness session may take before
-/// it counts as failed (and its host is ended).
-const START_BUDGET: Duration = Duration::from_secs(90);
-// A pooled host waits longer for its first controller than this budget
-// gives the attach (`agent_host/host.rs`).
-#[cfg(unix)]
-const _: () = assert!(agent_host::host::POOLED_OWNER_WAIT.as_secs() > START_BUDGET.as_secs());
+/// How often a pooled start reports that it is still waiting. This is a
+/// progress signal, not a deadline for a live harness.
+const START_PROGRESS: Duration = Duration::from_secs(10);
+/// A real hazard bound for a harness that has received CPU but never answers.
+/// A starved machine (no CPU available) therefore keeps waiting.
+// timeout: a live harness that has received CPU but has not answered for this
+// long is treated as wedged, so a prewarm cannot retain resources forever.
+const START_HAZARD: Duration = Duration::from_secs(30 * 60);
+/// A long fallback for platforms that cannot expose one process's CPU signal.
+// timeout: without per-process accounting we still need a finite bound for a
+// live-but-wedged host, while allowing scheduler starvation to recover first.
+const START_UNREAD_HAZARD: Duration = Duration::from_secs(2 * 60 * 60);
 /// How often the pool's RSS is measured again while it holds entries.
 const RSS_TICK: Duration = Duration::from_secs(60);
-/// Most a `session/new` waits for a matching entry that is still starting
-/// before it starts cold.
-const CLAIM_WAIT: Duration = Duration::from_secs(15);
-/// The most a `session/new` on this daemon takes before it answers, success or failure: a claim
-/// wait, then the pooled start's three stages, each within `START_BUDGET` (`start.rs`). A peer
-/// forwarding a start waits longer than this (`peer_link::LinkTimings::start`), so a slow valid
-/// start answers there instead of being dropped while it completes here.
-pub(crate) const SESSION_NEW_BUDGET: Duration =
-    Duration::from_secs(CLAIM_WAIT.as_secs() + 3 * START_BUDGET.as_secs());
+/// Compatibility envelope for forwarded `session/new` requests. Local starts
+/// are liveness based; this value is only the peer link's hazard bound for a
+/// handler that never answers and never closes its connection.
+// timeout: a remote handler that stays connected but never answers must not
+// retain a forwarding request forever; the transport keepalive remains the
+// earlier failure path for a dead peer. Nine minutes leaves substantial room
+// beyond the old 90-second pooled-start cutoff.
+pub(crate) const SESSION_NEW_BUDGET: Duration = Duration::from_secs(9 * 60);
 /// How long an ended entry's host gets before it is ended by nonce proof.
 const END_GRACE: Duration = Duration::from_secs(2);
-/// Most a claimed entry's host may take to answer before the entry counts
-/// as wedged: the hello budget of `agent_host::link::connect`. A healthy
-/// host answers in milliseconds; a loaded machine may take seconds.
-const CLAIM_PROBE: Duration = Duration::from_secs(5);
 
 /// Measures a pooled host's process tree RSS in bytes.
 pub type RssProbe = Arc<dyn Fn(u32) -> u64 + Send + Sync>;
@@ -740,19 +740,20 @@ impl Hub {
                     self.claim_gap_report(&p);
                     #[cfg(debug_assertions)]
                     self.claim_off_seam();
-                    // A dead or wedged host is ended; the session starts on
-                    // a fresh host (`spawn_hosted_child`). So is one whose link
-                    // stopped reading: it still answers a query, but nothing it
-                    // sends from then on is heard (`ChildAgent::is_stopped`).
-                    let asked = std::time::Instant::now();
-                    if !p.child.is_alive().await
-                        || p.child.is_stopped()
-                        || !p.child.answers_within(CLAIM_PROBE).await
-                    {
+                    // A dead host is ended; the session starts on a fresh host
+                    // (`spawn_hosted_child`). A live host is kept even when its
+                    // optional health query is slow: that query is a health
+                    // observation, and must not turn a busy-machine wake into
+                    // a cold-start failure.
+                    // The link ends only once the reader sees the closed socket: a host
+                    // killed just before this claim still looks live there, so its live lock
+                    // decides too.
+                    let lock_free =
+                        p.child.host_record().is_some_and(|r| crate::agent_host::host_dead_now(&r));
+                    if lock_free || !p.child.is_alive().await || p.child.is_stopped() {
                         tracing::warn!(
                             harness = %spec.key.harness,
-                            waited_ms = asked.elapsed().as_millis() as u64,
-                            "a pooled agent host did not answer or is not heard; it ends and the session starts on a fresh host"
+                            "a pooled agent host is no longer live; it ends and the session starts on a fresh host"
                         );
                         self.pool_discard(vec![p]);
                         return None;
@@ -788,11 +789,12 @@ impl Hub {
                 }
                 Take::Miss => return None,
                 Take::Warming(mut settled) => {
-                    // A start that hangs never holds a user's session/new
-                    // longer than a cold start would roughly take.
-                    match tokio::time::timeout(CLAIM_WAIT, settled.changed()).await {
-                        Ok(Ok(())) => {}
-                        _ => return None,
+                    // A live warming start is still the session the caller
+                    // asked for. Wait for its process to settle; a failed or
+                    // exited start notifies this watcher and the next pass
+                    // falls back to a cold start.
+                    if settled.changed().await.is_err() {
+                        return None;
                     }
                 }
             }
@@ -1213,5 +1215,9 @@ async fn end_pooled_host(record: &HostRecord) {
         )
         .await;
     }
+    // A host killed outright ended nothing under it, and its harness exits on the closed pipe:
+    // a helper that left the group is found only by the host's mark.
+    let nonce = record.start_nonce.clone();
+    let _ = tokio::task::spawn_blocking(move || agent_host::end_left_behind(&nonce)).await;
     agent_host::remove_artifacts(&dir, record);
 }

@@ -1832,3 +1832,233 @@ fn project_key_cli_keeps_folder_ids_and_normalizes_git_keys() {
         );
     }
 }
+
+#[test]
+fn a_reserved_machine_binds_once_before_the_send_is_pinned() {
+    use super::reservations::{Action, Call};
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let compose = key();
+    let send = key();
+    let team = "team_0123456789abcdef0123";
+    let request = json!({"key": send, "account": ACCOUNT, "workspace": "new-ws", "loaded": false,
+        "reservation_key": compose, "credential_on_stdin": true, "team": team,
+        "platform": "https://cmux-platform-development.debussy.workers.dev"})
+    .to_string();
+    let calls = RefCell::new(Vec::new());
+    let bind = |call: &Call, token: &str| {
+        calls.borrow_mut().push((
+            call.action,
+            call.compose_key.clone(),
+            call.send_key.clone(),
+            call.team.clone(),
+            token.to_string(),
+        ));
+        Ok(json!({"leaseId": "lease-1", "machine": "vm_0123456789abcdef0123", "expiresAt": 123}))
+    };
+    let never_ensure = |_: &Ensure, _: &str| panic!("team sends never ensure personal projects");
+    let first = super::plan_with_calls(
+        &path,
+        &request,
+        &mut "stack-session\n".as_bytes(),
+        &never_ensure,
+        &bind,
+    );
+    assert_eq!(first["machine"], "vm_0123456789abcdef0123", "{first}");
+    assert_eq!(
+        Ledger::update(&path, |pins| pins.machine(&Send::new(&send, ACCOUNT))).unwrap(),
+        Some("vm_0123456789abcdef0123".into())
+    );
+    assert_eq!(
+        calls.borrow().as_slice(),
+        &[(
+            Action::Bind,
+            compose.to_lowercase(),
+            Some(send.to_lowercase()),
+            Some(team.into()),
+            "stack-session".into()
+        )]
+    );
+    let retry = super::plan_with_calls(
+        &path,
+        &request,
+        &mut "stack-session\n".as_bytes(),
+        &never_ensure,
+        &bind,
+    );
+    assert_eq!(retry["machine"], "vm_0123456789abcdef0123");
+    assert_eq!(calls.borrow().len(), 1, "a pinned retry must not bind again");
+}
+
+#[test]
+fn an_uncertain_bind_never_turns_into_a_second_paid_cold_create() {
+    use super::reservations::Call;
+    use crate::cli::PlatformCallError as E;
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let send = key();
+    let compose = key();
+    let request = json!({"key": send, "account": ACCOUNT, "loaded": false,
+        "reservation_key": compose, "credential_on_stdin": true})
+    .to_string();
+    let never_ensure = |_: &Ensure, _: &str| panic!("no project");
+    for error in [
+        E::Unreachable("answer lost".into()),
+        E::Unreadable(200),
+        E::Status { status: 500, code: "" },
+        E::Status { status: 409, code: "reservation.bound" },
+    ] {
+        let bind = |call: &Call, _: &str| {
+            assert_eq!(call.send_key.as_deref(), Some(send.to_lowercase().as_str()));
+            Err(error.clone())
+        };
+        let answer = super::plan_with_calls(
+            &path,
+            &request,
+            &mut "token\n".as_bytes(),
+            &never_ensure,
+            &bind,
+        );
+        assert_eq!(answer["ok"], false, "{answer}");
+        assert!(answer.get("new_name").is_none(), "{answer}");
+    }
+    // A retry uses the same compose/send keys and recovers the already-bound machine.
+    let recovered = |call: &Call, _: &str| {
+        assert_eq!(call.compose_key, compose.to_lowercase());
+        assert_eq!(call.send_key.as_deref(), Some(send.to_lowercase().as_str()));
+        Ok(json!({"machine": "vm_0123456789abcdef0123"}))
+    };
+    assert_eq!(
+        super::plan_with_calls(
+            &path,
+            &request,
+            &mut "token\n".as_bytes(),
+            &never_ensure,
+            &recovered
+        )["machine"],
+        "vm_0123456789abcdef0123"
+    );
+    for error in [
+        E::Status { status: 404, code: "lease.not_found" },
+        E::Status { status: 409, code: "reservation.expired" },
+        E::Status { status: 409, code: "reservation.terminal" },
+    ] {
+        let request = json!({"key": key(), "account": ACCOUNT, "reservation_key": key(), "credential_on_stdin": true}).to_string();
+        let bind = |_: &Call, _: &str| Err(error.clone());
+        let answer = super::plan_with_calls(
+            &path,
+            &request,
+            &mut "token\n".as_bytes(),
+            &never_ensure,
+            &bind,
+        );
+        assert_eq!(answer["ok"], true, "{answer}");
+        assert!(answer["machine"].is_null());
+        assert!(answer["new_name"].is_string());
+    }
+}
+
+#[test]
+fn an_existing_workspace_wins_without_binding_an_unused_reservation() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    Ledger::update(&path, |pins| pins.bind("ws", ACCOUNT, "vm-existing")).unwrap();
+    let request = json!({"key": key(), "account": ACCOUNT, "workspace": "ws", "loaded": false,
+        "reservation_key": key(), "credential_on_stdin": true})
+    .to_string();
+    let answer = super::plan_with_calls(
+        &path,
+        &request,
+        &mut "token\n".as_bytes(),
+        &|_, _| panic!("no ensure for an existing workspace"),
+        &|_, _| panic!("no reservation bind needed"),
+    );
+    assert_eq!(answer["machine"], "vm-existing", "{answer}");
+}
+
+#[test]
+fn a_malformed_bind_answer_is_never_pinned_or_replaced_by_a_cold_create() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    for machine in [
+        Value::Null,
+        json!(""),
+        json!("provider-id"),
+        json!("vm_short"),
+        json!({"id": "vm_0123456789abcdef0123"}),
+    ] {
+        let send = key();
+        let request = json!({"key": send, "account": ACCOUNT, "reservation_key": key(), "credential_on_stdin": true}).to_string();
+        let bind = |_: &super::reservations::Call, _: &str| Ok(json!({"machine": machine}));
+        let answer = super::plan_with_calls(
+            &path,
+            &request,
+            &mut "token\n".as_bytes(),
+            &|_, _| panic!("no project"),
+            &bind,
+        );
+        assert_eq!(answer["ok"], false, "{answer}");
+        assert_eq!(answer["error_code"], "bad_answer");
+        assert!(answer.get("new_name").is_none());
+        assert_eq!(
+            Ledger::update(&path, |pins| pins.machine(&Send::new(&send, ACCOUNT))).unwrap(),
+            None
+        );
+    }
+}
+
+#[test]
+fn project_ensure_carries_the_reservation_and_its_send_key_without_enabling_new_ensure_paths() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let folder = dir.path().join("project");
+    std::fs::create_dir(&folder).unwrap();
+    let send = key();
+    let compose = key();
+    let mut request = json!({"key": send, "account": "user-leo/", "loaded": false,
+        "local": folder.to_str().unwrap(), "credential_on_stdin": true,
+        "reservation_key": compose, "ensure_project": true});
+    let ensure = |ask: &Ensure, _: &str| {
+        assert_eq!(ask.body()["reservationKey"], compose);
+        assert_eq!(ask.body()["reservationSendKey"], send.to_lowercase());
+        Ok(json!({"machine": {"id": "vm-project"}, "created": false}))
+    };
+    let answer = super::plan_with_calls(
+        &path,
+        &request.to_string(),
+        &mut "token\n".as_bytes(),
+        &ensure,
+        &|_, _| panic!("the project ensure owns binding"),
+    );
+    assert_eq!(answer["machine"], "vm-project", "{answer}");
+    request["key"] = json!(key());
+    request["ensure_project"] = json!(false);
+    let answer = super::plan_with_calls(
+        &path,
+        &request.to_string(),
+        &mut "token\n".as_bytes(),
+        &|_, _| panic!("reservation credentials must not enable production project ensure"),
+        &|_, _| Ok(json!({"machine": "vm_0123456789abcdef0123"})),
+    );
+    assert_eq!(answer["machine"], "vm_0123456789abcdef0123", "{answer}");
+}
+
+#[test]
+fn reservation_accepts_cloud_machine_ids_with_letters() {
+    let id = "vm_m0123456789abcdef012";
+    assert_eq!(super::reservations::machine(&json!({"machine": id})), Some(id));
+}
+
+#[test]
+fn reservation_bind_preserves_the_environment_authorization_input() {
+    let call = super::reservations::Call {
+        action: super::reservations::Action::Bind,
+        compose_key: key(),
+        send_key: Some(key()),
+        environment: Some("env_project".into()),
+        platform: None,
+        team: None,
+    };
+    assert_eq!(call.bind_payload()["environment"], "env_project");
+    assert_eq!(call.bind_payload()["sendKey"], json!(call.send_key));
+}

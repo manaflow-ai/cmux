@@ -1262,4 +1262,4 @@ pub fn start_link_share_bridge(mux: &Arc<Mux>, room: Option<&str>) {
 
 #[cfg(test)]
 #[path = "agent_session_share_room_tests.rs"]
-mod tests;
+pub(super) mod tests;

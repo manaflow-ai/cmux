@@ -224,13 +224,17 @@ async fn a_pick_in_a_chat_holds_for_that_chat_and_new_chats_start_in_the_default
     assert_eq!(answer["source"], "config", "{answer}");
     assert_eq!(app.chat(&dir, "claude").await.1, "bypassPermissions");
 
-    // A unix socket client (an agent, a script) cannot widen a chat to full
-    // access.
+    // A unix socket client (an agent, a script) may move a chat to Claude Code's own Auto under
+    // the person's full-access start level (`start_mode.rs` `may_move_without_person`), but to
+    // no other mode that does not ask.
     let mut agent = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
     let (chat, _) = agent.chat(&dir, "claude").await;
     let r = agent.call("session/set_mode", json!({"sessionId": chat, "modeId": "default"})).await;
     assert!(r.get("error").is_none(), "{r}");
     let r = agent.call("session/set_mode", json!({"sessionId": chat, "modeId": "auto"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let r =
+        agent.call("session/set_mode", json!({"sessionId": chat, "modeId": "acceptEdits"})).await;
     assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{r}");
     assert_eq!(last_pick(&dir), Value::Null);
     let _ = std::fs::remove_dir_all(&dir);
@@ -272,7 +276,8 @@ async fn the_setting_chooses_ask_or_the_harness_own_mode() {
     let dir = home("standard", json!({"defaultPermissionMode": "standard"}));
     let daemon = hub(&dir);
     let mut app = Client::app(&daemon).await;
-    assert_eq!(app.chat(&dir, "claude").await.1, "default");
+    // Claude Code's own start mode is Auto, never Manual (`claude_stdio::OWN_MODE`).
+    assert_eq!(app.chat(&dir, "claude").await.1, "auto");
     assert_eq!(app.chat(&dir, "codex").await.1, "agent");
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -787,12 +792,16 @@ async fn a_chat_whose_move_aborts_follows_a_deny_all_default_set_meanwhile() {
     assert!(r.get("error").is_none(), "{r}");
     let begin = mover.call("_acpmux/transfer_begin", json!({"sessionId": id})).await;
     let transfer = begin["result"]["transferId"].clone();
+    let epoch = begin["result"]["epoch"].clone();
     assert!(transfer.is_string(), "{begin}");
     let r = app.call("_acpmux/set_default_policy", json!({"policy": "deny-all"})).await;
     assert!(r.get("error").is_none(), "{r}");
     assert_eq!(app.mode(&id).await, "agent-full-access", "a moving chat is not touched");
     let r = mover
-        .call("_acpmux/transfer_abort", json!({"sessionId": id, "transferId": transfer}))
+        .call(
+            "_acpmux/transfer_abort",
+            json!({"sessionId": id, "transferId": transfer, "epoch": epoch}),
+        )
         .await;
     assert!(r.get("error").is_none(), "{r}");
     assert_eq!(mode_soon(&mut app, &id, "read-only").await, "read-only");
@@ -1009,9 +1018,9 @@ async fn chief_subagent_chats_start_at_the_person_start_level() {
 
     // Chief's own turn and a person's preset keep the harness's own mode.
     let turn = chief.preset_chat(&dir, "optchat-chief-0a1b2c3d").await;
-    assert_eq!(chief.mode(&turn).await, "default");
+    assert_eq!(chief.mode(&turn).await, "auto");
     let own = chief.preset_chat(&dir, "p").await;
-    assert_eq!(chief.mode(&own).await, "default");
+    assert_eq!(chief.mode(&own).await, "auto");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

@@ -87,10 +87,10 @@ pub(super) fn args_for(
         Err(failure) => return Some(Err(failure)).filter(|_| names_server(args)),
     };
     let (first, rest) = command_args.split_first()?;
-    if first != "server" {
+    if first != "server" && first != PAIR_VERB {
         return None;
     }
-    let lifecycle_verb = rest.first().filter(|verb| {
+    let lifecycle_verb = rest.first().filter(|_| first == "server").filter(|verb| {
         MOVED_LIFECYCLE_VERBS.contains(&verb.as_str())
             || (verb.as_str() == "status" && (global.session.is_some() || global.socket.is_some()))
     });
@@ -114,7 +114,14 @@ pub(super) fn args_for(
     if let Some((_, option)) = refused.iter().find(|(set, _)| *set) {
         return refuse(catalog.server_global_option_refused.replace("{option}", option));
     }
-    let mut out = rest.to_vec();
+    let mut out = if first == PAIR_VERB {
+        match pair_args(rest) {
+            Some(out) => out,
+            None => return refuse(catalog.pair_needs_code.to_owned()),
+        }
+    } else {
+        rest.to_vec()
+    };
     if global.output == OutputMode::Json {
         out.push("--json".to_owned());
     }
@@ -122,6 +129,36 @@ pub(super) fn args_for(
         out.push(format!("--idempotency-key={key}"));
     }
     Some(Ok(ServerRoute::Machine(out)))
+}
+
+/// `cmux pair CODE`: the new machine's half of invite pairing. The signed-in
+/// app shows the invite code ("Pair Another Machine…"); this runs
+/// `cmux server pair --invite CODE` with the same flags. The code may be typed
+/// as one word or two (`ABCDE 12345`); `cmux_server` validates it.
+pub(crate) const PAIR_VERB: &str = "pair";
+
+/// The machine server's words for `cmux pair` (after the verb), or `None`
+/// without a code.
+pub(super) fn pair_args(rest: &[String]) -> Option<Vec<String>> {
+    let mut code = String::new();
+    let mut flags = Vec::new();
+    let mut words = rest.iter();
+    while let Some(word) = words.next() {
+        if matches!(word.as_str(), "--name" | "--api-origin") {
+            flags.push(word.clone());
+            flags.extend(words.next().cloned());
+        } else if word.starts_with('-') {
+            flags.push(word.clone());
+        } else {
+            code.push_str(word);
+        }
+    }
+    if code.is_empty() {
+        return flags.iter().any(|f| f == "--help" || f == "-h").then(|| vec!["--help".to_owned()]);
+    }
+    let mut out = vec!["pair".to_owned(), format!("--invite={code}")];
+    out.extend(flags);
+    Some(out)
 }
 
 /// `args` with the noun (the first word that is neither an option nor an

@@ -70,7 +70,7 @@ export const CONTEXT_LABELS = {
   local: "composer.thisMac",
   chooseComputer: "composer.chooseComputer",
   chooseFolder: "composer.chooseFolder",
-  chooseFolderMenu: "composer.chooseFolderMenu",
+  chooseFolderMenu: "composer.addFolder",
   folderSearch: "composer.folderSearch",
   cloud: "composer.cloud",
   connectSSH: "composer.connectSSH",
@@ -79,7 +79,7 @@ export const CONTEXT_LABELS = {
   newChatHere: "composer.newChatHere",
   machine: "composer.machine",
   chooseMachine: "composer.chooseMachine",
-  noProject: "composer.noProject",
+  noProject: "project.noFolder",
   environment: "composer.environment",
 } as const;
 
@@ -157,6 +157,7 @@ export function ComposerContext({
   onRepick,
   cloudMachines,
   onCloudMachine = (machine) => void runCloudMachine(machine),
+  onCloudMachinePicked,
   runMode,
   closeOnTrustAsk = false,
   showMachineLoadWarnings,
@@ -192,7 +193,7 @@ export function ComposerContext({
   onBrowseProject?(request?: BrowseRequest): Promise<BrowseResult> | BrowseResult | void;
   /// New Worktree (cx-lyqio.2): a new chat on this Mac starts in a worktree of its folder.
   onNewWorktree?(cwd: string): void;
-  /// A new chat's Do not work in a project (FolderPopover); `noProject` while it is the choice.
+  /// A new chat's No folder (FolderPopover); `noProject` while it is the choice.
   onNoProject?(): void;
   noProject?: boolean;
   /// This Mac's name (the handshake's `machineName`).
@@ -200,7 +201,7 @@ export function ComposerContext({
   /// A started chat's New Chat Here, or a folder picked from its menu: a new chat in that folder,
   /// in a tab of its own.
   onNewChat?(cwd: string): void;
-  /// A started chat's Choose folder…: the host's folder panel, then a new chat there.
+  /// A started chat's Add folder…: the host's folder panel, then a new chat there.
   onBrowseFolder?(): Promise<string | undefined>;
   /// A new chat's Computer menu ends with SSH… and New Cloud Machine, which open the host's
   /// connect flows (Lawrence 2026-10-06: "I cannot click on cmux Cloud SSH").
@@ -239,6 +240,9 @@ export function ComposerContext({
   cloudMachines?: readonly CloudMachine[];
   /// A pick of one acpmux does not list: it resumes (paused) or opens; by default through the app.
   onCloudMachine?(machine: CloudMachine): void;
+  /// Reports the selected account machine to the pane before its resume/open hint runs. `undefined`
+  /// clears a draft target when the picker moves back to a non-Cloud environment.
+  onCloudMachinePicked?(machine: CloudMachine | undefined): void;
   /// A new chat's Run as in the environment picker (Persistent or Sandboxed, hq#3367).
   runMode?: RunModeRows;
   /// A trust question takes precedence over an open destination picker.
@@ -259,7 +263,7 @@ export function ComposerContext({
   /// Gallery seam; the app's Cloud account state (cloudMachines.ts) is used when omitted.
   cloudSignedIn?: boolean;
   /// A new chat's extra folders (extraFolders.ts, acpmux `additionalDirectories`): the folder menu's
-  /// Add folder… adds one of the picked machine's folders, and each added one can be removed. The
+  /// Add another folder… adds one of the picked machine's folders, and each added one can be removed. The
   /// list is the machine's: another machine picked starts over. `onBrowse` is this Mac's folder
   /// chooser; another machine's folders are its listed ones or a typed path.
   extraFolders?: ExtraFolderControl;
@@ -360,10 +364,16 @@ export function ComposerContext({
   const pickKey = `${summary?.sessionId ?? ""}\u0000${initialComputer}`;
   const [picked, setPicked] = useState<{ key: string; computer?: string }>({ key: pickKey });
   const [browseError, setBrowseError] = useState<string>();
+  // The browse that failed, so Retry runs the same one.
+  const browseRetry = useRef<() => void>(undefined);
+  // Counts folder picks: a folder panel's late answer (or failure) after one is dropped.
+  const folderPicks = useRef(0);
   const browseRequest = useRef(0);
   useEffect(
     () => () => {
       browseRequest.current += 1;
+      // A folder panel's late answer after the menu is gone picks nothing.
+      folderPicks.current += 1;
     },
     [],
   );
@@ -484,7 +494,7 @@ export function ComposerContext({
         : currentRepo.name
       : projectLabel(currentLocation.id)
     : undefined;
-  // A started chat's Choose folder…: the host's folder panel, then a new chat there.
+  // A started chat's Add folder…: the host's folder panel, then a new chat there.
   const browseNewChat =
     onBrowseFolder && onNewChat
       ? () => {
@@ -496,10 +506,34 @@ export function ComposerContext({
               if (request === browseRequest.current && cwd) onNewChat(cwd);
             })
             .catch((error: unknown) => {
-              if (request === browseRequest.current) setBrowseError(browseFailureMessage(error));
+              if (request !== browseRequest.current) return;
+              browseRetry.current = browseNewChat;
+              setBrowseError(browseFailureMessage(error));
             });
         }
       : undefined;
+  // A new chat's Add folder…: the host's folder panel, then the chat's folder. As Add project's dialog
+  // did, the panel only answers (deferPick) and the pick commits here, so a folder picked while the
+  // panel was open wins over its late answer; a refused or failed panel says why beside a Retry.
+  const browseProject = onBrowseProject
+    ? (): Promise<BrowseResult> => {
+        const picks = folderPicks.current;
+        setBrowseError(undefined);
+        return Promise.resolve()
+          .then(() => onBrowseProject({ deferPick: true }) ?? undefined)
+          .then((cwd) => {
+            if (picks === folderPicks.current && typeof cwd === "string" && cwd) pickFolder(cwd);
+            return cwd;
+          })
+          .catch((error: unknown) => {
+            if (picks === folderPicks.current) {
+              browseRetry.current = () => void browseProject?.();
+              setBrowseError(browseFailureMessage(error));
+            }
+            return undefined;
+          });
+      }
+    : undefined;
   // An account Cloud machine acpmux does not list runs its machine action (resume or open); the
   // chat cannot start there until acpmux links it. The pick waits for that (`waiting`): the
   // control names the machine as starting, and the chat moves there once its row is ready, so a
@@ -507,6 +541,7 @@ export function ComposerContext({
   const pickCloudMachine = (id: string) => {
     const machine = computers.find((computer) => computer.id === id)?.cloudMachine;
     if (machine && !readOnly) {
+      onCloudMachinePicked?.(machine);
       // Folders are the machine's: the pick drops this machine's at once, not when (or if) it arrives (cmux#34527).
       if (extraFolders?.draft) extraFolders.onChange(undefined);
       onCloudMachine(machine);
@@ -515,7 +550,14 @@ export function ComposerContext({
     return machine !== undefined;
   };
   const pickComputer = (id: string) => {
+    if (!readOnly && id !== selectedComputer) {
+      // Another machine (a Cloud one too): a folder panel's answer or failure for the last one no
+      // longer applies.
+      folderPicks.current += 1;
+      setBrowseError(undefined);
+    }
     if (pickCloudMachine(id)) return;
+    onCloudMachinePicked?.(undefined);
     if (waiting) setWaiting(undefined);
     if (!readOnly && id !== selectedComputer) {
       // Folders are the machine's: another machine starts with none.
@@ -550,6 +592,9 @@ export function ComposerContext({
   // A folder pick is always the folder (the page's project, which Cloud sends and recent projects
   // record), then the saved environment that is only that folder, if there is one.
   const pickFolder = (cwd: string) => {
+    folderPicks.current += 1;
+    setBrowseError(undefined);
+    onCloudMachinePicked?.(undefined);
     onProject?.(cwd);
     const environment = savedRows && savedFolders.find((candidate) => normalizeCwd(candidate.folder) === cwd);
     if (environment) savedRows.onPick(environment.id);
@@ -581,11 +626,35 @@ export function ComposerContext({
   };
   const folderShown = !savedPick && !(readOnly && !newChats && !currentFolder);
   // The new chat's extra folders on the picked machine (a pick of the chat's own folder is never one).
-  // A Cloud or Sandboxed start carries none (cmux#34403), so those modes offer no Add folder… or +N.
+  // A Cloud or Sandboxed start carries none (cmux#34403), so those modes offer no Add another folder… or +N.
   const extraShown =
     extraFolders && !readOnly && !cloudPicked && !sandboxPicked
       ? draftFolders(extraFolders.draft, selectedComputer)
       : undefined;
+  // Add another folder…'s Add folder…: a refused or failed panel says why beside a Retry, which adds
+  // the folder it picks.
+  const browseExtra = extraFolders?.onBrowse
+    ? (): Promise<string | undefined> => {
+        const picks = folderPicks.current;
+        setBrowseError(undefined);
+        return (
+          Promise.resolve()
+            .then(() => extraFolders.onBrowse?.() ?? undefined)
+            // A folder or machine picked while the panel was open: its answer adds nothing.
+            .then((path) => (picks === folderPicks.current ? path : undefined))
+            .catch((error: unknown) => {
+              if (picks === folderPicks.current) {
+                browseRetry.current = () =>
+                  void browseExtra?.().then((path) => {
+                    if (path) extra?.onAdd(path);
+                  });
+                setBrowseError(browseFailureMessage(error));
+              }
+              return undefined;
+            })
+        );
+      }
+    : undefined;
   const extra: ExtraFolderRows | undefined =
     extraFolders && extraShown
       ? {
@@ -599,7 +668,7 @@ export function ComposerContext({
             if (next !== extraShown)
               extraFolders.onChange(next.length > 0 ? { machine: selectedComputer, folders: next } : undefined);
           },
-          ...(selectedComputer === "local" && extraFolders.onBrowse ? { onBrowse: extraFolders.onBrowse } : {}),
+          ...(selectedComputer === "local" && browseExtra ? { onBrowse: browseExtra } : {}),
         }
       : undefined;
   // The folder control says how many more folders the chat sees: "cmux +2".
@@ -787,12 +856,17 @@ export function ComposerContext({
               folders={folders}
               current={currentFolder}
               onPick={pickFolder}
-              onBrowse={onBrowseProject}
-              onNoProject={onNoProject}
+              onBrowse={browseProject}
+              onNoProject={
+                onNoProject &&
+                (() => {
+                  folderPicks.current += 1;
+                  setBrowseError(undefined);
+                  onNoProject();
+                })
+              }
               noProject={noProject && !currentFolder}
               onNewWorktree={currentFolder && onNewWorktree ? () => onNewWorktree(currentFolder) : undefined}
-              localName={localName}
-              peers={peers}
               {...(folderNote && !currentFolder ? { note: folderNote } : {})}
               {...(extra ? { extra } : {})}
             />
@@ -962,8 +1036,12 @@ export function ComposerContext({
             />
           )}
         </div>
-        {browseError && browseNewChat && (
-          <BrowseFailure error={browseError} onRetry={browseNewChat} onDismiss={() => setBrowseError(undefined)} />
+        {browseError && browseRetry.current && (
+          <BrowseFailure
+            error={browseError}
+            onRetry={browseRetry.current}
+            onDismiss={() => setBrowseError(undefined)}
+          />
         )}
         {runToggle && (
           <EnvironmentPicker
@@ -1126,7 +1204,7 @@ function LocationFace({
       )}
       {live !== undefined && sleep === "resuming" && (
         <span className="acpmux-env-live" data-sleep="resuming">
-          <Spinner size={10} loading className="acpmux-env-live-spinner" />
+          <Spinner size={12} loading className="acpmux-env-live-spinner" />
           <span className="acpmux-env-status-text">{t("composer.envResuming")}</span>
         </span>
       )}
@@ -1234,7 +1312,7 @@ function LocationPicker({
   /// "computer": the picker whose name gives way to its icon in a narrow strip.
   kind?: "computer";
   allowPath?: boolean;
-  /// The folder popover's last row, Choose folder…: the host's folder panel.
+  /// The folder popover's last row, Add folder…: the host's folder panel.
   onBrowse?(): void;
   /// Rows after the choices that run something instead of picking (the connect flows).
   extras?: { id: string; label: string; detail?: string; onSelect(): void }[];
@@ -1243,7 +1321,7 @@ function LocationPicker({
   onOpen?(): void;
   /// A trust question takes precedence over an open destination picker.
   closeOnTrustAsk?: boolean;
-  /// A new chat's extra folders on this machine (extraFolders.ts): Add folder… turns the list into a
+  /// A new chat's extra folders on this machine (extraFolders.ts): Add another folder… turns the list into a
   /// pick of one more folder of it, and the ones added are listed under it.
   extra?: ExtraFolderRows;
 }) {
@@ -1285,7 +1363,7 @@ function LocationPicker({
         ),
     );
   }, [options, query, suffixes, addingExtra, selected, extraFolders]);
-  // Add folder… gives the menu a fresh field (the Combobox's key): the keyboard stays in it.
+  // Add another folder… gives the menu a fresh field (the Combobox's key): the keyboard stays in it.
   useEffect(() => {
     if (!addingExtra) return;
     control.current?.ownerDocument
@@ -1424,7 +1502,7 @@ function LocationPicker({
                 setAddingExtra(true);
               }}
             >
-              {t("composer.addFolder")}
+              {t("composer.addAnotherFolder")}
             </button>
           </>
         )}

@@ -9,6 +9,10 @@ impl Translator {
         // A Ctrl-B the hub stopped waiting for leaves no mark (`end_background_asks`).
         let now = std::time::Instant::now();
         self.end_background_asks(false, |_, deadline| deadline.is_some_and(|d| d <= now)).await;
+        // A `/rename` acpmux wrote is never the chat's (`live_name.rs`).
+        if let Some(answer) = self.rename_line(line).await {
+            return answer;
+        }
         let kind = line.get("type").and_then(Value::as_str).unwrap_or("");
         let sub = line.get("subtype").and_then(Value::as_str).unwrap_or("");
         let main_line = line.get("parent_tool_use_id").and_then(Value::as_str).is_none();
@@ -248,6 +252,10 @@ impl Translator {
                         {
                             out.push(upd(self.spawn_subagent(id, name, &input).await));
                         }
+                        // A call of the chat's own that blocks its turn (`foreground_work.rs`).
+                        if main_line && let Some(id) = c.get("id").and_then(Value::as_str) {
+                            self.foreground_call(name, id, &input).await;
+                        }
                         // The todo list is the turn's ACP plan (cx-ncc.80): clients
                         // draw it as a checklist.
                         if name == "TodoWrite"
@@ -265,8 +273,13 @@ impl Translator {
                             self.task_plan.lock().await.call(name, id, &input);
                         }
                         // Every shell, so one moved to the background later
-                        // keeps its command (cx-ncc.84).
-                        if name == "Bash"
+                        // keeps its command (cx-ncc.84). A Monitor runs its
+                        // command in the background too, and Claude's task
+                        // events for it carry only its description: without
+                        // its call the tray read the description ("hold") as
+                        // the command.
+                        let monitor = name == "Monitor";
+                        if (name == "Bash" || monitor)
                             && let Some(id) = c.get("id").and_then(Value::as_str)
                         {
                             let command =
@@ -281,10 +294,10 @@ impl Translator {
                                     .filter(|d| !d.is_empty())
                                     .map(str::to_owned),
                                 task: None,
-                                background: input.get("run_in_background")
-                                    == Some(&Value::Bool(true)),
-                                launched: input.get("run_in_background")
-                                    == Some(&Value::Bool(true)),
+                                background: monitor
+                                    || input.get("run_in_background") == Some(&Value::Bool(true)),
+                                launched: monitor
+                                    || input.get("run_in_background") == Some(&Value::Bool(true)),
                                 asked: false,
                                 announced: false,
                                 output: None,
@@ -390,6 +403,7 @@ impl Translator {
                         };
                         let is_err = c.get("is_error").and_then(Value::as_bool).unwrap_or(false);
                         let tool = c.get("tool_use_id").and_then(Value::as_str).unwrap_or("");
+                        self.foreground_done(tool).await;
                         // A failed launch never ran; a foreground shell no task
                         // named is done.
                         {
@@ -798,6 +812,7 @@ impl Translator {
                 *self.prompt_echo.lock().await = None;
                 // A Ctrl-B still unanswered leaves no mark past its turn.
                 self.end_background_asks(false, |_, _| true).await;
+                self.foreground_ended().await;
                 // What the context holds now, as Claude Code's /context breaks it down; its
                 // answer comes after the turn ended (`context_breakdown`). `summary` answers
                 // from the last response's usage, with no token-count API call.

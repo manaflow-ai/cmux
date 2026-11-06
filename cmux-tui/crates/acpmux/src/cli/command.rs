@@ -55,6 +55,11 @@ pub enum Command {
         /// The link, an id, `HOST/NAME`, a name, a bead id, or `@` for this session.
         query: String,
     },
+    /// Who else works on these files: the other live and recent sessions, here and on peers, that
+    /// read or edited them, share this worktree or branch, or work on the same topic. With no
+    /// files, what the session this shell runs in edited lately.
+    #[command(name = "who-else", alias = "whoelse", alias = "overlap")]
+    WhoElse(crate::cli::who_else::WhoElseArgs),
     /// Link a session to the tracker beads it works on (`bd` ids), unlink them, list them.
     #[command(subcommand)]
     Bead(crate::cli::beads::BeadCmd),
@@ -246,8 +251,8 @@ pub enum Command {
         /// What to do when the turn asks for a permission: wait (default), deny, or fail (exit 5).
         #[arg(long, default_value = "wait")]
         on_permission: String,
-        /// Report prompt_stalled (exit 1) when nothing happens for this many seconds after sending; 0 disables.
-        #[arg(long, default_value_t = 30)]
+        /// Report prompt_stalled (exit 1) when nothing happens for this many seconds after sending; 0 disables. The default waits for the live peer.
+        #[arg(long, default_value_t = 0)]
         stall: u64,
         /// Send this prompt id again (from a `daemon_closed` error): the daemon runs an id once and
         /// answers a repeat with the first run's outcome.
@@ -390,6 +395,9 @@ pub enum Command {
     /// Forum rules: announce one, list the current ones, ack one.
     #[command(subcommand)]
     Forum(crate::cli::forum::ForumCmd),
+    /// Wake a session with one message when others are done or blocked: add, ls, rm.
+    #[command(subcommand)]
+    Watch(crate::cli::watch::WatchCmd),
     /// Every chat on this device, from every harness: list, open, roots. Also `cmux chats …`.
     #[command(subcommand)]
     Chats(crate::cli::chats::ChatsCmd),
@@ -581,6 +589,9 @@ pub enum Command {
     /// `daemon start`: status, starting a daemon first when none runs.
     #[command(hide = true)]
     DaemonStart { person_key_fd: Option<i32>, show_token: bool },
+    /// `daemon enroll`: give the running daemon the person key (the VM provisioning exec).
+    #[command(hide = true)]
+    DaemonEnroll { person_key_fd: i32 },
     #[command(hide = true)]
     DaemonRestart,
     #[command(hide = true)]
@@ -1231,6 +1242,16 @@ pub enum DaemonCmd {
         #[arg(long)]
         show_token: bool,
     },
+    /// Give the daemon that runs the person key (64 hex characters, one line) from this
+    /// descriptor, and print its status. Only the VM provisioning exec runs it, as root: the
+    /// daemon takes the key only from a root peer, and only when it is not root itself
+    /// (`daemon/provision.rs`). It never starts a daemon.
+    #[command(hide = true)]
+    Enroll {
+        /// The descriptor to read the key from (0: stdin).
+        #[arg(long)]
+        person_key_fd: i32,
+    },
     /// Restart the daemon, preserving hosted sessions so they resume on startup.
     Restart,
     /// The service that keeps this machine's daemon running: the LaunchAgent on macOS, the
@@ -1422,6 +1443,7 @@ pub fn flatten(c: Command) -> Command {
             DaemonCmd::Start { person_key_fd, show_token } => {
                 Command::DaemonStart { person_key_fd, show_token }
             }
+            DaemonCmd::Enroll { person_key_fd } => Command::DaemonEnroll { person_key_fd },
             DaemonCmd::Shutdown { keep_agents, end_agents, restart } => {
                 Command::Shutdown { keep_agents, end_agents, restart }
             }
@@ -2000,6 +2022,30 @@ mod config_set_tests {
                 assert_eq!(value, "session.memory_mb=6144")
             }
             _ => panic!("unexpected command"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod deadline_defaults_tests {
+    use super::{Cli, Command};
+    use clap::Parser;
+
+    #[test]
+    fn send_waits_for_a_live_peer_by_default() {
+        let cli = Cli::try_parse_from(["acpmux", "send", "session", "slow reply"]).unwrap();
+        match cli.command {
+            Some(Command::Send { stall, .. }) => assert_eq!(stall, 0),
+            _ => panic!("expected send command"),
+        }
+    }
+
+    #[test]
+    fn explicit_stall_remains_a_caller_choice() {
+        let cli = Cli::try_parse_from(["acpmux", "send", "session", "--stall", "7"]).unwrap();
+        match cli.command {
+            Some(Command::Send { stall, .. }) => assert_eq!(stall, 7),
+            _ => panic!("expected send command"),
         }
     }
 }

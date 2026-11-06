@@ -466,7 +466,7 @@ async fn a_capable_host_name_fronting_an_older_receiver_does_not_move_an_approve
                        "to": {"socket": "/tmp/acpmux-older-receiver.sock", "host": "capable"}});
     let result = hub.transfer_request("_acpmux/transfer_begin", &begin).await;
     if let Ok(bundle) = &result {
-        let abort = json!({"sessionId": session.id, "transferId": bundle["transferId"]});
+        let abort = json!({"sessionId": session.id, "transferId": bundle["transferId"], "epoch": bundle["epoch"]});
         hub.transfer_request("_acpmux/transfer_abort", &abort).await.unwrap();
     }
     let refused = result.expect_err("a peer record vouched for the receiver it does not front");
@@ -497,7 +497,63 @@ async fn a_capable_host_name_fronting_an_older_receiver_does_not_move_an_approve
     let refused =
         receiver.transfer_request("_acpmux/transfer_receive", &receive).await.unwrap_err();
     assert_eq!(refused.data.as_ref().unwrap()["reason"], "transfer.approved_prompts");
-    let abort = json!({"sessionId": session.id, "transferId": manifest["transferId"]});
+    let abort = json!({"sessionId": session.id, "transferId": manifest["transferId"], "epoch": manifest["epoch"]});
     hub.transfer_request("_acpmux/transfer_abort", &abort).await.unwrap();
     hub.shutdown_all().await;
+}
+
+/// A goal's continuation keeps its mark across a restart, in its provenance, and the person's
+/// edit of one drops it there too: the edited prompt is the person's, which no goal change may
+/// refuse (Codex review of #36666: the mark was a field that a restart and an edit's restore lost
+/// or kept wrongly).
+#[tokio::test]
+async fn a_restart_keeps_a_continuations_goal_mark_and_an_edit_drops_it() {
+    let dir = std::env::temp_dir().join(format!("acpmux-goal-mark-{}", uuid::Uuid::now_v7()));
+    let durable = || {
+        let mut cfg: Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+            "defaultHarness": "fake"
+        }))
+        .unwrap();
+        cfg.store.mode = StoreMode::Local;
+        let store = crate::store::open(&cfg.store, &dir).unwrap();
+        Hub::new(cfg, store)
+    };
+    let hub = durable();
+    let new = crate::hub::NewRequest {
+        cwd: Some(std::env::temp_dir()),
+        ..crate::hub::NewRequest::default()
+    };
+    let session = hub.new_session(new).await.unwrap();
+    let id = session.id.clone();
+    let continuation = crate::prompt_provenance::notice(
+        &json!({"sender": "acpmux", "severity": "info", "title": "Keep going toward the goal"}),
+        &id,
+    );
+    let mut continuation = continuation;
+    cmux_json::JsonSet::set(&mut continuation, "goalMark", json!("41"));
+    for prompt_id in ["kept", "edited"] {
+        insert(&hub, &session, prompt_id, Some(&continuation));
+    }
+    let edit =
+        json!({"sessionId": id, "promptId": "edited", "op": "update", "text": "Do this instead"});
+    hub.queue_edit(&session, &edit, Control::Local, false, None).await.unwrap();
+    hub.shutdown_all().await;
+    drop((session, hub));
+
+    let hub = durable();
+    let session = hub.resolve(&id).unwrap();
+    hub.restore_queue(&session);
+    let marks: Vec<(String, Option<Value>)> = session
+        .queue()
+        .into_iter()
+        .map(|q| (q.prompt_id, q.run.provenance.as_ref().and_then(|p| p.get("goalMark")).cloned()))
+        .collect();
+    assert_eq!(
+        marks,
+        [("kept".to_owned(), Some(json!("41"))), ("edited".to_owned(), None)],
+        "the restored queue's goal marks"
+    );
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
 }

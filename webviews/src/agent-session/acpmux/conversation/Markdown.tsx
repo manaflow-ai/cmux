@@ -23,6 +23,7 @@ import type { Reveal } from "./RevealedMarkdown";
 import { ArxivMark, GitHubMark, Globe, ImageIcon } from "./icons";
 import { FileKindIcon } from "../chips/FileKindIcon";
 import { MathDisplay, MathInline } from "./Math";
+import { installSelectionCopy } from "./selectionCopy";
 import { fenceStep } from "./fenceRule";
 import { closesFence, codeSpans, fenceOpening } from "../slashCommands";
 import { normalizeMath } from "./mathDelimiters";
@@ -490,7 +491,7 @@ export const linkIcon = (href: string) => {
   if (kind === "github") return <GitHubMark size={14} className="cv-link__icon cv-link__icon--gh" />;
   if (kind === "citation") return <ArxivMark size={16} className="cv-link__icon" />;
   if (kind === "file") return <FileKindIcon path={href} className="cv-link__icon" />;
-  return <Globe size={16} strokeWidth={1.1} className="cv-link__icon" />;
+  return <Globe size={16} className="cv-link__icon" />;
 };
 
 /// `src/app.ts:12` keeps its line in the chip's label (the chip opens the file).
@@ -1323,6 +1324,8 @@ export function Markdown({
   skills,
   commonmark = false,
 }: MarkdownProps) {
+  // A selection copied out of a message keeps its formatting (selectionCopy.ts); once per page.
+  installSelectionCopy();
   const parser = useRef<IncrementalMarkdown | null>(null);
   parser.current ??= new IncrementalMarkdown();
   // A sent prompt (`commonmark`) is whole, never streamed: it parses at once, its code read as send

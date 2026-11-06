@@ -172,6 +172,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `cloud.signInCancel`: the page left Cloud (another mode, chat or tab) while a `cloud.signIn`
     /// waited on the browser; that sign-in still finishes, but its preserved prompt is not sent.
     case cloudSignInCancel
+    case cloudReservation(AgentPaneCloudReservationRequest)
     /// `cloud.repickChat {machine?, name?}`: another machine picked for a Cloud chat whose first send
     /// has not run (``AgentPaneCloudRepick``, ``AgentPaneModel/onCloudRepickChat``).
     case cloudRepickChat(AgentPaneCloudRepick)
@@ -188,6 +189,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case cloudEnvironment(AgentPaneCloudEnvironmentRequest)
     /// A user-confirmed provider credential transfer for one Cloud chat.
     case cloudCredentialTransfer(AgentPaneCloudCredentialTransferRequest)
+    /// Fork a Cloud machine as it is now and its latest completed transcript turn into one sibling.
+    case tryAnotherApproach(AgentPaneTryAnotherApproach)
     /// The new-tab omnibar invoked a host-owned action id.
     case appAction(String)
     /// The chat header's tools and "..." menu: run app action `id` (one of
@@ -255,10 +258,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case asksAnswer(AgentPaneAskAnswer)
     /// `chat.subagentPane {subagent, focus}`: this chat's subagent in an agent pane of its own,
     /// right of the chat (``AgentSubagentPanes``); `focus` moves keyboard focus to it.
-    case subagentPane(String, focus: Bool, title: String? = nil)
+    case subagentPane(String, focus: Bool, title: String? = nil, tone: Int? = nil)
     /// `chat.subagentShown {subagent?, title?}`: a pane opened on a subagent now shows that subagent
     /// (named `title`), or its chat again (no subagent): its tab's name follows (``SubagentTabTitles``).
-    case subagentShown(String?, title: String?)
+    case subagentShown(String?, title: String?, tone: Int? = nil)
     /// `chat.processTerminal {toolCallId}`: the background process this chat's tool call started,
     /// in a read-only terminal tab beside the chat (``AgentPaneProcessViewer``).
     case processTerminal(toolCall: String)

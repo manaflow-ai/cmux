@@ -402,31 +402,20 @@ test.each([false, true])("a deferred local switch sends after its gated start (t
     expect(run.promptRequests).toHaveLength(0);
 
     run.releaseLocal();
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-    try {
-      const result = await Promise.race([
-        (async () => {
-          if (trustFirst) {
-            await trustRefused;
-            expect(retryTrust).toBeDefined();
-            await run.client.trustGet("/tmp");
-            await run.client.trustSet("/tmp", "trusted");
-            expect(run.trustRequests).toEqual([
-              { method: "acp.trust.get", params: { cwd: "/tmp" } },
-              { method: "acp.trust.set", params: { cwd: "/tmp", level: "trusted" } },
-            ]);
-            retryTrust!();
-          }
-          return Promise.all([opening, sending!]);
-        })(),
-        new Promise<never>((_, reject) => {
-          timeout = setTimeout(() => reject(new Error("deferred local send timed out")), 1_000);
-        }),
+    if (trustFirst) {
+      await trustRefused;
+      expect(retryTrust).toBeDefined();
+      await run.client.trustGet("/tmp");
+      await run.client.trustSet("/tmp", "trusted");
+      expect(run.trustRequests).toEqual([
+        { method: "acp.trust.get", params: { cwd: "/tmp" } },
+        { method: "acp.trust.set", params: { cwd: "/tmp", level: "trusted" } },
       ]);
-      expect(result[0]).toBe(trustFirst ? "seeded-chat-2" : "seeded-chat-1");
-    } finally {
-      if (timeout) clearTimeout(timeout);
+      retryTrust!();
     }
+    // Awaited on the switch and the send themselves: a send that never goes ends at the test's own time limit.
+    const result = await Promise.all([opening, sending!]);
+    expect(result[0]).toBe(trustFirst ? "seeded-chat-2" : "seeded-chat-1");
     expect(run.client.selectedSession).toBe(trustFirst ? "seeded-chat-2" : "seeded-chat-1");
     expect(run.promptRequests).toHaveLength(1);
     expect(run.promptRequests[0]).toMatchObject({

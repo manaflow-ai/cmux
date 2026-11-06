@@ -66,7 +66,7 @@ test("the project picker with no projects says none are recent until a search fi
   );
   await act(async () => host.querySelector<HTMLButtonElement>("button")!.click());
   const empty = () => document.querySelector(".acpmux-project-empty")?.textContent;
-  expect(empty()).toBe("No recent projects");
+  expect(empty()).toBe("No recent folders");
 
   const search = document.querySelector<HTMLInputElement>('input[role="combobox"]')!;
   const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
@@ -74,5 +74,79 @@ test("the project picker with no projects says none are recent until a search fi
     setValue.call(search, "payments");
     search.dispatchEvent(new window.Event("input", { bubbles: true }));
   });
-  expect(empty()).toBe("No matching projects");
+  expect(empty()).toBe("No matching folders");
+});
+
+// Add folder… goes straight to the host's folder panel. A refused panel says why beside a Retry
+// (review of cmux#36964: the Add project dialog that showed it is gone).
+test("a failed Add folder… says why and Retry asks the host again", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ProjectChooser } = await import("../src/agent-session/acpmux/ProjectChooser");
+  act(() => root?.unmount());
+  root = createRoot(host);
+  let calls = 0;
+  const onBrowse = () => {
+    calls += 1;
+    return calls === 1 ? Promise.reject(new Error("Folder access was denied")) : Promise.resolve(undefined);
+  };
+  await act(async () =>
+    root!.render(<ProjectChooser projects={[]} icon={null} onPick={() => {}} onBrowse={onBrowse} side="bottom" />),
+  );
+  await act(async () => host.querySelector<HTMLButtonElement>("button")!.click());
+  const add = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) =>
+    option.textContent?.includes("Add folder…"),
+  )!;
+  await act(async () => add.click());
+  await act(async () => new Promise((done) => setTimeout(done, 0)));
+  expect(calls).toBe(1);
+  expect(host.querySelector('[role="alert"]')?.textContent).toBe("Folder access was denied");
+
+  const retry = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+    (button) => button.textContent === "Retry",
+  )!;
+  await act(async () => retry.click());
+  await act(async () => new Promise((done) => setTimeout(done, 0)));
+  expect(calls).toBe(2);
+  expect(host.querySelector('[role="alert"]')).toBeNull();
+});
+
+// A folder picked while the host's folder panel is still open wins over the panel's late answer
+// (review of cmux#36964): the panel only answers (deferPick) and the chooser commits the pick.
+test("a folder picked while Add folder… is open is not replaced by the panel's late answer", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ProjectChooser } = await import("../src/agent-session/acpmux/ProjectChooser");
+  act(() => root?.unmount());
+  root = createRoot(host);
+  let answer: (cwd: string) => void = () => {};
+  const requests: unknown[] = [];
+  const picks: string[] = [];
+  const onBrowse = (request?: unknown) => {
+    requests.push(request);
+    return new Promise<string>((resolve) => (answer = resolve));
+  };
+  const projects = [{ cwd: "/work/relay", label: "relay" }];
+  await act(async () =>
+    root!.render(
+      <ProjectChooser
+        projects={projects}
+        icon={null}
+        onPick={(cwd) => picks.push(cwd)}
+        onBrowse={onBrowse}
+        side="bottom"
+      />,
+    ),
+  );
+  const option = (name: string) =>
+    [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) => row.textContent?.includes(name))!;
+  await act(async () => host.querySelector<HTMLButtonElement>("button")!.click());
+  await act(async () => option("Add folder…").click());
+  expect(requests).toEqual([{ deferPick: true }]);
+
+  await act(async () => host.querySelector<HTMLButtonElement>("button")!.click());
+  await act(async () => option("relay").click());
+  expect(picks).toEqual(["/work/relay"]);
+
+  await act(async () => answer("/work/late"));
+  await act(async () => new Promise((done) => setTimeout(done, 0)));
+  expect(picks).toEqual(["/work/relay"]);
 });

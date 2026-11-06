@@ -60,6 +60,41 @@ pub async fn serve(
     } else {
         link.gate().await
     };
+    // A machine (not a phone) opens only what the person granted it on this Mac,
+    // read again at every open so a removed or narrowed peer loses it at once.
+    let machine_grants = if service == "auth" || gate != crate::pairing::Gate::Paired {
+        None
+    } else {
+        machine_grants(&config, &peer, &link)
+    };
+    if let Some(grants) = &machine_grants {
+        let decision = match grants {
+            Ok(grants) => crate::peer::allows(grants, &service),
+            Err(code) => Err(*code),
+        };
+        if let Some(pairing) = config.pairing.as_ref() {
+            let kind = link.peer().map(|(kind, _)| kind.as_str()).unwrap_or("mac");
+            pairing.activity.record(crate::activity::Entry {
+                at_ms: crate::activity::now_ms(),
+                peer: peer.device_id.clone(),
+                kind,
+                direction: "in",
+                service: service.clone(),
+                decision: decision.err().unwrap_or("allowed").to_owned(),
+                target: None,
+            });
+        }
+        if let Err(code) = decision {
+            let reason = match code {
+                "revoked" => "this Mac no longer allows that machine".to_owned(),
+                "not_offered" => format!("{service} is not offered to machines"),
+                _ => format!("this Mac has not allowed that machine to use {service}"),
+            };
+            tracing::info!(service, code, peer = peer.device_id, "machine channel refused");
+            sender.close(code, &reason).await;
+            return;
+        }
+    }
     let result = match service.as_str() {
         "auth" => crate::pairing::serve(
             config.pairing.as_ref(),
@@ -87,6 +122,11 @@ pub async fn serve(
         "file-preview" => file(&config, &args, &sender, true).await,
         "upload" => upload(&config, &peer, &args, &sender, receiver).await,
         "version" => version(&config, &sender).await,
+        "machine" => {
+            let grants = machine_grants.and_then(Result::ok).unwrap_or_default();
+            let name = std::env::var("CMUX_MOBILE_DEVICE_NAME").unwrap_or_else(|_| crate::config::hostname());
+            crate::machine::serve(&sender, &name, &grants).await
+        }
         "needs-you" => crate::needs_you::serve(&sender, receiver).await,
         "browser" => crate::browser::serve(&config.browser, &*config, &peer, &args, &sender, receiver).await,
         "surface" => crate::surface::serve(&config.surface, &*config, &peer, &args, &sender, receiver).await,
@@ -105,6 +145,30 @@ pub async fn serve(
             sender.close(refusal.code, &refusal.reason).await;
         }
     }
+}
+
+/// For a link whose `auth` was a machine's: the grants the app gives it now,
+/// or `Err("revoked")` when the app no longer lists it. `None` for a phone, or
+/// an unsupervised hostd.
+fn machine_grants(
+    config: &ServiceConfig,
+    peer: &Peer,
+    link: &crate::pairing::LinkAuth,
+) -> Option<Result<Vec<crate::peer::Grant>, &'static str>> {
+    let pairing = config.pairing.as_ref()?;
+    let (kind, identity_key) = link.peer()?;
+    if !kind.is_machine() {
+        return None;
+    }
+    let trust = pairing.trust.borrow();
+    Some(
+        trust
+            .as_ref()
+            .and_then(|trust| trust.machine(&peer.device_id, &identity_key))
+            .filter(|device| device.kind == kind)
+            .map(|device| device.grants.clone())
+            .ok_or("revoked"),
+    )
 }
 
 /// Closes `incoming` at once with `code` (the accept loop's own refusals).
@@ -129,6 +193,10 @@ impl Refusal {
 /// What the Mac side runs, so a phone can tell an outdated Mac (whose
 /// hostd refuses this service with `unknown_service`) and say so.
 pub const LINK_PROTOCOL: u32 = 2;
+
+/// The largest message the daemon's acpmux WebSocket sends or takes (acpmux `server/mod.rs`
+/// `WS_MAX_MESSAGE_BYTES`).
+const ACPMUX_MAX_MESSAGE_BYTES: usize = 64 << 20;
 
 /// The `version` service's `capabilities` (PROTOCOL.md "Services").
 /// `localhost-forward-v1`: the `localhost` service (a phone's native browser tab
@@ -1032,7 +1100,13 @@ async fn connect_acpmux_as(target: &AcpmuxTarget, credential: Option<&str>) -> R
             format!("Bearer {token}").parse().map_err(|_| Refusal::new("unavailable", "bad acpmux token"))?,
         );
     }
-    let (socket, _) = tokio_tungstenite::connect_async(request)
+    // acpmux's own limits (its `WS_MAX_MESSAGE_BYTES`): tungstenite's default 16 MiB frame made
+    // the push watcher drop an older acpmux's 24.8 MB watch list and ask again, about once a
+    // minute for hours (2026-11-06).
+    let limits = tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default()
+        .max_message_size(Some(ACPMUX_MAX_MESSAGE_BYTES))
+        .max_frame_size(Some(ACPMUX_MAX_MESSAGE_BYTES));
+    let (socket, _) = tokio_tungstenite::connect_async_with_config(request, Some(limits), false)
         .await
         .map_err(|e| Refusal::new("unavailable", format!("acpmux: {e}")))?;
     Ok(socket)
@@ -1960,6 +2034,35 @@ async fn receive_upload(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A reply in one frame past tungstenite's default 16 MiB frame limit reads whole: an older
+    /// acpmux sends its whole watch list so (24.8 MB on one Mac, 2026-11-06), and the push
+    /// watcher dropped it and asked again about every minute.
+    #[tokio::test]
+    async fn the_acpmux_socket_takes_a_frame_past_16_mib() {
+        use futures_util::{SinkExt as _, StreamExt as _};
+        use tokio_tungstenite::tungstenite::Message as WsMessage;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("ws://{}/", listener.local_addr().unwrap());
+        let reply = "x".repeat(20 << 20);
+        let sent = reply.clone();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let limits = tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default()
+                .max_message_size(Some(ACPMUX_MAX_MESSAGE_BYTES))
+                .max_frame_size(Some(ACPMUX_MAX_MESSAGE_BYTES));
+            let mut socket = tokio_tungstenite::accept_async_with_config(stream, Some(limits)).await.unwrap();
+            socket.send(WsMessage::Text(sent.into())).await.unwrap();
+            // Held open until the client has read the frame.
+            let _ = socket.next().await;
+        });
+        let target = AcpmuxTarget::Fixed { url, token: None };
+        let mut socket = connect_acpmux_as(&target, None).await.unwrap();
+        let read = socket.next().await.expect("a frame").expect("read whole, not refused for its size");
+        assert_eq!(read.into_text().unwrap().len(), reply.len());
+        drop(socket);
+        server.await.unwrap();
+    }
 
     /// The daemon down: only the Chat Folders are shared and no Mac page loads.
     #[tokio::test]
