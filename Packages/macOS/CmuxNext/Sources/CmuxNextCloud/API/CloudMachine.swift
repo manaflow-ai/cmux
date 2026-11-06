@@ -231,6 +231,8 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
     public var createdAt: Date?
     /// Person who created the machine, when the team API supplies it.
     public var createdBy: String?
+    /// The team that owns the machine (the cmux-next record's `team`); nil on a classic record.
+    public var team: String?
     public var address: Address?
     public var size: Size?
     /// Server-declared provider operations and attach transports; `nil`
