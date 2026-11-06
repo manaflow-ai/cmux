@@ -47,8 +47,12 @@ MAX_LINE_BYTES = 64 * 1024
 MAX_FILE_BYTES = 1024 * 1024
 
 _MACHINE_ID = re.compile(r"vm_[0-9a-z]{1,64}")
-# A UUID (#915) or a writer-fixed slug such as the CLI row's start-matrix-golden-path.
-_PROBE_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[a-z0-9][a-z0-9-]{0,63}")
+# A UUID (#915), or a slug a known writer names, such as the CLI row's start-matrix-golden-path. Any other slug may
+# be a credential (sk-ant-abc123), so it is never echoed.
+_PROBE_ID = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+    r"|(?=[a-z0-9-]{1,64}\Z)(?:start-matrix-|golden-path-)[a-z0-9-]*"
+)
 _FAILURE_CODE = re.compile(r"[a-z_]+\.[a-z_]+")
 _RECEIPT_KEYS = {"version", "probeId", "startedAt", "endedAt", "outcome", "machineId", "stages"}
 _STAGE_KEYS = {"stage", "requestId", "startedAt", "endedAt", "ok"}
