@@ -259,6 +259,15 @@ mod tests {
         Hub::hold_stalled_count(&session);
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         assert!(session.steer_end.borrow().is_none(), "the next agent's turn is not ended");
+        // That agent's own refused retries still end the turn.
+        hub.end_sign_in_refused(&session, &refused(3));
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let end = session.steer_end.borrow().clone();
+        assert_eq!(
+            end.map(|(turn, _)| turn).as_deref(),
+            Some("turn-1"),
+            "the next agent's refusal ends it"
+        );
     }
 
     #[test]
