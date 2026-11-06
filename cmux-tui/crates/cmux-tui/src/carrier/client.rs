@@ -17,6 +17,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use cmux_remote::bridge::OpenedMuxControl;
 use cmux_remote::connection::{
     ClientConnection, ClientConnectionConfig, ConnectionError, ReconnectPolicy, ResumeHooks,
 };
@@ -45,6 +46,8 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
 pub(super) struct Dialed {
     pub connection: Arc<ClientConnection>,
     pub multiplexer: Arc<ServiceMultiplexer>,
+    /// The daemon stream, opened before the dial reports success.
+    pub mux: OpenedMuxControl,
 }
 
 /// What one dial needs.
@@ -243,7 +246,20 @@ async fn attempt(
     };
     connection.set_resume_hooks(resume.clone());
     let multiplexer = ServiceMultiplexer::new(connection.clone(), EndpointRole::Client);
-    Ok(Dialed { connection, multiplexer })
+    // A grant that does not admit mux control is refused here, before the
+    // reply line says ok.
+    let mux = match OpenedMuxControl::open(&multiplexer).await {
+        Ok(mux) => mux,
+        Err(error) => {
+            multiplexer.shutdown().await;
+            let _ = connection.close().await;
+            return Err(Failure::fatal(
+                Step::Handshake,
+                format!("the daemon did not open its mux control stream: {error}"),
+            ));
+        }
+    };
+    Ok(Dialed { connection, multiplexer, mux })
 }
 
 /// Route lines for an established session's resumes.

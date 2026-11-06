@@ -170,14 +170,10 @@ pub(crate) fn run(args: &[String]) -> i32 {
                 reply(&line);
             }
         });
-        let _ = cmux_remote::bridge::bridge_mux_control(
-            &dialed.multiplexer,
-            tokio::io::stdin(),
-            tokio::io::stdout(),
-        )
-        .await;
-        dialed.multiplexer.shutdown().await;
-        let _ = dialed.connection.close().await;
+        let client::Dialed { connection, multiplexer, mux } = dialed;
+        let _ = mux.bridge(tokio::io::stdin(), tokio::io::stdout()).await;
+        multiplexer.shutdown().await;
+        let _ = connection.close().await;
         writer.abort();
         0
     });

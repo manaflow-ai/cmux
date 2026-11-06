@@ -40,12 +40,13 @@ fn now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
 }
 
-struct Signer(Ed25519KeyPair);
+/// The platform's grant key and the service the grants it signs name.
+struct Signer(Ed25519KeyPair, &'static str);
 
 impl Signer {
-    fn generate() -> Self {
+    fn generate(service: &'static str) -> Self {
         let pkcs8 = Ed25519KeyPair::generate_pkcs8(&ring::rand::SystemRandom::new()).unwrap();
-        Self(Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).unwrap())
+        Self(Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).unwrap(), service)
     }
 
     fn keyset(&self) -> Keyset {
@@ -61,7 +62,7 @@ impl Signer {
             "aud": MACHINE,
             "team": TEAM,
             "sub": "user_00000000000000000001",
-            "svc": ["mux-control"],
+            "svc": [self.1],
             "nk": noise_key_digest(noise_key),
             "jti": URL_SAFE_NO_PAD.encode((jti as u128).to_be_bytes()),
             "iat": now() - 5,
@@ -176,8 +177,12 @@ struct World {
 }
 
 /// A relay, a registered daemon with a grant verifier and a mux socket, and
-/// the platform route answering `status`.
+/// the platform route answering `status` with grants for `service`.
 fn world(status: u16, asked: Arc<AtomicUsize>) -> World {
+    world_granting(status, asked, "mux-control")
+}
+
+fn world_granting(status: u16, asked: Arc<AtomicUsize>, service: &'static str) -> World {
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
     let dir = tempfile::tempdir().unwrap();
     let mux = dir.path().join("mux.sock");
@@ -189,7 +194,7 @@ fn world(status: u16, asked: Arc<AtomicUsize>) -> World {
         let (listener, router) = relay.server_parts(listener);
         tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
 
-        let signer = Arc::new(Signer::generate());
+        let signer = Arc::new(Signer::generate(service));
         std::fs::create_dir_all(&state).unwrap();
         let auth = AuthDatabase::load_or_create(&state, "carrier-dial-test", false).unwrap();
         let verifier =
@@ -291,6 +296,19 @@ fn a_refused_ticket_names_the_ticket_step() {
     let route = line(&mut stderr);
     assert!(route.contains("phase=connect outcome=ticket"), "{route}");
     assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(2));
+}
+
+#[test]
+fn a_grant_without_mux_control_fails_the_handshake_before_ok() {
+    let world = world_granting(200, Arc::new(AtomicUsize::new(0)), "tcp-tunnel");
+    let mut child = dial(&world);
+    let mut stderr = BufReader::new(child.stderr.take().unwrap());
+    let reply: Value = serde_json::from_str(&line(&mut stderr)).unwrap();
+    assert_eq!(reply["ok"], false, "{reply}");
+    assert_eq!(reply["error_code"], "handshake", "{reply}");
+    let route = line(&mut stderr);
+    assert!(route.contains("phase=connect outcome=handshake"), "{route}");
+    assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(5));
 }
 
 /// The child's exit code, or None (and the child ended) past `limit`.
