@@ -110,4 +110,62 @@ import Testing
         let shown = await grids()
         #expect(shown == [newest], "shown again it sent \(shown), not the newest grid \(newest) once")
     }
+
+    /// frame-owner-s2's rule for the grid a hidden view keeps for its show (`resendsShownGrid`): a newer grid that goes
+    /// while the view is hidden (a spring's final grid, or a forced report) must never be followed by an older grid. A
+    /// hide drops a waiting grid (the flag is set); then the newer grid goes; then the view shows at its size. The PTY's
+    /// last grid is the grid the view fits, and the show sends at most one grid.
+    @Test(arguments: [false, true])
+    func aGridKeptForTheShowNeverGoesAfterANewerGrid(newerIsForced: Bool) async throws {
+        _ = NSApplication.shared
+        _ = GhosttyRuntime.shared
+        let io = GridRecordingTerminalIO()
+        let session = TerminalSession(io: io)
+        try #require(session.surfaceView.surface != nil, "libghostty created no surface")
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let workspace = NSView(frame: NSRect(x: 0, y: 0, width: 900, height: 600))
+        window.contentView = workspace
+        session.view.frame = workspace.bounds
+        workspace.addSubview(session.view)
+        defer {
+            io.finish()
+            window.close()
+        }
+        workspace.layoutSubtreeIfNeeded()
+        func grids() async -> [TerminalGridSize] {
+            session.surfaceView.bridge.takeUnretainedValue().input.focusGained()
+            return await io.gridsUntilMarker()
+        }
+        _ = await grids()
+
+        // A followed key resize leaves a grid waiting; the hide drops it and keeps a grid for the show.
+        session.view.followPaneMotion(PaneMotionHold(trailing: false, bottom: false), heldSize: session.view.bounds.size)
+        session.view.frame = NSRect(x: 0, y: 0, width: 700, height: 480)
+        workspace.layoutSubtreeIfNeeded()
+        let coalescer = session.surfaceView.gridReports.coalescer
+        try #require(coalescer.isWaiting, "SETUP: the followed resize left no grid waiting")
+        workspace.isHidden = true
+        session.view.followPaneMotion(nil, heldSize: nil)
+        workspace.layoutSubtreeIfNeeded()
+        try #require(session.surfaceView.resendsShownGrid, "SETUP: the hide kept no grid for the show")
+
+        // A newer grid goes while hidden.
+        if newerIsForced {
+            session.surfaceView.updateSurfaceSize(forceReport: true)
+        } else {
+            session.surfaceView.reportFinalGrid(TerminalGridSize(columns: 40, rows: 12))
+        }
+        let hidden = await grids()
+
+        workspace.isHidden = false
+        workspace.layoutSubtreeIfNeeded()
+        let shown = await grids()
+        let fit = try #require(session.surfaceView.fittedGrid)
+        let last = (hidden + shown).last
+        print("hidden grid kept for the show, newer \(newerIsForced ? "forced" : "final"): hidden \(hidden), shown \(shown), fit \(fit)")
+        #expect(last == fit, "the PTY's last grid is \(String(describing: last)), not the view's fit \(fit): an older grid went after a newer one")
+        #expect(shown.count <= 1, "the show sent \(shown.count) grids: \(shown)")
+    }
 }
