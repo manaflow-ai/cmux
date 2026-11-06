@@ -56,7 +56,7 @@ struct LastTabClosesWorkspaceTests {
         let id: String
         let key: WorkspaceKey
         let pane: PaneController
-        let tab: StripTabID
+        let tab: CmuxNextTabs.TabID
     }
 
     /// A second workspace, shown, with one pane and one idle terminal, its pane focused.
