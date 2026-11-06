@@ -54,6 +54,15 @@ case "status", "grant":
     }
     print("accessibility=\(ax ? "granted" : "missing") screen_recording=\(screen ? "granted" : "missing")")
     exit(ax && screen ? 0 : 3)
+case "probe":
+    let target = arguments.dropFirst().first ?? "Calculator"
+    let done = DispatchSemaphore(value: 0)
+    Task.detached { [target, done] in
+        print(await Engine().probe(app: target))
+        done.signal()
+    }
+    done.wait()
+    exit(0)
 case "stdio":
     let connection = MCPConnection(engine: Engine(), input: .standardInput, output: .standardOutput)
     let done = DispatchSemaphore(value: 0)

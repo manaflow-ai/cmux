@@ -22,6 +22,9 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked
     private var latestAt: ContinuousClock.Instant?
     private var frames = 0
     private var stopped = false
+    /// Every sample's SCFrameStatus raw value, counted (diagnostics).
+    private(set) var statusCounts: [Int: Int] = [:]
+    private(set) var stopError: String?
     private(set) var lastUsed = ContinuousClock.now
 
     init(window: SCWindow, pixelWidth: Int, pixelHeight: Int) throws {
@@ -40,7 +43,8 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked
         config.queueDepth = 4
         // Up to 60 frames a second while the window changes; none while it is still.
         config.minimumFrameInterval = CMTime(value: 1, timescale: 60)
-        stream = SCStream(filter: SCContentFilter(desktopIndependentWindow: window), configuration: config, delegate: nil)
+        let filter = SCContentFilter(desktopIndependentWindow: window)
+        stream = SCStream(filter: filter, configuration: config, delegate: nil)
         super.init()
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
     }
@@ -59,12 +63,14 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked
     var isStopped: Bool { lock.withLock { stopped } }
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
-        guard type == .screen, sampleBuffer.isValid,
-              let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false)
-                as? [[SCStreamFrameInfo: Any]],
-              let statusRaw = attachments.first?[.status] as? Int,
-              let status = SCFrameStatus(rawValue: statusRaw),
-              status == .complete,
+        guard type == .screen, sampleBuffer.isValid else { return }
+        let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false)
+            as? [[SCStreamFrameInfo: Any]]
+        let statusRaw = (attachments?.first?[.status] as? NSNumber)?.intValue ?? -1
+        lock.withLock { statusCounts[statusRaw, default: 0] += 1 }
+        // A complete frame, or the first frame of a still window (which may
+        // carry no status), has pixels; idle and blank frames do not.
+        guard statusRaw == SCFrameStatus.complete.rawValue || statusRaw == -1,
               let pixels = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         let now = ContinuousClock.now
         lock.withLock {
@@ -75,7 +81,15 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked
     }
 
     func stream(_ stream: SCStream, didStopWithError error: any Error) {
-        lock.withLock { stopped = true }
+        lock.withLock {
+            stopped = true
+            stopError = "\(error)"
+        }
+    }
+
+    /// Diagnostics for `cmux-cu-service probe`.
+    var diagnostics: String {
+        lock.withLock { "frames=\(frames) statuses=\(statusCounts) stopped=\(stopped) error=\(stopError ?? "none")" }
     }
 
     /// Time of the newest frame (nil before the first one).
@@ -138,28 +152,46 @@ final class WindowStreams: @unchecked Sendable {
     /// The window's stream at this pixel size, started (and given its first
     /// frame) when needed. Nil when the window cannot be streamed (off
     /// screen, minimized, no grant): the caller falls back to a screenshot.
-    func stream(windowID: CGWindowID, pixelWidth: Int, pixelHeight: Int) async -> WindowStream? {
+    private(set) var lastFailure: String?
+    /// Windows whose stream gave no frame: a screenshot is taken instead,
+    /// without paying the first-frame wait again for `failureBackoff`.
+    private var failedAt: [CGWindowID: ContinuousClock.Instant] = [:]
+    let failureBackoff: Duration = .seconds(30)
+
+    func stream(windowID: CGWindowID, pixelWidth: Int, pixelHeight: Int,
+                firstFrameTimeout: Duration = .milliseconds(250)) async -> WindowStream? {
+        if let failed = lock.withLock({ failedAt[windowID] }), ContinuousClock.now - failed < failureBackoff {
+            return nil
+        }
         reap()
         if let existing = lock.withLock({ streams[windowID] }), !existing.isStopped,
            existing.pixelWidth == pixelWidth, existing.pixelHeight == pixelHeight {
             return existing
         }
         if let old = lock.withLock({ streams.removeValue(forKey: windowID) }) { old.stop() }
-        guard let window = await scWindow(windowID),
-              let stream = try? WindowStream(window: window, pixelWidth: pixelWidth, pixelHeight: pixelHeight) else {
-            return nil
-        }
+        guard let window = await scWindow(windowID) else { return fail(windowID, "window not shareable") }
+        let stream: WindowStream
         do {
+            stream = try WindowStream(window: window, pixelWidth: pixelWidth, pixelHeight: pixelHeight)
             try await stream.start()
         } catch {
-            return nil
+            return fail(windowID, "start: \(error)")
         }
-        guard await stream.firstFrame(timeout: .milliseconds(500)) else {
+        guard await stream.firstFrame(timeout: firstFrameTimeout) else {
+            let why = stream.diagnostics
             stream.stop()
-            return nil
+            return fail(windowID, "no frame: \(why)")
         }
         lock.withLock { streams[windowID] = stream }
         return stream
+    }
+
+    private func fail(_ id: CGWindowID, _ why: String) -> WindowStream? {
+        lock.withLock {
+            failedAt[id] = .now
+            lastFailure = why
+        }
+        return nil
     }
 
     func existing(windowID: CGWindowID) -> WindowStream? {

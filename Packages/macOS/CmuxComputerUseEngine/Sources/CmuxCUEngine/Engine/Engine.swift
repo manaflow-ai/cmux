@@ -41,6 +41,34 @@ public final class Engine: @unchecked Sendable {
 
     public init() {}
 
+    /// `cmux-cu-service probe APP`: one stream of the app's window for two
+    /// seconds while a key is pressed, then what ScreenCaptureKit sent.
+    public func probe(app query: String) async -> String {
+        do {
+            let app = try directory.resolve(query)
+            let appElement = sessions.appElement(pid: app.pid)
+            let focused = appElement.element(kAXFocusedWindowAttribute) ?? appElement.elements(kAXWindowsAttribute).first
+            guard let id = focused?.windowID, let window = directory.window(id: id, pid: app.pid) else {
+                return "no window for \(app.name)"
+            }
+            var lines = ["window \(id) frame=\(window.frame) onScreen=\(window.onScreen)"]
+            let geometry = ScreenshotGeometry(windowFrame: window.frame, displayScale: 2, maxLongEdge: maxImageEdge)
+            let clock = ContinuousClock()
+            let start = clock.now
+            guard let stream = await streams.stream(windowID: id, pixelWidth: geometry.pixelWidth,
+                                                    pixelHeight: geometry.pixelHeight, firstFrameTimeout: .seconds(2)) else {
+                return (lines + ["stream: none after \(ms(clock.now - start)) ms: \(streams.lastFailure ?? "?")"]).joined(separator: "\n")
+            }
+            lines.append("stream ready after \(ms(clock.now - start)) ms: \(stream.diagnostics)")
+            input.key(KeySpec(keyCode: 53), pid: app.pid)
+            try? await Task.sleep(for: .seconds(1))
+            lines.append("after a key: \(stream.diagnostics)")
+            return lines.joined(separator: "\n")
+        } catch {
+            return "\(error)"
+        }
+    }
+
     // MARK: Observe
 
     func listApps() -> ToolResult {
