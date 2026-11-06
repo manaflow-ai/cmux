@@ -100,6 +100,29 @@ fn a_named_team_goes_to_the_platform_as_x_cmux_team() {
 }
 
 #[test]
+fn the_ok_line_says_the_grant_s_vmk() {
+    for vmk in ["owner", "team"] {
+        let world = world_signed(
+            200,
+            Arc::new(AtomicUsize::new(0)),
+            "mux-control",
+            DaemonKey::Real,
+            Some(vmk),
+        );
+        let mut child = dial(&world);
+        let mut stderr = BufReader::new(child.stderr.take().unwrap());
+        let reply: Value = serde_json::from_str(&line(&mut stderr)).unwrap();
+        assert_eq!(
+            reply,
+            json!({"ok": true, "path_state": "relay", "route": "carrier", "vmk": vmk}),
+            "the daemon admitted the grant and the dial read its vmk"
+        );
+        drop(child.stdin.take());
+        assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(0));
+    }
+}
+
+#[test]
 fn a_refused_ticket_names_the_ticket_step() {
     let world = world(403, Arc::new(AtomicUsize::new(0)));
     let mut child = dial(&world);

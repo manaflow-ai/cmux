@@ -39,13 +39,14 @@ pub fn now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
 }
 
-/// The platform's grant key and the service the grants it signs name.
-pub struct Signer(Ed25519KeyPair, &'static str);
+/// The platform's grant key, the service the grants it signs name, and
+/// their `vmk` claim (none when `None`).
+pub struct Signer(Ed25519KeyPair, &'static str, Option<&'static str>);
 
 impl Signer {
-    fn generate(service: &'static str) -> Self {
+    fn generate(service: &'static str, vmk: Option<&'static str>) -> Self {
         let pkcs8 = Ed25519KeyPair::generate_pkcs8(&ring::rand::SystemRandom::new()).unwrap();
-        Self(Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).unwrap(), service)
+        Self(Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).unwrap(), service, vmk)
     }
 
     fn keyset(&self) -> Keyset {
@@ -56,7 +57,7 @@ impl Signer {
     /// A grant for `noise_key`, as the platform signs it.
     fn grant(&self, noise_key: &[u8; 32], jti: usize) -> String {
         let header = json!({"alg": "EdDSA", "kid": "k1", "typ": GRANT_TYP});
-        let claims = json!({
+        let mut claims = json!({
             "iss": ISSUER,
             "aud": MACHINE,
             "team": TEAM,
@@ -67,6 +68,9 @@ impl Signer {
             "iat": now() - 5,
             "exp": now() + 60,
         });
+        if let Some(vmk) = self.2 {
+            claims["vmk"] = json!(vmk);
+        }
         let message = format!(
             "{}.{}",
             URL_SAFE_NO_PAD.encode(serde_json::to_vec(&header).unwrap()),
@@ -224,6 +228,17 @@ pub fn world_full(
     service: &'static str,
     key: DaemonKey,
 ) -> World {
+    world_signed(status, asked, service, key, None)
+}
+
+/// [`world_full`] whose grants carry `vmk` as their `vmk` claim.
+pub fn world_signed(
+    status: u16,
+    asked: Arc<AtomicUsize>,
+    service: &'static str,
+    key: DaemonKey,
+    vmk: Option<&'static str>,
+) -> World {
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
     let dir = tempfile::tempdir().unwrap();
     let mux = dir.path().join("mux.sock");
@@ -238,7 +253,7 @@ pub fn world_full(
         let (listener, router) = relay.server_parts(listener);
         tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
 
-        let signer = Arc::new(Signer::generate(service));
+        let signer = Arc::new(Signer::generate(service, vmk));
         std::fs::create_dir_all(&state).unwrap();
         let auth = AuthDatabase::load_or_create(&state, "carrier-dial-test", false).unwrap();
         let verifier =
