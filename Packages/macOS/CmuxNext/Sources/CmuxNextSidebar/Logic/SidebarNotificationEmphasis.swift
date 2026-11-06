@@ -65,9 +65,10 @@ nonisolated struct WorkspaceRowAttention: Equatable {
         count = badges.unreadCount
     }
 
-    /// A workspace's attention from its own unread mark and activity, as its row's badge says it.
+    /// A workspace's attention from its own unread mark and activity, as its row's badge says it. A placeholder
+    /// that draws only its loading bar (no title yet) has none, as its row shows no badge (`isShowingPlaceholder`).
     init?(_ ws: SidebarWorkspace) {
-        guard ws.rowState != .placeholder else { return nil }
+        guard !(ws.rowState == .placeholder && ws.title.isEmpty) else { return nil }
         self.init(WorkspaceRowBadges(unread: ws.unread, activity: ws.activity, detailed: false))
     }
 
