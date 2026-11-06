@@ -13,11 +13,18 @@ against an exact schema:
 - a provider record: exactly {"machineId": "vm_...", "provider_verified": bool}.
 
 Evidence is read only from these keys in a stage's value, the names the CLI row's
-writer uses (cmuxterm-hq tools/cloud-golden-path/golden_path.check_value): chat's
-session_id (string) and session_discovered (bool); reconnect's pause {state:
-"paused"}, resume {state: "running"}, reconnected (bool) and second_reply {ok:
-bool}. A record with any unknown key, alias, wrong type or missing field is
-receipt_shape_unsupported and supplies no evidence.
+writer (cmuxterm-hq tools/cloud-golden-path/golden_path.py, #7402 at 8a0ff8ba) and
+the platform runner (cmux-platform#927 scripts/golden-path-probe.ts) write:
+- chat: session_id_chars (positive int), session_id_sha256 (12 lowercase hex) and
+  session_discovered (bool); reply_ms, discovery_ms and ms are numbers;
+- reconnect: pause {state, ms}, resume {state, ms}, link {dropped_while_paused,
+  back, back_ms}, second_reply {ok, ms}, reconnected (bool) and ms;
+- lease: {machineId, connectionMachine (vm_ ids), generation (int)};
+- auth: {allowed (bool)}.
+Other value keys are ignored. A record with any unknown top-level or stage key,
+alias, wrong type or missing field is receipt_shape_unsupported and supplies no
+evidence. An ok lease or auth stage counts only with its evidence: lease for the
+receipt's own machine, auth allowed.
 
 A receipt with a non-"passed" outcome or any failure proves nothing positive,
 except that a receipt whose only failures are gaps, `<stage>.not_observable` or
@@ -36,6 +43,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 from datetime import datetime
 from pathlib import Path
@@ -54,14 +62,47 @@ _PROBE_ID = re.compile(
     r"|(?=[a-z0-9-]{1,64}\Z)(?:start-matrix-|golden-path-)[a-z0-9-]*"
 )
 _FAILURE_CODE = re.compile(r"[a-z_]+\.[a-z_]+")
+_SHA256_PREFIX = re.compile(r"[0-9a-f]{12}")
 _RECEIPT_KEYS = {"version", "probeId", "startedAt", "endedAt", "outcome", "machineId", "stages"}
 _STAGE_KEYS = {"stage", "requestId", "startedAt", "endedAt", "ok"}
 _FAILURE_KEYS = {"code", "message", "retryable"}
-_VALUE_TYPES = {
-    "chat": {"session_id": str, "session_discovered": bool},
-    "reconnect": {"pause": dict, "resume": dict, "reconnected": bool, "second_reply": dict},
+def _number(value: object) -> bool:
+    return type(value) in (int, float) and math.isfinite(value)
+
+def _flag(value: object) -> bool:
+    return type(value) is bool
+
+def _text(value: object) -> bool:
+    return isinstance(value, str)
+
+def _machine(value: object) -> bool:
+    return isinstance(value, str) and bool(_MACHINE_ID.fullmatch(value))
+
+def _object(rules: dict[str, object]):
+    return lambda value: isinstance(value, dict) and _rules_ok(value, rules)
+
+def _rules_ok(value: dict[str, object], rules: dict[str, object]) -> bool:
+    """Each of RULES' keys that VALUE carries is well-formed; other keys are ignored, never read."""
+    return all(rule(value[key]) for key, rule in rules.items() if key in value)
+
+_VALUE_RULES = {
+    "chat": {
+        "session_id_chars": lambda value: type(value) is int and value > 0,
+        "session_id_sha256": lambda value: isinstance(value, str) and bool(_SHA256_PREFIX.fullmatch(value)),
+        "session_discovered": _flag, "reply_ms": _number, "discovery_ms": _number, "ms": _number,
+    },
+    "reconnect": {
+        "pause": _object({"state": _text, "ms": _number}),
+        "resume": _object({"state": _text, "ms": _number}),
+        "link": _object({"dropped_while_paused": _flag, "back": _flag, "back_ms": _number}),
+        "second_reply": _object({"ok": _flag, "ms": _number}),
+        "reconnected": _flag, "ms": _number,
+    },
+    "lease": {"machineId": _machine, "connectionMachine": _machine, "generation": lambda value: type(value) is int},
+    "auth": {"allowed": _flag},
 }
-_NESTED_TYPES = {"pause": {"state": str}, "resume": {"state": str}, "second_reply": {"ok": bool}}
+# Stages an ok record proves only with their evidence (_proof "ok").
+_EVIDENCED = ("lease", "auth")
 
 GAP_REASONS = ("not_observable", "no_route")
 
@@ -73,29 +114,37 @@ def _gap(stage: str, code: object) -> str | None:
             return reason
     return None
 
-def _typed(value: dict[str, object], types: dict[str, type]) -> bool:
-    return all(type(value[key]) is kind for key, kind in types.items() if key in value)
-
-def _proof(stage: str, value: dict[str, object]) -> str | None:
-    """"ok" when an ok stage's value carries its positive evidence, "fail" when it says the opposite."""
+def _proof(stage: str, value: dict[str, object], machine: str) -> str | None:
+    """"ok" when an ok stage's value carries its positive evidence, "fail" when it says the opposite, else None."""
     if stage == "chat":
         if value.get("session_discovered") is False:
             return "fail"
-        session = value.get("session_id")
-        found = isinstance(session, str) and session.strip() != "" and value.get("session_discovered") is True
+        found = ("session_id_chars" in value and "session_id_sha256" in value
+                 and value.get("session_discovered") is True)
         return "ok" if found else None
     if stage == "reconnect":
-        pause, resume, second = (value.get(key) or {} for key in ("pause", "resume", "second_reply"))
+        pause, resume, link, second = (value.get(key) or {} for key in ("pause", "resume", "link", "second_reply"))
         if (
             pause.get("state", "paused") != "paused"
             or resume.get("state", "running") != "running"
             or value.get("reconnected") is False
             or second.get("ok") is False
+            or link.get("back") is False
+            or link.get("dropped_while_paused") is False
         ):
             return "fail"
         found = (pause.get("state") == "paused" and resume.get("state") == "running"
-                 and value.get("reconnected") is True and second.get("ok") is True)
+                 and value.get("reconnected") is True and second.get("ok") is True and link.get("back") is True)
         return "ok" if found else None
+    if stage == "lease":
+        if "machineId" in value and value["machineId"] != machine:
+            return "fail"
+        found = value.get("machineId") == machine and "connectionMachine" in value and "generation" in value
+        return "ok" if found else None
+    if stage == "auth":
+        if value.get("allowed") is False:
+            return "fail"
+        return "ok" if value.get("allowed") is True else None
     return None
 
 def _depth_ok(value: object) -> bool:
@@ -144,15 +193,7 @@ def _stage_ok(value: object) -> bool:
     if "value" not in value:
         return True
     stage_value = value["value"]
-    return (
-        isinstance(stage_value, dict)
-        and _typed(stage_value, _VALUE_TYPES.get(value["stage"], {}))
-        and all(
-            _typed(stage_value[key], types)
-            for key, types in _NESTED_TYPES.items()
-            if value["stage"] == "reconnect" and key in stage_value
-        )
-    )
+    return isinstance(stage_value, dict) and _rules_ok(stage_value, _VALUE_RULES.get(value["stage"], {}))
 
 def _is_receipt(value: object) -> bool:
     return (
@@ -232,9 +273,11 @@ def normalize(records: list[object]) -> dict[str, object]:
             if item["ok"] and "failure" not in item:
                 ok_ms[name] = max(ok_ms.get(name, 0), took)
                 value = item.get("value", {})
-                if _proof(name, value) == "fail":
+                proof = _proof(name, value, record["machineId"])
+                if proof == "fail":
                     negative = True
-                ok_here.setdefault(name, []).append(value)
+                if name not in _EVIDENCED or proof == "ok":
+                    ok_here.setdefault(name, []).append(value)
                 continue
             stage_failure = item.get("failure")
             reason = _gap(name, stage_failure.get("code") if stage_failure else None)
@@ -286,11 +329,11 @@ def normalize(records: list[object]) -> dict[str, object]:
     checks = {
         "fresh_cloud_chat_start": chat_ok and all(stages[name] == "ok" for name in ("machine", "folder", "readiness")),
         "acpmux_session_discovery": chat_ok and not negative and any(
-            _proof("chat", value) == "ok" for value in values["chat"]
+            _proof("chat", value, machine_id) == "ok" for value in values["chat"]
         ),
         "first_reply": chat_ok,
         "pause_resume_reconnect": stages["reconnect"] == "ok" and not negative and any(
-            _proof("reconnect", value) == "ok" for value in values["reconnect"]
+            _proof("reconnect", value, machine_id) == "ok" for value in values["reconnect"]
         ),
         "provider_verified": provider_true,
     }
