@@ -302,6 +302,10 @@ path = "tests/test_claude_teams_test_utils.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_claude_attached_viewer_policy.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
 path = "tests/test_fake_socket_env.py"
 lane = "linux-guard"
 
@@ -489,6 +493,11 @@ requirements = ["cmux-cli"]
 
 [[test]]
 path = "tests/test_claude_hook_push_notification.py"
+lane = "macos-cli-no-socket-post-fish"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_claude_viewer_active_session.py"
 lane = "macos-cli-no-socket-post-fish"
 requirements = ["cmux-cli"]
 
@@ -710,6 +719,10 @@ path = "tests/test_classic_nightly_build_runner.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_classic_nightly_one_mini.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_publisher_mac_jobs_move.py"
 lane = "linux-guard"
 
@@ -855,6 +868,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_cli_contract_verb_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cli_contract_vm_options.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2221,6 +2238,10 @@ path = "tests/test_signing_runner_claim.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_test_integrity.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_hosted_light_rescue.py"
 lane = "linux-guard"
 
@@ -2229,10 +2250,18 @@ path = "tests/test_classic_api_guard.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_claude_attached_viewer_policy.py"
-lane = "macos-cli-no-socket"
+path = "tests/test_cmux_tui_no_bundled_webpki_roots.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that cmux-tui compiles in no webpki root list (#25452); run python3 tests/test_cmux_tui_no_bundled_webpki_roots.py yourself after changing a cmux-tui Cargo.toml, Cargo.lock or TLS setup (about 1 s, no build)."
 
 [[test]]
-path = "tests/test_claude_viewer_active_session.py"
-lane = "macos-cli-no-socket-post-fish"
-requirements = ["cmux-cli"]
+path = "tests/test_classic_nightly_job_conditions.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_auto_resume_linux_jobs_bash32.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_recovery_app_archive.py"
+lane = "linux-guard"
