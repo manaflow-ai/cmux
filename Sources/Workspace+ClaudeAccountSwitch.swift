@@ -132,14 +132,17 @@ extension Workspace {
         // Restarting the pane stops only a Claude on the pane's own terminal; one in tmux or
         // detached would keep writing this session while the resumed Claude continues it.
         // Checked before the transcript is copied, so a refused switch changes nothing. The
-        // live-owner fallback reads the agent index, which a session found through the pane's
-        // lifecycle record has not loaded; an index never loaded would read as "no other owner",
-        // and one that cannot load refuses like the index path above.
-        if SharedLiveAgentIndex.shared.index == nil,
-           await SharedLiveAgentIndex.shared.indexRefreshingNow() == nil {
+        // session's live owners come from an index scan started now: a cached index is only a
+        // past observation and would miss a Claude started elsewhere since. One that cannot load
+        // refuses like the index path above.
+        guard let ownersBeforeCopy = await SharedLiveAgentIndex.shared.indexRefreshingNow() else {
             return .refused(.noClaudeSession)
         }
-        guard let agentsBeforeCopy = claudeAccountSwitchAgentsOwnedByPane(panelId, sessionID: plan.sessionID) else {
+        guard let agentsBeforeCopy = claudeAccountSwitchAgentsOwnedByPane(
+            panelId,
+            sessionID: plan.sessionID,
+            index: ownersBeforeCopy
+        ) else {
             return .agentNotOwnedByPane
         }
 
@@ -167,8 +170,16 @@ extension Workspace {
             return .transcriptUnavailable
         }
 
-        // Checked again with the agents recorded now: they may have changed during the copy.
-        guard let replacedAgents = claudeAccountSwitchAgentsOwnedByPane(panelId, sessionID: plan.sessionID) else {
+        // Checked again with the agents recorded now and a new scan: they may have changed during
+        // the copy. Nothing is awaited from here to the respawn.
+        guard let ownersAfterCopy = await SharedLiveAgentIndex.shared.indexRefreshingNow() else {
+            return .refused(.noClaudeSession)
+        }
+        guard let replacedAgents = claudeAccountSwitchAgentsOwnedByPane(
+            panelId,
+            sessionID: plan.sessionID,
+            index: ownersAfterCopy
+        ) else {
             return .agentNotOwnedByPane
         }
         // A Claude that started in the pane during the copy is not the session planned above, and
@@ -251,21 +262,23 @@ extension Workspace {
         }
     }
 
-    /// The pane's recorded agent processes, or `nil` when restarting the pane would not stop one
-    /// that is still running (see ``ClaudeAccountSwitchReplacedAgents/ownership(paneTTYDevice:)``).
-    /// When no recorded process is running, the live owner the agent index names for `sessionID`
-    /// is checked instead, so a Claude whose pid never reached the pane is not waved through.
+    /// The pane's recorded agent processes and every live owner `index` names for `sessionID`, or
+    /// `nil` when restarting the pane would not stop one that is still running (see
+    /// ``ClaudeAccountSwitchReplacedAgents/ownership(paneTTYDevice:)``). A Claude whose pid never
+    /// reached the pane, or a second one running the session in another terminal, is not waved
+    /// through.
     @MainActor
     private func claudeAccountSwitchAgentsOwnedByPane(
         _ panelId: UUID,
-        sessionID: String
+        sessionID: String,
+        index: RestorableAgentSessionIndex
     ) -> ClaudeAccountSwitchReplacedAgents? {
         let agents = ClaudeAccountSwitchReplacedAgents(
             processes: (agentPIDKeysByPanelId[panelId] ?? []).compactMap { agentPIDProcessIdentitiesByKey[$0] }
-        ).fallingBack(toLiveSessionOwner: SharedLiveAgentIndex.shared.index?.liveSessionOwner(
+        ).including(liveSessionOwners: index.liveSessionOwners.owners(
             kind: RestorableAgentKind.claude.rawValue,
             sessionID: sessionID
-        )?.processIdentity)
+        ).map(\.processIdentity))
         let ownership = agents.ownership(
             paneTTYDevice: terminalPanel(for: panelId)?.surface.controllingTTYDeviceIdentifier
         )

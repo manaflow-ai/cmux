@@ -85,20 +85,20 @@ struct ClaudeAccountSwitchReplacedAgentsTests {
         )
     }
 
-    /// Hooks that never reported a pid leave the pane's record empty. The session's live owner
-    /// from the agent index is checked instead, so "can't tell" never becomes "nothing to stop".
+    /// Hooks that never reported a pid leave the pane's record empty. The session's live owners
+    /// from the agent index are checked too, so "can't tell" never becomes "nothing to stop".
     @Test
     func aLiveSessionOwnerOnAnotherTerminalIsNotOwnedByThePane() {
-        let agents = unrecordedPane(owner: tmuxTTY).fallingBack(toLiveSessionOwner: sessionOwner)
+        let agents = unrecordedPane(owner: tmuxTTY).including(liveSessionOwners: [sessionOwner])
 
         #expect(agents.ownership(paneTTYDevice: paneTTY) == .notOwnedByPane)
-        #expect(unrecordedPane(owner: nil).fallingBack(toLiveSessionOwner: sessionOwner)
+        #expect(unrecordedPane(owner: nil).including(liveSessionOwners: [sessionOwner])
             .ownership(paneTTYDevice: paneTTY) == .notOwnedByPane)
     }
 
     @Test
     func aLiveSessionOwnerOnThePaneTerminalIsWaitedForLikeARecordedOne() {
-        let agents = unrecordedPane(owner: paneTTY).fallingBack(toLiveSessionOwner: sessionOwner)
+        let agents = unrecordedPane(owner: paneTTY).including(liveSessionOwners: [sessionOwner])
 
         #expect(agents.ownership(paneTTYDevice: paneTTY) == .ownedByPane)
         #expect(agents.processes == [sessionOwner])
@@ -108,7 +108,7 @@ struct ClaudeAccountSwitchReplacedAgentsTests {
     @Test
     func aPaneWhoseSessionRunsNowhereStillSwitches() {
         // A restored pane whose session has not started again: nothing to stop, nothing to refuse.
-        let agents = unrecordedPane(owner: tmuxTTY).fallingBack(toLiveSessionOwner: nil)
+        let agents = unrecordedPane(owner: tmuxTTY).including(liveSessionOwners: [])
 
         #expect(agents.ownership(paneTTYDevice: paneTTY) == .noLiveAgent)
         #expect(agents.processes.isEmpty)
@@ -125,7 +125,7 @@ struct ClaudeAccountSwitchReplacedAgentsTests {
             currentIdentity: { pid in [claude, owner].first { $0.pid == pid } },
             controllingTTYDevice: { pid in pid == owner.pid ? tmuxTTY : paneTTY }
         )
-        let checked = recorded.fallingBack(toLiveSessionOwner: owner)
+        let checked = recorded.including(liveSessionOwners: [owner])
 
         #expect(checked.ownership(paneTTYDevice: paneTTY) == .notOwnedByPane)
     }
@@ -133,7 +133,7 @@ struct ClaudeAccountSwitchReplacedAgentsTests {
     /// The index names the pane's own Claude as the session's owner: nothing is added.
     @Test
     func theRecordedClaudeAsTheSessionOwnerIsCountedOnce() {
-        let checked = agents([claude.pid: paneTTY]).fallingBack(toLiveSessionOwner: claude)
+        let checked = agents([claude.pid: paneTTY]).including(liveSessionOwners: [claude])
 
         #expect(checked.processes == [claude])
         #expect(checked.ownership(paneTTYDevice: paneTTY) == .ownedByPane)
