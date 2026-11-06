@@ -104,3 +104,6 @@ final class InternalPageView: NSView {
 }
 
 extension InternalPageView: ToolbarEdgeHosting {}
+
+/// A two-finger swipe over the page (PageSwipeForwarder) runs `navigate` too.
+extension InternalPageView: PageHistoryHosting {}

@@ -470,6 +470,8 @@ pub(super) fn start_stage(runner: &mut dyn Runner, started: &Value) -> StartStag
             machine_id: at(row, "machine_id").as_str().map(str::to_owned).or(id),
             status: at(row, "status").as_str().map(str::to_owned),
             listed: true,
+            // A failed machine's own error (`list-machines`' `error`), e.g. the VM API's machine cap.
+            reason: at(row, "error").get("message").and_then(Value::as_str).map(str::to_owned),
             ..StartStage::default()
         };
     }
@@ -492,8 +494,22 @@ pub(super) fn start_stage(runner: &mut dyn Runner, started: &Value) -> StartStag
     }
 }
 
-/// Runs the steps (module docs) and answers the outcome.
+/// Runs the steps (module docs) and answers the outcome. An answer on a machine this run made itself says
+/// `new_machine: true`: its own `cloud new-machine`, or a `start-session --name` of the fresh name no machine had. A
+/// caller (the start matrix) may delete that machine as its own; no other answer is proof of that.
 pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
+    let mut made = None;
+    let mut outcome = steps(runner, request, &mut made);
+    if let (Some(id), Outcome::Done(answer)) = (made.as_deref(), &mut outcome)
+        && at(answer, "machine_id").as_str() == Some(id)
+    {
+        answer.set("new_machine", json!(true));
+    }
+    outcome
+}
+
+/// [`run`]'s steps; `made` is the machine id this run made, once it has one.
+fn steps(runner: &mut dyn Runner, request: &Request, made: &mut Option<String>) -> Outcome {
     // 1. Signed in, and the machine names in use.
     let listed = match step_result(&runner.cmux(&words(&["cloud", "list-machines", "--json"]))) {
         Ok(listed) => listed,
@@ -512,12 +528,14 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     // without the relay) leaves the link path below, on the machine it found or made.
     let mut wanted = request.machine.clone();
     if request.wait {
-        match relay_chat(runner, request, &listed) {
+        match relay_chat(runner, request, &listed, made) {
             Relayed::Answered(outcome) => return outcome,
             Relayed::Fallback(Some(id)) => wanted = Machine::Target(id),
             Relayed::Fallback(None) => {}
         }
     }
+    // The fresh name a new machine gets, when no listed machine has it: a start-session machine of that name is this run's.
+    let mut fresh = None;
     let machine = match &wanted {
         Machine::New => {
             let taken = |name: &str| {
@@ -534,6 +552,7 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
                 }
                 name = runner.fresh_name();
             }
+            fresh = (!taken(&name)).then(|| name.clone());
             Machine::Named(name)
         }
         other => other.clone(),
@@ -554,11 +573,23 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     start.push("--json".to_owned());
     let started = match step_result(&runner.cmux(&start)) {
         Ok(started) => started,
-        Err(error) => return app_failure(error),
+        Err(error) => return start_refused(error, &listed, request),
     };
     if at(&started, "pending").as_bool() == Some(true) {
         let again = again_command(request, &machine);
         let stage = start_stage(runner, &started);
+        let capped = stage
+            .reason
+            .as_deref()
+            .filter(|_| stage.is_final())
+            .and_then(|why| cap::cap_of("", why));
+        if let Some(found) = capped {
+            let why = stage.reason.as_deref().unwrap_or_default();
+            let (message, details) = cap::at_cap(found, why, &listed, |id| {
+                again_command(request, &Machine::Target(id.to_owned()))
+            });
+            return failed("cloud.machine_cap", message, details, 1);
+        }
         if stage.is_final() {
             return failed(
                 "cloud.start_failed",
@@ -597,6 +628,9 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
             1,
         );
     };
+    if fresh.is_some() && at(&started, "machine_name").as_str() == fresh.as_deref() {
+        *made = Some(machine_id.to_owned());
+    }
     let mut answer = json!({
         "machine_id": machine_id,
         "machine_name": at(&started, "machine_name"),
@@ -781,7 +815,12 @@ enum Relayed {
 /// 256 KiB). A larger one goes the link path, which uploads it.
 const RELAY_PROMPT_BYTES: usize = 96 * 1024;
 
-fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Value) -> Relayed {
+fn relay_chat(
+    runner: &mut dyn Runner,
+    request: &Request,
+    listed: &Value,
+    made: &mut Option<String>,
+) -> Relayed {
     // `--timeout` counts from here, a new machine included.
     let started_at = runner.now();
     if request.prompt.len() > RELAY_PROMPT_BYTES {
@@ -802,19 +841,22 @@ fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Value) -> Rel
             }
         }
         Machine::New => {
-            let made = match step_result(&runner.cmux(&words(&["cloud", "new-machine", "--json"])))
-            {
-                Ok(made) => made,
-                Err(error) => return Relayed::Answered(app_failure(error)),
-            };
-            match at(&made, "machine_id").as_str() {
-                Some(id) if at(&made, "pending").as_bool() != Some(true) => id.to_owned(),
+            let created =
+                match step_result(&runner.cmux(&words(&["cloud", "new-machine", "--json"]))) {
+                    Ok(created) => created,
+                    Err(error) => return Relayed::Answered(start_refused(error, listed, request)),
+                };
+            match at(&created, "machine_id").as_str() {
+                Some(id) if at(&created, "pending").as_bool() != Some(true) => {
+                    *made = Some(id.to_owned());
+                    id.to_owned()
+                }
                 _ => {
                     return Relayed::Answered(failed(
                         "cloud.start_pending",
                         "the new machine is still being made; find it with `cmux cloud list-machines`, \
                          then run this command again with --target machine:ID",
-                        json!({"app": made, "list": "cmux cloud list-machines --json"}),
+                        json!({"app": created, "list": "cmux cloud list-machines --json"}),
                         75,
                     ));
                 }
@@ -1113,6 +1155,25 @@ fn app_failure(error: Value) -> Outcome {
     failed(&code, message, details, 1)
 }
 
+/// A start the app refused: a machine cap names the account's machines and the commands that
+/// make room ([`cap`]); any other refusal is [`app_failure`].
+fn start_refused(error: Value, listed: &Value, request: &Request) -> Outcome {
+    let code = at(&error, "code").as_str().unwrap_or_default();
+    let message = at(&error, "message").as_str().unwrap_or_default();
+    match cap::cap_of(code, message) {
+        Some(found) if !signed_out(&error) => {
+            let (text, mut details) = cap::at_cap(found, message, listed, |id| {
+                again_command(request, &Machine::Target(id.to_owned()))
+            });
+            if let Some(fields) = details.as_object_mut() {
+                fields.insert("app".to_owned(), error);
+            }
+            failed("cloud.machine_cap", text, details, 1)
+        }
+        _ => app_failure(error),
+    }
+}
+
 /// A failure after the chat started: the answer so far goes with it.
 fn sent_failure(error: Value, answer: Value) -> Outcome {
     let message = at(&error, "message").as_str().unwrap_or("cloud exec failed");
@@ -1212,6 +1273,8 @@ fn at<'a>(value: &'a Value, key: &str) -> &'a Value {
     const NULL: &Value = &Value::Null;
     value.get(key).unwrap_or(NULL)
 }
+
+mod cap;
 
 #[cfg(test)]
 pub(in crate::cli) mod tests;

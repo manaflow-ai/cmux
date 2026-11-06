@@ -16,6 +16,12 @@
 //! | `nk` | base64url SHA-256 of the client's Noise static public key |
 //! | `jti` | 16 random bytes, base64url |
 //! | `iat`, `exp` | NumericDate seconds, `0 < exp - iat <= 300` |
+//! | `vmk` | optional: `owner` when the person owns the machine, else `team` or absent |
+//!
+//! `vmk` follows the link token's convention ([`VmKind`]): absent never means
+//! owner, and an explicit `null` or another value is malformed. Only an
+//! owner's grant reaches the machine's owner-only services (the desktop
+//! socket, cmux-remote's `local-socket`).
 //!
 //! The verifier checks the signature, every claim, that `nk` names the key
 //! that just finished the Noise handshake, and that the `jti` was not spent.
@@ -31,8 +37,9 @@
 //! the same Noise key for the same link group (the daemon's digest of the
 //! session, generation and connection attempt), and at most
 //! [`MAX_PRESENTATIONS`] times; any other use is a replay. The daemon fences
-//! generations, so a link group that already registered can never open a
-//! session again. A resume of an admitted session needs no grant: the
+//! generations, and once the session a link group formed registers, the
+//! daemon seals that group ([`CarrierGrantVerifier::seal`]): it admits no
+//! further link, also after the session closes. A resume of an admitted session needs no grant: the
 //! daemon re-admits the same Noise key (cmux-remote `grant.rs`).
 
 use std::collections::BTreeMap;
@@ -45,7 +52,7 @@ use sha2::{Digest as _, Sha256};
 
 use crate::jws::{valid_jti, valid_keys, verify_signed};
 use crate::keyset::Keyset;
-use crate::token::{TokenRefusal, TokenRefused};
+use crate::token::{TokenRefusal, TokenRefused, VmKind};
 
 /// The JWS `typ` of a carrier grant.
 pub const GRANT_TYP: &str = "cmux-carrier+jwt";
@@ -79,6 +86,15 @@ pub struct CarrierGrant {
     pub services: Vec<String>,
     /// `exp`, NumericDate seconds. Informational: admission is the only use.
     pub expires_at: u64,
+    /// `vmk` as signed; `None` when the grant has none.
+    pub vm_kind: Option<VmKind>,
+}
+
+impl CarrierGrant {
+    /// Whether the grant marks the person as the machine's owner.
+    pub fn owner(&self) -> bool {
+        self.vm_kind == Some(VmKind::Owner)
+    }
 }
 
 #[derive(Deserialize)]
@@ -93,6 +109,16 @@ struct Claims {
     jti: String,
     iat: u64,
     exp: u64,
+    #[serde(default, deserialize_with = "present_vm_kind")]
+    vmk: Option<VmKind>,
+}
+
+/// A missing `vmk` is `None`; a present one must be a signed role (an
+/// explicit `null` is malformed), as in the link token.
+fn present_vm_kind<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<VmKind>, D::Error> {
+    VmKind::deserialize(deserializer).map(Some)
 }
 
 struct Spent {
@@ -100,6 +126,9 @@ struct Spent {
     noise_key: [u8; 32],
     link_group: [u8; 32],
     presentations: u8,
+    /// The session this grant's link group formed has registered: no
+    /// further presentation counts.
+    sealed: bool,
 }
 
 struct State {
@@ -258,7 +287,8 @@ impl CarrierGrantVerifier {
         state.spent.retain(|_, spent| spent.exp > now);
         match state.spent.get_mut(&c.jti) {
             Some(spent)
-                if spent.noise_key == *noise_key
+                if !spent.sealed
+                    && spent.noise_key == *noise_key
                     && spent.link_group == link_group
                     && spent.presentations < MAX_PRESENTATIONS =>
             {
@@ -271,11 +301,33 @@ impl CarrierGrantVerifier {
                 }
                 state.spent.insert(
                     c.jti,
-                    Spent { exp: c.exp, noise_key: *noise_key, link_group, presentations: 1 },
+                    Spent {
+                        exp: c.exp,
+                        noise_key: *noise_key,
+                        link_group,
+                        presentations: 1,
+                        sealed: false,
+                    },
                 );
             }
         }
-        Ok(CarrierGrant { team: c.team, subject: c.sub, services: c.svc, expires_at: c.exp })
+        Ok(CarrierGrant {
+            team: c.team,
+            subject: c.sub,
+            services: c.svc,
+            expires_at: c.exp,
+            vm_kind: c.vmk,
+        })
+    }
+
+    /// The session `link_group` was presenting for has registered: the
+    /// grants spent in it admit no further link, so closing that session
+    /// and presenting the same grant again opens nothing.
+    pub fn seal(&self, link_group: [u8; 32]) {
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        for spent in state.spent.values_mut().filter(|spent| spent.link_group == link_group) {
+            spent.sealed = true;
+        }
     }
 }
 
