@@ -2069,7 +2069,7 @@
       "type" : "boolean"
     },
     "computerUse.driver" : {
-      "default" : "legacy",
+      "default" : "upstream",
       "description" : "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately.",
       "enum" : [
         "legacy",
@@ -3792,6 +3792,12 @@
       "title" : "Workspaces Prefix",
       "type" : "string"
     },
+    "palette.searchHistory" : {
+      "default" : true,
+      "description" : "The row you pick for what you typed comes first the next time you type it, and rows you use often rank higher. Off, the palette records nothing and ranks by match and sidebar order only.",
+      "title" : "Remember Palette Searches",
+      "type" : "boolean"
+    },
     "phone.allowConnections" : {
       "default" : false,
       "description" : "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers. Exception: while “Show This Mac's Workspaces on Your Phone While It's Off” is on, cmux servers store each workspace's ID, resource ID, short ID, name, name revision, group, color, icon, pinned state, unread mark, unread count and whether it is active.",
@@ -3837,12 +3843,6 @@
       },
       "title" : "Pinned Folders",
       "type" : "array"
-    },
-    "remote.enabled" : {
-      "default" : false,
-      "description" : "cmux Remote holds Accessibility and Screen Recording for Computer Use (Upstream driver) and Screen Sharing, so a grant never needs a relaunch. Applies when cmux restarts.",
-      "title" : "Use cmux Remote",
-      "type" : "boolean"
     },
     "remote.endSharingOnQuit" : {
       "default" : false,

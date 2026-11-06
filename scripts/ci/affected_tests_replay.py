@@ -18,7 +18,8 @@ check, not a CI step. check needs only git and python: for each failure it fetch
 run tested, plans the PR's change (`git diff merge-base...head`) exactly as `cmux-ci test
 --affected` would, and says whether the failing test is in the plan. The cmux-tui crate graph
 comes from saved `cargo metadata --no-deps --format-version 1` output (--metadata), so no cargo
-runs here. A failure the plan misses exits 1; each is listed with the PR, head and test, and
+runs here; a head whose Cargo.toml files give other members or member edges gets an unknown Rust
+verdict instead of one planned on the wrong graph. A failure the plan misses exits 1; each is listed with the PR, head and test, and
 whether the same test failed on other PRs in the window too (a base red, which no selection of
 the PR's own change can be expected to run).
 """
@@ -32,6 +33,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -217,6 +219,53 @@ def swift_target_of(files: list[str], name: str, kind: str) -> set[tuple[str, st
     return out
 
 
+DEP_TABLES = ("dependencies", "dev-dependencies", "build-dependencies")
+
+
+def meta_graph(meta: dict) -> dict[str, set[str]]:
+    """Workspace member -> the members it depends on, from saved cargo metadata."""
+    ids = set(meta["workspace_members"])
+    members = {pkg["name"]: pkg for pkg in meta["packages"] if pkg["id"] in ids}
+    return {name: {d["name"] for d in pkg["dependencies"] if d["name"] in members} for name, pkg in members.items()}
+
+
+def head_graph(head: str, ws: str = cargo_affected.WORKSPACE) -> dict[str, set[str]] | None:
+    """The same graph read from the head's own Cargo.toml files (no cargo), or None when they do not parse."""
+    def toml_at(path: str) -> dict | None:
+        out = git("show", f"{head}:{path}", check=False)
+        try:
+            return tomllib.loads(out.stdout) if out.returncode == 0 else None
+        except tomllib.TOMLDecodeError:
+            return None
+
+    root = toml_at(f"{ws}/Cargo.toml")
+    if root is None:
+        return None
+    workspace = root.get("workspace", {})
+    shared = workspace.get("dependencies", {})
+    manifests = {".": root} if "package" in root else {}
+    for member in workspace.get("members", []):
+        manifests[member] = toml_at(f"{ws}/{member}/Cargo.toml")
+    if any(m is None or "package" not in m for m in manifests.values()):
+        return None
+
+    def deps(manifest: dict) -> set[str]:
+        tables = [manifest] + list(manifest.get("target", {}).values())
+        names = set()
+        for table in tables:
+            for kind in DEP_TABLES:
+                for key, spec in table.get(kind, {}).items():
+                    spec = spec if isinstance(spec, dict) else {}
+                    if spec.get("workspace"):
+                        base = shared.get(key, {})
+                        spec = base if isinstance(base, dict) else {}
+                    names.add(spec.get("package", key))
+        return names
+
+    names = {m["package"]["name"] for m in manifests.values()}
+    return {m["package"]["name"]: deps(m) & names for m in manifests.values()}
+
+
 def replay_worktree() -> Path:
     """One detached worktree under .build, moved from head to head (its own, never the caller's checkout)."""
     wt = ROOT / ".build" / "affected-replay"
@@ -283,8 +332,11 @@ def check(path: Path, metadata: Path, out: Path | None) -> int:
             subprocess.run(["git", "-C", str(wt), "checkout", "--quiet", "--force", "--detach", head], check=True)
             plan = affected_tests.plan(wt, base, head, files, 4, False)
             crates = cargo_affected.plan(wt, meta, files)
+            # The saved metadata is one commit's crate graph: a head with other members or edges would
+            # be planned against the wrong graph, so its Rust verdicts are unknown.
+            same_graph = head_graph(head) == meta_graph(meta)
             plans[head] = {"plan": plan, "sel": selected(plan), "crates": crates, "files": files,
-                           "tree": None}
+                           "tree": None, "same_graph": same_graph}
         p = plans[head]
         sel, plan = p["sel"], p["plan"]
         kind, test = f["kind"], f["test"]
@@ -316,6 +368,9 @@ def check(path: Path, metadata: Path, out: Path | None) -> int:
             manifest = f["job"][f["job"].index("Native/"):].split()[0].rstrip("/") + "/Cargo.toml"
             hit = manifest in sel["native"] or sel["rust_all"]
             why = f"native {manifest}"
+        elif kind == "rust" and not p["same_graph"]:
+            row.update(verdict="unknown", why="the head's crate graph differs from --metadata's")
+            continue
         elif kind == "rust":
             c = p["crates"]
             hit = sel["rust"] and (c.workspace or test in c.crates)

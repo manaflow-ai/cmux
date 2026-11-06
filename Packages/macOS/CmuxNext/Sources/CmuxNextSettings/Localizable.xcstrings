@@ -244,6 +244,58 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "放在 ~/.config/cmux/skills 中的技能（每個一個資料夾，內含 SKILL.md）會送到每個新的代理聊天。"}}
       }
     },
+    "settings.palette.searchHistory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Remember Palette Searches"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تذكّر عمليات البحث في اللوحة"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Pamti pretrage u paleti"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Husk paletsøgninger"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Palettensuchen merken"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Recordar búsquedas de la paleta"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Mémoriser les recherches de la palette"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Ricorda le ricerche della palette"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "パレットの検索を記憶"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ចងចាំ​ការ​ស្វែងរក​ក្នុង​ផ្ទាំង​ពាក្យ​បញ្ជា"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "팔레트 검색 기억"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Husk palettsøk"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Zapamiętuj wyszukiwania w palecie"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Lembrar pesquisas da paleta"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Запоминать поиск в палитре"}},
+        "th": {"stringUnit": {"state": "translated", "value": "จดจำการค้นหาในพาเลต"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Palet aramalarını hatırla"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Запам’ятовувати пошук у палітрі"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Ghi nhớ tìm kiếm trong bảng lệnh"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "记住面板搜索"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "記住面板搜尋"}}
+      }
+    },
+    "settings.palette.searchHistory.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The row you pick for what you typed comes first the next time you type it, and rows you use often rank higher. Off, the palette records nothing and ranks by match and sidebar order only."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "الصف الذي تختاره لما كتبته يظهر أولًا في المرة التالية التي تكتبه فيها، والصفوف التي تستخدمها كثيرًا ترتفع في الترتيب. عند الإيقاف، لا تسجّل اللوحة شيئًا وترتّب حسب التطابق وترتيب الشريط الجانبي فقط."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Red koji odabereš za ono što si upisao dolazi prvi sljedeći put kad to upišeš, a redovi koje često koristiš rangiraju se više. Kad je isključeno, paleta ništa ne bilježi i rangira samo po podudaranju i redoslijedu bočne trake."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Den række, du vælger for det, du skrev, kommer først, næste gang du skriver det, og rækker, du bruger ofte, rangeres højere. Slået fra gemmer paletten intet og rangerer kun efter match og sidepanelets rækkefølge."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Die Zeile, die du für deine Eingabe auswählst, steht beim nächsten Mal zuerst, und oft genutzte Zeilen stehen weiter oben. Aus: Die Palette speichert nichts und sortiert nur nach Treffer und Seitenleistenreihenfolge."}},
+        "es": {"stringUnit": {"state": "translated", "value": "La fila que eliges para lo que escribiste aparece primero la próxima vez que lo escribas, y las filas que usas a menudo suben. Desactivado, la paleta no registra nada y ordena solo por coincidencia y orden de la barra lateral."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "La ligne choisie pour votre saisie arrive en premier la prochaine fois, et les lignes utilisées souvent montent. Désactivé, la palette n’enregistre rien et trie seulement par correspondance et ordre de la barre latérale."}},
+        "it": {"stringUnit": {"state": "translated", "value": "La riga che scegli per ciò che hai digitato compare per prima la volta successiva, e le righe che usi spesso salgono. Disattivato, la palette non registra nulla e ordina solo per corrispondenza e ordine della barra laterale."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "入力した語で選んだ行は次に同じ語を入力したとき最初に表示され、よく使う行は上位に表示されます。オフにすると、パレットは何も記録せず、一致度とサイドバーの順序だけで並べます。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ជួរ​ដែល​អ្នក​ជ្រើស​សម្រាប់​អ្វី​ដែល​អ្នក​វាយ​នឹង​បង្ហាញ​មុន​គេ​នៅ​ពេល​អ្នក​វាយ​វា​លើក​ក្រោយ ហើយ​ជួរ​ដែល​អ្នក​ប្រើ​ញឹកញាប់​នឹង​ឡើង​ខ្ពស់។ ពេល​បិទ ផ្ទាំង​ពាក្យ​បញ្ជា​មិន​កត់ត្រា​អ្វី​ទេ ហើយ​តម្រៀប​តាម​ការ​ផ្គូផ្គង និង​លំដាប់​របារ​ចំហៀង​ប៉ុណ្ណោះ។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "입력한 내용에 대해 고른 행은 다음에 같은 내용을 입력할 때 맨 위에 오고, 자주 쓰는 행은 더 위로 올라갑니다. 끄면 팔레트는 아무것도 기록하지 않고 일치도와 사이드바 순서로만 정렬합니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Raden du velger for det du skrev, kommer først neste gang du skriver det, og rader du bruker ofte, rangeres høyere. Av: Paletten lagrer ingenting og rangerer bare etter treff og sidepanelrekkefølge."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Wiersz wybrany dla wpisanego tekstu pojawi się pierwszy, gdy wpiszesz go ponownie, a często używane wiersze są wyżej. Wyłączone: paleta niczego nie zapisuje i sortuje tylko według dopasowania i kolejności paska bocznego."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "A linha que você escolhe para o que digitou aparece primeiro na próxima vez, e linhas usadas com frequência sobem. Desativado, a paleta não registra nada e ordena só por correspondência e ordem da barra lateral."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Строка, выбранная для введённого текста, в следующий раз будет первой, а часто используемые строки поднимаются выше. Если выключено, палитра ничего не запоминает и сортирует только по совпадению и порядку боковой панели."}},
+        "th": {"stringUnit": {"state": "translated", "value": "แถวที่คุณเลือกสำหรับคำที่พิมพ์จะขึ้นก่อนในครั้งถัดไปที่พิมพ์คำนั้น และแถวที่ใช้บ่อยจะอยู่สูงขึ้น เมื่อปิด พาเลตจะไม่บันทึกอะไรและเรียงตามความตรงกันและลำดับแถบด้านข้างเท่านั้น"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Yazdığın şey için seçtiğin satır, onu bir sonraki yazışında ilk sırada gelir; sık kullandığın satırlar üste çıkar. Kapalıyken palet hiçbir şey kaydetmez, yalnızca eşleşmeye ve kenar çubuğu sırasına göre sıralar."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Рядок, обраний для введеного тексту, наступного разу буде першим, а часто вживані рядки піднімаються вище. Якщо вимкнено, палітра нічого не запам’ятовує і сортує лише за збігом і порядком бічної панелі."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Hàng bạn chọn cho nội dung đã gõ sẽ xuất hiện đầu tiên ở lần gõ sau, và các hàng bạn dùng thường xuyên được xếp cao hơn. Khi tắt, bảng lệnh không ghi lại gì và chỉ xếp theo mức khớp và thứ tự thanh bên."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "你为输入内容选中的行，下次输入时会排在最前，常用的行也会排得更靠前。关闭后，面板不记录任何内容，只按匹配度和侧边栏顺序排序。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "你為輸入內容選取的列，下次輸入時會排在最前，常用的列也會排得更前面。關閉後，面板不記錄任何內容，只依符合程度和側邊欄順序排序。"}}
+      }
+    },
     "settings.cloud.useMyCodexLogin": {
       "comment": "Settings toggle: use the Codex sign-in on this Mac for the person's own Cloud machines.",
       "extractionState": "manual",
@@ -64704,399 +64756,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "選擇器在「位置」中「個人」和「下載項目」之後列出這些檔案夾。請使用完整路徑或 ~/ 路徑。"
-          }
-        }
-      }
-    },
-    "settings.remote.enabled": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "استخدام cmux Remote"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Koristi cmux Remote"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Brug cmux Remote"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Remote verwenden"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Use cmux Remote"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Usar cmux Remote"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Utiliser cmux Remote"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Usa cmux Remote"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Remote を使用"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ប្រើ cmux Remote"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Remote 사용"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bruk cmux Remote"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Używaj cmux Remote"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Usar o cmux Remote"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Использовать cmux Remote"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ใช้ cmux Remote"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Remote’u Kullan"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Використовувати cmux Remote"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dùng cmux Remote"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "使用 cmux Remote"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "使用 cmux Remote"
-          }
-        }
-      }
-    },
-    "settings.remote.enabled.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يحتفظ cmux Remote بإذنَي تسهيلات الاستخدام وتسجيل الشاشة لـComputer Use (برنامج التشغيل Upstream) ومشاركة الشاشة، لذا لا يحتاج منح الإذن أبدًا إلى إعادة التشغيل. يُطبَّق عند إعادة تشغيل cmux."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Remote drži Pristupačnost i Snimanje ekrana za Computer Use (Upstream upravljački program) i Dijeljenje ekrana, pa dozvola nikada ne zahtijeva ponovno pokretanje. Primjenjuje se kada se cmux ponovo pokrene."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Remote har Tilgængelighed og Skærmoptagelse til Computer Use (Upstream-driver) og Skærmdeling, så en tilladelse aldrig kræver en genstart. Træder i kraft, når cmux genstarter."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Remote hält Bedienungshilfen und Bildschirmaufnahme für Computer Use (Upstream-Treiber) und Bildschirmfreigabe, sodass eine erteilte Berechtigung nie einen Neustart erfordert. Wird beim Neustart von cmux wirksam."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Remote holds Accessibility and Screen Recording for Computer Use (Upstream driver) and Screen Sharing, so a grant never needs a relaunch. Applies when cmux restarts."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Remote mantiene Accesibilidad y Grabación de pantalla para Computer Use (controlador Upstream) y Compartir pantalla, así que un permiso nunca requiere reiniciar. Se aplica cuando cmux se reinicia."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Remote détient l’Accessibilité et l’Enregistrement de l’écran pour Computer Use (pilote Upstream) et le Partage d’écran : une autorisation ne demande donc jamais de relance. S’applique au redémarrage de cmux."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Remote mantiene Accessibilità e Registrazione schermo per Computer Use (driver Upstream) e Condivisione schermo, così un permesso non richiede mai un riavvio. Si applica al riavvio di cmux."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Remote が Computer Use（Upstream ドライバー）と画面共有のためのアクセシビリティと画面収録の許可を保持するため、許可後に再起動する必要はありません。cmux の再起動時に適用されます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Remote រក្សាការអនុញ្ញាត ភាពងាយស្រួល និង ការថតអេក្រង់ សម្រាប់ Computer Use (កម្មវិធីបញ្ជា Upstream) និង ការចែករំលែកអេក្រង់ ដូច្នេះការអនុញ្ញាតមិនដែលត្រូវការបើកឡើងវិញទេ។ មានប្រសិទ្ធភាពពេល cmux ចាប់ផ្ដើមឡើងវិញ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Remote가 Computer Use(Upstream 드라이버)와 화면 공유에 필요한 손쉬운 사용 및 화면 기록 권한을 보유하므로, 권한을 허용한 후 다시 실행할 필요가 없습니다. cmux를 다시 시작하면 적용됩니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Remote har Tilgjengelighet og Skjermopptak for Computer Use (Upstream-driver) og Skjermdeling, så en tillatelse aldri krever omstart. Gjelder når cmux startes på nytt."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Remote przechowuje uprawnienia Dostępność i Nagrywanie ekranu dla Computer Use (sterownik Upstream) i funkcji Udostępnianie ekranu, więc przyznanie uprawnienia nigdy nie wymaga ponownego uruchomienia. Obowiązuje po ponownym uruchomieniu cmux."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "O cmux Remote mantém Acessibilidade e Gravação de Tela para o Computer Use (driver Upstream) e o Compartilhamento de Tela, então uma permissão nunca exige reabrir o app. Aplica-se quando o cmux reinicia."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Remote хранит разрешения «Универсальный доступ» и «Запись экрана» для Computer Use (драйвер Upstream) и функции «Общий экран», поэтому после выдачи разрешения перезапуск не нужен. Применяется после перезапуска cmux."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Remote ถือสิทธิ์การช่วยการเข้าถึงและการบันทึกหน้าจอสำหรับ Computer Use (ไดรเวอร์ Upstream) และการแชร์หน้าจอ จึงไม่ต้องเปิดใหม่หลังให้สิทธิ์ มีผลเมื่อ cmux เริ่มใหม่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Remote, Computer Use (Upstream sürücüsü) ve Ekran Paylaşma için Erişilebilirlik ve Ekran Kaydı izinlerini tutar; böylece bir izin hiçbir zaman yeniden başlatma gerektirmez. cmux yeniden başladığında uygulanır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Remote утримує дозволи «Доступність» і «Запис екрана» для Computer Use (драйвер Upstream) і функції «Спільний екран», тож після надання дозволу перезапуск не потрібен. Застосовується після перезапуску cmux."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Remote giữ quyền Trợ năng và Ghi màn hình cho Computer Use (trình điều khiển Upstream) và Chia sẻ màn hình, nên cấp quyền không bao giờ cần mở lại. Áp dụng khi cmux khởi động lại."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Remote 为 Computer Use（Upstream 驱动）和屏幕共享持有辅助功能和屏幕录制权限，因此授权后无需重新启动。在 cmux 重新启动后生效。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Remote 為 Computer Use（Upstream 驅動程式）和螢幕共享持有輔助使用與螢幕錄製權限，因此授權後無需重新啟動。在 cmux 重新啟動後生效。"
-          }
-        }
-      }
-    },
-    "settings.remote.enabled.summary": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "مساعد واحد يحتفظ بأذونات Computer Use ومشاركة الشاشة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Jedan pomoćnik drži dozvole za Computer Use i Dijeljenje ekrana"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Én hjælper har tilladelserne til Computer Use og Skærmdeling"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ein Helfer hält die Berechtigungen für Computer Use und Bildschirmfreigabe"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "One helper holds Computer Use and Screen Sharing permissions"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Un solo asistente tiene los permisos de Computer Use y Compartir pantalla"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Un seul assistant détient les autorisations de Computer Use et du Partage d’écran"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Un solo helper detiene i permessi di Computer Use e Condivisione schermo"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1つのヘルパーが Computer Use と画面共有の許可を保持"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "កម្មវិធីជំនួយតែមួយរក្សាការអនុញ្ញាត Computer Use និងការចែករំលែកអេក្រង់"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "하나의 도우미가 Computer Use 및 화면 공유 권한 보유"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Én hjelper har tillatelsene for Computer Use og Skjermdeling"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Jeden pomocnik przechowuje uprawnienia Computer Use i Udostępniania ekranu"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Um único auxiliar mantém as permissões do Computer Use e do Compartilhamento de Tela"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Один помощник хранит разрешения Computer Use и общего экрана"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ตัวช่วยตัวเดียวถือสิทธิ์ของ Computer Use และการแชร์หน้าจอ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tek bir yardımcı Computer Use ve Ekran Paylaşma izinlerini tutar"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Один помічник утримує дозволи Computer Use і спільного екрана"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Một trình trợ giúp giữ quyền cho Computer Use và Chia sẻ màn hình"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "由一个辅助程序持有 Computer Use 和屏幕共享权限"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "由一個輔助程式持有 Computer Use 與螢幕共享權限"
           }
         }
       }

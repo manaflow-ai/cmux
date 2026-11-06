@@ -570,6 +570,14 @@ function analyze(
   };
 }
 
+/// The calls the live line names in turn while the reply streams (`callEveryMs`).
+const CALLS = [
+  "Read daemon log_load and startup",
+  "Read the REST quota",
+  "Read _acpmux/watch and sessions callers",
+  "Read relay.ts",
+];
+
 const frameTime = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
 
 async function run({
@@ -578,6 +586,7 @@ async function run({
   settleMs = 1_000,
   liveLine = false,
   eased = true,
+  callEveryMs,
 }: {
   cadence: Cadence;
   seed?: number;
@@ -586,6 +595,9 @@ async function run({
   liveLine?: boolean;
   /// Ease the followed view's steps (followGlide.ts), as the app does.
   eased?: boolean;
+  /// While the reply streams, a call runs under it that another call replaces every this many ms,
+  /// so the live line's words change as they stream (ui/motion/useTextSwap.ts). Needs `liveLine`.
+  callEveryMs?: number;
 }): Promise<StreamReport> {
   lineBelow = liveLine;
   glide = eased;
@@ -606,10 +618,31 @@ async function run({
   let version = 0;
   let streaming = true;
   let ended = false;
+  let call = 0;
+  const running = (): AcpmuxRow[] =>
+    callEveryMs === undefined || ended
+      ? []
+      : [
+          {
+            id: "live-call",
+            version: call + 1,
+            at: 100_002,
+            kind: "activity",
+            toolCount: 1,
+            items: [
+              {
+                kind: "tool",
+                text: CALLS[call % CALLS.length]!,
+                tool: { id: `call-${call}`, title: CALLS[call % CALLS.length]!, kind: "read", status: "in_progress" },
+              },
+            ],
+          } as AcpmuxRow,
+        ];
   const rows = (summary: boolean): AcpmuxRow[] => [
     ...base,
     prompt,
     { id: ANSWER_ID, version, at: 100_001, kind: "assistant", text, streaming },
+    ...running(),
     ...(summary
       ? [{ id: "live-end", version: 1, at: 120_000, kind: "turnSummary", status: "completed" } as AcpmuxRow]
       : []),
@@ -649,6 +682,13 @@ async function run({
   await frameTime();
 
   const start = performance.now();
+  const calls =
+    callEveryMs === undefined
+      ? undefined
+      : setInterval(() => {
+          call += 1;
+          emit();
+        }, callEveryMs);
   const done = new Promise<void>((resolve) => {
     live = true;
     deltas.forEach((delta, index) =>
@@ -670,6 +710,7 @@ async function run({
     );
   });
   await done;
+  if (calls !== undefined) clearInterval(calls);
   // The reveal drains what is left (StreamReveal.finishMs) before the stream counts as drawn.
   // fixed-wait: the drain's frames are sampled; its length is StreamReveal.finishMs of wall time
   await new Promise((resolve) => setTimeout(resolve, StreamReveal.finishMs + 50));

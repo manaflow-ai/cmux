@@ -21,7 +21,7 @@ import ImageIO
 /// home-mac.md) over the shared `HomeStore` of the local conversation owner,
 /// or why it cannot show (the local daemon does not serve conversations).
 @MainActor
-final class HomeHostView: NSView {
+final class HomeHostView: PaneMotionFollowingView {
     let transcript: HomeNativeTranscriptView
     private let message = ChromeLabel(labelWithString: "")
     private var availability: Task<Void, Never>?

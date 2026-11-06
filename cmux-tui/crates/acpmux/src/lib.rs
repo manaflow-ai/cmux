@@ -14,6 +14,7 @@
 // there, code only its Unix paths reach is unused on Windows.
 #![cfg_attr(not(unix), allow(dead_code, unused_imports, unused_variables, unused_mut))]
 
+pub mod acp_todo_plan;
 pub mod acpmux_mcp;
 pub mod adopt;
 pub mod adopt_live;
@@ -98,6 +99,7 @@ pub mod mesh;
 pub mod mesh_control;
 pub mod mesh_http;
 pub mod model_copies;
+pub mod name_match;
 pub mod native;
 pub mod no_panic;
 pub mod offer_mcp;
@@ -143,7 +145,6 @@ pub mod server;
 pub mod session_env;
 pub mod session_identity;
 pub mod session_liveness;
-pub mod name_match;
 pub mod session_name;
 mod session_scope;
 pub mod session_search;
