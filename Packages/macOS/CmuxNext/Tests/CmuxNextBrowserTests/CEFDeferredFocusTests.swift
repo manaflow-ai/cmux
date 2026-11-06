@@ -22,6 +22,8 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         try #require(window.contentView).addSubview(tab.contentView)
+        #expect(FocusSpyShim.granted.isEmpty, "a page shown in this turn took focus in this turn")
+        Self.endTurn()
         #expect(FocusSpyShim.granted == [7])
     }
 
@@ -34,6 +36,7 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         try #require(window.contentView).addSubview(tab.contentView)
+        Self.endTurn()
         tab.setContentVisible(false)
 
         tab.setFocused(true)
@@ -54,6 +57,7 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         try #require(window.contentView).addSubview(tab.contentView)
+        Self.endTurn()
         #expect(FocusSpyShim.granted.isEmpty)
     }
 
@@ -74,6 +78,7 @@ import Testing
         workspace.addSubview(chromium)
         workspace.addSubview(tab.contentView)
         try #require(window.contentView).addSubview(workspace)
+        Self.endTurn()
         FocusSpyShim.granted = []
         chromium.onHide = { tab.setFocused(true) }
 
@@ -82,6 +87,8 @@ import Testing
 
         chromium.onHide = nil
         workspace.isHidden = false
+        #expect(FocusSpyShim.granted.isEmpty, "a page shown again in this turn took focus in this turn")
+        Self.endTurn()
         #expect(FocusSpyShim.granted == [10])
     }
 
@@ -98,6 +105,7 @@ import Testing
         workspace.addSubview(tab.contentView)
         let chromium = HideSpyView(frame: tab.contentView.bounds)
         tab.contentView.addSubview(chromium)
+        Self.endTurn()
         FocusSpyShim.granted = []
         chromium.onHide = { tab.setFocused(true) }
 
@@ -106,6 +114,7 @@ import Testing
 
         chromium.onHide = nil
         workspace.isHidden = false
+        Self.endTurn()
         #expect(FocusSpyShim.granted == [11])
     }
 
@@ -416,6 +425,7 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         try #require(window.contentView).addSubview(tab.contentView)
+        Self.endTurn() // shown before the ask's turn (a page shown in it takes focus after its commit)
         let page = pageWindow(over: tab, in: window)
         defer { page.closeAfterTest() }
         let keys = KeyRecorder(key: window)
@@ -436,6 +446,7 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         try #require(window.contentView).addSubview(tab.contentView)
+        Self.endTurn() // shown before the ask's turn (a page shown in it takes focus after its commit)
         let page = pageWindow(over: tab, in: window)
         defer { page.closeAfterTest() }
         let keys = KeyRecorder(key: window)
@@ -461,6 +472,7 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         try #require(window.contentView).addSubview(tab.contentView)
+        Self.endTurn() // shown before the ask's turn (a page shown in it takes focus after its commit)
         let page = pageWindow(over: tab, in: window)
         let other = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: .borderless, backing: .buffered, defer: true)
         defer { page.closeAfterTest(); other.closeAfterTest() }
@@ -506,6 +518,42 @@ import Testing
         #expect(FocusSpyShim.granted == [15], "the kept ask was granted \(FocusSpyShim.granted) after the host got its area (want [15] once)")
     }
 
+    /// The page of the workspace Cmd-N built before its key (#36962) is unhidden in the key's turn and the focus applier
+    /// asks for focus in that turn. Granted then, the grant and the page window's order-in ran before the first frame
+    /// (Time Profiler, cmux22: 10 ms of the swap turn, the key window changed 18-25 ms after the key). A page that becomes
+    /// shown in a turn takes no focus in that turn and exactly one grant after its commit; a page shown before the turn
+    /// still takes it at once.
+    @Test func aPageShownInThisTurnTakesFocusOnlyAfterTheCommit() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (tab, _) = try createdTab(runtime, browser: 17)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
+        let workspace = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        workspace.addSubview(tab.contentView)
+        try #require(window.contentView).addSubview(workspace)
+        workspace.isHidden = true
+        Self.endTurn()
+        FocusSpyShim.granted = []
+
+        workspace.isHidden = false
+        tab.setFocused(true)
+        #expect(FocusSpyShim.granted.isEmpty, "a page shown in this turn took focus before the turn's frame: \(FocusSpyShim.granted)")
+        Self.endTurn()
+        #expect(FocusSpyShim.granted == [17], "the kept ask was granted \(FocusSpyShim.granted) after the commit (want [17] once)")
+
+        // Shown since before this turn: at once.
+        tab.setFocused(false)
+        FocusSpyShim.granted = []
+        tab.setFocused(true)
+        #expect(FocusSpyShim.granted == [17])
+    }
+
+    /// Lets the main run loop end this turn: its frame commit, and the work queued after it (`AfterFrameCommit`).
+    private static func endTurn() {
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+    }
+
     /// A Chromium page window over `tab`'s view, a child of `window`, as the fork places it.
     private func pageWindow(over tab: CEFTab, in window: NSWindow) -> NSWindow {
         let frame = window.convertToScreen(tab.host.hostView.convert(tab.host.hostView.bounds, to: nil))
@@ -527,6 +575,7 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         try #require(window.contentView).addSubview(tab.contentView)
+        Self.endTurn()
         let log = CallLog()
         let fork = CEFLayerHosting.Fork(setLayerHosting: { _, on in on ? 7 : 0 }, setResizeSync: { _, _ in true },
                                         setDetachedHosting: { _, on in log.items.append(on ? "detach" : "attach"); return true })

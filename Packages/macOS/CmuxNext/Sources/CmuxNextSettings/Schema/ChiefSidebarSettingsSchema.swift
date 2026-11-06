@@ -14,6 +14,7 @@ nonisolated enum ChiefSidebarSettingsSchema {
     static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.chiefSubagents", "Subagents")
         let keywords = ["chief", "subagent", "sidebar", "workspace", "show", "hide", "hidden", "visible"]
+        let wordOrPhrase = SettingsText.keyed("settings.placeholder.wordOrPhrase", "Add a word or phrase")
         return [
             SettingDescriptor(
                 modePath, section: .home, group: group,
@@ -32,14 +33,16 @@ nonisolated enum ChiefSidebarSettingsSchema {
                 title: SettingsText.keyed("settings.chief.subagentSidebarShowWords", "Show Tasks That Mention"),
                 help: SettingsText.keyed("settings.chief.subagentSidebarShowWords.help",
                                          "Words or phrases that show a subagent when the Chief leaves it to these rules. They add to the built-in ones, such as UI, design, screenshots and needs you."),
-                kind: .stringList, default: .array([]), keywords: keywords + ["words", "rules"]
+                kind: .stringList, default: .array([]), keywords: keywords + ["words", "rules"],
+                placeholder: wordOrPhrase
             ),
             SettingDescriptor(
                 hideWordsPath, section: .home, group: group,
                 title: SettingsText.keyed("settings.chief.subagentSidebarHideWords", "Hide Tasks That Mention"),
                 help: SettingsText.keyed("settings.chief.subagentSidebarHideWords.help",
                                          "Words or phrases that keep a subagent hidden when the Chief leaves it to these rules. They add to the built-in ones, such as lookup, cleanup and land queue. A show word wins."),
-                kind: .stringList, default: .array([]), keywords: keywords + ["words", "rules"]
+                kind: .stringList, default: .array([]), keywords: keywords + ["words", "rules"],
+                placeholder: wordOrPhrase
             ),
             SettingDescriptor(
                 minWordsPath, section: .home, group: group,
