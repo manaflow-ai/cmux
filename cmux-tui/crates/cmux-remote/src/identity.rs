@@ -213,18 +213,6 @@ impl ClientIdentityStore {
         self.identity.clone()
     }
 
-    /// Accept carrier grants checked by `verifier`. Set once, at daemon
-    /// start, before the daemon serves; a second call is refused. Without
-    /// it every grant is refused.
-    pub fn set_grant_verifier(
-        &self,
-        verifier: Arc<dyn crate::grant::GrantVerifier>,
-    ) -> Result<(), IdentityError> {
-        self.grant_verifier
-            .set(verifier)
-            .map_err(|_| IdentityError::Invalid("a grant verifier is already installed".into()))
-    }
-
     pub async fn known_daemons(&self) -> Vec<KnownDaemon> {
         let mut daemons = self
             .state
@@ -912,6 +900,18 @@ impl AuthDatabase {
 
     pub fn daemon_name(&self) -> &str {
         &self.daemon_name
+    }
+
+    /// Accept carrier grants checked by `verifier`. Set once, at daemon
+    /// start, before the daemon serves; a second call is refused. Without
+    /// it every grant is refused.
+    pub fn set_grant_verifier(
+        &self,
+        verifier: Arc<dyn crate::grant::GrantVerifier>,
+    ) -> Result<(), IdentityError> {
+        self.grant_verifier
+            .set(verifier)
+            .map_err(|_| IdentityError::Invalid("a grant verifier is already installed".into()))
     }
 
     pub fn subscribe_revocations(&self) -> watch::Receiver<u64> {
