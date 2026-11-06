@@ -71,6 +71,30 @@ await requireBrowserLane("session-info-expand-cost.test.ts", async () => {
     }
   });
 
+  test("usage: after a sort switch replaces every drawn row, scrolling still draws the rest", async () => {
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const page = await browser!.newPage({ viewport: { width: 900, height: HEIGHT } });
+    try {
+      await page.goto(`http://127.0.0.1:${port}${PAGE}?list=usage&n=5000`);
+      await page.waitForFunction(() => typeof window.__expand === "function");
+      await page.evaluate(() => window.__expand());
+      const drawn = () =>
+        page.evaluate(() => document.querySelectorAll("ul[data-sort] > li:not([data-rows-rest])").length);
+      expect(await drawn()).toBeLessThanOrEqual(BOUND);
+      // Context's order is the reverse of cost's: none of the rows drawn before stays mounted.
+      await page.locator(".acpmux-session-info-usage__sort-option:not([disabled])").click();
+      await page.waitForFunction(() => document.querySelector("ul[data-sort]")?.getAttribute("data-sort") === "context");
+      expect(await drawn()).toBeLessThanOrEqual(BOUND);
+      await page.evaluate(() => (document.querySelector(".acpmux-session-info__body")!.scrollTop = 1000));
+      await page.waitForFunction(
+        (bound) => document.querySelectorAll("ul[data-sort] > li:not([data-rows-rest])").length > bound,
+        BOUND,
+      );
+    } finally {
+      await page.close();
+    }
+  });
+
   for (const list of ["tasks", "subagents", "outputs", "sources", "changes", "usage", "alsoHere"]) {
     test(`${list}: opening the list draws only the rows that can show, at any length`, async () => {
       const { port } = vite!.httpServer!.address() as { port: number };

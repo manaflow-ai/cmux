@@ -123,7 +123,8 @@ function Section() {
             title: `Chat ${index}`,
             usageStats: {
               autocompact: "capped" as const,
-              contextTokens: 1000 + index,
+              // Context sorts them the other way round from cost, so a sort switch replaces every drawn row.
+              contextTokens: 10_000 - index,
               costUsd24h: index,
               updatedAt: at,
             },
