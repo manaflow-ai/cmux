@@ -558,7 +558,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .splitClientKeys, .splitClientSplitID, .rowClientKeys, .conversationTabSplit, .frontendBrowserTabSplit,
              .terminalInputWhileCreating, .terminalReap, .resumeCommand, .terminalReaperActive,
              .endTerminalsKeepLayout, .batchClose, .sendExpectForeground, .closeReason, .closeWorkspaceIfEmpty,
-             .browserHostProvider, .remoteHost, .frontendBrowserActivate, .frontendBrowserInsertAfter, .loopbackForward,
+             .browserHostProvider, .remoteHost, .computerUse, .frontendBrowserActivate, .frontendBrowserInsertAfter, .loopbackForward,
              .browserRuntime, .notificationSource, .terminalShellArgs, .terminalFrontendShellIntegration,
              .launchSnapshot, .profiles, .personalRemoteLocalhost, .sessionIdentity, .remoteTerminalTabs,
              .dockColumns, .edgeDocks, .dockColumnRole, .dockColumnSplitDown, .pinnedDock, .pinnedDockAlone, .rows, .columnMove, .columnLeft,

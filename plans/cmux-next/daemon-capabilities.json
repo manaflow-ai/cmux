@@ -48,6 +48,7 @@
     "cloud_chat_relay.v1",
     "column-left-v1",
     "column-move-v1",
+    "computer-use-v1",
     "conversation-draft-events-v1",
     "conversation-inbox-state-v1",
     "conversation-run-answers-v1",
