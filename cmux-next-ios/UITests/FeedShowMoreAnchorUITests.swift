@@ -9,6 +9,8 @@ import XCTest
 final class FeedShowMoreAnchorUITests: XCTestCase {
     @MainActor
     func testShowMoreAndShowLessKeepTheRowInPlace() {
+        // CAPTURE ONLY (side branch, never landed): a last failure keeps the screen recording.
+        defer { XCTFail("capture: keep the recording") }
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         // A fixed Feed with long bodies and no live traffic: only the tap moves anything.

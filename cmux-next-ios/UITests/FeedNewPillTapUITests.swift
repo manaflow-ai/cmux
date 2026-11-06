@@ -9,6 +9,8 @@ final class FeedNewPillTapUITests: XCTestCase {
     /// A tap near each edge of the pill, where its glass shows but its label does not.
     @MainActor
     func testNewPillEdgeTapsJumpToTop() {
+        // CAPTURE ONLY (side branch, never landed): a last failure keeps the screen recording.
+        defer { XCTFail("capture: keep the recording") }
         let (app, all, topFrame) = launchFeed(liveHz: 3)
         let edges: [(String, CGVector)] = [("left", CGVector(dx: 0.05, dy: 0.5)), ("top", CGVector(dx: 0.5, dy: 0.1)),
                                            ("right", CGVector(dx: 0.95, dy: 0.5)), ("bottom", CGVector(dx: 0.5, dy: 0.9))]
@@ -37,6 +39,8 @@ final class FeedNewPillTapUITests: XCTestCase {
     /// Many unseen events wait above the reader (the person's suspicion): the jump still lands at the top.
     @MainActor
     func testNewPillWithManyUnseenAboveLandsAtTop() {
+        // CAPTURE ONLY (side branch, never landed): a last failure keeps the screen recording.
+        defer { XCTFail("capture: keep the recording") }
         let (app, all, topFrame) = launchFeed(liveHz: 4)
         for round in 0..<3 {
             let pill = scrollAway(app, all, round: round, swipes: 8)
