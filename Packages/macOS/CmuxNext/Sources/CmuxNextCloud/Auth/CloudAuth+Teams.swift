@@ -59,19 +59,19 @@ extension CloudAuth {
     ///   - teamID: The team.
     /// - Returns: The answer; never throws.
     public func inviteOne(_ email: String, toTeam teamID: String) async -> CloudTeamInviteAnswer {
-        let error: String?, alreadyMember: Bool?
+        let outcome: (code: String?, alreadyMember: Bool?)
         do {
             let result = try await inviteToTeam(id: teamID, emails: [email])
-            (error, alreadyMember) = (nil, result.failed.first.map(\.isAlreadyMember))
+            outcome = (nil, result.failed.first.map(\.isAlreadyMember))
         } catch CMUXTeamError.forbidden {
-            (error, alreadyMember) = ("forbidden", nil)
+            outcome = ("forbidden", nil)
         } catch {
-            (error, alreadyMember) = ("unavailable", nil)
+            outcome = ("unavailable", nil)
         }
         struct Request: Encodable { var error: String?, firstFailureAlreadyMember: Bool? }
         struct Reply: Decodable { var answer: CloudTeamInviteAnswer }
         // Rust's `invite_answer`; an FFI that does not answer says cmux.com could not be reached.
-        return CloudStartCore().call("cloud_auth_invite_answer", Request(error: error, firstFailureAlreadyMember: alreadyMember),
+        return CloudStartCore().call("cloud_auth_invite_answer", Request(error: outcome.code, firstFailureAlreadyMember: outcome.alreadyMember),
                                      as: Reply.self)?.answer ?? .unreachable
     }
 
