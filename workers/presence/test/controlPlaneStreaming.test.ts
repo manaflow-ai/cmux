@@ -757,6 +757,39 @@ describe("alarm-driven refresh", () => {
     expect((socket.frame("hint_update") as { rev: number }).rev).toBe(2);
   });
 
+  it("retires a long-lived socket whose stored bearer upstream rejects, then reads through the next socket", async () => {
+    const harness = new Harness();
+    harness.serveDiscovery(() => discoveryResponse(42));
+    const stale = await harness.connectLongLived("s1");
+    await harness.hello(stale, { endpointId: ENDPOINT_A, haveRev: null, wantPasses: false });
+    const fresh = await harness.connectLongLived("s2");
+    await harness.hello(fresh, { endpointId: ENDPOINT_B, haveRev: 42, wantPasses: false });
+    stale.clearFrames();
+    fresh.clearFrames();
+
+    // The Stack session behind s1's bearer ended; upstream now refuses it.
+    harness.routes.set("/api/devices/iroh", (init) =>
+      init.headers.authorization === "Bearer token-s1"
+        ? { status: 401, json: { error: "unauthorized" } }
+        : { status: 200, json: discoveryResponse(43, { extraBinding: true }) });
+    harness.calls = [];
+    harness.now += 60_000;
+    await harness.core.handleAlarm();
+
+    expect(stale.closes).toHaveLength(1);
+    expect(harness.map.has(`${BEARER_PREFIX}s1`)).toBe(false);
+    expect(fresh.closes).toEqual([]);
+
+    // The next refresh borrows the remaining socket's credentials and
+    // delivers the new revision instead of 401-ing on s1 every minute.
+    harness.socketList = harness.socketList.filter((socket) => socket !== stale);
+    harness.now += 60_000;
+    await harness.core.handleAlarm();
+    const authorizations = harness.discoveryCalls().map((call) => call.init.headers.authorization);
+    expect(authorizations).toEqual(["Bearer token-s1", "Bearer token-s2"]);
+    expect(fresh.types()).toContain("directory");
+  });
+
   it("closes expired sockets, deletes their bearers, and stops the cadence when idle", async () => {
     const harness = new Harness();
     harness.serveDiscovery(() => discoveryResponse(42));
