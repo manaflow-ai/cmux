@@ -375,14 +375,16 @@ jobs:
             core.setOutput('republish_run', republish ? process.env.REPUBLISH_RUN : '');
             core.setOutput('republish_attempt', republish ? process.env.REPUBLISH_ATTEMPT : '');
             const loopRetry = process.env.LOOP_RETRY || '';
+            // A loop retry runs at the head when it is dispatched, which can be newer than a saved unsigned
+            // app's commit, so it always builds again: naming an unsigned run would publish that older app.
             if (loopRetry && (context.eventName !== 'workflow_dispatch' || context.ref !== 'refs/heads/nightly-next' ||
-                !/^[12]$/.test(loopRetry) || republish)) {
-              core.setFailed('nightly_next_loop_retry is 1 or 2, on nightly-next, and never a republish');
+                !/^[12]$/.test(loopRetry) || republish || unsignedResume)) {
+              core.setFailed('nightly_next_loop_retry is 1 or 2, on nightly-next, and never a republish or an unsigned resume');
               return;
             }
             // The loop retries its own failed run (retry-nightly-next): an unsigned resume from anywhere else
             // (main's feed watch) would only take the nightly mini beside the loop, so it builds nothing.
-            const resumeOutsideLoop = unsignedResume && !loopRetry;
+            const resumeOutsideLoop = unsignedResume;
             const forceBuild = unsignedResume || republish || process.env.FORCE_BUILD === 'true';
             const seedOnly = process.env.SEED_ONLY === 'true';
             // A build-only run measures the unsigned universal app build (cold
