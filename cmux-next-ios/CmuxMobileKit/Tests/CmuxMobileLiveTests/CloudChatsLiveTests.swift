@@ -47,6 +47,10 @@ import Testing
                     ["sessionId": "shared", "name": machine, "harness": "fake", "cwd": "/w", "status": "idle"],
                     ["sessionId": "peer/shared", "peer": "other", "harness": "fake", "status": "idle"],
                 ]]
+                case "_acpmux/attach" where (params["sessionId"] as? String)?.hasPrefix("new-on-") == true:
+                    // A chat this test just started: no history yet.
+                    result = ["session": ["sessionId": params["sessionId"] ?? "", "status": "idle", "pending": []],
+                              "hasMore": false, "lastSeq": 0, "events": []]
                 case "_acpmux/attach": result = [
                     "session": ["sessionId": "shared", "status": "idle", "pending": []],
                     "hasMore": false, "lastSeq": 3,
@@ -197,7 +201,9 @@ import Testing
         // Listed before the answer, so the screen opens it without another directory read.
         let store = try #require(relay.store(sessionID: session))
         store.send(prompt: "hello from the phone")
-        #expect(await until { wire.sent.contains { $0.0 == "vm-a" && $0.1 == session && $0.2 == "hello from the phone" } })
+        // `wire` is not observed: wait for the user_message the machine sent back, then read what it received.
+        #expect(await until { !store.turns.isEmpty })
+        #expect(wire.sent.contains { $0.0 == "vm-a" && $0.1 == session && $0.2 == "hello from the phone" })
         relay.disconnect()
     }
 
