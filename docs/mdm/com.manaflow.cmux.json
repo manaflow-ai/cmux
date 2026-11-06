@@ -2069,7 +2069,7 @@
       "type" : "boolean"
     },
     "computerUse.driver" : {
-      "default" : "legacy",
+      "default" : "upstream",
       "description" : "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately.",
       "enum" : [
         "legacy",
@@ -3837,12 +3837,6 @@
       },
       "title" : "Pinned Folders",
       "type" : "array"
-    },
-    "remote.enabled" : {
-      "default" : false,
-      "description" : "cmux Remote holds Accessibility and Screen Recording for Computer Use (Upstream driver) and Screen Sharing, so a grant never needs a relaunch. Applies when cmux restarts.",
-      "title" : "Use cmux Remote",
-      "type" : "boolean"
     },
     "remote.endSharingOnQuit" : {
       "default" : false,
