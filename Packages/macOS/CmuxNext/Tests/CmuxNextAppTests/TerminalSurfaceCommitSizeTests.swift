@@ -135,6 +135,59 @@ struct TerminalSurfaceCommitSizeTests {
                 "\(fixture.mismatches.count) turns ended with the layer at one size and its frame at another: \(fixture.mismatches.prefix(8))")
     }
 
+    /// Switch on, a window that draws: a host that follows its pane gives its surface the area's frame whatever hold the
+    /// surface has (a low prompt's bottom hold, as a join sets one before its area hands it the follow), so a frame kept
+    /// while a new size waits rides the area's top-left like the content of every other frame.
+    /// - Review of #35914 at 03c050e893f (H1): a bottom hold not taller than its area kept the hold's bottom edge; as the
+    ///   area got shorter its top rows were cut and the text moved up by the height the area lost, then down again when
+    ///   the frame landed.
+    /// - cmux-ad m14: a bottom hold taller than its area kept the surface on the bottom edge (F2): the surface was taller
+    ///   than its pane and its top rows were cut. Now it takes the area's frame too and asks for no other size; its reflow
+    ///   preview keeps the prompt in view at the area's grid (TerminalKeyResizeFrameTests).
+    @Test func aFollowedSurfaceTakesItsAreasFrameWhateverItsHold() async throws {
+        let fixture = try await Fixture()
+        defer { fixture.close() }
+        let host = fixture.session.view
+        let surface = fixture.session.surfaceView
+        let presenter = TerminalFramePresenter.forWindow(fixture.window)
+        let rest = surface.frame
+        try #require(rest.width > 200 && rest.height > 100, "the terminal's rest frame is \(rest)")
+
+        // The pane's top edge stands still; the surface has a bottom hold below the area's height (a low prompt's hold),
+        // then the pane gets shorter (a reverse press) while that size waits for its frame.
+        host.followPaneMotion(PaneMotionHold(trailing: false, bottom: false), heldSize: host.bounds.size)
+        host.holdSurface(size: CGSize(width: rest.width, height: rest.height - 60), anchor: .bottom)
+        fixture.layoutNow()
+        #expect(surface.frame == rest, "a hold not taller than the area: the surface is \(surface.frame), its area \(rest)")
+        fixture.container.terminalHeight -= 30
+        fixture.layoutNow()
+        try #require(presenter.isWaiting(surface), "the shorter size did not wait for its frame (frame \(surface.frame))")
+        #expect(surface.frame.size == rest.size, "while its new size waits the terminal is \(surface.frame.size), it keeps \(rest.size)")
+        #expect(surface.frame.minX == host.bounds.minX && surface.frame.maxY == host.bounds.maxY,
+                "the kept frame \(surface.frame) is not on its area's top-left \(host.bounds): its text moved with the bottom edge")
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while ContinuousClock.now < deadline, presenter.isWaiting(surface) { await fixture.commits(1) }
+        #expect(!presenter.isWaiting(surface), "the shorter size still waits for its frame after 2 s")
+        #expect(surface.frame == CGRect(x: rest.minX, y: rest.minY, width: rest.width, height: rest.height - 30),
+                "the landed frame is \(surface.frame)")
+
+        // A hold taller than the area: the surface keeps the area's frame and asks for no other size.
+        let area = surface.frame
+        let taller = CGSize(width: rest.width, height: rest.height + 40)
+        host.holdSurface(size: taller, anchor: .bottom)
+        fixture.layoutNow()
+        #expect(!presenter.isWaiting(surface), "a hold taller than its area asked for a frame at \(surface.frameOwnership.inFlight.map { "\($0)" } ?? "?")")
+        let held = ContinuousClock.now.advanced(by: .seconds(2))
+        while ContinuousClock.now < held, presenter.isWaiting(surface) { await fixture.commits(1) }
+        #expect(surface.frame == area, "a hold taller than its area: the surface is \(surface.frame), its area \(area)")
+        host.releaseSurfaceHold()
+        host.followPaneMotion(nil, heldSize: nil)
+        fixture.container.terminalHeight += 30
+        fixture.layoutNow()
+        #expect(fixture.mismatches.isEmpty,
+                "\(fixture.mismatches.count) turns ended with the layer at one size and its frame at another: \(fixture.mismatches.prefix(8))")
+    }
+
     /// A terminal hidden while its new size waits for its frame (a tab switched away mid-drag) takes the size its
     /// host gives it then, and keeps it: the pass that sees it hidden never puts back the older size it had asked
     /// for (review of 114c5ef217d).

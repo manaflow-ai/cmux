@@ -126,8 +126,8 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
               ".cv-user__time",
               ".cv-iconbtn svg",
             );
-            const retry = (kind: string) =>
-              getComputedStyle(document.querySelector(`[data-received-row="${kind}"] .cv-message-retry`)!).display;
+            // The last turn's Retry is its reply footer's (TurnFooter): no message row draws one.
+            const retry = (kind: string) => document.querySelector(`[data-received-row="${kind}"] .cv-message-retry`);
             const sessionInfo = document.querySelector('[data-glyph-row="session-info"]')!;
             const sectionTitle = sessionInfo
               .querySelector(".acpmux-session-info-section__title")!
@@ -158,15 +158,16 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
             expect(row.glyphs.length, row.kind).toBeGreaterThan(0);
             for (const glyph of row.glyphs) expect(glyph.delta, row.kind).toBeLessThanOrEqual(0.5);
           }
-          expect(measurements.footer).toHaveLength(3);
-          expect(measurements.versionFooter).toHaveLength(5);
+          // Two fewer than before: Retry and its model switch moved to the reply footer (TurnFooter).
+          expect(measurements.footer).toHaveLength(1);
+          expect(measurements.versionFooter).toHaveLength(3);
           for (const glyph of [...measurements.footer, ...measurements.versionFooter]) {
             expect(glyph.delta, "sent footer").toBeLessThanOrEqual(0.5);
             expect(glyph.width, "footer glyph width").toBe(16);
             expect(glyph.height, "footer glyph height").toBe(16);
           }
-          expect(measurements.retryHidden).toBe("none");
-          expect(measurements.retryShown).toBe("flex");
+          expect(measurements.retryHidden).toBeNull();
+          expect(measurements.retryShown).toBeNull();
         } finally {
           await page.close();
         }

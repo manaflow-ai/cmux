@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// Native adapters for Rust's fetched NEXT Cloud client configuration.
@@ -11,8 +12,7 @@ public struct CloudConfiguration: Sendable, Equatable {
     public static let unavailable = CloudConfiguration(
         backend: .localOnly(inertURL), apiBaseURL: inertURL, authWebOrigin: inertURL,
         stackBaseURL: inertURL, stackProjectID: "", stackPublishableClientKey: "",
-        isProductionAuth: false, callbackScheme: "cmux", bundleID: unavailableBundleID, isDebugBuild: true,
-        linkSource: .appServer)
+        isProductionAuth: false, callbackScheme: "cmux", bundleID: unavailableBundleID, isDebugBuild: true)
     public enum Backend: Sendable, Equatable {
         /// A production selection returned by the backend.
         case production
@@ -33,23 +33,8 @@ public struct CloudConfiguration: Sendable, Equatable {
     public var callbackScheme: String
     public var bundleID: String?
     public var isDebugBuild: Bool
-    /// Where a Cloud machine's link socket comes from.
-    public var linkSource: LinkSource = .legacy
     /// The bundled CLI's selection for this launch; nil in legacy configuration fixtures.
     public var runtimeSelection: CloudRuntimeSelection?
-
-    public enum LinkSource: Sendable, Equatable {
-        /// `/api/vm` list, create and attach endpoint and a `cmux-tui remote
-        /// connect` process (frozen, contract 2.5). The default until the
-        /// first-party app packages ship in the bundle (cx-t2rz), except NEXT DEV.
-        case legacy
-        /// The Cloud app server (contract 2.1, 2.3): the machine list,
-        /// create and the `cloud.machine.connect` carrier socket, all on the
-        /// cmux-next API Worker through the host credential relay (cx-t2rz).
-        /// Signed NEXT DEV and every Debug build; `CMUX_NEXT_CLOUD_LINK=legacy` (launch env) or
-        /// `CMUX_CLOUD_LINK=legacy` (baked) keeps a Debug build on the classic link.
-        case appServer
-    }
 
     /// Existing Stack token Keychain service (`<bundle id>.auth`). Signed NEXT
     /// DEV scopes staging tokens separately so it never restores its old production session.
@@ -64,11 +49,27 @@ public struct CloudConfiguration: Sendable, Equatable {
         credentialsDirectory(homeDirectory: FileManager.default.homeDirectoryForCurrentUser)
     }
 
+    // This build's own token files, under `cmux/<bundle id>`: a namespace of
+    // its own that predates ``BuildIdentity`` and is not that resolver's
+    // `cmux/builds/<key>`. Routing it through the resolver would move every
+    // existing build's token store and sign people out, so the literal root
+    // stays here (its `move` row in scripts/cmux-next/state-roots-baseline.tsv),
+    // and moving it is its own change with a migration.
     func credentialsDirectory(homeDirectory: URL) -> URL {
         let directory = homeDirectory
             .appendingPathComponent("Library/Application Support/cmux", isDirectory: true)
             .appendingPathComponent(bundleID ?? "cmux", isDirectory: true)
         return authStorageProject.map { directory.appendingPathComponent($0, isDirectory: true) } ?? directory
+    }
+
+    /// The namespaced store a build with runtime selection used for this legacy default before #36384
+    /// (4198271655001 read `<bundle id>.auth.<namespace>`): a session signed in there is adopted once.
+    /// Nil for every other selection, whose own store is already namespaced or project-scoped.
+    func namespacedLegacyStorage(homeDirectory: URL) -> (keychainService: String, credentialsDirectory: URL)? {
+        guard let selection = runtimeSelection, selection.legacyStorage, selection.authStorageNamespace == nil,
+              let bundleID, !bundleID.isEmpty else { return nil }
+        return ("\(bundleID).auth.\(selection.authNamespace)",
+                credentialsDirectory(homeDirectory: homeDirectory).appendingPathComponent(selection.authNamespace, isDirectory: true))
     }
 
     func authDefaultsKey(_ key: String) -> String {
@@ -123,14 +124,32 @@ public struct CloudConfiguration: Sendable, Equatable {
     }
 
     public var nightlySession: NightlySession? {
-        guard runtimeSelection?.name == "prod", !isDebugBuild, bundleID == "com.cmuxterm.app.debug.next" else { return nil }
-        let nightly = "com.cmuxterm.app.nightly"
+        nightlySession(homeDirectory: FileManager.default.homeDirectoryForCurrentUser)
+    }
+
+    /// Pure counterpart of ``nightlySession``, for configuration contract tests.
+    func nightlySession(homeDirectory: URL) -> NightlySession? {
+        guard runtimeSelection?.name == "prod", !isDebugBuild, bundleID == Self.signedDEVBundleID else { return nil }
+        let nightly = BuildIdentity.nightlyBundleID
+        // NIGHTLY's own Application Support root, from the resolver keyed on
+        // NIGHTLY's identity (``BuildIdentity/appSupport(_:)``), never a literal
+        // root (per-build isolation S7, cx-is1kf.8). NIGHTLY is the one build
+        // that keeps the shared roots, so this stays the `cmux` directory while
+        // this signed DEV build's own roots are elsewhere.
+        let root = BuildIdentity(bundleID: nightly, bundledTag: nil)
+            .appSupport(Self.applicationSupportDirectory(homeDirectory: homeDirectory))
         return NightlySession(
             keychainService: "\(nightly).auth",
             accessGroup: "7WLXT3NR37.\(nightly)",
-            credentialsDirectory: FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent("Library/Application Support/cmux", isDirectory: true)
-                .appendingPathComponent(nightly, isDirectory: true))
+            credentialsDirectory: root.appendingPathComponent(nightly, isDirectory: true))
+    }
+
+    /// `~/Library/Application Support/cmux`: the directory
+    /// ``BuildIdentity/appSupport(_:)`` resolves a build's own state root under.
+    static func applicationSupportDirectory(homeDirectory: URL) -> URL {
+        homeDirectory
+            .appendingPathComponent("Library/Application Support", isDirectory: true)
+            .appendingPathComponent("cmux", isDirectory: true)
     }
 
     /// `<scheme>://auth-callback`. `/dev/null` stands in for a hand-built
@@ -169,7 +188,7 @@ public struct CloudConfiguration: Sendable, Equatable {
             stackBaseURL: selection.stackOrigin, stackProjectID: selection.stackProjectId,
             stackPublishableClientKey: selection.stackClientKey, isProductionAuth: selection.name == "prod",
             callbackScheme: scheme, bundleID: identity, isDebugBuild: isDebugBuild,
-            linkSource: .appServer, runtimeSelection: selection)
+            runtimeSelection: selection)
     }
 
     /// The selected backend's API origin. Rust has already validated and

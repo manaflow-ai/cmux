@@ -14,7 +14,7 @@ public final class Commands {
     public static final CommandMetadata ADD_SCREENS_TO_SCREEN_GROUP = new CommandMetadata("add-screens-to-screen-group", Authority.CONTROL, 12, "screen-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata ADD_TABS_TO_TAB_GROUP = new CommandMetadata("add-tabs-to-tab-group", Authority.CONTROL, 12, "tab-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata APPLY_LAYOUT = new CommandMetadata("apply-layout", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata ATTACH_SURFACE = new CommandMetadata("attach-surface", Authority.FRONTEND, 5, null, StreamKind.ATTACH, Map.ofEntries(Map.entry("mode", 7L)), Map.ofEntries(Map.entry("cols", "attach-initial-size"), Map.entry("expected_generation", "attach-identity-v1"), Map.entry("expected_terminal_id", "attach-identity-v1"), Map.entry("rows", "attach-initial-size"), Map.entry("snapshot", "terminal-snapshot-v1"), Map.entry("snapshot_images", "terminal-snapshot-images-v1"), Map.entry("snapshot_local_history", "terminal-snapshot-local-history-v1"), Map.entry("snapshot_version", "terminal-snapshot-v1"), Map.entry("viewer_backlog_bytes", "terminal-snapshot-v1")));
+    public static final CommandMetadata ATTACH_SURFACE = new CommandMetadata("attach-surface", Authority.FRONTEND, 5, null, StreamKind.ATTACH, Map.ofEntries(Map.entry("mode", 7L)), Map.ofEntries(Map.entry("cols", "attach-initial-size"), Map.entry("expected_generation", "attach-identity-v1"), Map.entry("expected_terminal_id", "attach-identity-v1"), Map.entry("replay_history_rows", "attach-replay-history-rows-v1"), Map.entry("rows", "attach-initial-size"), Map.entry("snapshot", "terminal-snapshot-v1"), Map.entry("snapshot_images", "terminal-snapshot-images-v1"), Map.entry("snapshot_local_history", "terminal-snapshot-local-history-v1"), Map.entry("snapshot_version", "terminal-snapshot-v1"), Map.entry("viewer_backlog_bytes", "terminal-snapshot-v1")));
     public static final CommandMetadata BIND_CONVERSATION_TAB_SESSION = new CommandMetadata("bind-conversation-tab-session", Authority.CONTROL, 12, "agent-session-tabs-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata BROWSER_ACTIVATE = new CommandMetadata("browser-activate", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata BROWSER_BACK = new CommandMetadata("browser-back", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
@@ -208,6 +208,10 @@ public final class Commands {
     public static final CommandMetadata RELEASE_ATTACHED_VIEW_SIZE = new CommandMetadata("release-attached-view-size", Authority.FRONTEND, 10, "view-attachment-lease-v1", StreamKind.NONE, Map.ofEntries(Map.entry("view", 12L)), Map.ofEntries(Map.entry("view", "shared-sizing-v1")));
     public static final CommandMetadata RELEASE_SURFACE_SIZE = new CommandMetadata("release-surface-size", Authority.CONTROL, 7, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata RELOAD_CONFIG = new CommandMetadata("reload-config", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata REMOTE_HOST_APP = new CommandMetadata("remote-host-app", Authority.LOCAL_ADMIN, 12, "remote-host-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata REMOTE_HOST_CALL = new CommandMetadata("remote-host-call", Authority.LOCAL_ADMIN, 12, "remote-host-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata REMOTE_HOST_CONFIG = new CommandMetadata("remote-host-config", Authority.LOCAL_ADMIN, 12, "remote-host-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata REMOTE_HOST_STATUS = new CommandMetadata("remote-host-status", Authority.LOCAL_ADMIN, 12, "remote-host-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata REMOTE_TERMINAL_SNAPSHOT = new CommandMetadata("remote-terminal-snapshot", Authority.CONTROL, 12, "remote-terminal-tabs-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata REMOVE_SCREENS_FROM_SCREEN_GROUP = new CommandMetadata("remove-screens-from-screen-group", Authority.CONTROL, 12, "screen-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata REMOVE_TABS_FROM_TAB_GROUP = new CommandMetadata("remove-tabs-from-tab-group", Authority.CONTROL, 12, "tab-groups-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -502,6 +506,10 @@ public final class Commands {
         values.put("release-attached-view-size", RELEASE_ATTACHED_VIEW_SIZE);
         values.put("release-surface-size", RELEASE_SURFACE_SIZE);
         values.put("reload-config", RELOAD_CONFIG);
+        values.put("remote-host-app", REMOTE_HOST_APP);
+        values.put("remote-host-call", REMOTE_HOST_CALL);
+        values.put("remote-host-config", REMOTE_HOST_CONFIG);
+        values.put("remote-host-status", REMOTE_HOST_STATUS);
         values.put("remote-terminal-snapshot", REMOTE_TERMINAL_SNAPSHOT);
         values.put("remove-screens-from-screen-group", REMOVE_SCREENS_FROM_SCREEN_GROUP);
         values.put("remove-tabs-from-tab-group", REMOVE_TABS_FROM_TAB_GROUP);

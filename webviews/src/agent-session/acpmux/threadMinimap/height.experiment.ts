@@ -1,6 +1,6 @@
 // l10n-allow-file: experiment descriptions are gallery/debug text, never shown in the pane.
 import { defineExperiment } from "../../../experiments/experiment";
-import { RAIL_HEIGHTS, type RailHeightArm, type RailHeightConfig } from "./model";
+import { DEFAULT_RAIL_HEIGHT, RAIL_HEIGHTS, type RailHeightArm, type RailHeightConfig } from "./model";
 
 /// The compact rail's initial and maximum height. Leo first asked for a rail that grows toward
 /// ChatGPT's nearly full-pane rail instead of tracking the visible transcript slice
@@ -8,7 +8,8 @@ import { RAIL_HEIGHTS, type RailHeightArm, type RailHeightConfig } from "./model
 /// be having a nicer max height instead of going all the way up and down. make it look like codex's
 /// size." and "the height of the left scroll rail should never be affected by anything". The `fixed-*`
 /// arms are one height for every chat, whatever its prompt count or the pane's height; `fixed-240`
-/// ships. Dogfood switches from `cmux.experiments` with this experiment id.
+/// shipped. Leo, 2026-11-05: "this can maybe be proportionally like double of what it is rn";
+/// `fixed-480` now ships with twice the height and tick pitch. Dogfood switches from `cmux.experiments` with this experiment id.
 export const threadMinimapHeight = defineExperiment({
   id: "thread-minimap-height",
   title: "Thread minimap height",
@@ -21,6 +22,14 @@ export const threadMinimapHeight = defineExperiment({
     "fixed-240": {
       label: "Fixed 240px",
       description: "The Codex rail's size: one height for every chat, unaffected by prompt count or pane height.",
+    },
+    "fixed-360": {
+      label: "Fixed 360px / 15px pitch",
+      description: "One and a half times the original height and tick spacing.",
+    },
+    "fixed-480": {
+      label: "Fixed 480px / 20px pitch",
+      description: "Twice the original height and tick spacing, with the same resting tick lengths and tones.",
     },
     "fixed-280": {
       label: "Fixed 280px",
@@ -43,7 +52,7 @@ export const threadMinimapHeight = defineExperiment({
       description: "The tallest initial rail, using all available cleared pane room.",
     },
   },
-  defaultArm: "fixed-240",
+  defaultArm: DEFAULT_RAIL_HEIGHT,
 });
 
 export const railHeightConfig = (arm: RailHeightArm): RailHeightConfig => RAIL_HEIGHTS[arm];

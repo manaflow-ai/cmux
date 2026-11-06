@@ -209,10 +209,6 @@ struct CloudStartChatMachineTests {
         #expect(request.idempotencyKey == "cloud-start-chat-k")
         #expect(request.team == "team-a")
         #expect(!request.wasSent)
-        // The classic create sends to that team, not the app's team now; a sent try keeps its own.
-        #expect(await CloudService.createTeam(sent: nil, requested: request.team) { "team-b" } == "team-a")
-        #expect(await CloudService.createTeam(sent: nil, requested: nil) { "team-b" } == "team-b")
-        #expect(await CloudService.createTeam(sent: .some("team-c"), requested: request.team) { "team-b" } == "team-c")
     }
 
     /// A signed-out first send keeps its stable refusal code for callers, but the

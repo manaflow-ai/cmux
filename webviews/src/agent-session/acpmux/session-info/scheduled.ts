@@ -78,6 +78,9 @@ export function nextScheduledChange(items: readonly SummaryWakeup[], now: number
 }
 
 /// The longest wait setTimeout takes (about 24.8 days); a later end sets a new timer when it fires.
+// Not a wall-clock bound on anything: a delay past setTimeout's own ceiling fires at once, which
+// would re-arm in a loop. Nothing is cut short; a further end re-arms from there.
+// timeout: setTimeout's platform ceiling, not a deadline on a peer.
 const MAX_TIMEOUT_MS = 2 ** 31 - 1;
 
 /// How long the clock's timer waits for `next` at `now`: a millisecond past it, so the item has

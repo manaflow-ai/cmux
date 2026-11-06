@@ -54,6 +54,11 @@ final class CEFPaneHost {
         self.contextMenus = contextMenus
         hostView.liveResizeWillStart = { [weak self] in self?.visibleTab?.samplePageBackdrop() }
         hostView.fileDrag.target = { [weak self] in self?.visibleTab }
+        // The page holds the keyboard: its window is key, or its focus ask waits (a resize motion keeps it attached).
+        hostView.layerHosting.holdsFocus = { [weak self] in
+            guard let self else { return false }
+            return self.visibleTab?.pendingFocus == true || CEFLayerHosting.pageWindowIsKey(over: self.hostView)
+        }
     }
 
     /// The viewport of a tab no pane has shown (Playwright's default page
@@ -318,7 +323,7 @@ final class CEFPaneHost {
         window = .live(window: windowID)
         lastActivated = browser
         runtime.register(tab, browser: browser)
-        hostView.layerHosting.pageWindowCreated(browser: browser, fork: CEFLayerHosting.Fork(shim: runtime.shim, apiVersion: runtime.forkAPIVersion))
+        hostView.layerHosting.pageWindowCreated(browser: browser, fork: CEFLayerHosting.Fork(shim: runtime.shim, apiVersion: runtime.forkAPIVersion), follows: runtime.hostingSwitch)
         // Tabs shown or created while the window was being built. The window's first tab is its
         // active one until a shown tab joins it as active (`tab_add` with activate).
         var active = tab

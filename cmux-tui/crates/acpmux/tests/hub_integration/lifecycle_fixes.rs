@@ -612,6 +612,93 @@ async fn the_persons_slow_start_keeps_waiting_past_the_start_budget_and_says_so(
     let _ = std::fs::remove_file(&gate);
 }
 
+/// A Chief turn answers a person's message, so killing its start at a wall clock on a loaded host
+/// loses the start and the turn (load 469, `session/new: no answer within 200 s`). A start that
+/// asks for it (`waitStart`, from a connection that is not an agent's) waits on its harness and
+/// says so, as the person's does.
+#[tokio::test]
+async fn a_chiefs_slow_start_waits_on_its_harness_past_the_start_budget() {
+    let gate = std::env::temp_dir().join(format!("acpmux-chief-gate-{}", uuid::Uuid::now_v7()));
+    let (hub, _person) = gated_hub(&gate, &[]).await;
+    hub.config.write().await.agent_start_timeout_ms = Some(300);
+    let mut chief = agent_client(&hub);
+    let started = tokio::spawn(async move {
+        let params = json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {
+            "name": "chief-turn", "harness": "gated", "waitStart": true,
+        }}});
+        chief.request(method::SESSION_NEW, params).await
+    });
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    while start_waits(&hub, "chief-turn") < 3 {
+        assert!(!started.is_finished(), "the Chief's start ended: {:?}", started.await);
+        assert!(std::time::Instant::now() < deadline, "the start never said it still waits");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    std::fs::write(&gate, b"").unwrap();
+    let created = tokio::time::timeout(Duration::from_secs(20), started)
+        .await
+        .expect("the start never ended once its agent answered")
+        .unwrap()
+        .expect("the Chief's slow start failed");
+    assert!(created["sessionId"].is_string(), "{created}");
+    let _ = std::fs::remove_file(&gate);
+}
+
+/// Nor for a connection that says it runs in a session, an agent's or a lane's.
+#[tokio::test]
+async fn an_agents_connection_cannot_ask_its_start_to_wait() {
+    let gate = std::env::temp_dir().join(format!("acpmux-agent-gate-{}", uuid::Uuid::now_v7()));
+    let (hub, _person) = gated_hub(&gate, &[]).await;
+    hub.config.write().await.agent_start_timeout_ms = Some(300);
+    let mut agent = agent_client(&hub);
+    // An agent's connection names its session in its first `initialize`.
+    let hello = json!({"protocolVersion": 1, "_meta": {"acpmux": {
+        "callerSession": {"sessionId": "some-chat", "token": "unproven"},
+    }}});
+    agent.request(method::INITIALIZE, hello).await.unwrap();
+    let params = json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {
+        "name": "agent-start", "harness": "gated", "waitStart": true,
+    }}});
+    let answered =
+        tokio::time::timeout(Duration::from_secs(20), agent.request(method::SESSION_NEW, params))
+            .await
+            .expect("an agent's start waited past its deadline");
+    let error = answered.expect_err("an agent's start of a gated agent answered");
+    assert!(error.contains("did not finish within 300ms"), "{error}");
+    assert_eq!(start_waits(&hub, "agent-start"), 0);
+}
+
+/// The key opens nothing for a remote connection: its start keeps the deadline.
+#[tokio::test]
+async fn a_remote_connection_cannot_ask_its_start_to_wait() {
+    let gate = std::env::temp_dir().join(format!("acpmux-remote-gate-{}", uuid::Uuid::now_v7()));
+    let (hub, _person) = gated_hub(&gate, &[]).await;
+    {
+        let mut config = hub.config.write().await;
+        config.agent_start_timeout_ms = Some(300);
+        config.web_asking_modes.insert("gated".into(), vec!["normal".into()]);
+    }
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel(4096);
+    tokio::spawn(acpmux::server::serve_connection_with(
+        hub.clone(),
+        in_rx,
+        out_tx,
+        acpmux::server::Origin::Peer,
+    ));
+    let mut remote = TestClient { tx: in_tx, rx: out_rx, next: 0 };
+    let params = json!({"mcpServers": [], "_meta": {"acpmux": {
+        "name": "remote-start", "harness": "gated", "waitStart": true,
+    }}});
+    let answered =
+        tokio::time::timeout(Duration::from_secs(20), remote.request(method::SESSION_NEW, params))
+            .await
+            .expect("a remote start waited past its deadline");
+    let error = answered.expect_err("a remote start of a gated agent answered");
+    assert!(error.contains("did not finish within 300ms"), "{error}");
+    assert_eq!(start_waits(&hub, "remote-start"), 0);
+}
+
 /// The person's start still fails at once on a real error: its agent exits.
 #[tokio::test]
 async fn the_persons_start_fails_when_its_agent_exits() {

@@ -30,6 +30,7 @@ use crate::no_panic::JsonExt;
 use std::time::Duration;
 
 use super::*;
+use crate::hub::no_session::NO_SESSION_PREFIX;
 use crate::hub::outbox::{Delivery, RETRY_DELAYS_SECS, RETRY_FOR_MS, State};
 
 /// What an attempt that did not deliver leaves the delivery as.
@@ -44,6 +45,9 @@ pub(super) enum Next {
     Fail,
     /// The target holds it for a paused agent pair.
     Held,
+    /// The target's machine answered that it has no such session: failed at once, never tried
+    /// again (a name that is no session's stays so; `hub/no_session.rs`).
+    NoSession,
 }
 
 /// How long one attempt waits for the target's acceptance.
@@ -88,6 +92,7 @@ pub(super) async fn handle(
     if hub.resolve(&target).is_err()
         && hub.resolve_remote(&target).is_none()
         && hub.peer_down_for(&target).is_none()
+        && hub.no_session_is_final(&target)
     {
         // With the mesh relay on, the team hub may know a name nothing here or on a peer matches
         // (`mesh_send.rs`); a name several sessions here or on peers match stays this daemon's
@@ -97,14 +102,15 @@ pub(super) async fn handle(
         {
             return super::mesh_send::send(hub, conn, mesh, &request, &target).await;
         }
-        // The names it nearly matched, so the sender can pick one (`Hub::unknown_session`).
-        let close = hub.unknown_session(&target).data.and_then(|d| d.get("candidates").cloned());
-        let mut data = json!({"reason": "no_session", "session": target});
-        if let Some(close) = close {
-            data.set("candidates", close);
-        }
-        return Err(RpcError::invalid_params(format!("no session: {target}")).with_data(data));
+        // The machine is reachable and has no such session: refused now, never queued, with the
+        // closest names there so the sender can pick one (`hub/no_session.rs`).
+        let (text, data) = hub.no_session_text(&target);
+        return Err(
+            RpcError::invalid_params(format!("no session: {target} ({text})")).with_data(data)
+        );
     }
+    // A peer that is down now: queued and tried again, and the answer says so.
+    let host_unreachable = hub.host_unreachable_for(&target);
     // Over the caps it is refused now, never kept (`attach.rs`).
     crate::attach::check_wire(&request)?;
     let mux = request
@@ -165,7 +171,11 @@ pub(super) async fn handle(
         }
         drop_own_uploads(hub, &new, &delivery).await;
     }
-    Ok(delivery.status())
+    let mut status = delivery.status();
+    if host_unreachable {
+        status.set("hostUnreachable", json!(true));
+    }
+    Ok(status)
 }
 
 /// A direct peer send needs a durable projection intent: the peer may accept
@@ -607,6 +617,22 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 return;
             }
             Err((error, next)) => {
+                // No such session there: failed now, naming the closest names, unless its
+                // machine is down or has not listed its sessions since it came back (then the
+                // answer proves nothing; tried again).
+                let (error, next) = match next {
+                    Next::NoSession if hub.peer_down_for(&delivery.target).is_some() => {
+                        (error, Next::Unsent)
+                    }
+                    Next::NoSession if !hub.no_session_is_final(&delivery.target) => {
+                        (error, Next::Retry)
+                    }
+                    Next::NoSession => {
+                        let (text, _) = hub.no_session_text(&delivery.target);
+                        (format!("{NO_SESSION_PREFIX}{text}"), Next::NoSession)
+                    }
+                    next => (error, next),
+                };
                 let delay = matches!(next, Next::Retry | Next::Unsent)
                     .then(|| retry_delay(&mut delays, &delivery, crate::store::now_ms()))
                     .flatten();
@@ -834,6 +860,13 @@ fn next(e: &RpcError) -> Next {
     if reason == "peer_unreachable" {
         return Next::Unsent;
     }
+    // No such session on the target's machine: a not-found answer (this daemon's for a peer
+    // that lists none, or the peer's own), which every later attempt would give again.
+    if reason == "no_session"
+        || (e.code == RpcError::not_found("").code && e.message.starts_with("no session matches"))
+    {
+        return Next::NoSession;
+    }
     let flagged = data.and_then(|d| d.get("retryable")).and_then(Value::as_bool);
     match flagged {
         _ if reason.starts_with("agent_pair.") => Next::Fail,
@@ -841,6 +874,24 @@ fn next(e: &RpcError) -> Next {
         Some(false) => Next::Fail,
         None if e.code != RpcError::invalid_params("").code => Next::Retry,
         None => Next::Fail,
+    }
+}
+
+#[cfg(test)]
+mod no_session_next_tests {
+    use super::*;
+
+    /// "No such session" from the target's machine is final; a peer that is down is not.
+    #[test]
+    fn a_no_session_answer_is_final_and_an_unreachable_peer_is_not() {
+        let e = RpcError::not_found("no session matches \"host/proc-title\"");
+        assert_eq!(next(&e), Next::NoSession);
+        let flagged =
+            RpcError::invalid_params("no session: x").with_data(json!({"reason": "no_session"}));
+        assert_eq!(next(&flagged), Next::NoSession);
+        let down = RpcError::internal("down").with_data(json!({"reason": "peer_unreachable"}));
+        assert_eq!(next(&down), Next::Unsent);
+        assert_eq!(next(&RpcError::internal("connection reset")), Next::Retry);
     }
 }
 

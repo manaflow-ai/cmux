@@ -5,10 +5,12 @@
 //! The journal runs on `cmux_journal::SimStorage`; the chat logs are real files whose OS crash
 //! follows the syncs that ran (`store/sync_model.rs`).
 
+use super::log_sync::{FAIL_NEXT_LOG_SYNC, NOTE_BEFORE_SYNCS_WAIT};
 use super::sync_model;
 use super::*;
 use cmux_journal::{Crash, SimStorage};
 use serde_json::json;
+use std::os::unix::fs::PermissionsExt;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -323,6 +325,102 @@ fn the_checkpoint_never_makes_a_folder_removed_outside_the_store_again() {
         store.load(CHAT).unwrap_or_else(|e| panic!("{e:#}")).is_none(),
         "a removed chat still reads"
     );
+}
+
+// ---------------------------------------------------------------- the open's syncs
+
+/// An open that replays many chats flushes the drive's cache a bounded number of times, not a
+/// few times per chat: on macOS each flush (`F_FULLFSYNC`) costs milliseconds, and at 29 ms per
+/// replayed chat (fleet ead05e82, aws-m4pro-5) an open after a kill with 300 active chats took
+/// 8.8 s, past the daemon's 8 s start budget. Every file is still made durable (the order of the
+/// writes is kept with a barrier sync, and one full flush ends the open).
+#[test]
+fn an_open_that_replays_many_chats_flushes_the_drive_a_bounded_number_of_times() {
+    use super::log_sync::FULL_SYNCS;
+    use std::sync::atomic::Ordering;
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(70);
+    let store = open(home.path(), &journal);
+    let chats = 40;
+    for chat in 0..chats {
+        let id = format!("chat-{chat}");
+        store.save(&meta(&id, "chat", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+        store.append(&id, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    for chat in 0..chats {
+        let id = format!("chat-{chat}");
+        store.append(&id, &record(2, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+        store.save(&meta(&id, "renamed", 2)).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let killed = journal.restart(Crash::Process);
+    drop(store);
+    let before = FULL_SYNCS.load(Ordering::SeqCst);
+    let store = open(home.path(), &killed);
+    let flushes = FULL_SYNCS.load(Ordering::SeqCst).saturating_sub(before);
+    for chat in 0..chats {
+        let id = format!("chat-{chat}");
+        assert_eq!(seqs(store.as_ref(), &id), vec![1, 2], "{id} lost a line");
+    }
+    assert!(
+        flushes <= 8,
+        "the open flushed the drive {flushes} times for {chats} replayed chats (one or two per open, not per chat)"
+    );
+}
+
+/// The open after a kill syncs nothing per replayed chat before it returns (the daemon binds its
+/// socket after it): the log already holds the dead daemon's lines, only the checkpoint needs them
+/// durable, and the checkpoint runs on its own thread after the start. At about 8 ordered syncs
+/// per chat, an open with 300 chats took 6.1 s on an owned Mac (fleet 59175d6b, 2 ms a sync
+/// under load). Every acknowledged line still survives an OS crash after the checkpoint.
+#[test]
+fn an_open_after_a_kill_syncs_nothing_per_chat_and_the_checkpoint_makes_it_durable() {
+    use super::log_sync::ALL_SYNCS;
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(71);
+    let store = open(home.path(), &journal);
+    let chats = 40;
+    for chat in 0..chats {
+        let id = format!("chat-{chat}");
+        store.save(&meta(&id, "chat", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+        store.append(&id, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    for chat in 0..chats {
+        let id = format!("chat-{chat}");
+        store.append(&id, &record(2, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+        store.save(&meta(&id, "renamed", 2)).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let killed = journal.restart(Crash::Process);
+    drop(store);
+    // This thread's syncs: the open's own (the daemon binds its socket on this thread after it).
+    let before = ALL_SYNCS.with(std::cell::Cell::get);
+    let store = open(home.path(), &killed);
+    let syncs = ALL_SYNCS.with(std::cell::Cell::get).saturating_sub(before);
+    for chat in 0..chats {
+        let id = format!("chat-{chat}");
+        assert_eq!(seqs(store.as_ref(), &id), vec![1, 2], "{id} lost a line");
+        let name = store.load(&id).unwrap_or_else(|e| panic!("{e:#}")).map(|meta| meta.name);
+        assert_eq!(name.as_deref(), Some("renamed"), "{id} lost its metadata");
+    }
+    assert!(
+        syncs <= 4,
+        "the open synced {syncs} times for {chats} replayed chats before it returned"
+    );
+    // The checkpoint (a timer on its own thread; here at once) makes it all durable.
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    let crashed = killed.restart(Crash::Os);
+    drop(store);
+    sync_model::os_crash(&home.path().join("sessions"));
+    let store = open(home.path(), &crashed);
+    for chat in 0..chats {
+        let id = format!("chat-{chat}");
+        assert_eq!(seqs(store.as_ref(), &id), vec![1, 2], "{id} lost a line in the OS crash");
+    }
 }
 
 // ---------------------------------------------------------------- review of #35483 (F1 to F4)
@@ -770,4 +868,531 @@ fn a_change_after_the_journal_is_made_again_reaches_session_json() {
     assert_eq!(name.as_deref(), Some("b1"), "a change after a journal reset was dropped");
     let on_disk = session_json(home.path(), CHAT).map(|value| value["name"].clone());
     assert_eq!(on_disk, Some(json!("b1")), "session.json kept the old journal's image");
+}
+
+// ---------------------------------------------------------------- review of #35866 (P1-1, P2-1, P2-2)
+
+/// Whether this user can still make a file in a folder of mode 0o500 (root can): the tests
+/// below use a folder's mode to make one write fail.
+fn mode_stops_writes(folder: &Path) -> bool {
+    std::fs::set_permissions(folder, std::fs::Permissions::from_mode(0o500))
+        .unwrap_or_else(|e| panic!("chmod {}: {e}", folder.display()));
+    let probe = folder.join("rsync-review-probe");
+    let made = std::fs::File::create(&probe).is_ok();
+    let _ = std::fs::remove_file(&probe);
+    std::fs::set_permissions(folder, std::fs::Permissions::from_mode(0o700))
+        .unwrap_or_else(|e| panic!("chmod {}: {e}", folder.display()));
+    !made
+}
+
+/// Review of #35866, P1-1 (the reviewer's test): the open's repair leaves a whole log as it is
+/// and puts its segments in `Order::read_segments`; the first checkpoint takes them. When that checkpoint fails before
+/// `sync_read_segments` (here: a replayed metadata image whose `session.json` cannot be
+/// written yet, so `project_metas` fails), the set is dropped, and the next checkpoint that
+/// succeeds retires the records of lines that no sync made durable. An OS crash then loses
+/// acknowledged lines.
+#[test]
+fn a_failed_checkpoint_after_the_open_keeps_the_segments_it_read() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    assert!(
+        mode_stops_writes(home.path()),
+        "this test needs a user that a folder's mode stops (not root)"
+    );
+    let journal = SimStorage::new(91);
+    let store = open(home.path(), &journal);
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    for seq in 2..=5 {
+        store.append(CHAT, &record(seq, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    // Another chat's metadata change past the checkpoint (its folder made by the save).
+    store.save(&meta("chat-b", "renamed", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let killed = journal.restart(Crash::Process);
+    drop(store);
+    // chat-b's folder takes no new file for a while: a checkpoint's write of its
+    // `session.json` fails (not a failed sync: no freeze).
+    let folder = home.path().join("sessions").join("chat-b");
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o500))
+        .unwrap_or_else(|e| panic!("{e}"));
+    let store = open(home.path(), &killed);
+    // Every checkpoint fails while the folder is so (the checkpointer's first, at once, and
+    // this one): whichever ran first took the segments the open read.
+    let first = store.flush();
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o700))
+        .unwrap_or_else(|e| panic!("{e}"));
+    eprintln!(
+        "the checkpoint while chat-b's folder was 0o500: {:?}",
+        first.as_ref().err().map(|e| format!("{e:#}"))
+    );
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    let crashed = killed.restart(Crash::Os);
+    drop(store);
+    sync_model::os_crash(&home.path().join("sessions"));
+    let store = open(home.path(), &crashed);
+    assert_eq!(
+        seqs(store.as_ref(), CHAT),
+        (1..=5).collect::<Vec<_>>(),
+        "a checkpoint retired records whose log lines the open read and no sync made durable (a failed checkpoint dropped Order::read_segments)"
+    );
+}
+
+/// Review of #35866, P2-1 (the reviewer's test): a freeze while a checkpoint is in flight (held
+/// right after its start, where it read its LSN: `HOLD_AFTER_START`). Against the marker design
+/// of `f9c6a16d1b8`, the checkpoint went on and at its end removed the marker the freeze had just
+/// written; the freeze is a journal record now, which no checkpoint in flight can take back, and
+/// a fallback marker is never removed after a freeze of its own run. The restart must write the
+/// line again: else its sync reports success for pages the failed sync dropped, and its
+/// checkpoint retires the line's record. No timer: the checkpoint is let go after the freeze.
+#[test]
+fn a_freeze_during_a_checkpoint_still_makes_the_restart_write_the_lines_again() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(92);
+    let store: Arc<dyn Store> = Arc::from(open(home.path(), &journal));
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    // A checkpoint in flight (chat-b's record gives it work): held right after its start.
+    store.append("chat-b", &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    let (started_tx, started) = std::sync::mpsc::channel();
+    let (go, go_rx) = std::sync::mpsc::channel();
+    let flusher = {
+        let store = Arc::clone(&store);
+        std::thread::spawn(move || {
+            super::journal_store::HOLD_AFTER_START
+                .with(|hold| *hold.borrow_mut() = Some((started_tx, go_rx)));
+            store.flush()
+        })
+    };
+    started.recv_timeout(WAIT).unwrap_or_else(|e| panic!("the checkpoint never started: {e}"));
+    // Meanwhile a line past that checkpoint's LSN, and a failed sync of its log on this
+    // thread (`flush_session`): the store freezes.
+    store.append(CHAT, &record(2, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(true));
+    let failed = store.flush_session(CHAT);
+    FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(false));
+    assert!(failed.is_err(), "flush_session's sync did not fail as the test asked");
+    let _ = go.send(());
+    let in_flight = flusher.join().unwrap_or_else(|_| panic!("the flush panicked"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    // The daemon stops for a restart (no crash); the restart's first checkpoint runs.
+    drop(store);
+    let store = open(home.path(), &journal);
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    let crashed = journal.restart(Crash::Os);
+    drop(store);
+    sync_model::os_crash(&home.path().join("sessions"));
+    let store = open(home.path(), &crashed);
+    assert_eq!(
+        seqs(store.as_ref(), CHAT),
+        vec![1, 2],
+        "the restart after a failed sync trusted the log and lost an acked line (the checkpoint in flight returned {})",
+        if in_flight.is_ok() { "ok" } else { "an error" }
+    );
+}
+
+/// Review of #35866, P2-2 (the reviewer's test): against the marker design of `f9c6a16d1b8`, the
+/// freeze marker was the only thing that made the restart write the lines again, and a failed
+/// marker write was only logged. Here the home takes no new file when the log sync fails; on a
+/// real disk the marker's own sync can fail with the log's. The freeze is a journal record now,
+/// which needs no new file in the home: the restart must still write the lines again.
+#[test]
+fn a_freeze_in_a_home_that_takes_no_new_file_still_writes_the_lines_again() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    assert!(
+        mode_stops_writes(home.path()),
+        "this test needs a user that a folder's mode stops (not root)"
+    );
+    let journal = SimStorage::new(94);
+    let store = open(home.path(), &journal);
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    for seq in 2..=5 {
+        store.append(CHAT, &record(seq, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    std::fs::set_permissions(home.path(), std::fs::Permissions::from_mode(0o500))
+        .unwrap_or_else(|e| panic!("{e}"));
+    FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(true));
+    let failed = store.flush();
+    FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(false));
+    std::fs::set_permissions(home.path(), std::fs::Permissions::from_mode(0o700))
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert!(failed.is_err(), "the checkpoint went on past a failed log sync");
+    // The daemon stops for a restart (no crash); the restart's first checkpoint runs.
+    drop(store);
+    let store = open(home.path(), &journal);
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    let crashed = journal.restart(Crash::Os);
+    drop(store);
+    sync_model::os_crash(&home.path().join("sessions"));
+    let store = open(home.path(), &crashed);
+    assert_eq!(
+        seqs(store.as_ref(), CHAT),
+        (1..=5).collect::<Vec<_>>(),
+        "the restart after a failed sync in a home that takes no new file trusted the log's pages and lost acked lines"
+    );
+}
+
+// ---------------------------------------------------------------- delta review of #35866: a refused frozen record
+
+// Delta review of #35866 at `f62feba6e3d` (`r-durability-rsync-reviewer`), finding D1: the
+/// shutdown's last checkpoint runs after the journal's seal (`Hub::seal`: `Store::seal`, then
+/// `Store::flush`; the daemon's exit past its budget does the same after `Hub::flush`). A log sync
+/// that fails in it freezes the store, but the `frozen` record finds the journal closed
+/// (`AppendError::Closed`) and only an error is logged. The restart in the same boot takes the
+/// whole-log path, its checkpoint's sync of a new descriptor reports success for the pages the
+/// failed sync dropped, and it retires their records: an OS crash then loses acknowledged lines.
+/// The reviewer's test (branch `fix/r-durability-rsync-review-frozen-record-nomerge`, red at `2fd5a947e69` on macOS fleet 8be47d90 and Linux fleet 4e352aa0).
+#[test]
+fn a_log_sync_that_fails_in_the_shutdowns_last_checkpoint_keeps_the_rewrite() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(95);
+    let store = open(home.path(), &journal);
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    // The shutdown's first checkpoint (`Hub::flush`).
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    // Lines that land before the seal (a request on an open connection, an agent past the
+    // budget), acknowledged: their records are durable.
+    for seq in 2..=5 {
+        store.append(CHAT, &record(seq, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    // `Hub::seal`: the seal, then a checkpoint; the shutdown's last log sync fails. It is armed
+    // before the seal: wherever the last checkpoint runs (after the seal, or inside it), its log
+    // sync on this thread fails.
+    FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(true));
+    store.seal();
+    let failed = store.flush();
+    FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(false));
+    assert!(failed.is_err(), "the last checkpoint went on past a failed log sync");
+    // The daemon exits and starts again in the same boot; the restart's first checkpoint runs.
+    drop(store);
+    let store = open(home.path(), &journal);
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    let crashed = journal.restart(Crash::Os);
+    drop(store);
+    sync_model::os_crash(&home.path().join("sessions"));
+    let store = open(home.path(), &crashed);
+    assert_eq!(
+        seqs(store.as_ref(), CHAT),
+        (1..=5).collect::<Vec<_>>(),
+        "a log sync that failed after the seal journaled no frozen record: the restart trusted the log's pages and lost acked lines"
+    );
+}
+
+/// The reviewer's test (delta review of #35866, finding D1, the queue-full form, with no test
+/// seam in the store): the writer is behind (one sync of a
+/// slow or failing disk takes 8 s here) and other chats' lines fill its queue. A request's
+/// `flush_session` fails its log sync; its `frozen` record finds the queue full, the wait for the
+/// writer (`SEAL_WAIT`, 5 s) ends first, and the retried append finds it full again. Only an error
+/// is logged, and the restart in the same boot trusts the log's pages.
+#[test]
+fn a_frozen_record_while_the_journals_queue_stays_full_keeps_the_rewrite() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(97);
+    let small = cmux_journal::Config { max_pending_bytes: 8 * 1024, ..journal_config() };
+    let open_small = |sim: &SimStorage| {
+        open_with_journal(&config(), home.path(), Arc::new(sim.clone()), small.clone())
+            .unwrap_or_else(|e| panic!("open the store: {e:#}"))
+    };
+    let store = open_small(&journal);
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    for seq in 2..=5 {
+        store.append(CHAT, &record(seq, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    // The writer is behind: each sync takes 8 s, and another chat's lines fill its queue.
+    journal.set_sync_delay(Duration::from_secs(8));
+    let full = (1..=100_000u64).any(|seq| store.append("chat-b", &record(seq, "queued")).is_err());
+    assert!(full, "the journal's queue never filled");
+    FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(true));
+    let started = std::time::Instant::now();
+    let failed = store.flush_session(CHAT);
+    let took = started.elapsed();
+    FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(false));
+    journal.set_sync_delay(Duration::ZERO);
+    assert!(failed.is_err(), "flush_session's sync did not fail as the test asked");
+    eprintln!("the failed flush_session returned after {took:?}");
+    // The daemon stops for a restart in the same boot (no crash); the restart's checkpoint runs.
+    drop(store);
+    let store = open_small(&journal);
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    let crashed = journal.restart(Crash::Os);
+    drop(store);
+    sync_model::os_crash(&home.path().join("sessions"));
+    let store = open_small(&crashed);
+    assert_eq!(
+        seqs(store.as_ref(), CHAT),
+        (1..=5).collect::<Vec<_>>(),
+        "the frozen record found the journal's queue full twice and was not journaled: the restart trusted the log's pages and lost acked lines"
+    );
+}
+
+/// Delta review of #35866, finding D1, a seal while a freeze is under way: a request's
+/// `flush_session` fails its log sync and stops right before it freezes the store
+/// (`HOLD_BEFORE_FREEZE`), and a shutdown seals the store meanwhile (begun by another cause: a
+/// signal, an update's handoff). The freeze's `frozen` record must still reach the journal: the
+/// journal closes only after the shutdown's last checkpoint, which waits for the sync under way.
+/// The sealing thread says when it waits for that sync (`NOTE_BEFORE_SYNCS_WAIT`) or that the
+/// seal returned, and only then is the freeze let go on: no timer. Red where the seal closes the
+/// journal at once (the record is refused, `AppendError::Closed`).
+#[test]
+fn a_seal_while_a_freeze_is_under_way_keeps_the_rewrite() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(98);
+    let store: Arc<dyn Store> = Arc::from(open(home.path(), &journal));
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    for seq in 2..=5 {
+        store.append(CHAT, &record(seq, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    // A request's flush_session: its log sync fails, and it stops right before it freezes.
+    let (arrived_tx, arrived) = std::sync::mpsc::channel();
+    let (release, release_rx) = std::sync::mpsc::channel();
+    let failing = {
+        let store = Arc::clone(&store);
+        std::thread::spawn(move || {
+            super::journal_store::HOLD_BEFORE_FREEZE
+                .with(|hold| *hold.borrow_mut() = Some((arrived_tx, release_rx)));
+            FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(true));
+            let result = store.flush_session(CHAT);
+            FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(false));
+            result
+        })
+    };
+    arrived.recv_timeout(WAIT).unwrap_or_else(|e| panic!("the failed sync never froze: {e}"));
+    // The shutdown's seal, on another thread: it says when it waits for the sync under way, or
+    // that it returned.
+    let (events_tx, events) = std::sync::mpsc::channel();
+    let sealer = {
+        let store = Arc::clone(&store);
+        std::thread::spawn(move || {
+            NOTE_BEFORE_SYNCS_WAIT.with(|note| *note.borrow_mut() = Some(events_tx.clone()));
+            store.seal();
+            let _ = events_tx.send("returned");
+        })
+    };
+    let first = events.recv_timeout(WAIT).unwrap_or_else(|e| panic!("no word from the seal: {e}"));
+    let _ = release.send(());
+    let failed = failing.join().unwrap_or_else(|_| panic!("the failing thread panicked"));
+    sealer.join().unwrap_or_else(|_| panic!("the seal panicked"));
+    assert!(failed.is_err(), "flush_session's sync did not fail as the test asked");
+    // The restart in the same boot; its first checkpoint runs.
+    drop(store);
+    let store = open(home.path(), &journal);
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    let crashed = journal.restart(Crash::Os);
+    drop(store);
+    sync_model::os_crash(&home.path().join("sessions"));
+    let store = open(home.path(), &crashed);
+    assert_eq!(
+        seqs(store.as_ref(), CHAT),
+        (1..=5).collect::<Vec<_>>(),
+        "a seal while a freeze was under way lost its frozen record (the seal {}): the restart trusted the log's pages and lost acked lines",
+        if first == "returned" { "closed the journal at once" } else { "waited for the sync" }
+    );
+}
+
+/// Delta review of #35866, D1, fail closed: a `frozen` record the journal still refuses (its
+/// writer stopped: `AppendError::Closed`; test seam `FAIL_FROZEN_RECORD`) leaves a durable marker
+/// (`journal-frozen`) instead, and the restart writes every replayed chat's lines again for it as
+/// for the record. The first checkpoint after that restart removes the marker.
+#[test]
+fn a_refused_frozen_record_falls_back_to_a_durable_marker() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(99);
+    let store = open(home.path(), &journal);
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    for seq in 2..=5 {
+        store.append(CHAT, &record(seq, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    super::journal_store::FAIL_FROZEN_RECORD.with(|fail| fail.set(true));
+    FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(true));
+    let failed = store.flush_session(CHAT);
+    FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(false));
+    super::journal_store::FAIL_FROZEN_RECORD.with(|fail| fail.set(false));
+    assert!(failed.is_err(), "flush_session's sync did not fail as the test asked");
+    let marker = home.path().join("journal-frozen");
+    assert!(marker.exists(), "a refused frozen record left no marker");
+    // The restart in the same boot: the marker makes it write the lines again, and its first
+    // checkpoint removes the marker.
+    drop(store);
+    let store = open(home.path(), &journal);
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(!marker.exists(), "the checkpoint after the rewrite kept the marker");
+    let crashed = journal.restart(Crash::Os);
+    drop(store);
+    sync_model::os_crash(&home.path().join("sessions"));
+    let store = open(home.path(), &crashed);
+    assert_eq!(
+        seqs(store.as_ref(), CHAT),
+        (1..=5).collect::<Vec<_>>(),
+        "a refused frozen record left the restart nothing: it trusted the log's pages and lost acked lines"
+    );
+}
+
+/// Delta review of #35866, D1, fail closed, and the bound of #35895: a freeze's fallback marker is
+/// written off the failed sync's count, so a checkpoint never waits for its disk writes. A
+/// checkpoint in flight (held right after its start, `HOLD_AFTER_START`); another thread's
+/// `flush_session` fails its log sync, its `frozen` record is refused (`FAIL_FROZEN_RECORD`), and
+/// it stops right before it writes the marker (`HOLD_BEFORE_FROZEN_MARKER`). The checkpoint must
+/// return, refused, before that thread goes on; it says if it waits for a sync under way
+/// (`NOTE_BEFORE_SYNCS_WAIT`): no timer.
+#[test]
+fn a_checkpoint_does_not_wait_for_a_freezes_fallback_marker() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(100);
+    let store: Arc<dyn Store> = Arc::from(open(home.path(), &journal));
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    store.append(CHAT, &record(2, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    // A checkpoint in flight: past its start. It says when it waits for a sync, or that it
+    // returned.
+    let (started_tx, started) = std::sync::mpsc::channel();
+    let (go, go_rx) = std::sync::mpsc::channel();
+    let (events_tx, events) = std::sync::mpsc::channel();
+    let flusher = {
+        let store = Arc::clone(&store);
+        std::thread::spawn(move || {
+            super::journal_store::HOLD_AFTER_START
+                .with(|hold| *hold.borrow_mut() = Some((started_tx, go_rx)));
+            NOTE_BEFORE_SYNCS_WAIT.with(|note| *note.borrow_mut() = Some(events_tx.clone()));
+            let result = store.flush();
+            let _ = events_tx.send("returned");
+            result
+        })
+    };
+    started.recv_timeout(WAIT).unwrap_or_else(|e| panic!("the checkpoint never started: {e}"));
+    // Another thread's flush_session: its log sync fails, its record is refused, and it stops
+    // right before its marker.
+    let (arrived_tx, arrived) = std::sync::mpsc::channel();
+    let (release, release_rx) = std::sync::mpsc::channel();
+    let failing = {
+        let store = Arc::clone(&store);
+        std::thread::spawn(move || {
+            super::journal_store::HOLD_BEFORE_FROZEN_MARKER
+                .with(|hold| *hold.borrow_mut() = Some((arrived_tx, release_rx)));
+            super::journal_store::FAIL_FROZEN_RECORD.with(|fail| fail.set(true));
+            FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(true));
+            let result = store.flush_session(CHAT);
+            FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(false));
+            result
+        })
+    };
+    arrived.recv_timeout(WAIT).unwrap_or_else(|e| panic!("the failed sync never froze: {e}"));
+    let _ = go.send(());
+    let first =
+        events.recv_timeout(WAIT).unwrap_or_else(|e| panic!("no word from the checkpoint: {e}"));
+    let _ = release.send(());
+    let failed = failing.join().unwrap_or_else(|_| panic!("the failing thread panicked"));
+    let checkpointed = flusher.join().unwrap_or_else(|_| panic!("the flush panicked"));
+    assert!(failed.is_err(), "flush_session's sync did not fail as the test asked");
+    assert_eq!(first, "returned", "a checkpoint waited for a freeze's fallback marker");
+    assert!(checkpointed.is_err(), "a checkpoint went past a freeze");
+    assert!(home.path().join("journal-frozen").exists(), "the refused record left no marker");
+}
+
+// ---------------------------------------------------------------- delta review 2 of #35866: a kill before the freeze is durable
+
+/// The reviewer's test (delta review 2 of #35866 at `a2475c77387`, finding D2, window 1; its
+/// repro `rsync_review3_a_kill_while_the_frozen_record_waits_in_the_queue_keeps_the_rewrite`, red
+/// on macOS fleet e150f624 and Linux fleet e2ba4960), with a hold instead of a 2 s sync and a
+/// 300 ms sleep: a kill while the `frozen` record waits in the journal's queue. The journal's
+/// writer is inside a sync of an earlier batch (held, `SimStorage::hold_next_sync`); a request's
+/// `flush_session` fails its log sync, and the store freezes: the record is taken into the queue,
+/// so no marker is written. A kill before the writer writes it loses it. The restart in the same
+/// boot must still not trust the pages the failed sync dropped: after its checkpoint and an OS
+/// crash, every acknowledged line is there.
+#[test]
+fn a_kill_while_the_frozen_record_waits_in_the_queue_keeps_the_lines() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(101);
+    let store = open(home.path(), &journal);
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    for seq in 2..=5 {
+        store.append(CHAT, &record(seq, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    // Acknowledged: their records are durable.
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    // The writer is busy: it is inside the sync of chat-b's record, held.
+    let (in_sync, release) = journal.hold_next_sync();
+    store.append("chat-b", &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    in_sync.recv_timeout(WAIT).unwrap_or_else(|e| panic!("the writer never began its sync: {e}"));
+    // A request's flush_session: its log sync fails, the store freezes; the frozen record waits
+    // in the queue behind the sync under way.
+    FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(true));
+    let failed = store.flush_session(CHAT);
+    FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(false));
+    assert!(failed.is_err(), "flush_session's sync did not fail as the test asked");
+    // A kill now, before the writer writes the record; the held sync then fails as crashed.
+    let killed = journal.restart(Crash::Process);
+    drop(release);
+    drop(store);
+    // The restart in the same boot; its first checkpoint runs.
+    let store = open(home.path(), &killed);
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    let crashed = killed.restart(Crash::Os);
+    drop(store);
+    sync_model::os_crash(&home.path().join("sessions"));
+    let store = open(home.path(), &crashed);
+    assert_eq!(
+        seqs(store.as_ref(), CHAT),
+        (1..=5).collect::<Vec<_>>(),
+        "a kill while the frozen record waited in the journal's queue: the restart trusted the log's pages and lost acked lines"
+    );
+}
+
+/// Delta review 2 of #35866, finding D2, window 2 (found by reading; this is its test): a log's
+/// close (`close_log`, an eviction, a segment's end) fails its sync and only notes it in the store's
+/// `sync_failed` flag; the store freezes at the next checkpoint, which reads the flag (up to 30 s
+/// later). A kill before that checkpoint leaves no frozen record and no marker, so the restart in
+/// the same boot finds a whole log and must still not trust the pages the failed sync dropped:
+/// after its checkpoint and an OS crash, every acknowledged line is there.
+#[test]
+fn a_kill_after_a_failed_log_close_before_any_checkpoint_keeps_the_lines() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(102);
+    let store = open(home.path(), &journal);
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    for seq in 2..=5 {
+        store.append(CHAT, &record(seq, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    // Acknowledged: their records are durable.
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    // The chat's log closes and its sync fails: only the flag notes it.
+    FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(true));
+    store.close_log(CHAT);
+    FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(false));
+    // A kill now, before any checkpoint reads the flag.
+    let killed = journal.restart(Crash::Process);
+    drop(store);
+    // The restart in the same boot; its first checkpoint runs.
+    let store = open(home.path(), &killed);
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    let crashed = killed.restart(Crash::Os);
+    drop(store);
+    sync_model::os_crash(&home.path().join("sessions"));
+    let store = open(home.path(), &crashed);
+    assert_eq!(
+        seqs(store.as_ref(), CHAT),
+        (1..=5).collect::<Vec<_>>(),
+        "a kill after a failed log close and before any checkpoint: the restart trusted the log's pages and lost acked lines"
+    );
 }

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 /// Layer hosting (fork API 26) of the page window over one ``CEFHostView``:
 /// asks the fork for the page window's Core Animation context and shows it in
@@ -44,11 +45,17 @@ final class CEFLayerHosting {
         /// (false for a closed browser's id). Nil below API 27, where Chromium
         /// holds it up to 500 ms on every resize.
         let setResizeSync: ((_ browser: Int32, _ timeoutMs: Int32) -> Bool)?
+        /// `cmux_shim_browser_set_detached_hosting` (fork API 30): the hosted page's window leaves the parent window
+        /// and turns headless (`enabled`), or comes back as a child window. True when the fork took it. Nil below
+        /// API 30.
+        let setDetachedHosting: ((_ browser: Int32, _ enabled: Bool) -> Bool)?
 
         init(setLayerHosting: @escaping (_ browser: Int32, _ enabled: Bool) -> UInt32,
-             setResizeSync: ((_ browser: Int32, _ timeoutMs: Int32) -> Bool)? = nil) {
+             setResizeSync: ((_ browser: Int32, _ timeoutMs: Int32) -> Bool)? = nil,
+             setDetachedHosting: ((_ browser: Int32, _ enabled: Bool) -> Bool)? = nil) {
             self.setLayerHosting = setLayerHosting
             self.setResizeSync = setResizeSync
+            self.setDetachedHosting = setDetachedHosting
         }
 
         /// The shim's call; nil without a shim or below fork API 26, where
@@ -58,6 +65,8 @@ final class CEFLayerHosting {
             setLayerHosting = { browser, enabled in shim.browserSetLayerHosting(browser, enabled ? 1 : 0) }
             setResizeSync = apiVersion >= CEFLayerHosting.resizeSyncForkAPI
                 ? { browser, timeout in shim.browserSetResizeSync(browser, timeout) == 1 } : nil
+            setDetachedHosting = apiVersion >= CEFLayerHosting.detachedForkAPI
+                ? shim.browserSetDetachedHosting.map { call in { browser, enabled in call(browser, enabled ? 1 : 0) == 1 } } : nil
         }
     }
 
@@ -74,11 +83,19 @@ final class CEFLayerHosting {
     static let forkAPI: Int32 = 26
     /// The first fork API with `cmux_browser_set_resize_sync`.
     static let resizeSyncForkAPI: Int32 = 27
+    /// The first fork API with `cmux_browser_set_detached_hosting`.
+    static let detachedForkAPI: Int32 = 30
 
     weak var view: NSView?
     /// The page's pixels in this window's layer tree; nil while the page
     /// draws in its own window.
     private(set) var page: CEFHostedPageView?
+    /// Where the page window has a hole in the web contents (`CEFTab.applyOcclusion`): the New Tab page, a blank page.
+    /// The hosted page shows no pixels there either, as the page window does not (cmux-ad m37: with layer hosting the
+    /// New Tab page showed Chromium's opaque page color instead of the window backdrop).
+    var pageHole: CEFPageHole = .none {
+        didSet { if pageHole != oldValue { page?.hole = pageHole } }
+    }
     /// Requests the fork refused, or hosted contexts no `CALayerHost` could
     /// show (`CEFTrackerStats.hostingRefused` sums every view).
     private(set) var refusals = 0
@@ -88,6 +105,8 @@ final class CEFLayerHosting {
     private(set) var browser: Int32?
     private var fork: Fork?
     private var pending = Pending.none
+    /// The runtime's switch observation this page window follows (``CEFHostingSwitch``); nil in tests that pass none.
+    private weak var hostingSwitch: CEFHostingSwitch?
     private let isEnabled: () -> Bool
     private let schedule: Scheduler
     private let makePage: (CGRect) -> CEFHostedPageView
@@ -110,19 +129,21 @@ final class CEFLayerHosting {
     typealias Scheduler = (_ block: @escaping @MainActor @Sendable () -> Void) -> Void
 
     /// - Parameters:
-    ///   - isEnabled: whether hosting is wanted; the tunable by default.
+    ///   - isEnabled: whether hosting is wanted; by default `browserResize.layerHosting` or S5 (`motion.frameOwner.pages`).
     ///   - schedule: runs a block at the end of this run-loop turn; tests run it when they choose.
     ///   - makePage: the hosted view for a frame; tests pass one whose layer host fails.
     ///   - resizeDeadlineMs: the upper bound of a hosted page's resize wait; the tunable by default.
     ///   - refreshIntervals: the shortest frame interval of each display, which cap the wait
     ///     (``CEFResizeSyncDeadline``); tests pass fixed rates.
-    init(isEnabled: @escaping () -> Bool = { BrowserResizeTunables.layerHosting.value },
+    init(isEnabled: @escaping () -> Bool = { CEFHostingSwitch.hostingWanted },
          schedule: @escaping Scheduler = { CEFLayerHosting.atEndOfTurn($0) },
          makePage: @escaping (CGRect) -> CEFHostedPageView = { CEFHostedPageView(frame: $0) },
-         resizeDeadlineMs: @escaping () -> Int32 = { Int32((BrowserResizeTunables.syncDeadline.value * 1_000).rounded()) },
-         liveResizeDeadlineMs: @escaping () -> Int32 = { Int32((BrowserResizeTunables.liveResizeDeadline.value * 1_000).rounded()) },
-         dragResizeDeadlineMs: @escaping () -> Int32 = { Int32((BrowserResizeTunables.dragResizeDeadline.value * 1_000).rounded()) },
-         refreshIntervals: @escaping () -> [Double] = { NSScreen.screens.map(\.minimumRefreshInterval) }) {
+         resizeDeadlineMs: @escaping () -> Int32 = { CEFLayerHosting.waitMs(BrowserResizeTunables.syncDeadline) },
+         liveResizeDeadlineMs: @escaping () -> Int32 = { CEFLayerHosting.waitMs(BrowserResizeTunables.liveResizeDeadline) },
+         dragResizeDeadlineMs: @escaping () -> Int32 = { CEFLayerHosting.waitMs(BrowserResizeTunables.dragResizeDeadline) },
+         refreshIntervals: @escaping () -> [Double] = { NSScreen.screens.map(\.minimumRefreshInterval) },
+         holdsFocus: (() -> Bool)? = nil) {
+        self.holdsFocus = holdsFocus ?? { false }
         self.isEnabled = isEnabled
         self.resizeDeadlineMs = resizeDeadlineMs
         self.liveResizeDeadlineMs = liveResizeDeadlineMs
@@ -130,6 +151,14 @@ final class CEFLayerHosting {
         self.refreshIntervals = refreshIntervals
         self.schedule = schedule
         self.makePage = makePage
+        if holdsFocus == nil { self.holdsFocus = { [weak self] in Self.pageWindowIsKey(over: self?.view) } }
+    }
+
+    /// A resize wait tunable in whole ms; with S5 on (`motion.frameOwner.pages`) `motion.frameOwner.pagesWait` instead, 0 by
+    /// default: the main thread never waits for a page in any resize (Chromium's wait runs on the main thread).
+    static func waitMs(_ tunable: Tunable<Double>) -> Int32 {
+        let seconds = BrowserResizeTunables.framesOwnedByCommit.value ? BrowserResizeTunables.pagesWait.value : tunable.value
+        return Int32((seconds * 1_000).rounded())
     }
 
     /// Whether a refused request waits for the tracker's next read.
@@ -138,7 +167,7 @@ final class CEFLayerHosting {
     /// A new page window over the view (a pane's Chromium window, or a docked
     /// DevTools): the old window's context went with it. Called inside
     /// Chromium's creation stack, so the request waits for the end of the turn.
-    func pageWindowCreated(browser: Int32, fork: Fork?) {
+    func pageWindowCreated(browser: Int32, fork: Fork?, follows hostingSwitch: CEFHostingSwitch? = nil) {
         dropPage()
         self.browser = browser
         self.fork = fork
@@ -147,6 +176,9 @@ final class CEFLayerHosting {
         pending = .none
         // The window may be in a live resize already.
         syncDeadline()
+        // A switch flipped while the page shows reaches it at once (CEFLayerHosting+Switch).
+        self.hostingSwitch = hostingSwitch
+        hostingSwitch?.follow(self)
         guard fork != nil, isEnabled() else { return }
         request(retry: false)
     }
@@ -199,7 +231,16 @@ final class CEFLayerHosting {
     /// The new window's live resize state replaces the old one: AppKit tells only
     /// the views in a window when its live resize starts and ends.
     func windowDidChange() {
+        let wasInMotion = inResizeMotion
         inLiveResize = view?.window?.inLiveResize ?? false
+        if isDetached {
+            // The old window never ends a live resize or a drag for a view that left it, and a detached page takes no
+            // input: it attaches at once, at its new place, and stays attached for the rest of the motion.
+            setDetached(false)
+            motionKeepsAttached = inResizeMotion
+        } else if wasInMotion, !inResizeMotion {
+            motionKeepsAttached = false
+        }
         guard view?.window != nil else { return }
         syncDeadline()
     }
@@ -220,12 +261,15 @@ final class CEFLayerHosting {
     /// window to none.
     func windowLiveResize(active: Bool) {
         guard active != inLiveResize else { return }
+        let was = inResizeMotion
         inLiveResize = active
         syncDeadline()
+        if inResizeMotion != was { motionChanged() }
     }
 
     /// A person's divider or edge drag of the view's pane began (`true`) or its release landed (`false`), with
-    /// `browserResize.dragResize` at `resizeSync` (`CEFTabContentView.paneResizeGestureDidChange`). Every frame of the
+    /// `browserResize.dragResize` at `resizeSync` (`CEFTabContentView.paneResizeGestureDidChange`), or with S5 on
+    /// (`motion.frameOwner.pages`) a drag or a key resize's spring (`CEFTabContentView+PageSync`). Every frame of the
     /// drag and of its release's spring resizes the page window, so for that time every page over the view, hosted or
     /// not, waits up to `dragResizeDeadlineMs` (capped at half the shortest display frame, ``CEFResizeSyncDeadline``,
     /// so the app's frame still commits by its display link's target time) for its frame at the pane's new size, and
@@ -248,12 +292,86 @@ final class CEFLayerHosting {
         request(retry: true)
     }
 
+    // MARK: Detached in a resize motion (fork API 30)
+
+    /// The hosted page's window is headless and off screen (``cmux_browser_set_detached_hosting``): a resize of the
+    /// view moves no window. Only during a resize motion of the view (``resizeMotion(active:)``, a window live resize).
+    private(set) var isDetached = false
+    /// Resize motions of the view that have begun and not ended: a person's divider drag or a key resize of its pane,
+    /// told by each tab container of the pane (``CEFTabContentView``).
+    private(set) var motionHolders = 0
+    /// The page held the keys when this motion began, so it stays a page window through it: detaching the key window
+    /// would order it out and move the keys (an AppKit key change, the #24913 stall class). Decided once a motion.
+    private var motionKeepsAttached = false
+    /// Whether the page holds the keyboard (its window is key, or a focus ask waits for it). The page's own window
+    /// being key by default; ``CEFPaneHost`` adds its shown tab's waiting ask.
+    var holdsFocus: () -> Bool
+
+    /// The view is in a resize motion: a live resize of its window or a motion of its pane.
+    var inResizeMotion: Bool { inLiveResize || motionHolders > 0 }
+
+    /// A resize motion of the view's pane began (`true`) or landed (`false`): a person's divider drag, from the press
+    /// to the landing, or a key resize, from its first press to the landing. Every frame of it resizes or moves the
+    /// page, so for its length a hosted page that does not hold the keys is detached: its window leaves the parent
+    /// window and turns headless, and the fork's per-frame tracker update records the frame in the process with no
+    /// WindowServer `setFrame`, child-window order, mask or mouse routing. The page still lays out at every size.
+    /// At the landing the page window comes back once, at the final size. An end with no start is ignored.
+    func resizeMotion(active: Bool) { // perf-hot: 1ms resize-motion (motion start and landing)
+        let was = inResizeMotion
+        motionHolders = active ? motionHolders + 1 : max(0, motionHolders - 1)
+        guard inResizeMotion != was else { return }
+        motionChanged()
+    }
+
+    /// The page takes the keys during a motion (a focus shortcut mid-drag): its window comes back now, so the grant
+    /// that follows makes a page window key as before, and the page stays attached for the rest of the motion.
+    /// - Returns: Whether the page window was detached and came back now (its grant then waits for the next commit).
+    @discardableResult
+    func pageTakesFocus() -> Bool {
+        guard inResizeMotion else { return false }
+        motionKeepsAttached = true
+        return isDetached && setDetached(false)
+    }
+
+    private func motionChanged() {
+        if inResizeMotion {
+            motionKeepsAttached = holdsFocus()
+            if !motionKeepsAttached { setDetached(true) }
+        } else {
+            motionKeepsAttached = false
+            setDetached(false)
+        }
+    }
+
+    /// Detaches the hosted page's window or attaches it again; the fork's attach places it at the view's rect then,
+    /// the one geometry update of the landing. False when no page is hosted, below fork API 30, or the fork refused;
+    /// the state is unchanged then.
+    @discardableResult
+    private func setDetached(_ on: Bool) -> Bool {
+        guard on != isDetached else { return true }
+        guard page != nil, let browser, let call = fork?.setDetachedHosting else { return false }
+        forkCalls += 1
+        guard call(browser, on) else { return false }
+        isDetached = on
+        if on { CEFHostView.trackerStats.detaches += 1 } else { CEFHostView.trackerStats.attaches += 1 }
+        return true
+    }
+
+    /// The page window over `view` is the app's key window.
+    static func pageWindowIsKey(over view: NSView?) -> Bool {
+        guard let view, let owner = view.window, let key = NSApp.keyWindow, key.parent === owner else { return false }
+        return CEFTab.frame(key.frame, isPlacedAt: owner.convertToScreen(view.convert(view.bounds, to: nil)))
+    }
+
     /// The view goes away (DevTools closed) or its page window closed: turns
     /// hosting off for the browser and drops the hosted view.
     func stop() {
         pending = .none
+        hostingSwitch?.unfollow(self)
         // The page window closed: a drag's wait does not pass to the next one (an end that comes later is ignored).
         paneDragHolders = 0
+        motionHolders = 0
+        motionKeepsAttached = false
         if page != nil, let fork, let browser {
             forkCalls += 1
             _ = fork.setLayerHosting(browser, false)
@@ -320,6 +438,7 @@ final class CEFLayerHosting {
 
     private func addPage(to view: NSView) -> CEFHostedPageView {
         let page = makePage(view.bounds)
+        page.hole = pageHole
         // Below the tracker's probe and every other subview.
         view.addSubview(page, positioned: .below, relativeTo: nil)
         self.page = page
@@ -327,6 +446,8 @@ final class CEFLayerHosting {
     }
 
     private func dropPage() {
+        // The fork ends detached hosting when hosting goes off or the page window goes.
+        isDetached = false
         guard let page else { return }
         page.removeFromSuperview()
         self.page = nil
