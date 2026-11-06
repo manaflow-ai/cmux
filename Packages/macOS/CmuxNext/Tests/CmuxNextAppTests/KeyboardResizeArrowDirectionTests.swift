@@ -225,6 +225,7 @@ struct KeyboardResizeArrowDirectionTests {
 
 /// Review of #34123 (Codex): a press steps from what the screen shows, so neither outer edge of a trade moves by a
 /// pixel, and a press that would change nothing on screen is refused (no model write).
+@Suite(.closesItsWindows)
 struct KeyboardResizeShownStepTests {
     static let viewport = CGSize(width: 1153, height: 857)
 
@@ -360,6 +361,7 @@ struct KeyboardResizeShownStepTests {
 /// (the store applies events once per display frame) dropped the second width's override, and for a frame that column
 /// showed its old width and every column after it jumped. The transaction settles when its last value is answered.
 @MainActor
+@Suite(.closesItsWindows)
 struct KeyboardResizeTradeSettleTests {
     @Test func aTradeSettlesWhenItsLastWidthIsAnswered() throws {
         let columns = [LayoutColumn(id: "c0", width: 0.5, root: .leaf("p0")), LayoutColumn(id: "c1", width: 0.5, root: .leaf("p1"))]

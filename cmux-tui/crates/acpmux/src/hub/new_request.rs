@@ -116,6 +116,9 @@ pub struct NewRequest {
     /// proved it is the person (`server/requests.rs` `person_asks`), never an agent's or a lane's
     /// create. Its start waits as long as its harness works on it (`lifecycle.rs`).
     pub person: bool,
+    /// The create asked to wait on its harness (`_meta.acpmux.waitStart`, `Session::wait_start`):
+    /// never honored from an agent's, a lane's or a remote connection (`server/requests.rs`).
+    pub wait_start: bool,
 }
 
 /// Why the Claude conversation `sid` cannot be resumed on `profile` (None:

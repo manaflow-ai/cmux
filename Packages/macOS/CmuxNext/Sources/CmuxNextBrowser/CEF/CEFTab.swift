@@ -154,7 +154,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     }
     /// Answers the page's requests for its dynamic paths (a cmux page whose scheme entry has
     /// ``CEFPageSchemes/Entry/dynamicPrefixes``); nil answers every one with a 404.
-    @ObservationIgnored public var pageResources: (@MainActor (URL) async -> CEFPageResponse)?
+    @ObservationIgnored public var pageResources: (@MainActor (URL, String?) async -> CEFPageResponse)?
     /// A drag of these files from outside the app entered the page (a cmux page hands such a drop
     /// to its host); nil ignores it.
     @ObservationIgnored public var pageFilesDragged: (@MainActor ([URL]) -> Void)?
@@ -243,6 +243,11 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// The host of the page that opened this popup: it shows its own page
     /// again once the popup left its window.
     @ObservationIgnored weak var popupOpenerHost: CEFPaneHost?
+    /// The pane host of a background tab an agent drives from a window of its own (`CEFPaneHost+AgentHosts`):
+    /// the tab goes back there when its pane shows it.
+    @ObservationIgnored weak var homeHost: CEFPaneHost?
+    /// The fork could not move this tab into an agent window: it stays in its pane's window from then on.
+    @ObservationIgnored var agentWindowRefused = false
     @ObservationIgnored unowned let runtime: CEFRuntime
     @ObservationIgnored lazy var container: CEFTabContentView = {
         let view = CEFTabContentView()
@@ -456,6 +461,16 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     func contentDidAppear(in view: CEFTabContentView) {
         guard !isClosed else { return }
+        // The App parked this background tab in the agent render window: it draws from a window of its own.
+        let parked = view.window?.identifier == .agentRenderWindow
+        if parked, host.lendsToAgent(self) {
+            host.lendToAgent(self)
+        } else if !parked, homeHost != nil {
+            // Stays when the fork cannot move it home or its pane's window is gone: shown from its own window.
+            host.returnHome(self)
+        }
+        // A tab that could not move out went home: presenting it there would take the pane's page window.
+        if parked, host.visibleTab != nil, host.visibleTab !== self, !host.holdsOwnTab { return }
         host.present(self, in: view)
         view.layoutContent()
         // A tab whose renderer ended while hidden shows the crash notice with its Reload button
@@ -601,8 +616,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         let shown = isShown
         host.lifecycleTrace.record(id, "focus(\(focused)) created=\(browserID != nil) shown=\(shown)")
         // Never activate a hidden page's window (see `attach`): a hidden page keeps the ask until it shows.
-        pendingFocus = focused && (!shown || browserID == nil)
-        guard !focused || shown, let browserID else { return }
+        let canTake = shown && pageWindowHostHasArea
+        pendingFocus = focused && (!canTake || browserID == nil)
+        guard !focused || canTake, let browserID else { return }
         if focused { grantFocus(browserID) } else { runtime.shim?.setFocus(browserID, 0) }
     }
 
@@ -614,7 +630,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// thread never left that turn (NIGHTLY 1.0.0-nightly.4093446036501). The ancestors' own
     /// `isHidden` is read, not `isHiddenOrHasHiddenAncestor`: AppKit updates that flag view by view
     /// during the same walk, so a view the walk has not reached yet still reads as not hidden.
-    private var isShown: Bool {
+    var isShown: Bool {
         guard host.visibleTab === self, !isOccluded, container.window != nil else { return false }
         return !sequence(first: container as NSView, next: \.superview).contains { $0.isHidden }
     }
@@ -624,7 +640,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// Cmd-N New Tab page (a spare with a browser) asked a moment before it showed and kept no
     /// focus: only a browser's creation used to replay the ask.
     func grantPendingFocusIfShown() {
-        guard pendingFocus, isShown, !awaitsWindowMove, let browserID else { return }
+        guard pendingFocus, isShown, pageWindowHostHasArea, !awaitsWindowMove, let browserID else { return }
         // Not while the person types in another window (Cmd-N, then Cmd-` before the page painted):
         // the ask waits until this page's window has the keys again.
         if let key = NSApp.keyWindow, let owner = container.window, key !== owner, key.parent !== owner { return }

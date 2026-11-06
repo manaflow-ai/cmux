@@ -74,6 +74,7 @@ Process {
   toolCallId    // the Bash / exec call that started it
   harness       // "claude" | "codex"
   command, cwd
+  description?  // what the call says it does (Claude's Bash `description`)
   startedAt, endedAt?
   state         // running | exited | failed | killed | lost
   exitCode?, signal?

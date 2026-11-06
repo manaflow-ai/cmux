@@ -46,6 +46,13 @@ One command on the fleet:
     --script scripts/measure/perf-idle-power.sh --ref SHA \\
     --arg=scenarios=loaded --arg=config=bench --artifact artifacts/perf-idle-power.json
 
+`relaunch-reconnect` (run it alone) quits and relaunches the app with agent chats open, one
+streaming, and times each phase from process start to the shown chat's first live event
+(bench_relaunch_reconnect.py; --load-local sets its chats, 6 by default):
+  cmux-ci run --class exclusive --measurement --display --label measure \\
+    --script scripts/measure/perf-idle-power.sh --ref SHA --arg=scenarios=relaunch-reconnect \\
+    --arg=config=bench --artifact artifacts/perf-idle-power.json
+
 `idle-chats` (run it alone) is the same bench at the idle-CPU stop condition (Leo, 2026-11-03:
 "im at 100% cpu rn"; done when every process idles under 5% CPU with about 40 chats open):
 40 local chats on the app's own daemon, each answered once and shown once in its own workspace,
@@ -726,15 +733,34 @@ def main():
                         help="idle-cost: the CPU %% per process the verdict holds each process to")
     parser.add_argument("--md", help="idle-cost: write the per-process Markdown table here")
     parser.add_argument("--scenarios", default="terminal,tab1,tab1-hidden,tabs20,tabs20-hidden,title,scroll,video,switch,minimized")
-    parser.add_argument("--config", default="{}", help="extra cmux.json settings (JSON)")
+    parser.add_argument("--config", default="{}", help="extra cmux.json settings (JSON); a \"debugTunables\" object is taken as --tunable values")
     parser.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",
                         help="extra app environment, e.g. CMUX_NEXT_CEF_EXTRA_SWITCHES=... (repeatable)")
+    parser.add_argument("--tunable", action="append", default=[], metavar="KEY=JSON",
+                        help="a Debug Settings value for this run (repeatable), e.g. browserPage.sparePage=true: the arms of an A/B")
     parser.add_argument("--neighbor-gap", type=float, default=7, help="seconds before each neighbors-scenario switch")
     parser.add_argument("--neighbor-rounds", type=int, default=10)
     parser.add_argument("--sample-idle", action="store_true",
                         help="sample the app's stacks inside each idle window; keep the sample when the app is above 1 mW")
     parser.add_argument("--out")
     args = parser.parse_args()
+    # perf-idle-power.sh passes only settings= through: its "debugTunables" object is the run's Debug Settings, not cmux.json.
+    # The fleet controller allows no JSON characters in a step's args, so `debugTunables:KEY=JSON,KEY=JSON` says the same.
+    if args.config.startswith("debugTunables:"):
+        args.tunable += [item for item in args.config.removeprefix("debugTunables:").split(",") if item]
+        args.config = "{}"
+    config = json.loads(args.config)
+    if isinstance(config, dict) and isinstance(config.get("debugTunables"), dict):
+        args.tunable += [f"{k}={json.dumps(v)}" for k, v in config.pop("debugTunables").items()]
+        args.config = json.dumps(config)
+    if args.tunable:
+        # The build reads its Debug Settings from this file (DebugSettingsService), as chromium-host-bench.py does.
+        tunables = os.path.join(tempfile.mkdtemp(prefix="bench-power-tunables-"), "debug-tunables.json")
+        values = {k: json.loads(v) for k, v in (item.split("=", 1) for item in args.tunable)}
+        with open(tunables, "w") as f:
+            json.dump({"version": 1, "values": values}, f)
+        args.env.append(f"CMUX_NEXT_DEBUG_TUNABLES_FILE={tunables}")
+        print(f"PERF-TUNABLES {json.dumps(values)}", flush=True)
     if args.compare:
         before, after = (loaded_result(path) for path in args.compare)
         print("\n".join(perf_rows(before, after, args.harness or before.get("harness", "bench_power.py loaded"))))
@@ -742,6 +768,18 @@ def main():
     if not args.app:
         parser.error("--app is required")
     scenarios = args.scenarios.split(",")
+    if "relaunch-reconnect" in scenarios:
+        # Relaunch to the first live chat event (bench_relaunch_reconnect.py), through this
+        # script's one fleet entry (perf-idle-power.sh); --load-local sets its chats.
+        if scenarios != ["relaunch-reconnect"]:
+            raise SystemExit("bench-power: the relaunch-reconnect scenario runs alone (--scenarios relaunch-reconnect)")
+        import bench_relaunch_reconnect as relaunch
+        argv = ["--app", args.app, "--config", args.config]
+        argv += ["--chats", str(args.load_local)] if args.load_local is not None else []
+        argv += ["--out", args.out] if args.out else []
+        argv += ["--md", args.md] if args.md else []
+        relaunch.main(argv)
+        return
     for scenario in IDLE_COST_LABELS:
         if scenario in scenarios:
             if scenarios != [scenario]:

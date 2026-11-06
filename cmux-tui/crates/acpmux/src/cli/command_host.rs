@@ -55,6 +55,12 @@ pub enum PeerCmd {
     /// whether a turn runs here, and a build or test that is running. Reads
     /// only; never starts a daemon. Fields it cannot read are left out.
     Load,
+    /// The shadow admission verdict (cmuxterm-hq#7342) for host readings on
+    /// stdin: one JSON object, or an array of them, in; the verdict (or an
+    /// array of verdicts) out, as JSON. Pure: reads no host and starts no
+    /// daemon. A reading with no `now_ms` is judged at this machine's clock.
+    /// Nothing is deferred on it; lane-place and placement log it.
+    Verdict,
     /// Add one muted line to every live chat on this machine's daemon, such
     /// as the note cmux Cloud adds after it resizes the machine.
     Notice {
@@ -95,6 +101,16 @@ pub enum PeerCmd {
         #[arg(long)]
         status: bool,
     },
+    /// Leave the cloud: revoke this joined machine's credential at the hub
+    /// with the credential itself (`tailscale logout`), then remove
+    /// `meshRelay`, the credential and the node key here. A hub that cannot
+    /// revoke from the machine says to revoke it from your Mac (`cmux machine
+    /// revoke NAME`); then `--local-only` removes this machine's state anyway.
+    Leave {
+        /// Remove the local join state even when the hub did not revoke it.
+        #[arg(long)]
+        local_only: bool,
+    },
     /// Request screen/control consent through the daemon. Changing it requires
     /// the local app's person proof; a shell or agent cannot grant consent.
     Consent {
@@ -107,6 +123,13 @@ pub enum PeerCmd {
     Vault {
         #[command(subcommand)]
         cmd: VaultCmd,
+    },
+    /// Installed dependencies from the cache, keyed by lockfile: a new Cloud
+    /// machine restores node_modules, Cargo's registry and the npm, pnpm and
+    /// uv caches instead of installing cold. Never caches credentials files.
+    Deps {
+        #[command(subcommand)]
+        cmd: DepsCmd,
     },
     /// Install this binary and a daemon on a machine over ssh, then add it as a machine here.
     /// A Linux machine also gets acpmux-update.timer, which keeps its daemon on
@@ -252,6 +275,58 @@ pub enum VaultCmd {
     /// Remove this machine's vault env values and its vault state. The daemon
     /// pulls again while the vault is shared with this machine.
     Forget,
+}
+
+#[derive(Subcommand)]
+pub enum DepsCmd {
+    /// Restore each project's dependencies in DIR (bun, npm, pnpm, yarn, Cargo,
+    /// uv) from this machine's cache, run its normal install, and after a cold
+    /// install upload an archive for the next machine.
+    Warm {
+        /// The project folder (default: the current folder).
+        dir: Option<std::path::PathBuf>,
+        /// Do not upload an archive after a cold install.
+        #[arg(long)]
+        no_upload: bool,
+        /// Only restore; do not run the install.
+        #[arg(long)]
+        no_install: bool,
+        /// Do nothing unless this machine is joined (what runs after a seed).
+        #[arg(long)]
+        if_joined: bool,
+        /// Skip a project whose dependencies are already installed (its
+        /// `node_modules` or `.venv`), so an install never replaces a tree in use.
+        #[arg(long)]
+        if_missing: bool,
+        /// Pack and upload after a cold install before returning, instead of
+        /// in a detached `machine deps upload`.
+        #[arg(long)]
+        upload_now: bool,
+    },
+    /// Pack a cache folder and upload it under KEY (what `warm` starts
+    /// detached after a cold install).
+    #[command(hide = true)]
+    Upload {
+        #[arg(long)]
+        key: String,
+        #[arg(long)]
+        root: std::path::PathBuf,
+        #[arg(long = "include", required = true)]
+        include: Vec<std::path::PathBuf>,
+        /// zstd or gzip.
+        #[arg(long)]
+        codec: String,
+        /// The cold install the archive saves, stored beside it.
+        #[arg(long, default_value_t = 0)]
+        cold_ms: u64,
+    },
+    /// Wait until no background upload (`warm` after a cold install) is running.
+    Wait,
+    /// Print each project's cache key and what its archive holds, without asking the hub.
+    Key {
+        /// The project folder (default: the current folder).
+        dir: Option<std::path::PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]

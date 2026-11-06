@@ -14,8 +14,9 @@ import Testing
 /// thing"). Both gaps are measured from the edge the eye reads: under Floating Panes the pane
 /// card's own edges, elsewhere the pane cell's edges. One exception keeps the 2026-10-01 rule:
 /// where each pane is outlined (Panes, Card Outlined), the first tab starts on the outline's left
-/// line, the line drawn right under it. The trailing end follows the same rule: the "…" button
-/// keeps as much room to the trailing edge as above it.
+/// line, the line drawn right under it. The trailing "…" sits on the pane's one trailing control
+/// column, above the browser toolbar's ⋮ (9d31a6eb78b, Lawrence msg 19627: "the three vertical dots,
+/// there are 2 of them, and they are different sizes"), not at its top gap from the edge.
 @MainActor @Suite(.serialized, .closesItsWindows) struct PaneChromeEvenInsetTests {
     private func load(_ style: ChromeStyle?, density: Density) {
         let appearance: JSONValue = style.map { .object(["chromeStyle": .string($0.rawValue)]) } ?? .object([:])
@@ -76,7 +77,7 @@ import Testing
     }
 
     @Test(arguments: Density.allCases)
-    func theMoreButtonKeepsAsMuchRoomToTheTrailingEdgeAsAboveIt(density: Density) {
+    func theMoreButtonSitsOnThePanesTrailingControlColumn(density: Density) {
         defer { reset() }
         load(.floating, density: density)
         let toolbar = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 120, height: PaneChromeMetrics.current.resolvedStripHeight(scale: 2)))
@@ -84,8 +85,9 @@ import Testing
         toolbar.layoutSubtreeIfNeeded()
         // The fixed trailing slot, at rest and throughout the hover fade.
         let more = toolbar.moreFrame()
-        let trailing = toolbar.bounds.maxX - more.maxX, top = more.minY
-        #expect(top > 0)
-        #expect(abs(trailing - top) <= 0.01, "\(density): \(trailing) pt after \"…\", \(top) pt above it")
+        let center = toolbar.bounds.maxX - more.midX
+        #expect(more.minY > 0)
+        #expect(abs(center - Metrics.paneTrailingControlCenter) <= 0.01,
+                "\(density): \"…\" centered \(center) pt from the trailing edge, the column is \(Metrics.paneTrailingControlCenter) pt")
     }
 }

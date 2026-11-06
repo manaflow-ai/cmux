@@ -169,6 +169,8 @@ public struct SettingsSchemaExport {
             row["validation"] = "domain:chat_roots"
         } else if descriptor.path == CustomDensitiesSetting().configPath {
             row["validation"] = "domain:custom_densities"
+        } else if descriptor.path == CommandLabelsSetting().configPath {
+            row["validation"] = "domain:command_labels"
         } else if descriptor.path == BackdropSelectionSetting().configPath {
             row["validation"] = "domain:backdrop_selection"
         } else if BrowserOmnibarSetting.templatePaths.contains(descriptor.path) {

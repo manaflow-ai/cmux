@@ -47,6 +47,9 @@ public final class WorkspaceSync {
     @ObservationIgnored private var initializing = false
     @ObservationIgnored private var dirty = false
     @ObservationIgnored private var agents = AgentStates()
+    /// When each surface's agent last started a turn the person prompted (Jump to Last
+    /// Prompt), kept across reconnects as the Mac's `AgentRoster.lastPromptBySurface` is.
+    @ObservationIgnored public private(set) var lastPromptAt: [Int: Date] = [:]
     /// The Mac's sidebar order, groups and pins (`list-personal`, `sidebar_layout.get`),
     /// read again after a topology or personal change (`arrangementStale`).
     @ObservationIgnored public private(set) var arrangement: SidebarArrangement?
@@ -159,6 +162,11 @@ public final class WorkspaceSync {
             let setup = try await Task.detached { try Self.decodeSetup(replies.map { $0.map(\.data) }) }.value
             guard self.client === client else { return }
             identity = setup.identity
+            // A reconnect's list counts a prompt only by its own time (a turn already running
+            // when the link came back is not a new prompt at the moment it is seen).
+            for (surface, state) in setup.agents.bySurface where state.updatedAt != nil {
+                notePrompt(surface, from: agents.bySurface[surface], to: state)
+            }
             agents.bySurface = setup.agents.bySurface
             let snapshot = try replies[4].get()
             let known = (tree?.workspaces ?? []).filter { $0.macID == macID }
@@ -295,7 +303,9 @@ public final class WorkspaceSync {
                             break
                         case .agentChanged(let surface, let state, let agent, let updatedAt, let harnessSession):
                             if updatedAt == nil, agents.bySurface[surface]?.state != state { activity[surface] = Date() }
-                            agents.bySurface[surface] = AgentState(state: state, agent: agent, updatedAt: updatedAt, harnessSession: harnessSession)
+                            let next = AgentState(state: state, agent: agent, updatedAt: updatedAt, harnessSession: harnessSession)
+                            notePrompt(surface, from: agents.bySurface[surface], to: next)
+                            agents.bySurface[surface] = next
                             agentChanged = true
                         case .notification(let post):
                             onNotification?(post)
@@ -323,6 +333,21 @@ public final class WorkspaceSync {
                 }
             }
         }
+    }
+
+    /// The Mac's rule (`AgentRoster.startsPromptedTurn`): an agent that starts working, not one
+    /// resuming from an approval, began a turn the person prompted. The report has no source,
+    /// so a hook's repeated `working` with a new time counts as the Mac counts it.
+    nonisolated static func startsPromptedTurn(from old: AgentState?, to new: AgentState) -> Bool {
+        guard new.state == "working" else { return false }
+        if old?.state == "working" { return new.updatedAt != nil && old?.updatedAt != new.updatedAt }
+        return old?.state != "blocked"
+    }
+
+    private func notePrompt(_ surface: Int, from old: AgentState?, to new: AgentState) {
+        guard Self.startsPromptedTurn(from: old, to: new) else { return }
+        let at = new.updatedAt ?? Date()
+        lastPromptAt[surface] = max(lastPromptAt[surface] ?? at, at)
     }
 
     private func publish(_ update: WorkspaceProjection.Update, agentChanged: Bool) {

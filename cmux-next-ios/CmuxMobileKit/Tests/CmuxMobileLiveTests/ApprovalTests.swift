@@ -2,7 +2,6 @@ import CmuxMobileAgentChat
 import CmuxMobileTransport
 import CryptoKit
 import Foundation
-import LocalAuthentication
 import Testing
 @testable import CmuxMobileLive
 
@@ -89,7 +88,7 @@ import Testing
         }
     }
 
-    @Test func allowIsSignedAfterFaceIDAndDenyIsNot() async throws {
+    @Test func allowIsSignedAndDenyIsNot() async throws {
         let sent = Sent()
         let hub = AcpmuxHub()
         await hub.bind(try await Self.fakeAcpmux(sent).openChannel(service: "acpmux", args: [:]))
@@ -113,25 +112,25 @@ import Testing
         let signature = try P256.Signing.ECDSASignature(rawRepresentation: try #require(Data(hexString: decision["signature"] as? String ?? "")))
         #expect(key.publicKey.isValidSignature(signature, for: payload.message))
         #expect(reasons.all.first?["reason"] as? String == "Allow “rm -rf build”")
-        // The deny went unsigned, and Face ID asked once.
+        // The deny went unsigned, and the signer was asked once.
         #expect(sent.all.count == 2 && sent.all[1]["_meta"] == nil)
         #expect(reasons.all.count == 1)
     }
 
-    @Test func cancelledFaceIDSendsNothing() async throws {
+    @Test func anUnreadableApprovalKeySendsNothing() async throws {
         let sent = Sent()
         let hub = AcpmuxHub()
         await hub.bind(try await Self.fakeAcpmux(sent).openChannel(service: "acpmux", args: [:]))
-        hub.approver = AcpmuxHub.Approver(phoneID: "phone-1", macDevice: "mac-1") { _ in throw PhoneKeys.Failure.cancelled }
-        await #expect(throws: AcpmuxHub.ApprovalCancelled.self) {
+        hub.approver = AcpmuxHub.Approver(phoneID: "phone-1", macDevice: "mac-1") { _ in throw PhoneKeys.Failure.keychain(-25300) }
+        await #expect(throws: PhoneKeys.Failure.self) {
             try await hub.respond(sessionID: "s1", permissionID: "perm", optionID: "allow")
         }
         #expect(sent.all.isEmpty)
     }
 
-    /// Review m9: the signature's expiry starts after Face ID returned, so a
-    /// sheet left up for minutes does not send an expired answer.
-    @Test func theExpiryStartsAfterFaceID() async throws {
+    /// Review m9: the signature's expiry starts after the signer returned, so a
+    /// slow signer does not send an expired answer.
+    @Test func theExpiryStartsAfterTheSigner() async throws {
         let sent = Sent()
         let hub = AcpmuxHub()
         await hub.bind(try await Self.fakeAcpmux(sent).openChannel(service: "acpmux", args: [:]))
@@ -140,7 +139,7 @@ import Testing
         let key = P256.Signing.PrivateKey()
         hub.approver = AcpmuxHub.Approver(phoneID: "phone-1", macDevice: "mac-1",
                                           now: { Date(timeIntervalSince1970: TimeInterval(clock.all.last?["now"] as? Int ?? 0)) }) { _ in
-            clock.append(["now": 5_000])  // the user took 4000 s to look at Face ID
+            clock.append(["now": 5_000])  // the signer took 4000 s
             return { message in try key.signature(for: message).rawRepresentation }
         }
         try await hub.respond(sessionID: "s1", permissionID: "perm", optionID: "allow")
@@ -171,7 +170,7 @@ import Testing
         }
         await hub.bind(try await old.openChannel(service: "acpmux", args: [:]))
         hub.approver = AcpmuxHub.Approver(phoneID: "phone-1", macDevice: "mac-1") { _ in
-            Issue.record("asked for Face ID")
+            Issue.record("asked to sign")
             return { _ in Data() }
         }
         do {
@@ -183,12 +182,26 @@ import Testing
         #expect(sent.all.isEmpty)
     }
 
-    @Test func faceIDErrorsReadAsPlainWords() {
-        let lockout = AcpmuxSessionSource.message(PhoneKeys.Failure.notVerified(LAError.Code.biometryLockout.rawValue))
-        #expect(lockout == "Not approved: Face ID is locked. Unlock this iPhone with its passcode, then try again.")
-        let passcode = AcpmuxSessionSource.message(PhoneKeys.Failure.notVerified(LAError.Code.passcodeNotSet.rawValue))
-        #expect(passcode.contains("set a passcode"))
-        #expect(!AcpmuxSessionSource.message(PhoneKeys.Failure.notVerified(-9999)).contains("Code"))
+    @Test func keyErrorsReadAsPlainWords() {
+        let unreadable = AcpmuxSessionSource.message(PhoneKeys.Failure.keychain(-25300))
+        #expect(unreadable == "Not approved: this iPhone couldn't read its approval key. Try again.")
+        #expect(!unreadable.contains("Face ID") && !unreadable.contains("-25300"))
+    }
+
+    /// The user's call (2026-11-04): an Allow or an answer signs with no Face ID.
+    /// The signer is made without any prompt and its signature verifies against
+    /// the approval key the phone sends the Mac.
+    @Test func theApprovalKeySignsWithoutAPrompt() throws {
+        let keys = PhoneKeys(userID: "u1", service: "test.approval.\(UUID())", store: MemorySecretStore(), enclave: false)
+        let sign = try keys.approvalSigner()
+        let message = Data("allow".utf8)
+        let signature = try P256.Signing.ECDSASignature(rawRepresentation: try sign(message))
+        let point = try #require(Data(hexString: try keys.publicKeys().approval))
+        let approval = try P256.Signing.PublicKey(x963Representation: point)
+        #expect(approval.isValidSignature(signature, for: message))
+        // The identity key is a different key: an identity signature is no approval.
+        let identity = try P256.Signing.ECDSASignature(rawRepresentation: try keys.signIdentity(message))
+        #expect(!approval.isValidSignature(identity, for: message))
     }
 }
 

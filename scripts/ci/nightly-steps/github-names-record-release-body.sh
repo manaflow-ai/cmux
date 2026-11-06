@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# nightly.yml publish-nightly-next-github-names: "Record the published build in the release body". Moved out of the workflow to keep
+# nightly.yml publish-nightly-next-github: "Record the published build in the release body". Moved out of the workflow to keep
 # nightly.yml under GitHub's workflow file size limit; the step's env: still sets every input.
 #
 # The step's notes, moved from nightly.yml:

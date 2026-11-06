@@ -93,7 +93,7 @@
    "CmuxNextBrowserAutomation": 1,
    "CmuxNextBrowserImport": 1,
    "CmuxNextControl": 3,
-   "CmuxNextDaemon": 4,
+   "CmuxNextDaemon": 3,
    "CmuxNextDesign": 1,
    "CmuxNextDictation": 6,
    "CmuxNextHomeEngine": 1,
@@ -137,7 +137,7 @@
   "swift": {
    "dynamic_dispatch": {
     "CmuxNextAgentPane": 2,
-    "CmuxNextBrowser": 11,
+    "CmuxNextBrowser": 12,
     "CmuxNextBrowserAutomation": 5,
     "CmuxNextDesign": 6,
     "CmuxNextPages": 3,

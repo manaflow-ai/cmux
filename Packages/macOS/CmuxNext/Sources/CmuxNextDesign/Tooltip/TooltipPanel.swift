@@ -37,7 +37,7 @@ struct TooltipStyle {
 final class TooltipPanel: NSPanel {
     static let maxWidth: CGFloat = 320
     static let padding = NSSize(width: 8, height: 4)
-    static let radius: CGFloat = SurfaceRole.tooltip.cornerRadius ?? 5
+    static var radius: CGFloat { SurfaceRole.tooltip.cornerRadius }
     /// Room around the surface for its shadow.
     static let margin: CGFloat = 3
     /// How far the surface rises as it fades in.

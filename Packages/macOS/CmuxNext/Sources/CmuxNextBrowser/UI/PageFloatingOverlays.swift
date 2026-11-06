@@ -106,6 +106,11 @@ final class PageFloatingOverlays {
         let scope = page.themeScope
         for index in cards.indices {
             let view = cards[index].view
+            // A hidden card waits for its tab (one chrome per pane): off screen, it takes no clicks.
+            if view.isHidden {
+                dismiss(index)
+                continue
+            }
             if view.themeScope !== scope { scope.root(view) }
             if let handle = cards[index].handle, !handle.isDismissed, view.window?.parent === window {
                 handle.update(paneClip: clip)

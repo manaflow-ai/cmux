@@ -89,6 +89,8 @@ public final class TabStripView: NSView {
     /// frame origin) and clips them to after the fixed pinned band, so a tab scrolled under the pinned tabs
     /// never draws over them (`TabScrollMapping`, cx-kp9b4). Pinned tabs sit in `tabsClip` itself.
     let scrollingLayer = CALayer()
+    /// The line that ends the pinned group (Lawrence msg 20243): `TabStripView+PinnedDivider.swift`.
+    let pinnedDivider = TabStripView.makePinnedDivider()
     private(set) lazy var edgeFade = TabEdgeFade(strip: self)
     let newTabButton = NewTabButtonView()
     let newTabMenuButton = PaneTypeMenuButton()
@@ -113,9 +115,6 @@ public final class TabStripView: NSView {
     /// Every tab's and chip's target geometry (`TabPlace`); Core Animation shows the motion to it.
     var placed: [TabID: TabPlace] = [:]
     var dying: Set<TabID> = []
-    /// A closing tab's left neighbour when it closed (nil entry: it was the first tab); `pinClosingTabs`
-    /// pins the closing tab to that tab's slot, so a tab opened meanwhile cannot move it a slot.
-    var closingAnchors: [TabID: TabID?] = [:]
     /// Tabs in visual order, excluding dying and torn-out tabs.
     var displayed: [TabItem] = []
     var result = TabLayoutResult(slots: [], contentWidth: 0, standardWidth: 0, availableWidth: 0) {
@@ -127,6 +126,8 @@ public final class TabStripView: NSView {
     public internal(set) var isCrowded = false
     /// ``isCrowded`` changed; the pane's "…" (``PaneToolbarView/strip``) follows it.
     public var onCrowdedChange: ((Bool) -> Void)?
+    /// ``TabStripModel/holdsOneTab`` at the last sync: its change lays the pane out again (`syncFromModel`).
+    var laidOutOneTab: Bool?
     /// `result` indexed by tab (`slotIndex`), built on first use after each layout.
     var slotIndexCache: TabSlotIndex?
     /// The strip moves whose Core Animation transaction has not completed (`applyFrames`, `moveEnded`).
@@ -140,7 +141,7 @@ public final class TabStripView: NSView {
     var scrollOffset: CGFloat = 0
     /// The last strip move's generation (`TabStripMove`).
     var moveGeneration = 0
-    /// When a closing tab's or chip's last move ends: it goes then (`moveEnded`).
+    /// When a closing group chip's last move ends: it goes then (`moveEnded`). A tab closes at once.
     var goesAt: [TabID: CFTimeInterval] = [:]
     /// Takes the scroll part of every move (a reveal's spring, a relayout that keeps the selected tab
     /// in view) and nothing else: what they add now is its presentation x minus its model x (`settleScroll`).
@@ -163,6 +164,9 @@ public final class TabStripView: NSView {
     var lastSyncedInput: ModelSnapshot?
     var lastStyle: TabStripStyle?
     var lastViewportWidth: CGFloat = -1
+    /// What the cells' frames were last written from (`applyFrames`, `followWidth`): a width change that keeps it and
+    /// every slot writes no cell (SMOOTH-STRIP). Nil: a cell may sit elsewhere (an opening tab's start, `place`).
+    var framedCells: FramedCells?
     /// Drag autoscroll steps on the window's one `MotionClock`; nothing else in the strip does.
     weak var motionClock: MotionClock?
     var observationTask: Task<Void, Never>?
@@ -254,6 +258,7 @@ public final class TabStripView: NSView {
         scrollingLayer.masksToBounds = true
         scrollingLayer.actions = ["bounds": NSNull(), "position": NSNull(), "sublayers": NSNull()]
         tabsClip.layer?.addSublayer(scrollingLayer)
+        tabsClip.layer?.addSublayer(pinnedDivider)
         contentView.addSubview(tabsClip)
         contentView.addSubview(newTabButton)
         contentView.addSubview(newTabMenuButton)
@@ -423,6 +428,7 @@ public final class TabStripView: NSView {
         // What changed while out of sight lands at once in its final place: nobody saw it move.
         if modelChangedWhileHidden {
             modelChangedWhileHidden = false
+            layOutPaneIfOneTabChanged()
             sync(fromModel: true, animating: false)
         }
         hoverCards.register(hoverCard)
@@ -466,6 +472,7 @@ public final class TabStripView: NSView {
             chip.scale = scale
         }
         for band in groups.bands.values { band.themeScope = scope }
+        applyPinnedDividerColor()
     }
 
     func applyTokens(animated: Bool) {
@@ -504,24 +511,30 @@ public final class TabStripView: NSView {
             // FRAME OWNER S1: the width is the pane's of this frame tick (a window resize, a split, a pane spring), so the tabs
             // take it at once, with no move of their own; a close in flight keeps its own move and its closing tab (cx-y2uf5).
             // A narrower strip (a split) keeps the selected tab in view.
-            relayout(animated: false, keepsSelectedInView: viewport < lastViewportWidth, keepsClosing: true)
+            followWidth(narrower: viewport < lastViewportWidth)
             lastViewportWidth = viewport
         } else {
             applyFrames()
         }
     }
 
+    /// Its own tracking area only where no layout screen serves it (``PanePointerFollowing``, `TabStripView+Pointer`): in a
+    /// pane the screen's one area delivers its pointer, so a strip that moves with its pane costs AppKit no tracking-area
+    /// work (RESIZE MAIN BUDGET, PaneMotionPointerAreasTests).
     public override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let trackingArea { removeTrackingArea(trackingArea) }
-        let area = NSTrackingArea(
-            rect: .zero,
-            options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(area)
-        trackingArea = area
+        trackingArea = nil
+        if !isServedByPanePointerArea {
+            let area = NSTrackingArea(
+                rect: .zero,
+                options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
+                owner: self,
+                userInfo: nil
+            )
+            addTrackingArea(area)
+            trackingArea = area
+        }
         closingWatch.updateTracking()
     }
 

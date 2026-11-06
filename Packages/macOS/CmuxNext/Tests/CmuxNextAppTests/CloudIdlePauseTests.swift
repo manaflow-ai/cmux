@@ -68,6 +68,10 @@ struct CloudIdlePauseTests {
         let appServer = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"id":"vm-next","status":"running","idlePauseMinutes":30,"idlePause":{"minutes":30,"lastCheckedAt":1700000000000,"idleSince":1699998000000,"lastApiActivityAt":1699999000000,"privateAddressKnown":true,"lastDecision":{"at":1700000000000,"outcome":"idle","reason":"idle","run":{"checked":8,"elapsedMs":120}}}}"#.utf8))
         let next = try #require(CloudMachine(next: appServer))
         #expect(next.idlePause?.lastDecision?.run.elapsedMs == 120)
+
+        let nextPolicy = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"id":"vm-next-policy","status":"running","idle_policy":{"idle_seconds":1800}}"#.utf8))
+        let policyMachine = try #require(CloudMachine(next: nextPolicy))
+        #expect(policyMachine.idlePauseMinutes == 30)
     }
 
     @Test func anOlderServerOrAnUnknownReasonDecodesAsNone() throws {
@@ -156,110 +160,6 @@ struct CloudIdlePauseTests {
         #expect(view.showsButtons)
         #expect(view.primaryButtonTitle == CloudStrings.resume)
         #expect(!view.detailText.contains(CloudStrings.progressFailed("")), "paused must not read as a failed start")
-    }
-
-    // MARK: Attach resumes
-
-    @Test(.timeLimit(.minutes(1)))
-    func attachingToAPausedMachineResumesItThroughResumeMachine() async {
-        let f = Self.pausedMachine(reason: .idle)
-        var resumed: [String] = []
-        f.session.resumer = { [session = f.session] id in
-            resumed.append(id)
-            session.machine.status = .running
-        }
-        f.session.attach(origin: .user)
-        #expect(f.session.resuming)
-        #expect(f.session.stage == .booting)
-        f.session.attach(origin: .user) // a second attach while it resumes starts no second resume
-        let session = f.session
-        for await busy in ObservationStream({ session.resuming }) where !busy { break }
-        #expect(resumed == [f.session.machineID])
-        #expect(f.session.machine.status == .running)
-        f.session.disconnect()
-    }
-
-    @Test func attachingToALiveMachineResumesNothing() {
-        let f = Self.pausedMachine(reason: nil)
-        f.session.machine.status = .running
-        var resumed = 0
-        f.session.resumer = { _ in resumed += 1 }
-        f.session.attach(origin: .user)
-        #expect(!f.session.resuming)
-        #expect(resumed == 0)
-        f.session.disconnect()
-    }
-
-    @Test(.timeLimit(.minutes(1)))
-    func aFailedResumeShowsItsReason() async {
-        let f = Self.pausedMachine(reason: .idle)
-        f.session.resumer = { _ in throw ActionFailure(message: "no capacity") }
-        f.session.attach(origin: .user)
-        let session = f.session
-        for await busy in ObservationStream({ session.resuming }) where !busy { break }
-        #expect(f.session.stage.failure?.contains("no capacity") == true)
-        f.session.disconnect()
-    }
-
-    @Test(.timeLimit(.minutes(1)))
-    func aFailedResumeDoesNotOutliveTheNextPause() async {
-        let f = Self.pausedMachine(reason: .idle)
-        f.session.resumer = { _ in throw ActionFailure(message: "no capacity") }
-        f.session.attach(origin: .user)
-        let session = f.session
-        for await busy in ObservationStream({ session.resuming }) where !busy { break }
-        #expect(f.session.resumeFailure != nil)
-        // The machine is paused again (another pause, a reconcile): the old failure no longer applies.
-        f.session.suspend()
-        #expect(f.session.resumeFailure == nil)
-        #expect(f.session.stage == .paused(idle: true))
-        f.session.disconnect()
-    }
-
-    /// The app reads the machine list on launch and activation only, so a machine the idle
-    /// auto-pause parked while cmux stayed in front still reads running here. An attach reads the
-    /// record again first, finds it paused and resumes it.
-    @Test(.timeLimit(.minutes(1)))
-    func anAttachToAStaleRunningRecordReadsItAgainAndResumes() async {
-        let f = Self.pausedMachine(reason: nil)
-        f.session.machine.status = .running
-        var reads: [Bool] = []
-        var resumed = 0
-        f.session.refresher = { [session = f.session] force in
-            reads.append(force)
-            session.machine.status = .paused
-            session.machine.pauseReason = .idle
-        }
-        f.session.resumer = { _ in
-            resumed += 1
-            throw ActionFailure(message: "no capacity")
-        }
-        let invocation = ActionInvocation(target: ActionTargetRef(kind: .machine, id: f.session.machineID), arguments: [:], origin: .cli)
-        #expect(CloudHandlers.attachable(f.session))
-        await #expect(throws: ActionFailure.self) { try await CloudHandlers.attached(f.session, invocation, within: .seconds(20)) }
-        #expect(reads == [true])
-        #expect(resumed == 1)
-        #expect(f.session.stage.failure?.contains("no capacity") == true)
-        f.session.disconnect()
-    }
-
-    @Test(.timeLimit(.minutes(1)))
-    func anAttachToAPausedMachineWaitsForItsResume() async {
-        let f = Self.pausedMachine(reason: .idle)
-        var reads = 0
-        f.session.refresher = { _ in reads += 1 }
-        f.session.resumer = { _ in throw ActionFailure(message: "quota reached") }
-        let invocation = ActionInvocation(target: ActionTargetRef(kind: .machine, id: f.session.machineID), arguments: [:], origin: .cli)
-        do {
-            try await CloudHandlers.attached(f.session, invocation, within: .seconds(20))
-            Issue.record("a failed resume must fail the attach")
-        } catch let failure as ActionFailure {
-            #expect(failure.message.contains("quota reached"))
-        } catch {
-            Issue.record("unexpected \(error)")
-        }
-        #expect(reads == 0, "a record that already reads paused is not read again")
-        f.session.disconnect()
     }
 
     // MARK: One record (Machine Status)

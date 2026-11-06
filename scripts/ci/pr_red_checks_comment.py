@@ -41,14 +41,20 @@ comment and stops when its line names no red: then this call has nothing to chan
 A call for a commit that is no longer the pull request's head writes nothing: a red at a superseded
 commit is not the pull request's red, and a late call for an old head (queued behind a newer one in
 the per-PR group) must not overwrite the line the current head's call wrote. The head is read just
-before the write, so only a call that has something to change pays for that read.
+before the write, so only a call that has something to change pays for that read, and it is read
+with `git ls-remote origin refs/pull/N/head` (no API call); the REST read is the fallback.
+
+The status comment is read through pr_status's default client: over GraphQL (its own hourly pool),
+REST only when that fails. So a green caller with no red line spends no REST call at all; the
+repository's GITHUB_TOKEN REST budget (1,000/h, shared by every workflow) is kept for the writes.
 
 Env: GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER, HEAD_SHA, GITHUB_API_URL (default api.github.com),
-BASE_SHA, OWN_CHECKS_GREEN.
+BASE_SHA, OWN_CHECKS_GREEN, PR_HEAD_REMOTE (the git remote the head is read from; default origin).
 """
 import json
 import os
 import re
+import subprocess
 import sys
 import urllib.error
 import urllib.request
@@ -153,6 +159,8 @@ def decide(check_runs, existing_line, lines=None):
 class GitHub:
     def __init__(self, api, repo, token):
         self.api, self.repo, self.token = api.rstrip("/"), repo, token
+        # check run id -> (steps, annotations), prefetched over GraphQL (prefetch_details); REST answers the rest.
+        self.details = {}
 
     def call(self, method, path, payload=None):
         req = urllib.request.Request(self.api + path, method=method,
@@ -177,12 +185,116 @@ class GitHub:
 
 
 def annotations(gh, run):
+    if run.get("id") in gh.details:
+        return gh.details[run["id"]][1]
     return gh.call("GET", f"/repos/{gh.repo}/check-runs/{run['id']}/annotations?per_page=100") or []
 
 
 def run_signature(gh, run):
+    if run.get("id") in gh.details:
+        return signature(*gh.details[run["id"]])
     steps = gh.call("GET", f"/repos/{gh.repo}/actions/jobs/{run['id']}").get("steps") or []
     return signature(steps, annotations(gh, run))
+
+
+# Reads over GraphQL (its own hourly pool), so a red call spends no REST: before, it read the head's and the base's
+# check-run pages, then each red check's job steps and annotations, on the PR's run and the base's, all from the
+# repository GITHUB_TOKEN's 1,000/h REST pool that every workflow shares. Any GraphQL error, or a commit with more
+# suites or runs than one page holds, leaves the REST reads to answer exactly as before.
+_RUNS = ("checkSuites(first:100){pageInfo{hasNextPage} nodes{checkRuns(first:100,filterBy:{checkType:LATEST})"
+         "{pageInfo{hasNextPage} nodes{id databaseId name status conclusion startedAt}}}}")
+CHECKS_QUERY = ("query($owner:String!,$name:String!,$head:GitObjectID!,$base:GitObjectID!,$withBase:Boolean!){"
+                "repository(owner:$owner,name:$name){head:object(oid:$head){...on Commit{" + _RUNS + "}}"
+                " base:object(oid:$base) @include(if:$withBase){...on Commit{" + _RUNS + "}}}"
+                " rateLimit{limit cost remaining used resetAt}}")
+DETAILS_QUERY = ("query($ids:[ID!]!){nodes(ids:$ids){...on CheckRun{databaseId"
+                 " steps(first:100){pageInfo{hasNextPage} nodes{name conclusion number}}"
+                 " annotations(first:100){nodes{title message annotationLevel}}}}"
+                 " rateLimit{limit cost remaining used resetAt}}")
+
+
+def _lower(value):
+    return value.lower() if isinstance(value, str) else value
+
+
+def _commit_runs(commit):
+    """A commit's check runs in REST's shape, or None when a page was not enough."""
+    suites = (commit or {}).get("checkSuites") or {}
+    if (suites.get("pageInfo") or {}).get("hasNextPage"):
+        return None
+    runs = []
+    for suite in suites.get("nodes") or []:
+        if not isinstance(suite, dict):
+            return None  # a null suite could hide a red run: incomplete, so REST answers
+        page = suite.get("checkRuns") or {}
+        if (page.get("pageInfo") or {}).get("hasNextPage"):
+            return None
+        for node in page.get("nodes") or []:
+            if not isinstance(node, dict):
+                return None  # a null node (a deleted or hidden run): incomplete, so REST answers
+            runs.append({"id": node.get("databaseId"), "node_id": node.get("id"), "name": node.get("name"),
+                         "status": _lower(node.get("status")), "conclusion": _lower(node.get("conclusion")),
+                         "started_at": node.get("startedAt")})
+    return runs
+
+
+def prefetch_runs(gh, sha, base_sha, query=None):
+    """{sha: check runs} for the head (and the base when given) in one GraphQL query; {} on any error."""
+    query = query or pr_status.graphql
+    owner, _, name = gh.repo.partition("/")
+    try:
+        data = query(CHECKS_QUERY, {"owner": owner, "name": name, "head": sha, "base": base_sha or sha,
+                                    "withBase": bool(base_sha)})
+    except RuntimeError as err:
+        print(f"pr-red-checks: check runs over GraphQL failed ({str(err)[:200]}); reading them over REST",
+              file=sys.stderr)
+        return {}
+    repo = (data or {}).get("repository") or {}
+    found = {}
+    for key, oid in (("head", sha), ("base", base_sha)):
+        if oid and repo.get(key) is not None:
+            runs = _commit_runs(repo[key])
+            if runs is not None:
+                found[oid] = runs
+    return found
+
+
+def prefetch_details(gh, runs, query=None):
+    """Fill gh.details for `runs` (each with a node_id) in one GraphQL query; on any error leave it to REST."""
+    query = query or pr_status.graphql
+    wanted = {run["node_id"]: run["id"] for run in runs
+              if run and run.get("node_id") and run.get("id") is not None and run["id"] not in gh.details}
+    if not wanted:
+        return
+    try:
+        data = query(DETAILS_QUERY, {"ids": sorted(wanted)})
+    except RuntimeError as err:
+        print(f"pr-red-checks: steps and annotations over GraphQL failed ({str(err)[:200]}); reading them over REST",
+              file=sys.stderr)
+        return
+    for node in (data or {}).get("nodes") or []:
+        if not node or node.get("databaseId") is None:
+            continue
+        if ((node.get("steps") or {}).get("pageInfo") or {}).get("hasNextPage"):
+            # REST's job read returns every step; a failed step past the first page must not drop out of the
+            # signature (it could turn a new red into a base red), so REST answers this run.
+            continue
+        if not all(isinstance(item, dict) for key in ("steps", "annotations")
+                   for item in ((node.get(key) or {}).get("nodes") or [])):
+            continue  # a null step or annotation: incomplete, so REST answers this run
+        steps = [{"name": s.get("name"), "conclusion": _lower(s.get("conclusion")), "number": s.get("number")}
+                 for s in ((node.get("steps") or {}).get("nodes") or [])]
+        notes = [{"title": a.get("title"), "message": a.get("message"),
+                  "annotation_level": _lower(a.get("annotationLevel"))}
+                 for a in ((node.get("annotations") or {}).get("nodes") or [])]
+        gh.details[node["databaseId"]] = (steps, notes)
+
+
+def commit_runs(gh, sha, prefetched):
+    """A commit's check runs: the GraphQL prefetch, else REST's pages."""
+    if sha in prefetched:
+        return prefetched[sha]
+    return gh.pages(f"/repos/{gh.repo}/commits/{sha}/check-runs?filter=latest", key="check_runs")
 
 
 def new_tests(found):
@@ -213,17 +325,22 @@ def aggregate_line(name, gathered, unfinished=()):
     return f"red: {name}; follows the jobs it gathers, whose reds are all on the base too; does not block"
 
 
-def base_lines(gh, runs, base_sha):
+def base_lines(gh, runs, base_sha, prefetched=None):
     """Each red check's line compared with the base commit's run of it; {} without a base."""
     red = red_checks(runs)
     if not base_sha or not red:
         return {}
     try:
-        base = newest_runs(gh.pages(f"/repos/{gh.repo}/commits/{base_sha}/check-runs?filter=latest", key="check_runs"))
+        base = newest_runs(commit_runs(gh, base_sha, prefetched or {}))
     except (urllib.error.URLError, TimeoutError) as err:
         print(f"pr-red-checks: base {base_sha[:10]} unreadable ({err}); every red blocks", file=sys.stderr)
         return {}
     mine = newest_runs(runs)
+    # One GraphQL query for every run compared below: each red check's run, and the base's run when it is red too.
+    compared = [mine[name] for name in red if name not in AGGREGATES]
+    compared += [base[name] for name in red if name not in AGGREGATES and not BASE_CHECK.match(name)
+                 and is_red(base.get(name))]
+    prefetch_details(gh, compared)
     lines = {}
     for name in red:
         if name in AGGREGATES:
@@ -250,27 +367,50 @@ def base_lines(gh, runs, base_sha):
     return lines
 
 
+def git_head(pr, remote=None):
+    """The pull request's head commit from `git ls-remote` (no API call), or None when git cannot say."""
+    remote = remote or os.environ.get("PR_HEAD_REMOTE") or "origin"
+    try:
+        out = subprocess.run(["git", "ls-remote", remote, f"refs/pull/{int(pr)}/head"], capture_output=True,
+                             text=True, timeout=30, check=True).stdout
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+    sha = out.split()[0] if out.split() else ""
+    return sha if re.fullmatch(r"[0-9a-f]{40}", sha) else None
+
+
+def live_head(gh, pr):
+    """The pull request's head now: git first, the REST pull request read when git fails."""
+    head = git_head(pr)
+    if head:
+        return head
+    print(f"pr-red-checks: #{pr}: git ls-remote gave no head; reading it over REST", file=sys.stderr)
+    return ((gh.call("GET", f"/repos/{gh.repo}/pulls/{pr}") or {}).get("head") or {}).get("sha")
+
+
 def main():
     gh = GitHub(os.environ.get("GITHUB_API_URL", "https://api.github.com"), os.environ["GITHUB_REPOSITORY"],
                 os.environ["GITHUB_TOKEN"])
     pr, sha = os.environ["PR_NUMBER"], os.environ["HEAD_SHA"]
-    current = pr_status.section(gh.repo, int(pr), "checks", api=gh.call)
+    current = pr_status.section(gh.repo, int(pr), "checks")
     if os.environ.get("OWN_CHECKS_GREEN") == "true" and (current is None or "red: " not in current):
         # The caller's own tracked checks passed and the line names no red: reading the head's
         # check runs could only find another workflow's red, which that workflow's own call (after
         # its checks) writes. Nothing for this call to change; skip the check-runs pages.
         print(f"pr-red-checks: #{pr} {sha[:12]}: own checks green, no red line; action=none")
         return 0
-    runs = gh.pages(f"/repos/{gh.repo}/commits/{sha}/check-runs?filter=latest", key="check_runs")
-    lines = base_lines(gh, runs, os.environ.get("BASE_SHA", "").strip())
+    base_sha = os.environ.get("BASE_SHA", "").strip()
+    prefetched = prefetch_runs(gh, sha, base_sha)
+    runs = commit_runs(gh, sha, prefetched)
+    lines = base_lines(gh, runs, base_sha, prefetched)
     line = decide(runs, current, lines)
     action = None
     if line is not None:
-        head = ((gh.call("GET", f"/repos/{gh.repo}/pulls/{pr}") or {}).get("head") or {}).get("sha")
+        head = live_head(gh, pr)
         if head != sha:
             print(f"pr-red-checks: #{pr} {sha[:12]}: superseded by head {str(head)[:12]}; action=none")
             return 0
-        action = pr_status.upsert(gh.repo, int(pr), "checks", line, legacy=LEGACY_MARKER, api=gh.call)
+        action = pr_status.upsert(gh.repo, int(pr), "checks", line, legacy=LEGACY_MARKER)
     print(f"pr-red-checks: #{pr} {sha[:12]}: red={red_checks(runs)} action={action or 'none'}")
     return 0
 
@@ -282,4 +422,9 @@ if __name__ == "__main__":
         # A fork pull request gets a read-only token: the comment cannot be written. Say so; never
         # fail the calling workflow over an advisory comment.
         print(f"pr-red-checks: WARNING, GitHub refused ({err.code} {err.reason}); no comment written", file=sys.stderr)
+        sys.exit(0)
+    except RuntimeError as err:
+        # pr_status's client (the comment read and write) raises RuntimeError on a refusal, QuotaSpent on a spent
+        # quota: the same advisory warning.
+        print(f"pr-red-checks: WARNING, GitHub refused ({str(err)[:300]}); no comment written", file=sys.stderr)
         sys.exit(0)

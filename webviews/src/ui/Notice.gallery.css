@@ -1,0 +1,55 @@
+/* The notice gallery's stage and its two compared looks (ui/Notice.gallery.tsx). `card` is the
+   shipped look and needs nothing here. */
+.ui-notice-gallery {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+  max-width: 480px;
+  padding: var(--ds-space-4);
+}
+
+.ui-notice-gallery-stage {
+  position: relative;
+  --ui-notice-gallery-stage: 360px;
+  max-width: none;
+  height: var(--ui-notice-gallery-stage);
+}
+
+.ui-notice-gallery-receipt {
+  color: var(--cmux-text-secondary, GrayText);
+  font-size: var(--text-caption);
+}
+
+/* line: Sonner's toast, one row: the text, then the buttons beside it; the checkmark under it. */
+.ui-notice-gallery[data-look="line"] .ui-notice {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+}
+.ui-notice-gallery[data-look="line"] .ui-notice-foot {
+  grid-column: 2;
+  grid-row: 1;
+}
+.ui-notice-gallery[data-look="line"] .ui-notice-dismiss {
+  grid-column: 3;
+  align-self: center;
+}
+.ui-notice-gallery[data-look="line"] .ui-notice-main {
+  grid-column: 1;
+}
+.ui-notice-gallery[data-look="line"] .ui-notice-message {
+  display: none;
+}
+.ui-notice-gallery[data-look="line"] .ui-notice-text > .ui-notice-message:only-child {
+  display: block;
+}
+
+/* header: Codex's limit card: the mark and title on a faint strip across the top. */
+.ui-notice-gallery[data-look="header"] .ui-notice {
+  padding-top: 0;
+}
+.ui-notice-gallery[data-look="header"] .ui-notice-main {
+  margin-inline: calc(-1 * var(--ds-space-3)) calc(-1 * var(--ds-space-2));
+  padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-2) var(--ds-space-3);
+  border-radius: var(--surface-toast-radius) var(--surface-toast-radius) 0 0;
+  background: color-mix(in srgb, var(--cmux-text, CanvasText) 5%, transparent);
+}
