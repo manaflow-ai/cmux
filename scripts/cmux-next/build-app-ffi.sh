@@ -27,7 +27,8 @@ headers_in=("$crates/cmux-rd-ffi/include/cmux_rd_ffi.h:CCmuxRdFFI"
             "$crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h:CCmuxLayoutReducerFFI"
             "$crates/cmux-palette-ranker/include/cmux_palette_ranker.h:CCmuxPaletteRankerFFI"
             "$crates/cmux-app-ffi/include/cmux_motion_ffi.h:CCmuxMotionFFI"
-            "$crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h:CCmuxAgentPanePolicyFFI")
+            "$crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h:CCmuxAgentPanePolicyFFI"
+            "$crates/cmux-daemon-launch-core/include/cmux_daemon_launch.h:CCmuxDaemonLaunchFFI")
 
 for tool in cargo rustup xcodebuild lipo clang libtool; do
   command -v "$tool" >/dev/null 2>&1 || { echo "error: $tool is required" >&2; exit 1; }

@@ -1255,6 +1255,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-daemon-launch-core"
+version = "0.1.0"
+dependencies = [
+ "cmux-local-auth",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-encode"
 version = "0.1.0"
 dependencies = [
