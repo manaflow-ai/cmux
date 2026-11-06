@@ -155,6 +155,15 @@ public nonisolated struct WindowFrame: Sendable {
         if let strip = context.makeImage() { writePNG(strip, to: path) }
     }
 
+    /// Makes `dir`, then writes each frame to its path and the strip of `strip` to `stripPath`, off the main actor: PNG
+    /// encoding and file writes held it for seconds a frame strip under load, which the frame and hang probes counted.
+    @concurrent public static func writeAll(_ frames: [(frame: WindowFrame, path: String)], strip: [WindowFrame], stripPath: String,
+                                           in dir: String) async {
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        for (frame, path) in frames { frame.write(to: path) }
+        writeStrip(strip, to: stripPath)
+    }
+
     static func writePNG(_ image: CGImage, to path: String) {
         guard let destination = CGImageDestinationCreateWithURL(URL(fileURLWithPath: path) as CFURL, UTType.png.identifier as CFString, 1, nil)
         else { return }
