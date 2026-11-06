@@ -21,7 +21,7 @@ pub(super) fn unbounded_listing(argv: &[String]) -> bool {
         return false;
     }
     let has = |flag: &str| argv.iter().any(|a| a == flag);
-    // `-0` is `--null`; `-d N`, `-dN`, `--maxdepth` and `--max-depth=N` all bound the depth.
+    // `-0` is `--null`; `-d N`, `-dN`, `-d=N`, `--maxdepth` and `--max-depth=N` bound the depth.
     if !has("--files") || !has("--hidden") || has("--null") || has("-0") {
         return false;
     }
@@ -30,6 +30,7 @@ pub(super) fn unbounded_listing(argv: &[String]) -> bool {
             || a.starts_with("--max-depth=")
             || a.starts_with("--maxdepth=")
             || a.strip_prefix("-d")
+                .map(|n| n.strip_prefix('=').unwrap_or(n))
                 .is_some_and(|n| n.is_empty() || n.bytes().all(|b| b.is_ascii_digit()))
     };
     if argv.iter().any(|a| depth(a)) {
@@ -60,7 +61,7 @@ impl Hub {
         let Some(child) = session.child.lock().await.clone() else { return };
         let procs = child.harness_processes().await;
         let ended = tokio::task::spawn_blocking(move || {
-            crate::agent_host::tree::terminate_picked(&procs, |a| unbounded_listing(a))
+            crate::agent_host::tree::terminate_picked(&procs, unbounded_listing)
         })
         .await
         .unwrap_or_default();

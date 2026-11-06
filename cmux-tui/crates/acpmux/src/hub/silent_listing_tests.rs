@@ -27,6 +27,7 @@ fn bounded_or_tool_listings_are_left_alone() {
         "rg --files --hidden --max-depth=3 /p",
         "rg --files --hidden -d 4 /p",
         "rg --files --hidden -d4 /p",
+        "rg --files --hidden -d=4 /p",
         "rg --files --hidden --maxdepth 2 /p",
         "rg --files --hidden --maxdepth=2 /p",
         "rg --files --hidden -0 /p",
@@ -65,7 +66,7 @@ fn terminate_under_ends_only_the_listing_it_picks() {
     // Let both exec so their argv is the one the kernel reports.
     std::thread::sleep(std::time::Duration::from_millis(300));
     let under = crate::agent_host::tree::descendants(&[std::process::id()]);
-    let ended = crate::agent_host::tree::terminate_picked(&under, |a| unbounded_listing(a));
+    let ended = crate::agent_host::tree::terminate_picked(&under, unbounded_listing);
     assert_eq!(ended.iter().map(|(pid, _)| *pid).collect::<Vec<_>>(), vec![listing.id()]);
     let status = listing.wait().unwrap();
     assert!(!status.success(), "the listing ended on its signal: {status:?}");
@@ -103,7 +104,7 @@ fn a_hosted_agents_listings_are_found_by_its_hosts_nonce() {
     let mut unmarked = spawn(None);
     std::thread::sleep(std::time::Duration::from_millis(300));
     let marked = crate::agent_host::tree::marked(mark, &ours);
-    let ended = crate::agent_host::tree::terminate_picked(&marked, |a| unbounded_listing(a));
+    let ended = crate::agent_host::tree::terminate_picked(&marked, unbounded_listing);
     assert_eq!(ended.iter().map(|(pid, _)| *pid).collect::<Vec<_>>(), vec![listing.id()]);
     assert!(!listing.wait().unwrap().success());
     assert!(other_host.try_wait().unwrap().is_none(), "another host's listing runs on");
