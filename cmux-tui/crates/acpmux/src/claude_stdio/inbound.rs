@@ -252,6 +252,10 @@ impl Translator {
                         {
                             out.push(upd(self.spawn_subagent(id, name, &input).await));
                         }
+                        // A call of the chat's own that blocks its turn (`foreground_work.rs`).
+                        if main_line && let Some(id) = c.get("id").and_then(Value::as_str) {
+                            self.foreground_call(name, id, &input).await;
+                        }
                         // The todo list is the turn's ACP plan (cx-ncc.80): clients
                         // draw it as a checklist.
                         if name == "TodoWrite"
@@ -399,6 +403,7 @@ impl Translator {
                         };
                         let is_err = c.get("is_error").and_then(Value::as_bool).unwrap_or(false);
                         let tool = c.get("tool_use_id").and_then(Value::as_str).unwrap_or("");
+                        self.foreground_done(tool).await;
                         // A failed launch never ran; a foreground shell no task
                         // named is done.
                         {
@@ -807,6 +812,7 @@ impl Translator {
                 *self.prompt_echo.lock().await = None;
                 // A Ctrl-B still unanswered leaves no mark past its turn.
                 self.end_background_asks(false, |_, _| true).await;
+                self.foreground_ended().await;
                 // What the context holds now, as Claude Code's /context breaks it down; its
                 // answer comes after the turn ended (`context_breakdown`). `summary` answers
                 // from the last response's usage, with no token-count API call.
