@@ -257,7 +257,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
             preparedCards.remove(id)
         }
         // The phone-side Screen Sharing tab (Open as Tab), after the Mac's tabs.
-        if screenSharingTabOpen { next.append(screenSharingKitTab) }
+        if isScreenSharingTabListed { next.append(screenSharingKitTab) }
         if next != listedTabs { listedTabs = next }
         if isSingleTab != (next.count == 1) { isSingleTab = next.count == 1 }
         if preparingCards { prepareTerminalCards(workspace.tabs) }
@@ -340,8 +340,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
         TabsKitNewTabOption(id: teamsPrefix + teams.rawValue, title: teams.title, systemImage: teams.systemImage, kind: .terminal)
     }
 
-    /// Signed in with Screen Sharing set up: + offers the Mac's screen.
-    public var offersScreenSharing = false
+    /// Signed in with Screen Sharing set up: + offers the Mac's screen. Signed out, an open
+    /// Screen Sharing tab is not listed.
+    public var offersScreenSharing = false {
+        didSet { if offersScreenSharing != oldValue { refreshTabs() } }
+    }
     /// Screen Sharing is up (+ › Screen Sharing): the screen shows the account's Macs as a
     /// sheet and connects to this workspace's Mac. It is phone-side; the Mac opens no tab.
     public var showingScreenSharing = false
@@ -470,7 +473,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     public func activate(_ id: TabsKitTab.ID) {
         if id == Self.screenSharingTabID {
-            guard screenSharingTabOpen else { return }
+            guard isScreenSharingTabListed else { return }
             selectedTabID = id
             CmuxMobileTheme.standard.haptics.selection()
             return
@@ -743,7 +746,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
             return nil
         }
         if option.id == Self.screenSharingOption.id {
-            showingScreenSharing = true
+            // Its tab already open: show it, never a second Screen Sharing over it.
+            if isScreenSharingTabListed { openScreenSharingTab() } else { showingScreenSharing = true }
             return nil
         }
         if option.id.hasPrefix(Self.unavailablePrefix) {
@@ -1386,7 +1390,10 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// Drag in the grid: here at once, then on the Mac (`move-tab` to the place of the
     /// tab it lands on); a refusal puts it back.
     public func moveTab(_ id: TabsKitTab.ID, to index: Int) {
-        guard let workspace, let creator, let tab = workspaceTab(id),
+        // The Screen Sharing tab lists after the Mac's tabs: a drop on its slot is the Mac's last.
+        guard let workspace, !workspace.tabs.isEmpty else { return }
+        let index = min(index, workspace.tabs.count - 1)
+        guard let creator, let tab = workspaceTab(id),
               let from = workspace.tabs.firstIndex(where: { $0.id == id }), from != index,
               workspace.tabs.indices.contains(index) else { return }
         let target = workspace.tabs[index]

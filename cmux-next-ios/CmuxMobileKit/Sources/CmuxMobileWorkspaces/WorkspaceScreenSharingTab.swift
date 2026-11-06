@@ -19,6 +19,7 @@ extension WorkspaceTabsSource {
     /// many times it opens).
     public func openScreenSharingTab() {
         showingScreenSharing = false
+        guard offersScreenSharing else { return }
         if !screenSharingTabOpen {
             screenSharingTabOpen = true
             Self.screenSharingTabs.insert(workspaceID)
@@ -41,9 +42,12 @@ extension WorkspaceTabsSource {
     /// Whether `id` is listed: one of the Mac's tabs, or the open Screen Sharing tab.
     func isListed(_ id: String?) -> Bool {
         guard let id else { return false }
-        if id == Self.screenSharingTabID { return screenSharingTabOpen }
+        if id == Self.screenSharingTabID { return isScreenSharingTabListed }
         return workspaceTab(id) != nil
     }
+
+    /// Open, and Screen Sharing still offered (signed in).
+    var isScreenSharingTabListed: Bool { screenSharingTabOpen && offersScreenSharing }
 
     var screenSharingKitTab: TabsKitTab {
         TabsKitTab(

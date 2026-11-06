@@ -193,6 +193,8 @@ import SwiftUI
     /// the Mac for nothing. A second open shows the same tab; Close Tab removes it, here only.
     @Test func screenSharingOpensAsATabAndCloses() async throws {
         let (store, source) = make()
+        // The open set is the app's (one per run): leave none behind for other tests.
+        defer { WorkspaceTabsSource.screenSharingTabs.remove("ws-cmux") }
         source.offersScreenSharing = true
         let macTabs = source.tabs.map(\.id)
         source.showingScreenSharing = true
@@ -204,6 +206,16 @@ import SwiftUI
         #expect(source.openedTab == WorkspaceTabsSource.screenSharingTabID)
         #expect(store.workspace(id: "ws-cmux")?.tabs.map(\.id) == macTabs)
         source.openScreenSharingTab()
+        #expect(source.tabs.count == macTabs.count + 1)
+        // + › Screen Sharing with the tab open shows the tab, not a second Screen Sharing.
+        _ = await source.createTab(try #require(source.newTabOptions.first { $0.title == "Screen Sharing" }))
+        #expect(!source.showingScreenSharing)
+        #expect(source.activeTabID == WorkspaceTabsSource.screenSharingTabID)
+        #expect(source.tabs.count == macTabs.count + 1)
+        // Signed out: not listed; signed in again: back.
+        source.offersScreenSharing = false
+        #expect(source.tabs.map(\.id) == macTabs)
+        source.offersScreenSharing = true
         #expect(source.tabs.count == macTabs.count + 1)
         // Its page menu closes it; the Mac's tab rows (rename, move, groups) don't apply.
         let menu = source.pageMenu(for: try #require(source.tabs.last)).flatMap { $0 }
