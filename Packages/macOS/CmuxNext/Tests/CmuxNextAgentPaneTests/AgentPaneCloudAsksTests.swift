@@ -23,7 +23,7 @@ struct AgentPaneCloudAsksTests {
     /// Waits until `asks` holds a question (the ask's push ran), so the test answers a waiting one.
     private func shown(_ pushes: AsyncStream<JSONValue>.Iterator) async -> AsyncStream<JSONValue>.Iterator {
         var pushes = pushes
-        _ = await pushes.next()
+        _ = await pushes.next(isolation: #isolation)
         return pushes
     }
 
@@ -36,7 +36,7 @@ struct AgentPaneCloudAsksTests {
         #expect(asks.answer(try answer("setUp")))
         #expect(await waiting.value == "setUp")
         // The second push takes the question out of the card.
-        let cleared = await pushes.next()
+        let cleared = await pushes.next(isolation: #isolation)
         #expect(cleared == .object(["key": .string(key), "ask": .null]))
         #expect(asks.waitingCount == 0)
     }
@@ -112,13 +112,13 @@ struct AgentPaneCloudAsksTests {
         let dialog = AgentPaneCloudAsker { _ in
             opened.continuation.yield()
             var never = AsyncStream<String> { _ in }.makeAsyncIterator()
-            return await never.next()
+            return await never.next(isolation: #isolation)
         }
         let waiting = Task { await asks.ask(question(), start: key, fallback: dialog) { stream.continuation.yield($0) } }
         _ = await shown(stream.stream.makeAsyncIterator())
         asks.pageReloaded()
         var openedIterator = opened.stream.makeAsyncIterator()
-        _ = await openedIterator.next()
+        _ = await openedIterator.next(isolation: #isolation)
         asks.endAll()
         #expect(await waiting.value == nil)
     }
