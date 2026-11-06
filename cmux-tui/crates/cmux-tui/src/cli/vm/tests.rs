@@ -541,10 +541,10 @@ fn machine_help_names_every_new_verb_and_the_old_spellings() {
     assert!(text.contains("cmux vm"), "{text}");
 }
 
-fn route(words: &[&str], credential: bool, app: bool) -> NewRoute {
+fn route(words: &[&str], app: bool) -> NewRoute {
     let all = args(words);
     let (scope, rest) = split(&all).expect("a machine command");
-    new_route(scope, &rest[1..], || credential, app)
+    new_route(scope, &rest[1..], app)
 }
 
 /// `cmux machine new` makes the app's Cloud machine when the app is here, a
@@ -553,15 +553,14 @@ fn route(words: &[&str], credential: bool, app: bool) -> NewRoute {
 /// or the old `vm new` keeps the VM API.
 #[test]
 fn machine_new_goes_to_the_app_unless_the_vm_api_is_asked_for() {
-    assert_eq!(route(&["machine", "new"], false, true), NewRoute::App);
-    assert_eq!(route(&["machine", "create", "--name", "a"], false, true), NewRoute::App);
-    assert_eq!(route(&["machine", "new", "--size=medium"], true, false), NewRoute::App);
-    assert_eq!(route(&["machine", "new", "--persistent"], true, true), NewRoute::App);
-    assert_eq!(route(&["machine", "new"], true, true), NewRoute::App, "a stored key no longer wins over the app");
-    assert_eq!(route(&["machine", "new"], false, false), NewRoute::VmApi);
-    assert_eq!(route(&["machine", "new", "--snapshot", "snap_1"], false, true), NewRoute::VmApi);
-    assert_eq!(route(&["machine", "new", "--team=t"], false, true), NewRoute::VmApi);
-    assert_eq!(route(&["vm", "new", "--size", "small"], false, true), NewRoute::VmApi);
+    assert_eq!(route(&["machine", "new"], true), NewRoute::App);
+    assert_eq!(route(&["machine", "create", "--name", "a"], true), NewRoute::App);
+    assert_eq!(route(&["machine", "new", "--size=medium"], false), NewRoute::App);
+    assert_eq!(route(&["machine", "new", "--persistent"], true), NewRoute::App);
+    assert_eq!(route(&["machine", "new"], false), NewRoute::VmApi);
+    assert_eq!(route(&["machine", "new", "--snapshot", "snap_1"], true), NewRoute::VmApi);
+    assert_eq!(route(&["machine", "new", "--team=t"], true), NewRoute::VmApi);
+    assert_eq!(route(&["vm", "new", "--size", "small"], true), NewRoute::VmApi);
 }
 
 #[test]

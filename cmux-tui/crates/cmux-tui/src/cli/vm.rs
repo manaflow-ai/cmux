@@ -18,11 +18,10 @@
 //! every verb; only `vm ls|list` keeps listing the VM API's VMs, as it always did.
 //!
 //! `cmux machine new` is the one way to make a machine. With the cmux app on
-//! this Mac and no VM API credential, it makes the same Cloud machine the
-//! app's New Cloud Machine… does (the app action `cloud new-machine`, whose
-//! old spelling stays as a hidden alias) and prints how to reach it; a flag
-//! only the VM API takes (`--snapshot`, `--image`, …), a credential of its
-//! own, or no app sends it to the VM API as before ([`new_route`]).
+//! this Mac it makes the same Cloud machine the app's New Cloud Machine… does
+//! (the app action `cloud new-machine`, whose old spelling stays as a hidden
+//! alias), opens it and prints how to reach it; a flag only the VM API takes
+//! (`--snapshot`, `--image`, …) or no app sends it to the VM API ([`new_route`]).
 //!
 //! `cmux machine key new` with no credential of its own (no `CMUX_VM_API_KEY`,
 //! no config file) asks the cmux app (`vm.agent_key.create`, the socket's usual
@@ -411,16 +410,10 @@ const VM_API_CREATE_FLAGS: [&str; 5] =
     ["--snapshot", "--image", "--image-revision", "--public-egress", "--idle-timeout"];
 
 /// Where `<scope> new <tail>` goes. `vm new` (the old name) stays the VM
-/// API's. A flag only one side takes picks that side; otherwise a VM API
-/// credential of the caller's own (`has_credential`) keeps it on the VM API,
-/// as it always ran, and with none the app makes it when there is one
-/// (`app_present`), since the VM API would only refuse it for want of a key.
-pub(super) fn new_route(
-    scope: Scope,
-    tail: &[String],
-    has_credential: impl FnOnce() -> bool,
-    app_present: bool,
-) -> NewRoute {
+/// API's. A flag only one side takes picks that side; otherwise the app makes
+/// it when there is one (`app_present`), with its own sign-in: a VM API key
+/// stored on this Mac (one that expired, on Leo's nightly) no longer wins.
+pub(super) fn new_route(scope: Scope, tail: &[String], app_present: bool) -> NewRoute {
     if scope == Scope::Vm {
         return NewRoute::VmApi;
     }
@@ -439,10 +432,7 @@ pub(super) fn new_route(
     if flags.iter().any(|flag| APP_CREATE_FLAGS.contains(flag)) {
         return NewRoute::App;
     }
-    if !app_present || has_credential() {
-        return NewRoute::VmApi;
-    }
-    NewRoute::App
+    if app_present { NewRoute::App } else { NewRoute::VmApi }
 }
 
 /// `cmux machine new --help`: both routes, the app's first.
@@ -569,14 +559,12 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             print!("{NEW_HELP}");
             return Some(0);
         }
-        let has_credential =
-            || has_own_credential(&env) || !matches!(cmux_vm::token::read_stored(&env), Ok(None));
         // A named socket that is not the app's makes `run_cli_action` answer
         // `None`, and the VM API takes it as before.
         let app_present = global.app_socket.is_some()
             || global.socket.is_some()
             || super::cloud_machines::app_found();
-        if new_route(scope, tail, has_credential, app_present) == NewRoute::App
+        if new_route(scope, tail, app_present) == NewRoute::App
             && let Some(code) = super::app::run_cli_action(&global, "cloud new-machine", tail)
         {
             return Some(code);

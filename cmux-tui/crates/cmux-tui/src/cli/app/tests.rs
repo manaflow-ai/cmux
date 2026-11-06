@@ -1975,3 +1975,28 @@ fn a_not_run_refusal_is_retried_inside_the_cli() {
     assert_eq!(answer.unwrap().unwrap()["machines"], json!([]));
     assert_eq!(connections[0].len(), 3, "{connections:?}");
 }
+
+/// A person's `cmux machine new` / `cloud new-machine` opens the machine it made, so the window's
+/// new-terminal button opens there; a script's JSON or quiet run, a machine still starting, and
+/// every other action open nothing. The open is `cloud open-machine` on that machine.
+#[test]
+fn a_persons_new_machine_opens_the_machine_it_made() {
+    let params = json!({ "action": "cloud new-machine" });
+    let made = json!({ "result": { "machine_id": "vm_1", "target": "machine:vm_1", "status": "running" } });
+    assert_eq!(created_target(OutputMode::Human, &params, &made).as_deref(), Some("machine:vm_1"));
+    let bare = json!({ "result": { "machine_id": "vm_2" } });
+    assert_eq!(created_target(OutputMode::Human, &params, &bare).as_deref(), Some("machine:vm_2"));
+    assert_eq!(created_target(OutputMode::Json, &params, &made), None);
+    assert_eq!(created_target(OutputMode::Quiet, &params, &made), None);
+    let starting = json!({ "result": { "pending": true, "status": "creating" } });
+    assert_eq!(created_target(OutputMode::Human, &params, &starting), None);
+    assert_eq!(created_target(OutputMode::Human, &json!({ "action": "cloud exec" }), &made), None);
+
+    let (method, open) = call(
+        run_action("cloud open-machine", &args(&["--target", "machine:vm_1"]), ActionName::Cli)
+            .unwrap(),
+    );
+    assert_eq!(method, "action.run");
+    assert_eq!(open["action"], "cloud open-machine");
+    assert!(open.to_string().contains("machine:vm_1"), "{open}");
+}
