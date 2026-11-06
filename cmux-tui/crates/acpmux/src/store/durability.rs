@@ -1,7 +1,7 @@
 //! How durable the store's appends are, for the connections that must not show an acknowledged
 //! change before it is (R-DURABILITY S2c, DESIGN.md 3.3d; `server/durable_gate.rs`).
 //!
-//! Two classes of acknowledged change ([`Keep`]). Most are durable before any line shows them
+//! Two classes of acknowledged change ([`ShowAfter`]). Most are durable before any line shows them
 //! (C1: synced, so a kernel panic keeps them). A chat's draft and its name are kept: what the
 //! person types goes to every client in the same turn, as agent output does (C4), so typing and
 //! renaming never wait for a disk sync. A kept change's records are `Stream` records, which the
@@ -18,7 +18,7 @@ use std::sync::atomic::AtomicU64;
 
 /// What a line that shows a change waits for ([module docs](self)).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Keep {
+pub enum ShowAfter {
     /// Its record synced: an OS crash keeps it (C1).
     Durable,
     /// Its record written: a kill -9 of every process keeps it; synced right after.
@@ -34,7 +34,7 @@ pub struct Durability {
     /// The journal's durable LSN. Closed when the journal's writer ended: nothing becomes
     /// durable any more.
     pub durable: tokio::sync::watch::Receiver<u64>,
-    /// The LSN of the last record of a kept change ([`Keep::Written`]) appended, set as `acked`
+    /// The LSN of the last record of a kept change ([`ShowAfter::Written`]) appended, set as `acked`
     /// is.
     pub kept: Arc<AtomicU64>,
     /// The journal's written LSN (`cmux_journal::Journal::on_written`); closed with `durable`.
@@ -57,7 +57,7 @@ pub(crate) fn streamed(record: &EventRecord) -> bool {
 pub(crate) enum RecordClass {
     /// Agent output: shown at once, raises no gate (C4).
     Stream,
-    /// The line of a kept change (a chat's `renamed`): shown once written ([`Keep::Written`]).
+    /// The line of a kept change (a chat's `renamed`): shown once written ([`ShowAfter::Written`]).
     Kept,
     /// Every other line: shown once durable.
     Acked,

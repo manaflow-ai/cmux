@@ -359,18 +359,18 @@ fn a_no_op_after_a_failed_commit_commits_again() {
 /// barrier answers for. Review of #37137, finding 2.
 #[test]
 fn a_barrier_after_a_kept_copy_saves_a_durable_copy() {
-    use crate::store::Keep;
+    use crate::store::ShowAfter;
     let writer = MetaWriter::default();
     let saved = Mutex::new(Vec::new());
-    let write = |keep: Keep| {
+    let write = |keep: ShowAfter| {
         saved.lock().unwrap().push(keep);
         Ok(())
     };
-    writer.commit_as(Wait::Durable, Keep::Written, &write).expect("the kept change commits");
+    writer.commit_as(Wait::Durable, ShowAfter::Written, &write).expect("the kept change commits");
     writer.barrier_as(&write).expect("the barrier commits");
     // Nothing kept since the durable copy: the next barrier saves nothing.
     writer.barrier_as(&write).expect("the second barrier");
-    assert_eq!(*saved.lock().unwrap(), vec![Keep::Written, Keep::Durable]);
+    assert_eq!(*saved.lock().unwrap(), vec![ShowAfter::Written, ShowAfter::Durable]);
 }
 
 /// A writer whose write panics still commits the changes nobody waits for that came during it,

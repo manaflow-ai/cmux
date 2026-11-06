@@ -9,7 +9,7 @@
 //! out only once the changes it may show are durable, an acknowledged event once its record is,
 //! and a connection that heard nothing acknowledged never waits; a burst costs one wait per
 //! batch, as the journal's group commit costs one sync. A kept change (a draft, a name:
-//! [`crate::store::Keep::Written`]) raises `needs_written` instead, to the store's last kept
+//! [`crate::store::ShowAfter::Written`]) raises `needs_written` instead, to the store's last kept
 //! record, and the gate waits for the journal's written LSN to reach it: its record written, not
 //! synced, so typing and renaming never wait for a disk sync while a kill -9 still keeps every
 //! change a client saw. When the journal's writer ended (the durable watch closed), the gate

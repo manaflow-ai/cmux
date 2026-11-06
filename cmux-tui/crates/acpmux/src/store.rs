@@ -750,7 +750,7 @@ pub trait Store: Send + Sync {
         self.load(id)
     }
     fn save(&self, meta: &SessionMeta) -> Result<()>;
-    /// `save` of a kept change ([`Keep::Written`]: a draft, a name): with the event journal, a
+    /// `save` of a kept change ([`ShowAfter::Written`]: a draft, a name): with the event journal, a
     /// line that shows it waits only for its record's write, not its sync. Without the journal
     /// there is no gate, and this is `save`.
     fn save_kept(&self, meta: &SessionMeta) -> Result<()> {
@@ -1066,7 +1066,7 @@ pub fn catch_up_journal(config: &StoreConfig, home: &Path) -> Result<()> {
 }
 
 mod durability;
-pub use durability::{Durability, Keep};
+pub use durability::{Durability, ShowAfter};
 pub(crate) use durability::{RecordClass, record_class, streamed};
 mod journal_store;
 #[cfg(test)]

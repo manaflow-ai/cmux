@@ -351,7 +351,7 @@ impl Inner {
     /// ([module docs](self)). A kept change's record (`keep`, `super::durability`) is a `Stream`
     /// record, except the save that makes the chat's folder: a new chat is shown only once
     /// durable ([`super::new_folders`]).
-    pub(super) fn save_meta(&self, meta: &SessionMeta, keep: Keep) -> Result<()> {
+    pub(super) fn save_meta(&self, meta: &SessionMeta, keep: ShowAfter) -> Result<()> {
         let image = serde_json::to_vec(meta)?;
         let dir = self.local.dir(&meta.id);
         // The file there now, stamped before the appends' lock: only the store's own writes
@@ -374,7 +374,7 @@ impl Inner {
         // A folder made now holds no `session.json`.
         let saw = if made { None } else { saw };
         let payload = encode_meta(&meta.id, folder, saw, &image);
-        let kept = keep == Keep::Written && !made;
+        let kept = keep == ShowAfter::Written && !made;
         let class = if kept { Class::Stream } else { Class::Ack };
         let append =
             || self.journal.append(KIND_META, class, &payload).map_err(JournalStore::journal_error);

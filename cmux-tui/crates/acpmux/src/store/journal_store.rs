@@ -260,7 +260,7 @@ struct Inner {
     stop: tokio::sync::watch::Sender<Option<String>>,
     /// The LSN of the last `Ack` record appended (`Store::durability`).
     acked: Arc<AtomicU64>,
-    /// The LSN of the last record of a kept change appended (`Keep::Written`,
+    /// The LSN of the last record of a kept change appended (`ShowAfter::Written`,
     /// `Store::durability`).
     kept: Arc<AtomicU64>,
     /// The journal's written LSN, fed by its writer; closed when the writer ends.
@@ -629,12 +629,12 @@ impl Store for JournalStore {
     }
     /// A `meta` record and the overlay; the checkpoint writes `session.json` ([`meta`]).
     fn save(&self, meta: &SessionMeta) -> Result<()> {
-        self.inner.save_meta(meta, Keep::Durable)
+        self.inner.save_meta(meta, ShowAfter::Durable)
     }
     /// A `Stream` `meta` record: written in the journal's next batch, synced after
     /// ([`super::durability`]).
     fn save_kept(&self, meta: &SessionMeta) -> Result<()> {
-        self.inner.save_meta(meta, Keep::Written)
+        self.inner.save_meta(meta, ShowAfter::Written)
     }
     /// The line to the log first, then its record ([module docs](self)).
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
