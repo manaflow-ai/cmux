@@ -14070,6 +14070,12 @@ pub mod types {
         ///a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
         #[serde(rename = "meshId")]
         pub mesh_id: VmReceiverPolicyMeshId,
+        ///The earliest expiry of an API key that owns one of the listed peers' devices, or null when none expires. Also folded into expiresAt; the Cloud owner bounds the receiver's local admission horizon by it.
+        #[serde(
+            rename = "ownerExpiresAt",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        pub owner_expires_at: ::std::option::Option<u64>,
         ///an array of at most 128 item(s)
         pub peers: ::std::vec::Vec<VmReceiverPolicyPeersItem>,
         ///a string matching the pattern ^[0-9a-f]{64}$

@@ -55,7 +55,7 @@ import {
 import type { ComposerAttachment } from "./attachments";
 import { STARTED_SESSIONS, type StartedSession, hasStatusLine } from "./started/startedSessions";
 import {
-  PASTE_CHIP_HEIGHT,
+  pasteChipHeight,
   type PasteRange,
   HUGE_PROMPT_HEAD_CHARS,
   collapsedPromptHeight,
@@ -90,6 +90,13 @@ export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progres
 export type AcpmuxBackgroundTask = {
   toolCallId: string;
   command: string;
+  /// The helper or subagent that started this shell, when the harness identifies it.
+  ownerId?: string;
+  ownerTitle?: string;
+  /// The call's description, retained for clients that need a compact activity label.
+  description?: string;
+  startedAt?: number;
+  endedAt?: number;
   state: "completed" | "failed" | "stopped";
   reason?: string;
   /// Claude Code's own words on how it ended (its task notification's summary).
@@ -392,6 +399,12 @@ export type AcpmuxRow = {
   items?: AcpmuxActivity[];
   /// A plan row's todo list (cx-ncc.80): the agent's latest `plan` update in its turn.
   plan?: AcpmuxPlanEntry[];
+  /// A plan row that stands for an earlier turn's list under the running turn (turns.ts
+  /// `earlierTurnPlan`): it reads as from before the person's last message, and nothing spins.
+  planEarlier?: boolean;
+  /// A plan row whose list a later turn cleared before writing one of its own (an empty `plan`,
+  /// direct.ts): it stays folded in its own turn but no longer carries over (turns.ts `earlierTurnPlan`).
+  planCleared?: boolean;
   /// A background task row's shell, which ended where the row sits (cx-ncc.84).
   backgroundTask?: AcpmuxBackgroundTask;
   /// A compaction row's compaction, noted where it happened.
@@ -487,6 +500,9 @@ export type AcpmuxRow = {
   /// A turn summary of the chat's last turn, which a failed turn's Retry asks acpmux to retry
   /// (turns.ts), even when its prompt is an attempt acpmux sent and draws nothing.
   retryable?: boolean;
+  /// A turn summary whose footer offers Retry with `prompt` (turns.ts retryTargetAt): the chat's last
+  /// turn, or the last one a prompt opened when only notices and reminders came after it.
+  retryTarget?: true;
   /// The turn's completed edit diff proves it changed files. Retry keeps this hint in its tooltip;
   /// missing or incomplete checkpoint data stays neutral (conversation/turns.ts).
   changedFiles?: true;
@@ -495,6 +511,9 @@ export type AcpmuxRow = {
   /// A turn footer's whole turn for its Copy (conversation/turnCopy.ts): the agent's replies and each
   /// run of tool calls between them, in order; undefined when the agent said nothing.
   turnCopy?: TurnCopyPart[];
+  /// A finished turn footer's timed tool calls and thoughts, in order, for its waterfall
+  /// (conversation/waterfallSpans.ts `turnWork`, TurnWaterfall.tsx); undefined when none was timed.
+  turnWork?: AcpmuxActivity[];
   /// A footer turns.ts `supersededFooters` added where the person came in on a stretch of a turn (a
   /// steer that landed in it, or a new prompt over a turn with no summary): the stretch counts as
   /// ended, and the footer offers its Copy.
@@ -507,9 +526,10 @@ export type AcpmuxRow = {
   permission?: AcpmuxPermission;
   /// A `questionRecord` row's question, answered or cancelled (question/record.ts).
   question?: AgentQuestion;
-  /// A `nextStep` row's tagged ask and, once a prompt answered it, the answer
-  /// (conversation/nextStepAsk.ts, NextStepCard.tsx).
-  nextStep?: { ask: NextStepAsk; answer?: string };
+  /// A `nextStep` row's tagged ask and, once a later prompt picked one of its answers, that answer
+  /// (conversation/nextStepAsk.ts, NextStepCard.tsx). `superseded`: a later turn ended on a card of
+  /// its own, so this one folds; `answer` then holds what the person said after it, if anything.
+  nextStep?: { ask: NextStepAsk; answer?: string; superseded?: boolean };
   /// A `permissionRecord` row's answer, its ask in `permission` (permissions/record.ts).
   decision?: PermissionDecision;
   /// A turn summary whose turn draws a "Worked for" line (conversation/turns.ts), so its
@@ -675,6 +695,11 @@ export type AcpmuxRow = {
   shell?: ShellRun;
   /// A subagent group's subagents (subagents/subagentFold.ts).
   subagents?: Subagent[];
+  /// On a background turn's line: the subagent whose report started the turn, which the line names
+  /// (subagents/runningTray.ts `withSubagentLines`; conversation/BackgroundTurnLine.tsx).
+  subagentReport?: Subagent;
+  /// That report is the subagent's first, drawn right under its "Subagent finished" line.
+  subagentReportFirst?: true;
 };
 
 export type AcpmuxActivity = {
@@ -814,6 +839,9 @@ export type AcpmuxPermission = {
   toolCallId?: string;
   /// Proposed changes from this ask only; these have not been applied to the workspace.
   diffs?: AcpmuxFileDiff[];
+  /// The plan a plan approval asks about, as Markdown (Claude Code's ExitPlanMode, Grok's
+  /// `x.ai/exit_plan_mode`, Cursor's `create_plan`; direct.ts `permissionPlan`).
+  plan?: string;
   pending: boolean;
   options: {
     id: string;
@@ -1937,13 +1965,14 @@ function fallbackRowHeight(
   // reader clicks Load preview, the transcript's ResizeObserver measures the head over its frame.
   if (row.kind === PREVIEW) return finish(previewCardHeight(row.text, false));
   // A tagged ask's card (conversation/NextStepCard.tsx): waiting, 12px padding over the question
-  // and its muted line, then a 36px row of answers; answered, the question over the answer in 8px.
+  // and its muted line, then a 36px row of answers; answered or superseded, the question over the
+  // answer in 8px.
   if (row.kind === NEXT_STEP && row.nextStep) {
-    const { ask, answer } = row.nextStep;
+    const { ask, answer, superseded } = row.nextStep;
     const perLine = Math.max(120, width - 32) / 7.5;
     const lines = (text: string | undefined) => (text ? Math.max(1, Math.ceil(text.length / perLine)) : 0);
     return finish(
-      answer === undefined
+      answer === undefined && !superseded
         ? 24 + 2 + (lines(ask.question) + lines(ask.detail)) * 20 + 8 + 36
         : 16 + 2 + (lines(ask.question) + lines(answer)) * 20 + 4,
     );
@@ -1983,6 +2012,8 @@ function fallbackRowHeight(
   // Ended, it folds to its one 24px progress line unless the reader opened it, which adds the items.
   if (row.kind === "plan" && row.plan) {
     const items = row.plan.length * 24;
+    // An earlier turn's list adds its one "from before your last message" line.
+    if (row.planEarlier) return finish(40 + 24 + items);
     return finish(40 + (row.turnEnded ? 24 + (planOpen(row.id) ? items : 0) : items));
   }
   // A turn's footer: its line of buttons (the stack gives the gaps). An empty footer (only hover
@@ -2402,7 +2433,7 @@ function measuredRowHeight(
       for (const part of promptParts(row.text, row.pasted!))
         contentHeight +=
           part.kind === "paste"
-            ? PASTE_CHIP_HEIGHT
+            ? pasteChipHeight(lineHeight)
             : Math.max(
                 lineHeight,
                 // A huge typed part draws collapsed to its head (conversation/PromptText.tsx), so its

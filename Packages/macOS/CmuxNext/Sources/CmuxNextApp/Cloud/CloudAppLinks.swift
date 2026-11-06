@@ -45,7 +45,7 @@ enum CloudAppLinks {
     static func endedMessage(_ error: any Error) -> String {
         switch error as? CloudLinkError {
         case .revoked?: CloudStrings.linkRevoked
-        case .disconnected?, nil: CloudStrings.linkDisconnected
+        case .disconnected?, nil: CloudLinkError.droppedReason(error).map(CloudStrings.linkDisconnected(because:)) ?? CloudStrings.linkDisconnected
         case .helperNotRunning?: CloudStrings.linkHelperNotRunning
         case .openDirectory(let path, let parent)?: CloudStrings.linkOpenDirectory(path, fix: CloudLinkError.chmodFix(path: path, parent: parent))
         case .unsafeSocket?, .invalidAnswer?: CloudStrings.linkCheckFailed
@@ -55,8 +55,8 @@ enum CloudAppLinks {
         }
     }
 
-    /// Logs why a link ended, with the details ``endedMessage(_:)`` leaves out.
+    /// Logs why a link ended, with the details ``endedMessage(_:)`` leaves out (error level: a shipped build keeps no info).
     static func logEnded(_ error: any Error) {
-        logger.info("cloud link ended: \(String(describing: error), privacy: .public)")
+        logger.error("cloud link ended: \(String(describing: error), privacy: .public)")
     }
 }

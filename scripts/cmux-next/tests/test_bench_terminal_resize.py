@@ -13,11 +13,12 @@ light layout dragged a divider while something else showed in front, so no termi
    frame was counted or no terminal drew, and a split-resize layout that resized no terminal; a layout that measured
    passes, and idle-cursor has no resize to check.
 
-3. A divider drag in a build that holds terminals through it (`terminalDrag.holdSurface`, on by default since #32006)
-   resizes and draws no terminal in either arm (S4 bench, cmux24, 2026-11-04: OFF job b945a41d and ON job a88aa2f9 both
-   failed "no terminal resized in the drag" in all rounds). Such a layout passes on its probe (one drag that ends 40 pt
-   away proved the drag moves the divider and the counter counts) and views laid out in each round; a held drag that
-   laid out nothing fails.
+3. A drag or key resize fails when a terminal does not change size with its pane (Lead, cmux-ad m16 (b), 2026-11-05):
+   each round's pane check (`debug.terminal_display`, ``follow``) counts per terminal the frames in which its host asked
+   another size than its pane's (held) and in which its layer showed another size (lagging). A held frame fails the
+   round, and the message names the terminal, its held frames and the first sizes; lagging frames are data only. A
+   held drag (`terminalDrag.holdSurface`, on by default from #32006 until cmux-ad m19, 2026-11-05) used to pass on laid-out views: it fails now. A
+   round with no pane check fails: it judged nothing.
 4. The key-resize layouts (keys, keys-stress) need a resized terminal and a counted frame in each round, and a round
    whose arm the bench could not set (`debug.tunables set`) fails; terminal_resize_arms alternates the arm order per
    round and pools each arm's per-frame data into p50/p95/p99/max.
@@ -97,9 +98,23 @@ class FreshState(unittest.TestCase):
         self.assertEqual(bl.tag_state_root("split-spring"), str(self.base / "tags/split-spring"))
 
 
-def drag_round(resized=2, frames=120, drawn=40):
+def followed(held=0, frames=120, lagging=0, key="tab-1", first=None):
+    """One terminal's pane check, as DebugTerminalPaneFollow reports it."""
+    first = first if first is not None else [{"frame": 3, "area": [590, 400], "asked": [600, 400], "shown": [600, 400]}][:held]
+    return {key: {"frames": frames, "held": held, "lagging": lagging, "first_held": first, "first_lagging": []}}
+
+
+def pane_check(*terminals, frames=120):
+    """A round's `follow` from its stop reply (terminal_resize_verdict.follow)."""
+    merged = {}
+    for terminal in terminals or (followed(frames=frames),):
+        merged.update(terminal)
+    return verdict.follow({"follow_frames": frames, "terminals_followed": merged})
+
+
+def drag_round(resized=2, frames=120, drawn=40, follow=None):
     return {"terminals": 2, "resized_terminals": resized, "frames": {"frames": frames},
-            "counters": {"frames": drawn}}
+            "counters": {"frames": drawn}, "follow": follow or pane_check()}
 
 
 class Verdict(unittest.TestCase):
@@ -137,45 +152,60 @@ class Verdict(unittest.TestCase):
 
 
 def held_round(view_layouts=480, frames=240):
-    """A round of a drag whose terminals held (cmux24, 2026-11-04): no resize, no terminal frame, the views laid out."""
+    """A round of a drag whose terminals held (cmux24, 2026-11-04): no resize, no terminal frame, the views laid out,
+    and the pane check counting every frame after the first as held."""
     return {"terminals": 2, "resized_terminals": 0, "frames": {"frames": frames, "view_layouts": view_layouts},
-            "counters": {"frames": 0}}
+            "counters": {"frames": 0}, "holds_terminals": True,
+            "follow": pane_check(followed(held=frames - 1, frames=frames, lagging=frames - 1, key="left"),
+                                 followed(held=frames - 1, frames=frames, lagging=frames - 1, key="right"), frames=frames)}
 
 
-class HeldDrag(unittest.TestCase):
-    def test_cmux24_held_drag_that_laid_out_views_passes(self):
-        # Jobs b945a41d (OFF) and a88aa2f9 (ON) on cmux24: terminalDrag.holdSurface kept both terminals through the drag.
+class PaneCheck(unittest.TestCase):
+    def test_a_held_drag_fails_and_names_the_terminal_its_frames_and_sizes(self):
+        # Jobs b945a41d (OFF) and a88aa2f9 (ON) on cmux24: terminalDrag.holdSurface kept both terminals through the drag
+        # and the layout passed on laid-out views. It fails now.
         result = {"layout": "light", "drag_holds_terminals": True, "probe": {"ok": True, "moved_pt": -40.0, "resized_terminals": 2},
-                  "rounds": [held_round()] * 3}
-        self.assertEqual(verdict.problems(result), [])
-
-    def test_a_held_drag_that_laid_out_nothing_fails(self):
-        result = {"layout": "stress", "drag_holds_terminals": True, "rounds": [held_round(view_layouts=0)]}
+                  "rounds": [held_round()]}
         found = verdict.problems(result)
-        self.assertTrue(found, "a held drag that laid out no view passed")
-        self.assertIn("laid out no view", " ".join(found))
+        self.assertTrue(found, "a held drag passed")
+        held = found[0]
+        self.assertIn("2 of 2 terminals did not change size with their pane in the drag", held)
+        self.assertIn("left held 239 of 240 frames", held)
+        self.assertIn("frame 3: pane 590x400, asked 600x400, shown 600x400", held)
 
-    def test_a_drag_without_the_hold_still_needs_resized_and_drawn_terminals(self):
-        result = {"layout": "light", "drag_holds_terminals": False, "rounds": [held_round()]}
-        self.assertEqual(len(verdict.problems(result)), 2)
+    def test_a_held_key_resize_fails_per_arm(self):
+        on = key_round(arm=True)
+        off = dict(key_round(arm=False), follow=pane_check(followed(held=30, frames=150, key="bottom-left")))
+        found = verdict.problems({"layout": "keys", "rounds": [off, on]})
+        self.assertEqual(len(found), 1, found)
+        self.assertTrue(found[0].startswith("keys round 1 (off): 1 of 1 terminals"), found[0])
 
-    def test_the_hold_is_judged_per_round(self):
-        # Review of #35407, finding 2: --ab terminalDrag.holdSurface read the hold once, after all rounds, and judged
-        # every round by it: the off rounds (terminals resized) passed or failed by the on rounds' value.
-        resized = {"terminals": 2, "resized_terminals": 2, "frames": {"frames": 240, "view_layouts": 480},
-                   "counters": {"frames": 30}, "holds_terminals": False}
-        held = dict(held_round(), holds_terminals=True)
-        result = {"layout": "light", "drag_holds_terminals": False, "rounds": [resized, held]}
-        self.assertEqual(verdict.problems(result), [])
-        result = {"layout": "light", "drag_holds_terminals": True, "rounds": [dict(held_round(), holds_terminals=False)]}
-        self.assertEqual(len(verdict.problems(result)), 2, "a round that did not hold needs resized and drawn terminals")
+    def test_lagging_frames_are_data_only(self):
+        lagging = drag_round(follow=pane_check(followed(lagging=4)))
+        self.assertEqual(verdict.problems({"layout": "stress", "rounds": [lagging]}), [])
+        self.assertEqual(lagging["follow"]["lagging_frames"], 4)
 
-    def test_a_held_round_with_no_layout_count_fails(self):
-        # Review of #35407, finding 5: `== 0` let a reply without view_layouts pass.
-        entry = held_round()
-        del entry["frames"]["view_layouts"]
-        found = verdict.problems({"layout": "light", "drag_holds_terminals": True, "rounds": [entry]})
-        self.assertTrue(found and "laid out no view" in found[0], found)
+    def test_a_round_with_no_pane_check_fails(self):
+        # A build without the pane check, or no terminal shown at the round's start: nothing judged the rule.
+        for follow in (None, verdict.follow({}), verdict.follow({"follow_frames": 0, "terminals_followed": {}})):
+            entry = dict(drag_round(), follow=follow)
+            found = verdict.problems({"layout": "light", "rounds": [entry]})
+            self.assertTrue(found and "checked against its pane" in found[0], found)
+        entry = dict(drag_round(), follow=pane_check(followed(frames=0), frames=0))
+        self.assertIn("sampled no frame", verdict.problems({"layout": "light", "rounds": [entry]})[0])
+
+    def test_follow_takes_the_check_out_of_the_stop_reply(self):
+        display = {"calls": 12, "follow_frames": 90,
+                   "terminals_followed": {**followed(held=2, frames=90, lagging=5, key="a"), **followed(frames=90, lagging=1, key="b")}}
+        checked = verdict.follow(display)
+        self.assertEqual(display, {"calls": 12}, "the per-terminal record moves to the round's `follow`")
+        self.assertEqual((checked["frames"], checked["held_frames"], checked["held_terminals"], checked["lagging_frames"]), (90, 2, 1, 6))
+        self.assertIsNone(verdict.follow({"calls": 3}))
+
+    def test_holds_terminals_is_data(self):
+        # A round's holds_terminals no longer excuses it, and a round that did not hold is judged as any other.
+        resized = dict(drag_round(), holds_terminals=True)
+        self.assertEqual(verdict.problems({"layout": "light", "drag_holds_terminals": True, "rounds": [resized]}), [])
 
     def test_a_probe_that_did_not_move_the_divider_fails(self):
         result = {"layout": "light", "error": "probe: the probe drag did not move the divider (moved 0.0 pt of -40)"}
@@ -184,7 +214,8 @@ class HeldDrag(unittest.TestCase):
 
 def key_round(arm=False, resized=4, frames=150, drawn=60):
     return {"arm": arm, "terminals": 4, "resized_terminals": resized, "frames": {"frames": frames},
-            "counters": {"frames": drawn}, "presses": [{"action": "resizePaneRight", "max_grids_per_terminal": 1}]}
+            "counters": {"frames": drawn}, "presses": [{"action": "resizePaneRight", "max_grids_per_terminal": 1}],
+            "follow": pane_check(frames=frames)}
 
 
 class KeyLayouts(unittest.TestCase):
@@ -243,12 +274,13 @@ class Arms(unittest.TestCase):
         self.assertEqual(self.arms.motion([1.0], [0, 3]), [])
 
     def test_summaries_pool_each_arm(self):
-        def entry(arm, intervals, main, grids):
+        def entry(arm, intervals, main, grids, held=0):
             return {"arm": arm, "frames": {"frames": len(intervals), "missed": sum(i > 12.5 for i in intervals)},
                     "raw": {"intervals_ms": intervals, "main_ms": main, "motion_main_ms": main[:1]},
-                    "presses": [{"action": "resizePaneRight", "max_grids_per_terminal": g} for g in grids]}
-        rounds = [entry(False, [8.3, 8.3], [1.0, 2.0], [1, 1]), entry(True, [8.3, 16.7], [3.0, 4.0], [1, 2]),
-                  entry(True, [8.3], [5.0], [1]), entry(False, [8.3], [0.5], [0]), {"arm": True, "error": "not set"}]
+                    "presses": [{"action": "resizePaneRight", "max_grids_per_terminal": g} for g in grids],
+                    "held_frames": held, "lagging_frames": held + 1}
+        rounds = [entry(False, [8.3, 8.3], [1.0, 2.0], [1, 1], held=7), entry(True, [8.3, 16.7], [3.0, 4.0], [1, 2]),
+                  entry(True, [8.3], [5.0], [1]), entry(False, [8.3], [0.5], [0], held=2), {"arm": True, "error": "not set"}]
         found = self.arms.summaries(rounds)
         self.assertEqual(sorted(found), ["off", "on"])
         self.assertEqual((found["on"]["rounds"], found["on"]["frames"], found["on"]["missed"]), (2, 3, 1))
@@ -256,6 +288,34 @@ class Arms(unittest.TestCase):
         self.assertEqual(found["on"]["motion_main_ms"]["n"], 2)
         self.assertEqual((found["on"]["max_grids_per_press"], found["on"]["presses_over_one_grid"]), (2, 1))
         self.assertEqual((found["off"]["rounds"], found["off"]["main_ms"]["p50"], found["off"]["presses_over_one_grid"]), (2, 1.0, 0))
+        self.assertEqual((found["off"]["held_frames"], found["off"]["held_rounds"], found["off"]["lagging_frames"]), (9, 2, 11))
+        self.assertEqual((found["on"]["held_frames"], found["on"]["held_rounds"], found["on"]["lagging_frames"]), (0, 0, 2))
+
+
+class MissedSplit(unittest.TestCase):
+    def test_each_arm_counts_its_missed_refreshes_per_cause(self):
+        # frame-owner-s4, 2026-11-05: Instruments' Animation Hitches records nothing on the virtual display, so
+        # debug.frames splits each missed refresh by cause from cmux's own stamps; each arm sums the causes.
+        import terminal_resize_arms as arms
+        def entry(arm, split):
+            return {"arm": arm, "frames": {"frames": 10, "missed": sum(split.values()), "missed_split": split}, "raw": {}}
+        rounds = [entry(False, {"main_late": 2, "commit_late": 1, "presented_late": 0}),
+                  entry(False, {"main_late": 1, "commit_late": 0, "presented_late": 3}),
+                  entry(True, {"main_late": 0, "commit_late": 0, "presented_late": 1})]
+        found = arms.summaries(rounds)
+        self.assertEqual(found["off"]["missed_split"], {"main_late": 3, "commit_late": 1, "presented_late": 3})
+        self.assertEqual(found["on"]["missed_split"], {"main_late": 0, "commit_late": 0, "presented_late": 1})
+
+    def test_the_round_keeps_the_split_from_debug_frames(self):
+        frames = {"frames": 10, "missed": 1, "missed_split": {"main_late": 1, "commit_late": 0, "presented_late": 0},
+                  "missed_frames": [{"at_ms": 40.0, "interval_ms": 16.7, "next_tick_after_target_ms": 8.3, "cause": "main_late"}]}
+        source = (HERE / "bench-terminal-resize.py").read_text()
+        keys = source[source.index("FRAME_KEYS = "):source.index("\n\n", source.index("FRAME_KEYS = "))]
+        namespace = {}
+        exec(keys, namespace)
+        self.assertIn("missed_split", namespace["FRAME_KEYS"])
+        self.assertIn("missed_frames", namespace["FRAME_KEYS"])
+        self.assertEqual({k: frames.get(k) for k in namespace["FRAME_KEYS"]}["missed_split"]["main_late"], 1)
 
 
 if __name__ == "__main__":

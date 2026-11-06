@@ -123,11 +123,11 @@ pub(crate) const OWNER_READY_FD_ARG: &str = "--owner-ready-fd";
 mod exit_with;
 mod install_key;
 mod replace;
-#[cfg(any(target_vendor = "apple", target_os = "linux"))]
-pub(crate) use exit_with::exit_with;
 pub(crate) use exit_with::{
     EXIT_WITH_PID_ARG, ExitWith, parse_owner_exit_with, resolve_exit_with_pid,
 };
+#[cfg(any(target_vendor = "apple", target_os = "linux"))]
+pub(crate) use exit_with::{exit_with, test_owner_exit_with};
 mod identify;
 #[cfg(all(test, unix))]
 mod recovery_tests;

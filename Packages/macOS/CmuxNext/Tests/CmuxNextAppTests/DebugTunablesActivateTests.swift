@@ -30,22 +30,22 @@ struct DebugTunablesActivateTests {
     /// bench that never calls `activate` still sees it.
     @Test func withoutActivateASetChangesNothing() {
         let services = Self.services(), store = TunableStore()
-        let row = Self.call(["action": "set", "key": "browserResize.pageBackdrop", "value": false], store, services)
+        let row = Self.call(["action": "set", "key": "browserPage.loadingBackground", "value": false], store, services)
         #expect(row["value"]?.boolValue == true)
         #expect(row["changed"]?.boolValue == false)
-        #expect(BrowserResizeTunables.pageBackdrop.value(in: store) == true)
+        #expect(BrowserPageTunables.loadingBackground.value(in: store) == true)
         #expect(Self.call(["action": "state"], store, services)["active"]?.boolValue == false)
     }
 
     /// After `activate`, `state` says active, and each `set` reaches the next read: a switch
-    /// read per frame (`browserResize.pageBackdrop`) and a spring read when its motion starts (`motion.spring.move`,
+    /// read per frame (`browserPage.loadingBackground`) and a spring read when its motion starts (`motion.spring.move`,
     /// which the speed sweep scales).
     @Test func activateTurnsTheStoreOnAndEachSetReachesTheNextRead() throws {
         let services = Self.services(), store = TunableStore()
         let state = Self.call(["action": "activate"], store, services)
         #expect(state["error"] == nil, "the action exists")
         #expect(state["active"]?.boolValue == true)
-        let backdrop = BrowserResizeTunables.pageBackdrop
+        let backdrop = BrowserPageTunables.loadingBackground
         let row = Self.call(["action": "set", "key": .string(backdrop.key), "value": false], store, services)
         #expect(row["value"]?.boolValue == false)
         #expect(row["changed"]?.boolValue == true)
@@ -63,21 +63,21 @@ struct DebugTunablesActivateTests {
         let services = Self.services(), store = TunableStore()
         _ = Self.call(["action": "activate"], store, services)
         let changes = CmuxNextCompat.Atomic<Int>(0)
-        withObservationTracking { _ = BrowserResizeTunables.pageBackdrop.value(in: store) } onChange: { changes.wrappingAdd(1, ordering: .relaxed) }
-        _ = Self.call(["action": "set", "key": "browserResize.pageBackdrop", "value": false], store, services)
+        withObservationTracking { _ = BrowserPageTunables.loadingBackground.value(in: store) } onChange: { changes.wrappingAdd(1, ordering: .relaxed) }
+        _ = Self.call(["action": "set", "key": "browserPage.loadingBackground", "value": false], store, services)
         #expect(changes.load(ordering: .relaxed) == 1)
     }
 
     /// On a store that launch already turned on (DEV and NIGHTLY), `activate` changes nothing: its overrides stay.
     @Test func activateLeavesAStoreThatIsOnAsItIs() {
         let services = Self.services(), store = TunableStore()
-        store.register(BrowserResizeTunables.all)
+        store.register(BrowserPageTunables.all)
         store.activate(file: nil)
-        store.set(BrowserResizeTunables.pageBackdrop.key, .bool(false))
+        store.set(BrowserPageTunables.loadingBackground.key, .bool(false))
         let state = Self.call(["action": "activate"], store, services)
         #expect(state["error"] == nil, "the action exists")
         #expect(state["active"]?.boolValue == true)
-        #expect(BrowserResizeTunables.pageBackdrop.value(in: store) == false)
+        #expect(BrowserPageTunables.loadingBackground.value(in: store) == false)
     }
 }
 #endif

@@ -172,9 +172,9 @@ test("a section drags into another block, lifted while held, and the order stays
   await act(async () => handle(container, "outputs").dispatchEvent(pointer("pointerdown", 560)));
   expect(slotOf(container, "outputs").hasAttribute("data-lifted")).toBe(true);
   expect(container.querySelector('section[data-section="outputs"]')!.hasAttribute("data-dragging")).toBe(true);
-  // It looks for its place 24px below its top, 516 - 420 + 24 = 120: below Context's middle (114),
-  // above Usage's (142).
-  await act(async () => dom.window.dispatchEvent(pointer("pointermove", 140)));
+  // Its place is set by its top, the edge it leads with (`heldPlace`): 516 - 396 = 120, past Usage's middle (142)
+  // but not Context's (114).
+  await act(async () => dom.window.dispatchEvent(pointer("pointermove", 164)));
   expect(order(container)).toEqual([
     "environment",
     "context",
@@ -196,15 +196,18 @@ test("a section drags into another block, lifted while held, and the order stays
     { group: "about", sections: ["connectors"] },
   ]);
   expect(dom.window.localStorage.getItem(ORDER_KEY)).toBeNull();
-  // The section is drawn under the pointer, whatever its place: 516 + (140 - 560) - its new top 128.
-  expect(slotOf(container, "outputs").style.transform).toBe("translateY(-32px)");
-  await act(async () => dom.window.dispatchEvent(pointer("pointerup", 140)));
+  // The section is drawn under the pointer, whatever its place: 516 + (164 - 560) - its new top 128.
+  expect(slotOf(container, "outputs").style.transform).toBe("translateY(-8px)");
+  await act(async () => dom.window.dispatchEvent(pointer("pointerup", 164)));
   expect(container.querySelector("[data-lifted]")).toBeNull();
   expect(container.querySelector("[data-dragging]")).toBeNull();
   expect(slotOf(container, "outputs").style.transform).toBe("");
-  // The saved order is the drawn one, with Progress (no plan here, so not drawn) in its slot.
+  // The saved order is the drawn one, with Progress (no plan here) and Also working here (no other chat
+  // here) in their slots, neither drawn.
   expect(
-    (JSON.parse(dom.window.localStorage.getItem(ORDER_KEY)!) as string[]).filter((id) => id !== "progress"),
+    (JSON.parse(dom.window.localStorage.getItem(ORDER_KEY)!) as string[]).filter(
+      (id) => id !== "progress" && id !== "alsoHere",
+    ),
   ).toEqual(order(container));
   await act(async () => root.unmount());
 
@@ -313,6 +316,7 @@ test("the per-block order #27291 saved is read as one order, nothing lost", asyn
     "progress",
     "tasks",
     "subagents",
+    "alsoHere",
   ]);
   await act(async () => root.unmount());
 });
@@ -331,6 +335,7 @@ test("parseOrder keeps known sections once and reads both shapes", () => {
     "outputs",
     "progress",
     "tasks",
+    "alsoHere",
     "subagents",
   ]);
   expect(parseOrder(JSON.stringify({ about: 3 }))).toEqual([]);
@@ -426,6 +431,7 @@ test("a hidden section keeps its slot when the shown ones move", async () => {
     "progress",
     "usage",
     "tasks",
+    "alsoHere",
     "sources",
     "changes",
     "outputs",

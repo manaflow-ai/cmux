@@ -8,6 +8,10 @@ nonisolated enum RemoteViewStrings {
 
     static var modeView: String { t("rd.mode.view", "View") }
     static var modeControl: String { t("rd.mode.control", "Control") }
+    static var takeOver: String { t("rd.toolbar.takeOver", "Take over") }
+    static var handBack: String { t("rd.toolbar.handBack", "Hand back") }
+    static var takeOverHelp: String { t("rd.toolbar.takeOver.help", "Control this desktop with your mouse and keyboard") }
+    static var handBackHelp: String { t("rd.toolbar.handBack.help", "Give control back and keep watching") }
     static func display(_ number: Int) -> String { String(format: t("rd.toolbar.display", "Display %lld"), number) }
     static var displayPlaceholder: String { t("rd.toolbar.displayPlaceholder", "Other displays appear here when the host has them") }
     static var quality: String { t("rd.toolbar.quality", "Quality") }

@@ -611,7 +611,10 @@ impl Hub {
             std::process::exit(0);
         }
         // A prompt that took the turn lock first (a person's) supersedes the continuation.
-        if let Err(e) = super::auto_resume::check_cut(session, after_turn.as_deref(), waiting) {
+        if let Err(e) = super::auto_resume::check_cut(session, after_turn.as_deref(), waiting)
+            // Its queue entry's provenance: an edit made it the person's, a restart restored it.
+            .and_then(|()| super::goal_tools::check_goal_mark(session, run.provenance.as_ref()))
+        {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
             return Err(e);
@@ -684,6 +687,9 @@ impl Hub {
             .noticed(super::prompt_line::is_notice(provenance.as_ref()))
             .by_person(persons);
         turn.trigger = trigger;
+        // Before the turn shows: a Stop from then on fences its unwritten prompt (`cancel.rs`).
+        *session.unwritten_prompt.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some((turn_id.to_string(), false));
         let retry = super::subagent_retry::is_retry(run.provenance.as_ref());
         let mut cloud_exec = if let Some(envelope) = cloud_turn.as_ref() {
             if envelope.session != session.id
@@ -1533,6 +1539,8 @@ impl Hub {
             }
             // The turn's wrap-up answer, taken whatever the turn's end (`wrap_up_suggestion.rs`).
             let wrap_up_answer = crate::wrap_up_suggestion::take(&session.id);
+            // Its todo calls still held go with it (`acp_todo_plan.rs`).
+            crate::acp_todo_plan::forget(&session.id);
             match &result {
                 Ok(v) => {
                     self.note_reply_refusal(session);
@@ -1561,11 +1569,20 @@ impl Hub {
                             o.insert("carriedTo".into(), to);
                         }
                     }
+                    // What the turn spent, where its harness says, for a goal's token budget.
+                    let spent = ["inputTokens", "outputTokens"]
+                        .iter()
+                        .filter_map(|k| msg.get(*k).and_then(Value::as_u64))
+                        .reduce(u64::saturating_add);
                     self.write_turn_result(session, msg, git);
                     if status == "completed"
                         && let Some(answer) = wrap_up_answer
                     {
                         self.offer_wrap_up_suggestion(session, &answer);
+                    }
+                    // A goal set with goal_set goes on, or stops at its budget (`goal_tools.rs`).
+                    if status == "completed" {
+                        self.continue_goal(session, spent);
                     }
                     // The chat works again: agent messages a failed turn held go in (`digest.rs`).
                     // Not while a person's Stop that came after this turn began holds them
@@ -2158,6 +2175,8 @@ impl Hub {
         };
         self.append(session, "mux", "renamed", json!({"from": old, "to": name}));
         self.save_meta_answered(session)?;
+        // Its running Claude Code takes the name too (`live_name.rs`).
+        self.rename_live_claude(session);
         Ok(())
     }
 

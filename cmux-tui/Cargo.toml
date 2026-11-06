@@ -37,6 +37,7 @@ members = [
     "crates/cmux-browser-host",
     "crates/cmux-git",
     "crates/cmux-worktree-care",
+    "crates/cmux-conductor-import",
     "crates/cmux-tui-core",
     "crates/cmux-tui-cloud-conversations",
     "crates/cmux-tui-platform",
@@ -52,6 +53,7 @@ members = [
     "crates/cmux-focus-core",
     "crates/cmux-cloud-start-core",
     "crates/cmux-cloud-config",
+    "crates/cmux-cloud-client",
     "crates/cmux-unix-socket",
     "crates/cmux-panic-log",
     "crates/cmux-pty",
@@ -107,6 +109,7 @@ members = [
     "crates/cmux-vault-egress",
     "crates/cmux-url-input",
     "crates/cmux-view-rows",
+    "crates/acpmux-hot",
 ]
 default-members = [
     "crates/acpmux",
@@ -123,6 +126,7 @@ default-members = [
     "crates/cmux-browser-host",
     "crates/cmux-git",
     "crates/cmux-worktree-care",
+    "crates/cmux-conductor-import",
     "crates/cmux-tui-core",
     "crates/cmux-tui-cloud-conversations",
     "crates/cmux-tui-platform",
@@ -137,6 +141,7 @@ default-members = [
     "crates/cmux-focus-core",
     "crates/cmux-cloud-start-core",
     "crates/cmux-cloud-config",
+    "crates/cmux-cloud-client",
     "crates/cmux-pty",
     "crates/cmux-process",
     "crates/cmux-remote-protocol",
@@ -185,7 +190,12 @@ default-members = [
     "crates/cmux-url-input",
     "crates/cmux-view-rows",
 ]
-exclude = ["vendor/crossterm", "crates/cmux-rd-host", "crates/cmux-cellgrid-bench"]
+exclude = [
+    "vendor/crossterm",
+    "crates/cmux-rd-host",
+    "crates/cmux-cellgrid-bench",
+    "crates/acpmux-hot/guest",
+]
 
 [workspace.package]
 # The cmux-next version: the one source of truth for every version surface
@@ -221,15 +231,18 @@ ghostty-vt = { path = "crates/ghostty-vt" }
 cmux-tui-core = { path = "crates/cmux-tui-core" }
 cmux-git = { path = "crates/cmux-git" }
 cmux-worktree-care = { path = "crates/cmux-worktree-care" }
+cmux-conductor-import = { path = "crates/cmux-conductor-import" }
 cmux-feed-core = { path = "crates/cmux-feed-core" }
 cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
 cmux-bookmarks-core = { path = "crates/cmux-bookmarks-core" }
 cmux-cloud-start-core = { path = "crates/cmux-cloud-start-core" }
 cmux-cloud-config = { path = "crates/cmux-cloud-config" }
+cmux-cloud-client = { path = "crates/cmux-cloud-client" }
 cmux-cloud-environment = { path = "crates/cmux-cloud-environment" }
 cmux-unix-socket = { path = "crates/cmux-unix-socket" }
 cmux-panic-log = { path = "crates/cmux-panic-log" }
 cmux-agent-pane-policy = { path = "crates/cmux-agent-pane-policy" }
+acpmux-hot = { path = "crates/acpmux-hot" }
 cmux-chat-index = { path = "crates/cmux-chat-index" }
 cmux-palette-ranker = { path = "crates/cmux-palette-ranker" }
 cmux-host-budget = { path = "crates/cmux-host-budget" }
@@ -303,6 +316,9 @@ png = "0.17"
 libc = "0.2"
 memchr = "2"
 tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
+# Debug-only daemon hot-patching (cmux-tui-core feature `hotpatch`); pinned to
+# the Dioxus CLI that sends the patches (dx 0.7.10).
+subsecond = "=0.7.10"
 uds_windows = "1.2"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_Threading"] }
 regex = "1"

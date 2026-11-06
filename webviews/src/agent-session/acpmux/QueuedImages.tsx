@@ -73,6 +73,7 @@ export function queuedTiles(images: readonly QueuedPromptImage[], videos?: reado
 export function QueuedImages({
   images,
   videos,
+  dropped,
   t,
   read,
   onRemove,
@@ -82,6 +83,9 @@ export function QueuedImages({
   images: readonly QueuedPromptImage[];
   /// The prompt's videos in order (its parts' `video`), for their tiles.
   videos?: readonly QueuedVideo[];
+  /// While the prompt is edited: the images removed so far. Their tiles go, and the rest keep the
+  /// videos they had (each video's tile is made from all the prompt's images first).
+  dropped?: ReadonlySet<string>;
   t: Translate;
   /// Reads an image acpmux keeps by its id (`_acpmux/attachment`), for one the pane has no bytes for.
   read?(id: string): Promise<string | undefined>;
@@ -107,8 +111,10 @@ export function QueuedImages({
         cancelled.current = false;
       }
     : undefined;
-  if (images.length === 0) return null;
-  const tiles = queuedTiles(images, videos);
+  const tiles = queuedTiles(images, videos).filter((tile) =>
+    tile.kind === "video" ? !tile.ids.every((id) => dropped?.has(id)) : !dropped?.has(tile.image.id),
+  );
+  if (tiles.length === 0) return null;
   // While edited, every tile shows, so each can be removed.
   const capped = !editing && tiles.length > QUEUED_TILES_SHOWN;
   const shown = capped ? tiles.slice(0, QUEUED_TILES_SHOWN - 1) : tiles;

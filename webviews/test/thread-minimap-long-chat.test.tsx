@@ -62,6 +62,13 @@ Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { config
 // Wide enough for the minimap's pane-edge rail in these layout tests.
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 1040 });
 const offsets = new WeakMap<object, number>();
+// Read the pitch the mounted rail gives CSS; jsdom does not lay out its rows.
+const railPitch = () =>
+  Number.parseFloat(
+    dom.window.document
+      .querySelector<HTMLElement>(".acpmux-minimap__list")!
+      .style.getPropertyValue("--acpmux-minimap-pitch"),
+  );
 Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
   configurable: true,
   get(this: object) {
@@ -79,11 +86,11 @@ dom.window.document.addEventListener(
     const tick = (event.target as HTMLElement).closest?.<HTMLElement>("[data-tick]");
     const list = tick?.closest<HTMLElement>(".acpmux-minimap__list");
     if (!tick || !list) return;
-    const top = Number(tick.dataset.tick) * 10;
+    const top = Number(tick.dataset.tick) * railPitch();
     const room = Number.parseFloat(list.parentElement!.style.height);
     const at = list.scrollTop;
-    if (top >= at && top + 10 <= at + room) return;
-    list.scrollTop = top < at ? top : top + 10 - room;
+    if (top >= at && top + railPitch() <= at + room) return;
+    list.scrollTop = top < at ? top : top + railPitch() - room;
     list.dispatchEvent(new dom.window.Event("scroll"));
   },
   true,
@@ -146,10 +153,13 @@ test("a 2,000-turn chat draws a bounded number of ticks, and the keyboard reache
     expect(tick(0)).toBeNull();
     const height = [...list.children].reduce(
       (sum, child) =>
-        sum + (child.querySelector("[data-tick]") ? 10 : Number.parseFloat((child as HTMLElement).style.height) || 0),
+        sum +
+        (child.querySelector("[data-tick]")
+          ? railPitch()
+          : Number.parseFloat((child as HTMLElement).style.height) || 0),
       0,
     );
-    expect(height).toBe(TURNS * 10);
+    expect(height).toBe(TURNS * 20);
     // Each row keeps its label: its place among all 2,000 and its prompt.
     expect(tick(TURNS - 1)!.getAttribute("aria-label")).toContain(`${TURNS}`);
     expect(tick(TURNS - 1)!.getAttribute("aria-label")).toContain(`Question ${TURNS - 1}`);
@@ -547,7 +557,10 @@ test("a scrolled rail hidden for lack of room comes back at its place, its rows 
     expect(list).not.toBe(before);
     expect(list.scrollTop).toBeGreaterThan(1000);
     const height = Number.parseFloat(list.parentElement!.style.height);
-    for (const row of [Math.floor(list.scrollTop / 10), Math.floor((list.scrollTop + height) / 10) - 1])
+    for (const row of [
+      Math.floor(list.scrollTop / railPitch()),
+      Math.floor((list.scrollTop + height) / railPitch()) - 1,
+    ])
       expect(document.querySelector(`[data-tick="${row}"]`)).not.toBeNull();
     expect(document.querySelector(`[data-tick="1999"]`)).not.toBeNull();
   } finally {

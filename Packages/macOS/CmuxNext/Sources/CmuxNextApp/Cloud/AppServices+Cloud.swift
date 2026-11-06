@@ -17,31 +17,22 @@ import Foundation
 import Observation
 
 extension AppServices {
-    /// The loopback port of a Cloud machine's `cmux-rd` desktop host (`--port`).
-    static let cloudDesktopRdPort: UInt16 = 4103
-
-    /// Open Desktop's `cmux-rd` viewer: Cloud machine `machine`'s desktop host on its private
-    /// address, reached over the app's token-gated Cloud tunnel, with the session token Open
-    /// Desktop fetched (read again for every session, so a Reconnect after Open Desktop fetched a
-    /// new one uses it). `control` is the tab's mode: a tab
-    /// someone confirmed from a Connect card asks for view only. Nil without the machine or token.
-    func cloudDesktopRdTransport(machine: String, control: Bool) -> (@MainActor () -> RemoteRdStreamTransport?)? {
-        let key = machine.lowercased()
-        guard let id = machines.cloud.first(where: { $0.machineID.lowercased() == key })?.machineID,
-              cloud.desktopRdTokens[key] != nil else { return nil }
-        // Over the Cloud tunnel to the host on the machine's private address (it needs nothing from
-        // the machine's daemon, so any machine with the host works), not the daemon link.
-        guard let hub = remoteLocalhost.cloudTunnelSocket, let address = machines.cloudTunnelAddress(machine: id),
-              let opener = HubLoopbackOpener(hub: hub, address: address) else { return nil }
-        let cloud = cloud
-        return {
-            guard let token = cloud.desktopRdTokens[key] else { return nil }
-            let hello = RemoteRdHello(user: "cmux", install: "cmux-next-\(ProcessInfo.processInfo.processIdentifier)", token: token)
+    /// Open Desktop's `cmux-rd` viewer: the machine's desktop host over the owner's Native link, a
+    /// new `link.dial` (service `desktop`, a new one-time link token) per session, with no token
+    /// in the hello (``CloudDesktopLinkDial``); each session's transport in the mode it asks for.
+    func cloudDesktopRdTransport(machine: String) -> (@MainActor (_ control: Bool) -> RemoteRdStreamTransport?)? {
+        guard let id = machines.cloud.first(where: { $0.machineID.lowercased() == machine.lowercased() })?.machineID,
+              let cli = cloud.binary else { return nil }
+        let (cloud, run, hello) = (cloud, CloudAppLinks.runner(local: machines.local), RemoteRdHello.cloudDesktop())
+        return { control in
             let carrier = RemoteRdStreamCarrier {
-                let tunnel = try await opener.openTunnel(host: "localhost", port: Self.cloudDesktopRdPort)
-                let reader = LoopbackTunnelReader(tunnel)
-                return RemoteRdByteStream(read: { try? await reader.read() }, write: { try await tunnel.write($0) },
-                                          close: { tunnel.close() })
+                await cloud.ensureLink()
+                let info = try await run(CloudDesktopLinkDial.connectInfoOp, ["machine": id], UUID().uuidString, .script)
+                guard let dial = CloudDesktopLinkDial(connectInfo: info, linkSocket: await cloud.linkSocket) else {
+                    throw CloudLinkError.helperNotRunning(reason: "no link socket or host for the desktop")
+                }
+                let stream = try await dial.open(cli: cli)
+                return RemoteRdByteStream(read: { await stream.read() }, write: { try await stream.send($0) }, close: { stream.close() })
             }
             return RemoteRdStreamTransport(carrier: carrier, hello: hello, startKey: UUID().uuidString, control: control)
         }

@@ -42,7 +42,9 @@ const ended = { mux: "turn_result", msg: { status: "completed" } };
 async function snapshotAfter(steps: unknown[], done: (snapshot: AcpmuxSnapshot) => boolean) {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
-  const socket = new MockAcpmuxSocket(() => Promise.resolve());
+  // A scripted socket starts empty; the normal fixture seeds unrelated history that would move
+  // the attach-page boundary away from the current turn.
+  const socket = new MockAcpmuxSocket(() => Promise.resolve(), { steps: [] });
   const daemon = socket as unknown as Daemon;
   for (const step of steps) daemon.record(mockHost.sessionId!, step);
   let last: AcpmuxSnapshot | undefined;
@@ -150,6 +152,89 @@ test("a list cleared after a later prompt takes Progress away", async () => {
     said("Cleared."),
   );
   expect(snapshot.progress).toBeUndefined();
+});
+
+test("an explicitly cleared Progress section stays gone when older history loads", async () => {
+  const { AcpmuxDirectClient } = await import("./direct");
+  const { MockAcpmuxSocket, mockHost } = await import("./mock");
+  const socket = new MockAcpmuxSocket(() => Promise.resolve(), { steps: [] });
+  const daemon = socket as unknown as Daemon;
+  const record = (step: unknown) => daemon.record(mockHost.sessionId!, step);
+  // Keep the historical plan outside the attach page. The current page starts at a turn boundary,
+  // so loadOlder() takes the incremental foldOlder path that used to resurrect that plan.
+  record(prompt("Older plan"));
+  record(started);
+  record(plan(["Old work", "completed"]));
+  record(ended);
+  // Keep enough turn-starting records after the historical plan to put it just beyond the attach
+  // page while leaving the current clear in that page. The older read takes two pages and folds it.
+  for (let index = 0; index < 600; index++) record(prompt(`history filler ${index}`));
+  record(prompt("Current turn"));
+  record(started);
+  record(plan(["Current work", "in_progress"]));
+  record({ update: { sessionUpdate: "plan", entries: [] } });
+  record(say("Cleared."));
+
+  let last: AcpmuxSnapshot | undefined;
+  const wakes: Array<() => void> = [];
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    (snapshot) => {
+      last = snapshot;
+      for (const wake of wakes.splice(0)) wake();
+    },
+    undefined,
+    () => socket as unknown as WebSocket,
+  );
+  try {
+    while (!last || !said("Cleared.")(last)) await new Promise<void>((resolve) => wakes.push(resolve));
+    const current = last!;
+    expect(current.progress).toBeUndefined();
+    await client.loadOlder();
+    expect(last!.rows.some((row) => row.plan?.some((step) => step.content === "Old work"))).toBe(true);
+    expect(last!.progress).toBeUndefined();
+  } finally {
+    client.close?.();
+  }
+});
+
+test("an active Progress plan survives an older historical clear", async () => {
+  const { AcpmuxDirectClient } = await import("./direct");
+  const { MockAcpmuxSocket, mockHost } = await import("./mock");
+  const socket = new MockAcpmuxSocket(() => Promise.resolve(), { steps: [] });
+  const daemon = socket as unknown as Daemon;
+  const record = (step: unknown) => daemon.record(mockHost.sessionId!, step);
+  record(prompt("Older plan"));
+  record(started);
+  record(plan(["Old work", "completed"]));
+  record({ update: { sessionUpdate: "plan", entries: [] } });
+  record(ended);
+  for (let index = 0; index < 600; index++) record(prompt(`history filler ${index}`));
+  record(prompt("Current turn"));
+  record(started);
+  record(plan(["Current work", "in_progress"]));
+  record(say("Current."));
+
+  let last: AcpmuxSnapshot | undefined;
+  const wakes: Array<() => void> = [];
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    (snapshot) => {
+      last = snapshot;
+      for (const wake of wakes.splice(0)) wake();
+    },
+    undefined,
+    () => socket as unknown as WebSocket,
+  );
+  try {
+    while (!last || !said("Current.")(last)) await new Promise<void>((resolve) => wakes.push(resolve));
+    expect(last!.progress?.plan.map((step) => step.content)).toEqual(["Current work"]);
+    await client.loadOlder();
+    expect(last!.rows.some((row) => row.text?.includes("Older plan"))).toBe(true);
+    expect(last!.progress?.plan.map((step) => step.content)).toEqual(["Current work"]);
+  } finally {
+    client.close?.();
+  }
 });
 
 test("a turn the agent starts on its own leaves the ended plan ended", async () => {

@@ -51,6 +51,55 @@ pub enum TokenRefused {
     ReplayCapacity,
 }
 
+impl TokenRefused {
+    /// A stable snake_case name for logs and the dialer's refusal line.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Missing => "missing",
+            Self::Invalid => "invalid",
+            Self::Expired => "expired",
+            Self::Replayed => "replayed",
+            Self::ServiceNotAllowed => "service_not_allowed",
+            Self::NoVerifier => "no_verifier",
+            Self::UnknownKey => "unknown_key",
+            Self::ReplayCapacity => "replay_capacity",
+        }
+    }
+}
+
+/// A refusal and the specific check that failed, for the host's log and the
+/// dialer's refusal line. It never carries token, signature or key bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TokenRefusal {
+    pub kind: TokenRefused,
+    /// A stable snake_case name of the failed check (`issuer`, `audience`, ...).
+    pub reason: &'static str,
+    /// Non-secret context, such as the expected and received issuer.
+    pub detail: Option<String>,
+}
+
+impl TokenRefusal {
+    pub fn new(kind: TokenRefused, reason: &'static str) -> Self {
+        Self { kind, reason, detail: None }
+    }
+}
+
+impl From<TokenRefused> for TokenRefusal {
+    fn from(kind: TokenRefused) -> Self {
+        Self::new(kind, kind.name())
+    }
+}
+
+impl std::fmt::Display for TokenRefusal {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}", self.reason)?;
+        if let Some(detail) = &self.detail {
+            write!(formatter, " ({detail})")?;
+        }
+        Ok(())
+    }
+}
+
 /// Checks one token for one stream. A verifier must refuse a token used
 /// twice (single use).
 pub trait TokenVerifier: Send + Sync + 'static {
@@ -69,6 +118,16 @@ pub trait TokenVerifier: Send + Sync + 'static {
     /// The peer and signed issue time, or why the token was refused.
     /// Never substitute the verification or stream-delivery time for `iat`.
     fn verify(&self, token: &str, expected: &Expected<'_>) -> Result<VerifiedToken, TokenRefused>;
+
+    /// [`TokenVerifier::verify`] with the specific failed check. It accepts
+    /// and refuses exactly the tokens `verify` does.
+    fn verify_explained(
+        &self,
+        token: &str,
+        expected: &Expected<'_>,
+    ) -> Result<VerifiedToken, TokenRefusal> {
+        self.verify(token, expected).map_err(TokenRefusal::from)
+    }
 }
 
 /// The caller's machine role signed by CloudDO for this individual dial.

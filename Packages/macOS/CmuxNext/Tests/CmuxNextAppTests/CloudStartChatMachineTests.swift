@@ -209,10 +209,6 @@ struct CloudStartChatMachineTests {
         #expect(request.idempotencyKey == "cloud-start-chat-k")
         #expect(request.team == "team-a")
         #expect(!request.wasSent)
-        // The classic create sends to that team, not the app's team now; a sent try keeps its own.
-        #expect(await CloudService.createTeam(sent: nil, requested: request.team) { "team-b" } == "team-a")
-        #expect(await CloudService.createTeam(sent: nil, requested: nil) { "team-b" } == "team-b")
-        #expect(await CloudService.createTeam(sent: .some("team-c"), requested: request.team) { "team-b" } == "team-c")
     }
 
     /// A signed-out first send keeps its stable refusal code for callers, but the
@@ -220,18 +216,5 @@ struct CloudStartChatMachineTests {
     @Test func aSignedOutFirstSendCarriesActionableRecoveryCopy() {
         #expect(CloudStartChat.refusalMessage("not_signed_in") == CloudStrings.signInFirst)
         #expect(CloudStartChat.refusalMessage("cloud_disabled") == "cloud_disabled")
-    }
-
-    /// RED before: the composer reservation and its bind named the active Stack team while the app server
-    /// list reads the install token's team, so a team account's reserved machine was never listed and the
-    /// first send failed "No Cloud machine has the id vm_…" (pr-capture dev, 2026-11-05). The reservation
-    /// now names the list's team; the classic link keeps the active team.
-    @Test func aReservationNamesTheTeamTheAppServerListReads() async throws {
-        let onAppServer = try await CloudService.reservationTeam(linkSource: .appServer, installTeam: { "team_install" }, activeTeam: { "team_active" })
-        #expect(onAppServer == "team_install")
-        let personal = try await CloudService.reservationTeam(linkSource: .appServer, installTeam: { nil }, activeTeam: { "team_active" })
-        #expect(personal == nil)
-        let onClassic = try await CloudService.reservationTeam(linkSource: .legacy, installTeam: { "team_install" }, activeTeam: { "team_active" })
-        #expect(onClassic == "team_active")
     }
 }

@@ -161,7 +161,7 @@ final class CookieImportConsentPanel {
             stack.bottomAnchor.constraint(equalTo: body.bottomAnchor),
             stack.widthAnchor.constraint(equalToConstant: 460),
         ])
-        let glass = Glass.makeOverlayPanel(content: body, cornerRadius: 14)
+        let glass = Glass.makeOverlayPanel(content: body, cornerRadius: Metrics.surfaceCornerRadius)
         glass.setAccessibilityIdentifier(Self.accessibilityID)
         glass.setAccessibilityLabel(CookieImportStrings.title)
         return glass
@@ -187,7 +187,7 @@ final class CookieImportConsentPanel {
     private static func boxed(_ label: NSTextField, id: String) -> NSView {
         let box = NSBox()
         box.boxType = .custom
-        box.cornerRadius = 8
+        box.cornerRadius = Metrics.insetCornerRadius
         box.borderWidth = 1
         box.borderColor = .separatorColor
         box.fillColor = NSColor.textBackgroundColor.withAlphaComponent(0.35)

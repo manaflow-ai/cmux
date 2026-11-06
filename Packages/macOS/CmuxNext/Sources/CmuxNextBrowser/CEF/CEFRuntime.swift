@@ -24,6 +24,10 @@ final class CEFRuntime {
 
     var state: State = .idle
     private(set) var shim: CEFShimLibrary?
+    /// Whether first-party pages serve the live web loop (``setLivePages(_:)``), kept until the shim loads.
+    var livePages = false
+    /// The answer for a first-party page file of a tab that is not a page host while ``livePages`` (``CEFPageSchemes/liveFallback``).
+    var liveFallback: (@MainActor (URL, String?) async -> CEFPageResponse)?
     private(set) var layout: CEFRuntimeLayout?
     private(set) var storage = CEFProfileStorage.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier)
     var pump: CEFMessagePump?
@@ -132,9 +136,9 @@ final class CEFRuntime {
     private(set) lazy var windowGuard = ChromiumWindowGuard(logger: logger) { [weak self] window in
         self?.isPlacedDevToolsWindow(window) ?? false
     }
-    /// The one app-wide observer of display changes: each Chromium host view's resize wait is capped
-    /// by the displays' frames (`CEFLayerHosting.displaysChanged`). Made when CEF is ready.
+    /// The one display-change observer (`CEFLayerHosting.displaysChanged` caps each resize wait). Made when CEF is ready.
     private var displayObservation: MainActorObservation?
+    let hostingSwitch = CEFHostingSwitch() // takes a hosting switch flip to the shown pages at once
     /// True when `--load-extension` is in use (development, verification).
     private(set) var loadsUnpackedExtensions = false
     /// `browser.builtInAdBlocker`, asked at start (the App supplies it).
@@ -454,6 +458,7 @@ final class CEFRuntime {
                                                       entry.entry)
             if added != 1 { logger.error("cmux-page \(id, privacy: .public) refused by the shim") }
         }
+        applyLivePages()
         // Every document's start scripts and report channels, once for every browser, in the
         // renderer (fork API 29): no tab opens a DevTools session for them (`CEFDocumentScripts`).
         if CEFForkFeatures(shim).rendererPaths {
