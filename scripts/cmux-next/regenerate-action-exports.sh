@@ -18,7 +18,7 @@ cmux_next_require_fleet regenerate-action-exports.sh "swift test" "cmux-next PR 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/warm-swiftpm.sh"
 out="$(mkdir -p "${1:?usage: $0 OUT}" && cd "$1" && pwd)"
 root="$(git rev-parse --show-toplevel)"
-exports=(plans/cmux-next/action-surfaces.json plans/cmux-next/actions.md plans/cmux-next/links.json)
+exports=(plans/cmux-next/action-surfaces.json plans/cmux-next/actions.md plans/cmux-next/links.json plans/cmux-next/action-catalog.json)
 
 cmux_next_warm_build "$root/Packages/macOS/CmuxNext"
 cd "$root/Packages/macOS/CmuxNext"
@@ -26,7 +26,7 @@ cd "$root/Packages/macOS/CmuxNext"
 # that fails for another reason still leaves them current; that failure is
 # the pull request's to fix, not the autofix's.
 status=0
-CMUX_UPDATE_ACTION_SURFACES=1 swift test ${cmux_next_swift_args[@]+"${cmux_next_swift_args[@]}"} --skip-build --filter 'ActionSurfaceParityTests|LinkExportTests' || status=$?
+CMUX_UPDATE_ACTION_SURFACES=1 swift test ${cmux_next_swift_args[@]+"${cmux_next_swift_args[@]}"} --skip-build --filter 'ActionSurfaceParityTests|ActionCatalogDumpTests|LinkExportTests' || status=$?
 (( status == 0 )) || echo "::warning::the action parity tests failed (exit $status); the exports were still regenerated"
 cd "$root"
 for file in "${exports[@]}"; do
