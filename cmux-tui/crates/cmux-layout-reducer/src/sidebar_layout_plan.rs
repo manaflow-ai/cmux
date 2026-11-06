@@ -34,6 +34,11 @@ pub const RETIRED_BUILT_INS: [&str; 2] = ["new_workspace", "import_sync"];
 
 const APPEND: i64 = i64::MAX;
 
+/// A list position as a wire index.
+fn slot(position: usize) -> i64 {
+    i64::try_from(position).unwrap_or(APPEND)
+}
+
 // MARK: lookups
 
 fn section<'a>(document: &'a Document, id: &str) -> Option<&'a Section> {
@@ -122,7 +127,7 @@ pub fn pin_op(
     }
     let index = shared_sections(document, &Region::Top)
         .position(|section| section.id == TOP_SECTION_ID)
-        .map_or(APPEND, |top| top as i64 + 1);
+        .map_or(APPEND, |top| slot(top).saturating_add(1));
     Some(Op::SectionAdd { section: pinned_section(vec![item]), index })
 }
 
@@ -231,15 +236,18 @@ pub fn add_to_top_op(
 /// item of an added section) is removed. None for other ops, or when `op`
 /// changes nothing.
 pub fn inverse(document: &Document, op: &Op) -> Option<Op> {
-    let restore = |s: usize, i: usize| Op::ItemAdd {
-        item: document.sections[s].items[i].clone(),
-        section: document.sections[s].id.clone(),
-        index: i as i64,
+    let restore = |s: usize, i: usize| {
+        let section = document.sections.get(s)?;
+        Some(Op::ItemAdd {
+            item: section.items.get(i)?.clone(),
+            section: section.id.clone(),
+            index: slot(i),
+        })
     };
     match op {
         Op::ItemRemove { id } => {
             let (s, i) = sidebar_layout::locate(id, &document.sections)?;
-            Some(restore(s, i))
+            restore(s, i)
         }
         Op::ItemAdd { item, section: target, .. } => {
             let target = section(document, target)?;
@@ -261,13 +269,14 @@ pub fn inverse(document: &Document, op: &Op) -> Option<Op> {
             if holders.next().is_some() {
                 return None;
             }
-            Some(restore(first.0, first.1))
+            restore(first.0, first.1)
         }
         Op::SectionAdd { section: added, .. } => {
-            if section(document, &added.id).is_some() || added.items.len() != 1 {
+            let [only] = added.items.as_slice() else { return None };
+            if section(document, &added.id).is_some() {
                 return None;
             }
-            Some(Op::ItemRemove { id: added.items[0].id.clone() })
+            Some(Op::ItemRemove { id: only.id.clone() })
         }
         _ => None,
     }
@@ -337,12 +346,12 @@ pub fn stored_insertion_index(
     if let Some(next) = usize::try_from(index).ok().and_then(|slot| visible_rest.get(slot))
         && let Some(position) = position(&next.id)
     {
-        return position as i64;
+        return slot(position);
     }
     if let Some(position) = visible_rest.last().and_then(|last| position(&last.id)) {
-        return position as i64 + 1;
+        return slot(position).saturating_add(1);
     }
-    full_rest.len() as i64
+    slot(full_rest.len())
 }
 
 /// A visible row move as a move in the saved layout's index space.
@@ -374,33 +383,37 @@ pub fn region_move_op(subject: &DragSubject, shown: &[Section], document: &Docum
     match subject {
         DragSubject::Item(id) => {
             let (t, p) = sidebar_layout::locate(id, shown)?;
-            let target = section(document, &shown[t].id)?;
+            let shown_section = shown.get(t)?;
+            let target = section(document, &shown_section.id)?;
             let rest: Vec<&Item> = target.items.iter().filter(|item| &item.id != id).collect();
-            let next = shown[t].items[p + 1..]
+            let next = shown_section
+                .items
                 .iter()
+                .skip(p.saturating_add(1))
                 .find_map(|item| rest.iter().position(|kept| kept.id == item.id));
             Some(Op::ItemMove {
                 id: id.clone(),
                 section: target.id.clone(),
-                index: next.unwrap_or(rest.len()) as i64,
+                index: slot(next.unwrap_or(rest.len())),
             })
         }
         DragSubject::Section(id) => {
             let p = shown.iter().position(|section| &section.id == id)?;
-            let region = &shown[p].region;
+            let region = &shown.get(p)?.region;
             let rest: Vec<&Section> = document
                 .sections
                 .iter()
                 .filter(|section| &section.region == region && &section.id != id)
                 .collect();
-            let next = shown[p + 1..]
+            let next = shown
                 .iter()
+                .skip(p.saturating_add(1))
                 .filter(|section| &section.region == region)
                 .find_map(|section| rest.iter().position(|kept| kept.id == section.id));
             Some(Op::SectionMove {
                 id: id.clone(),
                 region: region.clone(),
-                index: next.unwrap_or(rest.len()) as i64,
+                index: slot(next.unwrap_or(rest.len())),
             })
         }
     }
@@ -615,7 +628,7 @@ pub fn app_ref_migration_ops(document: &Document) -> Vec<Op> {
             ops.push(Op::ItemAdd {
                 item: item(&old.id, "app", app, old.shows_label, old.span),
                 section: section.id.clone(),
-                index: index as i64,
+                index: slot(index),
             });
         }
     }
