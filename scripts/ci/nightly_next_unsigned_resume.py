@@ -68,6 +68,7 @@ PUSH_RUNS_READ = 30  # nightly-next push runs read, newest first: more than a da
 # resume is kept one day, so no earlier resume of a still-resumable run is older.
 RESUME_LOOKBACK = dt.timedelta(hours=26)
 JOB_PAGES = 3
+FRESH_PUSH_RUNS_READ = 5  # newest first; a push newer than the candidate is among the first few
 # Every failed push run newer than the feed is judged, newest first, until one resumes: a run
 # older than the feed costs no read, so this is bounded by the push runs read, not a fixed few
 # (a valid run behind three failed compiles must still be found).
@@ -166,8 +167,16 @@ def runs_to_judge(gh: GitHub, now: dt.datetime) -> list[dict]:
     return listing(event="push", per_page=PUSH_RUNS_READ) + dispatches
 
 
-def decide(gh: GitHub, feed_build: int, runs: list[dict], max_resumes: int, names_resumes) -> str:
-    """Dispatch at most one resume and say what was decided. `names_resumes` is read only before a dispatch."""
+def newest_push_runs(gh: GitHub) -> list[dict]:
+    """The few newest nightly-next push runs, read again just before a dispatch."""
+    query = urllib.parse.urlencode({"branch": BRANCH, "event": "push", "per_page": FRESH_PUSH_RUNS_READ})
+    return gh.call("GET", f"/actions/workflows/{WORKFLOW}/runs?{query}")["workflow_runs"]
+
+
+def decide(gh: GitHub, feed_build: int, runs: list[dict], max_resumes: int, names_resumes,
+           fresh_pushes=lambda: []) -> str:
+    """Dispatch at most one resume and say what was decided. `names_resumes` and `fresh_pushes` are read only
+    before a dispatch: a push that started after `runs` was listed still holds the resume."""
     if max_resumes <= 0:
         return "off: --max-resumes is 0"
     resumes: dict[tuple[int, int], list[dict]] = {}
@@ -201,6 +210,10 @@ def decide(gh: GitHub, feed_build: int, runs: list[dict], max_resumes: int, name
         if problem:
             notes.append(f"run {run_id}: {problem}")
             continue
+        newer = newer_push_on_its_way(fresh_pushes(), run_id)
+        if newer:
+            return (f"waiting: newer push run {newer.get('html_url', newer.get('id'))} is {newer.get('status')}; "
+                    f"its build supersedes run {run_id}")
         if not names_resumes():
             return (f"not dispatching: nightly-next's {WORKFLOW} does not title resume runs yet, so earlier resumes "
                     f"could not be counted (run {run_id} attempt {attempt} would be resumed)")
@@ -230,7 +243,8 @@ def main(argv: list[str]) -> int:
             print(f"::warning::no Nightly build in {args.feed_url}; not resuming anything")
             return 0
         runs = runs_to_judge(gh, dt.datetime.now(dt.timezone.utc))
-        print("nightly-next unsigned resume: " + decide(gh, feed_build, runs, args.max_resumes, lambda: ref_names_resumes(gh)))
+        print("nightly-next unsigned resume: " + decide(gh, feed_build, runs, args.max_resumes, lambda: ref_names_resumes(gh),
+                                                        lambda: newest_push_runs(gh)))
     except (*TRANSPORT, KeyError, TypeError, ValueError) as error:
         print(f"::warning::nightly-next unsigned resume skipped this check: {error!r}")
     return 0
