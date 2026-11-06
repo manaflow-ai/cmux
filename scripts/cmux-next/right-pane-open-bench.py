@@ -88,6 +88,8 @@ parser.add_argument("--strip-ms", type=float, default=2500, help="how long each 
 parser.add_argument("--strip-tolerance", type=float, default=0.001)
 parser.add_argument("--settle-frames", type=int, default=10)
 parser.add_argument("--settle", type=float, default=6, help="stress: seconds the load runs before the first open")
+parser.add_argument("--motion", action="store_true",
+                    help="also time the transition itself, open and (for a header toggle) close: composited stalls and main-thread misses")
 parser.add_argument("--tag", default="rpopen")
 parser.add_argument("--json")
 parser.add_argument("--md")
@@ -368,13 +370,64 @@ class Chat:
 # ---------------------------------------------------------------------------------------------
 # One open.
 
-def strip(run, chat, click, label):
+def strip(run, chat, click, label, content="rightmost"):
     folder = os.path.join(tempfile.gettempdir(), f"right-pane-open-{os.getpid()}", label)
     params = {"action": "frame_strip", "gesture": "agent_click", "click": {**click, "pane": chat.pane}, "above": True,
-              "content": "rightmost", "duration_ms": opts.strip_ms, "dir": folder, "tolerance": opts.strip_tolerance}
+              "content": content, "duration_ms": opts.strip_ms, "dir": folder, "tolerance": opts.strip_tolerance}
+    if opts.motion:
+        run.rpc("debug.frames", {"action": "start"})
     reply = run.rpc("debug.new_tab", params, timeout=opts.strip_ms / 1000 + 90) or {}
+    if opts.motion:
+        frames = run.rpc("debug.frames", {"action": "stop"}) or {}
+        reply["main_frames"] = {k: frames.get(k) for k in ("missed", "max_ms", "p99_ms", "refresh_ms", "expected_ms") if k in frames}
     shutil.rmtree(folder, ignore_errors=True)
     return reply
+
+
+# The header buttons that toggle (AgentChatSplitToggles.panels): a second click closes the split the first opened.
+TOGGLES = ("browser", "changes", "files")
+# A run of unchanged composited frames this long inside a transition splits it into two motions (about 33 ms at 120 Hz).
+PHASE_GAP_FRAMES = 4
+
+
+def motion_stats(frames):
+    """How the window moved between the click's first visible change and its last one, from the composited frames.
+
+    A frame is its pixel shares against the picture before the click and the settled one (inside the measured pane and
+    outside it); an idle refresh repeats the last picture, so an unchanged frame inside the transition is one the
+    window server showed while the motion stood still. `stall_frames`: such frames; `longest_stall_ms`: the longest
+    standing run; `phases`: moving runs split by a stand of PHASE_GAP_FRAMES or more (1 is one continuous motion, 2 is a
+    move and then a second step, such as content that pops in after the panes landed); `motion_ms`: first change to
+    last change."""
+    rows = [f for f in frames or [] if isinstance(f.get("ms"), (int, float))]
+    keys = [(round(f.get("outside_vs_before") or 0, 4), round(f.get("outside_vs_final") or 0, 4),
+             round(f.get("content_vs_before") or 0, 4), round(f.get("content_vs_final") or 0, 4)) for f in rows]
+    changed = [i for i in range(1, len(rows)) if keys[i] != keys[i - 1] and rows[i]["ms"] >= 0]
+    if not changed:
+        return {"motion_ms": 0, "stall_frames": 0, "longest_stall_ms": 0, "phases": 0, "frames": 0}
+    first, last = changed[0], changed[-1]
+    stall, longest, phases, still = 0, 0.0, 1, 0
+    for i in range(first + 1, last + 1):
+        if keys[i] == keys[i - 1]:
+            stall += 1
+            still += 1
+            longest = max(longest, rows[i]["ms"] - rows[i - still]["ms"])
+        else:
+            if still >= PHASE_GAP_FRAMES:
+                phases += 1
+            still = 0
+    return {"motion_ms": round(rows[last]["ms"] - rows[first]["ms"], 1), "stall_frames": stall,
+            "longest_stall_ms": round(longest, 1), "phases": phases, "frames": last - first + 1}
+
+
+def measure_close(run, chat, click, label):
+    """The same header button again (it toggles): the split closes; its whole-window motion and main-thread misses."""
+    reply = strip(run, chat, click, label + "-close", content="none")
+    if reply.get("error"):
+        return {"error": str(reply["error"])[:400]}
+    return {"motion": motion_stats(reply.get("frames")), "main_frames": reply.get("main_frames"),
+            "commit_ms": next((f.get("ms") for f in reply.get("frames") or []
+                               if (f.get("ms") or 0) > 0 and (f.get("outside_vs_before") or 0) > opts.strip_tolerance), None)}
 
 
 def clicks(surface, round_index):
@@ -417,9 +470,12 @@ def measure(run, chat, surface, label, round_index):
                    "key": reply.get("key"), "spans": reply.get("spans"), "opened_tabs": len(chat.tabs() - before),
                    "frames": [[f.get("ms"), round(f.get("content_vs_before") or 0, 4), round(f.get("content_vs_final") or 0, 4),
                                round(f.get("flatness") or 0, 4), bool(f.get("blank"))] for f in reply.get("frames") or []],
+                   "main_frames": reply.get("main_frames"), "motion": motion_stats(reply.get("frames")),
                    "frames_columns": ["ms", "content_vs_before", "content_vs_final", "flatness", "blank"]})
     if not record["opened_tabs"]:
         record["error"] = "the click opened no tab"
+    if opts.motion and surface in TOGGLES and record["opened_tabs"]:
+        record["close_motion"] = measure_close(run, chat, target, label)
     record["close"] = chat.close_new(before)
     if record["close"]:
         say(f"right-pane-open: {label}: the close left the layout changed (the next open runs in it): {json.dumps(record['close'])[:800]}")
@@ -446,6 +502,24 @@ def summarize(records):
     frames = [r.get("mean_interval_ms") for r in good if isinstance(r.get("mean_interval_ms"), (int, float))]
     out["frame_ms"] = round(sum(frames) / len(frames), 1) if frames else None
     out["over"] = over_budget(out)
+    if opts.motion:
+        out["motion"] = motion_summary([r.get("motion") for r in good], [r.get("main_frames") for r in good])
+        closes = [r.get("close_motion") for r in good if isinstance(r.get("close_motion"), dict) and not r["close_motion"].get("error")]
+        if closes:
+            out["close_motion"] = motion_summary([c.get("motion") for c in closes], [c.get("main_frames") for c in closes])
+    return out
+
+
+def motion_summary(motions, mains):
+    motions = [m for m in motions if isinstance(m, dict)]
+    mains = [m for m in mains if isinstance(m, dict)]
+    out = {"n": len(motions)}
+    for key in ("motion_ms", "stall_frames", "longest_stall_ms", "phases"):
+        values = [m.get(key) for m in motions]
+        out[key] = {"p50": pct(values, 0.5), "p95": pct(values, 0.95), "max": pct(values, 1.0)}
+    for key in ("missed", "max_ms"):
+        values = [m.get(key) for m in mains]
+        out["main_" + key] = {"p50": pct(values, 0.5), "p95": pct(values, 0.95), "max": pct(values, 1.0)}
     return out
 
 
@@ -482,6 +556,21 @@ def markdown(results):
                 continue
             lines.append(f"| {surface} | {condition} | {s['ok']}/{s['n']} | {triple(s, 'commit_ms')} | {triple(s, 'first_content_ms')} | "
                          f"{triple(s, 'final_ms')} | {s['over'] or 'ok'} |")
+    if opts.motion:
+        lines += ["", "Transition (--motion): composited frames from the first change to the last, p50/p95/max. stalls: unchanged "
+                  "frames inside it; longest stall ms; phases: moving runs split by a stand of "
+                  f"{PHASE_GAP_FRAMES}+ frames (1 = one motion); main missed / longest main-thread frame ms (debug.frames).",
+                  "", "| surface | condition | step | n | motion ms | stalls | longest stall | phases | main missed | main longest |",
+                  "|---|---|---|---|---|---|---|---|---|---|"]
+        for surface in WANTED:
+            for condition in CONDITIONS:
+                s = results["surfaces"].get(surface, {}).get(condition) or {}
+                for step in ("motion", "close_motion"):
+                    m = s.get(step)
+                    if m:
+                        lines.append(f"| {surface} | {condition} | {'open' if step == 'motion' else 'close'} | {m['n']} | {triple(m, 'motion_ms')} | "
+                                     f"{triple(m, 'stall_frames')} | {triple(m, 'longest_stall_ms')} | {triple(m, 'phases')} | "
+                                     f"{triple(m, 'main_missed')} | {triple(m, 'main_max_ms')} |")
     lines += ["", "load average per condition: " + ", ".join(f"{c} {v}" for c, v in results.get("load_avg", {}).items())]
     return "\n".join(lines)
 
