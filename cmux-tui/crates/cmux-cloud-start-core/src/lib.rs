@@ -7,5 +7,6 @@
 pub mod ask;
 pub mod harness_login;
 pub mod machine_login;
+pub mod moves;
 pub mod start;
 pub mod vm_kind;
