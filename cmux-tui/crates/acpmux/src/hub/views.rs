@@ -3,7 +3,10 @@
 use super::*;
 use cmux_json::JsonSet as _;
 
+mod host_build;
 mod host_load;
+
+pub(crate) use host_build::{host_outdated, outdated_host_line, outdated_hosts_line};
 
 /// The mux record of a change in how many subagents a session runs (`hub/tap.rs`), which
 /// watchers hear as `_acpmux/session_changed` with the new `subagentsRunning`.
@@ -628,6 +631,11 @@ impl Hub {
         summary.set("subagentsRunning", json!(work.subagents));
         summary.set("subagentNames", json!(work.names));
         summary.set("commandsRunning", json!(work.commands));
+        // The build its live agent host runs, and whether that is older than this daemon's: a
+        // host that has not hibernated since an update (`views/host_build.rs`).
+        let host_build = host_build::live_host_build(session);
+        summary.set("hostOutdated", json!(host_outdated(host_build.as_deref(), build())));
+        summary.set("hostBuild", json!(host_build));
         if notice && let Some(turn) = summary.get_mut("turn").and_then(Value::as_object_mut) {
             // A History of the person's prompts leaves it out (`turn.notice`).
             turn.insert("notice".into(), Value::Bool(true));
@@ -729,10 +737,13 @@ impl Hub {
                 "stuckSince": since, "stuckError": error}))
             })
             .collect();
-        let mut live = 0;
+        let (mut live, mut outdated) = (0, 0);
         for s in &sessions {
-            if s.child.lock().await.is_some() {
+            if let Some(child) = s.child.lock().await.as_ref() {
                 live += 1;
+                if host_outdated(child.host_build().as_deref(), build()) {
+                    outdated += 1;
+                }
             }
         }
         let exe_unstable = crate::daemon::exe_path::current_unstable();
@@ -766,6 +777,8 @@ impl Hub {
             // `acpmux ls` says so, `acpmux send --status` lists them.
             "outboxPending": self.outbox_unsettled(),
             "liveAgents": live,
+            // Live agent hosts still on an older build than this one (`views/host_build.rs`).
+            "outdatedHosts": outdated,
             "stuckSessions": stuck,
             "disk": disk,
             // macOS: whether this daemon's agents can read the login keychain
