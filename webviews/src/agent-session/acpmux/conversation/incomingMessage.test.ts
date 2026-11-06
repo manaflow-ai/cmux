@@ -3,7 +3,7 @@
 // the prompt's text (an adopted Claude session's history, `client: "adopt"`). incomingMessage.ts
 // reads them.
 import { expect, test } from "bun:test";
-import { cliHost, incomingPrompt, messagePreview, unattributed, unsigned } from "./incomingMessage";
+import { cliHost, incomingPrompt, messagePreview, unsigned } from "./incomingMessage";
 
 const adopted = { client: "adopt" };
 
@@ -1019,9 +1019,8 @@ test("an edited agent's message stays the agent's and says it was edited", () =>
   expect(incoming?.kind === "message" && incoming.message.edited).toBe(true);
 });
 
-test("a record with no provenance and no origin names no one; the person's proven prompt does", () => {
-  expect(unattributed({})).toBe(true);
-  expect(unattributed(undefined)).toBe(true);
-  expect(unattributed({ _meta: { origin: { actor: "person", verified: true } } })).toBe(false);
-  expect(unattributed({ _meta: { provenance: { kind: "unverified" } } })).toBe(false);
+test("a record with no provenance and no origin keeps the person's bubble, with no mark", () => {
+  // Every person's prompt before acpmux's `_meta.origin` mark was recorded so: it stays theirs.
+  expect(incomingPrompt("rebase first", {})).toBeUndefined();
+  expect(incomingPrompt("rebase first", { _meta: {} })).toBeUndefined();
 });

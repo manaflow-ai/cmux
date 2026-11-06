@@ -28,7 +28,8 @@
 // send` at a shell, a script, an agent outside acpmux) is no one's for sure and never the person's:
 // a card from the name it puts first, else from an unverified sender, marked unverified either way.
 // A record with no provenance and no `_meta.origin` (acpmux's mark of the proven person's prompt)
-// predates both: it keeps its bubble, marked unverified (`unattributed`).
+// predates both: it keeps its bubble as it was, with no mark, since every person's prompt before
+// that mark was recorded so (only the explicit `unverified` kind marks a prompt).
 // acpmux's inbox notice (hub/inbox.rs, kind `inbox_notice`) is no prompt to draw as written: its
 // threads draw as received lines (inboxNotice.ts), its text for the agent never shows.
 import { clipMessagePreview as clip } from "./clipMessagePreview";
@@ -307,13 +308,6 @@ function fromAgent(msg: Parameters<typeof promptOf>[1]): boolean {
 }
 
 /// What a `user_message` is when not the person's own as recorded, or undefined when it is.
-/// Whether a recorded `user_message` or `queued` record names no one: no provenance and no
-/// `_meta.origin`, acpmux's mark of the proven person's own prompt. An acpmux from before that mark
-/// recorded every person's prompt so, and an agent's plain send too: its row is marked unverified.
-export function unattributed(msg: { _meta?: { provenance?: unknown; origin?: unknown } } | undefined): boolean {
-  return !msg?._meta?.provenance && !msg?._meta?.origin;
-}
-
 export function incomingPrompt(
   text: string,
   msg: Parameters<typeof promptOf>[1],
