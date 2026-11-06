@@ -89,6 +89,15 @@ public final class PageSwipeForwarder {
         }
     }
 
+    /// Removes the scroll monitor; no page gets swipe events after it. The monitor holds the
+    /// forwarder weakly, so once its owner (the history service, the app's lifetime) lets it go,
+    /// each scroll event costs one nil check until `stop()` or the app ends.
+    public func stop() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+        page = nil
+    }
+
     /// Runs on every scroll event in the app: a phase check, then a hit test only at a gesture start.
     private func forward(_ event: NSEvent) {
         guard let swipe = PageSwipeEvent(phase: event.phase, momentumPhase: event.momentumPhase,
