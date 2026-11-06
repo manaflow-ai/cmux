@@ -215,8 +215,18 @@ import UniformTypeIdentifiers
         #expect(try Self.pixel(image, x: 10, y: 50).g < 120)
     }
 
+    /// Whether this process reaches a pasteboard server: a fleet test step often does not, and there every
+    /// write fails and every read returns nil (cmuxs-Mac-mini, fleet step 3 of u2891, 2026-11-05).
+    nonisolated private static let hasPasteboard: Bool = {
+        let board = NSPasteboard(name: NSPasteboard.Name("cmux-picture-reply-probe-\(UUID().uuidString)"))
+        defer { board.releaseGlobally() }
+        board.clearContents()
+        return board.setString("probe", forType: .string) && board.string(forType: .string) == "probe"
+    }()
+
     /// A shared private pasteboard carries the reply's file to the chat's intake (never the user's clipboard).
-    @Test func theReplyPasteboardIsPrivateAndCarriesTheFile() throws {
+    @Test(.enabled(if: hasPasteboard, "needs a pasteboard server"))
+    func theReplyPasteboardIsPrivateAndCarriesTheFile() throws {
         let url = Self.folder().appendingPathComponent("annotated.png")
         try Self.png(at: url, width: 40, height: 30)
         let board = HomePictureReply.pasteboard(for: url)
