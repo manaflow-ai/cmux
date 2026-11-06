@@ -204,7 +204,8 @@ public final class FrameScheduler: NSObject {
         stalls = 0
     }
 
-    /// Drops the link and every client (the window closed); each client's `dropped` runs once the scheduler is idle.
+    /// Drops the link and every client (the window closed); each client's `dropped` runs once the scheduler is idle
+    /// and must not activate a client on this window (its link would outlive the close).
     public func invalidate() {
         let dropped = Array(clients.values)
         for client in dropped { client.detach() }

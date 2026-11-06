@@ -243,7 +243,6 @@ final class CEFLayerHosting {
     /// The new window's live resize state replaces the old one: AppKit tells only
     /// the views in a window when its live resize starts and ends.
     func windowDidChange() {
-        _ = holdsFirstFrame()
         let wasInMotion = inResizeMotion
         inLiveResize = view?.window?.inLiveResize ?? false
         if isDetached {
@@ -393,14 +392,18 @@ final class CEFLayerHosting {
     private func runAfterFrameShown(_ block: @escaping @MainActor @Sendable () -> Void) {
         if let afterFrameShown { return afterFrameShown(block) }
         shownFrame?.deactivate()
-        // A dropped tick (its window closed in the hold) counts as the frame: no page stays detached until an ask.
         let shown: @MainActor () -> Void = { [weak self] in
             self?.shownFrame = nil
             self?.afterCommit(block)
         }
+        // A dropped tick (its window closed in the hold) counts as the frame, so no page stays detached until an ask,
+        // but grants nothing: SetFocus would order a closed window's page front. The tab keeps its ask for its next show.
         let client = FrameClient(owner: "cef.first-frame-attach", isAnimation: false,
                                  scheduler: { [weak view] in view.map(FrameScheduler.forView) ?? .app },
-                                 dropped: shown) { _ in
+                                 dropped: { [weak self] in
+                                     self?.afterFirstFrame = nil
+                                     shown()
+                                 }) { _ in
             shown()
             return false
         }
