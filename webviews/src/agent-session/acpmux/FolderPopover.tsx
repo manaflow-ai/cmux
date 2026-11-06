@@ -20,8 +20,10 @@ export type FolderChoice = { id: string; label: string; repo?: ProjectRepo };
 /// another shares that name, a short suffix that tells it apart (projectSuffix.ts); the full path is
 /// the row's tooltip. A repository's row picks the current folder, else its main checkout, else its
 /// newest worktree; its other worktrees, newest first, open under it with → (← or the count closes
-/// them). The current folder is checked. Actions stay directly under search, before the scrolling
-/// folders: No folder, New Worktree, Add folder… and Add another folder…, where the host offers them.
+/// them). The current folder is checked. The actions sit under the scrolling folders, each with its
+/// glyph, as ChatGPT's menu has them (Leo, 2026-11-06: "i think chatgpt's is nicer but regardless /
+/// it's just folder / that's your project"): Add folder…, Add another folder…, New Worktree and No
+/// folder last, where the host offers them.
 /// A folder is the one thing the menu picks (Leo, 2026-11-06: "what even is the deal with add
 /// project? ... why not just add fodler? what's special about project?"): Add folder… is the host's
 /// folder panel, and a folder picked there is listed with the others from then on. The shared
@@ -130,7 +132,7 @@ export function FolderPopover({
     });
   const typed = query.trim();
   const typedPath = /^(?:\/|~\/)/.test(typed) && !shown.has(typed) ? typed : undefined;
-  // Actions stay directly under search; Tab reaches them and arrows navigate the matching folders.
+  // Actions stay under the folders; the arrows reach them after the last folder.
   const actions: {
     value: string;
     text: string;
@@ -150,12 +152,12 @@ export function FolderPopover({
         ]
       : []
     : [
-        ...(onNoProject ? [{ value: ACTION + "none", text: t("project.noFolder"), run: onNoProject }] : []),
-        ...(onNewWorktree ? [{ value: ACTION + "worktree", text: t("worktree.new"), run: onNewWorktree }] : []),
         ...(onBrowse ? [{ value: ACTION + "browse", text: t("composer.addFolder"), run: onBrowse }] : []),
         ...(extra
           ? [{ value: ACTION_EXTRA, text: t("composer.addAnotherFolder"), run: () => setAddingExtra(true) }]
           : []),
+        ...(onNewWorktree ? [{ value: ACTION + "worktree", text: t("worktree.new"), run: onNewWorktree }] : []),
+        ...(onNoProject ? [{ value: ACTION + "none", text: t("project.noFolder"), run: onNoProject }] : []),
       ];
   const pinned = actions.map((action) => action.value);
   const suggestions = [...pinned, ...shown.keys(), ...(typedPath ? [typedPath] : [])];
@@ -197,6 +199,9 @@ export function FolderPopover({
           data-first={action === actions[0] ? "" : undefined}
           data-choose={action.value === ACTION + "browse" ? "" : undefined}
         >
+          <span className="acpmux-location-action-icon" aria-hidden="true">
+            <ActionIcon action={action.value} />
+          </span>
           <span className="acpmux-menu-label">{action.text}</span>
           {action.value === ACTION + "none" && (
             <span className="acpmux-location-check" aria-hidden="true">
@@ -351,6 +356,7 @@ export function FolderPopover({
           key={addingExtra ? "extra" : "folder"}
           suggestions={suggestions}
           pinnedSuggestions={pinned}
+          pinnedPlacement="bottom"
           cancelOnBlur={false}
           onQuery={setQuery}
           onSubmit={submit}
@@ -393,6 +399,35 @@ export function FolderPopover({
 /// An action row's value: never a path.
 const ACTION = "\u0000action:";
 const ACTION_EXTRA = ACTION + "extra";
+
+/// An action's glyph in the folders' icon column: + adds, a folder with + adds one more, the branch
+/// is a worktree, × is no folder.
+function ActionIcon({ action }: { action: string }) {
+  if (action === ACTION + "worktree") return <BranchIcon />;
+  return (
+    <svg
+      className="acpmux-icon"
+      width={12}
+      height={12}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      {action === ACTION + "none" ? (
+        <path d="m4.5 4.5 7 7M11.5 4.5l-7 7" />
+      ) : action === ACTION_EXTRA ? (
+        <path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.6l1.4 1.5h5A1.5 1.5 0 0 1 14 6v5.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5zM8 7v4M6 9h4" />
+      ) : (
+        <path d="M8 3v10M3 8h10" />
+      )}
+    </svg>
+  );
+}
 
 function CheckIcon() {
   return (

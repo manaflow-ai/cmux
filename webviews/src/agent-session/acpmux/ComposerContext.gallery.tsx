@@ -637,7 +637,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       props: baseProps,
     },
     "folder-menu": {
-      note: "Project actions stay directly below search, above the recent projects (paths on hover).",
+      note: "Search, the recent folders (paths on hover, the current one checked), then the actions under them with their glyphs.",
       props: folderMenuProps,
       play: openFolder,
     },
@@ -716,7 +716,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       play: openFolder,
     },
     "folder-long-list": {
-      note: "Project actions stay below search while a long folder list scrolls; the thumb stays inside the right edge.",
+      note: "The actions stay under the list while a long folder list scrolls; the thumb stays inside the right edge.",
       props: {
         ...baseProps,
         projectChoices: Array.from({ length: 40 }, (_, index) => ({
@@ -1343,7 +1343,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
     // just add fodler? what's special about project?". One concept: a folder. These arms differ only
     // in how the one row that is not about the chat's own folder reads.
     "folder-one-concept": {
-      note: "Shipped: No folder, Add folder… (this Mac's folder panel; a folder picked there is listed from then on) and Add another folder… (one more folder the chat also sees), over the recent folders.",
+      note: "Shipped, ChatGPT's shape (Leo: \"i think chatgpt's is nicer\"): search, the recent folders with their icons and the current one checked, then Add folder… (this Mac's folder panel), Add another folder… (one more folder the chat also sees) and No folder, each with its glyph.",
       props: extraProps("local", ["/Users/you/notes"], {
         summary: { sessionId: "", harness: "claude", cwd: projects[0]!.cwd, host: "This Mac", hostKind: "local" },
       }),

@@ -284,11 +284,11 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     await page.waitForFunction(
       () => document.querySelectorAll(".acpmux-location-menu .acpmux-location-row").length === 3,
     );
-    // Add folder… closes the actions: one way to pick a folder, no Add project beside it.
+    // The actions under the folders: one way to pick a folder, no Add project beside it.
     const actions = await page
       .locator(".acpmux-location-menu .acpmux-location-action")
       .evaluateAll((all) => all.map((row) => (row.textContent ?? "").trim()));
-    expect(actions).toEqual(["New Worktree", "Add folder…"]);
+    expect(actions).toEqual(["Add folder…", "New Worktree"]);
     // ↓ moves the highlight from the first match to the next; Escape closes back to the strip.
     const highlighted = () =>
       page.evaluate(() =>
@@ -792,9 +792,11 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       const field = page.getByRole("combobox", { name: "Search folders or type a path" });
       await field.fill("relay");
       await page.waitForFunction(() => document.querySelector("[data-highlighted]")?.textContent?.includes("relay"));
-      await field.press("ArrowDown");
-      const activeId = await field.getAttribute("aria-activedescendant");
+      // The actions sit under the folders, No folder last: the arrows reach it after the matches.
       const highlighted = page.locator("[data-highlighted]");
+      for (let press = 0; press < 6 && !(await highlighted.textContent())?.includes("No folder"); press++)
+        await field.press("ArrowDown");
+      const activeId = await field.getAttribute("aria-activedescendant");
       expect(await highlighted.getAttribute("id")).toBe(activeId);
       expect(await highlighted.textContent()).toContain("No folder");
       await field.press("Enter");

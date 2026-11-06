@@ -122,7 +122,8 @@ export function ProjectChooser({
     return () => window.removeEventListener("blur", blur);
   }, [open]);
 
-  const pinned = [...(onNoProject ? [NO_PROJECT_KEY] : []), ...(onBrowse ? [ADD_PROJECT_KEY] : [])];
+  // Under the folders, as ChatGPT's menu has them (Leo, 2026-11-06: "it's just folder"): Add folder…, then No folder.
+  const pinned = [...(onBrowse ? [ADD_PROJECT_KEY] : []), ...(onNoProject ? [NO_PROJECT_KEY] : [])];
   const suggestions = [...pinned, ...rows.filter((row) => row.key !== NO_PROJECT_KEY).map((row) => row.key)];
   if (typedPath && shown.length === 0) suggestions.push(typedPath);
   const rowLabel = (key: string) => {
@@ -173,6 +174,7 @@ export function ProjectChooser({
             inputRef={search}
             suggestions={suggestions}
             pinnedSuggestions={pinned}
+            pinnedPlacement="bottom"
             onQuery={setQuery}
             onSubmit={(key) => {
               if (key === ADD_PROJECT_KEY) {
