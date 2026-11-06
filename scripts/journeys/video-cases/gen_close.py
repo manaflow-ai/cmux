@@ -141,6 +141,16 @@ def case_browser(f, engine, last):
     return setup, film(f, fx(f, {0: BLUE}), [X.focus(f"{f}-p1"), key(CMD_W, "close", f"Cmd-W closes {what}, {engine}")])
 
 
+def case_dock(f, last):
+    """p1 is a column docked at the right (column.dockRight). last: p1 has one tab (B), else 2 tabs (A)."""
+    setup = ws(f) + pane(f, 1, "newColumn", GREEN) + [{"do": "action", "action": "column.dockRight",
+                                                     "title": "set-up: p1's column docked at the right"}, G.settle(1.0)]
+    if not last:
+        setup += tabs(f, 1, 2, GREEN)
+    what = "the docked pane's only tab" if last else "the docked pane's shown tab (of 2)"
+    return setup, film(f, fx(f, {0: BLUE, 1: GREEN}), [X.focus(f"{f}-p1"), key(CMD_W, "close", f"Cmd-W closes {what}")])
+
+
 def case_last_ws(f):
     setup = ws(f) + [{"do": "cm_close_others", "title": "set-up: every other workspace closed (this is the window's last)"}]
     return setup, film(f, fx(f, {0: BLUE}), [X.focus(f"{f}-p0"), key(CMD_W, "close", "Cmd-W closes the window's last workspace's last tab")])
@@ -155,6 +165,7 @@ JOURNEYS = {
     "cm-br": [case_browser("cm-br-cef-tab", "cef", False), case_browser("cm-br-cef-last", "cef", True),
               case_browser("cm-br-wk-tab", "webkit", False), case_browser("cm-br-wk-last", "webkit", True)],
     "cm-last": [case_last_ws("cm-e-lastws")],
+    "cm-dock": [case_dock("cm-e-dock-tab", False), case_dock("cm-e-dock-last", True)],
 }
 
 
