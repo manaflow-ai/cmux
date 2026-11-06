@@ -390,6 +390,31 @@ exec /bin/cat"#;
             state_dir: root.join("state"),
             local_socket: root.join("carrier.sock"),
         };
+        // The dial child alone, with no carrier (its own folder, so the carrier's count starts at 0): it replies
+        // on stderr and echoes stdin. If this holds and the carrier's stream below does not answer, the carrier is why.
+        let alone = root.join("alone");
+        std::fs::create_dir_all(&alone).expect("the self-check's folder");
+        let mut child = Command::new("/bin/sh")
+            .args(["-c", script, "sh", &alone.to_string_lossy()])
+            .env_clear()
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("the dial child starts");
+        let mut reply = String::new();
+        BufReader::new(child.stderr.take().expect("stderr"))
+            .read_line(&mut reply)
+            .expect("its reply line");
+        assert_eq!(reply, "{\"ok\":true,\"path_state\":\"direct\"}\n", "the dial child's reply");
+        child.stdin.take().expect("stdin").write_all(b"ping 0\n").expect("write to the dial child");
+        let mut echoed = String::new();
+        BufReader::new(child.stdout.take().expect("stdout"))
+            .read_line(&mut echoed)
+            .expect("its echo");
+        assert_eq!(echoed, "ping 0\n", "the dial child echoes");
+        let _ = child.wait();
+
         let mut supervisor = LinkSupervisor::new(Box::new(CarrierSpawner));
         let carrier = supervisor.spawn_and_wait("vm-test", &command).expect("carrier listens");
         let ask = |stream: &mut UnixStream, line: &str| -> std::io::Result<String> {
@@ -400,7 +425,23 @@ exec /bin/cat"#;
         };
         let mut app = UnixStream::connect(&carrier.socket).expect("the app's stream");
         app.set_read_timeout(Some(Duration::from_secs(5))).expect("bounded read");
-        assert_eq!(ask(&mut app, "ping 1\n").expect("the app's stream answers"), "ping 1\n");
+        // What the dial children left (each writes its count and pid first), for a failure's message.
+        let left = || {
+            let mut names: Vec<String> = std::fs::read_dir(&root)
+                .map(|dir| {
+                    dir.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect()
+                })
+                .unwrap_or_default();
+            names.sort();
+            format!("{names:?}, n = {:?}", std::fs::read_to_string(root.join("n")).ok())
+        };
+        let first = ask(&mut app, "ping 1\n");
+        assert_eq!(
+            first.as_deref().ok(),
+            Some("ping 1\n"),
+            "the app's stream answers: {first:?}; dial children left {}",
+            left()
+        );
 
         let mut copy = UnixStream::connect(&carrier.socket).expect("the copy's stream");
         let budget = Duration::from_millis(400);
