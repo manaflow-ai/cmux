@@ -737,9 +737,14 @@ const RELAY_WAIT: Duration = Duration::from_secs(45);
 /// carries text only). The relay's sender is the session this tool runs for, and the send is a
 /// line in the cross-host audit log. Leo, 2026-11-05, on sends between lane machines: "Just do
 /// what's expected. Just do the magic."
-async fn relay(target: &Target, e: &anyhow::Error) -> Option<Value> {
+pub(super) async fn relay(target: &Target, e: &anyhow::Error) -> Option<Value> {
     if target.file.is_some() || !format!("{e:#}").to_lowercase().contains("no session") {
         return None;
+    }
+    // The relay carries text alone: a send with files is refused, never sent without them.
+    if !target.item.attach.is_empty() {
+        let why = "no session here or on a peer, and the send relay carries no attachments";
+        return Some(target.row(false, "failed", Some(format!("{why}: {e:#}"))));
     }
     let relay = crate::cli::send_relay::configured()?;
     // The session's name when its environment has one, else its id (an MCP server's environment
