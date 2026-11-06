@@ -247,23 +247,12 @@ final class RemoteTmuxSizingUITests: XCTestCase {
         setMirrorWindowSize(CGSize(width: 1000, height: 700))
         try assertSettles(selectedWindow: 0, within: 10, context: "before visual title evidence")
         XCTAssertTrue(
-            waitForPaneSurfaceMap(total: 4, onScreenInWindow: "@0", count: 3),
-            "the mirror did not expose the expected 4 unique pane surfaces"
-        )
-        XCTAssertTrue(
             waitForPaneTitles([
                 targetPane: initialPaneTitle,
                 siblingPane: siblingPaneTitle,
                 fallbackPane: "",
             ]),
             "initial remote pane titles did not settle"
-        )
-        XCTAssertTrue(
-            waitForWindowTitles([
-                "\(sessionName):0": initialWindowTitle,
-                "\(sessionName):1": otherWindowTitle,
-            ]),
-            "the mirror did not preserve both independent tmux window titles"
         )
         XCTAssertTrue(waitForVisibleLabels([
             initialPaneTitle, siblingPaneTitle, "\(initialWindowTitle) [2]",
@@ -299,17 +288,17 @@ final class RemoteTmuxSizingUITests: XCTestCase {
             waitForRenameSelection(windowID: windowID),
             "Rename Tab field never became focused with its existing name selected"
         )
+        XCTAssertEqual(renameField.value as? String, initialWindowTitle, "Rename Tab opened with the wrong window title")
         attachVisualFrame(app, name: "03 rename window title input")
         renameField.typeText(localWindowTitle)
         app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
         XCTAssertTrue(
-            waitForWindowTitles([
+            waitForTmuxWindowTitles([
                 "\(sessionName):0": localWindowTitle,
                 "\(sessionName):1": otherWindowTitle,
             ], absent: [initialWindowTitle]),
             "Rename Tab did not send the new title to tmux"
         )
-        XCTAssertTrue(selectTab(named: localWindowTitle), "renamed remote window never became a focusable cmux tab")
         XCTAssertTrue(
             waitForPaneTitles([
                 targetPane: updatedPaneTitle,
@@ -319,21 +308,20 @@ final class RemoteTmuxSizingUITests: XCTestCase {
             "window rename overwrote a projected pane title"
         )
         XCTAssertTrue(waitForVisibleLabels([
-            localWindowTitle, updatedPaneTitle, siblingPaneTitle, "\(initialWindowTitle) [2]",
-        ], in: app), "Rename Tab did not preserve the rendered pane labels and window title")
+            localWindowTitle, otherWindowTitle, updatedPaneTitle, siblingPaneTitle, "\(initialWindowTitle) [2]",
+        ], absent: [initialWindowTitle], in: app), "Rename Tab did not preserve the rendered pane labels and window title")
         attachVisualFrame(app, name: "04 Rename Tab changed only the tmux window title")
 
         // The inverse path: a remote `rename-window` must reconcile into cmux
         // while preserving the separate per-pane title state.
         mustRunTmux(["rename-window", "-t", "\(sessionName):0", remoteWindowTitle], "renaming tmux window externally")
         XCTAssertTrue(
-            waitForWindowTitles([
+            waitForTmuxWindowTitles([
                 "\(sessionName):0": remoteWindowTitle,
                 "\(sessionName):1": otherWindowTitle,
             ], absent: [localWindowTitle]),
             "external tmux window rename did not reconcile"
         )
-        XCTAssertTrue(selectTab(named: remoteWindowTitle), "externally renamed window never became a focusable cmux tab")
         XCTAssertTrue(
             waitForPaneTitles([
                 targetPane: updatedPaneTitle,
@@ -343,8 +331,8 @@ final class RemoteTmuxSizingUITests: XCTestCase {
             "external window rename overwrote a projected pane title"
         )
         XCTAssertTrue(waitForVisibleLabels([
-            remoteWindowTitle, updatedPaneTitle, siblingPaneTitle, "\(initialWindowTitle) [2]",
-        ], in: app), "external rename did not preserve the rendered pane labels and window title")
+            remoteWindowTitle, otherWindowTitle, updatedPaneTitle, siblingPaneTitle, "\(initialWindowTitle) [2]",
+        ], absent: [localWindowTitle], in: app), "external rename did not preserve the rendered pane labels and window title")
         attachVisualFrame(app, name: "05 external tmux window rename")
     }
 

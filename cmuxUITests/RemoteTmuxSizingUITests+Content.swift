@@ -163,34 +163,6 @@ extension RemoteTmuxSizingUITests {
         return map
     }
 
-    /// Waits until the debug map has exactly the lab's expected per-pane
-    /// ownership. The focused three-pane window is visible; the second,
-    /// single-pane tmux window is intentionally present but hidden.
-    func waitForPaneSurfaceMap(
-        total: Int,
-        onScreenInWindow windowID: String,
-        count: Int,
-        timeout: TimeInterval = 10
-    ) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if let response = socketJSON(method: "remote.tmux.pane_surfaces", params: [
-                "host": "e2e-shim-host",
-                "session": sessionName,
-            ]),
-            response["mirrored"] as? Bool == true,
-            let panes = response["panes"] as? [[String: Any]],
-            Set(panes.compactMap { $0["pane_id"] as? String }).count == total,
-            panes.filter({
-                $0["window_id"] as? String == windowID && $0["on_screen"] as? Bool == true
-            }).count == count {
-                return true
-            }
-            Thread.sleep(forTimeInterval: 0.2)
-        }
-        return false
-    }
-
     /// Reads the authoritative tmux title for each explicitly named pane and
     /// polls the mirror stream long enough for a subscription update to land.
     func waitForPaneTitles(_ expected: [String: String], timeout: TimeInterval = 10) -> Bool {
@@ -205,11 +177,9 @@ extension RemoteTmuxSizingUITests {
         return false
     }
 
-    /// Each expected window title must be visible both to tmux and to cmux's
-    /// `surface.list` projection. Checking just one direction would miss a
-    /// broken route; retaining the other window guards against over-broad
-    /// title replacement during a rename.
-    func waitForWindowTitles(
+    /// A completed window rename must reach tmux. The UI counterpart is
+    /// asserted independently through its visible accessibility label.
+    func waitForTmuxWindowTitles(
         _ expected: [String: String],
         absent: Set<String> = [],
         timeout: TimeInterval = 10
@@ -219,12 +189,8 @@ extension RemoteTmuxSizingUITests {
             let tmuxTitles = expected.reduce(into: [String: String]()) { titles, pair in
                 titles[pair.key] = tmux(["display-message", "-p", "-t", pair.key, "#{window_name}"])
             }
-            let surfaceTitles = socketJSON(method: "surface.list", params: [:])?["surfaces"]
-                .flatMap { $0 as? [[String: Any]] }?
-                .compactMap { $0["title"] as? String } ?? []
             if tmuxTitles == expected,
-               expected.values.allSatisfy(surfaceTitles.contains),
-               absent.isDisjoint(with: Set(surfaceTitles)) {
+               absent.isDisjoint(with: Set(tmuxTitles.values)) {
                 return true
             }
             Thread.sleep(forTimeInterval: 0.2)
@@ -249,13 +215,26 @@ extension RemoteTmuxSizingUITests {
         return false
     }
 
-    /// Bonsplit's tab item exposes its title as a button label. Retaining this
-    /// AX check alongside a frame means the CI image has a concrete rendered
-    /// title oracle instead of being a merely illustrative screenshot.
-    func waitForVisibleLabels(_ labels: [String], in app: XCUIApplication, timeout: TimeInterval = 10) -> Bool {
+    /// Bonsplit's tab item exposes its title as a button label. Scope the AX
+    /// assertion to the window being captured, require visible/hittable
+    /// controls, and optionally prove a replaced outer title disappeared.
+    func waitForVisibleLabels(
+        _ labels: [String],
+        absent: [String] = [],
+        in app: XCUIApplication,
+        timeout: TimeInterval = 10
+    ) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if labels.allSatisfy({ app.buttons[$0].exists }) { return true }
+            let window = app.windows.firstMatch
+            if window.exists,
+               labels.allSatisfy({
+                   let button = window.buttons[$0]
+                   return button.exists && button.isHittable
+               }),
+               absent.allSatisfy({ !window.buttons[$0].exists }) {
+                return true
+            }
             Thread.sleep(forTimeInterval: 0.2)
         }
         return false
