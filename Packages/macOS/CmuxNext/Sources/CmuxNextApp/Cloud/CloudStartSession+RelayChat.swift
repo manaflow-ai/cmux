@@ -60,11 +60,11 @@ extension CloudStartSession {
             // The machine takes the login first; the account that asked is checked after its wait, as start-session's is.
             let login: @MainActor () async throws -> (code: String, message: String)? = {
                 try await steps.login(machine, started) { try Self.checked(account, now: cloud.account, started.asked(machine: machine.machine.title)) }
-                let link = machine.appLink, ownership = await link.callerOwnership, decision = machine.harnessLogin
+                let link = machine.appLink, ownership = await link?.callerOwnership ?? .unknown, decision = machine.harnessLogin // no link: unknown
                 let refusal = relayLoginRefusal(decision, started, machine: machine.machine.title, ownership: ownership)
                 // Verdicts only (no id, token, path or provider output); `cached` says when the step never read the cache.
                 let cached = decision.map { $0.machineProbe == nil && $0.machineLogin == nil ? "unqueried" : $0.cached ? "yes" : "no" } ?? "unqueried"
-                cloud.logger.info("cloud relay chat: harness login \(refusal?.code ?? "ready", privacy: .public): link \(await link.stateWord, privacy: .public), owner \(ownership.rawValue, privacy: .public), guest \(decision?.guestKind ?? "-", privacy: .public), cached \(cached, privacy: .public) (\(decision?.summary ?? "no step", privacy: .public))")
+                cloud.logger.info("cloud relay chat: harness login \(refusal?.code ?? "ready", privacy: .public): link \(await link?.stateWord ?? "none", privacy: .public), owner \(ownership.rawValue, privacy: .public), guest \(decision?.guestKind ?? "-", privacy: .public), cached \(cached, privacy: .public) (\(decision?.summary ?? "no step", privacy: .public))")
                 return refusal
             }
             // A person's run waits for the whole turn and shows the reply, or why there is none.
@@ -82,16 +82,14 @@ extension CloudStartSession {
                 // The run answers within the action's result deadline: the login step gets `loginWithin` of it and the turn
                 // the rest. A step still running sends nothing (it goes on and ends on its own); the caller goes the
                 // start-session way, whose start waits for its own step.
-                let clock = ContinuousClock(), begun = clock.now
+                let clock = ContinuousClock(), begun = clock.now, asked = started.asked(machine: machine.machine.title)
+                // Every login refusal carries the start-session command that recovers (its `--login` choice is the caller's).
+                let refused = { (code: String, message: String) in notSent(code, message).merging(["command": .string(asked.command)]) { $1 } }
                 let decided: (code: String, message: String)??
-                do { decided = try await Self.first(within: steps.loginWithin, login) } catch let failure as ActionFailure { return notSent("cloud.relay.login_account_changed", failure.message) }
-                guard let refusal = decided else {
-                    return notSent("cloud.relay.login_pending", CloudStartSessionStrings.relayLoginPending(started.asked(machine: machine.machine.title)))
-                }
+                do { decided = try await Self.first(within: steps.loginWithin, login) } catch let failure as ActionFailure { return refused("cloud.relay.login_account_changed", failure.message) }
+                guard let refusal = decided else { return refused("cloud.relay.login_pending", CloudStartSessionStrings.relayLoginPending(asked)) }
                 if let refusal {
-                    // The rules' reason, and the start-session command that recovers (its `--login` choice is the caller's).
-                    var fields = notSent(refusal.code, refusal.message)
-                    fields["command"] = .string(started.asked(machine: machine.machine.title).command)
+                    var fields = refused(refusal.code, refusal.message)
                     if let reason = machine.harnessLogin?.reason { fields["login_reason"] = .string(reason.rawValue) }
                     return fields
                 }

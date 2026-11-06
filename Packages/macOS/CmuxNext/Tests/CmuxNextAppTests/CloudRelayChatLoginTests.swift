@@ -100,7 +100,7 @@ struct CloudRelayChatLoginTests {
                                             if accountChanges { throw ActionFailure(message: "account changed") }
                                             try still()
                                         }, relay: { Self.relay }, loginWithin: loginWithin))
-        if link != nil { _ = try await f.machine.appLink.connect(origin: .script) }
+        if link != nil { _ = try await #require(f.machine.appLink).connect(origin: .script) }
         let invoke = try #require(f.services.registry.action(for: "cloudRelayChat")?.invoke)
         var run: (work: [ActionWork], results: [ActionResultWork]) = ([], [])
         _ = f.services.registry.capturingRefusal { run = f.services.registry.capturingRun { invoke(Self.invocation(f.machine, origin: origin)) } }
@@ -272,10 +272,10 @@ struct CloudRelayChatLoginTests {
     /// The link's three answers, as the relay reads them.
     @Test func theLinkReadsThreeOwnershipStates() async throws {
         for (owns, teammate, expected) in [(true, false, CloudCallerOwnership.owner), (false, true, .team), (false, false, .unknown)] {
-            let f = Self.fixture(owns: owns, teammate: teammate)
-            #expect(await f.machine.appLink.callerOwnership == .unknown, "no link up: unknown")
-            _ = try await f.machine.appLink.connect(origin: .script)
-            #expect(await f.machine.appLink.callerOwnership == expected)
+            let link = try #require(Self.fixture(owns: owns, teammate: teammate).machine.appLink)
+            #expect(await link.callerOwnership == .unknown, "no link up: unknown")
+            _ = try await link.connect(origin: .script)
+            #expect(await link.callerOwnership == expected)
         }
     }
 
@@ -284,12 +284,33 @@ struct CloudRelayChatLoginTests {
     @Test func anOwnedMachinePassesTheOwnershipCheckOverItsLink() async throws {
         let f = Self.fixture()
         #expect(try await f.services.cloud.callerOwnsVM(f.machine.machineID) == false, "no link: no owner answer")
-        _ = try await f.machine.appLink.connect(origin: .script)
+        _ = try await #require(f.machine.appLink).connect(origin: .script)
         #expect(try await f.services.cloud.callerOwnsVM(f.machine.machineID) == true)
         let theirs = CloudTestLink.session(id: "vm_" + String(repeating: "t", count: 20), name: "Theirs", owns: false, mainWork: f.services.mainWork)
         f.services.machines.add(theirs)
-        _ = try await theirs.appLink.connect(origin: .script)
+        _ = try await #require(theirs.appLink).connect(origin: .script)
         #expect(try await f.services.cloud.callerOwnsVM(theirs.machineID) == false)
+    }
+
+    /// Every typed login refusal of a CLI run carries the start-session command that recovers, the timed-out and
+    /// account-changed ones too: the CLI never forwards a null recovery.
+    @Test func everyLoginRefusalCarriesItsRecoveryCommand() async throws {
+        let runs = [try await Self.relayChat(Self.decision(outcome: CloudCredentialTransfer.CachedLogin.none.startOutcome)),
+                    try await Self.relayChat(Self.decision(outcome: "installed"), loginTakes: .seconds(1), loginWithin: .milliseconds(100)),
+                    try await Self.relayChat(Self.decision(outcome: "installed"), accountChanges: true),
+                    try await Self.relayChat(Self.decision(outcome: nil, callerOwns: false)),
+                    try await Self.relayChat(Self.decision(outcome: nil, callerOwns: false), link: .team)]
+        var codes: Set<String> = []
+        for run in runs {
+            let fields = try Self.fields(run.result)
+            guard case .string(let code) = fields["error_code"], case .string(let command) = fields["command"] else {
+                Issue.record("a refusal with no code or no recovery command: \(fields)"); continue
+            }
+            codes.insert(code)
+            #expect(code.hasPrefix("cloud.relay.login_") && command.hasPrefix("cmux cloud start-session --target machine:"), "\(code): \(command)")
+        }
+        #expect(codes == ["cloud.relay.login_missing", "cloud.relay.login_pending", "cloud.relay.login_account_changed",
+                          "cloud.relay.login_unverified", "cloud.relay.login_team_machine"])
     }
 
     /// The person's own run (the palette) sees the same refusal, and nothing is sent.
