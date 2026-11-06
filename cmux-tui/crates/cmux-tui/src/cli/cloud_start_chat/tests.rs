@@ -264,7 +264,9 @@ fn the_answer_times_each_step_it_ran() {
         .as_array()
         .unwrap()
         .iter()
-        .map(|s| (s["step"].as_str().unwrap(), s["at"].as_u64().unwrap(), s["ms"].as_u64().unwrap()))
+        .map(|s| {
+            (s["step"].as_str().unwrap(), s["at"].as_u64().unwrap(), s["ms"].as_u64().unwrap())
+        })
         .collect();
     assert_eq!(
         steps,
@@ -767,7 +769,8 @@ fn the_relay_answers_a_new_chat_with_no_link_to_the_machine() {
         signed_in(),
         made(),
         relayed(json!({"session_id": "relay-1", "reply": "4", "stop_reason": "end_turn",
-                       "first_text_ms": 2100, "total_ms": 2500})),
+                       "first_text_ms": 2100, "total_ms": 2500, "link_login_ms": 300, "sent_ms": 900,
+                       "platform_stages_ms": {"socket": 700}})),
     ]);
     let asked = request(&["--prompt", "What is 2+2?", "--cwd", "/home/cmux/w", "--wait"]);
     let Outcome::Done(answer) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
@@ -775,6 +778,10 @@ fn the_relay_answers_a_new_chat_with_no_link_to_the_machine() {
     assert_eq!(answer["path"], "relay");
     assert_eq!(answer["session_id"], "relay-1");
     assert_eq!(answer["first_text_ms"], 2100);
+    // The app's stage times pass on; one it did not report is left out.
+    assert_eq!((&answer["link_login_ms"], &answer["sent_ms"]), (&json!(300), &json!(900)));
+    assert_eq!(answer["platform_stages_ms"], json!({"socket": 700}));
+    assert!(answer.get("queued_ms").is_none());
     assert_eq!(answer["stop_reason"], "end_turn");
     assert!(answer["follow_up"]["wait"].as_str().unwrap().contains("acp wait relay-1"));
     assert_eq!(
