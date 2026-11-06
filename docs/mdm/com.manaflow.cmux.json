@@ -2004,6 +2004,12 @@
       "title" : "Fill Codes from Verification Emails",
       "type" : "boolean"
     },
+    "browser.wakeTabsOnHover" : {
+      "default" : false,
+      "description" : "When the pointer rests on a tab or a workspace, its sleeping pages start to load before you click. Uses more memory.",
+      "title" : "Wake Tabs on Hover",
+      "type" : "boolean"
+    },
     "chief.autoRouteSubagents" : {
       "default" : false,
       "description" : "The Chief picks the agent each subagent runs on, such as Codex for long coding work and Claude for writing and UI, even when the Chief itself runs on another. Off, subagents run on the Chief's own agent.",
@@ -2033,6 +2039,47 @@
       "description" : "A reaction you put on a Chief message can start a turn when it asks for one, such as a question mark on a question or a thumbs down on a plan. A cheap model decides first, so a reaction that needs no answer never shows the typing dots. Off, reactions are only noted.",
       "title" : "Reactions Can Wake the Chief",
       "type" : "boolean"
+    },
+    "chief.subagentSidebar" : {
+      "default" : "auto",
+      "description" : "Automatic lets the Chief decide for each subagent: work you will want to watch or join shows, short errands stay hidden. Always and Never override the Chief.",
+      "enum" : [
+        "auto",
+        "always",
+        "never"
+      ],
+      "title" : "Subagents in the Sidebar",
+      "type" : "string"
+    },
+    "chief.subagentSidebarHideWords" : {
+      "default" : [
+
+      ],
+      "description" : "Words or phrases that keep a subagent hidden when the Chief leaves it to these rules. They add to the built-in ones, such as lookup, cleanup and land queue. A show word wins.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Hide Tasks That Mention",
+      "type" : "array"
+    },
+    "chief.subagentSidebarMinWords" : {
+      "default" : 50,
+      "description" : "A task with no show or hide word shows when it has at least this many words, and stays hidden when it is shorter.",
+      "maximum" : 1000,
+      "minimum" : 0,
+      "title" : "Show Tasks Longer Than",
+      "type" : "number"
+    },
+    "chief.subagentSidebarShowWords" : {
+      "default" : [
+
+      ],
+      "description" : "Words or phrases that show a subagent when the Chief leaves it to these rules. They add to the built-in ones, such as UI, design, screenshots and needs you.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Show Tasks That Mention",
+      "type" : "array"
     },
     "cloud.agentsStartWithoutAsking" : {
       "default" : true,
@@ -3996,7 +4043,8 @@
       "description" : "sidebar.groupBy",
       "enum" : [
         "none",
-        "folder"
+        "folder",
+        "recents"
       ],
       "title" : "Group Projects By",
       "type" : "string"
@@ -4006,6 +4054,17 @@
       "description" : "Off: one list of workspaces, and a workspace on another computer names it under its title. On: a section per computer.",
       "title" : "Group Workspaces by Computer",
       "type" : "boolean"
+    },
+    "sidebar.groupHeader.background" : {
+      "default" : "auto",
+      "description" : "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color.",
+      "enum" : [
+        "auto",
+        "glass",
+        "solid"
+      ],
+      "title" : "Group Background",
+      "type" : "string"
     },
     "sidebar.groupHeader.memberCount" : {
       "default" : false,
@@ -5437,6 +5496,36 @@
       "description" : "A workspace you have not named shows its front tab's name: a page's title, an agent chat's title, or a terminal's title or folder. Your own name always wins.",
       "title" : "Name Workspaces from Tabs",
       "type" : "boolean"
+    },
+    "workspaces.freeing.agents" : {
+      "default" : true,
+      "description" : "Also ends Claude Code and Codex sessions that wait for your next message. Opening the tab resumes the same session.",
+      "title" : "Free Idle Agents",
+      "type" : "boolean"
+    },
+    "workspaces.freeing.enabled" : {
+      "default" : false,
+      "description" : "Ends the shells of workspaces you have not used for a long time when they sit at an empty prompt. Opening the workspace starts each shell again in the same folder, with its saved screen above it. Pinned workspaces and workspaces kept awake are never freed.",
+      "title" : "Free Idle Terminals",
+      "type" : "boolean"
+    },
+    "workspaces.freeing.idleMinutes" : {
+      "default" : 1440,
+      "description" : "A hibernated workspace's idle shells end after this many minutes without use (1440 is one day).",
+      "maximum" : 43200,
+      "minimum" : 60,
+      "title" : "Free Terminals After",
+      "type" : "number"
+    },
+    "workspaces.freeing.runningCommands" : {
+      "default" : "never",
+      "description" : "What happens to a command that still runs in a workspace that frees its terminals.",
+      "enum" : [
+        "never",
+        "relaunch"
+      ],
+      "title" : "Running Commands",
+      "type" : "string"
     },
     "workspaces.hibernation.enabled" : {
       "default" : true,

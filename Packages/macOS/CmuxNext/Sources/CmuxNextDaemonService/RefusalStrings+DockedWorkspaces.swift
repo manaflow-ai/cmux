@@ -10,7 +10,7 @@ nonisolated extension RefusalStrings {
         text("handlers.refusal.workspaceNotDocked", "This workspace is not docked.")
     }
 
-    /// A window-dock action (Move Dock to Left, Show or Hide Dock, Focus Dock…) in a window with no dock.
+    /// A window-dock action (Move Dock to Left, Show/Hide Dock, Focus Dock…) in a window with no dock.
     public static var windowHasNoDock: String {
         text("handlers.refusal.windowHasNoDock", "This window has no dock. Press Cmd-I to dock the Chief, or move a pane to the dock.")
     }

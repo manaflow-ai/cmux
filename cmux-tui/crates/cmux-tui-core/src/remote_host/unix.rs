@@ -343,7 +343,7 @@ impl Inner {
                 start_sec,
                 start_usec,
                 secret,
-                bundle_digest: staged.digest.clone(),
+                bundle_digest: staged.digest,
                 socket: paths.supervisor_socket(),
             };
             write_record(&paths.record(), &record);

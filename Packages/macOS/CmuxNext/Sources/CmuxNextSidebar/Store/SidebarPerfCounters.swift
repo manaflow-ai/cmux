@@ -26,6 +26,8 @@ import Foundation
 /// - `spare_row_views`: spare workspace row views made after a frame committed.
 /// - `row_frames`: row frames a list apply computed (`SidebarListView.frame(for:)` in `apply`): the rows it can draw
 ///   (realized, in the realization rect, or reopened), never every listed row (m23, sidebar row insert and remove).
+/// - `layout_rows`: rows `SidebarLayout.make` laid out (every listed row per full layout): a change that touches one row
+///   lays out none, at 50 rows as at 200 (SIDEBAR INSERT: a create's row becoming its workspace's row).
 nonisolated enum SidebarPerfCounters {
     enum Counter: String, CaseIterable, Sendable {
         case rebuilds
@@ -47,6 +49,7 @@ nonisolated enum SidebarPerfCounters {
         case rowViewsMade = "row_views_made"
         case spareRowViews = "spare_row_views"
         case rowFrames = "row_frames"
+        case layoutRows = "layout_rows"
     }
 
     private static let counts = Mutex<[Counter: Int]>([:])
