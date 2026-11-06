@@ -220,6 +220,18 @@ async fn stop_beside_background(script: &str) {
     );
     let row = summary(&hub, &id);
     assert!(row["turn"].is_null(), "the stopped turn is still open: {row}");
+    // A silent harness emits no progress to prove liveness: ask the same process
+    // for its identity after Stop, without ending its background work.
+    c.send(method::SESSION_PROMPT, prompt(&id, "whoami", Some("p-probe"))).await;
+    let reply = tokio::time::timeout(
+        Duration::from_secs(10),
+        c.wait_for(method::SESSION_UPDATE, |p| {
+            p["update"]["content"]["text"].as_str().is_some_and(|t| t.starts_with("pid="))
+        }),
+    )
+    .await
+    .expect("the preserved harness did not answer a new prompt");
+    assert_eq!(reply["update"]["content"]["text"], pid.replace(' ', "="));
 }
 
 /// The person's Stop keeps their own queued prompt as it was: it runs next. The other agents'
