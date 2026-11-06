@@ -61,7 +61,11 @@ impl Hub {
     }
 
     pub(super) async fn peer_notice_loop(self: Arc<Self>) {
-        let Some(mut rx) = self.peer_notices_rx.lock().await.take() else { return };
+        let Some(mut rx) = self.peer_notices_rx.lock().await.take() else {
+            self.peer_notices_finished.store(true, Ordering::Release);
+            self.peer_notices_done.notify_waiters();
+            return;
+        };
         // A dedicated persistent signal: hub.shutdown's stored Notify permit
         // belongs to the main daemon, including before its waiter registers.
         let mut stop = self.peer_notices_stop.subscribe();

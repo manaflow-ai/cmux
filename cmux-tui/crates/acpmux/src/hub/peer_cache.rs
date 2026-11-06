@@ -93,6 +93,15 @@ impl Hub {
                     pending_peer
                         .cache_write_pending
                         .store(false, std::sync::atomic::Ordering::Release);
+                    // A leased peer leaves the registry on disconnect. Once its last queued
+                    // writer is done, drop the per-peer gate unless a replacement already owns
+                    // the name; the replacement may be using this same gate for ordering.
+                    let mut writers =
+                        hub.peer_cache_writers.lock().unwrap_or_else(|e| e.into_inner());
+                    let peers = hub.peers.lock().unwrap_or_else(|e| e.into_inner());
+                    if !peers.contains_key(&peer) {
+                        writers.remove(&peer);
+                    }
                 });
             if spawned.is_err() {
                 p.cache_write_pending.store(false, std::sync::atomic::Ordering::Release);
