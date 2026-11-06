@@ -19,7 +19,7 @@ import Testing
 /// moves more in a frame than its pane's edges do, and nothing moves after the landing.
 @MainActor
 @Suite(.serialized, .closesItsWindows)
-struct SplitMotionTargetTraceTests {
+struct SplitMotionTargetTests {
     typealias Rig = PaneGroundCoversPaneTests.Rig
 
     static let stack = PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.stack)
