@@ -115,7 +115,6 @@ impl Hub {
         let at = now_ms();
         let last = p.cache_saved_at.load(std::sync::atomic::Ordering::SeqCst);
         if !now && at.saturating_sub(last) < SAVE_EVERY_MS {
-            p.cache_dirty.store(true, std::sync::atomic::Ordering::SeqCst);
             return;
         }
         // Snapshot each shared structure independently. The writer gate preserves ordering for
