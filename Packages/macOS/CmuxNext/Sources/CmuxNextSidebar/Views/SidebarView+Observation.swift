@@ -98,6 +98,18 @@ extension SidebarViewComponents {
     /// Draws the model now, in the caller's turn (SidebarSameTurn); the observation's next, equal state is skipped.
     public func renderNow() { render(RenderState(model, design)) }
 
+    /// Draws the model in this turn's frame: the main run loop's block phase, before AppKit's display cycle and the
+    /// commit, once however many times the turn asks. An input's turn changes the model and leaves the view work to
+    /// the frame that shows it (Cmd-N's row, SWITCH STALL 6); a later `renderNow` in the turn draws it first.
+    public func renderInFrame() {
+        guard !renderQueued else { return }
+        renderQueued = true
+        MainRunLoopBlock.perform { [weak self] in
+            self?.renderQueued = false
+            self?.renderNow()
+        }
+    }
+
     /// Draws the model now and scrolls the selection into view, with the header
     /// and list top around it, even when it did not change: Cmd-`n`, Cmd-Ctrl-[ / ]
     /// and the palette pressed again on the item they already selected.

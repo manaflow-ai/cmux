@@ -24,12 +24,6 @@
       "reason": "debt: the sandboxed-run notice's timeout label names the classic /api/runs route it follows"
     },
     {
-      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudAPIClient+ChatGrants.swift",
-      "pattern": "route:/api/vm",
-      "count": 1,
-      "reason": "debt: machine chat grants still go through classic /api/vm/{id}/chat-grants until cmux-platform serves them"
-    },
-    {
       "file": "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudAPIClient.swift",
       "pattern": "route:/api/runs",
       "count": 10,
@@ -38,7 +32,7 @@
     {
       "file": "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudAPIClient.swift",
       "pattern": "route:/api/vm",
-      "count": 25,
+      "count": 24,
       "reason": "debt: the NEXT Cloud REST client's machine calls still use classic /api/vm until cmux-platform's machine API replaces them"
     },
     {

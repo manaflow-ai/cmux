@@ -22,11 +22,22 @@ const SYNC: Duration = Duration::from_millis(400);
 
 /// A hub on a journal store with two chats.
 fn hub(home: &Path, journal: &SimStorage) -> Arc<crate::hub::Hub> {
+    hub_and_durability(home, journal, cmux_journal::Config::default().kept_sync_quiet).0
+}
+
+/// [`hub`] whose journal syncs kept records after `kept_sync_quiet` of idle time, and the store's
+/// durability as the outbound gate reads it.
+fn hub_and_durability(
+    home: &Path,
+    journal: &SimStorage,
+    kept_sync_quiet: Duration,
+) -> (Arc<crate::hub::Hub>, crate::store::Durability) {
     let mut config = Config::default();
     config.store.mode = StoreMode::Local;
     let journal_config = cmux_journal::Config {
         retry_min: Duration::from_millis(1),
         retry_max: Duration::from_millis(5),
+        kept_sync_quiet,
         ..cmux_journal::Config::default()
     };
     let store = crate::store::open_with_journal(
@@ -44,7 +55,8 @@ fn hub(home: &Path, journal: &SimStorage) -> Arc<crate::hub::Hub> {
         .unwrap_or_else(|e| panic!("meta: {e}"));
         store.save(&meta).unwrap_or_else(|e| panic!("{e:#}"));
     }
-    crate::hub::Hub::new(config, store)
+    let durability = store.durability().unwrap_or_else(|| panic!("a journal store has one"));
+    (crate::hub::Hub::new(config, store), durability)
 }
 
 /// A local connection, initialized, and its outgoing lines.
@@ -80,8 +92,8 @@ async fn until(outgoing: &mut mpsc::Receiver<String>, stop: impl Fn(&Value) -> b
     .unwrap_or_else(|_| panic!("no such line within 10 s"))
 }
 
-/// A rename appends its `renamed` record (an acknowledged change): the reply waits until that
-/// record is durable, one sync after it was appended at the earliest.
+/// An unread mark appends its metadata record and its `status` line (acknowledged changes): the
+/// reply waits until they are durable, one sync after they were appended at the earliest.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_acked_change_is_answered_once_its_record_is_durable() {
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
@@ -90,15 +102,112 @@ async fn an_acked_change_is_answered_once_its_record_is_durable() {
     let (input, mut outgoing) = connect(&hub).await;
     journal.set_sync_delay(SYNC);
     let started = Instant::now();
-    let rename = json!({"sessionId": CHAT, "newName": "renamed"});
-    send(&input, Message::request(2, method::MUX_RENAME, rename)).await;
+    let unread = json!({"sessionId": CHAT});
+    send(&input, Message::request(2, method::MUX_MARK_UNREAD, unread)).await;
     let reply = until(&mut outgoing, |line| line["id"] == 2).await;
     let took = started.elapsed();
     journal.set_sync_delay(Duration::ZERO);
-    assert!(reply.get("error").is_none(), "rename: {reply}");
+    assert!(reply.get("error").is_none(), "markUnread: {reply}");
     assert!(
         took >= SYNC.saturating_sub(Duration::from_millis(50)),
-        "the rename was answered after {took:?}, before its record could be durable"
+        "the unread mark was answered after {took:?}, before its record could be durable"
+    );
+}
+
+/// A draft and a name are kept changes (`store/durability.rs`): each answer waits for its records
+/// to be written, not synced, so typing and renaming never wait for the disk; and a kill -9 of
+/// the daemon right after the answers keeps both.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_draft_and_a_name_are_answered_before_their_sync_and_survive_a_kill() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(63);
+    // No idle-time sync of the draft's record between the two requests: on a loaded machine the
+    // pause between them can pass the 10 ms quiet time, and the rename's write would then wait
+    // behind that (simulated 400 ms) sync. Review of #37174, finding 1.
+    let (hub, _) = hub_and_durability(home.path(), &journal, Duration::from_secs(60));
+    let (input, mut outgoing) = connect(&hub).await;
+    // The full sync that follows the chats' saves within the journal's 1 s interval is over: no
+    // sync of the setup is under way when the slow syncs start.
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    journal.set_sync_delay(SYNC);
+    let started = Instant::now();
+    let draft = json!({"sessionId": CHAT, "text": "still typing"});
+    send(&input, Message::request(2, method::MUX_DRAFT_SET, draft)).await;
+    let drafted = until(&mut outgoing, |line| line["id"] == 2).await;
+    let draft_took = started.elapsed();
+    let started = Instant::now();
+    let rename = json!({"sessionId": CHAT, "newName": "kept-name"});
+    send(&input, Message::request(3, method::MUX_RENAME, rename)).await;
+    let renamed = until(&mut outgoing, |line| line["id"] == 3).await;
+    let rename_took = started.elapsed();
+    // A kill -9 right after the answers: what the processes wrote stays, nothing more is synced.
+    let killed = journal.snapshot(cmux_journal::Crash::Process);
+    killed.set_sync_delay(Duration::ZERO);
+    journal.set_sync_delay(Duration::ZERO);
+    assert!(drafted.get("error").is_none(), "draft_set: {drafted}");
+    assert!(renamed.get("error").is_none(), "rename: {renamed}");
+    assert!(draft_took < SYNC / 2, "draft_set was answered after {draft_took:?}: it waited a sync");
+    assert!(rename_took < SYNC / 2, "rename was answered after {rename_took:?}: it waited a sync");
+    let mut config = Config::default();
+    config.store.mode = StoreMode::Local;
+    let journal_config = cmux_journal::Config {
+        retry_min: Duration::from_millis(1),
+        retry_max: Duration::from_millis(5),
+        ..cmux_journal::Config::default()
+    };
+    let store = crate::store::open_with_journal(
+        &config.store,
+        home.path(),
+        Arc::new(killed),
+        journal_config,
+    )
+    .unwrap_or_else(|e| panic!("open the store after the kill: {e:#}"));
+    let meta = store
+        .load(CHAT)
+        .unwrap_or_else(|e| panic!("load: {e:#}"))
+        .unwrap_or_else(|| panic!("the chat is gone after the kill"));
+    assert_eq!(meta.composer_draft.as_deref(), Some("still typing"), "the draft after the kill");
+    assert_eq!(meta.name, "kept-name", "the name after the kill");
+}
+
+/// Kept changes are synced in the journal's idle time soon after they are written, so the next
+/// acknowledged change (a prompt) syncs only its own records. Before, they waited for that change
+/// or the stream sync delay (1 s): after the perf bench's 200 drafts and names, the first prompt's
+/// sync carried 316 records, 1.17 MB, and took 7.3 ms against 2.2-2.5 ms for its own 319 bytes
+/// (job 01189fd6, aws-m4pro-8: `light.op.prompt_accepted` p95 2.0 -> 3.2 ms, max 3.6 -> 7.4 ms).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn kept_changes_are_synced_in_idle_time_before_the_next_acked_change() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(64);
+    let quiet = cmux_journal::Config::default().kept_sync_quiet;
+    let (hub, durability) = hub_and_durability(home.path(), &journal, quiet);
+    let (input, mut outgoing) = connect(&hub).await;
+    // The setup's syncs (and the full sync that follows them within 1 s) are over.
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    for id in 0..20u64 {
+        let draft = json!({"sessionId": CHAT, "text": format!("typing {id}")});
+        send(&input, Message::request(10 + id, method::MUX_DRAFT_SET, draft)).await;
+        let drafted = until(&mut outgoing, |line| line["id"] == 10 + id).await;
+        assert!(drafted.get("error").is_none(), "draft_set: {drafted}");
+    }
+    let rename = json!({"sessionId": CHAT, "newName": "idle-synced"});
+    send(&input, Message::request(40, method::MUX_RENAME, rename)).await;
+    let renamed = until(&mut outgoing, |line| line["id"] == 40).await;
+    assert!(renamed.get("error").is_none(), "rename: {renamed}");
+    let kept = durability.kept.load(std::sync::atomic::Ordering::SeqCst);
+    assert!(kept > 0, "the drafts and the name appended no kept record");
+    // No acknowledged change comes. Within 300 ms of idle time (well inside the 1 s stream sync
+    // delay) the kept records are synced on their own.
+    let mut durable = durability.durable.clone();
+    let synced =
+        tokio::time::timeout(Duration::from_millis(300), durable.wait_for(|lsn| *lsn >= kept))
+            .await
+            .is_ok();
+    let at = *durable.borrow();
+    assert!(
+        synced,
+        "kept records up to LSN {kept} were not synced in 300 ms of idle time (durable: {at}): \
+         the next acked change would sync them in its own turn"
     );
 }
 
@@ -116,9 +225,9 @@ async fn agent_output_is_not_held_behind_another_chats_acked_change() {
     assert!(reply.get("error").is_none(), "attach: {reply}");
     let (other, mut other_out) = connect(&hub).await;
     journal.set_sync_delay(SYNC);
-    let rename = json!({"sessionId": OTHER, "newName": "renamed"});
-    send(&other, Message::request(2, method::MUX_RENAME, rename)).await;
-    // The rename's record is appended; its reply waits for its sync.
+    let unread = json!({"sessionId": OTHER});
+    send(&other, Message::request(2, method::MUX_MARK_UNREAD, unread)).await;
+    // The unread mark's record is appended; its reply waits for its sync.
     tokio::time::sleep(Duration::from_millis(100)).await;
     let session = hub.resolve(CHAT).unwrap_or_else(|e| panic!("{e:?}"));
     let started = Instant::now();
@@ -134,9 +243,9 @@ async fn agent_output_is_not_held_behind_another_chats_acked_change() {
     );
     let update = until(&mut viewer_out, |line| line["method"] == method::SESSION_UPDATE).await;
     let took = started.elapsed();
-    let renamed = until(&mut other_out, |line| line["id"] == 2).await;
+    let marked = until(&mut other_out, |line| line["id"] == 2).await;
     journal.set_sync_delay(Duration::ZERO);
-    assert!(renamed.get("error").is_none(), "rename: {renamed}");
+    assert!(marked.get("error").is_none(), "markUnread: {marked}");
     assert_eq!(update["params"]["update"]["content"]["text"], "hi", "{update}");
     assert!(took < SYNC / 2, "agent output waited {took:?} behind another chat's change");
 }
@@ -156,8 +265,8 @@ async fn a_journal_that_syncs_nothing_asks_the_daemon_to_stop() {
     // Each sync takes 3 s: past the 300 ms stall limit, and short enough that the journal ends
     // (a sync under way keeps its delay, and the store's drop waits for it).
     journal.set_sync_delay(Duration::from_secs(3));
-    let rename = json!({"sessionId": CHAT, "newName": "renamed"});
-    send(&input, Message::request(2, method::MUX_RENAME, rename)).await;
+    let unread = json!({"sessionId": CHAT});
+    send(&input, Message::request(2, method::MUX_MARK_UNREAD, unread)).await;
     let asked = tokio::time::timeout(Duration::from_millis(2500), stop.wait_for(Option::is_some))
         .await
         .is_ok();
@@ -174,7 +283,10 @@ async fn a_replay_never_sends_a_line_before_its_record() {
     use crate::store::pause_next_log_write_on_this_thread;
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
     let journal = SimStorage::new(63);
-    let hub = hub(home.path(), &journal);
+    // No idle-time sync of the draft's record between the two requests: on a loaded machine the
+    // pause between them can pass the 10 ms quiet time, and the rename's write would then wait
+    // behind that (simulated 400 ms) sync. Review of #37174, finding 1.
+    let (hub, _) = hub_and_durability(home.path(), &journal, Duration::from_secs(60));
     let session = hub.resolve(CHAT).unwrap_or_else(|e| panic!("{e:?}"));
     let first = hub.append(&session, "mux", "note", json!({"n": 1}));
     let (arrived_tx, arrived) = std::sync::mpsc::channel();

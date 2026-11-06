@@ -1452,6 +1452,11 @@ impl Hub {
         if let Some(e) = stalled {
             result = Err(e);
         }
+        // acpmux ended a turn whose model API refused the agent's sign-in (`turn_retry.rs`).
+        let refused = result.as_ref().ok().and_then(Self::sign_in_refused_error);
+        if let Some(e) = refused {
+            result = Err(e);
+        }
         // Apply queued stderr before classifying a dead process (a limit never resumes).
         Self::drain_inbound(session).await;
         // Before the message gains the stderr line: `recovery::annotate_as` below types it.
@@ -2193,8 +2198,9 @@ impl Hub {
             m.name_given = true;
             std::mem::replace(&mut m.name, name.clone())
         };
+        // Both kept (`store/durability.rs`): the answer waits until they are written, not synced.
         self.append(session, "mux", "renamed", json!({"from": old, "to": name}));
-        self.save_meta_answered(session)?;
+        self.save_meta_kept(session)?;
         // Its running Claude Code takes the name too (`live_name.rs`).
         self.rename_live_claude(session);
         Ok(())
