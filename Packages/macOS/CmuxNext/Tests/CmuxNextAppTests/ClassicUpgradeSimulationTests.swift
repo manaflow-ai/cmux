@@ -369,6 +369,14 @@ struct ClassicUpgradeSimulationTests {
         let parked = { (id: String) in !tabs(id).isEmpty && tabs(id).allSatisfy { $0.dead && $0.relaunch?.onShow == true } }
         let parkDeadline = ContinuousClock.now + .seconds(60)
         while ContinuousClock.now < parkDeadline, !background.allSatisfy(parked) { try? await Task.sleep(for: .milliseconds(20)) }
+        if !background.allSatisfy(parked), let connection = sim.services.daemon.connection,
+           let clients = try? await connection.request(DiagListClients()) {
+            let unparked = Set(background.filter { !parked($0) }.flatMap { tabs($0).filter { !$0.dead }.map(\.surface.rawValue) })
+            for client in clients where !Set(client.attached ?? []).isDisjoint(with: unparked) {
+                print("DIAG-ATTACHED client=\(client.client) name=\(client.name ?? "-") kind=\(client.kind ?? "-") self=\(client.isSelf ?? false) surfaces=\(Set(client.attached ?? []).intersection(unparked).sorted())")
+            }
+            print("DIAG-UNPARKED \(unparked.sorted()) clients=\(clients.count)")
+        }
         for id in background {
             #expect(parked(id),
                     "\(store.workspace(id: id)?.name ?? id) is not parked: \(tabs(id).map { ($0.dead, $0.relaunch?.onShow) })")
@@ -390,3 +398,16 @@ struct ClassicUpgradeSimulationTests {
     }
 }
 
+
+struct DiagListClients: DaemonRequest {
+    struct Client: Decodable, Sendable {
+        var client: UInt64
+        var name: String?
+        var kind: String?
+        var attached: [UInt64]?
+        var isSelf: Bool?
+        enum CodingKeys: String, CodingKey { case client, name, kind, attached; case isSelf = "self" }
+    }
+    typealias Response = [Client]
+    static let command = "list-clients"
+}
