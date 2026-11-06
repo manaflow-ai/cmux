@@ -214,8 +214,7 @@ async fn a_replay_never_sends_a_line_before_its_record() {
 /// Review of #35400 N1: after a hard stop the log can be ahead of the chat's saved `lastSeq`
 /// (metadata is saved less often than lines). `session/load`'s replay stops at `lastSeq`, so it
 /// must count the log's tail first (`Hub::catch_up`): else the first replay of a chat whose log
-/// is not loaded yet leaves out its newest lines, and they are never sent live either. With the
-/// switch off too.
+/// is not loaded yet leaves out its newest lines, and they are never sent live either.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_replay_after_a_hard_stop_sends_the_tail_past_the_saved_last_seq() {
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
