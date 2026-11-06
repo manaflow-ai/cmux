@@ -1,0 +1,329 @@
+{
+  "version": 1,
+  "build": "4229604623301",
+  "notes": "notes/4229604623301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 37223,
+      "title": "perf(new tab places): one observation per workspace, not one over every workspace",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37195,
+      "title": "fix(next): compact stopped-turn Continue footer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37177,
+      "title": "Golden-path receipt: fail on exits and failed rounds, read the platform probe's stages",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36968,
+      "title": "cmux-host: the relay ping is the exact frame the platform answers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37198,
+      "title": "cloud start-chat: a machine cap names your machines and how to make room",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37209,
+      "title": "fix(next): CEF first-frame hold attaches on a dropped tick and grants the kept ask after a refused attach",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37217,
+      "title": "fix(sidebar): a cleared hover control answers accessibility as a hidden one did",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37202,
+      "title": "fix(next): a split's or close's terminal rides the edge Ghostty keeps; frame-by-frame motion target checks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37215,
+      "title": "hot-apply: a daemon whose status hangs is not taken for none; a short nightly sha missing here fetches the branch",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37214,
+      "title": "deps(relay-do): pin undici 7.30.2 so npm audit passes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37168,
+      "title": "Agent chat: scrolling while a tool runs redraws no history row; a wakeup row lights like its command siblings",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34521,
+      "title": "CI picker: declare priority bands and queued preemption",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37151,
+      "title": "ci(nightly-next): one latest-wins loop on the nightly mini",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36296,
+      "title": "Font study: 24 pairings for the chrome and the chat, judged on one screen (gallery only)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37187,
+      "title": "Prompt rail: every tick at one weight, so the ticks read evenly spaced",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37193,
+      "title": "acpmux: the person's message moves the long foreground call it waits behind",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37200,
+      "title": "hot-apply: a rollback that fails can be retried, acpmux homes go back, helpers listed under left",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37207,
+      "title": "protocol: the Cloud bind carries the session daemon's Noise key",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37192,
+      "title": "Agent chat: a GitHub link's hover card shows at once, at its full size",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37180,
+      "title": "Chief memory import: a history over the cost cap imports in runs, not refused",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37176,
+      "title": "cmux NEXT hover cards: one card style, no empty rows, and the sidebar card on the shared glass",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37201,
+      "title": "Sidebar hover preview: moving around the hovered row no longer flickers its highlight or its card",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37194,
+      "title": "test(next): HiddenFit judges each key-resize spring from its own start: the between-springs fit is not a fit in motion",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34635,
+      "title": "cmux NEXT updater: a log file at ~/Library/Logs/cmux-next/<bundle>-updater.log",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37181,
+      "title": "cmux NEXT: a chat that is thinking draws no attention ring",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37182,
+      "title": "cmux NEXT glass: one set of glass levels (chrome, popover, menu, chip) for every web surface",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36987,
+      "title": "bench_power: no footprint delta over unread processes; idleProbe window fits Chromium's script deadline",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37185,
+      "title": "hot-apply: a merged commit's Rust and web parts into the running app, sha-checked, with rollback",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34792,
+      "title": "Composer: Codex's look draws Codex's round Send after the mic",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37188,
+      "title": "bench: hover OFF arm is preload off; stall reader keeps the sweep and names frames by UUID; realistic launch waits for the chat's first frame",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37172,
+      "title": "Cloud start-chat: production personal sends get the platform's set-up project machine",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37175,
+      "title": "perf(next): a Chromium page shown by Cmd-N orders its window in after the first frame (SWITCH STALL 5)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37174,
+      "title": "acpmux: sync kept records in the journal's idle time, not in the next ack's turn",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37178,
+      "title": "Composer: an attachment chip's × is a crisp glyph on a solid badge",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37171,
+      "title": "fix(cmux link): a receiver whose policy names no peers reads it again in 2 s, backing off to the renewal",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37158,
+      "title": "Agent chat: a running background command shows as a normal row, no count line under the run",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37145,
+      "title": "perf(sidebar): a hover crossing changes paint only; row hover controls stay in the tree",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36240,
+      "title": "cmux NEXT glass: one shared glass material, first on the composer (specular rim, sheen, depth)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36226,
+      "title": "Subagent pane: its transcript draws in the pane's first frame (spare page, tail in the adopt event)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37015,
+      "title": "cmux-next: Back/Forward right-click lists history, Recently Closed and Show Full History",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35166,
+      "title": "fix(next): follow up window motion pacing and scale changes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36771,
+      "title": "Agent chat: an opened Read, Grep or Glob shows what it found (file peek, matches by file)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37150,
+      "title": "cmux NEXT browser: the Import Cookies banner and the cookie consent panel follow the app theme",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37163,
+      "title": "fix(cmux-next): background classic workspaces park again",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37164,
+      "title": "Cloud: machine-status names why a machine failed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37166,
+      "title": "cmux-vm: approve cloud-native-f1c3afd-rd022 (cmux-tui f1c3afd0: #37047 no-cwd and #37059 relay observer) for development, staging and production (hq#7086)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37154,
+      "title": "fix(next): a launch's Cmd-N reservation on an empty New Tab pool is not an open; regression test for #37134",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36996,
+      "title": "cmux live --rust: find an app's daemon owner on Linux; a restore whose daemon never answers says so",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37148,
+      "title": "Cloud carrier: a stream whose upload stalls before its first line reaches the daemon",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37155,
+      "title": "fix(cmux-wg): a dial waiting on a handshake resends its initiation every second",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36657,
+      "title": "cu-driver eval VM: run Cua Driver Bench v2's BenchLab tasks with cmux-cua and Cua Driver 0.38",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37146,
+      "title": "fix(bench-startup): find the app daemon where cmux-tui puts its socket (long tags, key names)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37140,
+      "title": "perf(next): send a view's grid to the daemon in its report's turn (T-KEYS 4)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
