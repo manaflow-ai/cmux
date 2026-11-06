@@ -17,13 +17,18 @@ cmux_hermes_accept_python() {
     CMUX_HERMES_REAL_PYTHON_RESULT="$candidate"
 }
 
+# Whether an executable is named like a Python interpreter.
+cmux_hermes_is_python_name() {
+    case "${1##*/}" in
+        python*|Python) return 0 ;;
+    esac
+    return 1
+}
+
 # Print an interpreter's major.minor version, or nothing when unknown.
 cmux_hermes_launcher_python_version() {
     local candidate="$1"
-    case "${candidate##*/}" in
-        python*|Python) ;;
-        *) return 0 ;;
-    esac
+    cmux_hermes_is_python_name "$candidate" || return 0
     "$candidate" -I -S -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null
 }
 
@@ -46,24 +51,31 @@ cmux_hermes_venv_python_version() {
 }
 
 cmux_hermes_resolve_real_python() {
-    local candidate launcher_pid launcher_python="" launcher_version="" venv venv_version
+    local candidate launcher_pid hop launcher_python="" launcher_version="" venv venv_version
 
     if cmux_hermes_accept_python "${CMUX_HERMES_TUI_REAL_PYTHON:-}"; then
         return 0
     fi
 
-    # The Node TUI is a direct child of Hermes's Python launcher. `comm` gives
-    # the launcher's exact interpreter without parsing a command line or
+    # Hermes's Python launcher starts the Node TUI, which spawns this gateway.
+    # A frontend such as oh-my-hermes adds Node processes of its own in
+    # between, so take the nearest ancestor that is a Python interpreter:
+    # HERMES_PYTHON only points here when cmux's `hermes` shim started that
+    # launcher, so the nearest Python above the gateway is taken to be it.
+    # `comm` gives its exact interpreter without parsing a command line or
     # assuming a particular Hermes installation layout.
-    launcher_pid="$(/bin/ps -p "$PPID" -o ppid= 2>/dev/null | /usr/bin/tr -d '[:space:]')"
-    if [[ "$launcher_pid" =~ ^[1-9][0-9]*$ ]]; then
+    launcher_pid="$PPID"
+    for (( hop = 0; hop < 8; hop++ )); do
+        [[ "$launcher_pid" =~ ^[1-9][0-9]*$ && "$launcher_pid" != 1 ]] || break
         candidate="$(/bin/ps -ww -p "$launcher_pid" -o comm= 2>/dev/null || true)"
         candidate="${candidate#"${candidate%%[![:space:]]*}"}"
         candidate="${candidate%"${candidate##*[![:space:]]}"}"
-        if cmux_hermes_accept_python "$candidate"; then
+        if cmux_hermes_is_python_name "$candidate" && cmux_hermes_accept_python "$candidate"; then
             launcher_python="$CMUX_HERMES_REAL_PYTHON_RESULT"
+            break
         fi
-    fi
+        launcher_pid="$(/bin/ps -p "$launcher_pid" -o ppid= 2>/dev/null | /usr/bin/tr -d '[:space:]')"
+    done
 
     # Prefer Hermes's environment-local interpreter. On macOS, `ps comm`
     # resolves symlinked venv Python launchers to the base interpreter, which
