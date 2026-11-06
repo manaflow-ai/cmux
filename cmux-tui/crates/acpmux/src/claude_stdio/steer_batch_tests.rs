@@ -175,11 +175,50 @@ async fn a_line_read_first_stands_and_the_new_message_goes_next() {
     assert!(answer(&read, 2).is_none(), "the first answered twice");
 }
 
-/// The X on one message of a line of several, or on one held for a line written again: nothing
-/// is taken back (`withdrawn: false`), as for a message Claude Code read first, and every message
-/// still goes in the one line.
+/// The X on one message of a line of several that waits: Claude Code drops the line, the message
+/// is taken back (`withdrawn: true`, its steer answered withdrawn), and the line's other messages
+/// go in again as one line, each answered at its echo (Leo, 2026-11-06: "I can't ... cancel and
+/// edit these messages. Why? Is it because the ... codex thing sent them?").
 #[tokio::test]
-async fn a_withdraw_of_a_batched_message_takes_nothing_back() {
+async fn a_withdraw_of_one_batched_message_takes_it_back_and_keeps_the_others() {
+    let (t, mut q) = stepping().await;
+    for (id, sender) in [(2, "lane-a"), (3, "codex-lane"), (4, "lane-c")] {
+        write(&t, &mut q, &from(id, sender, &format!("text {id}"))).await;
+        q.settle(&t).await;
+    }
+    assert_eq!(q.waiting.len(), 1, "{:#?}", q.waiting);
+    let withdraw = Message::request(
+        8,
+        method::MUX_STEER_WITHDRAW,
+        json!({"sessionId": "acp-1", "promptId": "p3"}),
+    );
+    let Outbound::Lines(lines) = t.outbound(&withdraw).await else {
+        panic!("a batched message was refused at once")
+    };
+    q.take(lines);
+    let answers = q.settle(&t).await;
+    assert_eq!(answer(&answers, 8).unwrap().unwrap()["withdrawn"], true, "{answers:?}");
+    assert!(answer(&answers, 3).unwrap().unwrap_err().starts_with(STEER_WITHDRAWN), "{answers:?}");
+    assert!(answer(&answers, 2).is_none() && answer(&answers, 4).is_none(), "{answers:?}");
+    assert_eq!(q.waiting.len(), 1, "{:#?}", q.waiting);
+    let text = text_of(&q.waiting[0]);
+    assert!(text.starts_with("2 messages from 2 sessions"), "{text}");
+    assert!(
+        text.contains("text 2") && text.contains("text 4") && !text.contains("text 3"),
+        "{text}"
+    );
+    let read = t.inbound(&echo(&q.waiting[0])).await;
+    for id in [2, 4] {
+        assert_eq!(answer(&read, id).unwrap().unwrap()["stopReason"], "steered", "{id}");
+    }
+    assert!(answer(&read, 3).is_none(), "the withdrawn message answered twice");
+}
+
+/// The X on a message of a line being written again, or on one held for it: nothing is taken
+/// back (`withdrawn: false`) until that drop is answered, as for a message Claude Code read
+/// first, and every message still goes in the one line.
+#[tokio::test]
+async fn a_withdraw_of_a_message_being_rebatched_takes_nothing_back() {
     let (t, mut q) = stepping().await;
     for (id, sender) in [(2, "lane-a"), (3, "lane-b")] {
         write(&t, &mut q, &from(id, sender, &format!("text {id}"))).await;

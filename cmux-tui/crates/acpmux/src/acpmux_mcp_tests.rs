@@ -120,6 +120,7 @@ fn the_send_schema_keeps_its_first_shape() {
     assert_eq!(
         names,
         [
+            "attach",
             "class",
             "file",
             "messages",
@@ -139,7 +140,19 @@ fn the_send_schema_keeps_its_first_shape() {
     item_keys.sort_unstable();
     assert_eq!(
         item_keys,
-        ["class", "file", "notice", "pr", "steer", "supersede", "tag", "text", "thread", "to"]
+        [
+            "attach",
+            "class",
+            "file",
+            "notice",
+            "pr",
+            "steer",
+            "supersede",
+            "tag",
+            "text",
+            "thread",
+            "to"
+        ]
     );
     assert_eq!(props["notice"]["required"], json!(["severity", "title"]));
     assert_eq!(props["notice"]["properties"]["severity"]["enum"], json!(["info", "warn", "fire"]));
@@ -375,6 +388,35 @@ async fn a_message_can_be_a_file_of_yours() {
     let both = json!({"to": "file-lane", "text": "x", "file": brief});
     let r = call(&client, &tool("send", both)).await;
     assert_eq!(text(&r), "give text or file, not both", "{r}");
+}
+
+/// An image handed over with `attach` reaches the receiver as an image, as with `acpmux send
+/// --attach`: its chat draws a preview, never a name or an id nobody can open. A relative path is
+/// refused before anything is sent.
+#[tokio::test]
+async fn an_attached_image_reaches_the_receiver_as_an_image() {
+    let (hub, client, _dir) = daemon().await;
+    let lane = session(&client, "attach-lane").await;
+    let dir = tempfile::tempdir().unwrap();
+    let shot = dir.path().join("shot.png");
+    let mut png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
+    png.resize(4096, 7);
+    std::fs::write(&shot, &png).unwrap();
+    let args = json!({"to": "attach-lane", "text": "the broken card", "attach": [shot]});
+    let r = call(&client, &tool("send", args)).await;
+    assert_eq!(r["isError"], false, "{r}");
+    assert!(received(&hub, &lane, "the broken card").await, "never received");
+    let events = hub.events(&lane, 0, 1000).unwrap();
+    let message = events
+        .iter()
+        .find(|e| e.kind == "user_message" && e.msg.to_string().contains("the broken card"))
+        .expect("the message");
+    assert_eq!(message.msg["images"][0]["mimeType"], "image/png", "{}", message.msg);
+
+    let relative = json!({"to": "attach-lane", "text": "x", "attach": ["shot.png"]});
+    let r = call(&client, &tool("send", relative)).await;
+    assert_eq!(r["isError"], true, "{r}");
+    assert!(text(&r).contains("absolute file paths"), "{r}");
 }
 
 /// Past both the old 256 KiB file refusal and the 31 MiB RPC envelope: the agent
