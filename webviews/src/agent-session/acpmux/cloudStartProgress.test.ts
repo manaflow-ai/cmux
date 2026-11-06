@@ -171,10 +171,10 @@ test("a gone, home or credential folder each says why, naming the credential fol
     refusedHere: true,
   });
   expect(ended("cloud_folder_home", "cloud_folder_home")?.message).toBe(
-    "Cloud doesn't copy your home folder or a folder above it; pick a project folder.",
+    "Cloud doesn't copy your home folder or a folder above it; pick another folder.",
   );
   const secret = ended("cloud_folder_secret", "~/.ssh");
-  expect(secret?.message).toBe("Cloud never copies ~/.ssh, which holds keys or credentials; pick a project folder.");
+  expect(secret?.message).toBe("Cloud never copies ~/.ssh, which holds keys or credentials; pick another folder.");
   expect(secret?.refusedHere).toBe(true);
   for (const code of ["cloud_folder_missing", "cloud_folder_home", "cloud_folder_secret"])
     expect(ended(code, "x")?.message).not.toBe(cloudRefusalText("transport.path_outside_roots"));

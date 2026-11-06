@@ -5,7 +5,7 @@
 // another context) gets every key.
 import { useEffect, useState } from "react";
 import { flushSync } from "react-dom";
-import { newTabHost, type NewTabHost } from "../NewTabPage";
+import { newTabHost, type NewTabHost } from "../newTabModel";
 import { EMPTY_OMNIBAR, omnibarActions, omnibarContext } from "../omnibar";
 import { revealedSubagent } from "../subagents/subagentPanes";
 import { keepHandedTail } from "../tailCache";
