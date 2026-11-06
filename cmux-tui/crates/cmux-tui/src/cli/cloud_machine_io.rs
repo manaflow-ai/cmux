@@ -1,8 +1,8 @@
 //! `cmux cloud machine-io`: one file operation or command on a Cloud machine,
 //! straight to its provider with a short-lived client session when it can, else
 //! through the cmux API. The macOS app runs it for its Cloud machine file browse,
-//! read, write and exec (CloudAPIClient+MachineRoutes.swift), so the logic lives
-//! here and the Swift side only forwards.
+//! read, write and exec (through `cmux cloud api`'s `machine.io` call, `cloud_api/machine.rs`),
+//! so the logic lives here and the Swift side only forwards.
 //!
 //! Request: one JSON object on stdin (never in argv, which other processes can read):
 //!
@@ -240,7 +240,7 @@ fn usage(message: &str) -> Answer {
     Answer::error(400, "validation.invalid", message)
 }
 
-fn line(route: Route, answer: &Answer) -> Value {
+pub(super) fn line(route: Route, answer: &Answer) -> Value {
     let route = match route {
         Route::Direct => "direct",
         Route::Proxy => "proxy",
@@ -251,7 +251,7 @@ fn line(route: Route, answer: &Answer) -> Value {
 
 /// Keep the app's JSON contract while encoding a verified file incrementally. Nothing is
 /// emitted until all ranges agree on one version; a retry never leaks an old file's prefix.
-fn write_line(
+pub(super) fn write_line(
     output: &mut impl std::io::Write,
     route: Route,
     answer: &mut Answer,
@@ -292,7 +292,7 @@ fn write_line(
 }
 
 /// A refusal never carries the caller's credential back (a proxy or server that echoed it).
-fn scrub(mut answer: Answer, credential: &str) -> Answer {
+pub(super) fn scrub(mut answer: Answer, credential: &str) -> Answer {
     if !(200..300).contains(&answer.status) && !credential.is_empty() {
         let text = answer.body.to_string();
         if text.contains(credential) {
@@ -313,7 +313,7 @@ fn runtime_and_client() -> Result<(tokio::runtime::Runtime, reqwest::Client), St
 
 /// The one HTTP client of a call (tests use it too). reqwest is built without a default rustls crypto
 /// provider, so this installs ring first: a process that builds a client before any install panics.
-fn http_client() -> Result<reqwest::Client, String> {
+pub(super) fn http_client() -> Result<reqwest::Client, String> {
     let _ = rustls::crypto::ring::default_provider().install_default();
     reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
@@ -322,7 +322,7 @@ fn http_client() -> Result<reqwest::Client, String> {
         .map_err(|e| e.to_string())
 }
 
-fn now_ms() -> u64 {
+pub(super) fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))

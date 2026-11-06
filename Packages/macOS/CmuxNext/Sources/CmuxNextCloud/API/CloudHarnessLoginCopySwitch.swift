@@ -50,32 +50,16 @@ public final class CloudHarnessLoginCopySwitch: Sendable {
 }
 
 extension CloudOwnerAPIClient {
-    /// The switch's answer: `{enabled, ttlSeconds}` (or that object under `value`).
+    /// The switch's answer, its ttl already cut to at most 300 s (cmux-tui `cli/cloud_api/owner.rs`):
+    /// the switch takes effect within that.
     public struct HarnessLoginCopy: Decodable, Sendable, Equatable {
         public var enabled: Bool
         public var ttlSeconds: Int
     }
 
-    /// The longest an answer is trusted, whatever the route says: the switch takes effect within this.
-    public static let harnessLoginCopyMaxTTL = 300
-
     /// `GET /v1/cloud/harness-login-copy`: whether a Release build may copy the person's Claude login
     /// to their own machine now. Bounded to 5 seconds; any failure throws (the caller reads it as off).
     public func harnessLoginCopy() async throws -> HarnessLoginCopy {
-        let data = try await get("/v1/cloud/harness-login-copy", query: [], timeout: .seconds(5))
-        return try Self.decodeHarnessLoginCopy(data)
-    }
-
-    static func decodeHarnessLoginCopy(_ data: Data) throws -> HarnessLoginCopy {
-        struct Wrapped: Decodable { var value: HarnessLoginCopy }
-        let decoder = JSONDecoder()
-        var answer: HarnessLoginCopy
-        if let plain = try? decoder.decode(HarnessLoginCopy.self, from: data) { answer = plain } else {
-            do { answer = try decoder.decode(Wrapped.self, from: data).value } catch {
-                throw CloudAPIError.decoding("/v1/cloud/harness-login-copy: \(error)")
-            }
-        }
-        answer.ttlSeconds = max(0, min(answer.ttlSeconds, harnessLoginCopyMaxTTL))
-        return answer
+        try await call("owner.harness_login_copy", [:], timeout: .seconds(5), as: HarnessLoginCopy.self)
     }
 }

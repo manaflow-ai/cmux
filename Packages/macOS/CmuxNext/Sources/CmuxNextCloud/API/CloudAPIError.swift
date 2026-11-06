@@ -1,6 +1,6 @@
 public import Foundation
 
-/// A typed `/api/vm` failure. `message` is the server's display-safe text
+/// A typed Cloud API failure, as cmux-tui reads it (`cmux cloud api`, `cli/cloud_api/http.rs`). `message` is the server's display-safe text
 /// (`ui.message` / `message`) when it sent one, `action` its next step
 /// ("Run `…`") and `traceId` the support reference a person pastes.
 public enum CloudAPIError: Error, Sendable, Equatable, CustomStringConvertible {
@@ -48,43 +48,5 @@ public enum CloudAPIError: Error, Sendable, Equatable, CustomStringConvertible {
         case .planRequired: "plan_required"
         case .decoding: "bad_response"
         }
-    }
-
-    /// Parses the standard VM error body (`web/services/vms/routeHelpers.ts`
-    /// `vmErrorResponse`: `{error, message, action, traceId, ui:{message, traceId}}`);
-    /// a refusal a paid plan lifts is ``planRequired(message:upgradeURL:plan:)``.
-    static func from(status: Int, data: Data, headerCode: String?) -> CloudAPIError {
-        let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-        let ui = object?["ui"] as? [String: Any]
-        func text(_ value: Any?) -> String? {
-            guard let value = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
-            return value
-        }
-        // The cmux API Worker nests its refusal: `{ok: false, error: {code, message}}`.
-        let nested = object?["error"] as? [String: Any]
-        let code = headerCode ?? text(object?["error"]) ?? text(nested?["code"])
-        let message = text(ui?["message"]) ?? text(object?["message"]) ?? text(nested?["message"])
-        if let object, let plan = liftingPlan(object, code: code) {
-            return .planRequired(message: message, upgradeURL: upgradeURL(object), plan: plan)
-        }
-        return .http(status: status, code: code, message: message,
-                     action: text(object?["action"]), traceId: text(object?["traceId"]) ?? text(ui?["traceId"]))
-    }
-
-    /// The plan an `upgradeRequired` refusal names (the server spreads `extra`
-    /// to the top level): `upgradePlanId`, else `pro`; nil for a plan cmux does
-    /// not sell here, and for a credits top-up, a purchase rather than a plan
-    /// (web/services/vms/routeHelpers.ts).
-    private static func liftingPlan(_ object: [String: Any], code: String?) -> String? {
-        guard object["upgradeRequired"] as? Bool == true, code != "vm_create_credits_insufficient" else { return nil }
-        let plan = (object["upgradePlanId"] as? String) ?? "pro"
-        return plan == "pro" || plan == "max" ? plan : nil
-    }
-
-    /// The refusal's `upgradeUrl`, only an https cmux.com link.
-    private static func upgradeURL(_ object: [String: Any]) -> URL? {
-        guard let text = object["upgradeUrl"] as? String, let url = URL(string: text), url.scheme == "https",
-              let host = url.host, host == "cmux.com" || host.hasSuffix(".cmux.com") else { return nil }
-        return url
     }
 }

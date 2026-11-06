@@ -91,17 +91,6 @@ struct CloudHandoffTurnOpenerTests {
         #expect(CloudHandoffTurnOpener.refusal(cloudAllowed: false, labs: true, signedIn: true, loadedCurrent: true) == "cloud_disabled")
     }
 
-    @Test func theStoresHandoffIsReadAndItsMachineTokenIsNot() throws {
-        let json: [String: Any] = ["id": Self.id, "sessionId": "s-1", "machine": "vm_a", "turn": 2, "state": "open", "status": "done", "version": 7]
-        #expect(CloudHandoffTurn(json: json) == view(turn: 2, status: "done"))
-        var bad = json
-        bad["status"] = "paused"
-        #expect(CloudHandoffTurn(json: bad) == nil)
-        bad = json
-        bad["turn"] = 0
-        #expect(CloudHandoffTurn(json: bad) == nil)
-    }
-
     @Test func onlyTheStoresOwnCodesReachThePage() {
         #expect(CloudHandoffTurnOpener.storeCode(CloudAPIError.http(status: 409, code: "handoff.closed", message: "closed")) == "handoff.closed")
         #expect(CloudHandoffTurnOpener.storeCode(CloudAPIError.http(status: 500, code: "Bad Thing <x>", message: nil)) == nil)

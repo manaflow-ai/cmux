@@ -105,7 +105,8 @@ extension CloudService {
         let owner = CloudOwnerAPIClient(
             baseURL: FeedService.apiBaseURL(auth: auth),
             accessToken: { try await auth.tokens().access },
-            teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) }
+            teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) },
+            cli: cli
         )
         return ApprovalsRoute(
             keyedStart: { machine, length, write in try await owner.acpmuxKeyedStart(machine, keyLineLength: length, writeKey: write) },

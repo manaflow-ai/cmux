@@ -8,32 +8,18 @@ extension CloudOwnerAPIClient {
     public static let handoffWaitLimitMs = 25_000
 
     /// `GET /v1/handoffs/:id/wait?after=&timeoutMs=`: `{handoff}` once its version passes `after`
-    /// (nil: at once), or at the deadline (25 s at most). Answers the body as sent.
+    /// (nil: at once), or at the deadline (25 s at most; cmux-tui `cli/cloud_api/owner.rs`). Answers the body as sent.
     public func handoffWait(_ id: String, after: Int?, timeoutMs: Int = handoffWaitLimitMs) async throws -> Data {
-        guard Self.isHandoffID(id) else { throw CloudAPIError.transport("not a hand-off id") }
         let held = max(0, min(timeoutMs, Self.handoffWaitLimitMs))
-        return try await get("/v1/handoffs/\(id)/wait", query: [("after", max(0, after ?? 0)), ("timeoutMs", held)],
-                             timeout: .milliseconds(held) + .seconds(15))
+        return try await call("owner.handoff_wait", ["id": id, "after": max(0, after ?? 0), "timeoutMs": held],
+                              timeout: .milliseconds(held) + .seconds(15))
     }
 
     /// `GET /v1/handoffs?limit=&cursor=`: the person's hand-offs, newest first, page after page
     /// (at most `pages` of 100).
     public func handoffs(pages: Int = 20) async throws -> [CloudHandoff] {
-        struct Page: Decodable { var handoffs: [CloudHandoff]; var nextCursor: String? }
-        var all: [CloudHandoff] = [], cursor: String?
-        for _ in 0..<max(1, pages) {
-            let data = try await get("/v1/handoffs", query: [("limit", 100)], cursor: cursor, timeout: .seconds(30))
-            let page: Page
-            do { page = try JSONDecoder().decode(Page.self, from: data) } catch { throw CloudAPIError.decoding("/v1/handoffs: \(error)") }
-            all += page.handoffs
-            guard let next = page.nextCursor, !next.isEmpty else { break }
-            cursor = next
-        }
-        return all
+        try await call("owner.handoffs", ["pages": max(1, pages)], timeout: .seconds(30) * max(1, pages), as: [CloudHandoff].self)
     }
-
-    /// The store's ids (`ho_` and 20 hex digits), the only path part that varies.
-    public static func isHandoffID(_ id: String) -> Bool { id.range(of: #"^ho_[0-9a-f]{20}$"#, options: .regularExpression) != nil }
 }
 
 /// One hand-off as the owner's list shows it.

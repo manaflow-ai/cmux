@@ -11,7 +11,7 @@ extension CloudService {
     /// `action.run`'s 40 s result deadline. A check that misses it is ``CloudGitHubApp/unknown``: the
     /// device flow.
     func gitHubApp() async -> CloudGitHubApp {
-        let auth = auth, identity = installIdentity
+        let auth = auth, identity = installIdentity, cli = cli
         let signedInTeam = auth.teamID
         let baseURL = FeedService.apiBaseURL(auth: auth)
         let accessToken: @Sendable () async throws -> String = { try await auth.tokens().access }
@@ -19,7 +19,7 @@ extension CloudService {
             // The selected team first: a shared-team machine's tokens come from that team's connection.
             let claimed = signedInTeam == nil ? (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) : nil
             guard let team = signedInTeam ?? claimed else { return CloudGitHubApp.unknown }
-            let owner = CloudOwnerAPIClient(baseURL: baseURL, accessToken: accessToken, teamID: { team })
+            let owner = CloudOwnerAPIClient(baseURL: baseURL, accessToken: accessToken, teamID: { team }, cli: cli)
             return await owner.gitHubApp(team: team)
         }
     }

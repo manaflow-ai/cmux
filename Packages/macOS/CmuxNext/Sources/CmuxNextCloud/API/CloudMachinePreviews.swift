@@ -69,31 +69,31 @@ public struct CloudPreviewShareLinkRevocation: Decodable, Sendable, Equatable {
 extension CloudAPIClient {
     /// Preview ingress lives at cmux-platform, while the existing guest API keeps its Worker.
     public func previewClient(baseURL: URL) -> CloudAPIClient {
-        CloudAPIClient(baseURL: baseURL, tokens: tokens, teamID: teamID, session: session, appVersion: appVersion)
+        CloudAPIClient(baseURL: baseURL, tokens: tokens, teamID: teamID, appVersion: appVersion, cli: cli, sessions: sessions)
     }
 
-    /// New Cloud only: discovers current listeners and reconciles their private preview routes.
+    /// New Cloud only: discovers current listeners and reconciles their private preview routes
+    /// (cmux-platform's `cloudPreviews.refresh`, through cmux-tui's generated client).
     public func refreshPreviews(_ id: String) async throws -> CloudMachinePreviews {
         guard !sendsStackSession else {
             throw CloudAPIError.http(status: 501, code: "machine.previews_unsupported", message: nil)
         }
-        return try await send("POST", "\(machinePath)/\(id)/previews/refresh", timeout: .seconds(30), as: CloudMachinePreviews.self)
+        return try await call("previews.refresh", ["machine": id], timeout: .seconds(30), as: CloudMachinePreviews.self)
     }
 
     /// Creates a one-day anonymous preview link by default. The platform caps
     /// custom expiries at seven days and validates the port and ownership.
     public func createPreviewShareLink(_ id: String, port: Int, expiresAt: Int? = nil, maxUses: Int? = nil) async throws -> CloudPreviewShareLinkCreated {
-        var body: [String: any Sendable] = [:]
-        if let expiresAt { body["expiresAt"] = expiresAt }
-        if let maxUses { body["maxUses"] = maxUses }
-        return try await send("POST", "\(machinePath)/\(id)/previews/\(port)/links", body: body,
-                              timeout: .seconds(30), as: CloudPreviewShareLinkCreated.self)
+        var args: [String: any Sendable] = ["machine": id, "port": port]
+        if let expiresAt { args["expiresAt"] = expiresAt }
+        if let maxUses { args["maxUses"] = maxUses }
+        return try await call("previews.create_link", args, timeout: .seconds(30), as: CloudPreviewShareLinkCreated.self)
     }
 
     /// Revokes one anonymous preview link. Existing preview cookies are
     /// rejected by the platform on their next request.
     public func revokePreviewShareLink(_ id: String, port: Int, linkID: String) async throws -> CloudPreviewShareLinkRevocation {
-        try await send("DELETE", "\(machinePath)/\(id)/previews/\(port)/links/\(linkID)",
-                       timeout: .seconds(30), as: CloudPreviewShareLinkRevocation.self)
+        try await call("previews.revoke_link", ["machine": id, "port": port, "linkId": linkID], timeout: .seconds(30),
+                       as: CloudPreviewShareLinkRevocation.self)
     }
 }
