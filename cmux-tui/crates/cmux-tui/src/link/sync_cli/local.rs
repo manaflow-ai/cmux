@@ -39,6 +39,7 @@ use std::process::Command;
 
 use anyhow::{Context as _, bail};
 
+use super::place;
 use super::skips::{self, Skips, Why};
 
 /// Where one file to push comes from.
@@ -498,13 +499,46 @@ pub(super) fn permissions_of(mode: u32) -> u32 {
 }
 
 /// Adds every file below `dir` of a folder outside git (`top`), by the
-/// module doc's rules. Folders are entered without following symlinks.
+/// module doc's rules. Each folder is opened by name in the folder that
+/// listed it, never through a symlink ([`place::Dir::child`]), and listed
+/// through that handle: a folder swapped for a symlink after its parent was
+/// listed is never walked through, so nothing outside `top` is listed.
 fn walk_plain(set: &mut LocalSet, rules: Rules, top: &Path, dir: &Path) -> anyhow::Result<()> {
-    let entries =
-        std::fs::read_dir(dir).with_context(|| format!("cannot list {}", dir.display()))?;
-    for entry in entries {
-        let entry = entry?;
-        let path = entry.path();
+    let mut handle =
+        place::Dir::open(top).with_context(|| format!("cannot list {}", top.display()))?;
+    let below =
+        dir.strip_prefix(top).with_context(|| format!("{} is not in the folder", dir.display()))?;
+    for name in below.iter() {
+        let Some(name) = name.to_str() else { return Ok(()) };
+        match handle.child(name) {
+            Ok(Some(child)) => handle = child,
+            Ok(None) => return Ok(()),
+            Err(error) if swapped(&error) => return Ok(()),
+            Err(error) => {
+                return Err(error).with_context(|| format!("cannot list {}", dir.display()));
+            }
+        }
+    }
+    walk_plain_in(set, rules, top, dir, &handle)
+}
+
+/// Whether opening a folder failed because something else is at its name
+/// now (a symlink, a file).
+fn swapped(error: &std::io::Error) -> bool {
+    matches!(error.raw_os_error(), Some(libc::ELOOP | libc::ENOTDIR))
+}
+
+/// [`walk_plain`] in the folder `dir` that `handle` holds open.
+fn walk_plain_in(
+    set: &mut LocalSet,
+    rules: Rules,
+    top: &Path,
+    dir: &Path,
+    handle: &place::Dir,
+) -> anyhow::Result<()> {
+    let names = handle.names().with_context(|| format!("cannot list {}", dir.display()))?;
+    for name in names {
+        let path = dir.join(&name);
         let Ok(relative) = path.strip_prefix(top) else { continue };
         let Some(relative) = relative.to_str() else {
             set.skips.note(&relative.to_string_lossy(), Why::NameNotUtf8);
@@ -514,21 +548,40 @@ fn walk_plain(set: &mut LocalSet, rules: Rules, top: &Path, dir: &Path) -> anyho
             continue;
         }
         let name = relative.rsplit('/').next().unwrap_or(relative);
-        if entry.file_type()?.is_dir() {
-            if let Some(why) = skips::credential(relative, true).filter(|_| rules == Rules::Copy) {
-                set.skips.note(&format!("{relative}/"), why);
-            } else if rules == Rules::Copy && skips::heavy(dir, name) {
-                set.skips.note(&format!("{relative}/"), Why::Heavy);
-            } else {
-                walk_plain(set, rules, top, &path)?;
+        let entry =
+            handle.entry(name).with_context(|| format!("cannot read {}", path.display()))?;
+        match entry {
+            place::Entry::Missing => {}
+            place::Entry::Dir => {
+                if let Some(why) =
+                    skips::credential(relative, true).filter(|_| rules == Rules::Copy)
+                {
+                    set.skips.note(&format!("{relative}/"), why);
+                } else if rules == Rules::Copy && skips::heavy(dir, name) {
+                    set.skips.note(&format!("{relative}/"), Why::Heavy);
+                } else {
+                    match handle.child(name) {
+                        Ok(Some(child)) => walk_plain_in(set, rules, top, &path, &child)?,
+                        Ok(None) => {}
+                        // A symlink or file there since it was listed: as any entry.
+                        Err(error) if swapped(&error) => add(set, relative.to_string(), &path)?,
+                        Err(error) => {
+                            return Err(error)
+                                .with_context(|| format!("cannot list {}", path.display()));
+                        }
+                    }
+                }
             }
-        } else if let Some(why) = skips::secret(name)
-            .or_else(|| skips::credential(relative, false))
-            .filter(|_| rules == Rules::Copy)
-        {
-            set.skips.note(relative, why);
-        } else {
-            add(set, relative.to_string(), &path)?;
+            _ => {
+                if let Some(why) = skips::secret(name)
+                    .or_else(|| skips::credential(relative, false))
+                    .filter(|_| rules == Rules::Copy)
+                {
+                    set.skips.note(relative, why);
+                } else {
+                    add(set, relative.to_string(), &path)?;
+                }
+            }
         }
     }
     Ok(())
