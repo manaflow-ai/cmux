@@ -30,6 +30,7 @@ public final class AgentLaneStore {
             unread = Set(newValue.compactMap { $0.value.unread ? $0.key : nil })
             syncCells()
             syncChiefParticipants()
+            syncNames()
         }
     }
 
@@ -51,6 +52,7 @@ public final class AgentLaneStore {
     /// map or the other sessions' cells.
     public func set(_ session: String, _ lane: AgentActivityLane?) {
         let ownedBefore = Self.chiefOwnership(storage[session])
+        let nameBefore = storage[session]?.name
         withMutation(keyPath: \.lanes) { storage[session] = lane }
         if lane?.state == .input { waiting.insert(session) } else { waiting.remove(session) }
         if lane?.state == .working { working.insert(session) } else { working.remove(session) }
@@ -59,6 +61,13 @@ public final class AgentLaneStore {
         syncCell(session)
         // Rescan only when this session's Chief tags change, not on every step of its output.
         if Self.chiefOwnership(lane) != ownedBefore { syncChiefParticipants() }
+        // Only a session that came, went or was renamed changes the names: a step of its output does not.
+        if lane?.name != nameBefore { syncNames() }
+    }
+
+    private func syncNames() {
+        let current = Set(storage.values.map(\.name))
+        if names != current { names = current }
     }
 
     /// A lane's Chief ownership pair (its `mux.children` key and participant), on this Mac only.
@@ -84,6 +93,11 @@ public final class AgentLaneStore {
 
     /// Changes only when ownership changes; ordinary lane output does not remap every row.
     public private(set) var chiefParticipants: [String: String] = [:]
+
+    /// The names of the sessions that have a lane (acpmux's session names, such as the Chief's
+    /// `optchat-sub-<home>-a<n>` subagents). Changes only when a session comes, goes or is renamed, so a
+    /// reader that needs which sessions exist (Home's queued agents that start) is not told of every step.
+    public private(set) var names: Set<String> = []
 
     public init() {}
 

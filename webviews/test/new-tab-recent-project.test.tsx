@@ -201,7 +201,7 @@ test("a tab with a project folder, or a start folder from the host, keeps it", a
 // Leo 2026-10-18 (ChatGPT and Claude Code screenshots): the project menu offers "Do not work in a
 // project". Picking it stops the most-recent-project start, and the chat starts in no project
 // (`chat.new` with `noProject`): the host's private folder, never the tab's or the start folder.
-test("Do not work in a project starts the chat in no project", async () => {
+test("No folder starts the chat in no folder", async () => {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   act(() => root?.unmount());
@@ -228,11 +228,11 @@ test("Do not work in a project starts the chat in no project", async () => {
   );
   await act(async () => host.querySelector<HTMLButtonElement>(".nt-location .acpmux-location-button")!.click());
   const option = [...window.document.querySelectorAll<HTMLElement>('[role="option"]')].find(
-    (row) => row.textContent === "Do not work in a project",
+    (row) => row.textContent === "No folder",
   );
   expect(option).toBeDefined();
   await act(async () => option!.click());
-  expect(host.querySelector(".nt-location")?.textContent).toContain("No project");
+  expect(host.querySelector(".nt-location")?.textContent).toContain("No folder");
   const editor = await typePrompt("sketch a name for the app");
   await pressReturn(editor);
   expect(calls[0]?.[2]).toBeUndefined();

@@ -33,7 +33,7 @@ import {
 } from "./turns";
 import { stoppedTurnLook } from "./stoppedTurn.experiment";
 import { turnCopyText } from "./turnCopy";
-import { hasTokens, TimedLabel, tokensText, TurnTokens } from "./TurnTokens";
+import { hasTokens, TimedLabel, tokensText } from "./TurnTokens";
 import { AlertCircle, ArrowRight, ChevronRight, Retry } from "./icons";
 import {
   ForkButton,
@@ -78,7 +78,8 @@ function WorkedLabel({ row }: { row: AcpmuxRow }) {
   return <TimedLabel text={(time) => t(key, { time })} time={row.durationMs} />;
 }
 
-/// The "Worked for 15s" line; it opens the turn's commentary and tool calls.
+/// The "Worked for 15s" line; it opens the turn's commentary and tool calls. It says the time alone,
+/// as Codex does (Lucas, 2026-11-06): the turn's tokens stay on the running line (WorkingFor.tsx).
 export function WorkedFor({
   row,
   expanded,
@@ -101,14 +102,6 @@ export function WorkedFor({
       <span className="cv-worked__label">
         <WorkedLabel row={row} />
       </span>
-      {hasTokens(row.tokens) && (
-        <span className="cv-worked__count">
-          <span className="cv-worked__sep" aria-hidden="true">
-            ·
-          </span>
-          <TurnTokens split={row.tokens} />
-        </span>
-      )}
       <ChevronRight size={14} className={`cv-worked__chevron cv-rotor${expanded ? " is-open" : ""}`} />
     </button>
   );
@@ -310,6 +303,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
     fork,
     forkSeq,
     forkAny,
+    tryAnotherApproach,
     retry,
     retryFailed,
     retryWith,
@@ -504,6 +498,9 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             )}
             {!messages && fork && seq !== undefined && (forkAny || seq === forkSeq) && (
               <ForkButton throughSeq={seq} onFork={() => forkWithFeedback(seq, () => fork(seq))} />
+            )}
+            {tryAnotherApproach && seq !== undefined && seq === forkSeq && (
+              <TryAnotherApproachButton onTry={() => tryAnotherApproach(seq)} />
             )}
             {!messages && <PinButton rowId={row.id} />}
             {!messages && timeline.toggle}
@@ -793,5 +790,40 @@ function TurnFailure({
         )}
       </span>
     </div>
+  );
+}
+
+/// Cloud's Try another approach, labelled. A machine snapshot takes a while, so the button says it
+/// is working; a refused click or a Cloud error says the fork failed (the Fork button's copy) and a
+/// second click tries again.
+function TryAnotherApproachButton({ onTry }: { onTry(): Promise<unknown> }) {
+  const t = useT();
+  const [state, setState] = useState<"idle" | "pending" | "failed">("idle");
+  const label =
+    state === "pending"
+      ? `${t("turn.tryAnotherApproach")}…`
+      : state === "failed"
+        ? t("notice.forkFailed")
+        : t("turn.tryAnotherApproach");
+  return (
+    <button
+      type="button"
+      className="cv-iconbtn cv-iconbtn--compact cv-turn-try-another"
+      aria-label={label}
+      title={label}
+      aria-busy={state === "pending"}
+      data-try-state={state}
+      disabled={state === "pending"}
+      onClick={() => {
+        setState("pending");
+        onTry().then(
+          () => setState("idle"),
+          () => setState("failed"),
+        );
+      }}
+    >
+      {state === "failed" && <AlertCircle size={ROW_ICON} />}
+      {label}
+    </button>
   );
 }

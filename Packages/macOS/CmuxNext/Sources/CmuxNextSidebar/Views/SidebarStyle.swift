@@ -163,6 +163,10 @@ enum SidebarStyle {
     /// Length of the fade that ends a clipped row title (no ellipsis): 24 pt at Compact. At
     /// 16 pt the fade ended at a word gap and read as a hard cut.
     static var titleFadeWidth: CGFloat { Metrics.space6 + Metrics.space4 }
+    /// A workspace title at a weight of its own (a row decoration's `weight`), at the title's size.
+    static func titleFont(weight: NSFont.Weight) -> NSFont {
+        Typography.system(.default, size: titleFont.pointSize, weight: weight)
+    }
     static var subtitleFont: NSFont { sized(Typography.caption, weight: .regular) }
     /// One detail line under a row's title (the folder, branch or agent line), as its label lays it out.
     static var detailLineHeight: CGFloat {
@@ -181,17 +185,18 @@ enum SidebarStyle {
     /// row (Lawrence 2026-10-19: "the height of the group headers is identical to the height of
     /// each workspace").
     static func groupHeaderContentHeight(rowHeight: CGFloat) -> CGFloat { rowHeight - 2 * (rowHeight * 0.09).rounded() }
-    /// The header's name: its rows' own face and size (`titleFont`, which follows `sidebar.textSize`), semibold so the
-    /// group reads above its members. It was 11 pt medium in the bare system face on the compact bar, smaller than the
-    /// rows under it (Leo 2026-11-05: "this strange f***ing font of the group on the side ... it just looks sad").
+    /// The header's name: its rows' own face, size and regular weight (`titleFont`, which follows `sidebar.textSize`);
+    /// the bar's color sets the group apart, not a heavier face (Lawrence 2026-11-05: "group fonts should not be bold").
+    /// It was 11 pt medium in the bare system face on the compact bar, smaller than the rows under it (Leo 2026-11-05:
+    /// "this strange f***ing font of the group on the side ... it just looks sad").
     /// `barHeight` is kept for callers; the name no longer scales with the bar.
     static func groupHeaderFont(barHeight _: CGFloat) -> NSFont {
-        Typography.system(.default, size: titleFont.pointSize, weight: TypeScale.emphasis)
+        Typography.system(.default, size: titleFont.pointSize, weight: TypeScale.regular)
     }
     /// The opt-in member count after a group's name (Lawrence 2026-10-20): a detail, not a title,
     /// so smaller than `name`, at the regular weight, in ``groupHeaderCountInkAlpha`` of the ink.
     static func groupHeaderCountFont(name: NSFont) -> NSFont {
-        NSFont.systemFont(ofSize: max(TypeScale.caption, name.pointSize - 2), weight: TypeScale.regular)
+        Typography.system(.default, size: max(TypeScale.caption, name.pointSize - 2), weight: TypeScale.regular)
     }
     /// How much of the header's ink the member count takes: lighter than the name.
     static let groupHeaderCountInkAlpha: CGFloat = 0.7

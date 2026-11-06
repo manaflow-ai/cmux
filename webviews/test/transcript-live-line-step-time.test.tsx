@@ -71,8 +71,9 @@ test("the fixture's calls carry the times Claude's events gave them", () => {
 
 test("a step that ran under a second says its time, never a floored 0s", () => {
   const live = line([prompt, run(bash!)]);
-  expect(live).toMatchObject({ doing: "Print ready", doingDone: true, doingForMs: 856 });
-  expect(drawn(live, prompt.at + 32_000)).toBe("Print ready 856ms · 32s");
+  // The line names the command, never Bash's description (Codex parity).
+  expect(live).toMatchObject({ doing: "echo ready", doingDone: true, doingForMs: 856 });
+  expect(drawn(live, prompt.at + 32_000)).toBe("echo ready 856ms · 32s");
 });
 
 test("a subagent's launch never stands on the line as a step with its launch's time", () => {
@@ -90,7 +91,7 @@ test("a step stamped at one moment has no time of its own: the line shows only t
   const instant = { ...bash!, tool: { ...bash!.tool!, endedAt: bash!.tool!.startedAt } };
   const live = line([prompt, run(instant)]);
   expect(live.doingForMs).toBeUndefined();
-  expect(drawn(live, prompt.at + 32_000)).toBe("Print ready 32s");
+  expect(drawn(live, prompt.at + 32_000)).toBe("echo ready 32s");
 });
 
 test("thinking that streamed under a second says its time; one dated chunk has none", () => {

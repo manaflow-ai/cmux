@@ -8,7 +8,7 @@
 // "3 of 3 tasks done" line, which opens the list again; a step left in progress stops spinning. A
 // screen reader hears the progress and each state. An earlier turn's list with steps left, pinned
 // under a running turn that has none of its own yet, says it is from before the person's last
-// message, as Claude desktop's does, and nothing in it spins (turns.ts `earlierTurnPlan`).
+// message, and nothing in it spins (turns.ts `earlierTurnPlan`).
 // Memoized on its immutable entries: tokens streaming elsewhere in the turn never redraw it.
 import { memo, useCallback, useState } from "react";
 import { useT, type StringKey } from "../i18n";

@@ -248,10 +248,10 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 )
                 .with_target(false)
                 .init();
-            // With `store.journal` on, an acknowledged reply waits on the journal's sync, which a
-            // utility disk tier throttles 15-30x under another app's disk work (STATUS 11554):
-            // the daemon stays at the default tier, and only its background threads yield.
-            crate::qos::enter_daemon(crate::config::store_journal_enabled());
+            // An acknowledged reply waits on the event journal's sync, which a utility disk tier
+            // throttles 15-30x under another app's disk work (STATUS 11554): the daemon stays at
+            // the default tier, and only its background threads yield.
+            crate::qos::enter_daemon();
             let result = crate::daemon::run(DaemonOptions {
                 ws_listen: listen,
                 ws_token: token,
@@ -363,6 +363,13 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         Some(Command::Forum(cmd)) => {
             let json_out = cli.json;
             match crate::cli::forum::run(cmd, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
+        Some(Command::Watch(cmd)) => {
+            let json_out = cli.json;
+            match crate::cli::watch::run(cmd, json_out).await {
                 Ok(()) => Ok(()),
                 Err(e) => errors::exit_with(&e, json_out),
             }
