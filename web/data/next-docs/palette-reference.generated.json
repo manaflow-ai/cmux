@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1311,
+    "entries": 1326,
     "shortcuts": 189
   },
   "sections": [
@@ -142,6 +142,12 @@
           "command": "cmux home enable-channels"
         },
         {
+          "id": "window.focusDock",
+          "title": "Focus Dock",
+          "shortcut": null,
+          "command": "cmux window focus-dock"
+        },
+        {
           "id": "gallery.openStage",
           "title": "Gallery Stage",
           "shortcut": null,
@@ -262,6 +268,36 @@
           "command": null
         },
         {
+          "id": "window.dockEdgeBottom",
+          "title": "Move Dock to Bottom",
+          "shortcut": null,
+          "command": "cmux window dock-edge-bottom"
+        },
+        {
+          "id": "window.dockEdgeLeft",
+          "title": "Move Dock to Left",
+          "shortcut": null,
+          "command": "cmux window dock-edge-left"
+        },
+        {
+          "id": "window.dockEdgeRight",
+          "title": "Move Dock to Right",
+          "shortcut": null,
+          "command": "cmux window dock-edge-right"
+        },
+        {
+          "id": "window.dockEdgeTop",
+          "title": "Move Dock to Top",
+          "shortcut": null,
+          "command": "cmux window dock-edge-top"
+        },
+        {
+          "id": "home.createChannel",
+          "title": "New Channel…",
+          "shortcut": null,
+          "command": "cmux chat channel create"
+        },
+        {
           "id": "home.newChief",
           "title": "New Chief…",
           "shortcut": null,
@@ -308,6 +344,12 @@
           "title": "Open Chief",
           "shortcut": null,
           "command": "cmux home open-chief"
+        },
+        {
+          "id": "home.openChiefDock",
+          "title": "Open Chief Dock",
+          "shortcut": "⌘I",
+          "command": "cmux home open-chief-dock"
         },
         {
           "id": "history.open",
@@ -518,6 +560,18 @@
           "title": "Show History",
           "shortcut": null,
           "command": "cmux history show"
+        },
+        {
+          "id": "window.toggleDock",
+          "title": "Show or Hide Dock",
+          "shortcut": null,
+          "command": "cmux window toggle-dock"
+        },
+        {
+          "id": "window.toggleDockTabBar",
+          "title": "Show or Hide Dock Tab Bar",
+          "shortcut": null,
+          "command": "cmux window toggle-dock-tab-bar"
         },
         {
           "id": "stash.show",
@@ -2018,6 +2072,12 @@
           "title": "Move Column Right",
           "shortcut": null,
           "command": "cmux column move-right"
+        },
+        {
+          "id": "window.movePaneToDock",
+          "title": "Move Pane to Dock",
+          "shortcut": null,
+          "command": "cmux pane move-to-dock"
         },
         {
           "id": "pane.moveToNewWindow",
@@ -4456,6 +4516,12 @@
           "command": "cmux browser open-link-in-incognito-window"
         },
         {
+          "id": "browserProfile.openLinkInNew",
+          "title": "Open Link in New Browser Profile…",
+          "shortcut": null,
+          "command": "cmux browser-profile open-link-in-new"
+        },
+        {
           "id": "browser.link.openInNewSpace",
           "title": "Open Link in New Space",
           "shortcut": null,
@@ -5168,6 +5234,18 @@
           "title": "Mark Checklist Item In Progress",
           "shortcut": null,
           "command": "cmux sidebar mark-checklist-item-in-progress"
+        },
+        {
+          "id": "sidebar.priority.moveEarlier",
+          "title": "Move Chat Earlier in Priority…",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "sidebar.priority.moveLater",
+          "title": "Move Chat Later in Priority…",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "sidebar.section.moveToScrolling",
@@ -6126,7 +6204,7 @@
         {
           "id": "palette.newAgentChat",
           "title": "New Agent Chat",
-          "shortcut": "⌘I",
+          "shortcut": null,
           "command": "cmux agent new-chat"
         },
         {
@@ -7132,6 +7210,12 @@
           "command": "cmux settings check-for-updates"
         },
         {
+          "id": "palette.clearSearchHistory",
+          "title": "Clear Palette Search History",
+          "shortcut": null,
+          "command": "cmux settings clear-palette-history"
+        },
+        {
           "id": "help.documentation",
           "title": "cmux Documentation…",
           "shortcut": null,
@@ -7410,6 +7494,12 @@
         {
           "id": "debug.projection",
           "title": "Open Projection Window",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "debug.viewWindow",
+          "title": "Open View Window",
           "shortcut": null,
           "command": null
         },

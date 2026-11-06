@@ -5,10 +5,12 @@
 import { pathKey, type AcpmuxActivity, type AcpmuxRow } from "../model";
 import type { Translate } from "../i18n";
 import { isBareShellName } from "../toolPaths";
+import { toolKind } from "../toolNames";
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
 import { acpmuxSendCalls, recordedMessageBodyChangesForTool, type AcpmuxSendCallPart } from "./acpmuxSends";
 import { agentMessage, type AgentMessage } from "./agentMessages";
 import { dispatchCall, type DispatchCall } from "./dispatchCalls";
+import { whoElseCall, type WhoElseCall } from "./whoElseCalls";
 import { isCmuxExec } from "./cmuxExec";
 import { mcpCall, mcpDescription, mcpIsObservational, mcpKey } from "./mcpCalls";
 import { subsessionCall, type SubsessionCall } from "./subsessionCalls";
@@ -26,6 +28,9 @@ export type ToolGroup =
   | { type: "message"; item: AcpmuxActivity; message: AgentMessage }
   /// A first-class dispatch/steer/report operation, kept visible beside folded tool work.
   | { type: "dispatch"; item: AcpmuxActivity; call: DispatchCall }
+  /// "Who else is working on these files" (whoElseCalls.ts): its answer as one card, whether the
+  /// agent asked through the acpmux MCP tool or `acpmux who-else --json` in a shell.
+  | { type: "whoElse"; item: AcpmuxActivity; call: WhoElseCall }
   /// A message a shell `acpmux send` (acpmuxSends.ts) or the acpmux MCP send's batch, file or tag
   /// shape (acpmuxMcpSends.ts) sent: the sent-message row (SentMessageLine.tsx). A call that sent
   /// several (a batch) is one entry per message, all with the same `item`.
@@ -65,7 +70,8 @@ export const isSentEntry = (group: ToolGroup): group is SentEntry =>
 /// are commands; an MCP call can also say "execute". An edit still waiting for its permission
 /// ("pending") is drawn as the call, not as "Edited" (cx-p5fgx).
 export function toolGroupKind(tool: Tool): ToolGroupKind | undefined {
-  switch (tool.kind) {
+  // By what the call did, whichever harness named it (toolNames.ts): a Claude Code Grep searches.
+  switch (toolKind(tool)) {
     case "execute":
       return tool.command ? "commands" : undefined;
     case "read":
@@ -153,7 +159,8 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
       continue;
     }
     const tool = item.tool;
-    const dispatch = tool ? dispatchCall(item) : undefined;
+    const whoElse = tool ? whoElseCall(item) : undefined;
+    const dispatch = tool && !whoElse ? dispatchCall(item) : undefined;
     let send = tool && !dispatch ? acpmuxSendCalls(tool, messageFiles) : undefined;
     if (send && messageFiles.size) {
       const startsAt = tool?.startedAt;
@@ -165,12 +172,12 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
         send = tool && !dispatch ? acpmuxSendCalls(tool) : undefined;
       }
     }
-    if (!send && tool && !dispatch) send = acpmuxMcpSends(tool);
-    const message = tool && !dispatch && !send ? agentMessage(tool) : undefined;
-    const named = tool && !dispatch && !send && !message ? mcpCall(tool) : undefined;
+    if (!send && tool && !dispatch && !whoElse) send = acpmuxMcpSends(tool);
+    const message = tool && !dispatch && !whoElse && !send ? agentMessage(tool) : undefined;
+    const named = tool && !dispatch && !whoElse && !send && !message ? mcpCall(tool) : undefined;
     const subsession = named && subsessionCall(tool!, named);
     const call = subsession ? undefined : named;
-    const agent = tool && !dispatch && !send && !message && !named ? agentCall(tool) : undefined;
+    const agent = tool && !dispatch && !whoElse && !send && !message && !named ? agentCall(tool) : undefined;
     // A cmux script is its own row even beside another: each says what it did (cmuxExec.ts).
     // So is a described call, as Claude Code desktop draws each with its own words (mcpDescription).
     const key = call && (isCmuxExec(call) || mcpDescription(call) ? `${mcpKey(call)}\u0000${tool!.id}` : mcpKey(call));
@@ -286,7 +293,11 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
       rememberMessageFiles();
       continue;
     }
-    const kind = tool && !send && !message && !subsession && !call && !agent ? toolGroupKind(tool) : undefined;
+    // A dispatch keeps its own card even when it ran as a shell (`acpmux dispatch` in a Shell call).
+    const kind =
+      tool && !whoElse && !dispatch && !send && !message && !subsession && !call && !agent
+        ? toolGroupKind(tool)
+        : undefined;
     if (kind && run?.kind === kind) {
       run.items.push(...held, item);
       held = [];
@@ -301,7 +312,8 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
       continue;
     }
     flushLead();
-    if (dispatch) groups.push({ type: "dispatch", item, call: dispatch });
+    if (whoElse) groups.push({ type: "whoElse", item, call: whoElse });
+    else if (dispatch) groups.push({ type: "dispatch", item, call: dispatch });
     else if (send) for (const part of send) groups.push({ type: "send", item, send: part });
     else if (message) groups.push({ type: "message", item, message });
     else if (subsession) groups.push({ type: "subsession", item, call: subsession });
@@ -398,7 +410,8 @@ export function isDraftCall(tool: Tool): boolean {
     isRunning(tool) &&
     tool.kind === "execute" &&
     isBareShellName(tool, tool.title) &&
-    !tool.description &&
+    // A description alone is still nothing to show: the row reads as its command, never as Bash's
+    // description (toolPaths.ts toolLabel).
     !tool.output &&
     !tool.background &&
     !tool.diffs?.length &&
@@ -444,11 +457,12 @@ export function toolGroupLabel(
   switch (kind) {
     case "commands": {
       // A finished run whose background tasks ended leads with them, as Claude Code desktop's
-      // header does: "Finished 2 background tasks, ran 3 commands" (toolRunSummary.ts).
+      // header does, joined as the run's sentence: "Finished 2 background tasks and ran 3 commands"
+      // (toolRunSummary.ts).
       const finished = running ? undefined : finishedBackgroundPhrase(t, calls);
       if (!finished) return t(running ? "tools.running" : "tools.ran", { n: calls.length });
       const ran = calls.length === 1 ? t("toolRun.ran.one") : t("toolRun.ran.other", { n: calls.length });
-      const text = [finished, ran].join(t("toolRun.separator"));
+      const text = [finished, ran].join(t("toolRun.and"));
       return text.charAt(0).toUpperCase() + text.slice(1);
     }
     case "reads": {
@@ -515,7 +529,8 @@ export function runStretches(row: AcpmuxRow, groups: readonly ToolGroup[]): RunS
   return stretches;
 }
 
-/// An entry a folded run keeps in sight beside its summary lines: a coordination card, or a file
+/// An entry a folded run keeps in sight beside its summary lines: a coordination card (who else
+/// works on these files among them), or a file
 /// change still waiting for its permission (toolGroups.ts `awaitsPermission`). Other edits fold with
 /// the rest of the work and the line names them (Leo 2026-10-22: "this is pretty good ui: … the
 /// collapsing i mean"); the turn's edited-files card lists them once it ends.
@@ -527,7 +542,8 @@ export function staysInSight(group: ToolGroup): boolean {
     group.type === "subsession" ||
     group.type === "subsessionGroup" ||
     group.type === "agentCall" ||
-    group.type === "dispatch"
+    group.type === "dispatch" ||
+    group.type === "whoElse"
   )
     return true;
   // A pending change draws as its own item (toolGroups.ts `toolGroupKind`); any entry holding one

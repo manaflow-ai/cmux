@@ -43,11 +43,12 @@ extension SettingsHarnesses {
         return path.flatMap { $0.hasPrefix("/") ? $0 : nil }
     }
 
-    /// Asks each signed-in Claude login for its plan (``ClaudeAuthStatus``), all at once. Only the
+    /// Asks each signed-in Claude login (not an API key) for its plan (``ClaudeAuthStatus``), all at once. Only the
     /// newest refresh writes; a login whose answer names no plan keeps none, and with no `claude`
     /// found or no signed-in Claude login no plan is kept (a signed-out login shows none).
     func readClaudePlans(generation mine: Int) async {
-        let logins = (accounts ?? []).filter { $0.family == "claude" && $0.signedIn }.map { ($0.id, $0.home) }
+        // An API-key route is signed in but is no claude.ai login: it has no plan and no folder to ask in.
+        let logins = (accounts ?? []).filter { $0.family == "claude" && $0.signedIn && !$0.key }.map { ($0.id, $0.home) }
         guard let claude = claudeProgram, !logins.isEmpty else {
             claudePlans = [:]
             return

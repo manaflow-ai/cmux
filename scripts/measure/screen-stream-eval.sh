@@ -79,7 +79,14 @@ print(json.dumps(run))
 EOF
 }
 link_arg=()
-[[ -n "$lan" ]] && link_arg=(link "lan: host at $lan, viewer on a second Mac")
+if [[ "$lan" =~ ^100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\. ]]; then
+  # A tailnet address (100.64.0.0/10): two Macs on one LAN reach each other directly, inside
+  # WireGuard. The fleet needs it, since macOS Local Network privacy refuses launchd-started
+  # binaries the LAN addresses (cmuxterm-hq build-fleet/README.md); the label keeps that visible.
+  link_arg=(link "lan via tailnet: host at $lan (WireGuard, direct), viewer on a second Mac")
+elif [[ -n "$lan" ]]; then
+  link_arg=(link "lan: host at $lan, viewer on a second Mac")
+fi
 run=$(run_json host "$(scutil --get ComputerName 2>/dev/null || hostname)" cpu "$(sysctl -n machdep.cpu.brand_string)" \
   macos "$(sw_vers -productVersion)" rev "$(git rev-parse HEAD)" display "$display" samples "$samples" repeats "$repeats" \
   rd_input_frame_now "$input_frame_now" \

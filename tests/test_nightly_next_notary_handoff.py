@@ -31,6 +31,9 @@ def prepare_step() -> str:
 
 def run_prepare(state_extra: dict[str, str]) -> subprocess.CompletedProcess[str]:
     temp = Path(tempfile.mkdtemp())
+    # The step runs from the repository root in nightly.yml and calls
+    # ./scripts/ci/archive-recovery-app.sh; give the fixture folder the same scripts.
+    (temp / "scripts").symlink_to(ROOT / "scripts", target_is_directory=True)
     dmg = temp / "cmux-nightly-next-macos-arm64.dmg"
     dmg.write_bytes(b"signed dmg")
     app = temp / "cmux NEXT.app"

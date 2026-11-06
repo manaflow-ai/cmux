@@ -7,6 +7,7 @@ import { DEFAULT_LOCK_PATH } from "../scripts/cmux-vm-image/lock";
 import {
   agentProgramsText,
   baseInputTree,
+  bakeScriptClosure,
   cachedInstallCommand,
   isBaseInput,
   layerKeys,
@@ -29,6 +30,14 @@ function repin(name: string): string {
 
 async function bashSyntax(script: string): Promise<void> {
   const result = await runChild("bash", ["-n"], { input: script, timeout: 20_000 });
+  expect(result.stderr).toBe("");
+  expect(result.status).toBe(0);
+}
+
+/** The guest runs a bake step with /bin/sh: parse with dash where the host has it (Linux CI), else POSIX sh. */
+async function guestShSyntax(script: string): Promise<void> {
+  const shell = (await runChild("sh", ["-c", "command -v dash"], { timeout: 5_000 })).status === 0 ? "dash" : "sh";
+  const result = await runChild(shell, ["-n"], { input: script, timeout: 20_000 });
   expect(result.stderr).toBe("");
   expect(result.status).toBe(0);
 }
@@ -82,6 +91,44 @@ describe("layered bake keys", () => {
     const tree = baseInputTree(repoRoot);
     expect(tree).toContain("web/scripts/cmux-vm-image/bake.ts");
     expect(tree).not.toContain("inputs.lock.json");
+  });
+
+  test("an image script is an input only when the bake runs it; the smoke, GC and probes are not", () => {
+    const read = (file: string) => {
+      try {
+        return readFileSync(path.join(repoRoot, file), "utf8");
+      } catch {
+        return undefined;
+      }
+    };
+    const scripts = bakeScriptClosure(read);
+    for (const f of ["bake.ts", "lock.ts", "layers.ts", "dev-tree.ts", "sshd.ts", "host-agent.ts", "browser-probe.ts", "apt-update.ts", "dns.ts"]) {
+      expect(scripts.has(`web/scripts/cmux-vm-image/${f}`)).toBe(true);
+    }
+    for (const f of ["smoke.ts", "gc-layers.ts", "inventory.ts", "first-session.ts", "cleanup.ts", "daemon-uptime.ts", "repro.ts"]) {
+      expect(scripts.has(`web/scripts/cmux-vm-image/${f}`)).toBe(false);
+      expect(isBaseInput(`web/scripts/cmux-vm-image/${f}`, scripts)).toBe(false);
+    }
+    expect(isBaseInput("images/cmux-vm/bake.ts", scripts)).toBe(true);
+    expect(isBaseInput("images/cmux-vm/smoke.ts", scripts)).toBe(false);
+    // Guest files, other trees and non-script files stay inputs whatever the closure says.
+    expect(isBaseInput("images/cmux-vm/guest/sampler.py", scripts)).toBe(true);
+    expect(isBaseInput("web/scripts/cmux-vm-image/acpmux_person_key_e2e.py", scripts)).toBe(true);
+    expect(isBaseInput("web/services/vms/images/workUser.ts", scripts)).toBe(true);
+    expect(isBaseInput("web/scripts/cmux-vm-image/smoke.ts")).toBe(true);
+    const tree = baseInputTree(repoRoot);
+    expect(tree).toContain("web/scripts/cmux-vm-image/sshd.ts");
+    expect(tree).not.toContain("web/scripts/cmux-vm-image/smoke.ts");
+    expect(tree).not.toContain("web/scripts/cmux-vm-image/gc-layers.ts");
+  });
+
+  test("the closure follows re-exports and dynamic imports", () => {
+    const files: Record<string, string> = {
+      "web/scripts/cmux-vm-image/bake.ts": 'import { a } from "./a";\nexport { b } from "./b.ts";\nconst c = await import("./c");',
+      "web/scripts/cmux-vm-image/a.ts": "import { d } from './d';\nimport \"./e\";\nimport f from \"./f.js\";\nimport type { G } from \"./g.ts\";",
+    };
+    const scripts = bakeScriptClosure((f) => files[f]);
+    expect([...scripts].sort()).toEqual(["images/cmux-vm/bake.ts", ...["a", "b", "bake", "c", "d", "e", "f", "g"].map((x) => `web/scripts/cmux-vm-image/${x}.ts`)]);
   });
 
   test("flags come from the options; --layered refuses promotion, production copies and the dev tree", () => {
@@ -184,5 +231,40 @@ describe("deferred inventory", () => {
     expect(bakeOptionsFromArgv(["bun", "bake.ts", "--tag", "t", "--layered", "--defer-inventory"]).deferInventory).toBe(true);
     const { recordedFlags } = await import("../scripts/cmux-vm-image/prod-copy");
     expect(recordedFlags("images/cmux-vm/bake.ts --agent-tools --layered --defer-inventory (CI run 7)")).toEqual(["--agent-tools", "--layered", "--defer-inventory"]);
+  });
+});
+
+describe("baked npm cache", () => {
+  test("the prefill parses, installs as the work user, reports its size and enforces the cap", async () => {
+    const { npmCachePrefillCommand, NPM_CACHE_CAP_MB, PREFILL_NODE_DEPS } = await import("../scripts/cmux-vm-image/dep-cache");
+    const cmd = npmCachePrefillCommand();
+    await guestShSyntax(cmd);
+    expect(cmd).toContain("runuser -u cmux");
+    for (const dep of PREFILL_NODE_DEPS) expect(cmd).toContain(dep);
+    expect(cmd).toContain(`-gt ${NPM_CACHE_CAP_MB}`);
+    expect(cmd).toContain("npm-cache-mb");
+    // No package's lifecycle scripts run in the build, and every prefill starts from an empty cache.
+    expect(cmd).toContain("npm install --ignore-scripts");
+    // The guest runs steps with /bin/sh (dash): no bash-only options.
+    expect(cmd).not.toContain("pipefail");
+    expect(cmd).toContain("rm -rf /tmp/cmux-npm-prefill /home/cmux/.npm/_cacache");
+  });
+
+  test("clean.py keeps the work user's npm cache content and nothing else under ~/.npm", () => {
+    const clean = readFileSync(path.join(repoRoot, "images/cmux-vm/guest/clean.py"), "utf8");
+    expect(clean).toContain('"/home/cmux/.npm/_cacache"');
+    expect(clean).toContain('"/home/cmux/.npm/*"');
+    expect(clean).not.toContain('"/home/cmux/.npm"]');
+  });
+
+  test("the bake runs dep-cache.ts, so a change to the prefill rebuilds the agents' parent layer", () => {
+    const scripts = bakeScriptClosure((f) => {
+      try {
+        return readFileSync(path.join(repoRoot, f), "utf8");
+      } catch {
+        return undefined;
+      }
+    });
+    expect(scripts.has("web/scripts/cmux-vm-image/dep-cache.ts")).toBe(true);
   });
 });

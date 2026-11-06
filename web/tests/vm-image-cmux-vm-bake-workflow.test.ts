@@ -39,6 +39,7 @@ function evaluate(value: string, ctx: { inputs: Inputs; out: string; snapshot: s
     if (presence) return ctx.missing === presence[1] ? "" : "yes";
     const plan = expr.match(/^steps\.plan\.outputs\.(\w+)$/);
     if (plan) return ctx.plan[plan[1]!] ?? "";
+    if (expr === "(inputs.layered && !inputs.dev_tree) && '60' || '120'") return ctx.inputs.layered && !ctx.inputs.dev_tree ? "60" : "120";
     const ternary = expr.match(/^inputs\.(\w+) && '([^']*)' \|\| '([^']*)'$/);
     if (ternary) return ctx.inputs[ternary[1] as keyof Inputs] ? ternary[2]! : ternary[3]!;
     const input = expr.match(/^inputs\.(\w+)$/);
@@ -131,6 +132,14 @@ describe("cloud-vm-image-bake.yml", () => {
     dirs.push(dir2);
     const devTree = await runStep("Bake", { ...inputs, dev_tree: true }, dir2);
     expect(devTree.argv.at(-1)).toBe(`../images/cmux-vm/bake.ts --tag ci-4242-1 --out-dir ${devTree.out} --agent-tools --dev-tree`);
+    const devTreeSmoke = await runStep("Smoke", { ...inputs, dev_tree: true }, dir2);
+    expect(devTreeSmoke.argv.some((a) => a.startsWith("../images/cmux-vm/smoke.ts") && a.includes("--idle-seconds 120 "))).toBe(true);
+  });
+
+  test("a first-session probe queues apart from the bakes; bakes keep one queue per ref", () => {
+    const group = String((workflow as unknown as { concurrency: { group: string } }).concurrency.group);
+    expect(group).toBe("cloud-vm-image-bake-${{ github.ref }}${{ inputs.mode == 'first-session' && '-probe' || '' }}");
+    expect((workflow as unknown as { concurrency: { "cancel-in-progress": boolean } }).concurrency["cancel-in-progress"]).toBe(false);
   });
 
   test("team_vm is a boolean input that defaults to off", () => {
@@ -161,7 +170,7 @@ describe("cloud-vm-image-bake.yml", () => {
     expect(JSON.parse(readFileSync(path.join(bake.out, "channel-dev.json"), "utf8")).bake).toBe("images/cmux-vm/bake.ts --agent-tools --dev-tree (CI run 4242)");
     // Both sides build the run's commit, and a dev tree snapshot is kept only when its first build passed (not skipped or cancelled).
     expect(workflowText).toContain('first-build.ts --mode before --snapshot "$snapshot" --tag "$TAG" --ref "$GITHUB_SHA"');
-    expect(workflowText).toContain("steps.smoke.outcome == 'success' && (!inputs.dev_tree || steps.first_build.outcome == 'success') && '--keep-snapshot'");
+    expect(workflowText).toContain("steps.smoke.outcome == 'success' && (!inputs.dev_tree || steps.first_build.outcome == 'success') && (!(inputs.agent_tools && inputs.probes) || steps.agent_tools_probe.outcome == 'success') && '--keep-snapshot'");
   });
 
   test("no run script interpolates an expression (inputs reach scripts through env only)", () => {
