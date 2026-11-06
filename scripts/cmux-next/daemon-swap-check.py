@@ -154,6 +154,9 @@ def start_resolution() -> float:
     return 1 / os.sysconf("SC_CLK_TCK") if LINUX_PROC else 1.0
 
 
+# Claimed host processes: pid -> (start time, a pidfd opened when claimed, or None without pidfds).
+Owned = dict[int, tuple[float, int | None]]
+
 # Recorded pids not claimed (yet), with why: kill_owned reports those still unclaimed at cleanup.
 UNCLAIMED: dict[int, str] = {}
 
@@ -173,7 +176,7 @@ def names_root(pid: int, root: Path) -> bool:
     return needle in out.stdout
 
 
-def claim(owned: dict[int, float], pid: int | None, written: float, root: Path) -> None:
+def claim(owned: Owned, pid: int | None, written: float, root: Path) -> None:
     """Remember a recorded host process with its start time. A process that
     started after its record was written holds a reused pid, not ours. A start
     is rounded down to process_start's resolution, so a process that started
@@ -191,44 +194,49 @@ def claim(owned: dict[int, float], pid: int | None, written: float, root: Path) 
     elif start + start_resolution() > written and not names_root(pid, root):
         UNCLAIMED[pid] = "not clearly older than its record, and not this run's process"
     else:
-        owned[pid] = start
+        # The pidfd is opened now, while the process is the one just checked,
+        # and kept: a pid reused later (even within one tick) never takes it.
+        pidfd = None
+        if hasattr(os, "pidfd_open"):
+            try:
+                pidfd = os.pidfd_open(pid)
+            except ProcessLookupError:
+                UNCLAIMED[pid] = "gone or unreadable"
+                return
+            except OSError:
+                pidfd = None  # no pidfd syscall here (ENOSYS): reported at cleanup
+            if pidfd is not None and process_start(pid) != start:
+                os.close(pidfd)
+                UNCLAIMED[pid] = "its pid changed hands while it was claimed"
+                return
+        owned[pid] = (start, pidfd)
         UNCLAIMED.pop(pid, None)
 
 
-def kill_owned(owned: dict[int, float]) -> None:
-    """SIGKILL each claimed process that is still the same process: through a
-    pidfd, which pins it (its pid can't be reused while the fd is open), and
-    only while its start time is unchanged. Without pidfds (macOS) nothing is
-    signalled: a check and a kill by pid could race a reuse, so a host still
-    alive here is reported instead (the graceful shutdowns end them). Every
-    recorded pid left unclaimed that still runs is reported too."""
+def kill_owned(owned: Owned) -> None:
+    """SIGKILL each claimed process through the pidfd claim() opened: it names
+    that process only, so a pid reused since never receives the signal. With
+    no pidfd (macOS, or a kernel without the syscall) nothing is signalled: a
+    check and a kill by pid could race a reuse, so each such pid still alive is
+    reported instead (the graceful shutdowns end the hosts). Every recorded pid
+    left unclaimed that still runs is reported too."""
     for pid, why in sorted(UNCLAIMED.items()):
         if pid not in owned and pid_alive(pid):
             print(f"daemon-swap-check: left pid {pid} alive: {why}", file=sys.stderr)
     UNCLAIMED.clear()
-    for pid, start in owned.items():
-        if not hasattr(os, "pidfd_open"):
-            if process_start(pid) == start:
-                print(f"daemon-swap-check: left pid {pid} alive: no pidfd to signal it safely", file=sys.stderr)
+    for pid, (start, pidfd) in owned.items():
+        if pidfd is None:
+            if pid_alive(pid):
+                same = "" if process_start(pid) == start else " (its start time changed: maybe another process now)"
+                print(f"daemon-swap-check: left pid {pid} alive: no pidfd to signal it safely{same}", file=sys.stderr)
             continue
         try:
-            pidfd = os.pidfd_open(pid)
-        except ProcessLookupError:
-            continue  # gone
-        except OSError as error:
-            # No pidfd syscall here (ENOSYS) or another refusal: as without pidfds.
-            if process_start(pid) == start:
-                print(f"daemon-swap-check: left pid {pid} alive: no pidfd ({error.strerror})", file=sys.stderr)
-            continue
-        try:
-            if process_start(pid) != start:
-                print(f"daemon-swap-check: left pid {pid}: not the recorded process", file=sys.stderr)
-                continue
             signal.pidfd_send_signal(pidfd, signal.SIGKILL)
         except ProcessLookupError:
-            pass
+            pass  # it exited: its pid, reused or not, is left alone
         finally:
             os.close(pidfd)
+    owned.clear()
 
 
 def stop(proc: subprocess.Popen) -> float:
@@ -392,7 +400,7 @@ class Daemon:
     def screen(self, surface: int) -> str:
         return data(self.socket, {"cmd": "read-screen", "surface": surface}).get("text") or ""
 
-    def shutdown_with_terminals(self, hosts: dict[int, float], fallback: Path) -> None:
+    def shutdown_with_terminals(self, hosts: Owned, fallback: Path) -> None:
         """End the daemon and every terminal this check started. When no daemon
         answers (the new one never came up), a daemon of FALLBACK, the old
         build, adopts the hosts and ends them: the one way that needs no
@@ -444,7 +452,7 @@ def host_pids(state: Path) -> dict[str, int]:
     return found
 
 
-def claim_hosts(state: Path, owned: dict[int, float]) -> None:
+def claim_hosts(state: Path, owned: Owned) -> None:
     for path in state.rglob("*.json"):
         try:
             record = json.loads(path.read_text())
@@ -464,7 +472,7 @@ def shell_pid(screen: str, tag: str) -> int | None:
 
 def terminal_phase(old: Path, new: Path, count: int, work: Path) -> dict:
     daemon = Daemon(work / "terminals")
-    started: dict[int, float] = {}
+    started: Owned = {}
     try:
         return terminal_swap(daemon, old, new, count, started)
     finally:
@@ -473,7 +481,7 @@ def terminal_phase(old: Path, new: Path, count: int, work: Path) -> dict:
             daemon.shutdown_with_terminals(started, old)
 
 
-def terminal_swap(daemon: Daemon, old: Path, new: Path, count: int, started: dict[int, float]) -> dict:
+def terminal_swap(daemon: Daemon, old: Path, new: Path, count: int, started: Owned) -> dict:
     daemon.start(old)
     daemon.wait_ready(now() + 30)
     before_id = data(daemon.socket, {"cmd": "identify"})
@@ -618,7 +626,7 @@ class Acpmux:
             self.proc = subprocess.Popen([str(binary), "daemon", "run"], env=self.env(), stdout=log,
                                          stderr=subprocess.STDOUT, start_new_session=True)
 
-    def claim_hosts(self, owned: dict[int, float]) -> None:
+    def claim_hosts(self, owned: Owned) -> None:
         for path in (self.home / "hosts").glob("*.json"):
             try:
                 record = json.loads(path.read_text())
@@ -647,7 +655,7 @@ def agent_phase(old: Path, new: Path, work: Path) -> dict:
     wrapper.chmod(0o755)
     mux.run(old, "harness", "add", "swapfake", "--command", str(wrapper))
     mux.start(old)
-    owned: dict[int, float] = {}
+    owned: Owned = {}
     try:
         old_status = wait_until("acpmux daemon", now() + 30, lambda: (s := mux.status(old)).get("build") and s)
         mux.run(old, "new", "-m", "swapfake", "-n", "swap", "-d", "--cwd", str(mux.root), "hello")
