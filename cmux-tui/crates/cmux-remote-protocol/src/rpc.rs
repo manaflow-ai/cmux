@@ -166,6 +166,9 @@ pub enum RemoteCapability {
     ComputerUseV1,
     /// `terminal-bytes-v1` accepts [`TERMINAL_BYTES_VIEWER_SIZE_PRIORITY`].
     TerminalViewerSizePriorityV1,
+    /// `secrets-v1`: the daemon opens [`SealedSecret`]s sealed to its static
+    /// key and writes them (`replace-machine-secrets`, `install-harness-login`).
+    SecretsV1,
     /// A capability introduced by a newer peer.
     ///
     /// Capabilities are versioned wire strings, so clients must be able to
@@ -397,6 +400,46 @@ pub enum WorkspaceRequest {
     CancelComputerUse {
         invocation: ComputerUseInvocationId,
     },
+    /// `secrets-v1`: replace `~/.config/cmux/machine-secrets.env` with exactly
+    /// these items (an empty list clears it). Purpose `secret`.
+    ReplaceMachineSecrets {
+        items: Vec<SealedSecret>,
+    },
+    /// `secrets-v1`: install one harness login (`claude` or `codex`) where the
+    /// harness reads it. Purpose `harness-login`.
+    InstallHarnessLogin {
+        item: SealedSecret,
+        /// DEV and dogfood builds only: a team guest whose creator is the
+        /// caller may take the login too. Off everywhere else.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        allow_team_guest: bool,
+    },
+}
+
+/// One value sealed to a daemon's static X25519 key with HPKE (RFC 9180 base
+/// mode, DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, ChaCha20Poly1305). The
+/// `info` binds the machine id, the purpose, `name` and `nonce`; the AAD is
+/// `name`. Only the daemon holding the key can open it.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SealedSecret {
+    pub name: String,
+    /// 32 lowercase hex digits, fresh per item: the daemon refuses one it has
+    /// already opened.
+    pub nonce: String,
+    /// The HPKE encapsulated key (32 bytes).
+    pub enc: ByteString,
+    /// The AEAD ciphertext with its tag.
+    pub ciphertext: ByteString,
+}
+
+impl std::fmt::Debug for SealedSecret {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("SealedSecret")
+            .field("name", &self.name)
+            .field("nonce", &self.nonce)
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -531,6 +574,12 @@ pub enum WorkspaceResponse {
     ComputerUseCanceled {
         invocation: ComputerUseInvocationId,
         accepted: bool,
+    },
+    MachineSecretsReplaced {
+        count: u32,
+    },
+    HarnessLoginInstalled {
+        name: String,
     },
 }
 

@@ -197,6 +197,26 @@ pub(crate) fn machine_source() -> Option<UsageSource> {
     )
 }
 
+/// This machine's Cloud id alone (`CMUX_VM_ID` from the same places as
+/// [`machine_source`], the bound instance id last), with or without a
+/// coderouter origin: the id `secrets-v1` items are sealed for.
+pub(crate) fn machine_vm_id() -> Option<String> {
+    let etc = crate::agent_start_host::cloud_etc();
+    let files = [
+        read_env_file(default_env_file_path().as_deref()),
+        read_env_file(Some(&etc.file(IMAGE_ENV_FILE))),
+    ];
+    std::env::var(VM_ID_VAR)
+        .ok()
+        .into_iter()
+        .chain(files.iter().flatten().filter_map(|file| parse_env_exports(file).remove(VM_ID_VAR)))
+        .map(|value| value.trim().to_owned())
+        .find(|value| !value.is_empty())
+        .or_else(|| {
+            read_env_file(Some(&etc.file(BOUND_INSTANCE_FILE))).as_deref().and_then(instance_id)
+        })
+}
+
 fn read_env_file(path: Option<&Path>) -> Option<String> {
     std::fs::read_to_string(path?).ok()
 }
