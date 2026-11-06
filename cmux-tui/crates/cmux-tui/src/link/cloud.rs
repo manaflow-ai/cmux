@@ -513,21 +513,32 @@ pub(super) async fn serve_cloud_dial<C, O, S>(
         let remote = SocketAddr::new(IpAddr::V6(resolved.info.peer.overlay_address), LINK_PORT);
         // Peer setup is not cut by the connect deadline, so a half-applied
         // change cannot be left behind (it bounds its own tunnel start).
-        let failed = match overlay.set_cloud_peer(host, resolved.key, &resolved.info).await {
-            Err(error) => format!("the tunnel peer setup failed: {error}"),
-            Ok(_) => match tokio::time::timeout(DIAL_TIMEOUT, overlay.connect(remote)).await {
-                Ok(Ok(stream)) => break (resolved, stream),
-                Ok(Err(error)) => format!("connect to {remote}: {error}"),
-                Err(_) => format!("no handshake with {remote} within {} s", DIAL_TIMEOUT.as_secs()),
-            },
+        // The tries after the refetch end with the wait, not past it.
+        let budget = if tries < 1 {
+            DIAL_TIMEOUT
+        } else {
+            DIAL_TIMEOUT.min(RUNNING_HANDSHAKE_WAIT.saturating_sub(began.elapsed()))
         };
+        let (failed, handshake) =
+            match overlay.set_cloud_peer(host, resolved.key, &resolved.info).await {
+                Err(error) => (format!("the tunnel peer setup failed: {error}"), false),
+                Ok(_) => match tokio::time::timeout(budget, overlay.connect(remote)).await {
+                    Ok(Ok(stream)) => break (resolved, stream),
+                    Ok(Err(error)) => (format!("connect to {remote}: {error}"), true),
+                    Err(_) => {
+                        (format!("no handshake with {remote} within {} s", budget.as_secs()), true)
+                    }
+                },
+            };
         tries += 1;
         // Rule 3: a handshake failure fetches once more before it reports.
         if tries == 1 {
             continue;
         }
-        // A running machine may still be reading its first receiver policy.
-        if !resolved.info.is_paused()
+        // A running machine may still be reading its first receiver policy; a
+        // peer setup that failed is not that, and is reported at once.
+        if handshake
+            && !resolved.info.is_paused()
             && began.elapsed() + HANDSHAKE_RETRY_PAUSE < RUNNING_HANDSHAKE_WAIT
         {
             tokio::time::sleep(HANDSHAKE_RETRY_PAUSE).await;
