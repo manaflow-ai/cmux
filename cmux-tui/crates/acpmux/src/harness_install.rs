@@ -111,7 +111,9 @@ fn is_executable(path: &Path) -> bool {
 async fn fetch(url: &str) -> Result<String> {
     // The workspace builds reqwest with `rustls-no-provider` (as `managed_codex::install`).
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let text = reqwest::get(url).await?.error_for_status()?.text().await?;
+    // HTTPS only, redirects included: the body runs as bash, so no hop may be plaintext.
+    let client = reqwest::Client::builder().https_only(true).build()?;
+    let text = client.get(url).send().await?.error_for_status()?.text().await?;
     if !text.starts_with("#!") {
         bail!("{url} did not answer with an installer script")
     }
