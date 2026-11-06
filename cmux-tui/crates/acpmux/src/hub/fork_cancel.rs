@@ -45,7 +45,7 @@ impl Hub {
         let Some(copy) = fork.meta().agent_session_id else { return Ok(()) };
         let shared = parent.as_ref().is_some_and(|p| {
             p.agent_session_id.as_deref() == Some(copy.as_str())
-                || p.previous_agent_session_ids.iter().any(|id| *id == copy)
+                || p.previous_agent_session_ids.contains(&copy)
         }) || self.sessions.lock().unwrap_or_else(|e| e.into_inner()).values().any(
             |s| s.id != fork.id && s.meta().agent_session_id.as_deref() == Some(copy.as_str()),
         );

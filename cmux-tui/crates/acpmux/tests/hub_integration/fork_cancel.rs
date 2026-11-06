@@ -57,8 +57,8 @@ async fn a_cancelled_fork_leaves_nothing_behind_when(live: bool) {
         json!({"sessionId": id, "live": true})
     } else {
         let end =
-            hub.events(&id, 0, 100_000).unwrap().into_iter().filter(|e| e.kind == "turn_result");
-        json!({"sessionId": id, "throughSeq": end.last().unwrap().seq})
+            hub.events(&id, 0, 100_000).unwrap().into_iter().rfind(|e| e.kind == "turn_result");
+        json!({"sessionId": id, "throughSeq": end.unwrap().seq})
     };
     let f = c.request(FORK_OP, boundary).await.unwrap();
     let fid = f["sessionId"].as_str().unwrap().to_owned();
