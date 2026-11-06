@@ -455,19 +455,15 @@ const scheduledRowHoversLikeACommand: Play = async (ctx) => {
   await ctx.hover({ selector: command });
   await ctx.waitFor(() => style(ctx, ctx.find({ selector: command })).backgroundColor !== "rgba(0, 0, 0, 0)");
   const lit = style(ctx, ctx.find({ selector: command }));
-  const commandLook = [
-    lit.backgroundColor,
-    lit.borderTopLeftRadius,
-    ctx.find({ selector: command }).getBoundingClientRect().height,
-  ];
+  const box = (element: Element) => {
+    const rect = element.getBoundingClientRect();
+    return [rect.left, rect.right, rect.height];
+  };
+  const commandLook = [lit.backgroundColor, lit.borderTopLeftRadius, ...box(ctx.find({ selector: command }))];
   await ctx.hover({ selector: wakeup });
   await ctx.waitFor(() => style(ctx, ctx.find({ selector: wakeup })).backgroundColor === commandLook[0]);
   const row = ctx.find({ selector: wakeup });
-  const look = [
-    style(ctx, row).backgroundColor,
-    style(ctx, row).borderTopLeftRadius,
-    row.getBoundingClientRect().height,
-  ];
+  const look = [style(ctx, row).backgroundColor, style(ctx, row).borderTopLeftRadius, ...box(row)];
   if (look.join() !== commandLook.join())
     throw new Error(`A wakeup's row lights as ${look.join(" / ")}, a command's as ${commandLook.join(" / ")}`);
 };
