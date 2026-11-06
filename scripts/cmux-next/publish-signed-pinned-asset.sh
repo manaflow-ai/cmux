@@ -8,7 +8,7 @@
 # Only the prefix cua-helper-dev/ (the store's historical name for cmux Remote) is allowed. Never
 # publish keys, certificates or provisioning profiles.
 #
-#   publish-cua-pinned-asset.sh --file PATH --prefix cua-helper-dev \
+#   publish-signed-pinned-asset.sh --file PATH --prefix cua-helper-dev \
 #       --pin PIN.json [--field KEY=VALUE ...] [--dry-run]
 #
 # Credentials (environment first, then CMUX_CEF_R2_ENV_FILE, default
@@ -19,7 +19,7 @@
 set -euo pipefail
 
 file=""; prefix=""; pin=""; dry=0; fields=()
-usage() { echo "usage: publish-cua-pinned-asset.sh --file PATH --prefix cua-helper-dev --pin PIN [--field K=V ...] [--dry-run]" >&2; exit 2; }
+usage() { echo "usage: publish-signed-pinned-asset.sh --file PATH --prefix cua-helper-dev --pin PIN [--field K=V ...] [--dry-run]" >&2; exit 2; }
 while (( $# )); do
   case "$1" in
     --file) file="${2:?}"; shift 2 ;;

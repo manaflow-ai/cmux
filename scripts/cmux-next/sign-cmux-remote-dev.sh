@@ -19,8 +19,8 @@
 # time stamp; the pin's "signing" field records the certificate kind.
 #
 # Then publish the zip where builds read it: `cmux-ci artifact-put` (the
-# controller store; ensure-cua-pinned-asset.sh reads it by sha256) and, with
-# the R2 write credentials, publish-cua-pinned-asset.sh.
+# controller store; ensure-signed-pinned-asset.sh reads it by sha256) and, with
+# the R2 write credentials, publish-signed-pinned-asset.sh.
 set -euo pipefail
 zip="${1:?usage: sign-cmux-remote-dev.sh UNSIGNED.zip [--identity NAME] [--keychain PATH] [--timestamp] [--out DIR]}"; shift
 identity=""; keychain=(); timestamp=--timestamp=none; out="$PWD"

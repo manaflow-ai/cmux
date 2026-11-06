@@ -661,7 +661,7 @@
 
 			inputPaths = (
 				"$(SRCROOT)/scripts/cmux-next/embed-cmux-remote-dev.sh",
-				"$(SRCROOT)/scripts/cmux-next/ensure-cua-pinned-asset.sh",
+				"$(SRCROOT)/scripts/cmux-next/ensure-signed-pinned-asset.sh",
 				"$(SRCROOT)/scripts/cmux-next/cef-cache-root.sh",
 				"$(SRCROOT)/scripts/ci/macho_minos.py",
 				"$(CMUX_NEXT_CMUX_REMOTE_PIN)",

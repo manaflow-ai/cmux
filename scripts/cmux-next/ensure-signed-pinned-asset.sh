@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Fetches, verifies and caches one pinned signed asset (cmux-remote-dev.pin.json,
 # the Apple Development signed cmux Remote (dev).app written by
-# sign-cmux-remote-dev.sh and published by publish-cua-pinned-asset.sh) and
+# sign-cmux-remote-dev.sh and published by publish-signed-pinned-asset.sh) and
 # prints its cached path on stdout.
 #
-#   ensure-cua-pinned-asset.sh PIN.json [--optional]
+#   ensure-signed-pinned-asset.sh PIN.json [--optional]
 #
 # Sources, each checked against the pin sha256 (a mismatch always fails,
 # also with --optional): the local cache; CMUX_CUA_ASSET_FILE (a local copy);
@@ -16,7 +16,7 @@
 # ~/.secrets/cmux-cef.env). CMUX_CUA_ASSET_NO_STORE=1 skips the store. CMUX_CUA_ASSET_CACHE_DIR overrides the
 # cache root (default <cef-cache-root>/cua-helper-v2).
 set -euo pipefail
-pin="${1:?usage: ensure-cua-pinned-asset.sh PIN.json [--optional]}"
+pin="${1:?usage: ensure-signed-pinned-asset.sh PIN.json [--optional]}"
 optional=0
 [[ "${2:-}" == "--optional" ]] && optional=1
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

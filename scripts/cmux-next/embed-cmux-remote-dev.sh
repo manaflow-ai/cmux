@@ -30,7 +30,7 @@ pin="${CMUX_NEXT_CMUX_REMOTE_PIN:-$SCRIPT_DIR/cmux-remote-dev.pin.json}"
 [[ -f "$pin" ]] || skip "no pin file $pin"
 args=(--optional)
 [[ "${CMUX_NEXT_REQUIRE_CMUX_REMOTE:-0}" == "1" ]] && args=()
-zip="$("$SCRIPT_DIR/ensure-cua-pinned-asset.sh" "$pin" ${args[@]+"${args[@]}"})"
+zip="$("$SCRIPT_DIR/ensure-signed-pinned-asset.sh" "$pin" ${args[@]+"${args[@]}"})"
 [[ -n "$zip" ]] || skip "the pinned cmux Remote is unavailable"
 want="$(shasum -a 256 "$zip" | awk '{print $1}')"
 if [[ -f "$stamp" && "$(cat "$stamp")" == "$want" ]] && codesign --verify --strict "$dest" 2>/dev/null; then

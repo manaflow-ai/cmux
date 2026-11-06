@@ -46,10 +46,10 @@ struct ComputerUseSessionActionsTests {
         }
     }
 
-    static let older = ComputerUseLiveSession(
+    nonisolated static let older = ComputerUseLiveSession(
         id: "cua_old", lastActionAt: Date(timeIntervalSince1970: 100),
         target: .init(pid: 41, bundleID: "com.apple.Notes", appName: "Notes"), terminalID: "term_old", workspaceID: "ws_1")
-    static let newer = ComputerUseLiveSession(
+    nonisolated static let newer = ComputerUseLiveSession(
         id: "cua_new", lastActionAt: Date(timeIntervalSince1970: 200),
         target: .init(pid: 42, bundleID: "com.apple.Safari", appName: "Safari"), terminalID: "term_new", workspaceID: "ws_1")
 
