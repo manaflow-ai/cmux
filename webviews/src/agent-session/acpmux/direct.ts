@@ -291,6 +291,9 @@ export const MCP_RECONNECT_METHOD = "_acpmux/mcp/reconnect";
 /// Most reads of a chat's running limit one step makes when each is overtaken in flight
 /// (`readRunningLimit`): enough for an attach and a record landing together, never a loop.
 const LIMIT_READS = 3;
+/// The waits before each new read of the events a lag dropped, after a failed one
+/// (`readMissedAfterLag`): about 15 s in all, then the pane reports the failure.
+const LAG_RETRY_MS = [250, 500, 1_000, 2_000, 4_000, 8_000];
 /// The slash commands are not transcript, so the pane asks for their updates by kind.
 const COMMANDS_KIND = "available_commands_update";
 /// How many withdrawn queue prompts a snapshot names (`queueWithdrawn`).
@@ -3724,10 +3727,28 @@ export class AcpmuxDirectClient {
     if (Array.isArray(params?.sessionIds) && !params.sessionIds.map(String).includes(sessionId)) return;
     this.emit("resyncing");
     void this.permissions.refresh().catch(() => {});
-    const generation = this.selectionGeneration;
-    void this.fetchMissedEvents(sessionId, generation, this.lastSeq).catch(() => {
-      if (!this.closed && generation === this.selectionGeneration)
+    this.readMissedAfterLag(sessionId, this.selectionGeneration, this.lastSeq, 0);
+  }
+
+  /// Reads the events a lag dropped, again after a failed read: a daemon too busy to answer
+  /// (acpmux at several cores) left the dropped chunks out of the reply for good, so a table
+  /// showed its separator row with no header and a bold its close with no opening (Leo,
+  /// 2026-11-06: "iam seeing messages and formating get cut off"). Every try reads from the
+  /// lag's cursor, since live events after the hole move `lastSeq` past it; it stops when a
+  /// read lands, the chat or connection changes, or after `LAG_RETRY_MS`'s tries, and only
+  /// then reports the failure.
+  private readMissedAfterLag(sessionId: string, generation: number, afterSeq: number, attempt: number): void {
+    void this.fetchMissedEvents(sessionId, generation, afterSeq).catch(() => {
+      if (this.closed || generation !== this.selectionGeneration) return;
+      const delay = LAG_RETRY_MS[attempt];
+      if (delay === undefined || this.socket?.readyState !== WebSocket.OPEN) {
         this.emit(this.socket?.readyState === WebSocket.OPEN ? "failed" : "disconnected");
+        return;
+      }
+      setTimeout(() => {
+        if (!this.closed && generation === this.selectionGeneration)
+          this.readMissedAfterLag(sessionId, generation, afterSeq, attempt + 1);
+      }, delay);
     });
   }
 
