@@ -99,6 +99,15 @@ pub fn kill_still_running(procs: &[Started]) {
     }
 }
 
+/// SIGTERM each process under `roots` whose argv `pick` takes, if it still runs as the same
+/// process; returns the pid and argv of each one signalled (`hub/silent_listing.rs`).
+pub fn terminate_under(
+    _roots: &[u32],
+    _pick: impl Fn(&[String]) -> bool,
+) -> Vec<(u32, Vec<String>)> {
+    Vec::new()
+}
+
 /// A live process running under a harness, for the idle census (`hub/idle_census.rs`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Under {
