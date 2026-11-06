@@ -224,7 +224,8 @@ export const PAGES = {
     ],
   },
   // The server cards (cmux-page://cmux.server-cards/) share the tables of the Swift they replaced:
-  // Pair Another Machine's own, and the Add Server words, name and buttons it reuses.
+  // Pair Another Machine's own, the Add Server words, name and buttons it reuses, and the join
+  // consent ask's words.
   "server-cards": {
     out: "webviews/src/pages/server-cards/generated/strings.json",
     catalogs: [
@@ -243,6 +244,10 @@ export const PAGES = {
               "approver.runChief",
             ].includes(key),
           ),
+      },
+      {
+        file: `${sources}/CmuxNextServer/Resources/AddDevice.xcstrings`,
+        keys: (all) => all.filter((key) => key.startsWith("devices.join.ask.")),
       },
     ],
   },

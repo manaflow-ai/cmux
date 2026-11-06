@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import type { PageClient } from "../shared/pageClient";
 import type { Strings } from "../shared/i18n";
 import { cardOfHash } from "./host";
+import { JoinConsentCardHost } from "./join-consent/JoinConsentCardHost";
+import { JOIN_CONSENT_CARD } from "./join-consent/types";
 import { PairInviteCardHost } from "./pairInvite/PairInviteCardHost";
 import { PAIR_INVITE_CARD } from "./pairInvite/types";
 
@@ -17,6 +19,8 @@ export function ServerCardsPage({ client, strings }: { client: PageClient | null
   switch (card) {
     case PAIR_INVITE_CARD:
       return <PairInviteCardHost client={client} strings={strings} />;
+    case JOIN_CONSENT_CARD:
+      return <JoinConsentCardHost client={client} strings={strings} />;
     default:
       return null;
   }

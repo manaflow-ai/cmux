@@ -41,6 +41,12 @@ public final class WebCardPanel: NSPanel {
     public private(set) var card: String?
     /// Whether an event is the person's own input (the app's strict source check); with none set, none is.
     public var isPersonEvent: @MainActor (NSEvent) -> Bool = { _ in false }
+    /// Where a card shows, from its size, the parent window's frame and the screen's visible frame;
+    /// by default ``placement(size:over:in:)`` (top center). The join consent ask sets the top right.
+    public var place: @MainActor (CGSize, NSRect?, NSRect) -> NSRect = { WebCardPanel.placement(size: $0, over: $1, in: $2) }
+    /// Orders in over every app without activating cmux or taking the keys (an ask that shows while
+    /// another app is in front), in place of ``WindowActivation``'s plan.
+    public var ordersFrontRegardless = false
     /// The last size each card's page reported, in points.
     private var sizes: [String: NSSize] = [:]
     /// An opening waiting for its card's first size: where and how it shows.
@@ -208,8 +214,8 @@ public final class WebCardPanel: NSPanel {
     private func show(size: NSSize, parent: NSRect?, visible: NSRect, intent: WindowActivation.Intent) {
         pending = nil
         pendingTimeout.cancel()
-        setFrame(Self.placement(size: size, over: parent, in: visible), display: false)
-        WindowActivation.show(self, intent)
+        setFrame(place(size, parent, visible), display: false)
+        if ordersFrontRegardless { orderFrontRegardless() } else { WindowActivation.show(self, intent) }
         if intent == .raise { page.focusPage() }
         rearm()
     }
