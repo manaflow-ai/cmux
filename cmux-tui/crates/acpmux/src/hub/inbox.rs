@@ -545,12 +545,11 @@ fn thread_sender(provenance: Option<&Value>, sender: &str) -> String {
     {
         return format!("declared:{label}");
     }
-    if identity.get("authenticated") == Some(&Value::Bool(true)) {
-        if let Some(session) =
+    if identity.get("authenticated") == Some(&Value::Bool(true))
+        && let Some(session) =
             provenance.and_then(|p| crate::prompt_provenance::sender_of(Some(p)).0)
-        {
-            return format!("session:{session}");
-        }
+    {
+        return format!("session:{session}");
     }
     if sender.starts_with("declared:")
         || sender.starts_with("session:")
