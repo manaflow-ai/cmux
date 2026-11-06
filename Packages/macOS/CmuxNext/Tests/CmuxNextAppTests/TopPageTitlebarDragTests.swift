@@ -64,10 +64,11 @@ struct TopPageTitlebarDragTests {
             pane.removeFromSuperview()
             window.contentView!.addSubview(host)
             #expect(TitleRowHostView.takesTitleRowPress(from: content, atWindowPoint: top))
-            // Native content keeps its presses (AppKit cannot see a SwiftUI button); the host's own background moves the window.
-            #expect(host.titlebarPress(atWindowPoint: top) == .staysPut)
-            content.removeFromSuperview()
+            // Native content answers as with no host: background moves the window, a control keeps its press.
             #expect(host.titlebarPress(atWindowPoint: top) == .movesWindow)
+            let button = NSButton(frame: content.bounds)
+            content.addSubview(button)
+            #expect(host.titlebarPress(atWindowPoint: top) == .staysPut)
             window.close()
         }
     }

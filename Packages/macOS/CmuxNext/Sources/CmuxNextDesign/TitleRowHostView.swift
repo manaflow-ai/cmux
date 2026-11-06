@@ -14,15 +14,25 @@ public protocol TitleRowSelfHandling: NSView {}
 /// `TitlebarDragPolicy` asks it for points in the window's top row only.
 /// Inside a container that answers for its own top row (a pane, under its
 /// tab strip) the container decides, as it would without this view. With
-/// none, a press on the host's own background moves the window. Content keeps
-/// its presses: AppKit cannot see a SwiftUI page's buttons, so native content
-/// is never guessed to be background, and ``TitleRowSelfHandling`` content (a
-/// web page) reports the presses on its own row background itself.
+/// none, native content answers as it would with no host (the window's own
+/// rule: a press moves the window unless it lands on a control or a view that
+/// refuses window moves, and only in the band), and ``TitleRowSelfHandling``
+/// content (a web page) keeps its press: it reports the presses on its own row
+/// background itself.
 open class TitleRowHostView: NSView, TitlebarPressDeciding {
     public func titlebarPress(atWindowPoint windowPoint: CGPoint) -> TitlebarPress {
         if let container = decidingContainer { return container.titlebarPress(atWindowPoint: windowPoint) }
-        guard let superview, hitTest(superview.convert(windowPoint, from: nil)) === self else { return .staysPut }
-        return .movesWindow
+        guard let window, let superview, let content = window.contentView,
+              TitlebarDragPolicy.bandRect(in: window).contains(windowPoint) else { return .staysPut }
+        var view = hitTest(superview.convert(windowPoint, from: nil))
+        var background = view != nil
+        while let current = view {
+            if current is any TitleRowSelfHandling { return .staysPut }
+            if current is NSControl || !current.mouseDownCanMoveWindow { background = false }
+            if current === content { break }
+            view = current.superview
+        }
+        return background && view === content ? .movesWindow : .staysPut
     }
 
     /// The nearest ancestor that answers for its own top row (a pane), if any.
