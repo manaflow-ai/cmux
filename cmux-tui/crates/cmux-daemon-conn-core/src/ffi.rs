@@ -116,6 +116,9 @@ pub extern "C" fn cmux_daemon_conn_abi_version() -> u32 {
 }
 
 /// Frees a reply buffer.
+///
+/// # Safety
+/// `bytes` came from this library and is freed once.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_daemon_conn_bytes_free(bytes: CmuxDaemonConnBytes) {
     if !bytes.ptr.is_null() {
@@ -128,6 +131,9 @@ pub unsafe extern "C" fn cmux_daemon_conn_bytes_free(bytes: CmuxDaemonConnBytes)
 /// One JSON op (request: a JSON object, or empty for {}). Codes: 0 OK, -1 a
 /// null pointer, -2 invalid input, -3 an unknown op, -4 a panic (caught). On
 /// any code but 0 nothing is written to `*out`.
+///
+/// # Safety
+/// `op` is NULL or a NUL-terminated string; `request` has `request_len` readable bytes (or `request_len` is 0); `out` is NULL or writable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_daemon_conn_call(
     op: *const c_char,
@@ -153,6 +159,9 @@ pub unsafe extern "C" fn cmux_daemon_conn_call(
 
 /// A named policy: 0 reconnect, 1 first connect, 2 local reconnect, 3 local
 /// first connect, 4 resync. -2 for another code.
+///
+/// # Safety
+/// `out` is NULL or writable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_retry_policy_preset(preset: u32, out: *mut CmuxRetryPolicy) -> i32 {
     if out.is_null() {
@@ -208,12 +217,18 @@ fn spacing(delay: Option<u64>) -> i64 {
 /// Notes one failure; the spacing before the next attempt in nanoseconds, or
 /// -1 when the budget is spent (wait for an event only). `random`: a draw
 /// in 0..<1 for the jitter.
+///
+/// # Safety
+/// `pacer` is NULL or points to a pacer the caller does not share during the call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_retry_pacer_failed(pacer: *mut CmuxRetryPacer, random: f64) -> i64 {
     with_pacer(pacer, -1, |p| spacing(p.failed(random)))
 }
 
 /// Notes a failure while the socket (`device`, `inode`) exists; as `failed`.
+///
+/// # Safety
+/// `pacer` is NULL or points to a pacer the caller does not share during the call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_retry_pacer_failed_at(
     pacer: *mut CmuxRetryPacer,
@@ -225,24 +240,36 @@ pub unsafe extern "C" fn cmux_retry_pacer_failed_at(
 }
 
 /// Notes a failure while the socket is missing.
+///
+/// # Safety
+/// `pacer` is NULL or points to a pacer the caller does not share during the call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_retry_pacer_failed_while_missing(pacer: *mut CmuxRetryPacer) {
     with_pacer(pacer, (), CmuxRetryPacer::failed_while_missing);
 }
 
 /// The attempt was refused at the daemon's connection limit.
+///
+/// # Safety
+/// `pacer` is NULL or points to a pacer the caller does not share during the call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_retry_pacer_refused_busy(pacer: *mut CmuxRetryPacer) {
     with_pacer(pacer, (), CmuxRetryPacer::refused_busy);
 }
 
 /// After a success that stayed healthy.
+///
+/// # Safety
+/// `pacer` is NULL or points to a pacer the caller does not share during the call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_retry_pacer_reset(pacer: *mut CmuxRetryPacer) {
     with_pacer(pacer, (), CmuxRetryPacer::reset);
 }
 
 /// What woke the wait: 0 event, 1 socket, 2 timer, 3 cancelled.
+///
+/// # Safety
+/// `pacer` is NULL or points to a pacer the caller does not share during the call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_retry_pacer_woke(pacer: *mut CmuxRetryPacer, cause: u32) {
     let Some(cause) = WakeCause::from_code(cause) else { return };
@@ -250,6 +277,9 @@ pub unsafe extern "C" fn cmux_retry_pacer_woke(pacer: *mut CmuxRetryPacer, cause
 }
 
 /// The timed-retry budget is spent.
+///
+/// # Safety
+/// `pacer` is NULL or points to a pacer the caller does not share during the call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_retry_pacer_is_exhausted(pacer: *const CmuxRetryPacer) -> bool {
     // SAFETY: a readable pacer, or NULL.
@@ -257,6 +287,9 @@ pub unsafe extern "C" fn cmux_retry_pacer_is_exhausted(pacer: *const CmuxRetryPa
 }
 
 /// The next wait arms no timer.
+///
+/// # Safety
+/// `pacer` is NULL or points to a pacer the caller does not share during the call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_retry_pacer_waits_for_event_only(
     pacer: *const CmuxRetryPacer,
@@ -266,6 +299,9 @@ pub unsafe extern "C" fn cmux_retry_pacer_waits_for_event_only(
 }
 
 /// A socket change may wake the next wait.
+///
+/// # Safety
+/// `pacer` is NULL or points to a pacer the caller does not share during the call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_retry_pacer_wakes_on_socket(pacer: *const CmuxRetryPacer) -> bool {
     // SAFETY: a readable pacer, or NULL.
@@ -281,6 +317,9 @@ pub extern "C" fn cmux_heartbeat_new() -> CmuxHeartbeat {
 }
 
 /// Starts a run; returns its number. `*tell`: tell the observer true.
+///
+/// # Safety
+/// `beat` (and `tell`) is NULL or points to memory the caller holds under its lock.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_heartbeat_start(beat: *mut CmuxHeartbeat, tell: *mut bool) -> u64 {
     // SAFETY: a heartbeat the caller holds under its lock.
@@ -294,6 +333,9 @@ pub unsafe extern "C" fn cmux_heartbeat_start(beat: *mut CmuxHeartbeat, tell: *m
 }
 
 /// Ends the run; whether to tell the observer true.
+///
+/// # Safety
+/// `beat` (and `tell`) is NULL or points to memory the caller holds under its lock.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_heartbeat_stop(beat: *mut CmuxHeartbeat) -> bool {
     // SAFETY: a heartbeat the caller holds under its lock.
@@ -303,6 +345,9 @@ pub unsafe extern "C" fn cmux_heartbeat_stop(beat: *mut CmuxHeartbeat) -> bool {
 /// One ask of `run` ended. `action`: 0 the run is over, 1 close the
 /// transport, 2 schedule the next ask; tell the observer `answering` when
 /// `tell`.
+///
+/// # Safety
+/// `beat` (and `tell`) is NULL or points to memory the caller holds under its lock.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_heartbeat_tick(
     beat: *mut CmuxHeartbeat,
@@ -328,6 +373,9 @@ pub extern "C" fn cmux_daemon_latency_new() -> *mut CmuxDaemonLatency {
 }
 
 /// NULL is ignored. No call may use the handle afterwards.
+///
+/// # Safety
+/// `probe` is NULL or a handle from `cmux_daemon_latency_new`, freed once.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_daemon_latency_free(probe: *mut CmuxDaemonLatency) {
     if !probe.is_null() {
@@ -337,6 +385,9 @@ pub unsafe extern "C" fn cmux_daemon_latency_free(probe: *mut CmuxDaemonLatency)
 }
 
 /// Records one request (`outcome`: 0 reply, 1 error, 2 timed out). Lock-free.
+///
+/// # Safety
+/// `probe` is NULL or a live handle; `counts` has `counts_len` writable u64s; `totals` is NULL or writable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_daemon_latency_record(
     probe: *const CmuxDaemonLatency,
@@ -358,6 +409,9 @@ pub extern "C" fn cmux_daemon_latency_bucket_count() -> usize {
 
 /// Reads the probe: up to `counts_len` bucket counts into `counts`, and the
 /// totals into `*totals`. Returns the number of counts written.
+///
+/// # Safety
+/// `probe` is NULL or a live handle; `counts` has `counts_len` writable u64s; `totals` is NULL or writable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_daemon_latency_snapshot(
     probe: *const CmuxDaemonLatency,
@@ -392,6 +446,9 @@ pub unsafe extern "C" fn cmux_daemon_latency_snapshot(
 
 /// A scope; `key` (UTF-8, `key_len` bytes) is the idempotency key, NULL or
 /// empty for none. NULL when the key is not UTF-8.
+///
+/// # Safety
+/// `key` is NULL or has `key_len` readable bytes.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_daemon_scope_new(
     key: *const u8,
@@ -410,6 +467,9 @@ pub unsafe extern "C" fn cmux_daemon_scope_new(
 }
 
 /// NULL is ignored. No call may use the handle afterwards.
+///
+/// # Safety
+/// `scope` is NULL or a handle from `cmux_daemon_scope_new`, freed once.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_daemon_scope_free(scope: *mut CmuxDaemonScope) {
     if !scope.is_null() {
@@ -419,6 +479,9 @@ pub unsafe extern "C" fn cmux_daemon_scope_free(scope: *mut CmuxDaemonScope) {
 }
 
 /// One JSON op on a scope (codes as `cmux_daemon_conn_call`). Thread-safe.
+///
+/// # Safety
+/// `scope` is NULL or a live handle; the other pointers as `cmux_daemon_conn_call`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_daemon_scope_call(
     scope: *const CmuxDaemonScope,
