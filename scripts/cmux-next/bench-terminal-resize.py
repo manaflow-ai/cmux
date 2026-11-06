@@ -93,6 +93,7 @@ parser.add_argument("--probe-pt", type=float, default=40.0, help="how far the dr
 parser.add_argument("--key-repeat", type=int, default=1, help="presses of each key per round (keys layouts)")
 parser.add_argument("--key-gap-ms", type=float, default=33.0, help="between repeated presses of one key")
 parser.add_argument("--key-settle-s", type=float, default=0.6, help="after the last press of a key")
+parser.add_argument("--hang-threshold-ms", type=int, help="probe: CMUX_NEXT_HANG_THRESHOLD_MS for the app; each keys round keeps its debug.hangs")
 parser.add_argument("--sample-delays-ms", default="", help="probe: per round, ms after each key press to start `sample` of the app (1 s, 1 ms)")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
@@ -399,7 +400,10 @@ def measure_keys(name):
                 rounds.append({**entry, "error": problem})
                 continue
             before = surfaces()
+            if opts.hang_threshold_ms:
+                rpc("debug.hangs", {"clear": True})
             rpc("debug.terminal_display", {"action": "start"})
+            frames_at = time.monotonic()
             rpc("debug.frames", {"action": "start"})
             presses = []
             for number, action in enumerate(plan):
@@ -428,6 +432,8 @@ def measure_keys(name):
                 press = {"action": action, "terminals_sent": sum(1 for n in sends if n), "max_grids_per_terminal": max(sends, default=0),
                          "pty_ms": pty_latency(traced)}
                 press["marks"] = traced
+                press["pressed_s"] = round(pressed_at - frames_at, 4)
+                press["pressed_uptime_s"] = pressed_at
                 if sampler:
                     sampler[0].wait(30)
                     try:
@@ -439,6 +445,10 @@ def measure_keys(name):
                 presses.append(press)
             frames = rpc("debug.frames", {"action": "stop", "raw": True}) or {}
             display = rpc("debug.terminal_display", {"action": "stop"}) or {}
+            if opts.hang_threshold_ms:
+                entry["hangs"] = rpc("debug.hangs")
+                entry["frames_view_layouts"] = frames.get("view_layouts_per_frame")
+                entry["frames_started_uptime_s"] = frames_at
             if entry.get("error"):
                 rounds.append(entry)
                 continue
@@ -682,6 +692,8 @@ open(ghostty, "w").close()
 env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": config,
        "CMUX_NEXT_GHOSTTY_CONFIG": ghostty, "CMUX_NEXT_TEST_WINDOW_FRAME": "80,80,1600,1000"}
+if opts.hang_threshold_ms:
+    env["CMUX_NEXT_HANG_THRESHOLD_MS"] = str(opts.hang_threshold_ms)
 # The measure entry (split-spring.sh) runs on an exclusive worker: same environment as its own bench.
 teardown = TagTeardown(APP)
 teardown.install()
