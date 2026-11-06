@@ -91,6 +91,9 @@ pub(super) struct Request {
     /// `--login pass|machine|none`: the harness login the machine's agent gets, as `cloud start-session`
     /// takes it (`CloudHarnessLoginAsk`); `None` leaves the app's default.
     pub login: Option<String>,
+    /// `--environment ID|NAME`: the Cloud environment (`env_…`, or its name) a new machine boots in
+    /// (`cloud new-machine --environment`).
+    pub environment: Option<String>,
     pub machine: Machine,
     pub wait: bool,
     pub timeout: Duration,
@@ -257,7 +260,16 @@ pub(super) fn parse(
         }
         (None, None) => Machine::New,
     };
-    Ok(Parsed::Run(Request { prompt, agent, cwd, login, machine, wait, timeout }))
+    Ok(Parsed::Run(Request {
+        prompt,
+        agent,
+        cwd,
+        login,
+        environment: None,
+        machine,
+        wait,
+        timeout,
+    }))
 }
 
 /// One run of this binary: its exit code and what it printed.

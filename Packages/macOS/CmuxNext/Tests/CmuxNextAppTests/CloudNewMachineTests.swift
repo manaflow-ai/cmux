@@ -1,6 +1,7 @@
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextWakeups
 import CmuxNextDaemonService
 import Foundation
@@ -42,6 +43,24 @@ struct CloudNewMachineTests {
         let request = try CloudHandlers.newMachineRequest(Self.invocation(["size": .string("xlarge")]))
         #expect(request.memoryMb == 24576)
         #expect(CloudHandlers.newMachineFields(request, nil)["cpu"] == .int(12), "24 GiB is the 12 vCPU row, not resize's 16")
+    }
+
+    /// `cmux cloud start-chat --environment` (Leo, 2026-11-06: "Like with a ... environment"): the create takes an
+    /// environment by id or by name and never drops it on the plain path.
+    @Test func anEnvironmentIsTakenByIDOrNameAndKeptOffThePlainPath() throws {
+        typealias Option = CloudWorkspaceSetupWizard.EnvironmentOption
+        let request = try CloudHandlers.newMachineRequest(Self.invocation(["environment": .string(" python-dev ")]))
+        #expect(request.environment == "python-dev")
+        #expect(!request.takesPlainPath, "the plain path would make the machine without its environment")
+        #expect(try CloudHandlers.newMachineRequest(Self.invocation([:])).takesPlainPath)
+        #expect(throws: Option.Unknown.self) { try CloudHandlers.newMachineRequest(Self.invocation(["environment": .bool(true)])) }
+        #expect(throws: Option.Unknown.self) { try CloudHandlers.newMachineRequest(Self.invocation(["environment": .string(" ")])) }
+        #expect(String(describing: Option.Unknown()).contains("--environment"), "the refusal reads as its message")
+        let options = [Option(id: "env_1", name: "python-dev"), Option(id: "env_2", name: "Node")]
+        #expect(try Option.id(for: "env_9", in: []) == "env_9")
+        #expect(try Option.id(for: "python-dev", in: options) == "env_1")
+        #expect(try Option.id(for: "node", in: options) == "env_2")
+        #expect(throws: Option.Unknown.self) { try Option.id(for: "nope", in: options) }
     }
 
     @Test func anUnknownSizeIsRefusedWithTheChoices() {

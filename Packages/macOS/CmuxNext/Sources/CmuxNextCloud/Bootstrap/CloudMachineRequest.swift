@@ -72,6 +72,10 @@ public struct CloudMachineRequest: Equatable, Sendable {
 
     public var isDefault: Bool { name == nil && size == nil && !persistent && bootstrapPath == nil && machineConfigPath == nil && repo == nil }
 
+    /// The create takes the plain path (the New Cloud Workspace dialog, or the bare create). One with an
+    /// ``environment`` never does: that path would make the machine without it.
+    public var takesPlainPath: Bool { isDefault }
+
     /// A file this request names (``bootstrapPath``, ``machineConfigPath``) could not be read, is
     /// empty or is over its size limit.
     public struct ScriptUnreadable: Error, Equatable {

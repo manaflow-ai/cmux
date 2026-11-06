@@ -17,6 +17,14 @@ public nonisolated struct CloudEnvironmentStrings: Sendable {
         String(localized: "cloud.environments.unknown", defaultValue: "That environment no longer exists. Refresh the list.", table: "Cloud", bundle: .module)
     }
 
+    /// `cloud new-machine --environment` (and `cloud start-chat --environment`) with no word, or a name none of
+    /// the team's environments has.
+    public var unknownWord: String {
+        String(localized: "cloud.environments.unknownWord",
+               defaultValue: "--environment takes the id (env_…) or the name of one of your team's Cloud environments.",
+               table: "Cloud", bundle: .module)
+    }
+
     /// The Build confirmation's title for the environment named `name`.
     public func buildTitle(_ name: String) -> String {
         String(format: String(localized: "cloud.environments.buildTitle", defaultValue: "Build %@?", table: "Cloud", bundle: .module), name)

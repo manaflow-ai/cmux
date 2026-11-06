@@ -26,6 +26,7 @@ fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
             agent: "claude".into(),
             cwd: None,
             login: None,
+            environment: None,
             machine: Machine::New,
             wait: false,
             timeout: Duration::from_secs(900),
@@ -69,6 +70,9 @@ fn parse_refuses_what_start_session_would() {
         vec!["--prompt", "x", "--login", "github"],
         vec!["--prompt", "x", "--login", ""],
         vec!["--prompt", "x", "--login"],
+        vec!["--prompt", "x", "--environment", " "],
+        vec!["--prompt", "x", "--environment"],
+        vec!["--environment", "env_1", "--target", "machine:vm-1"],
     ] {
         assert!(parse(&strings(&words), || Ok(String::new())).is_err(), "{words:?}");
     }
@@ -107,6 +111,29 @@ fn parse_takes_no_prompt() {
     assert_eq!(
         again_command(&request(&["--agent", "codex"]), &Machine::Named("chat-1".into())),
         "cmux cloud start-chat --name chat-1 --agent codex --json"
+    );
+}
+
+/// Leo (2026-11-06): "Like with a ... environment": `--environment` takes an environment's id or its name, for a
+/// new machine only.
+#[test]
+fn parse_takes_an_environment_for_a_new_machine() {
+    for word in ["env_abc123", "python-dev"] {
+        assert_eq!(request(&["--environment", word]).environment.as_deref(), Some(word));
+    }
+    assert_eq!(request(&["--environment=py", "--name", "n"]).environment.as_deref(), Some("py"));
+    let refused =
+        parse(&strings(&["--environment", "py", "--target", "machine:vm-1"]), || Ok(String::new()));
+    assert!(refused.unwrap_err().0.contains("--target"));
+    // The again command of a machine already made names it, so it leaves the environment out.
+    let asked = request(&["--environment", "py", "--prompt", "x"]);
+    assert_eq!(
+        again_command(&asked, &Machine::Target("vm-1".into())),
+        "cmux cloud start-chat --target machine:vm-1 --prompt x --json"
+    );
+    assert_eq!(
+        again_command(&asked, &Machine::New),
+        "cmux cloud start-chat --environment py --prompt x --json"
     );
 }
 
@@ -402,6 +429,97 @@ fn without_a_prompt_it_starts_the_chat_and_sends_nothing() {
         assert!(send.contains("acp send --no-wait sess-1"), "{send}");
         assert!(send.starts_with("cmux cloud exec --target machine:vm-1 "), "{send}");
     }
+}
+
+/// With `--environment` the chat's machine is made first, in that environment (`cloud new-machine
+/// --environment`), and the chat starts on it: over the link without --wait or without a prompt, over the
+/// relay with both.
+#[test]
+fn an_environment_makes_the_chats_machine_in_it_first() {
+    let new_machine = |extra: &[&str]| {
+        let mut words = strings(&["cloud", "new-machine"]);
+        words.extend(strings(extra));
+        words.push("--json".to_owned());
+        words
+    };
+    let on_vm_1 = strings(&[
+        "cloud",
+        "start-session",
+        "--target",
+        "machine:vm-1",
+        "--agent",
+        "claude",
+        "--json",
+    ]);
+    // No --wait: new-machine, then start-session on it, then the send.
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        made(),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n"),
+    ]);
+    let asked = request(&["--prompt", "x", "--environment", "python-dev"]);
+    let Outcome::Done(answer) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(answer["machine_id"], "vm-1");
+    assert_eq!(fake.ran[1], new_machine(&["--environment", "python-dev"]));
+    assert_eq!(fake.ran[2], on_vm_1);
+    assert_eq!(fake.ran.len(), 4);
+    // No prompt: new-machine and start-session only.
+    let mut fake = Fake::new(vec![signed_in(), made(), started()]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--environment", "env_1", "--wait"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["sent"], false);
+    assert_eq!(fake.ran[1], new_machine(&["--environment", "env_1"]));
+    assert_eq!(fake.ran[2], on_vm_1);
+    assert_eq!(fake.ran.len(), 3);
+    // --wait with a prompt: the relay chat on the machine made in the environment, and no second machine.
+    let mut fake = Fake::new(vec![signed_in(), made(), relayed(json!({"session_id": "r-1"}))]);
+    let asked = request(&["--prompt", "x", "--environment", "env_1", "--wait"]);
+    let Outcome::Done(_) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(fake.ran[1], new_machine(&["--environment", "env_1"]));
+    assert_eq!(&fake.ran[2][..4], &strings(&["cloud", "relay-chat", "--target", "machine:vm-1"]));
+    assert_eq!(fake.ran.len(), 3);
+    // --name of no machine yet: that name, in the environment.
+    let mut fake = Fake::new(vec![signed_in(), made(), started()]);
+    let asked = request(&["--name", "py-1", "--environment", "env_1"]);
+    let Outcome::Done(_) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(fake.ran[1], new_machine(&["--name", "py-1", "--environment", "env_1"]));
+}
+
+#[test]
+fn an_environment_for_a_machine_that_exists_or_is_still_being_made_says_so() {
+    // `dev` exists already: its environment is set, so nothing runs.
+    let mut fake = Fake::new(vec![signed_in()]);
+    let asked = request(&["--name", "dev", "--environment", "env_1", "--prompt", "x"]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!() };
+    assert_eq!((error["code"].as_str(), exit), (Some("usage.invalid"), 2));
+    assert_eq!(fake.ran.len(), 1);
+    // The app's create answered pending: no second machine, and how to go on.
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        ok(json!({"pending": true, "name": "chat-9", "status": "creating"})),
+    ]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &request(&["--environment", "env_1"]))
+    else {
+        panic!()
+    };
+    assert_eq!((error["code"].as_str(), exit), (Some("cloud.start_pending"), 75));
+    assert_eq!(fake.ran.len(), 2);
+    // The app refused the environment (an unknown name): its refusal is the answer.
+    let refused = Ran {
+        code: 1,
+        stderr: json!({"code": "invalid_params", "message": "No Cloud environment is named nope."})
+            .to_string(),
+        ..Ran::default()
+    };
+    let mut fake = Fake::new(vec![signed_in(), refused]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &request(&["--environment", "nope"])) else {
+        panic!()
+    };
+    assert!(error["message"].as_str().unwrap().contains("nope"));
+    assert_eq!(fake.ran.len(), 2);
 }
 
 #[test]
