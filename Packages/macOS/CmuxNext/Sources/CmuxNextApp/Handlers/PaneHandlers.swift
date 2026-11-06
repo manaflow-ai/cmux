@@ -245,13 +245,10 @@ enum PaneHandlers {
         }
         registry.bind("equalizeSplits", invoke: { invocation in
             guard let content = ctx.content(invocation), let screen = content.layoutModel.activeScreen else { return }
-            let trees: [SplitNode] = switch screen.layout {
-            case .splits(let root): [root]
-            case .columns(let columns): columns.flatMap(\.trees)
+            // One shared path: split ratios and, on columns, every column shown side by side (Home's chat included).
+            if content.layoutView.equalize(screen: screen.id) == .nothingToEqualize {
+                ctx.refuseQuietly(RefusalStrings.screenHasNoSplits)
             }
-            let splits = trees.flatMap(\.splits)
-            guard !splits.isEmpty else { return ctx.refuseQuietly(RefusalStrings.screenHasNoSplits) }
-            for split in splits { content.layoutModel.equalizeSplit(split) }
         })
         registry.bind("toggleSplitZoom", invoke: { invocation in
             guard let pane = ctx.daemonPane(invocation) else { return }

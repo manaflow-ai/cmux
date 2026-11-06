@@ -1384,6 +1384,13 @@ export type SessionDetail = {
    * the tree from these links at any depth.
    */
   startedBy?: (string | null);
+  /**
+   * Its agent is being started (a start, a wake or a mode change holds the session's spawn
+   * lease, as `stop --if-idle` reads it): a daemon restart now ends that start, so an update
+   * waits on it as on a turn. Always sent, so a row without it is from an older acpmux,
+   * which an update reads by its row's age instead.
+   */
+  starting?: boolean;
   /** Effective liveness: `stopping` while a Stop waits for its turn to end, `stuck` after three classified harness failures, else `status`. */
   state?: string;
   stateSeq: number;
@@ -1648,6 +1655,13 @@ export type SessionSummary = {
    * the tree from these links at any depth.
    */
   startedBy?: (string | null);
+  /**
+   * Its agent is being started (a start, a wake or a mode change holds the session's spawn
+   * lease, as `stop --if-idle` reads it): a daemon restart now ends that start, so an update
+   * waits on it as on a turn. Always sent, so a row without it is from an older acpmux,
+   * which an update reads by its row's age instead.
+   */
+  starting?: boolean;
   /** Effective liveness: `stopping` while a Stop waits for its turn to end, `stuck` after three classified harness failures, else `status`. */
   state?: string;
   stateSeq: number;

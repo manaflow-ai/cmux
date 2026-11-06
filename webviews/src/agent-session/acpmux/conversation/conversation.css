@@ -6052,7 +6052,7 @@ a.cv-sha:focus-visible {
 }
 
 /* An earlier turn's list under the running turn (PlanList.tsx `earlier`): its one muted line says it
-   is from before the person's last message, and its steps read muted, as Claude desktop's do. */
+   is from before the person's last message, and its steps read muted. */
 .cv-plan__earlier {
   min-height: 24px;
   padding-block: 4px;
