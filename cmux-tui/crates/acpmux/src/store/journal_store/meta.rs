@@ -466,10 +466,18 @@ impl Inner {
     /// #35483: a settle that read its image before a checkpoint wrote a newer one). A failed sync
     /// freezes the checkpoint, as a failed log sync does (F3).
     fn write_through(&self, id: &str, pending: &Pending) -> Result<()> {
-        // Against a delete's removal of the folder (`Store::delete` drops the entry first).
+        // Against a delete's removal of the folder (`Store::delete` drops the entry first), and
+        // against the seal (`Inner::last_checkpoint`).
         let _folder = self.folders.lock_or_recover();
+        let current = {
+            let order = self.order.lock_or_recover();
+            // Sealed: the home is the next daemon's, whose open applies the journaled image.
+            if order.sealed {
+                return Ok(());
+            }
+            order.metas.get(id).map(|now| now.folder)
+        };
         // Deleted since, or deleted and made again in another folder: nothing of this image.
-        let current = self.order.lock_or_recover().metas.get(id).map(|now| now.folder);
         if current != Some(pending.folder) {
             return Ok(());
         }

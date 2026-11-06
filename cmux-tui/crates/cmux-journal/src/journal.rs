@@ -198,9 +198,10 @@ pub struct Journal {
     /// This journal's id, in every segment's header: kept across opens and retirements while one
     /// segment is left, new for a journal made from nothing ([`Journal::journal_id`]).
     journal_id: u64,
-    writer: Option<std::thread::JoinHandle<()>>,
-    /// Held as long as the writer may write; released after the writer is joined.
-    _lock: Box<dyn StorageLock>,
+    writer: Mutex<Option<std::thread::JoinHandle<()>>>,
+    /// Held as long as the writer may write; released after the writer is joined, by a seal
+    /// that kept everything ([`Journal::seal`]) or by the drop.
+    lock: Mutex<Option<Box<dyn StorageLock>>>,
 }
 
 impl Journal {
@@ -256,8 +257,8 @@ impl Journal {
             storage,
             dir: dir.to_path_buf(),
             journal_id,
-            writer: Some(handle),
-            _lock: lock,
+            writer: Mutex::new(Some(handle)),
+            lock: Mutex::new(Some(lock)),
         };
         Ok((journal, report))
     }
@@ -364,7 +365,21 @@ impl Journal {
     /// moves into `quarantine/` (kept, never deleted). It renames and syncs folders on the
     /// caller's thread: call it off any request path.
     pub fn clear_damage(&self) -> std::io::Result<()> {
+        let _held = self.held()?;
         recovery::clear_damage(self.storage.as_ref(), &self.dir)
+    }
+
+    /// The folder's lock, while this handle still holds it: a retirement or a damage clear runs
+    /// under the guard, so a seal's handover waits for one under way, and none starts after it
+    /// ([`Journal::seal`]).
+    fn held(&self) -> std::io::Result<MutexGuard<'_, Option<Box<dyn StorageLock>>>> {
+        let held = self.lock.lock().unwrap_or_else(PoisonError::into_inner);
+        if held.is_none() {
+            return Err(std::io::Error::other(
+                "the journal was sealed: the next open owns its folder",
+            ));
+        }
+        Ok(held)
     }
 
     /// Deletes the segments that hold no record after `compacted`, the caller's compaction point:
@@ -381,6 +396,7 @@ impl Journal {
     /// caller's thread: call it from a background thread, never on a request path. A segment
     /// whose delete fails stays live, and a later call deletes it.
     pub fn retire_through(&self, compacted: Lsn) -> std::io::Result<usize> {
+        let _held = self.held()?;
         let compacted = compacted.min(self.durable_lsn());
         let retiring: Vec<LiveSegment> = {
             let mut live = self.shared.segments.lock().unwrap_or_else(PoisonError::into_inner);
@@ -453,7 +469,12 @@ impl Journal {
     }
 
     /// Stops appends and waits until every record is fully synced (a clean shutdown and a
-    /// handoff: the next process reads all of it). Returns the last LSN.
+    /// handoff: the next process reads all of it). Returns the last LSN. Once everything is
+    /// fully synced it hands the folder over: the writer ends and the lock goes, so the next
+    /// open takes the journal at once though this handle lives on (a daemon's store outlives its
+    /// seal until its process exits). From then on this handle changes no file of the folder:
+    /// appends are refused, and retirements and damage clears fail. A seal that fails keeps the
+    /// lock: the drop's last attempt may still write what is pending.
     pub fn seal(&self, timeout: Duration) -> Result<Lsn, SealError> {
         let deadline = Instant::now().checked_add(timeout);
         let mut state = self.shared.lock();
@@ -462,6 +483,8 @@ impl Journal {
         loop {
             let last = state.stats.next_lsn.saturating_sub(1);
             if state.stats.full_durable_lsn >= last {
+                drop(state);
+                self.hand_over();
                 return Ok(last);
             }
             let now = Instant::now();
@@ -484,18 +507,29 @@ impl Journal {
     }
 }
 
-impl Drop for Journal {
-    /// Closes the journal: the writer makes one last attempt to write and fully sync what is
-    /// pending, then ends. Call [`Journal::seal`] first for a shutdown that must keep everything.
-    fn drop(&mut self) {
+impl Journal {
+    /// Ends the writer (one last attempt at what is pending, which a seal that kept everything
+    /// leaves empty), then lets go of the lock: the order the lock's docs give. A retirement or a
+    /// damage clear under way on another thread ends first: it holds the lock's guard.
+    fn hand_over(&self) {
         {
             let mut state = self.shared.lock();
             state.closed = true;
             state.stop = true;
         }
         self.shared.wake.notify_one();
-        if let Some(handle) = self.writer.take() {
+        let writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner).take();
+        if let Some(handle) = writer {
             let _ = handle.join();
         }
+        drop(self.lock.lock().unwrap_or_else(PoisonError::into_inner).take());
+    }
+}
+
+impl Drop for Journal {
+    /// Closes the journal: the writer makes one last attempt to write and fully sync what is
+    /// pending, then ends. Call [`Journal::seal`] first for a shutdown that must keep everything.
+    fn drop(&mut self) {
+        self.hand_over();
     }
 }

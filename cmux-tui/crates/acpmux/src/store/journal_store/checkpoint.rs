@@ -88,9 +88,37 @@ fn write_home_file(home: &Path, name: &str, bytes: &[u8]) -> Result<()> {
 }
 
 impl Inner {
-    /// One checkpoint ([module docs](self)); ten failures in a row ask the daemon to stop.
+    /// One checkpoint ([module docs](self)); ten failures in a row ask the daemon to stop. Nothing
+    /// once the store is sealed ([`Inner::last_checkpoint`]).
     pub(super) fn checkpoint(&self) -> Result<()> {
         let _one = self.checkpointing.lock_or_recover();
+        self.checkpoint_counted()
+    }
+
+    /// The shutdown's last checkpoint (`Store::seal`), then the store sealed. Under the
+    /// one-checkpoint lock throughout: no checkpoint is under way when the seal hands the home to
+    /// the next daemon, and every later one does nothing. Sealed under the folders' lock too: an
+    /// image write under way (`Inner::write_through`) ends first, and none starts after. A
+    /// checkpoint that succeeds here synced `sessions/`, so the new chats' folders are durable
+    /// ([`super::new_folders::NewFolders::synced_at_seal`]).
+    pub(super) fn last_checkpoint(&self) {
+        let _one = self.checkpointing.lock_or_recover();
+        if self.order.lock_or_recover().sealed {
+            return;
+        }
+        match self.checkpoint_counted() {
+            Ok(()) => self.new_folders.synced_at_seal(),
+            Err(error) => tracing::warn!("the event journal's last checkpoint: {error:#}"),
+        }
+        let _folders = self.folders.lock_or_recover();
+        self.order.lock_or_recover().sealed = true;
+    }
+
+    /// A checkpoint and its count of failures in a row; the caller holds `checkpointing`.
+    fn checkpoint_counted(&self) -> Result<()> {
+        if self.order.lock_or_recover().sealed {
+            return Ok(());
+        }
         let result = self.checkpoint_once();
         let mut order = self.order.lock_or_recover();
         match &result {
