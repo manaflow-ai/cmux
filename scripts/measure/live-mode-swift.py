@@ -107,22 +107,20 @@ def wait_log(pattern, since, seconds):
 
 
 def seed(path, out):
-    """Two more terminals beside the first, each running a long command, and each shell's pid in a
-    file: a terminal kept across a restart is the same shell, so the same pid. Returns the files."""
-    surfaces = (rpc_at(path, "surface.list", timeout=30) or {}).get("surfaces") or []
-    pane = next((s.get("pane_id") for s in surfaces if s.get("pane_id")), None)
-    if pane:
-        for _ in range(2):
-            rpc_at(path, "surface.create", {"pane_id": pane, "type": "terminal"}, timeout=30)
+    """Two more terminals beside the first (NEXT's newSurface action), each running a long command
+    and with its shell's pid in a file: a terminal kept across a restart is the same shell, so the
+    same pid. Returns the files."""
+    tabs = []
+    for _ in range(2):
+        created = rpc_at(path, "action.run", {"action": "newSurface"}, timeout=30) or {}
+        tabs += [str(i) for i in created.get("created") or [] if str(i).startswith("tab_")]
     time.sleep(3)
     files = []
-    for n, surface in enumerate((rpc_at(path, "surface.list", timeout=30) or {}).get("surfaces") or []):
-        if surface.get("type", "terminal") != "terminal":
-            continue
+    for n, tab in enumerate(tabs):
         pid_file = os.path.join(out, f"shell-{n}.pid")
         # The shell writes its pid, then runs a command that outlives every restart in the test.
-        rpc_at(path, "surface.send_text", {"surface_id": surface["id"],
-                                           "text": f"echo $$ > '{pid_file}'; sleep 86400\n"}, timeout=10)
+        rpc_at(path, "action.run", {"action": "terminal.sendText", "target": f"tab:{tab}",
+                                    "args": {"text": f"echo $$ > '{pid_file}'; sleep 86400\r"}}, timeout=10)
         files.append(pid_file)
     time.sleep(2)
     return files
