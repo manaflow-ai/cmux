@@ -1,6 +1,6 @@
 //! A silent turn ends the harness's unbounded file listing, and only that (`silent_listing.rs`).
 
-use super::unbounded_listing;
+use super::{still_silent, unbounded_listing};
 
 /// The process tests below spawn listings under this test process and look for them there: run
 /// one at a time, or one would see (and end) the other's (review F2 of #36966).
@@ -43,6 +43,17 @@ fn bounded_or_tool_listings_are_left_alone() {
     ] {
         assert!(!unbounded_listing(&words(line)), "{line}");
     }
+}
+
+/// A listing is ended only while the turn that went silent still runs and is still silent: a
+/// turn that heard its model, or ended for the next one, while its listings were being found
+/// leaves them alone, so the next turn's own count runs on (review 5 F1 of #36966).
+#[test]
+fn a_listing_is_ended_only_while_its_turn_runs_silent() {
+    assert!(still_silent(Some("t1"), Some("t1"), "t1"));
+    assert!(!still_silent(None, Some("t1"), "t1"), "the turn heard its model");
+    assert!(!still_silent(Some("t1"), Some("t2"), "t1"), "the next turn runs");
+    assert!(!still_silent(Some("t1"), None, "t1"), "the turn ended");
 }
 
 /// A process named `rg` with the folder count's arguments, under this test, ends on SIGTERM;
