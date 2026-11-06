@@ -45,6 +45,12 @@ extension Workspace {
         hasRunningAgentLifecycle(key: Self.claudeAgentLifecycleKey, panelId: panelId)
     }
 
+    /// Whether restarting the pane now would stop a Claude response nobody agreed to stop.
+    @MainActor
+    func claudeAccountSwitchWouldStopUnapprovedResponse(panelId: UUID, stopsRunningResponse: Bool) -> Bool {
+        false
+    }
+
     /// Whether the pane has a Claude agent. Reads cached agent state only and never loads the
     /// account registry, so it is cheap enough for every command palette refresh.
     @MainActor

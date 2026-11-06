@@ -31,6 +31,22 @@ struct WorkspaceClaudeAccountSwitchTests {
         #expect(workspace.currentClaudeAccount(panelId: panelId) == nil)
     }
 
+    /// Claude can start a response while the switch scans for owners and copies the transcript,
+    /// after its caller looked. The last check before the restart catches it unless the caller
+    /// agreed to stop a response (the socket's `force`, the menu's confirmation); an idle pane
+    /// passes either way.
+    @Test
+    func theLastCheckBeforeTheRestartStopsOnlyAnAgreedResponse() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        #expect(!workspace.claudeAccountSwitchWouldStopUnapprovedResponse(panelId: panelId, stopsRunningResponse: false))
+
+        workspace.setAgentLifecycle(key: Workspace.claudeAgentLifecycleKey, panelId: panelId, lifecycle: .running)
+
+        #expect(workspace.claudeAccountSwitchWouldStopUnapprovedResponse(panelId: panelId, stopsRunningResponse: false))
+        #expect(!workspace.claudeAccountSwitchWouldStopUnapprovedResponse(panelId: panelId, stopsRunningResponse: true))
+    }
+
     /// The deadline runs on a manual clock that is never advanced, so only the report can end
     /// this wait; a report that failed to wake it would hang into the time limit.
     @Test(.timeLimit(.minutes(1)))
