@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 
 use super::{GlobalArgs, parse_globals};
 
-const HELP: &str = "Usage: cmux computer-use <status|tools|call|screenshot|approvals|machines>\n\ncmux Computer Use is built into cmux: agents get it as the cmux-computer-use MCP server (cu_* tools). These commands reach the same worker.\n\n  cmux computer-use status [--machine M]        Platform, permissions, mode and denied apps\n  cmux computer-use tools                        The tools and their arguments\n  cmux computer-use call TOOL [--args JSON] [--machine M]\n                                                 Run one tool (arguments as a JSON object)\n  cmux computer-use screenshot --out FILE [--window ID] [--machine M]\n                                                 Save a PNG of a window, or of the main display\n  cmux computer-use approvals list               Apps saved as Always allow or Never\n  cmux computer-use approvals forget APP         Forget APP's saved answer (asks again next time)\n  cmux computer-use approvals revoke-sessions    End every agent session's approvals now\n  cmux computer-use machines                     Your other machines and whether Computer Use is on there\n\nSettings (mode, denied apps, other machines) are in Settings > Computer Use and `cmux settings get|set computerUse.<key>`.\n";
+const HELP: &str = "Usage: cmux computer-use <status|tools|call|screenshot|approvals|machines>\n\ncmux Computer Use is built into cmux: agents get it as the cmux-computer-use MCP server (cu_* tools). These commands reach the same worker.\n\n  cmux computer-use status [--machine M]        Platform, permissions, mode and denied apps\n  cmux computer-use tools                        The tools and their arguments\n  cmux computer-use mcp                          Serve the tools as an MCP stdio server (what agents get)\n  cmux computer-use call TOOL [--args JSON] [--machine M]\n                                                 Run one tool (arguments as a JSON object)\n  cmux computer-use screenshot --out FILE [--window ID] [--machine M]\n                                                 Save a PNG of a window, or of the main display\n  cmux computer-use approvals list               Apps saved as Always allow or Never\n  cmux computer-use approvals forget APP         Forget APP's saved answer (asks again next time)\n  cmux computer-use approvals revoke-sessions    End every agent session's approvals now\n  cmux computer-use machines                     Your other machines and whether Computer Use is on there\n\nSettings (mode, denied apps, other machines) are in Settings > Computer Use and `cmux settings get|set computerUse.<key>`.\n";
 
 /// The daemon command for saved approvals (served with the worker's host).
 const APPROVALS_CMD: &str = "computer-use-approvals";
@@ -35,6 +35,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
 #[derive(Debug, Clone, PartialEq)]
 pub(super) enum Request {
     Help,
+    Mcp,
     Tools,
     Call { tool: String, args: Value, machine: Option<String> },
     Screenshot { out: String, window: Option<String>, machine: Option<String> },
@@ -63,6 +64,7 @@ pub(super) fn parse(args: &[String]) -> Result<Request, String> {
     match verb {
         "help" | "--help" | "-h" => Ok(Request::Help),
         "tools" if rest.is_empty() => Ok(Request::Tools),
+        "mcp" if rest.is_empty() => Ok(Request::Mcp),
         "status" => {
             let f = flags(rest, &["--machine"])?;
             Ok(Request::Call {
@@ -212,6 +214,27 @@ fn run(global: &GlobalArgs, args: &[String]) -> i32 {
             print!("{HELP}");
             0
         }
+        Request::Mcp => {
+            // The same bridge acpmux gives every agent session, on stdio.
+            let runtime = match tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .enable_all()
+                .build()
+            {
+                Ok(runtime) => runtime,
+                Err(e) => {
+                    eprintln!("cmux computer-use mcp: {e}");
+                    return 1;
+                }
+            };
+            match runtime.block_on(acpmux::computer_use::mcp::run()) {
+                Ok(()) => 0,
+                Err(e) => {
+                    eprintln!("cmux computer-use mcp: {e:#}");
+                    1
+                }
+            }
+        }
         Request::Tools => {
             let list = tools::mcp_list();
             super::wire::print_local_success(&list, global.output)
@@ -301,6 +324,8 @@ mod tests {
     #[test]
     fn the_commands_parse() {
         assert_eq!(parse(&words("tools")).unwrap(), Request::Tools);
+        assert_eq!(parse(&words("mcp")).unwrap(), Request::Mcp);
+        assert!(parse(&words("mcp --stdio")).is_err());
         assert_eq!(parse(&words("machines")).unwrap(), Request::Machines);
         assert_eq!(
             parse(&words("status --machine studio")).unwrap(),

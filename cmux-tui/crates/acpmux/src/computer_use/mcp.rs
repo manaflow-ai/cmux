@@ -40,7 +40,11 @@ fn fallback_session() -> String {
 /// Runs the server on stdin and stdout.
 pub async fn run() -> Result<()> {
     let var = |name: &str| std::env::var(name).ok().filter(|v| !v.trim().is_empty());
-    let session = var(SESSION_ENV).unwrap_or_else(fallback_session);
+    // `cmux computer-use mcp` started by an agent's own config: its session
+    // is the one cmux names in the agent's env.
+    let session = var(SESSION_ENV)
+        .or_else(|| var(crate::agent_tools::AGENT_SESSION_ENV))
+        .unwrap_or_else(fallback_session);
     let label = var(LABEL_ENV).unwrap_or_else(|| "An agent".to_owned());
     crate::parent_watch::exit_with_parent();
     let caller = Arc::new(Caller::new(SocketDaemon::from_env(), session, label));
