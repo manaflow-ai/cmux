@@ -321,8 +321,6 @@ final class WindowManager {
             services.onboarding.showHistoryAtFirstRun(isFirstRun: isFirstRun)
             // Agents opens over the history page, so it is the first step the person sees.
             await services.onboarding.showAgentsAtFirstRun(isFirstRun: isFirstRun)
-            // Then the Computer Use page (Agents Can Use Your Apps), once the Agents step closed.
-            services.onboarding.showComputerUseAtFirstRun(isFirstRun: isFirstRun)
         }
         savedWindowsUnread = false
         recordSaver.scheduleSave()

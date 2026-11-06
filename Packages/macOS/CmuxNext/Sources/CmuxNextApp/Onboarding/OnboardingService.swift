@@ -183,18 +183,10 @@ final class OnboardingService {
         return await services.openLocalProviderLogin(line)
     }
 
-    /// The first-run Agents step over Bring your history (``OnboardingWindowPresenter/showAgentsAtFirstRun``); never under showcase.
+    /// The first-run Agents step over Bring your history, then the Computer Use page (``OnboardingWindowPresenter/showAgentsAtFirstRun``); never under showcase.
     func showAgentsAtFirstRun(isFirstRun: Bool) async {
         guard !services.environment.showcase else { return }
-        await presenter.showAgentsAtFirstRun(isFirstRun: isFirstRun, source: signInHarnesses)
-    }
-
-    /// The first-run Computer Use page (``OnboardingWindowPresenter/showComputerUseAtFirstRun``), after the
-    /// Agents step when it shows; never under showcase, nor when a managed policy turns Computer Use off.
-    func showComputerUseAtFirstRun(isFirstRun: Bool) {
-        guard !services.environment.showcase else { return }
-        presenter.showComputerUseAtFirstRun(isFirstRun: isFirstRun,
-                                            available: !services.registry.disabledFeatures.contains(.computerUse))
+        await presenter.showAgentsAtFirstRun(isFirstRun: isFirstRun, source: signInHarnesses, computerUse: !services.registry.disabledFeatures.contains(.computerUse))
     }
 
     func historyImportFinished() {

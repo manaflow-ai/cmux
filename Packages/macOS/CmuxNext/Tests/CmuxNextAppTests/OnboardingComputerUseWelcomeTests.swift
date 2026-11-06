@@ -73,12 +73,12 @@ import Testing
     }
 
     /// After the Agents step: the page waits for that window to close, then opens once.
-    @Test func thePageFollowsTheAgentsStepOnce() throws {
+    @Test func thePageFollowsTheAgentsStepOnce() async throws {
         let (presenter, shown) = presenter()
         let store = try defaults()
-        presenter.show(step: .agents)
-        presenter.showComputerUseAtFirstRun(isFirstRun: true, available: true, defaults: store)
-        presenter.showComputerUseAtFirstRun(isFirstRun: true, available: true, defaults: store)
+        let agents = MockAgentSignInSource(agents: [OnboardingAgent(id: "codex", name: "Codex", brand: "openai", auth: .signedIn)])
+        await presenter.showAgentsAtFirstRun(isFirstRun: true, source: agents, computerUse: true, defaults: store)
+        await presenter.showAgentsAtFirstRun(isFirstRun: true, source: agents, computerUse: true, defaults: store)
         #expect(shown() == [.agents], "it waits for the Agents step")
         #expect(presenter.pendingFirstRun == [.computerUseWelcome])
         presenter.controller?.model.next()
@@ -88,7 +88,7 @@ import Testing
         #expect(presenter.pendingFirstRun.isEmpty)
     }
 
-    @Test func anUpgradeOrAPolicyLockNeverShowsThePage() throws {
+    @Test func anUpgradeOrAPolicyLockNeverShowsThePage() async throws {
         let (upgrade, upgradeShown) = presenter()
         let upgraded = try defaults()
         upgrade.showComputerUseAtFirstRun(isFirstRun: false, available: true, defaults: upgraded)
@@ -98,6 +98,14 @@ import Testing
         let (locked, lockedShown) = presenter()
         locked.showComputerUseAtFirstRun(isFirstRun: true, available: false, defaults: try defaults())
         #expect(lockedShown().isEmpty, "Computer Use turned off by a managed policy: no page")
+
+        // With no agent CLI the Agents step does not open, and the page opens at once.
+        let (alone, aloneShown) = presenter()
+        await alone.showAgentsAtFirstRun(isFirstRun: true, source: MockAgentSignInSource(), computerUse: true, defaults: try defaults())
+        #expect(aloneShown() == [.computerUseWelcome])
+        let (policy, policyShown) = presenter()
+        await policy.showAgentsAtFirstRun(isFirstRun: true, source: MockAgentSignInSource(), computerUse: false, defaults: try defaults())
+        #expect(policyShown().isEmpty)
     }
 
     /// The blue cursor tours through the motion gate; with Reduce Motion it rests on the first
