@@ -53,7 +53,10 @@ fn a_sealed_store_hands_its_home_to_the_next_open_at_once() {
     let first = open_store(home.path()).unwrap_or_else(|e| panic!("open: {e:#}"));
     first.save(&meta("kept")).unwrap_or_else(|e| panic!("save: {e:#}"));
     first.append(CHAT, &record(1)).unwrap_or_else(|e| panic!("append: {e:#}"));
+    let stop = first.stop_reason().unwrap_or_else(|| panic!("the journal store asks to stop"));
     first.seal();
+    // The writer the seal ends is no failure: a shutdown never asks for a restart (exit 74).
+    assert_eq!(*stop.borrow(), None, "the seal asked the daemon to stop");
     // Not dropped: a daemon's hub outlives its seal (its tasks hold it) until the process exits.
     let started = Instant::now();
     let second = open_store(home.path())
