@@ -119,7 +119,9 @@ public nonisolated struct CloudRelayChat: Sendable {
         /// Merges an event's `stages_ms` into ``platformStages``; a later event's value for a name wins.
         private mutating func takeStages(_ event: [String: Any]) {
             guard let stages = event["stages_ms"] as? [String: Any] else { return }
-            for case let (name, ms as NSNumber) in stages { platformStages[name, default: 0] = ms.intValue }
+            var merged = platformStages ?? [:]
+            for case let (name, ms as NSNumber) in stages { merged[name] = ms.intValue }
+            platformStages = merged
         }
     }
 

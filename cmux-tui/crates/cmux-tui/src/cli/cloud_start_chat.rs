@@ -509,7 +509,9 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     // The stage trace (cmuxterm-hq#7415): each step's start and length, on a reply and on a failure alike.
     let stages = timed.stages();
     match &mut outcome {
-        Outcome::Done(answer) => answer.set("stages_ms", stages),
+        Outcome::Done(answer) => {
+            answer.set("stages_ms", stages);
+        }
         Outcome::Failed { error, .. } => {
             if let Some(details) = error.get_mut("details").and_then(Value::as_object_mut) {
                 details.insert("stages_ms".to_owned(), stages);
