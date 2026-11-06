@@ -338,7 +338,10 @@ async fn a_chat_on_a_second_claude_account_keeps_that_account() {
     let bindings = local.ok("_acpmux/route/list", json!({})).await;
     assert!(bindings["bindings"]["families"].get("claude").is_none(), "{bindings}");
     let refused = local
-        .err("_acpmux/route/default.set", json!({"scope": "family:claude", "routeId": "claude-work"}))
+        .err(
+            "_acpmux/route/default.set",
+            json!({"scope": "family:claude", "routeId": "claude-work"}),
+        )
         .await;
     assert!(refused["message"].as_str().unwrap_or("").contains("turned off"), "{refused}");
     local.ok("_acpmux/account/set", json!({"id": "claude-work", "enabled": true})).await;
