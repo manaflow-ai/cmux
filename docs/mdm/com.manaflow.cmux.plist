@@ -1913,6 +1913,18 @@
 			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
+			<string>The row you pick for what you typed comes first the next time you type it, and rows you use often rank higher. Off, the palette records nothing and ranks by match and sidebar order only.</string>
+			<key>pfm_name</key>
+			<string>palette.searchHistory</string>
+			<key>pfm_title</key>
+			<string>Remember Palette Searches</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
 			<string>Show chats stored on this device. Nothing is uploaded.</string>
 			<key>pfm_name</key>
 			<string>agents.chats.enabled</string>
@@ -4456,6 +4468,23 @@
 			<string>Program Link Rules</string>
 			<key>pfm_type</key>
 			<string>array</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>xterm-256color</string>
+			<key>pfm_description</key>
+			<string>The TERM new terminals start with. xterm-256color works on every host you ssh to. xterm-ghostty needs Ghostty's terminfo on each of those hosts, and applies only when it is installed on this Mac.</string>
+			<key>pfm_name</key>
+			<string>terminal.term</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>xterm-256color</string>
+				<string>xterm-ghostty</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Terminal Type (TERM)</string>
+			<key>pfm_type</key>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_description</key>
@@ -7948,6 +7977,37 @@
 			<string>Character</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>left</string>
+			<key>pfm_description</key>
+			<string>The window edge the Chief docks to when you press Cmd-I or open a workspace from the Chief. The rest of the window shows the workspace you pick.</string>
+			<key>pfm_name</key>
+			<string>home.chiefDock.edge</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>left</string>
+				<string>right</string>
+				<string>top</string>
+				<string>bottom</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Dock Edge</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>A workspace, tab or agent link clicked in the Chief opens beside it. The Chief stays docked with your draft and scroll position.</string>
+			<key>pfm_name</key>
+			<string>home.chiefDock.openBeside</string>
+			<key>pfm_title</key>
+			<string>Keep Chief Docked When Opening Workspaces</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>

@@ -67,6 +67,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var homeKeepLocation = false, homeChannelsEnabled = false, homeChiefPetEnabled = false, homeChiefPetMascot = HomeChiefPetSetting.defaultMascot
     /// `home.feedInChief`: the main Chief's conversation shows the Feed's notices; on when unset.
     public var homeFeedInChief = true
+    /// `home.chiefDock.edge`: the window edge the Chief docks to (``ChiefDockSetting``); `left` when unset.
+    public var chiefDockEdge = ChiefDockSetting.defaultEdge
+    /// `home.chiefDock.openBeside`: a link clicked in the Chief shows its workspace beside the docked Chief; on when unset.
+    public var chiefDockOpenBeside = ChiefDockSetting.defaultOpenBeside
     /// `home.server`: cmux Cloud (`hosted`) when unset or invalid, else the self-hosted server's origin.
     public var homeServer: HomeServerSetting.Value = .hosted
     /// `labs.previewFeatures`; off when unset.
@@ -264,6 +268,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var terminalFontFamily: String?
     /// `terminal.fontSize` in points; nil (the Ghostty config's size) when unset or invalid.
     public var terminalFontSize: Double?
+    /// `terminal.term`: the `TERM` new local terminals start with; `xterm-256color` when unset or invalid.
+    public var terminalTerm: TerminalTerm = TerminalTermSetting.fallback
     /// `history.terminalCommands` (opt-in terminal command history).
     public var recordsTerminalCommands: Bool = TerminalCommandHistorySetting.fallback
     /// `navigation.historyScope`: what Back and Forward walk (`workspace`, `window`, `surface`).
@@ -353,6 +359,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(BrowserLinkClickSetting.parse(root), \.browserLinkClicks)
         snapshot.take(LinkRouting.parse(root), \.linkRouting)
         snapshot.take(TerminalLinkOpener.parse(root), \.terminalLinkOpener)
+        snapshot.take(TerminalTermSetting.parse(root), \.terminalTerm)
         snapshot.take(TextEditorSetting.parse(root), \.textEditor)
         snapshot.take(RemoteLocalhostSetting.parse(root), \.remoteLocalhost)
         let paneChrome = PaneChromeConfigParser.parse(root)

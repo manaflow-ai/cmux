@@ -8,7 +8,7 @@ import Testing
 /// join consent sheet's ``CmuxDialogPersonClick``): no Accessibility press, programmatic click,
 /// Return key, or click another process posts approves, nor a click begun right after Confirm
 /// appeared. Then the person's click approves, once, through Add Server's own approve.
-@MainActor @Suite(.serialized) struct PairInviteConfirmTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct PairInviteConfirmTests {
     private func approvals(_ source: MockServerSource) -> [ServerIntentKind] {
         source.received.map(\.kind).filter { if case .approveCode = $0 { true } else { false } }
     }
