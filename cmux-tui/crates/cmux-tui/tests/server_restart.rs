@@ -34,9 +34,19 @@ impl Fixture {
     }
 
     fn command(&self, action: &str, extra: &[&str]) -> Command {
+        self.command_as(action, extra, true)
+    }
+
+    /// A `server` command, naming the session only when `named`: without it,
+    /// the socket alone says which daemon.
+    fn command_as(&self, action: &str, extra: &[&str], named: bool) -> Command {
         let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-tui"));
+        command.args(["server", action, "--json"]);
+        if named {
+            command.args(["--session", &self.session]);
+        }
         command
-            .args(["server", action, "--json", "--session", &self.session, "--socket"])
+            .arg("--socket")
             .arg(&self.socket)
             .args(extra)
             .env("HOME", self.dir.join("home"))
@@ -155,6 +165,26 @@ fn restart_swaps_the_owner_and_keeps_its_terminals() {
     assert!(fixture.screen_has(&surface, "before-21"), "scrollback lost across restart");
     fixture.request(json!({"cmd": "send", "surface": surface, "text": "echo after-$((40+2))\n"}));
     wait_for("the shell after the restart", || fixture.screen_has(&surface, "after-42"));
+}
+
+#[test]
+fn a_restart_by_socket_alone_keeps_the_named_session() {
+    let fixture = Fixture::new("restart-socket");
+    let old = pid_of(&fixture.server("ensure", &[]));
+    let created =
+        fixture.request(json!({"cmd": "run", "argv": ["/bin/sh"], "new_workspace": true}));
+    let (terminal, incarnation) =
+        (created["terminal_id"].clone(), created["terminal_incarnation"].clone());
+
+    let output = fixture.command_as("restart", &[], false).output().unwrap();
+    assert!(output.status.success(), "restart by socket failed: {output:?}");
+    let identity = fixture.request(json!({"cmd": "identify"}));
+    assert_eq!(identity["session"], "restart-socket", "{identity}");
+    assert_ne!(pid_of(&identity), old, "restart kept the old owner: {identity}");
+
+    let resolved = fixture.request(json!({"cmd": "resolve-terminal", "terminal_id": terminal}));
+    assert_eq!(resolved["lifecycle"], "running", "{resolved}");
+    assert_eq!(resolved["terminal_incarnation"], incarnation, "{resolved}");
 }
 
 #[test]
