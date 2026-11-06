@@ -181,10 +181,13 @@ def open_tab(session):
     """The chat of `session` as a tab of the focused pane, shown, as a Chief subagent link opens it."""
     ran = rpc("action.run", {"action": "agent.openSessionTab", "args": {"session": session}, "focus": True}, timeout=60)
     tab = ((ran or {}).get("result") or {}).get("tab")
+    print("open tab", session, json.dumps(ran)[:600], flush=True)
     if tab:  # a script's run may leave the new tab behind the pane's current one: show it, as a click does
-        rpc("action.run", {"action": "tab.focus", "target": f"tab:{tab}", "focus": True}, timeout=30)
+        focused = rpc("action.run", {"action": "tab.focus", "target": f"tab:{tab}", "focus": True}, timeout=30)
+        print("show tab", tab, json.dumps(focused)[:400], flush=True)
     shown = wait(lambda: (lambda s: s if s.get("sessionId") == session else None)(pane("chat_state") or {}), 30, 0.5)
-    print("open tab", session, json.dumps(ran)[:200], "shown" if shown else "NOT shown", flush=True)
+    state = pane("chat_state") or {}
+    print("chat_state", "shown" if shown else "NOT shown", json.dumps({k: state.get(k) for k in ("pane", "sessionId", "error", "connection", "missingSession", "unavailable")})[:400], flush=True)
     return bool(shown)
 
 
