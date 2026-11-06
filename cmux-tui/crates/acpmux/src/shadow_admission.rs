@@ -153,34 +153,78 @@ pub fn with_shadow(site: &str, mut verdict: Value, candidates: &[Candidate]) -> 
     verdict
 }
 
+/// This machine's readings beside the meter's verdict, in `_acpmux/host_health`'s
+/// shape: `cpus`, `pressureAgeMs`, `load` (the OS load averages), `ram.totalBytes`
+/// and `swap`. `daemon status` adds the same keys to `host_pressure`
+/// ([`with_readings`]), so a reader of either builds the same inputs.
+/// Blocking (`/proc` reads): call it on a blocking thread.
+pub fn local_readings() -> Value {
+    use crate::server::peer_status::{load, pressure_age_ms, ram_total, swap};
+    let mut r = json!({
+        "cpus": std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1),
+    });
+    if let Some(age) = pressure_age_ms() {
+        r["pressureAgeMs"] = json!(age);
+    }
+    if let Some(l) = load() {
+        r["load"] = json!(l);
+    }
+    if let Some(total) = ram_total() {
+        r["ram"] = json!({"totalBytes": total});
+    }
+    if let Some((used, total)) = swap() {
+        r["swap"] = json!({"usedBytes": used, "totalBytes": total});
+    }
+    r
+}
+
+/// A health reading from [`local_readings`] and the meter's verdict JSON
+/// (`pressure`, null with no sample yet).
+pub fn local_health(readings: &Value, pressure: Value) -> Value {
+    let mut health = readings.clone();
+    if !pressure.is_null() {
+        health["pressure"] = pressure;
+    }
+    health
+}
+
+/// `daemon status`'s `host_pressure` with [`local_readings`]' keys added; the
+/// verdict's own keys are kept as they are.
+pub fn with_readings(mut host_pressure: Value, readings: &Value) -> Value {
+    if let (Some(obj), Some(r)) = (host_pressure.as_object_mut(), readings.as_object()) {
+        for (k, v) in r {
+            obj.entry(k.clone()).or_insert_with(|| v.clone());
+        }
+    }
+    host_pressure
+}
+
+/// This machine as a candidate built from `daemon status`'s `host_pressure`,
+/// read at `at_ms`: the same inputs placement builds ([`local_candidate`]).
+pub fn status_candidate(name: &str, host_pressure: &Value, at_ms: u64) -> Candidate {
+    let mut health = json!({});
+    for k in ["cpus", "pressureAgeMs", "load", "ram", "swap"] {
+        if let Some(v) = host_pressure.get(k) {
+            health[k] = v.clone();
+        }
+    }
+    // The verdict is only a verdict once the meter has a sample (`ok` set).
+    if host_pressure.get("ok").is_some_and(|ok| !ok.is_null()) {
+        health["pressure"] = host_pressure.clone();
+    }
+    Candidate { name: name.to_owned(), local: true, health, health_at: Some(at_ms) }
+}
+
 /// This machine as a candidate from readings that never wait: the meter's last
 /// verdict, load, RAM and swap. Blocking (`/proc` reads): call it on a blocking
 /// thread.
 pub fn local_candidate() -> Candidate {
-    use crate::server::peer_status::{load, pressure_age_ms, ram_total, swap};
-    let mut health = json!({
-        "cpus": std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1),
-    });
     let verdict = crate::host_pressure::Meter::shared().last();
-    if let Some(v) = verdict.and_then(|v| serde_json::to_value(v).ok()) {
-        health["pressure"] = v;
-    }
-    if let Some(age) = pressure_age_ms() {
-        health["pressureAgeMs"] = json!(age);
-    }
-    if let Some(l) = load() {
-        health["load"] = json!(l);
-    }
-    if let Some(total) = ram_total() {
-        health["ram"] = json!({"totalBytes": total});
-    }
-    if let Some((used, total)) = swap() {
-        health["swap"] = json!({"usedBytes": used, "totalBytes": total});
-    }
+    let pressure = verdict.and_then(|v| serde_json::to_value(v).ok()).unwrap_or(Value::Null);
     Candidate {
         name: crate::hub::host_label().to_owned(),
         local: true,
-        health,
+        health: local_health(&local_readings(), pressure),
         health_at: Some(crate::store::now_ms()),
     }
 }

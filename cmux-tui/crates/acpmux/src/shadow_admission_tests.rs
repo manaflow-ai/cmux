@@ -108,7 +108,7 @@ fn the_shadow_verdict_never_changes_the_pick() {
 fn a_line_names_the_pick_and_every_host() {
     let fleet = [
         peer("ln-a", health(32, 4.0, "normal", 0.6, 2), Some(5_000_000)),
-        peer("ln-b", health(16, 3.0, "warn", 0.3, 2), Some(5_000_000)),
+        peer("ln-b", health(16, 3.0, "critical", 0.3, 2), Some(5_000_000)),
     ];
     let verdicts = judge(&fleet, 5_001_000);
     let l = line("place", Some("ln-b"), &verdicts, 5_001_000);
@@ -152,4 +152,47 @@ fn the_kept_verdicts_list_each_host_once() {
     let kept: Vec<Value> =
         last_verdicts().into_iter().filter(|v| v["host"] == "kept-lane").collect();
     assert_eq!(kept.len(), 1, "{kept:?}");
+}
+
+#[test]
+fn daemon_status_gives_the_inputs_placement_builds() {
+    let readings = json!({
+        "cpus": 32,
+        "pressureAgeMs": 4_000,
+        "load": [205.0, 180.0, 150.0],
+        "ram": {"totalBytes": 64 * GB},
+        "swap": {"usedBytes": 30_800_000_000_u64, "totalBytes": 31_700_000_000_u64},
+    });
+    let pressure = json!({"host": "st-lane", "ok": false, "over": ["load"], "load1": 190.0,
+        "load_limit": 32.0, "cores": 32, "cores_kind": "logical", "pressure": "warn",
+        "available_ram_fraction": 0.42, "swap_mb_per_min": 12.5, "warning": null});
+    let placed = Candidate {
+        name: "st-lane".into(),
+        local: true,
+        health: local_health(&readings, pressure.clone()),
+        health_at: Some(9_000_000),
+    };
+    // `daemon status`'s `host_pressure`: the verdict, this daemon's own keys,
+    // then the readings.
+    let mut status = pressure;
+    status["local_turns"] = json!(3);
+    status["top"] = json!([]);
+    let status = with_readings(status, &readings);
+    for k in ["cpus", "pressureAgeMs", "load", "ram", "swap", "swap_mb_per_min", "cores"] {
+        assert!(status.get(k).is_some(), "host_pressure lacks {k}: {status}");
+    }
+    let read = status_candidate("st-lane", &status, 9_000_000);
+    let a = inputs(&placed, 9_010_000, None);
+    let b = inputs(&read, 9_010_000, None);
+    assert_eq!(a, b);
+    // The OS load average, not the meter's own sample.
+    assert_eq!(a.load1, Some(205.0));
+    assert_eq!(a.health_at_ms, Some(8_996_000));
+    assert_eq!(shadow_verdict(&a), shadow_verdict(&b));
+
+    // With no meter sample yet neither side has a pressure reading.
+    let empty = json!({"host": "st-lane", "ok": null, "over": [], "warning": null});
+    let placed = Candidate { health: local_health(&readings, Value::Null), ..placed };
+    let read = status_candidate("st-lane", &with_readings(empty, &readings), 9_000_000);
+    assert_eq!(inputs(&placed, 9_010_000, None), inputs(&read, 9_010_000, None));
 }

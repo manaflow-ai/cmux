@@ -69,6 +69,10 @@ next to its pick: one info line `shadow-admission {JSON}` in the daemon's log (`
 pick's `would_defer`, `reason`, `inputs_digest`, `formula_version`, and `hosts`. Nothing is
 deferred on it. `daemon status --json` lists each host's last verdict as `shadowAdmission`, and
 `acpmux ls` ends with a `HOST: would-defer: REASON` line for each host whose verdict would defer.
+Its `host_pressure` carries the readings this machine's verdict uses beside the meter's keys
+(`cores`, `pressure`, `available_ram_fraction`, `swap_mb_per_min`): `cpus`, `pressureAgeMs` (the
+meter sample's age), `load` (the OS load averages; the verdict reads `load[0]`), `ram.totalBytes`
+and `swap.usedBytes`/`swap.totalBytes`, so a reader builds the same inputs placement does.
 
 Screen and control consent, an allow, and turning Full access on are the person's: the daemon takes
 them only from the cmux app, never from a shell or an agent.
