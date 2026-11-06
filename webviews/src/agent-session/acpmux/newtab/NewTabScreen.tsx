@@ -8,7 +8,7 @@ import { useScrollEdges } from "../../../ui/scrollEdges";
 import type { ConnectKind } from "../environments";
 import type { CloudMachine } from "../cloudMachines";
 import { isActive, type Dictation, type DictationField } from "../dictation";
-import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../NewTabPage";
+import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../newTabModel";
 import { acpmuxPerf } from "../perf";
 import type { AcpmuxSnapshot } from "../model";
 import { EMPTY_OMNIBAR, stepSelection, type OmnibarContext } from "../omnibar";
