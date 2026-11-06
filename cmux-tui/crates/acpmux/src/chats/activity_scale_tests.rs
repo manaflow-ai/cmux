@@ -6,7 +6,7 @@ use super::*;
 use crate::config::Config;
 use crate::hub::peer_snapshot::thread_allocations;
 use crate::store::{MemoryStore, Store};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Barrier};
 use std::time::{Duration, Instant};
 
@@ -111,41 +111,74 @@ fn measure_chat_activity_9000_closed_8_watchers() {
     };
     let barrier = Arc::new(Barrier::new(WATCHERS + 1));
     let changes = Arc::new(Vec::new());
+    let stable_allocations = Arc::new(AtomicUsize::new(0));
+    let invalid_allocations = Arc::new(AtomicUsize::new(0));
     let watchers: Vec<_> = (0..WATCHERS)
         .map(|w| {
-            let (hub, barrier, changes) = (hub.clone(), barrier.clone(), changes.clone());
+            let (hub, barrier, changes, stable_allocations, invalid_allocations) = (
+                hub.clone(),
+                barrier.clone(),
+                changes.clone(),
+                stable_allocations.clone(),
+                invalid_allocations.clone(),
+            );
             std::thread::spawn(move || {
-                for batch in 0..BATCHES {
+                for batch in 0..BATCHES * 2 {
                     barrier.wait();
-                    std::hint::black_box(one_watcher(&hub, &changes, batch * 31 + w));
+                    let (_, made) =
+                        thread_allocations(|| one_watcher(&hub, &changes, batch * 31 + w));
+                    let counter =
+                        if batch < BATCHES { &stable_allocations } else { &invalid_allocations };
+                    counter.fetch_add(made, Ordering::Relaxed);
                     barrier.wait();
                 }
             })
         })
         .collect();
-    let mut batches = Vec::new();
-    let cpu = process_cpu();
-    for _ in 0..BATCHES {
+    let mut stable_batches = Vec::new();
+    let mut invalid_batches = Vec::new();
+    let cpu_start = process_cpu();
+    let mut cpu_split = None;
+    for batch in 0..BATCHES * 2 {
         let start = Instant::now();
-        // A mux activity record is the one-chat mutation that invalidates the batch. The
-        // benchmark uses the cache's production mutation hook so the watchers see its version.
-        hub.chat_activity_cache.note(&format!("s-{CLOSED:05}"), "status", false);
+        if batch >= BATCHES {
+            // A mux activity record is the one-chat mutation that invalidates the batch. The
+            // benchmark uses the cache's production mutation hook so the watchers see its version.
+            hub.chat_activity_cache.note(&format!("s-{CLOSED:05}"), "status", false);
+        }
         barrier.wait();
         barrier.wait();
-        batches.push(start.elapsed());
+        if batch == BATCHES {
+            cpu_split = Some(process_cpu());
+        }
+        if batch < BATCHES {
+            stable_batches.push(start.elapsed());
+        } else {
+            invalid_batches.push(start.elapsed());
+        }
     }
-    let cpu = (process_cpu() - cpu).as_secs_f64() * 1000.0 / BATCHES as f64;
+    let cpu_end = process_cpu();
     for watcher in watchers {
         watcher.join().unwrap();
     }
     stop.store(true, Ordering::Relaxed);
     let mut waits = contender.join().unwrap();
-    batches.sort();
+    stable_batches.sort();
+    invalid_batches.sort();
     waits.sort();
     eprintln!(
-        "chat activity, {WATCHERS} watchers, invalidated batch: batch p50 {:.3} ms, p99 {:.3} ms, {cpu:.3} CPU ms/batch",
-        percentile(&batches, 0.5) / 1000.0,
-        percentile(&batches, 0.99) / 1000.0,
+        "chat activity, {WATCHERS} watchers, stable hit: p50 {:.3} ms, p99 {:.3} ms, {:.3} CPU ms/batch, {} allocations/batch",
+        percentile(&stable_batches, 0.5) / 1000.0,
+        percentile(&stable_batches, 0.99) / 1000.0,
+        (cpu_split.unwrap() - cpu_start).as_secs_f64() * 1000.0 / BATCHES as f64,
+        stable_allocations.load(Ordering::Relaxed) / BATCHES / WATCHERS,
+    );
+    eprintln!(
+        "chat activity, {WATCHERS} watchers, invalidated batch: p50 {:.3} ms, p99 {:.3} ms, {:.3} CPU ms/batch, {} allocations/batch",
+        percentile(&invalid_batches, 0.5) / 1000.0,
+        percentile(&invalid_batches, 0.99) / 1000.0,
+        (cpu_end - cpu_split.unwrap()).as_secs_f64() * 1000.0 / BATCHES as f64,
+        invalid_allocations.load(Ordering::Relaxed) / BATCHES / WATCHERS,
     );
     eprintln!(
         "session resolve under {WATCHERS} watchers: p50 {:.1} us, p99 {:.1} us, max {:.1} us, n {}",

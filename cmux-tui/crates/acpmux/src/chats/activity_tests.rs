@@ -2,6 +2,8 @@ use super::*;
 use crate::config::Config;
 use crate::store::{MemoryStore, Store};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
 
 fn row(id: &str, extra: Value) -> Value {
     let mut row = json!({"schema": crate::store::META_SCHEMA, "id": id, "name": id,
@@ -88,4 +90,61 @@ async fn activity_parent_keeps_lineage_precedence_expiry_and_one_level_visibilit
             if listed { json!("claude-code:root") } else { Value::Null }
         );
     }
+}
+
+#[test]
+fn activity_cache_is_bounded_under_mutation_and_keeps_the_last_update() {
+    let hub = hub(vec![row("live", json!({"status": "idle", "preview": "old"}))]);
+    hub.chat_activity_cache.test_reset_builds();
+    let stop = Arc::new(AtomicBool::new(false));
+    let mutator = {
+        let hub = hub.clone();
+        let stop = stop.clone();
+        thread::spawn(move || {
+            for _ in 0..32 {
+                hub.chat_activity_cache.note("live", "status", false);
+                thread::yield_now();
+            }
+            stop.store(true, Ordering::Release);
+        })
+    };
+    let mut readers = Vec::new();
+    for n in 0..8 {
+        let hub = hub.clone();
+        readers.push(thread::spawn(move || {
+            let batch = Arc::new(Vec::new());
+            let mut chat = json!({"key": "claude-code:live"});
+            hub.chat_activity_for_batch(&batch).decorate(&mut chat);
+            assert_eq!(chat["key"], "claude-code:live");
+            n
+        }));
+    }
+    for reader in readers {
+        reader.join().unwrap();
+    }
+    mutator.join().unwrap();
+    assert!(stop.load(Ordering::Acquire));
+    let before = hub.chat_activity_cache.test_builds();
+    let batch = Arc::new(Vec::new());
+    let _ = hub.chat_activity_for_batch(&batch);
+    assert!(hub.chat_activity_cache.test_builds() <= before + 1);
+}
+
+#[test]
+fn activity_cache_follows_live_status_transitions() {
+    let hub = hub(vec![row("live", json!({"status": "idle", "preview": "old"}))]);
+    let decorate = |hub: &Hub| {
+        let mut chat = json!({"key": "claude-code:live"});
+        hub.chat_activity_for_batch(&Arc::new(Vec::new())).decorate(&mut chat);
+        chat
+    };
+    assert_eq!(decorate(&hub)["attention"], Value::Null);
+    hub.test_set_status("live", SessionStatus::Waiting);
+    assert_eq!(decorate(&hub)["attention"], "needsInput");
+    hub.test_set_status("live", SessionStatus::Running);
+    assert_eq!(decorate(&hub)["attention"], Value::Null);
+    hub.test_set_status("live", SessionStatus::Closed);
+    assert_eq!(decorate(&hub)["attention"], Value::Null);
+    hub.test_set_status("live", SessionStatus::Idle);
+    assert_eq!(decorate(&hub)["attention"], Value::Null);
 }

@@ -169,6 +169,8 @@ pub struct ActivityCache {
     building: Mutex<()>,
     /// The last change batch's activity, for the next watcher of the same batch.
     batch: Mutex<Option<SharedBatch>>,
+    #[cfg(test)]
+    builds: AtomicU64,
 }
 
 /// A change batch, the counts its activity was read at, and that activity.
@@ -190,6 +192,16 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 impl ActivityCache {
+    #[cfg(test)]
+    pub(crate) fn test_builds(&self) -> u64 {
+        self.builds.load(Ordering::SeqCst)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_reset_builds(&self) {
+        self.builds.store(0, Ordering::SeqCst);
+    }
+
     /// A mux record of `kind` was appended to session `id` (`closed`: the session is closed now).
     pub(crate) fn note(&self, id: &str, kind: &str, closed: bool) {
         if !changes_activity(kind) {
@@ -211,6 +223,18 @@ impl ActivityCache {
 }
 
 impl Hub {
+    #[cfg(test)]
+    pub(crate) fn test_append_activity(&self, id: &str, kind: &str, msg: Value) {
+        let session = self.resolve(id).expect("test session");
+        self.append(&session, "mux", kind, msg);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_set_status(&self, id: &str, status: SessionStatus) {
+        let session = self.resolve(id).expect("test session");
+        self.set_status(&session, status);
+    }
+
     /// A chat's `attention` and `preview`, and `parent`: the chat of the session that started
     /// this one (`Hub::spawned_by`; its chat key, else its session id), so lists fold it under
     /// that chat instead of listing it on its own (Leo 2026-10-13). Null for a chat nobody started.
@@ -287,6 +311,8 @@ impl Hub {
             return built;
         }
         // Read before the sessions: a change during the build makes the next read build again.
+        #[cfg(test)]
+        cache.builds.fetch_add(1, Ordering::SeqCst);
         let epoch = cache.epoch.load(Ordering::SeqCst);
         let sessions = self.session_handles();
         let now = crate::store::now_ms();
