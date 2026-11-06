@@ -122,7 +122,7 @@ struct TitlebarHistoryMenuSectionsTests {
         let menu = TitlebarHistoryMenu.make(Self.sections(), closed: .rows([Self.closedRow("daemon:closed_1", "build")]),
                                             choose: { _ in }, showAll: footer)
         let titles = menu.items.map { $0.isSeparatorItem ? "—" : $0.title }
-        #expect(titles == ["a — one", "—", "Recently Closed", "build — ~/src", "—", "Show Full History"])
+        #expect(titles == ["a", "—", "Recently Closed", "build — ~/src", "—", "Show Full History"])
         #expect(menu.items.last === footer)
     }
 

@@ -127,6 +127,7 @@ import Testing
         caption.font = NSFont.systemFont(ofSize: TypeScale.caption)
         caption.textColor = .secondaryLabelColor
         caption.preferredMaxLayoutWidth = width
+        caption.widthAnchor.constraint(equalToConstant: width).isActive = true
         let outer = NSStackView(views: [box, caption])
         outer.orientation = .vertical
         outer.alignment = .leading
