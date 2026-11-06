@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 587,
+  "count": 591,
   "sections": [
     {
       "id": "general",
@@ -5516,6 +5516,48 @@
           "kind": "toggle",
           "default": true,
           "group": "Reactions"
+        },
+        {
+          "key": "chief.subagentSidebar",
+          "title": "Subagents in the Sidebar",
+          "help": "Automatic lets the Chief decide for each subagent: work you will want to watch or join shows, short errands stay hidden. Always and Never override the Chief.",
+          "kind": "choice",
+          "default": "auto",
+          "group": "Subagents",
+          "values": [
+            "auto",
+            "always",
+            "never"
+          ]
+        },
+        {
+          "key": "chief.subagentSidebarHideWords",
+          "title": "Hide Tasks That Mention",
+          "help": "Words or phrases that keep a subagent hidden when the Chief leaves it to these rules. They add to the built-in ones, such as lookup, cleanup and land queue. A show word wins.",
+          "kind": "string_list",
+          "default": [],
+          "group": "Subagents"
+        },
+        {
+          "key": "chief.subagentSidebarMinWords",
+          "title": "Show Tasks Longer Than",
+          "help": "A task with no show or hide word shows when it has at least this many words, and stays hidden when it is shorter.",
+          "kind": "number",
+          "default": 50,
+          "group": "Subagents",
+          "range": {
+            "min": 0,
+            "max": 1000,
+            "unit": "count"
+          }
+        },
+        {
+          "key": "chief.subagentSidebarShowWords",
+          "title": "Show Tasks That Mention",
+          "help": "Words or phrases that show a subagent when the Chief leaves it to these rules. They add to the built-in ones, such as UI, design, screenshots and needs you.",
+          "kind": "string_list",
+          "default": [],
+          "group": "Subagents"
         },
         {
           "key": "diagnostics.hangReports",

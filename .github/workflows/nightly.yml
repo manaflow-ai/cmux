@@ -199,16 +199,16 @@ env:
   # SUPublicEDKey of the cmux-next track. The build refuses a
   # SPARKLE_NEXT_PRIVATE_KEY that does not derive this public key.
   NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY: IOPItMLjtc4NsROTNZ6a/jsUW+C4fcicl6SNjVVvzRM=
-  # cx-f58x (Lawrence, 2026-10-09): Apple notarizes nightly-next only with the
-  # browser-data import compiled out. On commit 73210f2 the normal build
-  # (de5255b1) got status 7000 and the compiled-out build (52c6c12d) was
-  # Accepted. While this is `compiled-out`, every nightly-next build compiles
+  # cx-f58x: Apple held the browser-data import (status 7000, 2026-10-09) and
+  # accepted it again in run 42176643049 (notary_test_import_part=full,
+  # 2026-11-06), so `full` builds the import into every nightly-next build.
+  # `compiled-out` is the switch back: every nightly-next build then compiles
   # the import out (CMUX_NO_PASSWORD_IMPORT, CMUX_NO_BROWSER_DATA_IMPORT, empty
   # browser-sources.json), proves it, and may notarize and publish even with
-  # NIGHTLY_NEXT_NOTARY_PAUSED=1. Any other value builds the import in, and the
-  # pause then still stops that build before notarization, so a build with the
-  # import is never published while the pause is set.
-  NIGHTLY_NEXT_BROWSER_DATA_IMPORT: compiled-out
+  # NIGHTLY_NEXT_NOTARY_PAUSED=1. With the import in, the pause still stops a
+  # build before notarization, so a build with the import is never published
+  # while the pause is set.
+  NIGHTLY_NEXT_BROWSER_DATA_IMPORT: full
 
 jobs:
   decide:

@@ -856,7 +856,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
             // cmux: a picture in a table card opens in the large picture viewer, with the table's other pictures
             // (the user, 2026-11-05: "i want to be able to expand and annotate").
             if case let .custom(custom) = hit.row.part, custom.kind == HomeTableRowProvider.kind,
-               openTablePicture(custom, at: CGPoint(x: p.x - hit.body.minX, y: p.y - hit.body.minY), width: hit.body.width) {
+               openTablePicture(custom, at: CGPoint(x: p.x - hit.body.minX, y: p.y - hit.body.minY), width: hit.body.width,
+                                body: hit.body.origin) {
                 return
             }
             // cmux: an agents row opens or closes (HomeStore.toggleAgentMessages).
