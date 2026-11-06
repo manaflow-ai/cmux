@@ -270,6 +270,9 @@ pub struct Session {
     pub(super) start_retry_wake: Notify,
     /// A prompt's agent start waits to be tried again (`start_retry.rs`): the row reads `starting`.
     pub(super) start_retry_waits: AtomicBool,
+    /// The turn's Stop count while a retry's agent start runs (`start_retry.rs`, `NO_RETRY`
+    /// otherwise): a Stop since ends that start.
+    pub(super) start_retry_cancels: AtomicU64,
     /// The turn id whose forced cancellation was already published. A second
     /// Stop for the same turn must not publish another forced answer.
     pub(super) cancel_forced_turn: StdMutex<Option<String>>,

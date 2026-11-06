@@ -450,7 +450,26 @@ public final class SidebarModel {
         let shown = docDrag.flatMap { drag in drag.document?.shown.map { $0.arrange(new, drag: drag) } } ?? new
         arrangedSorts = docDrag?.document?.shown?.groupSorts ?? [:]
         arrangedArchived = docDrag?.document?.shown?.archived ?? []
-        sections = Self.folding(Self.hidingItems(hiddenItemRefs, in: shown), collapsedSections) // the setter skips an unchanged list
+        let next = Self.folding(Self.hidingItems(hiddenItemRefs, in: shown), collapsedSections).map { $0.resolvingGroupDepths() }
+        if writesRowsInPlace(next) { return }
+        sections = next // the setter skips an unchanged list
+    }
+
+    /// Writes `next` when it changes only listed rows' content, every row in its place (a create's stand-in row
+    /// becoming its workspace's row, SIDEBAR INSERT): in place and told to `onRowsPatched`, as `patchWorkspaces` does,
+    /// so the list lays out no row and the cost is the changed rows', never every row's. False, writing nothing, for a
+    /// structural change, a filter, a row that moves (`movesRows`) or a workspace listed twice.
+    private func writesRowsInPlace(_ next: [SidebarSection]) -> Bool {
+        guard filterText.isEmpty, let changes = SidebarSection.rowContentChanges(from: storedSections, to: next) else { return false }
+        guard !changes.isEmpty else { return true } // nothing changed
+        for change in changes {
+            guard listedPaths(of: change.new.id).count == 1, !movesRows(from: change.old, to: change.new),
+                  change.path.member == nil || !renamesSoleMember(at: change.path, to: change.new.title) else { return false }
+        }
+        storedSections = next // the same rows in the same places: `rowIndex` and `groupPaths` hold
+        onRowsPatched?(changes.map(\.new))
+        if onRowsPatchedWithPrevious != nil { onRowsPatchedWithPrevious?(changes.map { (before: $0.old, after: $0.new) }) }
+        return true
     }
 
     /// Row content of listed workspaces (status, title, unread, progress, icon), written in place with no structural

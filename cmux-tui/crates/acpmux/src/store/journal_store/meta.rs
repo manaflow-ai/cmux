@@ -10,7 +10,7 @@
 //! goes to `journal-unapplied/`. `session_dir` and `flush_session`, which hand the folder to such
 //! code or make it durable, first write the chat's image (`settle_meta`).
 //!
-//! A run without the journal (the switch off after a catch-up that failed, or an older build) can
+//! A run without the journal (an older build) can
 //! write `session.json` after the journal's records (review of #35483, F1). Every write of the
 //! store's own carries `journalLsn` and the journal's id (`journalId`): an LSN means something
 //! only in the journal that gave it, and a chat folder can come from another home's journal
@@ -466,10 +466,18 @@ impl Inner {
     /// #35483: a settle that read its image before a checkpoint wrote a newer one). A failed sync
     /// freezes the checkpoint, as a failed log sync does (F3).
     fn write_through(&self, id: &str, pending: &Pending) -> Result<()> {
-        // Against a delete's removal of the folder (`Store::delete` drops the entry first).
+        // Against a delete's removal of the folder (`Store::delete` drops the entry first), and
+        // against the seal (`Inner::last_checkpoint`).
         let _folder = self.folders.lock_or_recover();
+        let current = {
+            let order = self.order.lock_or_recover();
+            // Sealed: the home is the next daemon's, whose open applies the journaled image.
+            if order.sealed {
+                return Ok(());
+            }
+            order.metas.get(id).map(|now| now.folder)
+        };
         // Deleted since, or deleted and made again in another folder: nothing of this image.
-        let current = self.order.lock_or_recover().metas.get(id).map(|now| now.folder);
         if current != Some(pending.folder) {
             return Ok(());
         }
@@ -528,7 +536,7 @@ impl Inner {
                         Ok(SessionFile::Journaled(_) | SessionFile::Missing) => None,
                         Ok(SessionFile::Plain(stamp)) if replayed.saw.contains(&stamp) => None,
                         Ok(SessionFile::Plain(_)) => Some(
-                            "its session.json changed without this journal since (a run with store.journal off, an older build, or another journal)",
+                            "its session.json changed without this journal since (an older build, or another journal)",
                         ),
                         Err(_) => Some("its session.json does not read"),
                     }

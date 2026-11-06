@@ -506,6 +506,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         )
         layout.rowSpacing = m.rowSpacing
         (layout.pinnedChatsY, layout.earlierChatsY) = (chats.pinnedY, chats.earlierY)
+        SidebarPerfCounters.add(.layoutRows, rows.count)
         return layout
     }
 }

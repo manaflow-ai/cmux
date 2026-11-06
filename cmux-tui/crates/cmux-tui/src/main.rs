@@ -109,8 +109,20 @@ mod remote_runtime;
 mod session;
 mod sidebar_files;
 mod sidebar_projection;
-#[cfg_attr(not(unix), allow(dead_code))]
+#[cfg(unix)]
 mod staged_update;
+// The staged swap probes builds through cmux-remote, a unix-only dependency:
+// elsewhere nothing is ever staged and no notice waits.
+#[cfg(not(unix))]
+mod staged_update {
+    pub(crate) fn promote_own_binary() -> Option<std::path::PathBuf> {
+        None
+    }
+
+    pub(crate) fn startup_notice() -> Option<&'static str> {
+        None
+    }
+}
 mod startup_env;
 #[cfg(all(test, unix))]
 mod test_exec;

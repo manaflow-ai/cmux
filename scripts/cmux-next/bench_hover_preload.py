@@ -16,7 +16,10 @@ per main-actor turn paced by the clock (not one socket round trip, a display fra
               and how many moves left their row hovered. Only rows the pointer really hovers are swept
               (each is checked once first); the sweep is reported invalid when the swept pages did not
               all freeze or hibernate first. --profile DIR records a Time Profiler trace over the sweep
-              and prints the app's heaviest main-thread frames (PERF-HOVER-PROFILE).
+              and prints the app's heaviest main-thread frames (PERF-HOVER-PROFILE). --stalls MS launches the
+              app with its main-thread watchdog at MS (CMUX_NEXT_HANG_THRESHOLD_MS) and prints the stack sampled
+              in each main-thread turn over MS during the sweep, the app's own frames named by atos
+              (PERF-HOVER-STALL), and the frames most stalls share (PERF-HOVER-STALLS): no Instruments needed.
   (b) click   one workspace with --panes browser panes, hibernated by the timeout. --trials times
               each: "cold" (select it from another workspace, no hover) and "dwell" (the pointer
               rests --dwell-ms on its row, then select). Time to content: from the select until
@@ -29,7 +32,7 @@ per main-actor turn paced by the clock (not one socket round trip, a display fra
 
 Usage (a fleet mini, never a laptop; DEV or bench build):
   bench_hover_preload.py --app BUNDLE [--engine webkit|chromium] [--workspaces 40] [--crossings 200]
-      [--hz 120] [--panes 2] [--trials 5] [--dwell-ms 150] [--out FILE.json] [--profile DIR]
+      [--hz 120] [--panes 2] [--trials 5] [--dwell-ms 150] [--out FILE.json] [--profile DIR] [--stalls MS]
 Prints PERF-HOVER lines.
 """
 from __future__ import annotations
@@ -357,6 +360,67 @@ def main_thread_frames(table: str, pid: int, top: int = 30) -> dict:
             "inclusive": [[round(ns / 1e6, 1), name[:160]] for name, ns in inclusive.most_common(top * 2)]}
 
 
+class Atos:
+    """Names a stall frame the app could not (`symbol` null: a stripped or local function) from its image in the
+    bundle and its offset from the image header, with atos: one call per image per stall set."""
+
+    LOAD = 0x100000000  # any load address: atos takes the slide from it
+
+    def __init__(self, bundle: str):
+        self.images: dict[str, str] = {}
+        for root, _, files in os.walk(os.path.join(bundle, "Contents")):
+            for name in files:
+                self.images.setdefault(name, os.path.join(root, name))
+
+    def names(self, wanted: dict[str, set[int]]) -> dict[tuple[str, int], str]:
+        found = {}
+        for image, offsets in wanted.items():
+            path, ordered = self.images.get(image), sorted(offsets)
+            if not path or not ordered:
+                continue
+            try:
+                out = subprocess.run(["xcrun", "atos", "-o", path, "-l", hex(self.LOAD)] + [hex(self.LOAD + o) for o in ordered],
+                                     capture_output=True, text=True, timeout=120).stdout.splitlines()
+            except (OSError, subprocess.SubprocessError):
+                continue
+            for offset, line in zip(ordered, out):
+                if line and not line.startswith("0x"):
+                    found[(image, offset)] = line.strip()
+        return found
+
+
+def stall_frames(bench: Bench, bundle: str, report: dict, top: int = 40):
+    """The main-thread turns over --stalls ms during the sweep (debug.hangs): each one's duration, CPU and stack
+    (sampled mid-turn), app frames named by atos, then each frame name with the number of stalls it is in."""
+    hangs = bench.rpc("debug.hangs", {"limit": 128}, timeout=60)
+    records = [r for r in hangs.get("records") or [] if r.get("kind") == "stall"]
+    wanted: dict[str, set[int]] = collections.defaultdict(set)
+    for record in records:
+        for index, detail in enumerate(record.get("frame_details") or []):
+            if detail.get("symbol") is None and detail.get("image") and detail.get("image_offset") is not None:
+                wanted[detail["image"]].add(int(detail["image_offset"]) - (1 if index else 0))
+    named = Atos(bundle).names(wanted)
+    shared: collections.Counter = collections.Counter()
+    stalls = []
+    for record in records:
+        names = []
+        for index, (text, detail) in enumerate(zip(record.get("frames") or [], record.get("frame_details") or [])):
+            key = (detail.get("image"), int(detail.get("image_offset") or 0) - (1 if index else 0))
+            names.append(named.get(key, text) if detail.get("symbol") is None else text)
+        stalls.append({"ms": record.get("duration_ms"), "cpu_ms": record.get("cpu_ms"), "frames": names})
+        shared.update(set(names))
+        print(f"PERF-HOVER-STALL ms={record.get('duration_ms', 0):.1f} cpu_ms={record.get('cpu_ms', 0):.1f} frames={len(names)}",
+              flush=True)
+        for name in names[:48]:
+            print(f"PERF-HOVER-STALL   {name[:200]}", flush=True)
+    report["sweep_stalls"] = {"threshold_ms": hangs.get("threshold_ms"), "count": len(stalls), "stalls": stalls,
+                              "shared": shared.most_common(top)}
+    print(f"PERF-HOVER-STALLS threshold_ms={hangs.get('threshold_ms')} count={len(stalls)} "
+          f"installed={hangs.get('installed')}", flush=True)
+    for name, count in shared.most_common(top):
+        print(f"PERF-HOVER-STALLS {count:3d}/{len(stalls)}  {name[:200]}", flush=True)
+
+
 def sweep(bench: Bench, args, report: dict, rows: list[str]):
     if len(rows) < 2:
         report["sweep"] = {"error": f"rows={len(rows)}"}
@@ -375,6 +439,8 @@ def sweep(bench: Bench, args, report: dict, rows: list[str]):
             profile = Profile(bench.pid, args.profile, args.label)
         except Exception as error:  # a profile that cannot start never costs the arm its sweep
             report["sweep_profile"] = {"error": repr(error)}
+    if args.stalls:
+        bench.rpc("debug.hangs", {"clear": True, "limit": 0})
     bench.rpc("debug.frames", {"action": "start"})
     moved = bench.rpc("debug.pointer_sweep", {"path": path, "hz": args.hz}, timeout=90)
     time.sleep(0.5)  # test script: past the dwell, so a pending intent would have fired
@@ -391,6 +457,8 @@ def sweep(bench: Bench, args, report: dict, rows: list[str]):
         for kind in ("self", "inclusive"):
             for ms, name in frames_of_profile.get(kind) or []:
                 print(f"PERF-HOVER-PROFILE {kind} {ms:8.1f} ms  {name}", flush=True)
+    if args.stalls:
+        stall_frames(bench, args.app, report)
     main_ms = [float(v) for v in frames.get("main_ms") or []]
     move_ms = [float(v) for v in moved.get("move_ms") or []]
     after = bench.hibernation()
@@ -525,10 +593,14 @@ def main():
     parser.add_argument("--profile")
     # Refresh rate of a virtual main display made before the launch (a 60 Hz mini measures at 120 Hz); 0: the host's own.
     parser.add_argument("--vdisplay", type=float, default=0)
+    # Milliseconds (4 or more): sample the main thread's stack in every turn over this during the sweep (debug.hangs).
+    parser.add_argument("--stalls", type=float, default=0)
+    # browser.wakeTabsOnHover (hover preload, off by default in the app): 1 turns it on for this launch, 0 leaves it off.
+    parser.add_argument("--wake-on-hover", type=int, default=1, choices=[0, 1])
     args = parser.parse_args()
     phases = set(args.phases.split(","))
     # Hidden pages discard after 0.5 min (a timeout written, so the hover may restore them) and freeze after 5 s.
-    config = {"browser": {"hibernation": 0.5, "freezeHiddenTabs": 5}}
+    config = {"browser": {"hibernation": 0.5, "freezeHiddenTabs": 5, "wakeTabsOnHover": bool(args.wake_on_hover)}}
     bundle = os.path.realpath(args.app)
     signal.signal(signal.SIGTERM, bm.interrupted)
     bp.wipe_state(bundle)
@@ -536,7 +608,7 @@ def main():
     if args.vdisplay:
         vdisplay, ready = start_vdisplay(args.vdisplay, tempfile.mkdtemp(prefix="hover-vdisplay-"))
         print(f"PERF-HOVER-VDISPLAY hz={args.vdisplay} {ready}", flush=True)
-    pid, sock, scratch = bm.launch(bundle, config)
+    pid, sock, scratch = bm.launch(bundle, config, {"CMUX_NEXT_HANG_THRESHOLD_MS": str(int(args.stalls))} if args.stalls else None)
     app = bm.App(bundle, sock)
     bench = Bench(sock, app, pid)
     sites = Sites(args.engine)

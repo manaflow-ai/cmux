@@ -824,7 +824,7 @@ fn parse_command(
             ["server", action, ..]
                 if matches!(
                     *action,
-                    "start" | "ensure" | "status" | "stats" | "stop" | "reload-config"
+                    "start" | "ensure" | "status" | "stats" | "stop" | "restart" | "reload-config"
                 ) =>
             {
                 Some(format!("server {action}"))
@@ -1195,6 +1195,7 @@ fn scope_help_for(
         "server status" => Cow::Borrowed(catalog.local_server.status_help),
         "server stats" => Cow::Borrowed(catalog.local_server.stats_help),
         "server stop" => Cow::Borrowed(catalog.local_server.stop_help),
+        "server restart" => Cow::Borrowed(catalog.local_server.restart_help),
         "server reload-config" => Cow::Borrowed(catalog.local_server.reload_config_help),
         "machine" => Cow::Owned(format!("{MACHINE_HELP}\n{}", surface::MACHINE_VM_HELP)),
         "session" => Cow::Owned(session_help(&catalog.session_reset, &catalog.local_server)),
