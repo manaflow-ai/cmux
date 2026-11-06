@@ -420,9 +420,9 @@ async fn a_chief_turn_gets_cmux_and_folded_acpmux_tools() {
     );
     let tools = d.dir.join("tools");
     std::fs::create_dir_all(&tools).unwrap();
-    for name in ["cmux"] {
+    {
         use std::os::unix::fs::PermissionsExt;
-        let path = tools.join(name);
+        let path = tools.join("cmux");
         std::fs::write(&path, "#!/bin/sh\nexit 0\n").unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
