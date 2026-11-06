@@ -135,6 +135,14 @@ fn fits_measures_the_new_session_against_the_enter_lines() {
 fn an_unknown_input_field_is_an_error() {
     let typo = json!({"host": "h", "load_1": 3.0});
     assert!(serde_json::from_value::<ShadowInputs>(typo).is_err());
+    let misspelled = json!({"host": "h", "mem_pressure": "critcal"});
+    assert!(serde_json::from_value::<ShadowInputs>(misspelled).is_err());
+    for level in MEM_PRESSURE_LEVELS {
+        let ok = json!({"host": "h", "mem_pressure": level});
+        assert!(serde_json::from_value::<ShadowInputs>(ok).is_ok(), "{level}");
+    }
+    let null = json!({"host": "h", "mem_pressure": null});
+    assert_eq!(serde_json::from_value::<ShadowInputs>(null).map(|i| i.mem_pressure).ok(), Some(None));
     let partial = json!({"host": "h", "previous": {"cpu": {"state": "saturated"}}});
     let inputs: ShadowInputs = serde_json::from_value(partial).expect("partial state parses");
     assert_eq!(inputs.previous.map(|p| p.cpu.state), Some(SignalState::Saturated));

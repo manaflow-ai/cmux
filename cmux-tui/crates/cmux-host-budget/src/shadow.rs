@@ -68,6 +68,19 @@ const LEAVE_CALM_SAMPLES: u32 = 3;
 /// a per-harness prior: one core and 1 GiB.
 pub const NEW_SESSION_PRIOR: SessionCost = SessionCost { cpu_cores: 1.0, rss_bytes: 1 << 30 };
 
+/// The memory pressure levels a reading may name.
+const MEM_PRESSURE_LEVELS: [&str; 4] = ["normal", "warn", "critical", "unknown"];
+
+fn known_pressure<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+    let value = Option::<String>::deserialize(d)?;
+    match value {
+        Some(p) if !MEM_PRESSURE_LEVELS.contains(&p.as_str()) => Err(serde::de::Error::custom(
+            format!("mem_pressure {p:?} is not one of {}", MEM_PRESSURE_LEVELS.join(", ")),
+        )),
+        value => Ok(value),
+    }
+}
+
 /// One host's readings, as `acpmux machine verdict` reads them on stdin. Every
 /// field may be left out; an unknown field is an error, so a caller's typo
 /// fails loudly instead of judging a host with a reading missing.
@@ -86,7 +99,9 @@ pub struct ShadowInputs {
     pub load1: Option<f64>,
     /// Linux `/proc/pressure/cpu` `some avg10`.
     pub psi_cpu_some_avg10: Option<f64>,
-    /// `normal`, `warn`, `critical` or `unknown`.
+    /// `normal`, `warn`, `critical` or `unknown`; any other value is an error,
+    /// so a misspelled `critical` never reads as a milder pressure.
+    #[serde(deserialize_with = "known_pressure")]
     pub mem_pressure: Option<String>,
     /// Free plus compressible memory as a fraction of the total (Linux MemAvailable).
     pub available_fraction: Option<f64>,
