@@ -4,7 +4,8 @@ import CmuxNextAgentPane
 import CmuxNextFeedClient
 
 /// The Feed page's native UI ops (plans/cmux-next/feed-page.md 2), run through
-/// `cmux.app.action.run`: `feed.openItem {item}` opens what an item points at, and
+/// `cmux.app.action.run`: `feed.openItem {item}` opens what an item points at (without an item,
+/// the Inbox), and
 /// `feed.githubAction {item, action, comment?}` opens a GitHub item, starts an agent on it or
 /// types its `gh` command into a new terminal. Both read the item from the daemon by id
 /// (`feed.item.get`), never from the caller, and only open user-requested tabs.
@@ -12,7 +13,12 @@ import CmuxNextFeedClient
 enum FeedGitHubActions {
     static func bind(into registry: ActionRegistry, services: AppServices) {
         registry.bindEffect("feed.openItem", effect: { [weak services] invocation in
-            guard let services, let id = invocation["item"]?.stringValue else { return .done }
+            guard let services else { return .done }
+            // Without an item (Needs you's "N more"): the Inbox.
+            guard let id = invocation["item"]?.stringValue, !id.isEmpty else {
+                try? services.feedPage.open(focus: invocation.allowsViewChange)
+                return .done
+            }
             let feed = services.feed
             // action-wait-allow: the item's context lives in the daemon's feed client; nothing shows before it is read.
             return .waiting(.daemonEcho) { [weak services] in

@@ -162,13 +162,13 @@ export const PAGES = {
     out: "webviews/src/pages/history/generated/strings.json",
     catalogs: [{ file: `${sources}/CmuxNextHistory/Resources/Localizable.xcstrings` }],
   },
-  // The Feed page (plans/cmux-next/feed-page.md) shares the Feed's table with the Swift module it
-  // replaces (the same keys and English values); it moves next to the page when that module is
-  // deleted (F3). The refusal toast's close button is the toast component's own `toast.dismiss`.
+  // The Feed page (plans/cmux-next/feed-page.md): its table moved next to it when the Swift Feed
+  // module was deleted (the same keys and values). The refusal toast's close button is the toast
+  // component's own `toast.dismiss`.
   feed: {
     out: "webviews/src/pages/feed/generated/strings.json",
     catalogs: [
-      { file: `${sources}/CmuxNextFeed/Resources/Localizable.xcstrings` },
+      { file: "webviews/src/pages/feed/Localizable.xcstrings" },
       { file: `${sources}/CmuxNextDesign/Resources/Localizable.xcstrings`, keys: () => ["toast.dismiss"] },
     ],
   },

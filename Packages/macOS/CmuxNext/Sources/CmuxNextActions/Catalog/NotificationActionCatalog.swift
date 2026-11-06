@@ -11,12 +11,13 @@ nonisolated enum NotificationActionCatalog: ActionCatalogGroup {
                 cliName: "feed show", mainMenu: .window
             ),
             // The Feed page's native UI ops (feed-page.md 2): the page passes an item id; the item
-            // itself is read from the daemon's feed client, never taken from the caller.
+            // itself is read from the daemon's feed client, never taken from the caller. Open Feed
+            // Item without an item opens the Inbox.
             ActionDescriptor(
                 id: "feed.openItem",
                 title: String(localized: "action.feed.openItem", defaultValue: "Open Feed Item", table: "ActionCatalog", bundle: .module),
                 keywords: ["feed", "inbox", "open", "item"], category: .notifications, symbol: "arrow.up.forward.square", surfaces: [.keyboard],
-                arguments: [ActionArgument(name: "item", title: String(localized: "argument.feed.item", defaultValue: "Feed Item", table: "ActionCatalog", bundle: .module), kind: .string)],
+                arguments: [ActionArgument(name: "item", title: String(localized: "argument.feed.item", defaultValue: "Feed Item", table: "ActionCatalog", bundle: .module), kind: .string, isRequired: false)],
                 surfacePlan: ActionSurfacePlan(palette: .exempt(.liveInput), cli: .exempt(.liveInput), contextMenuExemption: .noTargetSurface)
             ),
             ActionDescriptor(

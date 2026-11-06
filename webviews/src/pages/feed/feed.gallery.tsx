@@ -72,6 +72,7 @@ export default componentEntry<Props>({
   height: 720,
   widths: { narrow: 360, normal: 760, wide: 1100 },
   covers: [
+    "page:cmux.feed",
     "pages/feed/FeedPage.tsx",
     "pages/feed/InboxView.tsx",
     "pages/feed/ListView.tsx",
