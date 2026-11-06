@@ -1466,7 +1466,7 @@
     "tunable.motion.tooltip.warm": 0.5,
     "tunable.navigation.mouseSideButtons": true,
     "tunable.newTab.layout": "b",
-    "tunable.newTab.picksFollowLinks": false,
+    "tunable.newTab.picksFollowLinks": true,
     "tunable.newTab.privateChatLists": false,
     "tunable.newTab.widgets": false,
     "tunable.notifications.attention.look": "subtle",
