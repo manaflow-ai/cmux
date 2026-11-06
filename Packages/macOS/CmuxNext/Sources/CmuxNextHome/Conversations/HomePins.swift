@@ -54,8 +54,9 @@ public struct HomePins: Hashable, Sendable, Codable {
         return (pinnedRows, rest)
     }
 
-    /// Pins `row` (at the end of the user's order) or unpins it.
+    /// Pins `row` (at the end of the user's order) or unpins it. A row already pinned keeps its place.
     public mutating func setPinned(_ on: Bool, _ row: InboxRow) {
+        if on, isPinned(row) { return }
         pinned.removeAll { $0 == row.id }
         unpinned.remove(row.id)
         positions.removeValue(forKey: row.id.rawValue)
