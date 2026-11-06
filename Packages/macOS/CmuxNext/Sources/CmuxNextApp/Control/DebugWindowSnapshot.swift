@@ -41,13 +41,11 @@ import CmuxNextScreenshots
 /// Screen Recording grant. `webviews: false` skips the page images (the
 /// window server's image alone).
 ///
-/// A refusal (`RefusalHUD`) shows as a toast that fades in and ends after
-/// 4 s (later while the pointer is on it), so its pixels are not a reliable
-/// assertion: a capture may land before the fade or after it ends. Every
-/// reply therefore carries `refusal_hud`: the message the refusal toast
-/// shows now (null when none) and `refusal_hud_count`, the messages shown so
-/// far. Check those (or `debug.toast`) instead of looking for the toast in
-/// the PNG.
+/// A refusal (`RefusalHUD`) shows as a toast that fades in and ends after 4 s (later while the
+/// pointer is on it), so its pixels are not a reliable assertion: a capture may land before the
+/// fade or after it ends. Every reply therefore carries `refusal_hud`: the message the refusal
+/// toast shows now (null when none) and `refusal_hud_count`, the messages shown so far. Check
+/// those (or `debug.toast`) instead of looking for the toast in the PNG.
 enum DebugWindowSnapshot {
     /// How long `debug.window_snapshot` may take, instead of the 2 s control-plane deadline. The
     /// capture runs on the main actor and takes about 50 ms once it runs, but on a capture mini
