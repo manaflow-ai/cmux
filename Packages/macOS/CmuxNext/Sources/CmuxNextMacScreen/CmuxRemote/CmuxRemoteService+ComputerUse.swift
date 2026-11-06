@@ -61,17 +61,21 @@ public final class CmuxRemoteComputerUseState {
 
 /// Whether the policy goes to the daemon again: unless this same connection already took this
 /// same policy. A new connection (a daemon that was not ready, restarted or reconnected) or a
-/// refused send sends it again, since cmux Remote's worker waits for it before it starts.
+/// refused send sends it again, since cmux Remote's worker waits for it before it starts. The
+/// connection is held weakly and compared by identity: a freed connection never matches a new
+/// one, even when the new one is allocated at the same address.
 struct ComputerUsePolicyResend {
-    private var taken: (policy: CmuxRemoteComputerUsePolicy, connection: ObjectIdentifier)?
+    private var policy: CmuxRemoteComputerUsePolicy?
+    private weak var connection: AnyObject?
 
-    func shouldSend(_ policy: CmuxRemoteComputerUsePolicy, connection: ObjectIdentifier) -> Bool {
-        guard let taken else { return true }
-        return taken.policy != policy || taken.connection != connection
+    func shouldSend(_ next: CmuxRemoteComputerUsePolicy, connection current: AnyObject) -> Bool {
+        guard let policy, let connection else { return true }
+        return policy != next || connection !== current
     }
 
-    mutating func record(_ policy: CmuxRemoteComputerUsePolicy, connection: ObjectIdentifier, taken ok: Bool) {
-        taken = ok ? (policy, connection) : nil
+    mutating func record(_ next: CmuxRemoteComputerUsePolicy, connection current: AnyObject, taken: Bool) {
+        policy = taken ? next : nil
+        connection = taken ? current : nil
     }
 }
 
@@ -138,7 +142,7 @@ extension CmuxRemoteService {
             var resend = ComputerUsePolicyResend()
             for await wake in ObservationStream({ ComputerUsePolicyWake(policy: policy()) }) {
                 guard let self, let next = wake.policy else { continue }
-                let connection = await waitAvailable() ? currentConnectionID : nil
+                let connection = await waitAvailable() ? currentConnectionObject : nil
                 guard let connection, resend.shouldSend(next, connection: connection) else { continue }
                 resend.record(next, connection: connection, taken: await applyComputerUse(next))
             }

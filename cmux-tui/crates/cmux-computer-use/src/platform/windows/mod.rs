@@ -114,10 +114,11 @@ impl Desktop for WindowsDesktop {
         Ok(win::top_level_windows(&self.names)?.into_iter().map(|w| w.window).collect())
     }
 
-    /// One window's own pixels (ScreenCaptureKit's window filter / PrintWindow), never a
-    /// window drawn over it.
+    /// Not isolated: when PrintWindow returns nothing the capture falls back to a copy of the
+    /// screen, which can hold a small denied window drawn over the target (the five-point
+    /// "nothing covers it" check can miss one). So overlapping denied windows stay painted out.
     fn window_capture_isolated(&self) -> bool {
-        true
+        false
     }
 
     fn capture(&self, target: &CaptureTarget) -> DResult<RawFrame> {

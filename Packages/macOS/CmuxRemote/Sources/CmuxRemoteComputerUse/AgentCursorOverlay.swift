@@ -28,9 +28,14 @@ final class AgentCursorOverlay {
     }
     private var cursors: [String: SessionCursor] = [:]
     private let reduceMotion: () -> Bool
+    /// Never shown: it makes this process own a window from the start, so a display capture that
+    /// leaves out this process's windows (`ScreenCapture`) finds the process even before the first
+    /// cursor panel exists and also leaves out a panel that appears during the capture.
+    private let anchor = AgentCursorOverlay.makePanel(root: CALayer())
 
     init(reduceMotion: @escaping () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }) {
         self.reduceMotion = reduceMotion
+        anchor.orderOut(nil)
     }
 
     private var animates: Bool { motion.animates(reduceMotion: reduceMotion()) }

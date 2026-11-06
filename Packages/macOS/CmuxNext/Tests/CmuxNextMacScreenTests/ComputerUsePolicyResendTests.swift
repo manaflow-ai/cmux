@@ -19,23 +19,33 @@ import Testing
         let first = Connection(), second = Connection()
         var resend = ComputerUsePolicyResend()
         let full = Self.policy("fullAccess")
-        #expect(resend.shouldSend(full, connection: ObjectIdentifier(first)))
-        resend.record(full, connection: ObjectIdentifier(first), taken: true)
+        #expect(resend.shouldSend(full, connection: first))
+        resend.record(full, connection: first, taken: true)
         // The same connection already has it.
-        #expect(!resend.shouldSend(full, connection: ObjectIdentifier(first)))
+        #expect(!resend.shouldSend(full, connection: first))
         // The daemon restarted: the unchanged policy goes again.
-        #expect(resend.shouldSend(full, connection: ObjectIdentifier(second)))
-        withExtendedLifetime((first, second)) {}
+        #expect(resend.shouldSend(full, connection: second))
+    }
+
+    /// A reconnect frees the old connection, and the new one may get the same address; the
+    /// policy must still go to it (an address key would have skipped it).
+    @Test func aFreedConnectionNeverMatchesTheNextOne() {
+        var resend = ComputerUsePolicyResend()
+        let full = Self.policy("fullAccess")
+        do {
+            let gone = Connection()
+            resend.record(full, connection: gone, taken: true)
+        }
+        #expect(resend.shouldSend(full, connection: Connection()))
     }
 
     @Test func aRefusedSendIsTriedAgainAndAChangeAlwaysGoes() {
         let connection = Connection()
         var resend = ComputerUsePolicyResend()
         let full = Self.policy("fullAccess")
-        resend.record(full, connection: ObjectIdentifier(connection), taken: false)
-        #expect(resend.shouldSend(full, connection: ObjectIdentifier(connection)))
-        resend.record(full, connection: ObjectIdentifier(connection), taken: true)
-        #expect(resend.shouldSend(Self.policy("lookOnly"), connection: ObjectIdentifier(connection)))
-        withExtendedLifetime(connection) {}
+        resend.record(full, connection: connection, taken: false)
+        #expect(resend.shouldSend(full, connection: connection))
+        resend.record(full, connection: connection, taken: true)
+        #expect(resend.shouldSend(Self.policy("lookOnly"), connection: connection))
     }
 }

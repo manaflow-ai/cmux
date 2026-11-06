@@ -858,7 +858,7 @@ impl Engine {
         // Every on-screen window of a blocked app is painted out of a display
         // shot, and out of a window shot where it overlaps when the platform's
         // window capture is a composited crop (a covering denied window would
-        // show in it). An isolated window capture (macOS, Windows) holds only
+        // show in it). An isolated window capture (macOS) holds only
         // the target's pixels, so nothing in it is painted out. The windows
         // are read again after the capture and both lists count, so a denied
         // window that appeared or moved during it is painted out too; if the

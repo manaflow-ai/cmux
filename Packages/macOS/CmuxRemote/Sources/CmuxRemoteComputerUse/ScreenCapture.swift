@@ -63,7 +63,13 @@ struct ScreenCapture: Sendable {
 
     static func still(_ target: CaptureTarget) async -> Result<CapturedFrame, Failure> {
         do {
-            let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+            // Agents never see this process's windows (the agent cursor, the approval panel). The
+            // overlay creates them on the main queue in the order the engine asked (the cursor event
+            // comes before its capture), so main is drained first and every window it already
+            // queued exists; then all windows, not only on-screen ones, are read, so this process is
+            // in `applications` once it has made any window, even one that shows only later.
+            await MainActor.run {}
+            let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
             let own = content.applications.filter { $0.processID == getpid() }
             let filter: SCContentFilter
             let frame: CGRect
