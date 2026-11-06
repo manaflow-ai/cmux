@@ -455,7 +455,8 @@ pub(super) async fn apply_cloud_event<O: Overlay, S: ConnectInfoSource>(
 /// receiver policy read answers, and production reads took 5-19 s after the
 /// bind (start-matrix-production 42279589445, 2026-11-06): two 5 s tries
 /// ended the first dial before the machine could answer, and nothing dialed
-/// again. A paused machine is reported at once.
+/// again. A machine in any other state (paused, starting, failed...) is
+/// reported at once.
 const RUNNING_HANDSHAKE_WAIT: Duration = Duration::from_secs(45);
 /// The pause between those tries, so a connect that fails at once does not spin.
 const HANDSHAKE_RETRY_PAUSE: Duration = Duration::from_secs(1);
@@ -538,7 +539,7 @@ pub(super) async fn serve_cloud_dial<C, O, S>(
         // A running machine may still be reading its first receiver policy; a
         // peer setup that failed is not that, and is reported at once.
         if handshake
-            && !resolved.info.is_paused()
+            && resolved.info.state == "running"
             && began.elapsed() + HANDSHAKE_RETRY_PAUSE < RUNNING_HANDSHAKE_WAIT
         {
             tokio::time::sleep(HANDSHAKE_RETRY_PAUSE).await;

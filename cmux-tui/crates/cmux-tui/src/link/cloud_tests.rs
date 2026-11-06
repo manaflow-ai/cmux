@@ -353,6 +353,22 @@ async fn the_running_wait_bounds_every_try() {
     assert!(began.elapsed() <= RUNNING_HANDSHAKE_WAIT, "{:?}", began.elapsed());
 }
 
+/// Only a running record gets the wait: a starting, pausing or failed one is
+/// reported after the refetch, as before.
+#[tokio::test(start_paused = true)]
+async fn a_machine_that_is_not_running_is_reported_without_the_wait() {
+    for state in ["starting", "pausing", "failed", "deleting"] {
+        let overlay = CloudOverlay { fail: true, ..CloudOverlay::default() };
+        let resolver = CloudResolver::new(FakeSource::with(vec![
+            Ok(record(state, &["daemon"])),
+            Ok(record(state, &["daemon"])),
+        ]));
+        let (reply, _) = dial(&overlay, &resolver, HOST, "daemon").await;
+        assert!(reply.contains("\"error_code\":\"unreachable\""), "{state}: {reply}");
+        assert_eq!(overlay.connects.lock().unwrap().len(), 2, "{state}");
+    }
+}
+
 /// A tunnel peer setup that fails is not a machine still reading its policy:
 /// it is reported after the refetch, with no wait.
 #[tokio::test(start_paused = true)]
