@@ -362,11 +362,7 @@ export function FolderPopover({
           onCancel={close}
           onHighlight={(value, by) => {
             highlighted.current = value;
-            // A cleared highlight (the pointer left the rows, or a scrolled-away row unmounted) paints
-            // nothing, so it keeps the popup's class: a flip there restyles the whole glass popup on
-            // every row the scroll moves under the pointer (Leo, 2026-11-06: "when i scroll through
-            // this it flickers and the composer flickers").
-            if (value !== undefined) setHighlightAuto(by === "none");
+            setHighlightAuto(by === "none");
           }}
           // Tab completes a folder's path into the field, never an action's.
           onCommand={(event) => {

@@ -777,8 +777,7 @@ export function EnvironmentPicker({
           }}
           onHighlight={(highlighted, by) => {
             autoHighlighted.current = by === "none" ? highlighted : undefined;
-            // A cleared highlight paints nothing: it keeps the popup's class (FolderPopover).
-            if (highlighted !== undefined) setHighlightAuto(by === "none");
+            setHighlightAuto(by === "none");
           }}
           label={searchable ? t("composer.environmentSearch") : label}
           {...(searchable ? { placeholder: t("composer.environmentSearch") } : {})}
