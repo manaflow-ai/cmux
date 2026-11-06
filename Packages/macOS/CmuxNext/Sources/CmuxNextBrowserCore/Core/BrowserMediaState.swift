@@ -158,12 +158,11 @@ public nonisolated enum BrowserPictureInPicture: String, Sendable {
     case unsupported
 }
 
-/// A page whose tab can be muted (cx-d0d.24): Mute Tab keeps the media of
-/// the page and its frames muted, across navigations, until Unmute. Pages
-/// built on the media scripts (WebKit and Chromium) adopt it. It sets the
-/// elements' `muted`, which the page sees. Not muted: Web Audio, media in
-/// shadow roots, Chromium's out-of-process frames, and a new document's
-/// first moments, until its report brings the mute back.
+/// A page whose tab can be muted (cx-d0d.24): Mute Tab keeps every sound of
+/// the page muted, across navigations, until Unmute, as Chrome's Mute site.
+/// The engine mutes the page (Chromium's `SetAudioMuted`, WebKit's page
+/// mute): media, Web Audio and every frame. The media scripts also set the
+/// elements' `muted`, which the page sees, so its own controls show the mute.
 @MainActor
 public protocol BrowserAudioMuting: AnyObject {
     func setAudioMuted(_ muted: Bool)
