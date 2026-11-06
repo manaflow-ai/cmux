@@ -10,7 +10,8 @@ use std::ffi::CString;
 #[allow(dead_code)]
 mod golden;
 
-fn take(bytes: CmuxDaemonLaunchBytes) -> Value {
+fn take(slot: &mut CmuxDaemonLaunchBytes) -> Value {
+    let bytes = std::mem::replace(slot, CmuxDaemonLaunchBytes { ptr: std::ptr::null_mut(), len: 0 });
     let value = if bytes.ptr.is_null() {
         Value::Null
     } else {
@@ -28,7 +29,7 @@ fn call(op: &str, request: &Value) -> Result<Value, i32> {
     let mut out = CmuxDaemonLaunchBytes { ptr: std::ptr::null_mut(), len: 0 };
     // SAFETY: valid pointers for the call.
     let code = unsafe { cmux_daemon_launch_call(op.as_ptr(), body.as_ptr(), body.len(), &mut out) };
-    if code == CMUX_DAEMON_LAUNCH_OK { Ok(take(out)) } else { Err(code) }
+    if code == CMUX_DAEMON_LAUNCH_OK { Ok(take(&mut out)) } else { Err(code) }
 }
 
 #[test]
@@ -54,7 +55,7 @@ fn c_abi_the_codes() {
     // SAFETY: an empty request is `{}`.
     let code = unsafe { cmux_daemon_launch_call(op.as_ptr(), std::ptr::null(), 0, &mut out) };
     assert_eq!(code, CMUX_DAEMON_LAUNCH_OK);
-    assert_eq!(take(out), serde_json::json!([["--help"], ["help", "start"]]));
+    assert_eq!(take(&mut out), serde_json::json!([["--help"], ["help", "start"]]));
 }
 
 #[test]
@@ -70,7 +71,7 @@ fn c_abi_a_watch_scenario_through_the_handle() {
             // SAFETY: a live handle and valid pointers.
             let code = unsafe { cmux_daemon_launch_watch_call(watch, op.as_ptr(), body.as_ptr(), body.len(), &mut out) };
             assert_eq!(code, CMUX_DAEMON_LAUNCH_OK);
-            assert_eq!(take(out), step["expect"], "{}", step["op"]);
+            assert_eq!(take(&mut out), step["expect"], "{}", step["op"]);
         }
     }
     // SAFETY: freed once.
@@ -87,18 +88,18 @@ fn c_abi_lines_and_the_login_capture() {
     let bytes = b"a\nb";
     // SAFETY: a live handle and valid pointers.
     assert_eq!(unsafe { cmux_daemon_launch_lines_push(lines, bytes.as_ptr(), bytes.len(), false, &mut out) }, 0);
-    assert_eq!(take(out), serde_json::json!(["a"]));
+    assert_eq!(take(&mut out), serde_json::json!(["a"]));
     // SAFETY: as above; the finish takes the rest.
     assert_eq!(unsafe { cmux_daemon_launch_lines_push(lines, std::ptr::null(), 0, true, &mut out) }, 0);
-    assert_eq!(take(out), serde_json::json!(["b"]));
+    assert_eq!(take(&mut out), serde_json::json!(["b"]));
     // SAFETY: freed once.
     unsafe { cmux_daemon_launch_lines_free(lines) };
 
     let output = b"x\n__CMUX_NEXT_LOGIN_ENV__\nPATH=/p\x00";
     // SAFETY: readable bytes, writable out.
     assert_eq!(unsafe { cmux_daemon_launch_login_env_accept(0, output.as_ptr(), output.len(), &mut out) }, 0);
-    assert_eq!(take(out), serde_json::json!({"PATH": "/p"}));
+    assert_eq!(take(&mut out), serde_json::json!({"PATH": "/p"}));
     // SAFETY: as above.
     assert_eq!(unsafe { cmux_daemon_launch_login_env_accept(1, output.as_ptr(), output.len(), &mut out) }, 0);
-    assert_eq!(take(out), Value::Null);
+    assert_eq!(take(&mut out), Value::Null);
 }
