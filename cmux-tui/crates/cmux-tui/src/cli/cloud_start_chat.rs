@@ -418,8 +418,9 @@ pub(super) fn again_command(request: &Request, machine: &Machine) -> String {
     if let Some(login) = &request.login {
         words.push(format!("--login {login}"));
     }
-    if let Some(prompt) = &request.prompt {
-        words.push(format!("--prompt {}", shell_quote(prompt)));
+    // The prompt may be private: the command names where it goes, not what it says.
+    if request.prompt.is_some() {
+        words.push("--prompt TEXT".to_owned());
     }
     if request.wait {
         words.push("--wait".to_owned());
@@ -596,13 +597,65 @@ fn out_of_time(request: &Request, machine: &Machine, answer: Value) -> Outcome {
     )
 }
 
+/// What [`steps`] got to, for the answer [`run`] gives when a step answered after the deadline.
+#[derive(Debug, Default)]
+struct Progress {
+    /// The machine id this run made, once it has one.
+    made: Option<String>,
+    /// The machine the command to ask again names, once the run has one.
+    machine: Option<Machine>,
+    /// The chat's machine id, session and answer so far, once a chat started.
+    chat: Option<(String, String, Value)>,
+    /// The prompt is on its way to the machine, or there: the relay was asked, or the send ran.
+    sending: bool,
+}
+
+impl Progress {
+    /// The deadline passed during a step: that phase's timeout, whatever the step answered. Before the prompt may
+    /// have reached the machine, `cloud.start_pending`; once it may have, `chat.wait_timeout` on the chat's session
+    /// or, with no session (the relay's answer never came back), `cloud.start_pending` that says it may be there.
+    fn late(&self, request: &Request) -> Outcome {
+        let machine = self.machine.clone().unwrap_or_else(|| request.machine.clone());
+        match (&self.chat, self.sending) {
+            (Some((machine_id, session, answer)), true) => {
+                wait_timeout(request, machine_id, session, answer.clone())
+            }
+            (None, true) => {
+                let again = again_command(request, &machine);
+                let id = if let Machine::Target(id) = &machine { id.as_str() } else { "ID" };
+                failed(
+                    OUT_OF_TIME,
+                    format!(
+                        "--timeout ({}s) ran out while the prompt was on its way, and it may have reached the \
+                         machine: see its sessions with: cmux cloud exec --target machine:{id} --command \
+                         '{GUEST_CMUX} acp ls', and only if it is not there run: {again}",
+                        request.timeout.as_secs()
+                    ),
+                    json!({"again": again, "machine_id": id, "sent": "unknown"}),
+                    75,
+                )
+            }
+            (chat, false) => {
+                out_of_time(request, &machine, chat.as_ref().map_or(Value::Null, |c| c.2.clone()))
+            }
+        }
+    }
+}
+
 /// Runs the steps (module docs) and answers the outcome. An answer on a machine this run made itself says
 /// `new_machine: true`: its own `cloud new-machine`, or a `start-session --name` of the fresh name no machine had. A
 /// caller (the start matrix) may delete that machine as its own; no other answer is proof of that.
+///
+/// A step that answered after the `--timeout` deadline ends the run as that phase's timeout ([`Progress::late`]),
+/// whatever it answered: one check here, after every step, instead of one after each call.
 pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
-    let mut made = None;
-    let mut outcome = steps(runner, request, &mut made);
-    if let (Some(id), Outcome::Done(answer)) = (made.as_deref(), &mut outcome)
+    let deadline = Deadline::of(request, runner.now());
+    let mut progress = Progress::default();
+    let mut outcome = steps(runner, request, deadline, &mut progress);
+    if deadline.passed(runner) {
+        return progress.late(request);
+    }
+    if let (Some(id), Outcome::Done(answer)) = (progress.made.as_deref(), &mut outcome)
         && at(answer, "machine_id").as_str() == Some(id)
     {
         answer.set("new_machine", json!(true));
@@ -610,12 +663,16 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     outcome
 }
 
-/// [`run`]'s steps; `made` is the machine id this run made, once it has one.
-fn steps(runner: &mut dyn Runner, request: &Request, made: &mut Option<String>) -> Outcome {
+/// [`run`]'s steps; `progress` is what they got to. `--timeout` is one deadline from the start: the list, a new
+/// machine, the start, the relay, the upload, the send and the wait each start only before it and get what is left
+/// of it, never a `--timeout` of their own.
+fn steps(
+    runner: &mut dyn Runner,
+    request: &Request,
+    deadline: Deadline,
+    progress: &mut Progress,
+) -> Outcome {
     let began = runner.now();
-    // `--timeout` is one deadline from here: the list, a new machine, the start, the relay, the upload, the send
-    // and the wait each get what is left of it, never a `--timeout` of their own.
-    let deadline = Deadline::of(request, began);
     // 1. Signed in, and the machine names in use.
     let listed = match step_result(&runner.cmux(&words(&["cloud", "list-machines", "--json"]))) {
         Ok(listed) => listed,
@@ -639,7 +696,8 @@ fn steps(runner: &mut dyn Runner, request: &Request, made: &mut Option<String>) 
     if let Some(environment) = &request.environment {
         match in_environment(runner, request, environment, &listed) {
             Ok(id) => {
-                *made = Some(id.clone());
+                progress.made = Some(id.clone());
+                progress.machine = Some(Machine::Target(id.clone()));
                 wanted = Machine::Target(id);
             }
             Err(outcome) => return outcome,
@@ -647,7 +705,7 @@ fn steps(runner: &mut dyn Runner, request: &Request, made: &mut Option<String>) 
     }
     // No prompt: nothing to relay, so the chat starts over the link alone.
     if request.wait && request.prompt.is_some() {
-        match relay_chat(runner, request, &wanted, &listed, deadline, made) {
+        match relay_chat(runner, request, &wanted, &listed, deadline, progress) {
             Relayed::Answered(outcome) => return outcome,
             Relayed::Fallback(Some(id)) => wanted = Machine::Target(id),
             Relayed::Fallback(None) => {}
@@ -676,6 +734,7 @@ fn steps(runner: &mut dyn Runner, request: &Request, made: &mut Option<String>) 
         }
         other => other.clone(),
     };
+    progress.machine = Some(machine.clone());
     // A turn to wait on and no time left for it: nothing starts, and a machine made so far
     // is there for the same ask again.
     if deadline.passed(runner) {
@@ -766,7 +825,7 @@ fn steps(runner: &mut dyn Runner, request: &Request, made: &mut Option<String>) 
         );
     };
     if fresh.is_some() && at(&started, "machine_name").as_str() == fresh.as_deref() {
-        *made = Some(machine_id.to_owned());
+        progress.made = Some(machine_id.to_owned());
     }
     let mut answer = json!({
         "machine_id": machine_id,
@@ -779,6 +838,8 @@ fn steps(runner: &mut dyn Runner, request: &Request, made: &mut Option<String>) 
         "agent": request.agent,
         "follow_up": follow_ups(machine_id, session),
     });
+    progress.machine = Some(Machine::Target(machine_id.to_owned()));
+    progress.chat = Some((machine_id.to_owned(), session.to_owned(), answer.clone()));
 
     let Some(prompt) = request.prompt.as_deref() else {
         // No prompt: the chat is ready once start-session returned; `--wait` has no turn to wait on.
@@ -832,6 +893,11 @@ fn steps(runner: &mut dyn Runner, request: &Request, made: &mut Option<String>) 
             sid = shell_quote(session),
         )
     };
+    // From here the prompt may reach the machine, whatever the exec answers.
+    progress.sending = true;
+    let mut sending = answer.clone();
+    sending.set("sent", json!(true));
+    progress.chat = Some((machine_id.to_owned(), session.to_owned(), sending));
     let sent = match exec(runner, machine_id, &send) {
         Ok(stdout) => stdout,
         Err(error) => {
@@ -983,7 +1049,7 @@ fn relay_chat(
     machine: &Machine,
     listed: &Value,
     deadline: Deadline,
-    made: &mut Option<String>,
+    progress: &mut Progress,
 ) -> Relayed {
     let Some(prompt) = request.prompt.as_deref().filter(|p| p.len() <= RELAY_PROMPT_BYTES) else {
         return Relayed::Fallback(None);
@@ -1006,7 +1072,8 @@ fn relay_chat(
         Machine::New if deadline.passed(runner) => return Relayed::Fallback(None),
         Machine::New => match new_machine(runner, request, listed, &[]) {
             Ok(id) => {
-                *made = Some(id.clone());
+                progress.made = Some(id.clone());
+                progress.machine = Some(Machine::Target(id.clone()));
                 id
             }
             Err(outcome) => return Relayed::Answered(outcome),
@@ -1028,11 +1095,17 @@ fn relay_chat(
     if deadline.bound(runner, RELAY_ANSWER_WINDOW) < RELAY_ANSWER_WINDOW {
         return Relayed::Fallback(Some(machine_id));
     }
+    // From here the prompt may reach the machine, until the relay says it did not.
+    progress.machine = Some(Machine::Target(machine_id.clone()));
+    progress.sending = true;
     let relayed = match step_result(&runner.cmux(&args)) {
         Ok(relayed) => relayed,
         Err(error) if signed_out(&error) => return Relayed::Answered(app_failure(error)),
         // An app without the action ran nothing.
-        Err(error) if lacks_action(&error) => return Relayed::Fallback(Some(machine_id)),
+        Err(error) if lacks_action(&error) => {
+            progress.sending = false;
+            return Relayed::Fallback(Some(machine_id));
+        }
         // Anything else (a broken connection, a late answer) may have reached the machine: sending it again could
         // run it twice, so say so instead.
         Err(error) => {
@@ -1058,6 +1131,7 @@ fn relay_chat(
     {
         let message =
             at(&relayed, "error_message").as_str().unwrap_or("the machine has no login").to_owned();
+        progress.sending = false;
         let exit = if code == "cloud.relay.login_pending" { 75 } else { 1 };
         return Relayed::Answered(failed(
             code,
@@ -1070,6 +1144,7 @@ fn relay_chat(
     // Certainly never on the machine (the relay refused it, no machine took it, an image without the relay): the
     // link path sends it.
     if at(&relayed, "delivered").as_bool() == Some(false) {
+        progress.sending = false;
         return Relayed::Fallback(Some(machine_id));
     }
     let error_code = at(&relayed, "error_code").as_str();
@@ -1109,10 +1184,7 @@ fn relay_chat(
         "follow_up": follow_ups(&machine_id, session),
         "sent": true,
     });
-    // The relay answered after the deadline: the turn is on the machine, and its answer is a timeout, not a reply.
-    if deadline.passed(runner) {
-        return Relayed::Answered(wait_timeout(request, &machine_id, session, answer));
-    }
+    progress.chat = Some((machine_id.clone(), session.to_owned(), answer.clone()));
     if at(&relayed, "ended").as_bool() != Some(true) {
         // Still running after the app's answer: the link path waits on the session (a new one, so no turn before).
         return Relayed::Answered(wait_turn(
