@@ -116,8 +116,9 @@ impl LinuxPlatform {
         let inotify = Inotify::new()?;
         let wd_run = inotify.watch_dir(&paths.at(RUN_DIR))?;
         let wd_etc = inotify.watch_dir(&paths.at(ETC_DIR))?;
-        // The Cloud role makes the state dir (0700) and writes carrier.json
-        // in it; a host without it has no Cloud role and no carrier.
+        // The Cloud role writes carrier.json at its bind, which can come
+        // after this start: make its dir (0700, as the role does) so the
+        // watch is there first.
         let wd_state = carrier_dir(paths).and_then(|dir| inotify.watch_dir(&dir).ok());
         let config_watch =
             match cfg.server_config.as_deref().map(|p| paths.at(&p.to_string_lossy())) {
@@ -801,10 +802,21 @@ pub(crate) fn carrier_route(
         .map(|file| file.route)
 }
 
-/// The directory of `carrier.json`, when it exists.
+/// The directory of `carrier.json`, made (0700) when missing; `None` when
+/// it cannot be.
 fn carrier_dir(paths: &crate::config::Paths) -> Option<PathBuf> {
+    use std::os::unix::fs::DirBuilderExt;
     let file = paths.at(crate::carrier_entry::CARRIER_FILE);
-    file.parent().filter(|dir| dir.is_dir()).map(std::path::Path::to_path_buf)
+    let dir = file.parent()?;
+    if !dir.is_dir() {
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(dir)
+            .map_err(|e| eprintln!("cmux-host: {}: {e}; no carrier.json watch", dir.display()))
+            .ok()?;
+    }
+    Some(dir.to_path_buf())
 }
 
 /// The host config's text: `None` when absent, an error when the file may
