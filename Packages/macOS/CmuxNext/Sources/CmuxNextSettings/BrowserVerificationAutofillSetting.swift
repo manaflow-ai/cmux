@@ -61,11 +61,6 @@ nonisolated enum BrowserVerificationAutofillSettingsSchema {
             ),
         ]
     }
-
-    /// The person decides whether cmux reads verification emails (privacy: agents never change it).
-    static var refusedKeys: [String: SettingsSchema.AgentRefusal] {
-        Dictionary(uniqueKeysWithValues: descriptors.map { ($0.id, .privacy) })
-    }
 }
 
 extension BrowserVerificationAutofillSetting {

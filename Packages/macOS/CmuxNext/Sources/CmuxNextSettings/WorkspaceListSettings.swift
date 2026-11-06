@@ -54,13 +54,6 @@ nonisolated extension CmuxConfigSnapshot {
 
 /// The three rows, in the General section's Sidebar group.
 nonisolated enum WorkspaceListSettingsSchema {
-    /// Agents may change all three: list shape and order choices, like `layout.newPanePlacement`, and
-    /// whether unnamed workspaces take their tab's name (a user's name always wins).
-    static var agentSettableKeys: Set<String> {
-        [CmuxConfigSnapshot.newWorkspacePlacementPath, CmuxConfigSnapshot.groupByComputerPath, CmuxConfigSnapshot.autoNameWorkspacesPath]
-            .reduce(into: []) { $0.insert($1.joined(separator: ".")) }
-    }
-
     static var descriptors: [SettingDescriptor] {
         let sidebar = SettingsText.keyed("settings.group.sidebar", "Sidebar")
         return [
