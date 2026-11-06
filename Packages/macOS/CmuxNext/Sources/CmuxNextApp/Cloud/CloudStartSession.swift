@@ -242,7 +242,7 @@ struct CloudStartSession {
         try still(name)
         try await passHarnessLogin(session, agent: agent, login: request.login) { try still(name) }
         if let refusal = session.harnessLogin?.refusal {
-            throw ActionFailure(message: CloudStartSessionStrings.loginRefused(loginRefusal(refusal), request.asked(machine: name)))
+            throw ActionFailure(message: CloudStartSessionStrings.loginRefused(Self.loginRefusal(refusal), request.asked(machine: name)))
         }
         guard let host = AgentTabStore.registryHost(of: session.daemon) else {
             throw ActionFailure(message: CloudStartSessionStrings.notConnected(name, id: id, agent: agent))
