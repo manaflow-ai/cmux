@@ -100,12 +100,12 @@ import Testing
         }
     }
 
-    @Test func theNameIsTheRowsSizeSemibold() {
+    @Test func theNameIsTheRowsSizeAndWeight() {
         for bar in [CGFloat(20), 26, 30] {
             let font = SidebarStyle.groupHeaderFont(barHeight: bar)
             #expect(font.pointSize == SidebarStyle.titleFont.pointSize)
             let weight = (font.fontDescriptor.object(forKey: .traits) as? [NSFontDescriptor.TraitKey: Any])?[.weight] as? CGFloat
-            #expect((weight ?? 0) >= NSFont.Weight.semibold.rawValue - 0.01)
+            #expect(abs((weight ?? 0) - NSFont.Weight.regular.rawValue) < 0.01)
         }
     }
 }
