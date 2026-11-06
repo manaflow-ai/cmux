@@ -436,6 +436,117 @@ class Selection(unittest.TestCase):
         self.assertEqual(off, expected)
 
 
+FADE = 16  # snap: the new row's fade, motion frames (about the .tabOpen spring's settling time at 120 Hz)
+
+
+def snap_film(rows=12, at=2, opacity=None, height=None, row_y=None, rows_move=False, new_from=1, tail=TAIL):
+    """A snap insert (sidebar.insertMotion snap, the default since #28205): the rows below are in their slots from the first
+    motion frame, and the new row shows at its slot at full height with its opacity rising from 0 to 1 over FADE frames.
+    OPACITY(i), HEIGHT(i) and ROW_Y(r, i) override the new row's opacity and height and a row's y; ROWS_MOVE puts the rows
+    below on the ease curve (the grow motion's rows) instead."""
+    frames = []
+    t0 = 1000.0
+    for f in range(STILL + MOTION + tail):
+        i = f - STILL
+        views = {}
+        for r in range(rows):
+            y = TOP + r * STEP
+            if r >= at and i >= 1:
+                y += (ease(i) if rows_move else 1.0) * STEP
+            if row_y is not None:
+                y = row_y(r, i, y)
+            views[key(r)] = [X, y, W, ROW_H, 1.0]
+        if i >= new_from:
+            alpha = opacity(i) if opacity else min(1.0, i / FADE)
+            views[NEW] = [X, TOP + at * STEP, W, height(i) if height else ROW_H, alpha]
+        frames.append({"t": t0 + f / FPS + 0.0004, "scroll": 0.0, "views": views})
+    return frames
+
+
+def judge_snap(frames, **hints):
+    opts = oracle.Options()
+    opts.motion = "snap"
+    return oracle.judge_film("synthetic-snap", frames, hints, opts)
+
+
+class SnapMotion(unittest.TestCase):
+    """--motion snap (INSTANT OWNER, the lead's ruling at STATUS 15439: snap stays the default sidebar.insertMotion; the m23
+    grow and shrink clauses apply to the grow value only). A snap insert: the rows below are in their slots from the first
+    frame (no slide), and the new row shows at its slot at full height from its first frame while its opacity rises to 1
+    with no step back. Removes take the same path under both values (removeFrame: the closing row closes to height 0 on the
+    rows' spring), so a remove is judged as in grow. Missed refreshes, rebuilt rows and flicker are judged in both modes."""
+
+    def test_a_correct_snap_insert_passes(self):
+        result = judge_snap(snap_film())
+        self.assertEqual(result["verdict"], "PASS", result["fails"])
+        motion, = result["motions"]
+        self.assertEqual((motion["kind"], motion["inserted"], motion["motion"]), ("insert", [NEW], "snap"))
+        self.assertLess(result["max_row_error_px"], 1e-6)
+        self.assertLess(result["max_height_error_px"], 1e-6)
+        self.assertEqual(result["missed_refreshes"], 0)
+
+    def test_the_grow_mode_fails_a_correct_snap_insert(self):
+        # grow (the default value of --motion): the new row must grow from 0, so a snap insert is a pop-in there
+        self.assertEqual(judge(snap_film())["verdict"], "FAIL")
+
+    def test_a_snap_row_at_partial_height_fails(self):
+        result = judge_snap(snap_film(height=lambda i: ROW_H if i >= 4 else ROW_H * i / 4))
+        self.assertEqual(result["verdict"], "FAIL", result["fails"])
+        self.assertEqual(result["motions"][0]["height_error_frames"], [FIRST, FIRST + 1, FIRST + 2])
+
+    def test_a_snap_insert_with_a_frame_gap_fails(self):
+        # the rows below take their slots one frame before the new row shows: a frame with a gap where the new row goes
+        result = judge_snap(snap_film(new_from=2))
+        self.assertEqual(result["verdict"], "FAIL", result["fails"])
+        self.assertEqual(result["motions"][0]["gap_frames"], [FIRST])
+
+    def test_a_snap_insert_whose_new_row_overlaps_fails(self):
+        # the new row shows one frame before the rows below make room: it covers the row below it
+        result = judge_snap(snap_film(row_y=lambda r, i, y: TOP + r * STEP if (r >= 2 and i == 1) else y))
+        self.assertEqual(result["verdict"], "FAIL", result["fails"])
+        self.assertEqual(result["motions"][0]["overlap_frames"], [FIRST])
+
+    def test_snap_rows_that_slide_fail(self):
+        # snap: no slide; rows below on a curve (the grow motion's rows, or a spring an earlier move left) fail
+        result = judge_snap(snap_film(rows_move=True))
+        self.assertEqual(result["verdict"], "FAIL", result["fails"])
+        self.assertTrue(any("not in their slots" in f for f in result["fails"]), result["fails"])
+
+    def test_a_snap_fade_that_steps_back_fails(self):
+        result = judge_snap(snap_film(opacity=lambda i: 0.6 if i == 5 else min(1.0, i / FADE)))
+        self.assertEqual(result["verdict"], "FAIL", result["fails"])
+        self.assertEqual(result["motions"][0]["fade_back_frames"], [FIRST + 5])
+
+    def test_a_snap_row_shown_fully_opaque_at_once_fails(self):
+        # no fade at all: the row pops in (the fade is the snap motion)
+        result = judge_snap(snap_film(opacity=lambda i: 1.0))
+        self.assertEqual(result["verdict"], "FAIL", result["fails"])
+        self.assertTrue(any("does not fade in" in f for f in result["fails"]), result["fails"])
+
+    def test_a_snap_insert_with_a_dropped_refresh_fails(self):
+        frames = snap_film()
+        del frames[STILL + 6]
+        result = judge_snap(frames)
+        self.assertEqual(result["verdict"], "FAIL", result["fails"])
+        self.assertEqual(result["missed_refreshes"], 1)
+
+    def test_a_remove_is_judged_as_in_grow(self):
+        self.assertEqual(judge_snap(film("remove"))["verdict"], "PASS")
+        late = film("remove", row_progress={9: lambda i: ease(i - 1)})
+        self.assertEqual(judge_snap(late)["verdict"], "FAIL")
+
+    def test_cli_motion_flag(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "motion.json")
+            with open(path, "w") as handle:
+                json.dump({"frames": snap_film()}, handle)
+            done = subprocess.run([sys.executable, "-I", str(ORACLE), path, "--motion", "snap"], capture_output=True, text=True, timeout=60)
+            self.assertEqual(done.returncode, 0, done.stdout[-600:] + done.stderr)
+            self.assertIn("motion snap", done.stdout.strip().splitlines()[-1])
+            grow = subprocess.run([sys.executable, "-I", str(ORACLE), path], capture_output=True, text=True, timeout=60)
+            self.assertEqual(grow.returncode, 1, grow.stdout[-600:] + grow.stderr)
+
+
 class Inputs(unittest.TestCase):
     def run_cli(self, *args):
         return subprocess.run([sys.executable, "-I", str(ORACLE), *args], capture_output=True, text=True, timeout=60)
