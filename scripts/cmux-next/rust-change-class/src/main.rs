@@ -164,12 +164,13 @@ fn plain(kind: &'static str, whole: String, attrs: &[syn::Attribute], in_test: b
 /// Inserts under KEY, or under "KEY #2", "KEY #3"... when items share a key (two `include!(...)`
 /// calls, two unnamed impl items), so no item hides another one's change.
 fn put(out: &mut BTreeMap<String, Entry>, key: String, entry: Entry) {
-    if !out.contains_key(&key) {
-        out.insert(key, entry);
-        return;
-    }
-    let n = (2..).find(|n| !out.contains_key(&format!("{key} #{n}"))).unwrap();
-    out.insert(format!("{key} #{n}"), entry);
+    let key = if out.contains_key(&key) {
+        let n = (2..).find(|n| !out.contains_key(&format!("{key} #{n}"))).unwrap();
+        format!("{key} #{n}")
+    } else {
+        key
+    };
+    out.insert(key, entry);
 }
 
 fn collect(items: &[syn::Item], prefix: &str, in_test: bool, out: &mut BTreeMap<String, Entry>) {
