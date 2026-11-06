@@ -7,7 +7,7 @@ import { WrittenArtifactButtons } from "./writtenArtifacts";
 // guide.
 import { useFindReveal } from "./chatFind";
 import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { foldMs } from "./fold";
+import { foldMs, markHeightFold } from "./fold";
 import { toolFiles } from "../diff";
 import type { AcpmuxActivity } from "../model";
 import { CommandRow } from "./CommandRow";
@@ -180,14 +180,26 @@ export function firstStepCount(viewHeight: number): number {
   return Math.max(1, Math.ceil(viewHeight / STEP_MIN_PX));
 }
 
+/// The height a step not drawn yet is given: the median distance between the drawn steps' tops, so
+/// the lead thought drawn in full, or a failure's or image's taller row, does not set it. Rows that
+/// differ from it are corrected as they draw (StepList).
+function stepSlot(steps: NodeListOf<HTMLElement>): number {
+  const tops = [...steps].map((step) => step.getBoundingClientRect().top);
+  const slots = tops.slice(1).map((top, index) => top - tops[index]!);
+  if (!slots.length) return steps[0]!.getBoundingClientRect().height;
+  slots.sort((a, b) => a - b);
+  return slots[Math.floor(slots.length / 2)]!;
+}
+
 /// An opened run's step rows. Opened by the reader's click, it draws only the rows the window can
-/// show (`firstStepCount`) in the click's frame, and a box under them as tall as the rest, measured
-/// from the drawn rows' pitch before the fold reads its height (a child's layout effect runs before
-/// its parent's), so the fold opens to the run's whole height in one motion. The rest draw once the
-/// fold is over, a window's worth per task, into that box: off screen while the fold plays, and
-/// where they were reserved after it. It stops when every row is drawn, the run closes (the list
+/// show (`firstStepCount`) in the click's frame, and a box under them for the rest (`stepSlot` each),
+/// set before the fold reads its height (a child's layout effect runs before its parent's), so the
+/// fold opens to the run's height in one motion. The rest draw once the fold is over, a window's
+/// worth per task, into that box: off screen while the fold plays. A row taller or shorter than its
+/// room moves only what is under it, and when that is what the reader sees (scrolled down past
+/// where it draws), the offset moves with it, so nothing in view moves. It stops when every row is drawn, the run closes (the list
 /// unmounts with its body) or it unmounts. Opened any other way (Find, a view switch, a run that
-/// opens itself), every row draws at once (Leo, 2026-11-06: "The tool call expansion, when it has
+/// opens itself), every row draws at once, and Find on a run still drawing draws the rest at once (Leo, 2026-11-06: "The tool call expansion, when it has
 /// several tool calls, I think sometimes it lags a bit").
 function StepList({
   id,
@@ -211,22 +223,44 @@ function StepList({
   // The rows per task; 0 draws every row at once.
   const [chunk] = useState(() => (defer && typeof window !== "undefined" ? firstStepCount(window.innerHeight) : 0));
   const [shown, setShown] = useState(() => chunk || Infinity);
+  // An open that is not the reader's click (Find) takes over: every row draws now, so its match is there.
+  if (!defer && shown !== Infinity) setShown(Infinity);
   const count = Math.min(shown, entries.length);
   const rest = entries.length - count;
   const list = useRef<HTMLDivElement>(null);
   const spacer = useRef<HTMLDivElement>(null);
-  // The box for the rows not drawn yet: their count at the drawn rows' pitch, set before paint.
+  /// What the last commit drew: where its drawn rows ended (from the list's top), the rows it held
+  /// back, and the height it reserved for each of them (set once, from the first rows drawn).
+  const drawn = useRef<{ end: number; rest: number; slot: number } | undefined>(undefined);
+  // Before paint: the box for the rows not drawn yet, and the view kept still as rows replace it.
   useLayoutEffect(() => {
-    const box = spacer.current;
-    const steps = list.current?.querySelectorAll<HTMLElement>(":scope > .cv-step");
-    const first = steps?.[0];
-    const last = steps?.[steps.length - 1];
-    if (!box || !steps || !first || !last) return;
-    const pitch =
-      steps.length > 1
-        ? (last.getBoundingClientRect().top - first.getBoundingClientRect().top) / (steps.length - 1)
-        : last.getBoundingClientRect().height;
-    box.style.height = `${Math.max(0, rest * pitch)}px`;
+    const node = list.current;
+    const before = drawn.current;
+    if (!node || (!before && rest <= 0)) return;
+    const steps = node.querySelectorAll<HTMLElement>(":scope > .cv-step");
+    const last = steps[steps.length - 1];
+    if (!last) return;
+    const top = node.getBoundingClientRect().top;
+    const end = last.getBoundingClientRect().bottom - top;
+    const slot = before?.slot ?? stepSlot(steps);
+    if (spacer.current) spacer.current.style.height = `${rest * slot}px`;
+    drawn.current = rest > 0 ? { end, rest, slot } : undefined;
+    if (!before) return;
+    // The run grew or shrank by how far the rows just drawn differ from the room they had, at the
+    // point where they start (`before.end`); everything under that point moved by `delta`.
+    const delta = end + rest * slot - (before.end + before.rest * slot);
+    if (Math.abs(delta) < 0.5) return;
+    // The rows under the run are placed before this frame paints (VirtualTranscript).
+    markHeightFold(node, 0);
+    const scroller = node.closest<HTMLElement>(".acpmux-scroll");
+    const row = node.closest<HTMLElement>(".acpmux-row");
+    if (!scroller || !row) return;
+    const view = scroller.getBoundingClientRect().top;
+    // Under the view's top, only what is under the new rows moves: the blank they fill, and whatever
+    // the run pushes down, which is off screen or was blank. Above it, all that is in view sat under
+    // the change: the offset moves with it, so nothing in view moves. When the run's row was wholly
+    // above the view, the transcript keeps the row at the view's top itself (scrollAnchor.ts).
+    if (top + before.end <= view && row.getBoundingClientRect().bottom - delta > view) scroller.scrollTop += delta;
   }, [rest]);
   // The rest, a window's worth per task, from the fold's end: one timer at a time, none once all show.
   useEffect(() => {
@@ -296,6 +330,8 @@ export function ToolGroupRow({
   // Whether the reader's click opened the run: only then do its rows past the window draw after the
   // fold (StepList). Find opens it with every row drawn, so its match is there to show.
   const [byClick, setByClick] = useState(false);
+  // Closed and gone, the next open is no click until the reader clicks it (a view switch, Find).
+  if (byClick && !fold.present) setByClick(false);
   useFindReveal(items, () => {
     setByClick(false);
     setOpen(true);
@@ -326,7 +362,7 @@ export function ToolGroupRow({
         aria-controls={open ? detailsId : undefined}
         ref={fold.headerRef}
         onClick={() => {
-          setByClick(!open);
+          if (!open) setByClick(true);
           fold.toggle();
         }}
       >
