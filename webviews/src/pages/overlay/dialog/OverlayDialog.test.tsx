@@ -186,3 +186,70 @@ test("shown again after a tab switch, the focus goes back to the first text fiel
   });
   expect(dom!.window.document.activeElement).toBe(field);
 });
+
+test("a host update keeps the secure text the person typed, which never goes out on an edit", async () => {
+  const login: DialogState = {
+    ...quit,
+    layout: "standard",
+    fields: [{ kind: "text", id: "password", label: "Password", secure: true }],
+    values: { password: "" },
+  };
+  const { host, presses, edits } = await render(login);
+  const field = host.querySelector('[data-field="password"]') as HTMLInputElement;
+  act(() => {
+    const setter = Object.getOwnPropertyDescriptor(dom!.window.HTMLInputElement.prototype, "value")!.set!;
+    setter.call(field, "hunter2");
+    field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  });
+  expect(edits.at(-1)).toEqual({});
+  // A key the host answered moves the focus: a new state, with the host's own (empty) values.
+  await act(async () => {
+    root!.render(
+      <OverlayDialog
+        dialog={{ ...login, values: { password: "" }, focus: { serial: 1, backward: false } }}
+        onPress={(button, values) => presses.push({ button, values })}
+        onEdit={(values) => edits.push(values)}
+        onLayout={() => {}}
+      />,
+    );
+  });
+  expect(field.value).toBe("hunter2");
+  act(() => (host.querySelector('[data-button="keep"]') as HTMLButtonElement).click());
+  expect(presses.at(-1)?.values).toEqual({ password: "hunter2" });
+});
+
+test("buttons that do not fit on one line stack, and stay on one line when they fit (#29984)", async () => {
+  installDom();
+  const proto = dom!.window.HTMLElement.prototype;
+  // jsdom lays nothing out: the row reports the width its buttons would need on one line.
+  let needed = 600;
+  Object.defineProperty(proto, "clientWidth", { configurable: true, get: () => 400 });
+  Object.defineProperty(proto, "scrollWidth", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return this.classList.contains("overlay-dialog-buttons") ? needed : 0;
+    },
+  });
+  const quitChoice: DialogState = {
+    ...quit,
+    layout: "standard",
+    fields: [],
+    values: {},
+    buttons: [
+      { id: "cancel", title: "Cancel", role: "cancel" },
+      { id: "end", title: "End Everything", role: "destructive" },
+      { id: "layout", title: "End Sessions, Keep Layout", role: "normal" },
+      { id: "keep", title: "Keep Sessions", role: "default" },
+    ],
+  };
+  const mount = async (dialog: DialogState) => {
+    root ??= createRoot(dom!.window.document.getElementById("root")!);
+    await act(async () => {
+      root!.render(<OverlayDialog dialog={dialog} onPress={() => {}} onEdit={() => {}} onLayout={() => {}} />);
+    });
+    return dom!.window.document.body.querySelector<HTMLElement>(".overlay-dialog-buttons")!;
+  };
+  expect((await mount(quitChoice)).dataset.stacked).not.toBeUndefined();
+  needed = 300;
+  expect((await mount({ ...quitChoice, buttons: quitChoice.buttons.slice(2) })).dataset.stacked).toBeUndefined();
+});

@@ -20,15 +20,20 @@ export function OverlayDialog({ dialog, onEdit, onPress, onLayout }: OverlayDial
   const card = useRef<HTMLDivElement | null>(null);
   // The card mounts in the dialog's portal, after this component's own commit: effects follow the node.
   const [cardNode, setCardNode] = useState<HTMLDivElement | null>(null);
-  // The values the person typed win over the host's until the host sends a new dialog or sets one.
-  const [values, setValues] = useState(dialog.values);
-  const [shownValues, setShownValues] = useState(dialog.values);
-  if (shownValues !== dialog.values) {
-    setShownValues(dialog.values);
-    setValues(dialog.values);
-  }
   // A secure field's text goes to the host only with the press, never on each key.
   const secure = new Set(dialog.fields.flatMap((field) => (field.kind === "text" && field.secure ? [field.id] : [])));
+  // The values the person typed win over the host's until the host sends a new dialog or sets one. The
+  // host never has a secure field's text, so its updates (a focus move, a set value) keep what was typed.
+  const [values, setValues] = useState(dialog.values);
+  const [hostValues, setHostValues] = useState({ id: dialog.id, values: dialog.values });
+  if (hostValues.values !== dialog.values || hostValues.id !== dialog.id) {
+    const typed = hostValues.id === dialog.id ? values : {};
+    setHostValues({ id: dialog.id, values: dialog.values });
+    setValues({
+      ...dialog.values,
+      ...Object.fromEntries(Object.entries(typed).filter(([key]) => secure.has(key))),
+    });
+  }
   const edit = (id: string, value: DialogValue) => {
     const next = { ...values, [id]: value };
     setValues(next);
@@ -56,11 +61,19 @@ export function OverlayDialog({ dialog, onEdit, onPress, onLayout }: OverlayDial
   useLayoutEffect(() => {
     const row = cardNode?.querySelector<HTMLElement>(".overlay-dialog-buttons");
     if (!row) return;
-    // Measured on one line, before the frame is drawn: the attribute is set back from the result.
-    delete row.dataset.stacked;
-    const overflows = row.scrollWidth > row.clientWidth + 0.5;
-    if (overflows) row.dataset.stacked = "";
-    setStacked(overflows);
+    // Measured on one line, before the frame is drawn: the attribute is set back from the result. Again
+    // when the card or the page resizes (the interface scale, a longer title), so the row fits as it shows.
+    const measure = () => {
+      delete row.dataset.stacked;
+      const overflows = row.scrollWidth > row.clientWidth + 0.5;
+      if (overflows) row.dataset.stacked = "";
+      setStacked(overflows);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(row);
+    observer.observe(document.documentElement);
+    return () => observer.disconnect();
   }, [cardNode, dialog.buttons]);
 
   // The first text field takes the keyboard, else the card itself: never a button the person did not

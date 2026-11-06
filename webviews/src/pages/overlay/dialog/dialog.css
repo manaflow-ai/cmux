@@ -127,7 +127,6 @@
   color: var(--ds-color-fg);
   font: inherit;
   white-space: nowrap;
-  cursor: pointer;
 }
 .overlay-dialog-button:hover {
   background: var(--ds-color-pressed);
