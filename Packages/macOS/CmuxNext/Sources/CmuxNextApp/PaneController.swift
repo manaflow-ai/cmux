@@ -473,7 +473,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         }
         // What shows changed (a frame after selection; a new page under the pane's one browser chrome counts): focus
         // applies again if this pane has it; a re-show of the same content reports nothing.
-        if workspace?.isParked == false, presentedReport.changes(tab: key, views: [content?.view, view.browserChrome.page(shown: content?.view), view.window], replacing: shownBefore) { services.mainWork.budget.presentationPending(); BenchSpans.measure("switch.focus") { workspace?.focus.send(.contentPresented(pane: paneKey)) } } // idle work waits until it is on screen
+        if workspace?.isParked == false, presentedReport.changes(tab: key, views: [content?.view, view.browserChrome.page(shown: content?.view), view.window], replacing: shownBefore) { BenchSpans.measure("switch.focus") { workspace?.focus.send(.contentPresented(pane: paneKey)) } }
         BenchSpans.measure("switch.invariant") { services.surfaceInvariant.noteChange() }
         BenchSpans.measure("switch.neighbors") { noteNeighbors() }
         windowController?.revalidatePagePresentation() // a page that had the screen was switched away
@@ -493,7 +493,6 @@ final class PaneController: SurfacePresenter, PresentablePane {
 
     private var launchFrames: TerminalLaunchFrames { .beside(services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()) }
     func showWhileWaiting() { // perf-hot: 1ms launch-first-frame (REOPEN-F1: a visible terminal waiting for its surface shows its last frame)
-        if presence == .visible, !isSuspended { services.mainWork.budget.presentationPending() } // new content queued: idle work waits until it shows
         guard presence == .visible, !isSuspended, !view.hostsContent, showsLiveTerminal, let key = stripModel.selectedID?.rawValue else { return }
         launchFrames.showAhead(key, in: view.contentHost)
     }
