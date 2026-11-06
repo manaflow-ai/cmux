@@ -62,9 +62,11 @@ function Viewer(props: {
   reconcile: () => void;
   generation?: number;
   failedGeneration?: number | null;
+  id?: number;
 }) {
   const stale = useDiffFreshness(props.read, props.generation ?? 0, () => true, props.refresh, undefined, {
     fingerprint: props.fingerprint,
+    id: props.id,
     reconcile: props.reconcile,
     failedGeneration: props.failedGeneration,
   });
@@ -173,6 +175,45 @@ test("a failed reconcile records its generation, and the reader's file that left
   state = reducer(state, { type: "reconcile" });
   state = reducer(state, { type: "replace-items", items: [item("a.ts"), item("c.ts")] });
   expect(state.activeItemId).toBe("a.ts");
+});
+
+test("a later precompute with the same fingerprint gets its own first comparison", async () => {
+  // Codex review of #36808 (follow-up F3): the one-check rule was keyed by the fingerprint alone, so a
+  // second precompute that hashed the same skipped its check and stayed shown after later edits.
+  let reconciled = 0;
+  const render = (id: number, generation: number) =>
+    act(async () =>
+      root.render(
+        <Viewer
+          key="same-hash"
+          id={id}
+          generation={generation}
+          read={async () => "edited"}
+          fingerprint="same"
+          refresh={() => {}}
+          reconcile={() => (reconciled += 1)}
+        />,
+      ),
+    );
+  await render(1, 0);
+  await settle();
+  expect(reconciled).toBe(1);
+  await render(2, 1);
+  await settle();
+  expect(reconciled).toBe(2);
+});
+
+test("another source ends a reconcile and forgets its failure", () => {
+  // Codex review of #36808 (follow-up F1): reset-diff kept `reconciling`, so the new source's render
+  // took the reconcile path.
+  const status = createDiffViewerStatus("", { loading: false });
+  let state = initialAppState({ payload: {} } as never, status);
+  state = reducer(state, { type: "reconcile" });
+  state = reducer(state, { type: "reset-diff", status });
+  expect(state.reconciling).toBe(false);
+  state = reducer(reducer(state, { type: "reconcile" }), { type: "end-reconcile" });
+  state = reducer(state, { type: "reset-diff", status });
+  expect(state.reconcileFailedGeneration).toBeNull();
 });
 
 test("a precomputed diff that is still current is kept as it is", async () => {
