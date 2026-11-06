@@ -20,6 +20,10 @@ const SEED_REFSPEC: &str = "+refs/cmux-seed/*:refs/cmux-seed-incoming/*";
 
 /// Refuses a folder that holds something other than this repository: a
 /// non-empty folder without `.git`, or a clone of another remote.
+/// The checkout's github.com helper (`cmux github setup`'s key, local).
+const HELPER_KEY: &str = "credential.https://github.com.helper";
+const USE_HTTP_PATH_KEY: &str = "credential.https://github.com.useHttpPath";
+
 pub fn check_folder(git: &Git, folder: &Path, url: &str) -> Result<(), SeedRefusal> {
     let not_empty =
         |message: &str| SeedRefusal { code: "seed.folder_not_empty", message: message.into() };
@@ -84,8 +88,29 @@ impl Seed {
 
     pub fn run(mut self) -> Result<(), Failed> {
         self.steps()?;
+        self.keep_credential();
         self.report_head();
         Ok(())
+    }
+
+    /// The checkout keeps the GitHub path its clone or fetch used, so the
+    /// agent's own `git push` and `git pull` there work too: the checkout's
+    /// config asks `cmux github credential` (a token minted per git
+    /// process, never stored). Only when that path was the one used: the
+    /// lane helper is global already, and anonymous needs none. A checkout
+    /// with a github.com helper of its own keeps it. A failure is not the
+    /// seed's: the clone is there, and `cmux github setup` still wires git.
+    fn keep_credential(&self) {
+        let Credential::CmuxGithub(helper) = &self.chosen else { return };
+        if self.git(&["config", "--local", "--get-all", HELPER_KEY]).is_ok() {
+            return;
+        }
+        // The empty value first drops a helper from the person's global
+        // config (a stored gh login) for github.com in this checkout only.
+        let _ = self
+            .git(&["config", "--local", "--add", HELPER_KEY, ""])
+            .and_then(|_| self.git(&["config", "--local", "--add", HELPER_KEY, helper]))
+            .and_then(|_| self.git(&["config", "--local", USE_HTTP_PATH_KEY, "true"]));
     }
 
     fn steps(&mut self) -> Result<(), Failed> {
