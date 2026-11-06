@@ -145,6 +145,7 @@ async fn open_local_socket(
     allowlist: Vec<PathBuf>,
     path: &Path,
     jti: u8,
+    through_bridge: bool,
 ) -> (ServiceControl, Option<Vec<u8>>) {
     let identity = StaticIdentity::generate().unwrap();
     let token = signer.grant(&identity.public_key(), jti, vmk);
@@ -190,6 +191,13 @@ async fn open_local_socket(
                 async move { services.serve_client(server).await }
             });
             let multiplexer = ServiceMultiplexer::new(client.clone(), EndpointRole::Client);
+            if through_bridge {
+                let answer = through_client_bridge(&multiplexer, path).await;
+                multiplexer.shutdown().await;
+                client.close().await.unwrap();
+                serving.abort();
+                return answer;
+            }
             let metadata = BTreeMap::from([("path".to_owned(), path.display().to_string())]);
             let stream = multiplexer.open(Service::LocalSocket, metadata).await.unwrap();
             let response =
@@ -214,6 +222,32 @@ async fn open_local_socket(
         .await
 }
 
+/// [`open_local_socket`]'s answer the way the dial uses it: the opened
+/// stream bridged to a byte pipe, or the daemon's refusal (code `bridge`).
+async fn through_client_bridge(
+    multiplexer: &Arc<ServiceMultiplexer>,
+    path: &Path,
+) -> (ServiceControl, Option<Vec<u8>>) {
+    use cmux_remote::bridge::{BridgeError, bridge_raw_stream, open_local_socket};
+    match open_local_socket(multiplexer, &path.display().to_string()).await {
+        Ok(stream) => {
+            let (mut ours, theirs) = tokio::io::duplex(1024);
+            let (reader, writer) = tokio::io::split(theirs);
+            let pump = tokio::task::spawn_local(bridge_raw_stream(stream, reader, writer));
+            ours.write_all(b"desktop").await.unwrap();
+            let mut echo = [0_u8; 7];
+            tokio::time::timeout(TIMEOUT, ours.read_exact(&mut echo)).await.unwrap().unwrap();
+            drop(ours);
+            pump.abort();
+            (ServiceControl::Opened { service: Service::LocalSocket }, Some(echo.to_vec()))
+        }
+        Err(BridgeError::Rejected(message)) => {
+            (ServiceControl::Rejected { code: "bridge".into(), message }, None)
+        }
+        Err(other) => panic!("the bridge failed: {other}"),
+    }
+}
+
 fn rejected(control: &ServiceControl) -> (&str, &str) {
     match control {
         ServiceControl::Rejected { code, message } => (code, message),
@@ -230,9 +264,16 @@ async fn an_owner_grant_reaches_the_allowlisted_socket() {
     let socket = directory.path().join("desktop.sock");
     let _echo = echo_socket(&socket);
 
-    let (control, echo) =
-        open_local_socket(&mut daemon, &signer, Some("owner"), vec![socket.clone()], &socket, 1)
-            .await;
+    let (control, echo) = open_local_socket(
+        &mut daemon,
+        &signer,
+        Some("owner"),
+        vec![socket.clone()],
+        &socket,
+        1,
+        false,
+    )
+    .await;
     assert_eq!(control, ServiceControl::Opened { service: Service::LocalSocket });
     assert_eq!(echo.as_deref(), Some(b"DESKTOP".as_slice()));
     daemon.server.shutdown().await.unwrap();
@@ -250,7 +291,8 @@ async fn a_non_owner_grant_is_refused() {
 
     for (jti, vmk) in [(2, Some("team")), (3, None)] {
         let (control, echo) =
-            open_local_socket(&mut daemon, &signer, vmk, vec![socket.clone()], &socket, jti).await;
+            open_local_socket(&mut daemon, &signer, vmk, vec![socket.clone()], &socket, jti, false)
+                .await;
         let (code, message) = rejected(&control);
         assert_eq!(code, "permission-denied", "{vmk:?}");
         assert!(message.contains("does not allow local-socket"), "{vmk:?}: {message}");
@@ -273,9 +315,16 @@ async fn a_path_outside_the_allowlist_is_refused() {
     let respelled = directory.path().join(".").join("desktop.sock");
 
     for (jti, path) in [(4, &other), (5, &respelled)] {
-        let (control, echo) =
-            open_local_socket(&mut daemon, &signer, Some("owner"), vec![socket.clone()], path, jti)
-                .await;
+        let (control, echo) = open_local_socket(
+            &mut daemon,
+            &signer,
+            Some("owner"),
+            vec![socket.clone()],
+            path,
+            jti,
+            false,
+        )
+        .await;
         let (code, message) = rejected(&control);
         assert_eq!(code, "permission-denied", "{}", path.display());
         assert!(message.contains("allowlist"), "{message}");
@@ -294,10 +343,47 @@ async fn a_daemon_without_an_allowlist_refuses() {
     let _echo = echo_socket(&socket);
 
     let (control, echo) =
-        open_local_socket(&mut daemon, &signer, Some("owner"), Vec::new(), &socket, 6).await;
+        open_local_socket(&mut daemon, &signer, Some("owner"), Vec::new(), &socket, 6, false).await;
     let (code, message) = rejected(&control);
     assert_eq!(code, "unavailable");
     assert!(message.contains("no local sockets"), "{message}");
     assert!(echo.is_none());
+    daemon.server.shutdown().await.unwrap();
+}
+
+/// The dial's client half: `open_local_socket` and `bridge_raw_stream` carry
+/// the owner's bytes, and pass a refusal up with the daemon's reason.
+#[tokio::test]
+async fn the_client_bridge_carries_the_owner_and_reports_a_refusal() {
+    let signer = Signer::generate();
+    let mut daemon = daemon(&signer).await;
+    let directory = tempdir().unwrap();
+    let socket = directory.path().join("desktop.sock");
+    let _echo = echo_socket(&socket);
+
+    let (control, echo) = open_local_socket(
+        &mut daemon,
+        &signer,
+        Some("owner"),
+        vec![socket.clone()],
+        &socket,
+        7,
+        true,
+    )
+    .await;
+    assert_eq!(control, ServiceControl::Opened { service: Service::LocalSocket });
+    assert_eq!(echo.as_deref(), Some(b"DESKTOP".as_slice()));
+
+    let (control, _) = open_local_socket(
+        &mut daemon,
+        &signer,
+        Some("team"),
+        vec![socket.clone()],
+        &socket,
+        8,
+        true,
+    )
+    .await;
+    assert!(rejected(&control).1.contains("does not allow local-socket"), "{control:?}");
     daemon.server.shutdown().await.unwrap();
 }
