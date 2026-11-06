@@ -103,8 +103,17 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
           submodules: false
-          sparse-checkout: scripts/cmux-next/build-cua-driver-sdk.sh
+          sparse-checkout: |
+            .xcode-version
+            scripts/cmux-next/build-cua-driver-sdk.sh
+            scripts/ci/xcode-pins.txt
+            scripts/select-ci-xcode.sh
           sparse-checkout-cone-mode: false
+
+      # The pool's pinned Xcode (26.6 on macOS 26), which the script also
+      # names: Xcode 26.6's ld-1267 links a dylib that dlopen accepts.
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
 
       # Job-local, so an owned Mac keeps no toolchain or cargo registry from
       # this run. The script refuses to download a toolchain itself.
