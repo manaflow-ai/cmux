@@ -377,7 +377,7 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     /// The edges a key resize's hold keeps the page on (FRAME OWNER S3); nil: a drag's top-leading corner.
     var pageMotionHold: PaneMotionHold?
     /// The key resize's hold keeps the page on the page area's top-left corner, as a drag does
-    /// (`BrowserResizeTunables.keyResizeTopLeft`, latched when the hold begins: a flip applies from the next hold).
+    /// (set when a key hold begins).
     var pageHoldTopLeft = false
     /// The page windows told of a page sync (a resize-sync drag, or an S5 key resize or drag: `CEFTabContentView+PageSync`),
     /// to tell its end wherever the page is by then; empty otherwise.
@@ -557,12 +557,7 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
             return
         }
         paneMotion(active: true)
-        if Self.syncsDragResize {
-            beginPageSync(.drag)
-            return
-        }
-        guard BrowserResizeTunables.dragResize.value == .hold else { return }
-        startPageHold()
+        beginPageSync(.drag)
     }
 
     /// The page keeps the size it has now; false when it cannot (not a plain page here, no size, out of a window).
