@@ -573,8 +573,15 @@ class GoldenPathReceiptTests(unittest.TestCase):
     def test_slug_probe_ids_are_echoed(self) -> None:
         result = receipt.normalize([self.cli_from_writer(), self.platform_for(MACHINE), provider()])
         self.assertEqual(result["probe_ids"], ["start-matrix-golden-path", PLATFORM_PROBE])
+        for good in ("golden-path-nightly-7", "start-matrix-" + "a" * 51):
+            cli = self.cli_from_writer()
+            cli["probeId"] = good
+            result = receipt.normalize([cli, self.platform_for(MACHINE), provider()])
+            self.assertEqual(result["probe_ids"], [good, PLATFORM_PROBE], good)
 
-        for bad in ("Start-matrix", "-leading-dash", "a" * 65, "has space", "under_score", "sk-ant-Abc"):
+        for bad in ("Start-matrix", "-leading-dash", "a" * 65, "has space", "under_score", "sk-ant-Abc",
+                    "sk-ant-abc123", "ghp-abc123def456", "ghp-like", "plain-slug", "start-matrix",
+                    "golden-path", "start-matrix-" + "a" * 52, "xstart-matrix-golden-path"):
             cli = self.cli_from_writer()
             cli["probeId"] = bad
             result = receipt.normalize([cli, self.platform_for(MACHINE), provider()])
