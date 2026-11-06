@@ -177,7 +177,7 @@ struct WorkspaceSpawner {
         let defaults = daemon.isLocal ? room?.defaults : nil
         // Local terminals get the app's environment; a Cloud terminal only
         // the caller's keys. Both get the placement keys hooks read.
-        var vars = daemon.isLocal ? await services.environment.terminalEnvironmentProvider()() : [:]
+        var vars = daemon.isLocal ? await services.environment.terminalEnvironmentProvider(prefersGhosttyTerm: { [weak services] in services?.settings?.snapshot.terminalTerm == .xtermGhostty })() : [:]
         vars.merge(defaults?.env ?? [:]) { _, profile in profile }
         vars.merge(spawn.env) { _, caller in caller }
         vars.merge(DaemonConnection.placementEnvironment(workspace: key, terminal: terminal)) { _, placement in placement }

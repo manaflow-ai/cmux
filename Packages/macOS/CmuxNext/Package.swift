@@ -1309,7 +1309,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextCloudUITests",
-            dependencies: ["CmuxNextCloud", "CmuxNextCloudUI", "CmuxNextDesign"],
+            dependencies: ["CmuxNextCloud", "CmuxNextCloudUI", "CmuxNextDesign", "CmuxNextTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
         // Machines reached over the user's own OpenSSH: destinations, the
@@ -1690,7 +1690,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextBrowserHostTests",
-            dependencies: ["CmuxNextBrowser", "CmuxNextBrowserAutomation", "CmuxNextBrowserHost", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextBrowser", "CmuxNextBrowserAutomation", "CmuxNextBrowserHost", "CmuxNextTestSupport", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         .target(

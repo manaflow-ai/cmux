@@ -73,6 +73,12 @@ public final class LayoutModel {
     }
     /// What moved the focus last; the column scroll never centers a click.
     @ObservationIgnored public private(set) var lastFocusSource: ColumnFocusSource = .programmatic
+    /// The focused pane earned its ring: the last focus move was the person's keys. A click, a
+    /// scroll, Escape (``dismissFocusRing()``) or a move nobody keyed (an agent, the CLI, a new
+    /// pane) takes it away. Observed, unlike `lastFocusSource`, so a click on the pane that already
+    /// has focus clears its ring at once instead of at the next unrelated chrome pass (Leo
+    /// 2026-11-06: "i need the freaking focus ring to STOP FIRING SO OFTEN AND TO BE ABLE TO CANCEL IT").
+    public private(set) var focusRingEarned = false
     /// Layout knobs that are not design tokens (minimum pane extent, drop
     /// zones, dimming). Its token fields are ignored while
     /// `followsDesignMetrics` is on.
@@ -354,14 +360,23 @@ public final class LayoutModel {
             // A pointer or scroll can re-focus the already active pane. Keep the source current
             // so a keyboard ring is dismissed immediately, without letting passive programmatic
             // reveals overwrite that pointer state.
-            if source == .pointer || source == .scroll { lastFocusSource = source }
+            if source == .pointer || source == .scroll {
+                lastFocusSource = source
+                dismissFocusRing()
+            }
             return
         }
         lastFocusSource = source
+        if focusRingEarned != (source == .keyboard) { focusRingEarned = source == .keyboard }
         focusedPane = pane
         // A keyboard or programmatic focus on a canvas pans to it; a click or a scroll never does.
         if source != .pointer, source != .scroll { revealOnCanvas(pane, screen: screen.id) }
         if notify { emit(.focus(pane)) }
+    }
+
+    /// Escape, or a click on the focused pane: its ring goes, and focus stays where it is.
+    public func dismissFocusRing() {
+        if focusRingEarned { focusRingEarned = false }
     }
 
     /// Moves focus to the neighboring pane in `direction` on the active screen.
