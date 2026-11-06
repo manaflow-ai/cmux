@@ -25,6 +25,7 @@ import { arrivalKey, sendLabel, splitCommands, type BackgroundCommand } from "./
 import { scheduledTrailing, splitScheduled, useScheduledClock, type ScheduledEntry } from "./scheduled";
 import { SessionInfoFold } from "./SessionInfoSection";
 import { TASK_ICONS } from "./taskIcons";
+import { WindowedRows } from "./WindowedRows";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -164,17 +165,21 @@ export function TasksSection({
           </SessionInfoFold>
           {showFinished && (
             <ul className="acpmux-session-info-list" data-finished="">
-              {finishedRows.map((entry) =>
-                "command" in entry
-                  ? row(
-                      entry.command,
-                      entry.command.endedAt !== undefined && entry.command.startedAt !== undefined
-                        ? formatDuration(Math.max(0, entry.command.endedAt - entry.command.startedAt))
-                        : undefined,
-                      t(COMMAND_STATE[entry.command.state]),
-                    )
-                  : scheduledRow(entry.entry),
-              )}
+              {/* However many ended, the open draws the rows that can show (WindowedRows). */}
+              <WindowedRows
+                items={finishedRows}
+                render={(entry) =>
+                  "command" in entry
+                    ? row(
+                        entry.command,
+                        entry.command.endedAt !== undefined && entry.command.startedAt !== undefined
+                          ? formatDuration(Math.max(0, entry.command.endedAt - entry.command.startedAt))
+                          : undefined,
+                        t(COMMAND_STATE[entry.command.state]),
+                      )
+                    : scheduledRow(entry.entry)
+                }
+              />
             </ul>
           )}
         </>

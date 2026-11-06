@@ -1676,3 +1676,13 @@ button.acpmux-session-info-scope__parent:focus-visible {
       border-color var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out);
   }
 }
+
+/* The room held for a long list's rows not drawn yet (WindowedRows.tsx): its height alone, set from
+   the drawn rows' pitch. */
+ul > li.acpmux-session-info-rows-rest {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  pointer-events: none;
+}

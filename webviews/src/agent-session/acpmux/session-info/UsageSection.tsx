@@ -26,6 +26,7 @@ import {
 import type { AcpmuxUsageLimits } from "../model";
 import { planLimitRows } from "../usageLimits";
 import "./UsageSection.css";
+import { WindowedRows } from "./WindowedRows";
 
 const ROW_ICON = rowIconSize(12);
 /// Rows the list shows before View all.
@@ -239,7 +240,9 @@ export const UsageSection = memo(function UsageSection({
             </fieldset>
           </div>
           <ul className="acpmux-session-info-list" data-sort={sort}>
-            {shown.map((entry) => {
+            <WindowedRows
+              items={shown}
+              render={(entry) => {
               const stats = entry.usageStats!;
               const place = entry.peer ?? entry.host;
               // A peer's chat is named `<peer>/<name>` (acpmux hub/peers.rs); the row names the peer
@@ -286,7 +289,8 @@ export const UsageSection = memo(function UsageSection({
                   )}
                 </li>
               );
-            })}
+              }}
+            />
           </ul>
           {folds && (
             <button

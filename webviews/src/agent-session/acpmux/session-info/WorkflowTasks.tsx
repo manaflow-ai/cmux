@@ -20,6 +20,7 @@ import { StopButton } from "./TasksSection";
 import "./sessionInfo.css";
 import "./WorkflowTasks.css";
 import "../summary/workflowDots.css";
+import { WindowedRows } from "./WindowedRows";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -217,17 +218,20 @@ function WorkflowPhaseRow({
       </span>
       {open && agents.length > 0 && (
         <ul className="acpmux-session-info-list acpmux-workflow-phase__agents">
-          {agents.map((agent) => (
-            <WorkflowAgentRow
-              key={agent.id}
-              workflow={workflow}
-              agent={agent}
-              now={now}
-              onOpenSubagent={onOpenSubagent}
-              onOpenWorkflowAgent={onOpenWorkflowAgent}
-              variant={agentRowVariant}
-            />
-          ))}
+          <WindowedRows
+            items={agents}
+            render={(agent) => (
+              <WorkflowAgentRow
+                key={agent.id}
+                workflow={workflow}
+                agent={agent}
+                now={now}
+                onOpenSubagent={onOpenSubagent}
+                onOpenWorkflowAgent={onOpenWorkflowAgent}
+                variant={agentRowVariant}
+              />
+            )}
+          />
         </ul>
       )}
     </li>

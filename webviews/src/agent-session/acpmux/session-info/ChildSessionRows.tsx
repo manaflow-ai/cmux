@@ -14,6 +14,7 @@ import { TonedIcon } from "../subagents/TonedIcon";
 import { rowIconSize } from "../icons/iconSize";
 import type { StartedSession, StartedState } from "../started/startedSessions";
 import type { SubagentStatus } from "../summary/SubagentStatusList";
+import { WindowedRows } from "./WindowedRows";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -65,7 +66,9 @@ export function ChildSessionRows({
   const t = useT();
   return (
     <>
-      {orderedSessions(sessions).map((child) => {
+      <WindowedRows
+        items={orderedSessions(sessions)}
+        render={(child) => {
         const status = sessionStatus(child);
         const label = sessionStateText(t, child);
         return (
@@ -100,7 +103,8 @@ export function ChildSessionRows({
             </button>
           </li>
         );
-      })}
+        }}
+      />
     </>
   );
 }
