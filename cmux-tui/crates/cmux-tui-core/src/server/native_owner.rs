@@ -108,6 +108,9 @@ const CAPABILITIES: &[&str] = &[
     AGENT_SESSION_ATTACH_CAPABILITY,
     agent_session_attach::AGENT_SESSION_CONTENT_CAPABILITY,
     AGENT_SESSION_START_CAPABILITY,
+    // A start with no folder (`agent-session-start`, already admitted): the machine makes
+    // `~/chats/<id>`. Without it here the app refuses a no-folder start before sending it.
+    AGENT_SESSION_START_NO_CWD_CAPABILITY,
     AGENT_SESSION_TRUST_CAPABILITY,
     AGENT_SESSION_TRUST_VM_KIND_CAPABILITY,
     AGENT_SESSION_START_KEYED_REASON_CAPABILITY,
