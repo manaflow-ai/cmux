@@ -222,7 +222,7 @@ def normalize(records: list[object]) -> dict[str, object]:
     }
     blockers: list[str] = []
     failures = [status for status in _statuses(records) if status in {"fail", "failed", "error", "timeout", "timedout", "cancelled"}]
-    if failures:
+    if failures or bool(continuity_detail["explicit_failure"]):
         blockers.append("receipt_reports_failure")
     if provider_false:
         blockers.append("provider_proof_rejected")
