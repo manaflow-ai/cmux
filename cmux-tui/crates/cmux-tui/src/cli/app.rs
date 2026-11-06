@@ -917,6 +917,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
             }
             .unwrap_or(result);
             warn_unstable_handles(method, &value, global.output);
+            open_created(global, stream, &params, &value);
             if global.output == OutputMode::Human
                 && let Some(line) = super::share_cli::human_line(&params, &value)
                     .or_else(|| super::vm::created_line(&params, &value, global))
@@ -950,6 +951,47 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
             Ran::Done(code)
         }
     }
+}
+
+/// After a person's `cloud new-machine` (`cmux machine new`) made a machine, the app opens it
+/// (`cloud open-machine`): a workspace on the machine is shown, so the window's new-terminal
+/// button opens there (Leo, 2026-11-06: "the terminal I open on the top right button works thru
+/// that machine"). A JSON or quiet run (a script, an agent) leaves the window as it was, and so
+/// does a machine still starting. A failed open is a note: the machine is made either way.
+fn open_created(global: &GlobalArgs, stream: &mut UnixStream, params: &Value, value: &Value) {
+    let Some(target) = created_target(global.output, params, value) else { return };
+    let Ok(AppCommand::Call { method, mut params, timeout, .. }) = open_created_command(target)
+    else {
+        return;
+    };
+    let opened = insert_run_key(&mut params, None)
+        .map_err(|error| json!({ "message": error }))
+        .and_then(|_| wait::request(global, stream, method, &params, timeout));
+    if let Ok(Err(error)) | Err(error) = opened {
+        let reason = error.get("message").and_then(Value::as_str).unwrap_or("no answer");
+        eprintln!("cmux: the machine is made, but its workspace did not open: {reason}");
+    }
+}
+
+/// [`open_created`]'s `cloud open-machine` run. `--focus`: a CLI run changes the window only
+/// when it asks to (the app's `allowsViewChange`).
+fn open_created_command(target: String) -> Result<AppCommand, UsageError> {
+    let args = ["--target".to_owned(), target, "--focus".to_owned()];
+    run_action("cloud open-machine", &args, ActionName::Cli)
+}
+
+/// The machine a person's `cloud new-machine` made, for [`open_created`]; `None` otherwise.
+fn created_target(output: OutputMode, params: &Value, value: &Value) -> Option<String> {
+    if output != OutputMode::Human || params.get("action")?.as_str()? != "cloud new-machine" {
+        return None;
+    }
+    let result = value.get("result")?;
+    if result.get("pending").and_then(Value::as_bool) == Some(true) {
+        return None;
+    }
+    result.get("target").and_then(Value::as_str).map(str::to_owned).or_else(|| {
+        result.get("machine_id").and_then(Value::as_str).map(|id| format!("machine:{id}"))
+    })
 }
 
 /// Progress notes go to stderr for a person, never in JSON or quiet output.
