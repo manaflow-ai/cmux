@@ -9,7 +9,6 @@
     {
       "reason": "A classic-app shell or CLI regression on a macOS runner lane (run_python_test_lane.py in ci-macos.yml). ci.yml calls ci-macos.yml only for pull requests into main; cmux-next has its own Mac tiers.",
       "tests": [
-        "tests/test_cmux_cua_build_cache_safety.py",
         "tests/test_cmux_cua_compat_contract.py",
         "tests/test_cmux_cua_mcp_smoke.py",
         "tests/test_issue_10926_watcher_pid_reuse_guard.py",
@@ -74,6 +73,12 @@
       "reason": "Only nightly-next-feed-watch.yml runs it, on a schedule, and a schedule runs main's copy of the workflow and of scripts/ci/nightly_next_feed_watch.py. feat-cmux-next's copies are never executed and lag main's (main changed both after the last sync), so a feat pull request cannot break the watch; main's own pull requests (ci.yml guards) test the copy that runs.",
       "tests": [
         "tests/test_nightly_next_feed_watch.py"
+      ]
+    },
+    {
+      "reason": "Lawrence 2026-10-23: no new CI tests. web-validation.yml runs it on main pushes only. On feat-cmux-next the wrapper it tests (scripts/ci/webviews-tests-new-reds.sh) runs on every push, with no base, in cmux-next-web.yml's react-apps-check, so a break shows there on the next push. Run python3 tests/test_webviews_tests_new_reds.py yourself after changing the wrapper, guards_new_reds.py or webviews_test_results.py (about 20 s, a fake bun).",
+      "tests": [
+        "tests/test_webviews_tests_new_reds.py"
       ]
     }
   ]

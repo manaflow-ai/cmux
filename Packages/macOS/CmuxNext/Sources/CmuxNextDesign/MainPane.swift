@@ -21,7 +21,7 @@ nonisolated extension ChromeTunables {
         default: true, code: "ChromeTunables.mainPaneCurved")
     public static let mainPaneCornerRadius = Tunable<CGFloat>.number(
         "chrome.mainPane.cornerRadius", .sidebar, "Main pane corner radius",
-        help: "Corner radius of the curved main pane. Unset: the window's corner radius less the gutter (square in fullscreen without a gutter, else 8).", default: 8, range: 0...24, step: 0.5, unit: .points,
+        help: "Corner radius of the curved main pane. Unset: the one corner radius (layout.paneCornerRadius) shared with panes and tabs, at most the window's.", default: 10, range: 0...24, step: 0.5, unit: .points,
         code: "ChromeTunables.mainPaneCornerRadius")
     public static let mainPaneGutter = Tunable<CGFloat>.number(
         "chrome.mainPane.gutter", .sidebar, "Main pane gutter",
@@ -74,23 +74,28 @@ extension Metrics {
     /// panes float (each pane rounds its own card).
     public static var mainPaneCornerRadius: CGFloat {
         guard mainPaneCurved, !floatingPanes || ChromeTunables.mainPaneCornerRadius.override != nil else { return 0 }
-        return scale(ChromeTunables.mainPaneCornerRadius.value)
+        return ChromeTunables.mainPaneCornerRadius.override.map(scale) ?? cornerRadius
     }
     /// Corner radius of the main pane in a window whose own corners have
-    /// `windowCornerRadius`: concentric with them (the window radius less
-    /// the gutter). Without a gutter the pane's corners at the window's are
+    /// `windowCornerRadius`: the one outer ``cornerRadius`` (`layout.paneCornerRadius`,
+    /// shared with panes and tabs; Lawrence 2026-11-04), at most the window's radius.
+    /// Its 10 pt compact default is concentric with the 16 pt window across the 6 pt
+    /// gutter, and the tabs nested in it keep Helium's 8 pt (it was Helium's 14 pt
+    /// content corner, 2026-10-31, which no tab inset 2 pt inside could follow).
+    /// Without a gutter the pane's corners at the window's are
     /// the window's own, so the two are one outline; a square window
     /// (fullscreen) gets a square pane, rounding only at real edges. Under a
     /// standard titlebar strip the pane's top corners sit below it, against
     /// the window's straight side, so the pane is square too (the window
     /// still rounds its own corners). A Debug
-    /// Settings override wins; with a gutter in fullscreen it is
-    /// `mainPaneCornerRadius`.
+    /// Settings override wins.
     public static func mainPaneCornerRadius(windowCornerRadius: CGFloat) -> CGFloat {
         guard mainPaneCurved, !floatingPanes, ChromeTunables.mainPaneCornerRadius.override == nil else { return mainPaneCornerRadius }
         let gutter = mainPaneGutter
         if gutter == 0 { return DesignSettings.shared.titlebar == .standard ? 0 : windowCornerRadius }
-        return windowCornerRadius > 0 ? max(0, windowCornerRadius - gutter) : mainPaneCornerRadius
+        // The one outer radius, never rounder than the window's own; fullscreen (square window) keeps it too.
+        let radius = cornerRadius
+        return windowCornerRadius > 0 ? min(radius, windowCornerRadius) : radius
     }
     /// Black's alpha over the chrome around the main pane: the shade of the
     /// separate look only under `appearance.sidebarSurface` separate (the

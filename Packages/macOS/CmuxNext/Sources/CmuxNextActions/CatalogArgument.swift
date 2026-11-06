@@ -130,6 +130,13 @@ nonisolated enum CatalogArgument {
                        isRequired: false)
     }
 
+    /// `file open --as-text`: a page cmux renders (HTML, SVG, Markdown) opens as its source in the
+    /// code editor (Open as Text); other files open as they always do.
+    static var asTextBool: ActionArgument {
+        ActionArgument(name: "asText", title: String(localized: "argument.asText", defaultValue: "As Text", bundle: .module),
+                       kind: .bool, isRequired: false)
+    }
+
     /// `cloud new-terminal-on-machine --workspace <id>`: a workspace on the Cloud machine's own
     /// daemon (the `workspace_id` an earlier run answered). Plain text: `.target(.workspace)`
     /// resolves this Mac's workspaces, not a Cloud machine's.
@@ -162,8 +169,25 @@ nonisolated enum CatalogArgument {
         ActionArgument(name: "port", title: String(localized: "argument.port", defaultValue: "Port", bundle: .module), kind: .int(1...65535))
     }
 
+    /// `cloud provision-api --name <name>`: what the new API key is called; "API key" without one.
+    static var apiKeyNameString: ActionArgument {
+        ActionArgument(name: "name", title: String(localized: "argument.name", defaultValue: "Name", bundle: .module), kind: .string,
+                       isRequired: false)
+    }
+
+    /// `cloud api-key-revoke --key <id>`: the API key id `cloud api-key-list` answers.
+    static var apiKeyString: ActionArgument {
+        ActionArgument(name: "key", title: String(localized: "argument.apiKey", defaultValue: "API Key", bundle: .module), kind: .string)
+    }
+
     static var sizeChoice: ActionArgument {
         ActionArgument(name: "size", title: String(localized: "argument.size", defaultValue: "Size", bundle: .module), kind: .enumeration([choice("small"), choice("medium"), choice("large"), choice("xlarge")]))
+    }
+
+    /// `cloud resize-machine --disk GIB`: the disk's new size in whole GiB (4 GiB steps up to 256, grow-only).
+    static var diskGiBInt: ActionArgument {
+        ActionArgument(name: "disk", title: String(localized: "argument.diskGiB", defaultValue: "Disk (GiB)", bundle: .module),
+                       kind: .int(4...256), isRequired: false)
     }
 
     /// `cloud enroll-machine --ssh-key FILE`: this Mac's ssh public key (default `~/.ssh/id_ed25519.pub`).
@@ -212,6 +236,13 @@ nonisolated enum CatalogArgument {
     /// `cloud deliver-secrets --repo OWNER/NAME`: whose repo-scoped secrets the machine gets.
     static var secretRepoString: ActionArgument {
         ActionArgument(name: "repo", title: String(localized: "argument.secretRepo", defaultValue: "Repository", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
+    /// `cloud deliver-secrets --names A,B`: the secret names an own machine (SSH or an acpmux peer) gets;
+    /// a Cloud machine's come from its machine config.
+    static var secretNamesString: ActionArgument {
+        ActionArgument(name: "names", title: String(localized: "argument.secretNames", defaultValue: "Secret Names", bundle: .module),
                        kind: .string, isRequired: false)
     }
 
@@ -269,7 +300,7 @@ nonisolated enum CatalogArgument {
     }
 
     static var channelChoice: ActionArgument {
-        ActionArgument(name: "channel", title: String(localized: "argument.channel", defaultValue: "Channel", bundle: .module), kind: .enumeration([choice("stable"), choice("nightly")]))
+        ActionArgument(name: "channel", title: String(localized: "argument.channel", defaultValue: "Channel", bundle: .module), kind: .enumeration([choice("stable"), choice("nightly"), choice("dev")]))
     }
 
     static var topicString: ActionArgument {
@@ -356,6 +387,7 @@ nonisolated enum CatalogArgument {
         case "xlarge": String(localized: "argument.value.xlarge", defaultValue: "Extra Large", bundle: .module)
         case "stable": String(localized: "argument.value.stable", defaultValue: "Stable", bundle: .module)
         case "nightly": String(localized: "argument.value.nightly", defaultValue: "Nightly", bundle: .module)
+        case "dev": String(localized: "argument.value.dev", defaultValue: "DEV", bundle: .module)
         case "right": String(localized: "argument.value.right", defaultValue: "Right", bundle: .module)
         case "down": String(localized: "argument.value.down", defaultValue: "Down", bundle: .module)
         case "left": String(localized: "argument.value.left", defaultValue: "Left", bundle: .module)
@@ -376,16 +408,17 @@ nonisolated enum CatalogArgument {
                               suggestions: ActionSuggestions(source: "browserFit", pinned: pinned))
     }
 
-    /// How Open Desktop shows a Cloud machine's screen (`cloudOpenDesktop`): `web`, its noVNC
-    /// page in a Chromium tab (the default); `native`, the remote view pane straight to the
-    /// machine's VNC server over the app's Cloud tunnel; or `rd`, the pane showing the machine's
-    /// `cmux-rd` host (H.264) over its daemon link.
+    /// How Open Desktop shows a Cloud machine's screen (`cloudOpenDesktop`): `rd`, the remote view
+    /// pane on the machine's `cmux-rd` host over its Native link (the default for a machine that
+    /// declares `desktop`); `web`, its noVNC page in a Chromium tab (the default otherwise); or, in
+    /// development builds, `native`, the pane straight to the machine's VNC server over the app's
+    /// Cloud tunnel.
     static var desktopViewerChoice: ActionArgument {
-        var cases = [ActionEnumCase(value: "web", title: String(localized: "argument.value.viewerWeb", defaultValue: "Browser", bundle: .module))]
+        var cases = [ActionEnumCase(value: "rd", title: String(localized: "argument.value.viewerRd", defaultValue: "Video Stream", bundle: .module)),
+                     ActionEnumCase(value: "web", title: String(localized: "argument.value.viewerWeb", defaultValue: "Browser", bundle: .module))]
         #if DEBUG
-        // The remote view pane is development-only (RemoteViewAvailability).
+        // The pane's VNC client is development-only (RemoteViewAvailability).
         cases.append(ActionEnumCase(value: "native", title: String(localized: "argument.value.viewerNative", defaultValue: "Native", bundle: .module)))
-        cases.append(ActionEnumCase(value: "rd", title: String(localized: "argument.value.viewerRd", defaultValue: "Video Stream", bundle: .module)))
         #endif
         return ActionArgument(name: "viewer", title: String(localized: "argument.viewer", defaultValue: "Viewer", bundle: .module),
                               kind: .enumeration(cases), isRequired: false)

@@ -30,6 +30,8 @@ final class MessageCell: UICollectionViewCell {
     let footerLabel = UILabel()
     let editedLabel = UILabel()
     let repliesLabel = UILabel()
+    /// "N Replies" under the quote: the quoted message's own thread.
+    let quoteRepliesLabel = UILabel()
     let translationLabel = UILabel()
     let failedBadge = UIImageView(image: UIImage(systemName: "exclamationmark.circle.fill"))
     let timeLabel = UILabel()
@@ -79,6 +81,13 @@ final class MessageCell: UICollectionViewCell {
     var replyDrag: CGFloat = 0 { didSet { applyShifts() } }
     /// Select mode leading shift for incoming rows.
     var selectionShift: CGFloat = 0 { didSet { applyShifts() } }
+    /// Where the reply line starts above the row (negative: in the gap over
+    /// it), for a reply that joins the thread block above; the transcript
+    /// sets it from the row spacing before `configure`.
+    var threadLeadIn: CGFloat = 0
+    /// Clips the line at a row edge it runs on across, so it does not
+    /// overlap the neighbor's (the color is translucent).
+    private let threadClip = CALayer()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -86,11 +95,12 @@ final class MessageCell: UICollectionViewCell {
         shiftable.addSubview(replyPinned)
         replyPinned.layer.addSublayer(threadLine)
         threadLine.fillColor = nil
-        threadLine.lineWidth = 2.5
+        threadLine.lineWidth = ConversationReplyThread.lineWidth
         threadLine.lineCap = .round
         senderLabel.font = ConversationTheme.senderNameFont
         senderLabel.textColor = ConversationTheme.secondaryText
-        quoteLabel.numberOfLines = 2
+        // Messages' quote is one line, truncated (`replyBalloon…`).
+        quoteLabel.numberOfLines = 1
         quoteLabel.lineBreakMode = .byTruncatingTail
         textLabel.numberOfLines = 0
         // A row scrolled on before its effect glyphs were rendered ahead
@@ -103,15 +113,17 @@ final class MessageCell: UICollectionViewCell {
         footerLabel.textAlignment = .right
         editedLabel.font = ConversationTheme.editedFont
         editedLabel.textColor = .systemBlue
-        repliesLabel.font = ConversationTheme.editedFont
+        repliesLabel.font = ConversationTheme.footerFont
         repliesLabel.textColor = .systemBlue
+        quoteRepliesLabel.font = ConversationTheme.footerFont
+        quoteRepliesLabel.textColor = .systemBlue
         failedBadge.tintColor = ConversationTheme.notDelivered
         failedBadge.contentMode = .scaleAspectFit
         timeLabel.font = ConversationTheme.timestampDrawerFont
         timeLabel.textColor = ConversationTheme.timestampText
         timeLabel.alpha = 0
         translationLabel.accessibilityIdentifier = "conversation.message.translation"
-        for view in [senderLabel, quoteBubble, quoteLabel, avatar] {
+        for view in [senderLabel, quoteBubble, quoteLabel, quoteRepliesLabel, avatar] {
             replyPinned.addSubview(view)
         }
         for view in [bubble, textLabel, emojiLabel, reactionBadge, editedLabel, repliesLabel, translationLabel] {
@@ -186,20 +198,26 @@ final class MessageCell: UICollectionViewCell {
             quoteLabel.isHidden = false
             quoteBubble.side = quote.isOutgoing ? .trailing : .leading
             quoteBubble.hasTail = true
-            // Quotes are outline-only, stroked in the original bubble's color.
+            // Quotes are outline-only (ChatKit's unfilled reply balloon), the
+            // outline and text in the original bubble's reply colors.
             quoteBubble.fillColor = .clear
-            quoteBubble.strokeColor = quote.isOutgoing ? ConversationTheme.outgoingBubble : ConversationTheme.quoteStroke
+            quoteBubble.strokeColor = quote.isOutgoing ? ConversationTheme.quoteOutgoingStroke : ConversationTheme.quoteStroke
             quoteBubble.frame = quoteFrame
             quoteLabel.font = ConversationTheme.quoteFont
             quoteLabel.text = quote.text
-            quoteLabel.textColor = quote.isOutgoing ? ConversationTheme.outgoingBubble : ConversationTheme.secondaryText
+            quoteLabel.textColor = quote.isOutgoing ? ConversationTheme.quoteOutgoingText : ConversationTheme.quoteText
             quoteLabel.frame = quoteTextFrame
         } else {
             quoteBubble.isHidden = true
             quoteLabel.isHidden = true
         }
-        threadLine.path = layout.threadPath
-        threadLine.isHidden = layout.threadPath == nil
+        quoteRepliesLabel.isHidden = layout.quoteRepliesFrame == nil
+        if let frame = layout.quoteRepliesFrame, let count = model.replyQuote?.replyCount {
+            quoteRepliesLabel.text = Self.repliesText(count)
+            quoteRepliesLabel.frame = frame
+            quoteRepliesLabel.textAlignment = model.replyQuote?.isOutgoing == true ? .right : .left
+        }
+        applyThreadLine(layout)
         threadLine.strokeColor = ConversationTheme.replyThread.resolvedColor(with: traitCollection).cgColor
 
         configureImages(model: model, layout: layout)
@@ -212,10 +230,10 @@ final class MessageCell: UICollectionViewCell {
             bubble.side = model.isOutgoing ? .trailing : .leading
             bubble.hasTail = model.showsTail && !layout.linkCardIsLast
             bubble.fillColor = model.isOutgoing
-                ? (message.delivery?.isFailed == true ? ConversationTheme.failedBubble : ConversationTheme.outgoingBubble)
-                : ConversationTheme.incomingBubble
-            bubble.screenGradient = model.isOutgoing ? ConversationTheme.iMessageGradient : nil
-            bubble.adaptsToBackdrop = !model.isOutgoing
+                ? (message.delivery?.isFailed == true && ConversationTheme.bubbleColors?.sent == nil ? ConversationTheme.failedBubble : ConversationTheme.sentFill)
+                : ConversationTheme.receivedFill
+            bubble.screenGradient = model.isOutgoing ? ConversationTheme.sentFillGradient : nil
+            bubble.adaptsToBackdrop = !model.isOutgoing && ConversationTheme.receivedFillAdaptsToBackdrop
             bubble.frame = bubbleFrame
             textLabel.effectSeed = ConversationTextEffectMotion.seed(model.rowID)
             textLabel.attributedText = text
@@ -358,9 +376,7 @@ final class MessageCell: UICollectionViewCell {
         }
         repliesLabel.isHidden = layout.repliesFrame == nil
         if let frame = layout.repliesFrame {
-            repliesLabel.text = message.replyCount == 1
-                ? String(localized: "conversation.message.oneReply", defaultValue: "1 Reply", bundle: .module)
-                : String(format: String(localized: "conversation.message.replies", defaultValue: "%d Replies", bundle: .module), message.replyCount)
+            repliesLabel.text = Self.repliesText(message.replyCount)
             repliesLabel.frame = frame
             repliesLabel.textAlignment = model.isOutgoing ? .right : .left
         }
@@ -625,12 +641,57 @@ final class MessageCell: UICollectionViewCell {
         return TimestampDrawerPhysics.drawerWidth(widestReferenceTime: widest, margin: timestampDrawerMargin)
     }
 
+    static func repliesText(_ count: Int) -> String {
+        count == 1
+            ? String(localized: "conversation.message.oneReply", defaultValue: "1 Reply", bundle: .module)
+            : String(format: String(localized: "conversation.message.replies", defaultValue: "%d Replies", bundle: .module), count)
+    }
+
     /// 58 pt with "11:00 AM" at 50.07 pt, as Messages on an iPhone 17 Pro.
     static let timestampDrawerMargin: CGFloat = 7
 
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
         threadLine.strokeColor = ConversationTheme.replyThread.resolvedColor(with: traitCollection).cgColor
+    }
+
+    /// The reply line of one row of a thread block: a reply joining the
+    /// block above starts at `threadLeadIn`, one with the block running on
+    /// below ends at its bottom edge, and each such edge clips the round cap
+    /// so the rows' lines meet without overlapping.
+    private func applyThreadLine(_ layout: MessageCellLayout) {
+        guard var thread = layout.thread else {
+            threadLine.path = nil
+            threadLine.isHidden = true
+            threadLine.mask = nil
+            return
+        }
+        if layout.threadArrival != nil {
+            // Between two grouped replies of theirs there is no room: no line.
+            guard threadLeadIn < thread.bottom.y else {
+                threadLine.path = nil
+                threadLine.isHidden = true
+                threadLine.mask = nil
+                return
+            }
+            thread.top = .cap(y: threadLeadIn)
+        }
+        threadLine.path = thread.path
+        threadLine.isHidden = false
+        let clipsTop = layout.threadArrival == .line
+        guard clipsTop || layout.threadRunsBelow else {
+            threadLine.mask = nil
+            return
+        }
+        // Generous sideways: only the clipped edges matter.
+        let top = clipsTop ? thread.top.y : -10_000
+        let bottom = layout.threadRunsBelow ? layout.height : layout.height + 10_000
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        threadClip.backgroundColor = UIColor.black.cgColor
+        threadClip.frame = CGRect(x: -10_000, y: top, width: 20_000, height: bottom - top)
+        threadLine.mask = threadClip
+        CATransaction.commit()
     }
 }
 

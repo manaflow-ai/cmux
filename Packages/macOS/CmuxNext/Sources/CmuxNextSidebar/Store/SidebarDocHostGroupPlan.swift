@@ -23,15 +23,25 @@ public nonisolated struct SidebarDocHostGroupPlan {
         }
     }
 
-    /// Plans marking the remote group of daemon session `session`.
-    public init(session: String, records: SidebarDocRecords) {
-        ops = Self.markOps(id: "sec_m_\(session)", session: session, records: records)
+    /// Plans marking the remote group of daemon session `session`, named `title` when one is given
+    /// (`cmux workspace group create --remote HOST --name N`): the header shows the title instead of
+    /// the host's name. A remote group that already exists is only renamed; nil leaves its title.
+    /// - Parameters:
+    ///   - session: the host daemon's session id (its `registryID`).
+    ///   - records: the document as the mirror holds it.
+    ///   - title: the group's name; nil or empty keeps the host's name.
+    public init(session: String, records: SidebarDocRecords, title: String? = nil) {
+        ops = Self.markOps(id: "sec_m_\(session)", session: session, records: records, title: title.flatMap { $0.isEmpty ? nil : $0 })
     }
 
-    private static func markOps(id: String, session: String, records: SidebarDocRecords) -> [[String: Any]] {
+    private static func markOps(id: String, session: String, records: SidebarDocRecords, title: String? = nil) -> [[String: Any]] {
         if let section = records.sections[id] {
-            return section.hostGroup ? [] : [["op": "section.update", "id": id, "patch": ["host_group": true]]]
+            var patch: [String: Any] = section.hostGroup ? [:] : ["host_group": true]
+            if let title { patch["title"] = title }
+            return patch.isEmpty ? [] : [["op": "section.update", "id": id, "patch": patch]]
         }
-        return [["op": "section.add", "section": ["id": id, "kind": ["type": "machine", "session_id": session], "host_group": true]]]
+        var body: [String: Any] = ["id": id, "kind": ["type": "machine", "session_id": session], "host_group": true]
+        if let title { body["title"] = title }
+        return [["op": "section.add", "section": body]]
     }
 }

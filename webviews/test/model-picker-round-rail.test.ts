@@ -1,8 +1,9 @@
 // cmux-web-test-timeout: 300
-// The model picker's harness rail is plain icons on a round wash, matching the composer's round
-// pills, never a column of square tiles (Leo 2026-10-18: "grid squares"). The selected harness and a
-// hovered one both take that round wash. The model button opens its compact menu in every composer
-// (Leo 2026-10-20: one model button), so the rail checked is that menu's.
+// The model picker's harness rail: each tab shows its harness's symbol (the default symbols row at
+// the top; Leo 2026-10-30: "we had a pretty good thing going with teh symbols of the harneses at
+// the top") or its whole readable name (#25796, #26071), on a rounded wash, never the square tiles
+// of 2026-10-18 ("grid squares"). The selected harness and a hovered one both take that wash. The model button opens its compact menu in every composer (Leo 2026-10-20: one model
+// button), so the rail checked is that menu's.
 // Real Chromium and WebKit (the app's engine) on the gallery stage. CI fails the file when it cannot
 // launch them (requireBrowserLane). Locally: CMUX_BROWSER_TESTS=1 bun test test/model-picker-round-rail.test.ts
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -93,29 +94,62 @@ await requireBrowserLane("model-picker-round-rail.test.ts", async () => {
   };
 
   for (const [engine] of engines)
-    test(`${engine}: every rail tab is round, the selected one included`, async () => {
+    test(`${engine}: every rail tab is a readable rounded row, the selected one included`, async () => {
       const page = await open(engine);
       await press(page, chip("Model"));
-      await page.locator(".acpmux-quick-rail-tab").first().waitFor();
-      const tabs = await page.evaluate(() =>
-        [...document.querySelectorAll<HTMLElement>(".acpmux-quick-rail-tab")].map((tab) => {
-          const box = tab.getBoundingClientRect();
-          const style = getComputedStyle(tab);
-          return {
-            name: tab.getAttribute("aria-label") ?? tab.textContent?.trim() ?? "",
-            selected: tab.getAttribute("aria-pressed") === "true",
-            round: parseFloat(style.borderTopLeftRadius) >= Math.min(box.width, box.height) / 2 - 0.5,
-            filled: style.backgroundColor !== "rgba(0, 0, 0, 0)",
-          };
-        }),
-      );
-      expect(tabs.length, "the rail shows its tabs").toBeGreaterThan(1);
+      await page.locator(".acpmux-cols-tab[role=tab]").first().waitFor();
+      const tabs = await page.evaluate(() => {
+        const corner = (node: Element) => parseFloat(getComputedStyle(node).borderTopLeftRadius);
+        const harnessTabs = [...document.querySelectorAll<HTMLElement>(".acpmux-cols-tab[role=tab]")];
+        const add = document.querySelector<HTMLElement>(".acpmux-cols-tab-add");
+        return {
+          harnesses: harnessTabs.map((tab) => {
+            const symbol = tab.querySelector(".agent-mark, .acpmux-cols-initial, svg");
+            return {
+              // Starred has its star; each harness has its mark or initial. The accessible
+              // label and tooltip name the icon-only tab.
+              symbol: !!symbol,
+              markHeight: tab.querySelector(".agent-mark, svg")?.getBoundingClientRect().height,
+              name: tab.getAttribute("aria-label") ?? "",
+              title: tab.title,
+              clipped: tab.scrollWidth > tab.clientWidth + 1 || tab.scrollHeight > tab.clientHeight + 1,
+              corner: corner(tab),
+              selected: tab.getAttribute("aria-selected") === "true",
+              filled: getComputedStyle(tab).backgroundColor !== "rgba(0, 0, 0, 0)",
+            };
+          }),
+          add: add
+            ? {
+                name: add.getAttribute("aria-label"),
+                corner: corner(add),
+              }
+            : undefined,
+        };
+      });
+      expect(tabs.harnesses.length, "the rail shows its harness tabs").toBeGreaterThan(1);
+      expect(tabs.harnesses[0]?.name, "Starred is the first tab").toBe("Starred");
       expect(
-        tabs.filter((tab) => !tab.round).map((tab) => tab.name),
+        tabs.harnesses.some((tab) => tab.markHeight !== undefined),
+        "the rail draws harness marks",
+      ).toBe(true);
+      expect(
+        tabs.harnesses.every((tab) => tab.markHeight === undefined || tab.markHeight <= 16),
+        "rail marks stay compact",
+      ).toBe(true);
+      expect(tabs.add, "the rail keeps an accessible Add harness action").toMatchObject({ name: "Add harness…" });
+      expect(tabs.add?.corner ?? 0, "the Add harness action is rounded").toBeGreaterThanOrEqual(4);
+      expect(
+        tabs.harnesses
+          .filter((tab) => !tab.symbol || !tab.name || !tab.title.includes(tab.name) || tab.clipped)
+          .map((tab) => tab.name),
+        "tabs without an unclipped symbol and accessible name",
+      ).toEqual([]);
+      expect(
+        tabs.harnesses.filter((tab) => tab.corner < 4).map((tab) => `${tab.name}: ${tab.corner}`),
         "square tabs",
       ).toEqual([]);
       expect(
-        tabs.some((tab) => tab.selected && tab.filled),
+        tabs.harnesses.some((tab) => tab.selected && tab.filled),
         "the selected harness keeps its wash",
       ).toBe(true);
       await page.close();

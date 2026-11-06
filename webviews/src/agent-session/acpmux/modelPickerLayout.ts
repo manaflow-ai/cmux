@@ -3,17 +3,25 @@ import type { AcpmuxSnapshot } from "./model";
 import type { Choice, Combo } from "./ComposerPickers";
 import type { QuickMenuExtras, UsedLook } from "./QuickModelMenu";
 import type { PickerProfile } from "./pickerProfiles";
-import type { SpeedTiers } from "./FastToggle";
+import type { SessionAuth } from "./sessionAuth";
 
 /// What the picker gets from ComposerPickers. Picks go through `onLand` (model, then its effort
 /// once the agent reports that model) and `onEffort`.
 export type ModelPickerProps = {
   /// `top`: the harness's own model-menu order, when reported; other models fold under More models.
-  catalog: (AcpmuxSnapshot["catalog"][number] & { top?: readonly string[] })[];
+  /// `notInstalled`: a catalog harness this machine does not have; it lists, its models cannot start.
+  catalog: (AcpmuxSnapshot["catalog"][number] & { top?: readonly string[]; notInstalled?: true })[];
   harness?: string;
   model?: string;
+  /** The model the chip names before the session reports one (the harness default, or the last
+   *  pick): the model menu checks it and its level as the running model. */
+  predictedModel?: string;
   /// The chip's text: the current model's name, or its id when the catalog doesn't list it.
   label: string;
+  /// The current chat or New Tab target's auth, never host-wide cached health.
+  sessionAuth?: SessionAuth;
+  onSessionLogin?(): void;
+  onSessionAuthRefresh?(): void;
   /// What the composer's controls row draws in the chip (composerRowFit.ts): the name without its
   /// vendor ("Opus 5.5") and its family ("Opus") for a narrow row; `title` names the model in the
   /// tooltip of the row's mark-only chip. Away from the row the chip shows `label`.
@@ -41,9 +49,10 @@ export type ModelPickerProps = {
     offValue: string;
     onLabel: string;
     offLabel: string;
+    lastOnValue?: string;
+    values?: readonly string[];
     onPick(value: string): void;
   };
-  speed?: SpeedTiers;
   /** Refreshes the host-backed model catalog; the host owns transport and live events. */
   catalogRefresh?: CatalogRefreshState;
   /// Starts a new chat in another harness; without it, other harnesses are not offered.
@@ -68,17 +77,20 @@ export type ModelPickerProps = {
   /// yet leaves it unset and keeps the whole rail.
   harnessFixed?: boolean;
   /// With `harnessFixed`, the started chat can fork to another harness (Leo 2026-10-22: "need to be
-  /// able to switch to different harnesses, can expose as fork"). Both menus then list every
-  /// harness's models as a New Tab does, browsable and pickable (Leo 2026-11-06: "it should only
-  /// need to necessarily fork when you enter a message on that new model"): a pick of another
-  /// harness's model goes through `onCombo`, which holds it for the next message (forkHold.ts), and
-  /// a launch tab (another account of any harness) through `hold`, with the acpmux profile id.
-  /// `held`: the held pick, which the chip draws with a fork mark and the menus check, `harness`
-  /// its acpmux id, `name` its harness's name. `used`: how the menus mark what the chat ran
-  /// (QuickModelMenu UsedMark); the gallery compares versions, the composer draws `glyph`.
+  /// able to switch to different harnesses, can expose as fork"). The menus then list the models of
+  /// the chat's own harness and of each profile in `targets` (continueTargets), browsable and
+  /// pickable as a New Tab's (Leo 2026-11-06: "it should only need to necessarily fork when you
+  /// enter a message on that new model"): a pick of another harness's model goes through
+  /// `onCombo`, which holds it for the next message (forkHold.ts), and a launch route (another
+  /// account of any harness) through `hold`, with the acpmux profile id. `held`: the held pick,
+  /// which the chip draws with a fork mark and the menus check, `harness` its acpmux id, `name` its
+  /// harness's name. `used`: how the menus mark what the chat ran (QuickModelMenu UsedMark); the
+  /// gallery compares versions, the composer draws `glyph`.
   fork?: {
-    hold(harness: string): void;
-    held?: { harness: string; model?: string; name: string };
+    targets: ReadonlySet<string>;
+    /// `name`: the launch route's label in the menu, for a profile with no catalog entry of its own.
+    hold(harness: string, name?: string): void;
+    held?: { harness: string; model?: string; effort?: string; fast?: boolean; name: string };
     used?: UsedLook;
   };
   /// The installed acpmux profiles each catalog entry stands for, by its id (pickerProfiles.ts): the
@@ -113,11 +125,9 @@ export type CatalogRefreshState = {
   refresh(): void | Promise<void>;
 };
 
-/// The keys and pointer moves the chip forwards to the open menu's body.
-/// The tallest the open picker gets (Lawrence 2026-10-13: it grew to the window's height when a
-/// machine lists many harnesses). Less when the pane has less room above or below the chip; the
-/// harness rail and the model list scroll inside it.
-export const MODEL_PICKER_MAX_HEIGHT = 480;
+/// A fallback while the anchor has not measured its available room yet. Once measured, the
+/// picker uses all the available height, with no fixed cap.
+const MODEL_PICKER_INITIAL_HEIGHT = 480;
 /// The shortest the open picker gets: the search field and about six model rows. A chip with less
 /// room than this, or a list that loads after the menu opened, never collapses the menu to its
 /// search field (Lawrence 2026-10-13). The menu opens on the side of the chip that has this much
@@ -130,16 +140,15 @@ export const MODEL_PICKER_MIN_HEIGHT = 220;
 /// session rail, summary column or sidebar beside it (a composer outside one keeps to the window).
 export const CHAT_COLUMN = ".acpmux-main";
 
-/// The open picker's height bounds: at most the anchor's room (`room`, when known) and
-/// MODEL_PICKER_MAX_HEIGHT, never below MODEL_PICKER_MIN_HEIGHT; at least its height when it
+/// The open picker's height bounds: at most the anchor's room (`room`, when known); at least
+/// MODEL_PICKER_MIN_HEIGHT when that fits, or its height when it
 /// opened (`opened`), so a narrowing search does not shrink it, while a list that loads later can
 /// still grow it.
 export function pickerHeightBounds(
   room: unknown,
   opened: number | undefined,
 ): { maxHeight: number; minHeight: number } {
-  const roomed = typeof room === "number" && Number.isFinite(room) ? room : MODEL_PICKER_MAX_HEIGHT;
-  const maxHeight = Math.max(MODEL_PICKER_MIN_HEIGHT, Math.min(roomed, MODEL_PICKER_MAX_HEIGHT));
+  const maxHeight = typeof room === "number" && Number.isFinite(room) ? Math.max(0, room) : MODEL_PICKER_INITIAL_HEIGHT;
   const minHeight = Math.min(maxHeight, Math.max(MODEL_PICKER_MIN_HEIGHT, opened ?? 0));
   return { maxHeight, minHeight };
 }

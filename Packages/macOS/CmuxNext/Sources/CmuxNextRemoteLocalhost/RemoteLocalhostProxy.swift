@@ -86,6 +86,8 @@ public final class RemoteLocalhostProxy: Sendable {
     private let state = Mutex(State())
     private let secret: String
     let queue = DispatchQueue(label: "com.cmuxterm.next.remote-localhost", qos: .userInitiated)
+    /// The trust scans of this proxy's machine listeners (``PeerScan``).
+    let peerScan = PeerScan()
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "remote-localhost")
     /// Open connections, capped so a flood cannot exhaust descriptors.
     static let maxConnections = 256

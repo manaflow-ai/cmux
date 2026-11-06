@@ -57,7 +57,7 @@ public final class BackdropCatalogStore {
             var watched = Set(folders)
             // wakeup-allow: rearm only when a catalog changes the folders; otherwise await a file event.
             watch: while !Task.isCancelled {
-                let changes = FolderChanges(folders: Array(watched)).events()
+                let changes = await FolderChanges(folders: Array(watched)).events()
                 await self?.refresh(build)
                 guard let next = self?.watchFolders(folders) else { return }
                 if next != watched { watched = next; continue }

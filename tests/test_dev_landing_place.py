@@ -3,18 +3,25 @@
 
 scripts/ci/dev_landing_place.py picks the runner for cmux-next.yml's dev-landing-compile: a free
 owned root runner on the host whose holder record (cmux-next-dev-cas-holder-<host>) names the
-nearest commit, else any free owned runner, else Blacksmith after about two minutes. These pin
+nearest commit, else any free owned runner, else no compile after about two minutes. These pin
 the picker's rules against fake runner listings and a real git history, and the holder
 record script (dev-cas-holder.sh). tests/test_cmux_next_dev_landing_workflow.py pins the
 workflow's wiring.
 """
 from __future__ import annotations
 
+import base64
+import contextlib
+import datetime as dt
+import gzip
+import io
 import json
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -125,10 +132,12 @@ class PickerTests(unittest.TestCase):
             runner("c-glaeda-1", ROOT_LABEL), runner("d-glaeda-2", "glaeda-side-light-xcode-26.6")], SIDE)
         self.assertEqual((roots, sides), ([], []))
 
-    def test_no_free_owned_mac_for_two_minutes_overflows_to_blacksmith(self):
+    def test_no_free_owned_mac_for_two_minutes_compiles_nothing(self):
+        # Never Blacksmith macOS: a landing compile only warms a host tree, which a VM does not keep.
         result, reads = self.run_place([root_runner("cmux14-glaeda-1", busy=True)])
-        self.assertEqual((json.loads(result["runs_on"]), result["pool"]), ("blacksmith-12vcpu-macos-26", "blacksmith"))
+        self.assertEqual((result["runs_on"], result["runner_label"], result["pool"]), ("", "", "none"))
         self.assertEqual(reads, 5, "looks at t=0,30,60,90,120 and no later")
+        self.assertFalse(hasattr(place, "overflow_label"))
 
     def test_a_mac_freed_during_the_wait_is_taken(self):
         def runners(read):
@@ -136,12 +145,11 @@ class PickerTests(unittest.TestCase):
         result, reads = self.run_place(runners)
         self.assertEqual((json.loads(result["runs_on"]), reads), (SIDE, 3))
 
-    def test_unreadable_runners_and_owned_off_overflow_at_once(self):
+    def test_unreadable_runners_and_owned_off_compile_nothing_at_once(self):
         result, reads = self.run_place(RuntimeError("HTTP 403"))
-        self.assertEqual((json.loads(result["runs_on"]), result["pool"], reads),
-                         ("blacksmith-12vcpu-macos-26", "blacksmith", 1))
+        self.assertEqual((result["runs_on"], result["pool"], reads), ("", "none", 1))
         result, reads = self.run_place([], SIDE_LABEL="blacksmith-6vcpu-macos-26")
-        self.assertEqual((result["pool"], reads), ("blacksmith", 0))
+        self.assertEqual((result["runs_on"], result["pool"], reads), ("", "none", 0))
 
     def test_other_landings_in_flight_are_not_placed_on_again(self):
         now = place.dt.datetime(2026, 10, 26, 12, tzinfo=place.dt.timezone.utc)
@@ -182,6 +190,192 @@ class PickerTests(unittest.TestCase):
         self.assertEqual(gap(commits[9], commits[9]), "0")
         self.assertEqual(gap("", commits[9]), "")
         self.assertEqual(gap("f" * 40, commits[9]), "")
+
+
+FRESH = "glaeda-dev-std-xcode-26.6"
+SMALL, LARGE = "blacksmith-6vcpu-macos-26", "blacksmith-12vcpu-macos-26"
+NOW = dt.datetime(2026, 11, 2, 10, 12, tzinfo=dt.timezone.utc)
+
+
+def snapshot(waits: dict[str, int], age_minutes: int = 2) -> dict:
+    """A queue janitor pool snapshot: each Blacksmith label's oldest queued job's wait, in minutes."""
+    generated = (NOW - dt.timedelta(minutes=age_minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return {"generated_at": generated, "label_started": {label: generated for label in waits},
+            "pools": {label: {"queued": 1 if wait else 0, "oldest_queued_minutes": wait, "running": 1}
+                      for label, wait in waits.items()}}
+
+
+def slot(name: str, *, pinned: bool = True, **kwargs) -> dict:
+    return runner(name, FRESH, *([place.static_label(name)] if pinned else []), **kwargs)
+
+
+class DailyPickerTests(unittest.TestCase):
+    """FRESH_LABEL set: a DEV daily's compile goes to the idle runner nearest its cache (dev-daily-place)."""
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.history = History(Path(temp.name))
+        self.head = self.history.commits[-1]
+
+    def env(self, **overrides) -> dict:
+        env = {"SIDE_LABEL": SIDE, "SHA": self.head, "GITHUB_REPOSITORY_ID": REPO_ID, "GAP_REPO": self.history.path,
+               "FRESH_LABEL": FRESH}
+        env.update(overrides)
+        return env
+
+    def records(self, **gaps: int) -> dict[str, list[dict]]:
+        """Holder records `gap` commits behind the head, by host."""
+        return {host: [holder(host, self.history.commits[9 - gap], "2026-10-28T10:00:00Z")] for host, gap in gaps.items()}
+
+    def daily(self, runners, holders, snapshot=None, **overrides) -> dict:
+        """One placement. It never sleeps and never reads job lists: both raise here. `snapshot` is the queue
+        janitor's pool snapshot the Blacksmith overflow reads (None: unread, an unverified pick)."""
+        def read_runners():
+            if callable(runners):
+                return runners()
+            return runners
+
+        def never(*_):
+            raise AssertionError("a DEV daily placement reads one runner listing and never waits")
+
+        def overflow():
+            return place.blacksmith_overflow(overrides.get("BLACKSMITH_CANDIDATE", ""), snapshot, NOW)
+        return place.place(self.env(**overrides), read_runners, lambda host: holders.get(host, []),
+                           read_in_flight=never, sleep=never, clock=lambda: 0.0, overflow=overflow)
+
+    def test_the_nearest_pinned_slot_wins_over_a_farther_slot_and_root(self):
+        runners = [slot("cmux8s-glaeda-2"), slot("cmux11s-glaeda-2"), root_runner("cmux11s-glaeda")]
+        result = self.daily(runners, self.records(cmux8s=1, cmux11s=5))
+        self.assertEqual(json.loads(result["runs_on"]), [FRESH, place.static_label("cmux8s-glaeda-2")])
+        self.assertEqual((result["runner_label"], result["host"], result["gap"]), (FRESH, "cmux8s", "1"))
+
+    def test_a_slot_before_a_root_at_equal_distance_and_a_nearer_root_before_a_farther_slot(self):
+        result = self.daily([root_runner("cmux8s-glaeda"), slot("cmux8s-glaeda-2")], self.records(cmux8s=2))
+        self.assertEqual(json.loads(result["runs_on"]), [FRESH, place.static_label("cmux8s-glaeda-2")])
+        result = self.daily([root_runner("cmux8s-glaeda"), slot("cmux11s-glaeda-2")], self.records(cmux8s=1, cmux11s=2))
+        self.assertEqual((json.loads(result["runs_on"]), result["runner_label"]),
+                         ([ROOT_LABEL, place.static_label("cmux8s-glaeda")], ROOT_LABEL))
+
+    def test_an_unpinned_slot_claims_its_host_only_as_the_one_idle_slot(self):
+        # The other slot is busy, so the shared label resolves to this one runner.
+        result = self.daily([slot("cmux8s-glaeda-2", pinned=False), slot("cmux11s-glaeda-2", busy=True)],
+                            self.records(cmux8s=1))
+        self.assertEqual((json.loads(result["runs_on"]), result["host"]), (FRESH, "cmux8s"))
+        # Two idle unpinned slots: the label could land on either, so no host is claimed and nothing waits.
+        idle_two = [slot("cmux8s-glaeda-2", pinned=False), slot("cmux11s-glaeda-2", pinned=False)]
+        result = self.daily(idle_two, self.records(cmux8s=1, cmux11s=9))
+        self.assertEqual((json.loads(result["runs_on"]), result["host"], result["gap"]), (FRESH, "", ""))
+        # A pinned root on the warm host does claim it.
+        result = self.daily(idle_two + [root_runner("cmux8s-glaeda")], self.records(cmux8s=1, cmux11s=9))
+        self.assertEqual(json.loads(result["runs_on"]), [ROOT_LABEL, place.static_label("cmux8s-glaeda")])
+
+    def test_an_occupied_host_counts_its_idle_slots_against_uniqueness(self):
+        # cmux11s is occupied, but its idle unpinned slot can still take the shared label: no host is claimed
+        # for cmux8s's slot, and the pinned root there wins.
+        runners = [slot("cmux8s-glaeda-2", pinned=False), slot("cmux11s-glaeda-2", pinned=False),
+                   runner("cmux11s-glaeda-3", SIDE, busy=True), root_runner("cmux8s-glaeda")]
+        result = self.daily(runners, self.records(cmux8s=1, cmux11s=1))
+        self.assertEqual(json.loads(result["runs_on"]), [ROOT_LABEL, place.static_label("cmux8s-glaeda")])
+
+    def test_a_host_with_any_busy_runner_is_not_picked(self):
+        # Whatever holds cmux8s's host lock (a push's compile, a landing's, a daily's) runs on one of its
+        # runners; the busy flag is enough, whatever the job is called.
+        runners = [root_runner("cmux8s-glaeda"), slot("cmux8s-glaeda-2"), runner("cmux8s-glaeda-3", SIDE, busy=True),
+                   slot("cmux11s-glaeda-2")]
+        result = self.daily(runners, self.records(cmux8s=0, cmux11s=6))
+        self.assertEqual((json.loads(result["runs_on"]), result["host"]),
+                         ([FRESH, place.static_label("cmux11s-glaeda-2")], "cmux11s"))
+
+    def test_it_never_waits_for_a_busy_warm_host(self):
+        result = self.daily([slot("cmux8s-glaeda-2", busy=True), slot("cmux11s-glaeda-2")], self.records(cmux8s=0, cmux11s=9))
+        self.assertEqual(result["host"], "cmux11s")
+
+    def test_without_a_claimable_warm_host_the_shared_slot_label_then_side_then_blacksmith(self):
+        result = self.daily([slot("cmux8s-glaeda-2"), runner("cmux13s-glaeda-9", SIDE)], {})
+        self.assertEqual((json.loads(result["runs_on"]), result["pool"], result["host"]), (FRESH, "owned", ""))
+        result = self.daily([slot("cmux8s-glaeda-2", busy=True), runner("cmux13s-glaeda-9", SIDE)], self.records(cmux8s=1))
+        self.assertEqual((json.loads(result["runs_on"]), result["pool"]), (SIDE, "owned"))
+        result = self.daily([slot("cmux8s-glaeda-2", status="offline"), runner("cmux13s-glaeda-9", SIDE, busy=True)],
+                            self.records(cmux8s=1))
+        self.assertEqual((json.loads(result["runs_on"]), result["runner_label"], result["pool"]), (SMALL, SMALL, "blacksmith"))
+
+    def test_with_nothing_owned_idle_it_overflows_to_a_moving_blacksmith_label_not_the_busy_dev_slot(self):
+        # 2026-11-02: from 10:12Z 15 DEV daily compiles queued up to 1.5 h on glaeda-dev-std-xcode-26.6, whose two
+        # runners were busy and offline: a label one or two runners serve is a reservation, and
+        # every reservation has a fallback within minutes. Blacksmith macOS is the routing order's last resort.
+        busy = [slot("cmux8s-glaeda-2", busy=True), slot("cmux11s-glaeda-2", status="offline"),
+                runner("cmux13s-glaeda-9", SIDE, busy=True)]
+        for snap, label in ((snapshot({SMALL: 0, LARGE: 0}), SMALL), (snapshot({SMALL: 40, LARGE: 0}), LARGE),
+                            (None, SMALL)):
+            with self.subTest(snapshot=snap):
+                result = self.daily(busy, self.records(cmux8s=1, cmux11s=0), snap)
+                self.assertEqual((json.loads(result["runs_on"]), result["runner_label"], result["pool"], result["host"]),
+                                 (label, label, "blacksmith", ""))
+                self.assertNotEqual(json.loads(result["runs_on"]), FRESH)
+        # The variable's size comes first while it moves.
+        result = self.daily(busy, {}, snapshot({SMALL: 0, LARGE: 0}), BLACKSMITH_CANDIDATE=LARGE)
+        self.assertEqual(json.loads(result["runs_on"]), LARGE)
+
+    def test_only_with_every_blacksmith_label_stalled_it_waits_on_a_busy_dev_slot_not_behind_the_side_queue(self):
+        # 2026-10-30: five DEV daily compiles queued on glaeda-side-std-xcode-26.6 from 13:55Z behind about 184 PR
+        # and side jobs (GitHub hands a label's queue out oldest first), while the DEV slots, which admit only feed
+        # work, ran DEV compiles. Waiting on the slot label puts it behind DEV work only.
+        stalled = snapshot({SMALL: 49, LARGE: 30})
+        result = self.daily([slot("cmux8s-glaeda-2", busy=True), slot("cmux9s-glaeda-2", status="offline"),
+                             runner("cmux13s-glaeda-9", SIDE, busy=True)], self.records(cmux8s=1, cmux9s=0), stalled)
+        self.assertEqual((json.loads(result["runs_on"]), result["runner_label"], result["pool"], result["host"]),
+                         (FRESH, FRESH, "owned", ""))
+        self.assertIn("DEV slot", result["reason"])
+        # No DEV slot online either: the compile keeps its route.
+        result = self.daily([slot("cmux8s-glaeda-2", status="offline"), runner("cmux13s-glaeda-9", SIDE, busy=True)],
+                            {}, stalled)
+        self.assertEqual((result["runs_on"], result["pool"]), ("", ""))
+
+    def test_an_idle_owned_runner_always_beats_blacksmith(self):
+        result = self.daily([slot("cmux8s-glaeda-2", busy=True), runner("cmux13s-glaeda-9", SIDE)], {},
+                            snapshot({SMALL: 0, LARGE: 0}))
+        self.assertEqual((json.loads(result["runs_on"]), result["pool"]), (SIDE, "owned"))
+
+    def test_unreadable_runners_or_owned_pools_off_keep_the_route(self):
+        def refused():
+            raise RuntimeError("HTTP 403")
+        self.assertEqual(self.daily(refused, self.records(cmux8s=1))["runs_on"], "")
+        self.assertEqual(self.daily([slot("cmux8s-glaeda-2")], {}, SIDE_LABEL="blacksmith-6vcpu-macos-26")["runs_on"], "")
+
+
+class SharedFirstLook(unittest.TestCase):
+    def test_busy_document_is_used_once_then_live_state_places_the_compile(self):
+        import pr_runner_pool as pool
+        idle = dict(root_runner("synthetic-glaeda-1"), id=1, os="macOS")
+        busy = dict(idle, busy=True)
+        doc = dict(schema="runner-state/v1", repository="manaflow-ai/cmux", complete=True,
+                   generated_at=dt.datetime.now(dt.timezone.utc).isoformat(),
+                   repository_runners=[], runner_groups={"glaeda-minis": [busy]}, scale_sets={})
+        raw = base64.b64encode(gzip.compress(json.dumps(doc).encode())).decode()
+        env = dict(GITHUB_REPOSITORY="manaflow-ai/cmux", ROUTE_TOKEN="synthetic-token", SIDE_LABEL=SIDE,
+                   SHA="a" * 40, WAIT_SECONDS="60", POLL_SECONDS="30", CI_RUNNER_STATE=raw)
+        paths, clock, output = [], [0.0], io.StringIO()
+        def api(path):
+            paths.append(path)
+            if "visible_to_repository" in path:
+                return {"runner_groups": [{"name": "glaeda-minis", "id": 10}]}
+            if "/10/runners" in path:
+                return {"runners": [idle]}
+            return {}
+        real_place = place.place
+        def execute(env, *args, **kwargs):
+            return real_place(env, *args, **kwargs, clock=lambda: clock[0],
+                              sleep=lambda seconds: clock.__setitem__(0, clock[0] + seconds))
+        with mock.patch.dict(os.environ, env, clear=True), \
+             mock.patch.object(pool.GitHub, "get_api", side_effect=api), \
+             mock.patch.object(place, "place", side_effect=execute), \
+             contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(place.main([]), 0)
+        self.assertIn(place.static_label(idle["name"]), output.getvalue())
+        self.assertEqual(clock[0], 30)
+        self.assertEqual(sum("/10/runners" in path for path in paths), 1)
+        self.assertEqual(sum(path.startswith("/repos/manaflow-ai/cmux/actions/runners") for path in paths), 1)
 
 
 class HolderScriptTests(unittest.TestCase):

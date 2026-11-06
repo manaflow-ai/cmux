@@ -22,8 +22,8 @@ public struct SidebarDebugRow: Sendable {
     /// The workspace row's merged status (`StatusIndicatorState`), e.g.
     /// `success` for an unseen done, nil for other rows.
     public var activity: String? = nil
-    /// The icon the row's view draws (`symbol`, `swatch`, `emoji`, `favicon`; workspace and
-    /// tab rows), nil when it draws none or has no live view, e.g. scrolled off (`SidebarRowView.debugIcon`).
+    /// The icon the row's view draws (`symbol`, `swatch`, `emoji`, `favicon`; workspace
+    /// rows), nil when it draws none or has no live view, e.g. scrolled off (`SidebarRowView.debugIcon`).
     public var icon: String? = nil
     /// The address of the favicon a link row draws.
     public var iconAddress: String? = nil
@@ -144,6 +144,48 @@ extension SidebarViewComponents {
 
     /// Whether a drag is active now (a tile drag hides no list row, so `dragging` can be empty while it runs).
     public func debugDragActive() -> Bool { list.drag != nil }
+
+    /// The middle of the topmost shown usage warning badge in window coordinates, for a synthetic
+    /// pointer (`debug.pointer_hover {usageWarning: true}`), so a capture shows its tooltip; nil
+    /// when no row shows one.
+    public func debugUsageWarningCenterInWindow() -> CGPoint? {
+        list.rowViews.values.compactMap { ($0 as? WorkspaceRowView)?.usageWarningMark }
+            .filter { !$0.isHiddenOrHasHiddenAncestor && $0.window != nil }
+            .map { $0.convert(CGPoint(x: $0.bounds.midX, y: $0.bounds.midY), to: nil) }
+            .max { $0.y < $1.y }
+    }
+
+    /// The middle of workspace `id`'s drawn row in window coordinates (bottom-left origin), read now, for a
+    /// synthetic pointer (`debug.pointer_hover {row}`, `debug.pointer_sweep`); nil when the row has no shown view.
+    /// `id` is the workspace's id, or its daemon id when the list qualifies it by machine.
+    public func debugRowCenterInWindow(workspace id: String) -> CGPoint? {
+        guard let view = debugRowView(workspace: id), view.window != nil, !view.isHiddenOrHasHiddenAncestor else { return nil }
+        return view.convert(CGPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+    }
+
+    /// Why ``debugRowCenterInWindow(workspace:)`` found no point for `id`: the list's and the row view's state.
+    public func debugRowMiss(workspace id: String) -> [String: Any] {
+        let view = debugRowView(workspace: id)
+        let keys = list.displayed.rows.prefix(3).map { String(describing: $0.key) }
+        return ["presentation": String(describing: model.presentation), "row_views": list.rowViews.count, "rows": list.displayed.rows.count, "first_keys": keys,
+                "list_in_window": list.window != nil, "list_hidden": list.isHiddenOrHasHiddenAncestor,
+                "sidebar_frame": [frame.minX, frame.minY, frame.width, frame.height].map { Double($0) },
+                "view": view.map { ["in_window": $0.window != nil, "hidden": $0.isHiddenOrHasHiddenAncestor] as [String: Any] } ?? NSNull()]
+    }
+
+    /// Workspace `id`'s row view: by its key, or by a key that names it (a list key qualified by machine).
+    private func debugRowView(workspace id: String) -> SidebarRowView? {
+        list.rowViews[.workspace(WorkspaceID(id))] ?? list.rowViews.first { key, _ in
+            if case let .workspace(row) = key { return row.rawValue.contains(id) }
+            return false
+        }?.value
+    }
+
+    /// The workspace whose row the list shows hovered now; nil for none or another kind of row.
+    public var debugHoveredWorkspace: String? {
+        guard case let .workspace(id)? = list.hoveredKey else { return nil }
+        return id.rawValue
+    }
 
     /// The new-workspace button (+) in window points from the top-left, so a
     /// proof clicks it (`debug.mouse`); nil while it is hidden.

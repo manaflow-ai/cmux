@@ -2,8 +2,9 @@
 // path is (inside the session's folders, outside, on the deny list, missing) and the favicon and
 // title cmux already has for each URL. Requests from one render are batched into one call; the
 // answers are kept for the page's life. The host never fetches anything for this.
-import { useSyncExternalStore } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import { callChipHost } from "./host";
+import { useTranscriptReadOnly } from "../conversation/readOnly";
 
 export type PathPlace = "root" | "outside" | "denied" | "missing";
 export type PathInfo = { place: PathPlace; folder: boolean };
@@ -117,21 +118,34 @@ const useStore = <T>(read: () => T): T => useSyncExternalStore(subscribe, read, 
 /// The host's answer for `path` (undefined while it is asked, or when the host had none), whether
 /// the host has answered, and the policy.
 export function usePathInfo(path: string): { info: PathInfo | undefined; answered: boolean; policy: ReplyPolicy } {
-  ask(path);
+  // Read only (a guest), the owner's host is never asked; the path stays unanswered.
+  const readOnly = useTranscriptReadOnly();
+  if (!readOnly) ask(path);
   const info = useStore(() => paths.get(path) ?? undefined);
-  const answered = useStore(() => !asking.has(path));
+  const answered = useStore(() => !readOnly && !asking.has(path));
   return { info, answered, policy: useStore(() => policy) };
+}
+
+/// Which of `list` the host says are gone (a file the agent made, then deleted): asked as a path chip
+/// asks (one batched `link.inspect`), and the same set while the answer is the same.
+export function useMissingPaths(list: readonly string[]): ReadonlySet<string> {
+  const readOnly = useTranscriptReadOnly();
+  if (!readOnly) for (const path of list) ask(path);
+  const key = useStore(() => list.filter((path) => paths.get(path)?.place === "missing").join("\u0000"));
+  return useMemo(() => new Set(key ? key.split("\u0000") : []), [key]);
 }
 
 /// What cmux already has for `url` (nothing while it is asked, or when it has nothing).
 export function useSiteInfo(url: string | undefined): SiteInfo | undefined {
-  if (url) ask(undefined, url);
+  const readOnly = useTranscriptReadOnly();
+  if (url && !readOnly) ask(undefined, url);
   return useStore(() => (url ? (sites.get(url) ?? undefined) : undefined));
 }
 
 /// `agentPane.images.remote` and `agentPane.links.outsideRoots` as the host last said.
 export function useReplyPolicy(): ReplyPolicy {
-  ask();
+  const readOnly = useTranscriptReadOnly();
+  if (!readOnly) ask();
   return useStore(() => policy);
 }
 

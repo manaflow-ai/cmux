@@ -2,8 +2,9 @@
 // snaps an inset box-shadow's inner edge to whole device pixels but not its rounded outer clip, so
 // a rim thinner than one device pixel (the 0.5px rim on a 1x display, a 1px ring at 125% zoom)
 // loses whole edges and the arcs next to them. Linux engines draw such a rim fine, so this checks
-// the geometry contract instead: at each device scale, every inset ring on these boxes is a whole
-// number of device pixels (the rim one at 1x and 2x), and the composer's rim clears with
+// the geometry contract instead: at each device scale, every crisp inset ring on these boxes (not
+// the glass material's blurred highlights) is a whole number of device pixels (the rim one at 1x
+// and 2x), and the composer's rim clears with
 // `appearance.borders` none, as the New Tab box's does. Focus draws no ring and no glass rim: a
 // focused box keeps its one rim at the same width, a step brighter (Leo 2026-10-21: "a subtle
 // hairline border that brightens slightly on focus"; agent-pane-hairline-focus.test.ts).
@@ -79,12 +80,17 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
           const lengths = [...entry.replace(/\([^)]*\)/g, "").matchAll(/(-?[\d.]+)px/g)].map((match) =>
             Number(match[1]),
           );
+          // A rim line is crisp. The glass material's blurred highlights (glass.css, "GLASS MATERIAL":
+          // the specular band, its return and the sheen) are soft light, not rings: WebKit's
+          // whole-pixel snap cannot break them at the corners.
+          if ((lengths[2] ?? 0) > 0) return undefined;
           const color = entry.match(/(?:rgba?|color)\([^)]*\)/)?.[0] ?? "";
           const alphaMatch = color.match(/\/\s*([\d.]+)\)|rgba\([^,]+,[^,]+,[^,]+,\s*([\d.]+)\)/);
           const alpha =
             color === "" || color.includes("transparent") ? 0 : alphaMatch ? Number(alphaMatch[1] ?? alphaMatch[2]) : 1;
           return { offsetY: lengths[1] ?? 0, spread: lengths[3] ?? 0, alpha };
-        });
+        })
+        .filter((inset) => inset !== undefined);
     }, id);
   }
 
@@ -142,13 +148,15 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
 
   // The glass card adds a top-lit rim, one device pixel (--cmux-hairline): over art under Lens the
   // liquid glass's specular line, under Plain glass the composer's light rim (composerStates.css).
-  // Under a strip or a queue the card's ring is drawn once, by the ::before layer round strip and
-  // card together (composerLocation.css), so the card itself must not draw the ring a second time.
+  // Under a queue the card's ring is drawn once, by the ::before layer whose sides the queue carries
+  // on up (composerLocation.css), so the card itself must not draw the ring a second time. Under a
+  // new chat's location strip the card keeps its own whole ring and no layer (#25304, Leo
+  // 2026-10-25: the strip's chips stand over the started chat's card).
   for (const [mode, rim] of [
     ["lens", "0px 0.5px 0px 0px inset"],
     ["plain", "0px 0.5px 0px 0px inset"],
   ] as const) {
-    test(`over art a card under a strip or a queue draws the ${mode} rim but not a second ring`, async () => {
+    test(`over art a card under a queue draws the ${mode} rim but not a second ring; under a strip its own`, async () => {
       const page = await open(2);
       await page.evaluate((mode) => {
         document.documentElement.setAttribute("data-cmux-see-through", "");
@@ -161,11 +169,12 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
           [id, pseudo],
         );
       expect((await ring("composer")).length, "a card on its own keeps its ring").toBe(1);
-      for (const id of ["strip-composer", "queue-composer"]) {
-        expect(await ring(id), `${id} draws no ring of its own`).toEqual([]);
-        expect(await shadow(id), `${id} keeps the glass rim`).toContain(rim);
-        expect(await shadow(id, "::before"), `${id}'s ring layer`).toMatch(/inset/);
-      }
+      expect(await ring("queue-composer"), "queue-composer draws no ring of its own").toEqual([]);
+      expect(await shadow("queue-composer"), "queue-composer keeps the glass rim").toContain(rim);
+      expect(await shadow("queue-composer", "::before"), "queue-composer's ring layer").toMatch(/inset/);
+      expect((await ring("strip-composer")).length, "strip-composer keeps its one ring").toBe(1);
+      expect(await shadow("strip-composer"), "strip-composer keeps the glass rim").toContain(rim);
+      expect(await shadow("strip-composer", "::before"), "no ring layer round the strip").toBe("none");
       await page.close();
     });
   }

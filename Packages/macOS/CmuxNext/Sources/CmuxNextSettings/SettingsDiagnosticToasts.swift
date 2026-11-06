@@ -79,7 +79,10 @@ final class SettingsDiagnosticToasts {
     /// Where the toast's button goes.
     enum Destination: Equatable { case row, shortcuts, file }
 
-    static func destination(_ path: String) -> Destination {
+    static func destination(_ path: String, file: String? = nil) -> Destination {
+        // A theme file's entry with no row (a color, an unknown key, the file itself) shows at the
+        // theme file's row.
+        if file != nil { return .row }
         if path.isEmpty { return .file }
         if SettingsSchema.descriptor(for: CmuxConfigFile.keyPath(from: path))?.isShownOnSettingsPage == true { return .row }
         return path.hasPrefix("shortcuts.") ? .shortcuts : .file
@@ -89,16 +92,18 @@ final class SettingsDiagnosticToasts {
                       in window: NSWindow) -> CmuxToastHandle {
         var message = SettingsDiagnosticStrings.message(notice, valueLimit: Self.valueLimit)
         if more { message += " " + SettingsDiagnosticStrings.more }
-        let destination = Self.destination(notice.path)
+        let destination = Self.destination(notice.path, file: notice.file)
+        let rowPath = notice.file != nil && SettingsSchema.descriptor(for: CmuxConfigFile.keyPath(from: notice.path))?.isShownOnSettingsPage != true
+            ? ThemeFileSetting.path.joined(separator: ".") : notice.path
         let action = CmuxToast.Action(title: destination == .file ? SettingsDiagnosticStrings.openFile : SettingsDiagnosticStrings.showInSettings)
         let toast = CmuxToast(id: Self.toastID, message: message, action: action,
                               duration: style == .untilClosed ? CmuxToast.untilClosed : .seconds(12))
         let handle = CmuxToastCenter.shared.show(toast, in: window)
-        handle.onAction = { [weak registry = self.registry] in
+        handle.onAction = { [weak registry = self.registry] in // toast-target-allow: the toast names a refused setting; its button opens that row
             guard let registry else { return }
             switch destination {
             case .row:
-                _ = registry.perform("openSettings", invocation: ActionInvocation(arguments: ["setting": .string(notice.path)], origin: .user))
+                _ = registry.perform("openSettings", invocation: ActionInvocation(arguments: ["setting": .string(rowPath)], origin: .user))
             case .shortcuts:
                 _ = registry.perform("openSettings", invocation: ActionInvocation(arguments: ["section": .string("keyboard")], origin: .user))
             case .file:
@@ -138,6 +143,12 @@ enum SettingsDiagnosticStrings {
 
     /// The reason is the settings layer's English text, as Settings shows it at the row.
     static func message(_ notice: SettingsDiagnosticNotices.Notice, valueLimit: Int) -> String {
+        // A theme file's refusal names that file where cmux-next.json's names cmux-next.json (a file
+        // name, the same in every language).
+        if let file = notice.file {
+            return message(SettingsDiagnosticNotices.Notice(path: notice.path, value: notice.value, message: notice.message), valueLimit: valueLimit)
+                .replacingOccurrences(of: "cmux-next.json", with: file)
+        }
         if notice.path.isEmpty {
             return format("settings.diagnostic.unreadable", "cmux-next.json could not be read (%@). The last settings that loaded stay in effect.",
                           notice.message)

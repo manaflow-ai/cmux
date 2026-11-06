@@ -1,9 +1,9 @@
 // l10n-allow-file: test fixtures, not shipped UI.
 // Review of #23259: acpmux's session detail names the folder's branch `gitBranch`
 // (cmux-tui/crates/acpmux/src/hub/views.rs session_detail), never `branch`, so the chat header's
-// Environment line and the Inspector's Environment showed no branch for any real chat. acpmux keeps
+// Environment line and Session Info's Environment showed no branch for any real chat. acpmux keeps
 // it live (hub/git_watch.rs): a checkout mid-session reaches a client holding the chat as
-// `_acpmux/session_changed` kind `git`, and the header and Inspector follow it.
+// `_acpmux/session_changed` kind `git`, and the header and Session Info follow it.
 import { expect, test } from "bun:test";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 

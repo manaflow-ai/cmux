@@ -6,7 +6,7 @@
 # reply, records the first turn's requests, counts their input tokens through
 # the team subrouter (count_tokens) and fails when one is over the limit.
 #   cmux-ci run --class isolated --script scripts/ci/chief-first-turn-cost.sh --ref SHA \
-#     --arg=count_url=http://HOST:PORT [--arg=limit=50000] [--arg=claude=X.Y.Z] \
+#     --arg=count_url=http://HOST:PORT [--arg=scenario=smoke|coordinator] [--arg=limit=50000] [--arg=claude=X.Y.Z] \
 #     [--arg=force_full_tools=1] [--arg=turns=N] [--arg=real=1 --arg=min_hit=PCT] --timeout 6000
 # count_url= is a Claude route that needs no credential (a router that signs
 # requests itself); only count_tokens goes there, never a turn (except real=1).
@@ -31,6 +31,7 @@
 # Output: FIRST-TURN-COST lines; files under .build/chief-first-turn.
 set -euo pipefail
 count_url=""
+scenario="smoke"
 limit=50000
 claude_version="2.1.300"
 force_full_tools=0
@@ -40,6 +41,7 @@ min_hit=0
 for arg in "$@"; do
   case "$arg" in
     count_url=*) count_url="${arg#count_url=}" ;;
+    scenario=*) scenario="${arg#scenario=}" ;;
     limit=*) limit="${arg#limit=}" ;;
     claude=*) claude_version="${arg#claude=}" ;;
     force_full_tools=*) force_full_tools="${arg#force_full_tools=}" ;;
@@ -50,6 +52,11 @@ for arg in "$@"; do
   esac
 done
 [[ "$count_url" =~ ^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]] || { echo "chief-first-turn-cost.sh: count_url=http://HOST[:PORT] is required" >&2; exit 2; }
+[[ "$scenario" =~ ^(smoke|coordinator)$ ]] || { echo "chief-first-turn-cost.sh: scenario=smoke|coordinator" >&2; exit 2; }
+if [[ "$scenario" == coordinator && "$real" != 1 ]]; then
+  echo "chief-first-turn-cost.sh: scenario=coordinator requires real=1" >&2
+  exit 2
+fi
 [[ "$limit" =~ ^[1-9][0-9]{2,6}$ ]] || { echo "chief-first-turn-cost.sh: limit is a token count" >&2; exit 2; }
 [[ "$claude_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "chief-first-turn-cost.sh: claude=X.Y.Z" >&2; exit 2; }
 [[ "$force_full_tools" =~ ^[01]$ ]] || { echo "chief-first-turn-cost.sh: force_full_tools=0|1" >&2; exit 2; }
@@ -147,19 +154,41 @@ if [[ "$real" == 1 ]]; then
   base_url="$count_url"
   api_key="sk-ant-placeholder-the-router-signs"
 else
-  python3 -I Native/OptChat/optchat-chief/measure/first_turn_cost.py proxy "$work/cap" > "$work/proxy.log" 2>&1 &
+  # The stand-in prints its port once it listens. Wait for that line or for the
+  # stand-in to end (its stdout closes), not a fixed 10 s: a slow start on one host
+  # (cx-rkzfny: a 35 s reverse DNS lookup) failed with nothing to show. 300 s bounds a hung start.
+  mkfifo "$work/proxy.out"
+  python3 -I Native/OptChat/optchat-chief/measure/first_turn_cost.py proxy "$work/cap" > "$work/proxy.out" 2> "$work/proxy.log" &
   proxy_pid=$!
-  for _ in $(seq 1 100); do [[ -s "$work/cap/port" ]] && break; sleep 0.1; done
-  [[ -s "$work/cap/port" ]] || { echo "FIRST-TURN-COST the stand-in did not start" >&2; cat "$work/proxy.log" >&2; exit 1; }
-  base_url="http://127.0.0.1:$(cat "$work/cap/port")"
+  # Held open until the step ends, so later output from the stand-in never meets a closed pipe.
+  exec 7< "$work/proxy.out"
+  proxy_port=""
+  proxy_started=$SECONDS
+  IFS= read -r -t 300 proxy_port <&7 || true
+  if [[ ! "$proxy_port" =~ ^[0-9]+$ ]]; then
+    # The read timed out, or the stand-in closed its stdout as it ended. Steps run under
+    # bash 3.2, whose read exits 1 in both cases, so the time it took says which.
+    if (( SECONDS - proxy_started >= 299 )); then
+      proxy_end="still running after $((SECONDS - proxy_started)) s"
+    else
+      proxy_status=0
+      wait "$proxy_pid" || proxy_status=$?
+      proxy_end="exited with status $proxy_status after $((SECONDS - proxy_started)) s"
+    fi
+    echo "FIRST-TURN-COST the stand-in did not start: $proxy_end; python3 is $(command -v python3 || echo missing) ($(python3 -V 2>&1 || true))" >&2
+    cat "$work/proxy.log" >&2
+    exit 1
+  fi
+  echo "FIRST-TURN-COST-PROXY port $proxy_port after $((SECONDS - proxy_started)) s"
+  base_url="http://127.0.0.1:$proxy_port"
   api_key="sk-ant-placeholder-no-model-runs"
 fi
 
 status=0
-HOME="$work/home" python3 Native/OptChat/optchat-chief/measure/chief_driver.py --scenario smoke --only "$only" \
+HOME="$work/home" python3 Native/OptChat/optchat-chief/measure/chief_driver.py --scenario "$scenario" --only "$only" \
   --out "$work/run" --bins "$work/bin" --turn-timeout 600 \
   --env "ANTHROPIC_BASE_URL=$base_url" --env "ANTHROPIC_API_KEY=$api_key" \
-  --env "CLAUDE_CONFIG_DIR=$work/home/.claude" --env "DISABLE_AUTOUPDATER=1" > "$work/driver.log" 2>&1 &
+  --env "CLAUDE_CONFIG_DIR=$work/home/.claude" --env "DISABLE_AUTOUPDATER=1" > "$work/driver.log" 2>&1 7<&- &
 driver_pid=$!
 wait "$driver_pid" || status=$?
 driver_pid=""
@@ -168,6 +197,17 @@ if [[ "$status" != 0 ]]; then echo "FIRST-TURN-COST the driver failed ($status)"
 if ! grep -q "acpmux cleanup: .*no process holds its locks" "$work/driver.log"; then
   echo "FIRST-TURN-COST acpmux cleanup not confirmed: $(grep "acpmux cleanup" "$work/driver.log" || echo 'no cleanup line')" >&2
   status=1
+fi
+if [[ "$scenario" == coordinator ]]; then
+  grep '^\[chief .*\] COORDINATOR ' "$work/driver.log" || true
+  if ! grep -q '^\[chief .*\] COORDINATOR owner_reply_posted=PASS' "$work/driver.log" \
+      || ! grep -q '^\[chief .*\] COORDINATOR ping_readback=PASS' "$work/driver.log" \
+      || ! grep -q '^\[chief .*\] COORDINATOR provenance_sender=PASS' "$work/driver.log" \
+      || ! grep -q '^\[chief .*\] COORDINATOR tool_list=' "$work/driver.log" \
+      || ! grep -q '^\[chief .*\] COORDINATOR ask_send_refused=PASS' "$work/driver.log"; then
+    status=1
+  fi
+  exit "$status"
 fi
 if [[ "$real" == 1 ]]; then
   # Every turn must have ended; then one line per turn from the driver's

@@ -8,6 +8,8 @@
 //! - `logs <role> [--bytes N]`: the end of a process role's log.
 //! - `rekey <instance-id>`: internal; the off-critical-path identity job
 //!   the agent starts after a bind.
+//! - `update status|check|guard`: the Cloud machine's self-update
+//!   (`updater`); the `updater` role runs it by itself.
 //! - `cloud daemon-info | probe-activity`: bake and smoke evidence for the
 //!   Cloud agent role (the daemon block bind sends; the activity stream).
 //!
@@ -25,7 +27,7 @@ use crate::config::{Config, Paths, STATUS_FILE};
 use crate::proc_roles::RolePaths;
 use crate::status;
 
-const USAGE: &str = "usage: cmux host run [--roles-only] [--mode user|system] | status [--json] [--root DIR] | roles [--json] | logs <role> [--bytes N] | cloud daemon-info|probe-activity [--root DIR] | team-ssh apply|accounts-apply|principals <user>|session-open|reap|sync [--root DIR] | team restricted-shell|whoami | team-enroll --team T --epoch E --nonce N | --commit …";
+const USAGE: &str = "usage: cmux host run [--roles-only] [--mode user|system] [--native-receiver] | status [--json] [--root DIR] | roles [--json] | logs <role> [--bytes N] | cloud daemon-info|probe-activity|clone-mark [--root DIR] | cloud identity | update status|check|guard --to N | team-ssh apply|accounts-apply|principals <user>|session-open|reap|sync [--root DIR] | team restricted-shell|whoami | team-enroll --team T --epoch E --nonce N | --commit …";
 
 fn code(n: u8) -> u8 {
     n
@@ -55,6 +57,7 @@ fn parse_run(args: &[String], self_argv: Vec<String>) -> Result<Config, String> 
                 let ms: u64 = value()?.parse().map_err(|e| format!("--rearm-delay-ms: {e}"))?;
                 cfg.rearm_delay = Duration::from_millis(ms);
             }
+            "--native-receiver" => cfg.native_receiver = true,
             "--no-announce" => cfg.announce = false,
             "--announce-interval-seconds" => {
                 let secs: u64 =
@@ -144,6 +147,7 @@ pub fn run(args: &[String], self_argv: Vec<String>) -> u8 {
         "logs" => logs_verb(rest),
         "rekey" => rekey_verb(rest),
         "cloud" => cloud_verb(rest),
+        "update" => update_verb(rest),
         "team-ssh" => crate::team_ssh::cli::run(rest),
         "team" => crate::team_ssh::team_cli::run(rest),
         "team-enroll" => crate::team_ssh::enroll::run(rest),
@@ -312,16 +316,49 @@ fn run_agent(mut cfg: Config) -> u8 {
     });
     // The Cloud agent role binds a cmux Cloud machine; it does nothing until
     // the driver writes bind.json (or bound.json exists from a past bind).
-    let cloud = crate::cloud::role::CloudRole::new(cfg.paths.clone());
+    // Creating the channel opens descriptors only. LinuxPlatform must block
+    // supervisor signals before the Cloud worker starts any thread.
+    // SAFETY: geteuid has no preconditions.
+    let bootstrap = if unsafe { libc::geteuid() } == 0 {
+        let host = if cfg.native_receiver {
+            cmux_link::root_bootstrap::Host::new_native()
+        } else {
+            cmux_link::root_bootstrap::Host::new()
+        };
+        match host {
+            Ok(host) => Some(std::sync::Arc::new(host)),
+            Err(error) if !cfg.native_receiver => {
+                eprintln!("cmux host: optional root lifetime channel unavailable: {error}");
+                None
+            }
+            Err(error) => {
+                eprintln!("cmux host: root bootstrap failed: {error}");
+                return code(1);
+            }
+        }
+    } else if cfg.native_receiver {
+        eprintln!("cmux host: --native-receiver requires root");
+        return code(4);
+    } else {
+        None
+    };
+    let cloud = crate::cloud::role::CloudRole::new(cfg.paths.clone())
+        .with_root_bootstrap(bootstrap.clone());
+    // The updater is last: it starts once every other role runs, and it
+    // stops first.
+    let updater = crate::updater::role::UpdaterRole::new(cfg.paths.clone());
     let platform = match crate::linux::LinuxPlatform::new(cfg) {
-        Ok(p) => p,
+        Ok(p) => p.with_root_bootstrap(bootstrap),
         Err(e) => {
             eprintln!("cmux host: setup failed: {e}");
             return code(1);
         }
     };
-    let roles: Vec<Box<dyn cmux_server_core::role::Role>> =
-        vec![Box::new(crate::proc_roles::ProcessRoles::new(work_user)), Box::new(cloud)];
+    let roles: Vec<Box<dyn cmux_server_core::role::Role>> = vec![
+        Box::new(crate::proc_roles::ProcessRoles::new(work_user)),
+        Box::new(cloud),
+        Box::new(updater),
+    ];
     match Agent::new(platform, roles, install, log).run() {
         Ok(()) => code(0),
         Err(e) => {
@@ -358,6 +395,22 @@ fn rekey_verb(args: &[String]) -> u8 {
 
 #[cfg(target_os = "linux")]
 fn cloud_verb(args: &[String]) -> u8 {
+    // Identity authority has no --root or environment override.
+    if args == ["identity"] {
+        return match crate::identity::query() {
+            Ok(identity) => match serde_json::to_string(&identity) {
+                Ok(text) => {
+                    println!("{text}");
+                    code(0)
+                }
+                Err(_) => code(1),
+            },
+            Err(e) => {
+                eprintln!("cmux host cloud identity: {e}");
+                code(1)
+            }
+        };
+    }
     let (paths, rest) = match root_arg(args) {
         Ok(v) => v,
         Err(e) => return usage(&e),
@@ -366,7 +419,12 @@ fn cloud_verb(args: &[String]) -> u8 {
     let answer = match rest.as_slice() {
         [verb] if verb == "daemon-info" => crate::cloud::role::print_daemon_info(&paths, timeout),
         [verb] if verb == "probe-activity" => crate::cloud::role::probe_activity(&paths, timeout),
-        _ => return usage("cloud takes daemon-info or probe-activity"),
+        [verb] if verb == "clone-mark" => clone_mark(&paths),
+        _ => {
+            return usage(
+                "cloud takes daemon-info, probe-activity, clone-mark, or identity (without --root)",
+            );
+        }
     };
     match answer {
         Ok(value) => {
@@ -380,9 +438,43 @@ fn cloud_verb(args: &[String]) -> u8 {
     }
 }
 
+/// `cloud clone-mark` (`cloud/clone_mark.rs`): writes acpmux's clone marker, for the work user,
+/// when the pending bind is for a machine other than the one this disk was bound as.
+#[cfg(target_os = "linux")]
+fn clone_mark(paths: &Paths) -> Result<serde_json::Value, String> {
+    use crate::cloud::client::Store;
+    use crate::cloud::clone_mark::{copied, marker, marker_text};
+    let mut store = crate::cloud::role::FileStore::new(paths.clone());
+    let Some(copied) = copied(&store) else { return Ok(serde_json::json!({"marked": false})) };
+    let user = crate::linux::spawn::lookup_user(crate::daemon_spec::WORK_USER)
+        .ok_or("no work user on this machine")?;
+    let marker = marker();
+    let path = paths.at(&marker);
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        std::os::unix::fs::lchown(dir, Some(user.uid), Some(user.gid))
+            .map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
+    store.write(&marker, &marker_text(&copied), 0o600)?;
+    std::os::unix::fs::lchown(&path, Some(user.uid), Some(user.gid))
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(serde_json::json!({"marked": true, "from": copied.from, "to": copied.to}))
+}
+
 #[cfg(not(target_os = "linux"))]
 fn cloud_verb(_args: &[String]) -> u8 {
     eprintln!("cmux host cloud: Linux only");
+    code(4)
+}
+
+#[cfg(target_os = "linux")]
+fn update_verb(args: &[String]) -> u8 {
+    crate::updater::role::verb(args)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn update_verb(_args: &[String]) -> u8 {
+    eprintln!("cmux host update: Linux only");
     code(4)
 }
 

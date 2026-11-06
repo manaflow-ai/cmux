@@ -18,6 +18,13 @@
 //!     daemon reads the key, closes the descriptor and never takes another
 //!     key while it runs. A signed daemon ignores the descriptor (a same-uid
 //!     process could restart the daemon with its own key).
+//!   - an unsigned daemon on a Cloud machine (Linux, not root): the VM provisioning exec, which
+//!     runs as root, gives the RUNNING daemon the key with `_acpmux/person_enroll`
+//!     (`acpmux daemon enroll --person-key-fd 0`, `daemon/provision.rs`). Such a daemon is not
+//!     dumpable for its whole run, takes the key only from a connection whose peer uid is 0, and
+//!     the provisioner checks the process that writes the daemon's replies before it sends the
+//!     key. An agent runs as the daemon's user and cannot. One daemon (acpmux.service) then
+//!     owns the home: nothing stops and restarts it for a key.
 //! - The key never crosses a socket after enrollment (cx-fcaq): whatever
 //!   listens on the socket path could be a squatter. Each unix socket or
 //!   proven LocalApp connection gets a random nonce. Its FIRST request must
@@ -50,8 +57,10 @@
 //!   prompt the next daemon adopts gets a new nonce under the new run (`permission_reissued`, also
 //!   a `permission_pending`). A restarted daemon has a new instance, so an old proof proves
 //!   nothing. A question's answers, and their annotations, count only under
-//!   [`decision_answers_proof`]. A proof never
-//!   covers a group's allow, a policy, a rule or a mode: those widen and stay the person's own. A keyed daemon is not dumpable (`daemon.rs`), so an
+//!   [`decision_answers_proof`]. A decision proof never
+//!   covers a group's allow, a policy, a rule or a mode: those widen and stay the person's own.
+//!   One chat's policy raise has a proof of its own over a challenge this daemon issued
+//!   ([`policy_grant`]). A keyed daemon is not dumpable (`daemon.rs`), so an
 //!   agent it starts cannot read the key from its memory.
 //! - A group's one-time allow from a connection that is not the person (peer-route approvals,
 //!   `mac_approvers.rs`) counts only with `_meta.acpmux.approverDecisions`: for EVERY pending
@@ -181,7 +190,9 @@
 //! (`Hub::keeps_harness_mode`, as a handoff target of a source that asks
 //! does). A request that names a mode skips the default; (a) and (b) gate
 //! it as above. Presets, folder profiles, adopted chats and profiles that
-//! pin a mode in their argv keep the harness's own mode.
+//! pin a mode in their argv keep the harness's own mode, except a built-in
+//! Chief subagent preset that names no mode, whose chat starts as a plain one
+//! (`start_mode.rs` `plain_for_mode`, cmux#27847).
 //!
 //! Also without the person: no rules change under a session policy that
 //! does not ask (a rule is then what keeps a tool asking), no removal of a
@@ -249,6 +260,7 @@ pub use super::start_gate::{
     StartMode, caller_env, caller_proves, caller_token, host_label, mode_person_required,
     take_caller,
 };
+use cmux_json::JsonSet as _;
 
 /// The old place of the key in `initialize` (`_meta.acpmux`): stripped, never read.
 pub const KEY_FIELD: &str = "personKey";
@@ -383,6 +395,8 @@ pub struct PersonGate {
     instance: std::sync::OnceLock<String>,
     /// Decision nonces that counted once, with when.
     spent: StdMutex<std::collections::VecDeque<(String, std::time::Instant)>>,
+    /// The open challenges of a policy raise from another machine's app (`policy_grant.rs`).
+    policy_challenges: StdMutex<std::collections::VecDeque<policy_grant::Challenge>>,
     /// The person's phones that may allow with a signature (`approvers.rs`).
     pub approvers: super::approvers::ApproverSet,
     /// The Macs whose app may allow here over the peer link (`mac_approvers.rs`).
@@ -470,7 +484,7 @@ impl PersonGate {
                 .ok_or_else(|| bad("each folder is absolute"))?;
             let mut row =
                 pick(f).ok_or_else(|| bad("each folder pick names a harness and a model"))?;
-            row["folder"] = folder.into();
+            row.set("folder", folder.into());
             kept.push(row);
         }
         out.insert("folders".into(), Value::Array(kept));
@@ -655,7 +669,8 @@ impl PersonGate {
             spent.pop_front();
         }
         let fresh = nonces.iter().enumerate().all(|(i, nonce)| {
-            !nonces[..i].contains(nonce) && !spent.iter().any(|(n, _)| n == nonce)
+            !nonces.get(..i).unwrap_or_default().contains(nonce)
+                && !spent.iter().any(|(n, _)| n == nonce)
         });
         if nonces.is_empty() || !fresh {
             return false;
@@ -706,6 +721,21 @@ impl PersonGate {
         *slot = Some(key.to_owned());
         self.from_spawn.store(true, Ordering::SeqCst);
         Ok(())
+    }
+
+    /// The key the VM provisioning exec gives the running daemon (`daemon/provision.rs`). The
+    /// caller checked that the connection is the provisioner (root, while this daemon is not
+    /// root) and that this daemon is not signed. It replaces any key this run holds: the
+    /// provisioning exec could restart the daemon with a key of its own anyway, and a new app
+    /// launch makes a new key. A connection that proved the earlier key stays the person it
+    /// proved; every new proof needs the new key.
+    pub fn provision(&self, key: &str) -> Result<Value, RpcError> {
+        if !valid_key(key) {
+            return Err(RpcError::invalid_params("key must be 64 lowercase hex characters"));
+        }
+        *self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(key.to_owned());
+        self.from_spawn.store(true, Ordering::SeqCst);
+        Ok(json!({"enrolled": true, "via": "provisioner", "personInstance": self.instance()}))
     }
 
     /// Whether `proof` answers the challenge (`nonce`, `connection`) with
@@ -778,7 +808,9 @@ pub fn person_proof(key: &str, transport: &str, nonce: &str, connection: &str) -
 }
 
 mod decision_answers;
+pub mod policy_grant;
 pub use decision_answers::decision_answers_proof;
+pub use policy_grant::policy_proof;
 /// The bytes a decision proof covers.
 fn decision_message(parts: [&str; 5]) -> Vec<u8> {
     let mut message = b"acpmux-person-decision-v1".to_vec();
@@ -1051,17 +1083,23 @@ impl Hub {
                     ))
                 }
             }
-            // The handoff target tag decides which session a handoff adopts.
+            // The handoff target tag decides which session a handoff adopts; the agent hold tag
+            // holds a manager's messages (`agent_hold.rs`), which its manager must not lift.
             method::MUX_TAG => {
+                let guarded =
+                    |k: &str| k == super::handoff::TARGET_TAG || k == super::agent_hold::HOLD_TAG;
                 let sets = params
                     .get("set")
                     .and_then(Value::as_object)
-                    .is_some_and(|o| o.contains_key(super::handoff::TARGET_TAG));
-                let removes = params.get("remove").and_then(Value::as_array).is_some_and(|a| {
-                    a.iter().any(|v| v.as_str() == Some(super::handoff::TARGET_TAG))
-                });
+                    .is_some_and(|o| o.keys().any(|k| guarded(k)));
+                let removes = params
+                    .get("remove")
+                    .and_then(Value::as_array)
+                    .is_some_and(|a| a.iter().any(|v| v.as_str().is_some_and(guarded)));
                 if sets || removes {
-                    Err(person_required("the handoff target tag"))
+                    Err(person_required("the handoff target and agent hold tags"))
+                } else if self.identity_tag_locked(params) {
+                    Err(person_required("changing a manager tag while its chat is taken over"))
                 } else {
                     Ok(())
                 }
@@ -1092,7 +1130,14 @@ impl Hub {
                 if self.web_modes().config_value_asks(&family, id, value) {
                     Ok(())
                 } else if let (None | Some("mode"), Some(mode)) = (id, value) {
-                    Err(mode_person_required(mode, None, false, starts_modes))
+                    // The full-access mode new chats start in, which the person chose for every
+                    // chat, or Claude's own Auto under it (`start_mode.rs`); never for a Web or
+                    // peer connection.
+                    if starts_modes && self.may_move_without_person(&s.meta(), mode).await {
+                        Ok(())
+                    } else {
+                        Err(mode_person_required(mode, None, false, starts_modes))
+                    }
                 } else {
                     Err(person_required("a mode that does not ask"))
                 }
@@ -1234,3 +1279,7 @@ impl Hub {
         matches!(offered.as_slice(), [one] if matches!(one["kind"].as_str(), Some("reject_once" | "reject_always")))
     }
 }
+
+#[cfg(test)]
+#[path = "person/provision_tests.rs"]
+mod provision_tests;

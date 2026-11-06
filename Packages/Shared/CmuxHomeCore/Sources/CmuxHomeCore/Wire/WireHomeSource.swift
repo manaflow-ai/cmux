@@ -35,6 +35,8 @@ public import Foundation
 /// manual clock (the backoff between dials runs on it).
 public actor WireHomeSource: HomeSource {
     static let inboxLimit = 200
+    /// Pages of `inboxLimit` entries one inbox read follows at most.
+    static let inboxPages = 50
     static let hydrationWidth = 4
     static let eventBuffer = 1024
 
@@ -328,15 +330,27 @@ public actor WireHomeSource: HomeSource {
 
     // MARK: Inbox
 
-    /// Reads `inbox.list`, publishes the whole inbox, and reads the heads it lacks.
+    /// Reads every page of `inbox.list`, publishes the whole inbox, and reads the heads it lacks.
     @discardableResult
     func loadInbox() async throws -> InboxSnapshot {
         guard let me else { throw HomeRejection.ownerUnreachable }
-        let value = try await client.read("inbox.list", ["limit": .number(Double(Self.inboxLimit))])
-        guard let rows = value["entries"].array else { throw HomeRejection.ownerUnreachable }
+        // Every page, not the newest 200: the owner pages by keyset (`next_cursor`). An entry a later
+        // page lists again (its activity moved it during the read) keeps the first page's copy.
         var next: [ConversationID: HomeWireJSON] = [:]
-        for entry in rows where mapping.isListed(entry) {
-            if let id = entry["conversation"].string { next[ConversationID(id)] = entry }
+        var cursor: String?
+        for _ in 0..<Self.inboxPages {
+            var params: [String: HomeWireJSON] = ["limit": .number(Double(Self.inboxLimit))]
+            if let cursor { params["cursor"] = .string(cursor) }
+            // Any page's failure is the read's: `entries` is replaced as a whole, so a partial list
+            // would drop every conversation past it.
+            let value = try await client.read("inbox.list", .object(params))
+            guard let rows = value["entries"].array else { throw HomeRejection.ownerUnreachable }
+            for entry in rows where mapping.isListed(entry) {
+                if let id = entry["conversation"].string, next[ConversationID(id)] == nil { next[ConversationID(id)] = entry }
+            }
+            // A cursor that does not move would read the same page again.
+            guard let following = value["next_cursor"].string, following != cursor else { break }
+            cursor = following
         }
         entries = next
         created.subtract(next.keys)

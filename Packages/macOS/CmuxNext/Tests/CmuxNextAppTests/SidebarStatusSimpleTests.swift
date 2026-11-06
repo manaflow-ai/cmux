@@ -72,9 +72,11 @@ import Testing
     private static let busy = WorkspaceID("ws-busy")
 
     /// A sidebar whose rows read `sidebar.detailedStatusIcons` from its settings, in `style`.
-    private static func sidebar(detailed: Bool, style: SidebarRowBadgeStyle) -> SidebarView {
+    /// `programAsks`: the asking row's status is an OSC 7501 report (the program opted in).
+    private static func sidebar(detailed: Bool, style: SidebarRowBadgeStyle, programAsks: Bool = false) -> SidebarView {
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
-        let asking = SidebarWorkspace(id: asking, title: "deploy", kind: .terminal, unread: .count(2), activity: .waiting(kind: .question))
+        var asking = SidebarWorkspace(id: asking, title: "deploy", kind: .terminal, unread: .count(2), activity: .waiting(kind: .question))
+        asking.activityFromProgram = programAsks
         let failing = SidebarWorkspace(id: failing, title: "tests", kind: .terminal, activity: .error)
         var busy = SidebarWorkspace(id: busy, title: "build", kind: .terminal, activity: .working)
         busy.agentWorking = true // agent work shows only on a row whose agent is working
@@ -115,5 +117,15 @@ import Testing
         #expect(try Self.badge(sidebar, Self.asking).states == [.waiting(kind: .question), .success, .success])
         #expect(try Self.badge(sidebar, Self.failing).states == [.error])
         #expect(try Self.badge(sidebar, Self.busy).states == [.working])
+    }
+
+    /// Lawrence msg 1351: finer icons are opt-in through OSC 7501. A row whose status a program
+    /// reports itself draws each state with the setting off; the other rows stay simple.
+    @Test func anOSC7501ReportOptsItsRowInToFinerIcons() throws {
+        let stacked = Self.sidebar(detailed: false, style: .stack, programAsks: true)
+        #expect(try Self.badge(stacked, Self.asking).states == [.waiting(kind: .question), .success, .success])
+        #expect(try Self.badge(stacked, Self.failing).states == [.error])
+        let corner = Self.sidebar(detailed: false, style: .corner, programAsks: true)
+        #expect(try Self.badge(corner, Self.asking).states == [.waiting(kind: .question)])
     }
 }

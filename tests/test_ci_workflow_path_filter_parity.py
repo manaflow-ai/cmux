@@ -41,6 +41,9 @@ PUSH_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {
             ".github/workflows/nightly.yml",
             "scripts/apple-developer-id-certs/**",
             "scripts/ci/*nightly*",
+            # The checks job runs the base-red classifier only on a push (#24773).
+            "scripts/ci/base_red_checks.py",
+            "scripts/ci/tests/test_base_red_checks.py",
             "scripts/ci/download-run-artifact.py",
             "scripts/ci/finalize-release.py",
             "scripts/ci/publish-release-assets.py",
@@ -53,7 +56,8 @@ PUSH_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {
             "scripts/prune_nightly_release_assets.py",
         }),
         "base pushes also compile for the nightly release inputs, so a nightly repair "
-        "earns its Release compile before promotion",
+        "earns its Release compile before promotion; the base-red classifier runs "
+        "only on pushes",
     ),
 }
 

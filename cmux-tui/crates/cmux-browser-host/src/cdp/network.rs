@@ -50,7 +50,9 @@ const MAX_AUTH_CHALLENGES: usize = 8;
 fn realm(challenge: &str) -> String {
     let lower = challenge.to_ascii_lowercase();
     let Some(at) = lower.find("realm=") else { return String::new() };
-    let rest = &challenge[at + "realm=".len()..];
+    // `lower` is ASCII-lowered, so its byte offsets match `challenge`; `get`
+    // still refuses a non-boundary offset instead of panicking.
+    let Some(rest) = challenge.get(at + "realm=".len()..) else { return String::new() };
     let value = match rest.strip_prefix('"') {
         Some(quoted) => quoted.split('"').next().unwrap_or(""),
         None => rest.split([',', ' ']).next().unwrap_or(""),

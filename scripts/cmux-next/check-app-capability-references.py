@@ -44,8 +44,11 @@ Rules (each violation names the file and line):
      only beside a sidecar binary.
   2. A capability the daemon source does not define may appear only at a
      refusal site (a feature not built yet, shown as "not available in this
-     version"), in DaemonCapability.unservedByBundledDaemon, or in PEERS (a
-     capability of another server, not cmux-tui). At a gate site it is the
+     version"), in DaemonCapability.unservedByBundledDaemon, in PEERS (a
+     capability of another server, not cmux-tui), or in the bundled acpmux's own
+     capability list (ACPMUX_LIST: the ids its `initialize` advertises in
+     `_meta.acpmux.capabilities`, read from the same tree, so a gate on a name
+     acpmux does not define still fails). At a gate site it is the
      error class P10 forbids: the feature waits for a capability the bundled
      daemon never serves.
   3. An unservedByBundledDaemon entry the daemon source now defines moves to
@@ -86,11 +89,16 @@ RUST_ROOT = "cmux-tui/crates/cmux-tui-core/src"
 # identify's list: its string literals are capabilities too ("attach-identity-v1").
 RUST_LIST = "cmux-tui/crates/cmux-tui-core/src/server/capabilities.rs"
 ENDPOINT = "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonEndpoint.swift"
+# The bundled acpmux's capability list: the `id: "..."` of each entry, which its `initialize` advertises.
+ACPMUX_LIST = "cmux-tui/crates/acpmux/src/capabilities.rs"
 
-# Served by cmux-tui only when a sidecar binary sits beside it, so the
-# isolated identify probe of check-daemon-capabilities.sh cannot require it.
+# Served by cmux-tui only under a host condition (a sidecar binary beside it,
+# or a cmux Cloud host), so the isolated identify probe of
+# check-daemon-capabilities.sh cannot require it.
 CONDITIONAL = {
     "apps-v1": "only with cmux-app-host beside the binary (cmux-tui-core apps.rs advertised())",
+    "fs-v1": "only on a cmux Cloud host: a root-owned image stamp and the model plane identity (cmux-tui link/cloud_fs.rs)",
+    "agent-session-start-owner-cloud-v1": "only on a cmux Cloud VM with no team evidence (cmux-tui-core server/capabilities.rs serves_owner_cloud_start)",
 }
 
 # Capabilities of other servers that the app gates on with the same helpers.
@@ -330,15 +338,90 @@ def rust_capabilities(repo: Path) -> dict[str, str]:
     return found
 
 
+RUST_CHAR = re.compile(r"'(\\.[^']*|[^\\'])'")
+
+
+def rust_without_comments(text: str) -> str:
+    """`text` with every Rust comment (line, block, nested block) blanked to spaces, newlines kept so line
+    numbers hold; string and char literals stay as they are, and a comment marker inside one is not one."""
+    out = list(text)
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        if c == '"':
+            i += 1
+            while i < n and text[i] != '"':
+                i += 2 if text[i] == "\\" else 1
+            i += 1
+        elif c == "'" and (char := RUST_CHAR.match(text, i)):
+            i = char.end()
+        elif text.startswith("//", i):
+            end = text.find("\n", i)
+            end = n if end < 0 else end
+            out[i:end] = " " * (end - i)
+            i = end
+        elif text.startswith("/*", i):
+            depth, j = 1, i + 2
+            while j < n and depth:
+                if text.startswith("/*", j):
+                    depth, j = depth + 1, j + 2
+                elif text.startswith("*/", j):
+                    depth, j = depth - 1, j + 2
+                else:
+                    j += 1
+            out[i:j] = [ch if ch == "\n" else " " for ch in text[i:j]]
+            i = j
+        else:
+            i += 1
+    return "".join(out)
+
+
+def rust_initializer(text: str, name: str) -> tuple[int, int] | None:
+    """The span of `name`'s `&[ ... ]` initializer in comment-free `text` (brackets in strings skipped)."""
+    head = re.search(rf"\bconst\s+{name}\s*:[^=]*=\s*&\s*\[", text)
+    if not head:
+        return None
+    depth, i = 1, head.end()
+    while i < len(text) and depth:
+        c = text[i]
+        if c == '"':
+            i += 1
+            while i < len(text) and text[i] != '"':
+                i += 2 if text[i] == "\\" else 1
+        elif c == "[":
+            depth += 1
+        elif c == "]":
+            depth -= 1
+        i += 1
+    return (head.end(), i) if depth == 0 else None
+
+
+def acpmux_capabilities(repo: Path) -> dict[str, str]:
+    """The capabilities the same-tree acpmux advertises, each with its file and line (none without the file):
+    the `id`s of its `CAPABILITIES` initializer alone, comments masked, so an id in a comment, a doc or
+    another constant never counts."""
+    path = repo / ACPMUX_LIST
+    if not path.is_file():
+        return {}
+    text = rust_without_comments(path.read_text(encoding="utf-8", errors="replace"))
+    span = rust_initializer(text, "CAPABILITIES")
+    if span is None:
+        sys.exit(f"check-app-capability-references: found no `CAPABILITIES` initializer in {ACPMUX_LIST}")
+    pattern = re.compile(r'\bid:\s*"([a-z][a-z0-9.-]*)"')
+    return {m.group(1): f"{ACPMUX_LIST}:{text.count(chr(10), 0, m.start()) + 1}"
+            for m in pattern.finditer(text, span[0], span[1])}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--list", action="store_true")
     args = parser.parse_args()
     refs, lists, daemon, strays = collect(args.repo)
+    acpmux = acpmux_capabilities(args.repo)
     if args.list:
         for ref in sorted(refs, key=lambda r: (r.capability, r.kind, r.where)):
-            served = "daemon" if ref.capability in daemon else "-"
+            served = "daemon" if ref.capability in daemon else "acpmux" if ref.capability in acpmux else "-"
             print(f"{ref.capability}\t{ref.kind}\t{served}\t{ref.where}")
         return 0
 
@@ -363,13 +446,14 @@ def main() -> int:
             if capability in unserved:
                 problems.append(f"{capability}: the daemon defines it ({daemon[capability]}); move it from "
                                 "DaemonCapability.unservedByBundledDaemon to optional.")
-        elif capability in PEERS or capability in unserved:
+        elif capability in PEERS or capability in unserved or capability in acpmux:
             continue
         elif gates:
             problems.append(
                 f"{capability}: the app gates a feature on it ({', '.join(gates[:3])}), but no cmux-tui crate defines "
                 "it, so the bundled daemon never serves it and the feature stays off. Land the daemon half on this "
-                "branch (a `*_CAPABILITY` constant that identify advertises), fix the name, or remove the gate.")
+                "branch (a `*_CAPABILITY` constant that identify advertises, or an entry in " + ACPMUX_LIST
+                + " for an acpmux capability), fix the name, or remove the gate.")
         else:
             stubs[capability] = [r.where for r in sites]
     references = len({r.capability for r in refs})

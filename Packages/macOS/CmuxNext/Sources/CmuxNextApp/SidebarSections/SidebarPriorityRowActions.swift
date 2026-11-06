@@ -15,11 +15,10 @@ extension AgentPriorityChats {
     }
 }
 
-/// A Priority row's actions on its chat (an `agent-chat:` target): Mark Chat as Read…, Pin/Unpin
-/// Chat in Priority…, Snooze Chat for 1 Hour… (the palette asks which chat), and Archive Chat. The
-/// row's hover buttons, its right-click menu (`ActionMenuContext.priorityRow`), the palette and a
-/// user's shortcut all run them through the registry, and they write the marks through
-/// `AgentPriorityChats`.
+/// A Priority row's actions on its chat (an `agent-chat:` target): Mark Chat as Read…, Pin/Unpin Chat in Priority…,
+/// Snooze Chat for 1 Hour…, Move Chat Earlier/Later in Priority… (the palette asks which chat), and Archive Chat. The
+/// row's hover buttons, its right-click menu (`ActionMenuContext.priorityRow`), the palette and a user's shortcut all
+/// run them through the registry, and they write the marks through `AgentPriorityChats`.
 @MainActor
 struct SidebarPriorityRowActions {
     static let markRead: ActionID = "sidebar.priority.markRead"
@@ -44,14 +43,14 @@ struct SidebarPriorityRowActions {
     /// The target a hover button and the row's menu pass.
     static func target(_ chat: String) -> ActionTargetRef { ActionTargetRef(kind: .agentChat, id: chat) }
 
-    /// A row button's action and chat; nil for the view's own choices (open, fold, bell).
+    /// A row button's action and chat; nil for the view's own choices (open, fold, bell, drag).
     static func route(_ action: SidebarPriorityAction) -> (ActionID, String)? {
         switch action {
         case .markRead(let id): (Self.markRead, id)
         case .togglePin(let id): (Self.togglePin, id)
         case .snooze(let id): (Self.snooze, id)
         case .archive(let id): (Self.archive, id)
-        case .open, .setCollapsed, .toggleShown: nil
+        case .open, .setCollapsed, .toggleShown, .place: nil
         }
     }
 
@@ -72,6 +71,7 @@ struct SidebarPriorityRowActions {
         registry.bind(Self.markRead, unavailable: unavailable, run: { try Self.run(chats.markRead, $0) })
         registry.bind(Self.togglePin, unavailable: unavailable, run: { try Self.run(chats.togglePin, $0) })
         registry.bind(Self.snooze, unavailable: unavailable, run: { try Self.run({ chats.snooze($0) }, $0) })
+        for (id, step) in [("sidebar.priority.moveEarlier", -1), ("sidebar.priority.moveLater", 1)] as [(ActionID, Int)] { registry.bind(id, unavailable: unavailable, run: { try Self.run({ chats.move($0, by: step) }, $0) }) }
         // Only a result or a failure is read: the menu leaves the row out where the button greys.
         ActionTargetVisibility.hide(Self.markRead, in: registry) { invocation in
             Self.chat(invocation).flatMap { chats.entry($0) }?.canMarkRead != true

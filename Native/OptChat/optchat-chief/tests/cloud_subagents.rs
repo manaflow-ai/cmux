@@ -323,7 +323,15 @@ fn control_cloud_sets_the_default_peer_at_run_time() {
     let specs = subs(&h);
     let cloud_one = &specs[specs.len() - 2];
     assert_eq!(cloud_one.0.peer.as_deref(), Some("cloud2"));
-    assert_eq!(cloud_one.0.cwd, PathBuf::from("/home/agent/work"));
+    assert!(
+        cloud_one.0.cwd.as_os_str().is_empty(),
+        "the peer chooses a scratch folder inside its webRoots"
+    );
+    assert!(
+        cloud_one.1.contains(r#"worktree add \"$PWD\"/"#),
+        "{}",
+        cloud_one.1
+    );
     assert!(
         cloud_one.1.contains("SUBAGENT SYSTEM TEXT"),
         "{}",
@@ -373,7 +381,11 @@ fn set_cloud(h: &mut Harness, sp: &Arc<Spawner>, peers: &str) {
         })
     })
     .unwrap();
-    assert!(set.starts_with("outcome: done."), "{set}");
+    // A noop: the saved state of a restarted Chief has this choice already.
+    assert!(
+        set.starts_with("outcome: done.") || set.starts_with("outcome: noop."),
+        "{set}"
+    );
 }
 
 /// B4: with several peers, each subagent goes to the peer with the fewest
@@ -421,6 +433,7 @@ fn cloud_subagents_go_to_the_least_busy_peer_and_resume_its_vm() {
 fn an_idle_cloud_vm_is_paused_once_and_resumed_for_the_next_subagent() {
     use optchat_chief::brain::Input;
     let mut h = Harness::new(default_script());
+    auto_pause_on(&mut h);
     h.agents.hold(true);
     let vms = Arc::new(FakeVms::default());
     let sp = pool_spawner(&h, &vms);
@@ -460,6 +473,11 @@ fn an_idle_cloud_vm_is_paused_once_and_resumed_for_the_next_subagent() {
         "paused once: {calls:?}"
     );
 
+    // A paused VM drops its peer connection until resume brings it back.
+    h.agents.inner.lock().unwrap().machine_status = Some(serde_json::json!({
+        "here": {"os": "macos", "pressure": {"ok": true}},
+        "peers": [{"name": "cloud1", "connected": false, "health": {"os": "linux"}}]
+    }));
     let a = sp.clone();
     run(&mut h, move || a.spawn(vec!["two".into()], None)).unwrap();
     let calls = vms.calls.lock().unwrap().clone();
@@ -468,6 +486,12 @@ fn an_idle_cloud_vm_is_paused_once_and_resumed_for_the_next_subagent() {
         Some("resume cloud1"),
         "{calls:?}"
     );
+}
+
+/// Turns `cloud.autoPause` on (default off, no auto pause) for the tests of
+/// the host's own pausing.
+fn auto_pause_on(h: &mut Harness) {
+    h.brain.set_setting("cloud.autoPause", "true").unwrap();
 }
 
 /// Pause answers: the first `fail` pauses of a peer fail (the VM said busy).
@@ -516,6 +540,7 @@ fn cloud_auto_pause_idle_seconds_is_60_by_default_and_a_setting() {
     use optchat_chief::chief_settings::ChiefSettings;
     assert_eq!(ChiefSettings::default().cloud_auto_pause_idle_secs, 60);
     let mut h = Harness::new(default_script());
+    auto_pause_on(&mut h);
     let file = h.dir.path().join("settings.json");
     assert_eq!(ChiefSettings::load(&file).cloud_auto_pause_idle_secs, 60);
     let set = h
@@ -559,6 +584,7 @@ fn cloud_auto_pause_idle_seconds_is_60_by_default_and_a_setting() {
 fn a_refused_pause_is_tried_again() {
     use optchat_chief::brain::Input;
     let mut h = Harness::new(default_script());
+    auto_pause_on(&mut h);
     h.agents.hold(true);
     let busy = Arc::new(BusyVms::default());
     busy.fail.store(1, std::sync::atomic::Ordering::SeqCst);
@@ -572,6 +598,8 @@ fn a_refused_pause_is_tried_again() {
     );
     h.brain.set_sub_starter(Some(sp.queue_starter()));
     h.brain.set_cloud_vms(Some(vms), Duration::ZERO);
+    h.brain
+        .set_cloud_pause_backoff(vec![Duration::from_millis(50)]);
     set_cloud(&mut h, &sp, "cloud1");
     let a = sp.clone();
     run(&mut h, move || a.spawn(vec!["one".into()], None)).unwrap();
@@ -598,12 +626,169 @@ fn a_refused_pause_is_tried_again() {
     );
 }
 
+/// A pause the pool tool keeps failing backs off (here 300 ms, 600 ms, then
+/// every 900 ms; 5 s, 30 s, 2 min, 10 min on a host) and is logged once,
+/// not once per tick; the first pause that works again ends it, and is
+/// logged once too. The pool tool is a real program named by vm-cmd
+/// (`CommandVms`), as on a host. 2026-10-30: `chief-sub-a524` failed every
+/// 5 s for hours and host.log got a line each time.
+#[cfg(unix)]
+#[test]
+fn a_failing_pause_backs_off_and_is_logged_once_per_change() {
+    use optchat_chief::brain::Input;
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    std::fs::create_dir_all(home.join(".config/cloud-subagents")).unwrap();
+    let calls = dir.path().join("calls");
+    let ok = dir.path().join("ok");
+    let tool = dir.path().join("vm-tool.sh");
+    std::fs::write(
+        &tool,
+        format!(
+            "#!/bin/sh\necho \"$1 $2\" >> {calls}\n[ \"$1\" = pause ] || exit 0\n[ -e {ok} ] && exit 0\necho \"[cloud-subagents] busy: cannot read acpmux on $2; not paused\" >&2\nexit 3\n",
+            calls = calls.display(),
+            ok = ok.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::write(
+        home.join(".config/cloud-subagents/vm-cmd"),
+        format!("{}\n", tool.display()),
+    )
+    .unwrap();
+    let lines = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let sink = lines.clone();
+    let log: optchat_chief::brain::Log =
+        Arc::new(move |l: &str| sink.lock().unwrap().push(l.to_owned()));
+    let hdir = tempfile::tempdir().unwrap();
+    let settings = settings(hdir.path());
+    let owner = Arc::new(std::sync::Mutex::new(Owner {
+        summary: Some(summary()),
+        ..Owner::default()
+    }));
+    let mut h = Harness::configured(hdir, default_script(), owner, settings, log);
+    auto_pause_on(&mut h);
+    h.agents.hold(true);
+    let vms: Arc<dyn optchat_chief::cloud_vms::CloudVms> =
+        Arc::new(optchat_chief::cloud_vms::CommandVms::in_home(&home));
+    let sp = Arc::new(
+        Arc::try_unwrap(spawner(&h, None))
+            .ok()
+            .unwrap()
+            .with_cloud_text("T".into())
+            .with_cloud_vms(Some(vms.clone())),
+    );
+    h.brain.set_sub_starter(Some(sp.queue_starter()));
+    h.brain.set_cloud_vms(Some(vms), Duration::ZERO);
+    h.brain.set_cloud_pause_backoff(vec![
+        Duration::from_millis(300),
+        Duration::from_millis(600),
+        Duration::from_millis(900),
+    ]);
+    set_cloud(&mut h, &sp, "cloud1");
+    let a = sp.clone();
+    run(&mut h, move || a.spawn(vec!["one".into()], None)).unwrap();
+    h.brain.step(Input::SubagentFailed {
+        id: "a1".into(),
+        error: "ended".into(),
+    });
+    let pause_calls = || {
+        std::fs::read_to_string(&calls)
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| *l == "pause cloud1")
+            .count()
+    };
+    let with = |text: &str| {
+        lines
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|l| l.contains(text))
+            .count()
+    };
+    // Ticks every 20 ms for 1.6 s: tries at about 0, 0.3 and 0.9 s (then
+    // 1.8 s), never one per tick, and the wait grows.
+    let mut ticks = 0;
+    let mut failed_at = Vec::new();
+    let until = Instant::now() + Duration::from_millis(1600);
+    while Instant::now() < until {
+        while let Ok(input) = h.rx.recv_timeout(Duration::from_millis(20)) {
+            if matches!(input, Input::CloudPauseFailed { .. }) {
+                failed_at.push(Instant::now());
+            }
+            h.brain.step(input);
+        }
+        h.brain.step(Input::CloudTick);
+        ticks += 1;
+    }
+    let tried = pause_calls();
+    assert!(
+        failed_at.len() >= 3 && tried <= 4,
+        "{tried} pauses, {} failures in {ticks} ticks: {:?}",
+        failed_at.len(),
+        lines.lock().unwrap()
+    );
+    let (first, second) = (failed_at[1] - failed_at[0], failed_at[2] - failed_at[1]);
+    assert!(
+        first >= Duration::from_millis(300) && second >= first + Duration::from_millis(150),
+        "waits {first:?} then {second:?}: the backoff grows"
+    );
+    assert_eq!(
+        with("cloud: pause cloud1 failed"),
+        1,
+        "one line for one error: {:?}",
+        lines.lock().unwrap()
+    );
+    assert!(
+        lines.lock().unwrap().iter().any(|l| l.contains(
+            "cannot read acpmux on cloud1; not paused; next try in 300 ms, then less often up to every 900 ms"
+        )),
+        "{:?}",
+        lines.lock().unwrap()
+    );
+
+    // The VM can pause again: the next try (within the 900 ms wait) works,
+    // is logged once, and no pause runs after it.
+    std::fs::write(&ok, "").unwrap();
+    let until = Instant::now() + Duration::from_secs(5);
+    while with("cloud: pause cloud1 works again") == 0 && Instant::now() < until {
+        while let Ok(input) = h.rx.recv_timeout(Duration::from_millis(20)) {
+            h.brain.step(input);
+        }
+        h.brain.step(Input::CloudTick);
+    }
+    assert_eq!(
+        with("cloud: pause cloud1 works again"),
+        1,
+        "{:?}",
+        lines.lock().unwrap()
+    );
+    let after = pause_calls();
+    for _ in 0..20 {
+        while let Ok(input) = h.rx.recv_timeout(Duration::from_millis(20)) {
+            h.brain.step(input);
+        }
+        h.brain.step(Input::CloudTick);
+    }
+    assert_eq!(pause_calls(), after, "paused: no more tries");
+    assert_eq!(
+        with("cloud: pause cloud1 failed"),
+        1,
+        "{:?}",
+        lines.lock().unwrap()
+    );
+}
+
 /// The host going away pauses its idle cloud VMs at once (no idle wait),
 /// and never one with a subagent mid-turn.
 #[test]
 fn host_shutdown_pauses_idle_cloud_vms_at_once_but_not_busy_ones() {
     use optchat_chief::brain::Input;
     let mut h = Harness::new(default_script());
+    auto_pause_on(&mut h);
     h.agents.hold(true);
     let vms = Arc::new(FakeVms::default());
     let sp = pool_spawner(&h, &vms);
@@ -852,6 +1037,451 @@ fn calls_of(vms: &PerAgentVms) -> Vec<String> {
     vms.calls.lock().unwrap().clone()
 }
 
+#[test]
+fn hello_ios_stays_here_and_hello_web_uses_cloud_with_a_reason() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let vms = Arc::new(PerAgentVms::default());
+    let sp = per_agent(&mut h, &vms);
+    let answer = run(&mut h, move || {
+        sp.spawn(
+            vec![
+                "build a hello iOS view".into(),
+                "build a hello web page".into(),
+            ],
+            None,
+        )
+    })
+    .unwrap();
+    let specs = subs(&h);
+    assert_eq!(specs[0].0.peer, None, "iOS needs a Mac: {answer}");
+    assert_eq!(specs[1].0.peer.as_deref(), Some("chief-sub-a2"));
+    assert!(
+        answer.lines().any(|line| line.starts_with("- a1:")
+            && line.contains("on this Mac:")
+            && line.contains("needs a Mac")),
+        "{answer}"
+    );
+    assert!(
+        answer.lines().any(|line| line.starts_with("- a2:")
+            && line.contains("on cloud:")
+            && line.contains("Cloud")),
+        "{answer}"
+    );
+}
+
+#[test]
+fn spawn_here_and_mac_are_local_aliases_and_unknown_places_list_choices() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let sp = spawner(&h, Some(cloud()));
+    for place in ["here", "mac"] {
+        let a = sp.clone();
+        let answer = run(&mut h, move || {
+            a.spawn_placed(vec!["hello web".into()], None, None, Some(place.into()))
+        })
+        .unwrap();
+        assert_eq!(subs(&h).last().unwrap().0.peer, None, "{answer}");
+    }
+    let error = run(&mut h, move || {
+        sp.spawn_placed(vec!["hello".into()], None, None, Some("moon".into()))
+    })
+    .unwrap_err();
+    for choice in ["here", "local", "mac", "cloud"] {
+        assert!(error.contains(choice), "{error}");
+    }
+}
+
+#[test]
+fn paired_mac_takes_ios_work_from_a_busy_mac_or_a_linux_chief() {
+    for os in ["macos", "linux"] {
+        let mut h = Harness::new(default_script());
+        h.agents.hold(true);
+        {
+            let mut a = h.agents.inner.lock().unwrap();
+            a.machine_status = Some(
+                serde_json::json!({"here": {"os": os, "pressure": {"ok": false}}, "peers": [{"name": "mini", "connected": true, "health": {"os": "macos", "pressure": {"ok": true}, "liveSessions": 2}}]}),
+            );
+            a.peer_catalogs.insert("mini".into(), catalog());
+            a.harness_health.insert(
+                "mini".into(),
+                serde_json::json!({"harnesses": [{"id": "claude", "auth": "signedIn"}]}),
+            );
+        }
+        let sp = spawner(&h, None);
+        let answer = run(&mut h, move || {
+            sp.spawn(
+                vec![
+                    "build a hello iOS view".into(),
+                    "build a hello web page".into(),
+                ],
+                None,
+            )
+        })
+        .unwrap();
+        for (spec, _) in subs(&h) {
+            assert_eq!(spec.peer.as_deref(), Some("mini"), "{answer}");
+            assert!(
+                spec.cwd.as_os_str().is_empty(),
+                "paired daemon chooses native scratch: {spec:?}"
+            );
+        }
+        assert!(
+            answer
+                .lines()
+                .filter(|l| l.starts_with("- a"))
+                .all(|l| l.contains("on mini:")),
+            "{answer}"
+        );
+    }
+}
+
+#[test]
+fn cached_signed_out_default_harness_still_attempts_launch() {
+    for auth in ["signedOut", "expired"] {
+        for on_peer in [false, true] {
+            let mut h = Harness::new(default_script());
+            h.agents.hold(true);
+            {
+                let mut agents = h.agents.inner.lock().unwrap();
+                let machine = if on_peer { "cloud1" } else { "here" };
+                agents.peer_catalogs.insert("cloud1".into(), catalog());
+                agents.harness_health.insert(
+                    machine.into(),
+                    serde_json::json!({
+                        "harnesses": [{"id": "claude", "auth": auth}]
+                    }),
+                );
+            }
+            let sp = spawner(&h, on_peer.then(cloud));
+            let answer = run(&mut h, move || sp.spawn(vec!["hello web".into()], None)).unwrap();
+            let specs = subs(&h);
+            assert_eq!(specs.len(), 1, "cached {auth}, peer {on_peer}: {answer}");
+            assert_eq!(specs[0].0.harness, "claude", "{answer}");
+            assert!(answer.contains("Started a1"), "{answer}");
+        }
+    }
+}
+
+#[test]
+fn disconnected_saved_cloud_peers_are_not_available_but_the_pool_can_provision() {
+    for connected in [false, true] {
+        let mut h = Harness::new(default_script());
+        h.agents.hold(true);
+        h.agents.inner.lock().unwrap().machine_status = Some(serde_json::json!({
+            "here": {"os": "macos", "pressure": {"ok": true}},
+            "peers": [{"name": "cloud1", "connected": connected, "health": {"os": "linux", "pressure": {"ok": true}}}]
+        }));
+        let sp = spawner(&h, None);
+        set_cloud(&mut h, &sp, "cloud1");
+        let answer = run(&mut h, move || sp.spawn(vec!["hello web".into()], None)).unwrap();
+        assert_eq!(
+            subs(&h)[0].0.peer.as_deref(),
+            connected.then_some("cloud1"),
+            "{answer}"
+        );
+    }
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    h.agents.inner.lock().unwrap().machine_status = Some(serde_json::json!({
+        "here": {"os": "macos", "pressure": {"ok": true}},
+        "peers": [{"name": "chief-sub-a1", "connected": false, "health": {"os": "linux"}}]
+    }));
+    let vms = Arc::new(PerAgentVms::default());
+    let sp = per_agent(&mut h, &vms);
+    let answer = run(&mut h, move || sp.spawn(vec!["hello web".into()], None)).unwrap();
+    assert_eq!(
+        subs(&h)[0].0.peer.as_deref(),
+        Some("chief-sub-a1"),
+        "{answer}"
+    );
+    assert!(
+        calls_of(&vms)
+            .iter()
+            .any(|call| call.starts_with("provision chief-sub-a1"))
+    );
+}
+
+#[test]
+fn saved_cloud_load_balancing_uses_only_connected_peers() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    h.agents.inner.lock().unwrap().machine_status = Some(serde_json::json!({
+        "here": {"os": "macos", "pressure": {"ok": true}},
+        "peers": [
+            {"name": "offline", "connected": false, "health": {"os": "linux"}},
+            {"name": "online", "connected": true, "health": {"os": "linux"}}
+        ]
+    }));
+    let sp = spawner(&h, None);
+    set_cloud(&mut h, &sp, "offline,online");
+    let answer = run(&mut h, move || {
+        sp.spawn(vec!["hello web".into(), "another web task".into()], None)
+    })
+    .unwrap();
+    for (spec, _) in subs(&h) {
+        assert_eq!(spec.peer.as_deref(), Some("online"), "{answer}");
+    }
+}
+
+#[test]
+fn older_cloud_daemon_keeps_the_configured_cloud_harness() {
+    // An old peer either refuses scoped metadata (no catalog in this fake)
+    // or answers without harness rows. Neither proves a signed-out login.
+    for old_answer in [None, Some(serde_json::json!({"peer": "chief-sub-a1"}))] {
+        let mut h = Harness::new(default_script());
+        h.agents.hold(true);
+        if let Some(answer) = old_answer {
+            h.agents
+                .inner
+                .lock()
+                .unwrap()
+                .peer_catalogs
+                .insert("chief-sub-a1".into(), answer);
+        }
+        let vms = Arc::new(PerAgentVms::default());
+        let sp = Arc::new(
+            Arc::try_unwrap(spawner(
+                &h,
+                Some(CloudPlacement {
+                    peer: optchat_chief::subagents::PER_AGENT.into(),
+                    harness: "codex".into(),
+                    ..cloud()
+                }),
+            ))
+            .ok()
+            .unwrap()
+            .with_cloud_vms(Some(vms.clone())),
+        );
+        h.brain.set_cloud_vms(Some(vms), Duration::from_secs(3600));
+        set_cloud(&mut h, &sp, optchat_chief::subagents::PER_AGENT);
+        let answer = run(&mut h, move || {
+            sp.spawn(vec!["build a hello web page".into()], None)
+        })
+        .unwrap();
+        let specs = subs(&h);
+        assert_eq!(specs.len(), 1, "{answer}");
+        assert_eq!(specs[0].0.peer.as_deref(), Some("chief-sub-a1"));
+        assert_eq!(specs[0].0.harness, "codex", "{answer}");
+        assert!(!answer.contains("using default"), "{answer}");
+    }
+}
+
+#[test]
+fn a_paired_agent_gets_the_chiefs_subagent_instructions() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let sp = Arc::new(
+        Arc::try_unwrap(spawner(&h, None))
+            .ok()
+            .unwrap()
+            .with_cloud_text("CHIEF SUBAGENT INSTRUCTIONS: report the result to Chief".into()),
+    );
+    h.agents.inner.lock().unwrap().machine_status = Some(serde_json::json!({
+        "here": {"os": "macos", "pressure": {"ok": true}},
+        "peers": [{"name": "mini", "connected": true, "health": {"os": "macos", "pressure": {"ok": true}}}]
+    }));
+    let answer = run(&mut h, move || {
+        sp.spawn_placed(
+            vec!["build a hello iOS view".into()],
+            Some("/Users/owner/Projects/docs-worktrees/lane".into()),
+            None,
+            Some("mini".into()),
+        )
+    })
+    .unwrap();
+    let prompts = subs(&h);
+    assert_eq!(prompts.len(), 1, "{answer}");
+    assert!(
+        prompts[0].1.contains("CHIEF SUBAGENT INSTRUCTIONS"),
+        "{}",
+        prompts[0].1
+    );
+    assert!(prompts[0].1.contains("build a hello iOS view"));
+    assert!(prompts[0].0.cwd.as_os_str().is_empty());
+    assert!(
+        prompts[0]
+            .1
+            .contains("/Users/owner/Projects/docs-worktrees/lane")
+    );
+    assert!(prompts[0].1.contains("repo `docs`"));
+    assert!(!prompts[0].1.contains("not on the user's Mac"));
+}
+
+#[test]
+fn remote_launch_uses_the_resolved_profile_whose_login_was_checked() {
+    for (profile, row) in [
+        (
+            "my-direct-login",
+            serde_json::json!({
+                "kind": "claude-stdio", "family": "claude", "argv": ["/usr/local/bin/claude"]
+            }),
+        ),
+        // remote_guard::after removes argv/env and leaves picker metadata.
+        (
+            "claude",
+            serde_json::json!({
+                "kind": "claude-stdio", "family": "claude", "hasArgs": true,
+                "hasEnv": false, "hasModelsCommand": false, "hasSessions": false
+            }),
+        ),
+    ] {
+        let mut h = Harness::new(default_script());
+        h.agents.hold(true);
+        {
+            let mut a = h.agents.inner.lock().unwrap();
+            a.machine_status = Some(serde_json::json!({"here": {"os": "macos"},
+                "peers": [{"name": "mini", "connected": true, "health": {"os": "macos"}}]}));
+            a.peer_catalogs.insert(
+                "mini".into(),
+                serde_json::json!({
+                    "peer": "mini", "harnesses": {profile: row}
+                }),
+            );
+            a.harness_health.insert(
+                "mini".into(),
+                serde_json::json!({
+                    "harnesses": [{"id": profile, "auth": "signedIn"}]
+                }),
+            );
+        }
+        let sp = spawner(&h, None);
+        let answer = run(&mut h, move || {
+            sp.spawn_placed(
+                vec!["build a hello iOS view".into()],
+                None,
+                None,
+                Some("mini".into()),
+            )
+        })
+        .unwrap();
+        let specs = subs(&h);
+        assert_eq!(specs.len(), 1, "{answer}");
+        assert_eq!(specs[0].0.harness, profile, "{answer}");
+    }
+}
+
+#[test]
+fn known_peer_catalog_refusals_prevent_session_creation() {
+    for (requested, harnesses) in [
+        (
+            "claude",
+            serde_json::json!({"claude-sr": {"kind": "claude-stdio", "family": "claude"}}),
+        ),
+        (
+            "claude-sr",
+            serde_json::json!({"claude": {"kind": "claude-stdio", "family": "claude"}}),
+        ),
+        (
+            "claude",
+            serde_json::json!({
+                "one": {"kind": "claude-stdio", "family": "claude"},
+                "two": {"kind": "claude-stdio", "family": "claude"}
+            }),
+        ),
+        ("claude", serde_json::json!({"claude": {"kind": "acp"}})),
+        (
+            "chief",
+            serde_json::json!({"chief": {"kind": "acp", "family": "chief"}}),
+        ),
+        (
+            "legacy",
+            serde_json::json!({"legacy": {"kind": "acp", "family": "claude"}}),
+        ),
+    ] {
+        let mut h = Harness::new(default_script());
+        h.agents.hold(true);
+        {
+            let mut a = h.agents.inner.lock().unwrap();
+            a.machine_status = Some(serde_json::json!({"here": {"os": "macos"},
+                "peers": [{"name": "mini", "connected": true, "health": {"os": "macos"}}]}));
+            a.peer_catalogs.insert(
+                "mini".into(),
+                serde_json::json!({"peer": "mini", "harnesses": harnesses}),
+            );
+        }
+        let sp = Spawner::new(
+            h.chat.clone(),
+            h.agents.clone(),
+            SubagentSettings {
+                harness: requested.into(),
+                policy: "approve-all".into(),
+                model: None,
+                effort: None,
+                preset: None,
+                cwd: h.dir.path().join("subagent"),
+                prefix: "optchat-sub-h0me".into(),
+                parent: optchat_chief::brain::PARENT.into(),
+                claude_md: None,
+            },
+            h.tx.clone(),
+            Arc::new(|_: &str| {}),
+        );
+        let answer = run(&mut h, move || {
+            sp.spawn_placed(
+                vec!["build a hello iOS view".into()],
+                None,
+                None,
+                Some("mini".into()),
+            )
+        });
+        assert!(
+            subs(&h).is_empty(),
+            "{requested} must not launch: {answer:?}"
+        );
+        assert!(answer.unwrap().contains("did not start"));
+    }
+}
+
+#[test]
+fn chosen_peer_login_blocks_an_automatic_harness_switch() {
+    use optchat_chief::acpmux::Family;
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    {
+        let mut a = h.agents.inner.lock().unwrap();
+        a.machine_status = Some(
+            serde_json::json!({"here": {"os": "macos", "pressure": {"ok": true}}, "peers": [{"name": "mini", "connected": true, "health": {"os": "macos", "pressure": {"ok": true}, "liveSessions": 0}}]}),
+        );
+        a.peer_catalogs.insert("mini".into(), catalog());
+        a.harness_health.insert("mini".into(), serde_json::json!({"harnesses": [{"id": "claude", "auth": "signedIn"}, {"id": "codex", "auth": "signedOut"}]}));
+    }
+    let engine = h.dir.path().join("engine.json");
+    optchat_chief::engine::save(
+        &engine,
+        &optchat_chief::engine::EngineChoice {
+            subagent_routing: Some("auto".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let sp = Arc::new(
+        Arc::try_unwrap(spawner(&h, None))
+            .ok()
+            .unwrap()
+            .with_engine_file(Some(engine))
+            .with_families(std::collections::BTreeMap::from([
+                ("claude".into(), Family::Claude),
+                ("codex".into(), Family::Codex),
+            ])),
+    );
+    let answer = run(&mut h, move || {
+        sp.spawn_placed(
+            vec!["implement a hello web page".into()],
+            None,
+            None,
+            Some("mini".into()),
+        )
+    })
+    .unwrap();
+    assert_eq!(subs(&h)[0].0.harness, "claude", "{answer}");
+    assert_eq!(subs(&h)[0].0.peer.as_deref(), Some("mini"));
+    assert!(
+        answer.contains("codex unavailable") && answer.contains("using default claude"),
+        "{answer}"
+    );
+}
+
 /// `control cloud freestyle`: each subagent gets its own VM (its peer is
 /// chief-sub-<id>), made at the size its task needs; a task that needs the
 /// Mac (app UI, screenshots, computer use, sign-ins) stays on this host.
@@ -1055,6 +1685,10 @@ fn a_cloud_subagents_workspace_terminal_opens_in_a_folder_on_this_mac() {
     let recorder = Arc::new(CwdRecorder::default());
     let ws: Arc<dyn optchat_chief::workspaces::Workspaces> = recorder.clone();
     h.brain.set_workspaces(Some(ws.clone()));
+    // Shown at start (#26386: hidden unless this setting is on).
+    h.brain
+        .set_setting("subagents.showWorkspaces", "true")
+        .unwrap();
     // The VM's folder, missing on this host whatever it runs on: on a Linux
     // test host /home/agent/work may exist and hide the bug (a624, Oct 24).
     let vm_dir = h.dir.path().join("only-on-the-vm");
@@ -1134,6 +1768,10 @@ fn a_cloud_subagents_workspace_is_named_and_grouped_by_its_task_headers() {
     let recorder = Arc::new(NameRecorder::default());
     let ws: Arc<dyn optchat_chief::workspaces::Workspaces> = recorder.clone();
     h.brain.set_workspaces(Some(ws.clone()));
+    // Shown at start (#26386: hidden unless this setting is on).
+    h.brain
+        .set_setting("subagents.showWorkspaces", "true")
+        .unwrap();
     let sp = Arc::new(
         Arc::try_unwrap(spawner(
             &h,
@@ -1150,16 +1788,24 @@ fn a_cloud_subagents_workspace_is_named_and_grouped_by_its_task_headers() {
     let a = sp.clone();
     let spawned = run(&mut h, move || {
         a.spawn(
-            vec!["Title: Cloud thing\nGroup: Agents & routing\n\nbuild it".into()],
+            vec![
+                "Title: Cloud thing\nGroup: Chief agents\n\nbuild it".into(),
+                "Title: Other thing\nGroup: Agents & routing\n\nbuild it".into(),
+            ],
             None,
         )
     })
     .unwrap();
     assert!(spawned.contains("Started a1"), "{spawned}");
-    let opened = recorder.opened.lock().unwrap().clone();
+    let mut opened = recorder.opened.lock().unwrap().clone();
+    opened.sort();
+    // #27712: only "Chief agents" is asked for; any other `Group:` value is ignored.
     assert_eq!(
         opened,
-        vec![("Cloud thing".to_owned(), "Agents & routing".to_owned())],
+        vec![
+            ("Cloud thing".to_owned(), "Chief agents".to_owned()),
+            ("Other thing".to_owned(), String::new()),
+        ],
         "{spawned}"
     );
 }
@@ -1246,6 +1892,7 @@ fn with_no_pool_tool_set_up_subagents_stay_here() {
 fn a_subagents_own_vm_pauses_at_its_final_report() {
     use optchat_chief::brain::Input;
     let mut h = Harness::new(default_script());
+    auto_pause_on(&mut h);
     h.agents.hold(true);
     let vms = Arc::new(PerAgentVms::default());
     let sp = per_agent(&mut h, &vms);
@@ -1382,6 +2029,7 @@ fn a_subagent_waiting_on_a_fleet_job_pauses_and_wakes_on_its_result() {
     }));
     let vms = Arc::new(PerAgentVms::default());
     let sp = per_agent(&mut h, &vms);
+    auto_pause_on(&mut h);
     let fleet = Arc::new(FakeFleet::default());
     h.brain.set_fleet_jobs(Some(fleet.clone()), Duration::ZERO);
     let a = sp.clone();
@@ -1469,4 +2117,157 @@ fn a_subagent_waiting_on_a_fleet_job_pauses_and_wakes_on_its_result() {
     let sub = h.brain.state().sub("a1").unwrap().1.clone();
     assert!(sub.fleet_wait.is_empty());
     let _ = SubStatus::Done;
+}
+
+/// No auto pause by default (Leo, 2026-10-30: "we're saying no auto pausing
+/// of the freestyle vms for now"): with `cloud.autoPause` unset, a pool VM
+/// with no live subagent, a subagent's own VM at its final report and every
+/// idle VM at host shutdown all keep running. `cloud.autoPause true` opts in.
+#[test]
+fn no_cloud_vm_auto_pauses_by_default() {
+    use optchat_chief::brain::Input;
+    use optchat_chief::chief_settings::ChiefSettings;
+    assert!(!ChiefSettings::default().cloud_auto_pause);
+
+    // A shared pool VM: no live subagent, no idle wait, several ticks.
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let vms = Arc::new(FakeVms::default());
+    let sp = pool_spawner(&h, &vms);
+    h.brain.set_sub_starter(Some(sp.queue_starter()));
+    h.brain.set_cloud_vms(Some(vms.clone()), Duration::ZERO);
+    set_cloud(&mut h, &sp, "cloud1");
+    let a = sp.clone();
+    run(&mut h, move || a.spawn(vec!["one".into()], None)).unwrap();
+    h.brain.step(Input::SubagentFailed {
+        id: "a1".into(),
+        error: "ended".into(),
+    });
+    h.brain.step(Input::CloudTick);
+    h.brain.step(Input::CloudTick);
+    std::thread::sleep(Duration::from_millis(300));
+    // The host stops: nothing pauses either.
+    h.brain.step(Input::Shutdown { signal: 15 });
+    std::thread::sleep(Duration::from_millis(100));
+    assert_eq!(
+        pauses(&vms.calls, "cloud1"),
+        0,
+        "{:?}",
+        vms.calls.lock().unwrap()
+    );
+
+    // A subagent's own VM at its final report.
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let own = Arc::new(PerAgentVms::default());
+    let sp = per_agent(&mut h, &own);
+    let a = sp.clone();
+    run(&mut h, move || a.spawn(vec!["Design doc".into()], None)).unwrap();
+    h.brain.step(Input::SubagentFailed {
+        id: "a1".into(),
+        error: "ended".into(),
+    });
+    h.brain.step(Input::CloudTick);
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(
+        !calls_of(&own).iter().any(|c| c.starts_with("pause")),
+        "{:?}",
+        calls_of(&own)
+    );
+
+    // Opting in pauses it at the next tick, and the setting is saved.
+    let set = h.brain.set_setting("cloud.autoPause", "true").unwrap();
+    assert!(set.contains("cloud.autoPause = true"), "{set}");
+    assert!(ChiefSettings::load(&h.dir.path().join("settings.json")).cloud_auto_pause);
+    assert!(h.brain.set_setting("cloud.autoPause", "soon").is_err());
+    h.brain.step(Input::CloudTick);
+    let until = Instant::now() + Duration::from_secs(5);
+    while !calls_of(&own).contains(&"pause chief-sub-a1".to_owned()) && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        calls_of(&own).contains(&"pause chief-sub-a1".to_owned()),
+        "{:?}",
+        calls_of(&own)
+    );
+}
+
+/// A Chief that restarts or moves to another Mac (the same saved state)
+/// still knows which cloud VMs it paused: a tell to a finished subagent
+/// there resumes its VM first, instead of sending into a paused VM.
+#[test]
+fn a_restarted_chief_resumes_a_vm_it_paused_before_a_tell() {
+    use optchat_chief::brain::Input;
+    let mut h = Harness::new(default_script());
+    auto_pause_on(&mut h);
+    h.agents.hold(true);
+    let vms = Arc::new(PerAgentVms::default());
+    let sp = per_agent(&mut h, &vms);
+    let a = sp.clone();
+    run(&mut h, move || a.spawn(vec!["Design doc".into()], None)).unwrap();
+    h.brain.step(Input::SubagentFailed {
+        id: "a1".into(),
+        error: "ended".into(),
+    });
+    let until = Instant::now() + Duration::from_secs(5);
+    while !calls_of(&vms).contains(&"pause chief-sub-a1".to_owned()) && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(calls_of(&vms).contains(&"pause chief-sub-a1".to_owned()));
+    while let Ok(input) = h.rx.recv_timeout(Duration::from_millis(50)) {
+        h.brain.step(input);
+    }
+
+    // The saved state in a new home: the Chief after a restart or a move.
+    let state = h.brain.state().clone();
+    let dir = tempfile::tempdir().unwrap();
+    optchat_chief::state::StateFile::new(&dir.path().join("host.json"))
+        .save(&state)
+        .unwrap();
+    let owner = h.owner.clone();
+    let mut h = Harness::in_dir(dir, default_script(), owner);
+    h.agents.hold(true);
+    let vms = Arc::new(PerAgentVms::default());
+    let sp = per_agent(&mut h, &vms);
+    let a = sp.clone();
+    let told = run(&mut h, move || a.tell("a1", "one more thing"));
+    assert!(
+        calls_of(&vms).contains(&"resume chief-sub-a1".to_owned()),
+        "no resume after the restart: {:?}, told {told:?}",
+        calls_of(&vms)
+    );
+}
+
+/// A Chief on a Mac without the pool tool cannot resume a paused VM: a tell
+/// there is refused and names the missing tool, never sent into the VM.
+#[test]
+fn a_tell_to_a_paused_vm_without_the_pool_tool_names_the_tool() {
+    use optchat_chief::brain::Input;
+    let mut h = Harness::new(default_script());
+    auto_pause_on(&mut h);
+    h.agents.hold(true);
+    let vms = Arc::new(PerAgentVms::default());
+    let sp = per_agent(&mut h, &vms);
+    let a = sp.clone();
+    run(&mut h, move || a.spawn(vec!["Design doc".into()], None)).unwrap();
+    h.brain.step(Input::SubagentFailed {
+        id: "a1".into(),
+        error: "ended".into(),
+    });
+    let until = Instant::now() + Duration::from_secs(5);
+    while !calls_of(&vms).contains(&"pause chief-sub-a1".to_owned()) && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    while let Ok(input) = h.rx.recv_timeout(Duration::from_millis(50)) {
+        h.brain.step(input);
+    }
+    h.brain.set_cloud_vms(
+        Some(Arc::new(optchat_chief::cloud_vms::CommandVms {
+            file: h.dir.path().join("no-such-vm-cmd"),
+        })),
+        Duration::from_secs(3600),
+    );
+    let a = sp.clone();
+    let told = format!("{:?}", run(&mut h, move || a.tell("a1", "one more thing")));
+    assert!(told.contains("pool tool"), "{told}");
 }

@@ -6,6 +6,7 @@
 // the ± opens Branch, so there a file with work-tree changes gets Stage too (cx-4ukqc, run 2).
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { currentLanguage, setPaneLanguage } from "../src/agent-session/acpmux/i18n";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -42,6 +43,14 @@ for (const key of Object.getOwnPropertyNames(dom.window))
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
 
+// diffGitSource installs the viewer's git strings over the agent pane's string tables and switches
+// the pane's language to the viewer's (diff-viewer/git.ts). Both are process-wide, and bun runs
+// every file in one process, so they are saved here, before anything changes them, and restored
+// after: left as they are, later files read a table with only the git strings, in Japanese, and
+// render raw keys.
+const paneLanguageBefore = currentLanguage();
+const paneStringsBefore = globalThis.__cmuxPaneStrings;
+
 Object.defineProperty(dom.window.navigator, "languages", { configurable: true, get: () => ["ja"] });
 
 const { act, useState } = await import("react");
@@ -64,6 +73,8 @@ afterAll(() => {
     if (had) scope[key] = value;
     else delete scope[key];
   }
+  globalThis.__cmuxPaneStrings = paneStringsBefore;
+  setPaneLanguage(paneLanguageBefore);
 });
 
 const HEAD = "0123456789abcdef0123456789abcdef01234567";

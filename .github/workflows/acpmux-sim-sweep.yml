@@ -1,0 +1,100 @@
+name: acpmux simulation sweep
+
+# The large run of acpmux's deterministic simulation (cmux-tui/crates/acpmux/tests/sim.rs,
+# HQ#6740): thousands of seeds with every fault kind, a new window of seeds each run. The
+# per-change run (cmux-tui-spec.yml, acpmux-sim) keeps a fixed window of a few hundred. A red
+# run lists each failing seed with the command that replays it, in the log and the summary.
+#
+# A schedule fires only from the default branch's copy of this file, so landings on
+# feat-cmux-next that touch acpmux run it too.
+
+on:
+  schedule:
+    - cron: "17 7 * * *"
+  push:
+    branches:
+      - feat-cmux-next
+    paths:
+      - "cmux-tui/crates/acpmux/**"
+      - "cmux-tui/Cargo.lock"
+      - ".github/workflows/acpmux-sim-sweep.yml"
+  workflow_dispatch:
+    inputs:
+      seeds:
+        description: "Seeds to run"
+        required: false
+        default: "4000"
+        type: string
+      faults:
+        description: "SIM_FAULTS: a comma list of crash, power, network; or all, none"
+        required: false
+        default: "crash,network"
+        type: string
+
+# A started sweep always finishes: acpmux landings come often enough that cancelling on a
+# newer push left no sweep finishing (the first one after #34601 was cancelled). The group
+# still keeps at most one sweep running and one waiting, the newest.
+concurrency:
+  group: acpmux-sim-sweep-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sweep:
+    name: acpmux simulation sweep (${{ matrix.faults }}${{ matrix.resend == '0' && ', bare resend' || '' }}${{ matrix.known_gap && ', known gap' || '' }})
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    timeout-minutes: 90
+    continue-on-error: ${{ matrix.known_gap }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # The standard faults, and the bare resend the web pane sends (no resend flag), which
+        # holds once the daemon dedupes every logged prompt id (invariants.rs).
+        # A known gap (invariants.rs KNOWN_GAPS) runs, but its red does not fail the sweep.
+        include:
+          - faults: crash,network
+            resend: "1"
+            known_gap: false
+          - faults: crash,network
+            resend: "0"
+            known_gap: true
+          - faults: power
+            resend: "1"
+            known_gap: true
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          # The schedule runs main's copy of this file; the simulation lives on feat-cmux-next.
+          ref: ${{ github.event_name == 'schedule' && 'feat-cmux-next' || github.sha }}
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          workspaces: cmux-tui -> target
+          shared-key: cmux-tui-acpmux-sim
+          save-if: false
+
+      - name: Run the seeds
+        working-directory: cmux-tui
+        env:
+          SIM_SEEDS: ${{ inputs.seeds || '4000' }}
+          # Past the per-change window, a new window every run.
+          SIM_SEED_BASE: ${{ github.run_number }}0000
+          SIM_FAULTS: ${{ github.event_name == 'workflow_dispatch' && inputs.faults || matrix.faults }}
+          SIM_RESEND: ${{ matrix.resend }}
+        run: |
+          set -o pipefail
+          status=0
+          cargo test --locked -p acpmux --features sim --test sim seeds_hold -- --nocapture 2>&1 | tee "$RUNNER_TEMP/sim.log" || status=$?
+          {
+            grep -E '^sim: ' "$RUNNER_TEMP/sim.log" || true
+            grep -E '^seed [0-9]+:|replay:' "$RUNNER_TEMP/sim.log" | head -60 || true
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"

@@ -97,7 +97,8 @@ public final class ChiefPaneTools: NSView, PaneMoreMenuContributing {
             guard let item = built.items.first else { continue }
             built.removeItem(item)
             // The subagent's own row: its title and status, no action icon or key.
-            (item.title, item.toolTip, item.image) = (row.info.title, row.info.activity.shortLabel, nil)
+            (item.title, item.toolTip, item.image) = (row.info.title.isEmpty ? ChiefToolStrings.subagent : row.info.title,
+                                                       row.info.activity.shortLabel, nil)
             (item.keyEquivalent, item.keyEquivalentModifierMask) = ("", [])
             menu.addItem(item)
         }

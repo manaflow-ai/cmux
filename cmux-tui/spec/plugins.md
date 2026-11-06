@@ -119,6 +119,19 @@ key for private repositories; SSH user names, SCP-like sources, and local paths
 remain supported. Git metadata stdout is capped at 16 KiB before parsing;
 overflow is treated as unavailable.
 
+### Automatic updates
+
+Each daemon start schedules a background check at most once every 24 hours.
+For each installed plugin, cmux compares the local `HEAD` with the remote
+`HEAD` and uses the same staged clone, manifest validation, build, executable
+check, and atomic replacement as the `update` command. Only HTTPS, SSH, and
+`git://` origins are eligible. Local paths and `file://` origins are manual
+only; symlinked or dirty working trees are never replaced, so development
+checkouts keep their files. A failed check is best effort and does not delay
+the daemon or prevent the next check. The updated files are used when the
+plugin process next starts; reload the daemon configuration to restart one
+that is already running.
+
 ## Agent Plugins
 
 An agent plugin is a server-side background executable. It does not run in a

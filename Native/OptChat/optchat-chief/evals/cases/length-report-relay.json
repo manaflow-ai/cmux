@@ -1,0 +1,35 @@
+{
+  "id": "length-report-relay",
+  "group": "length",
+  "owner": "a680",
+  "about": "A long subagent report is relayed as one line: what changed, its link or sha range, what is open.",
+  "history": [
+    {
+      "kind": "user",
+      "text": "fix the white flash when cmux restarts"
+    },
+    {
+      "kind": "talk",
+      "text": "a12 is on it: [Fix restart white flash](cmux://workspace/ws_9f3a1c2e)."
+    }
+  ],
+  "turns": [
+    {
+      "kind": "work",
+      "text": "[a12] Done. Root cause: the window was created with the default white NSWindow background and the theme color was applied only after the first SwiftUI layout pass, so for 1-3 frames AppKit drew white. I set the window background from the saved theme before makeKeyAndOrderFront, and added RestartFlashTests which renders the first frame offscreen and checks no pixel is lighter than the theme background. Red before the fix (3e1f0a2), green after (9b7c4d1). Landed on feat-cmux-next as 3e1f0a2..9b7c4d1, CI run 39441102 green. I also noticed the same white flash may happen when opening the Settings window, which I did not touch. Fleet build cmux-flash-v1 passed.",
+      "checks": [
+        {
+          "type": "posted"
+        },
+        {
+          "type": "reply_matches",
+          "re": "9b7c4d1"
+        },
+        {
+          "type": "max_words",
+          "n": 45
+        }
+      ]
+    }
+  ]
+}

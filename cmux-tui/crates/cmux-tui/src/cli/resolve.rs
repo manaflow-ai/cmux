@@ -16,6 +16,7 @@ use super::command::plan::CALLER_SCOPES;
 use super::command::{RequestPlan, Resolve, ZoomStep, random_prefixed};
 use super::wire::{print_local_error, print_operation_error, random_request_id, read_envelope};
 use super::{GlobalArgs, OutputMode};
+use cmux_json::JsonSet as _;
 
 type Reader = BufReader<Box<dyn transport::Stream>>;
 
@@ -29,12 +30,21 @@ pub(super) enum Failure {
         exit: i32,
     },
     Transport(String),
+    /// The daemon refused the connection before any request ran.
+    Refused,
     /// The request belongs to the app, not the daemon: run this app action
     /// (by id) on this target instead (a browser tab's page zoom).
     AppAction {
         action: &'static str,
         target: String,
     },
+}
+
+/// Failure while waiting for a typed response. A refusal is a wire-level
+/// connection refusal, rather than a resource error or a broken transport.
+pub(super) enum ResponseFailure {
+    Transport(String),
+    Refused,
 }
 
 impl Failure {
@@ -46,10 +56,26 @@ impl Failure {
             }
             Self::Resource(error) => print_operation_error(&error, output),
             Self::Local { error, exit } => print_local_error(&error, output, exit),
-            Self::Transport(message) => {
-                eprintln!("{message}");
-                3
-            }
+            Self::Transport(message) => print_local_error(
+                &json!({
+                    "code": "transport.failed",
+                    "message": message,
+                    "details": {},
+                    "retryable": true,
+                }),
+                output,
+                3,
+            ),
+            Self::Refused => print_local_error(
+                &json!({
+                    "code": "session.busy",
+                    "message": "session is busy",
+                    "details": {},
+                    "retryable": true,
+                }),
+                output,
+                3,
+            ),
         }
     }
 }
@@ -143,6 +169,14 @@ pub(super) fn apply(
                 params.insert("tab".into(), Value::String(tab));
             }
             Resolve::Caller => {
+                // A `current` browser is the one nearest the caller (#26648).
+                #[cfg(unix)]
+                if caller_route
+                    && super::caller_browser::wants(params)
+                    && let Some(identity) = caller_identity(socket)
+                {
+                    super::caller_browser::apply(params, &identity).map_err(Failure::Resource)?;
+                }
                 caller_scopes(params, caller_route, || caller_path(reader, &route, socket))?;
             }
         }
@@ -307,6 +341,10 @@ pub(super) fn session_events(
     let mut events = BufReader::new(stream);
     let remaining = deadline.checked_duration_since(Instant::now())?;
     events.get_mut().set_read_timeout(Some(remaining)).ok()?;
+    // This connection also needs the public tab projection before reading
+    // session events. A refusal or an older daemon simply makes events
+    // unavailable; the caller still has its bounded direct lookup fallback.
+    super::tab_capabilities::negotiate(&mut events).ok()?;
     let id = random_request_id().ok()?;
     let mut params = route.clone();
     params.entry("session").or_insert_with(|| Value::String("current".into()));
@@ -476,6 +514,18 @@ fn agent_caller_path(socket: &SocketRoute<'_>) -> Result<Option<Map<String, Valu
     Ok(Some(path))
 }
 
+/// The app's `system.identify` answer for this caller (agent session, Chief
+/// turn or terminal), or `None` when nothing names a caller, no app owns
+/// this daemon, or the app does not answer (down, restarting, slow): the
+/// `current` chain then goes to the daemon as before.
+#[cfg(unix)]
+fn caller_identity(socket: &SocketRoute<'_>) -> Option<Value> {
+    let app = socket.app.as_ref()?;
+    super::app::caller_from(|key| std::env::var(key).ok())?;
+    let mut stream = super::app::connect(app).ok()?;
+    super::app::request(&mut stream, "system.identify", json!({}), APP_IDENTIFY_WAIT).ok()?.ok()
+}
+
 #[cfg(unix)]
 const APP_IDENTIFY_WAIT: Duration = Duration::from_secs(5);
 
@@ -620,19 +670,28 @@ pub(super) fn encode_request_bytes(request: &Value) -> Result<Vec<u8>, String> {
 pub(super) fn read_response(
     reader: &mut Reader,
     request_id: &str,
-) -> Result<Result<Value, Value>, String> {
+) -> Result<Result<Value, Value>, ResponseFailure> {
     loop {
-        let value = read_envelope(reader, false)?
-            .ok_or_else(|| "transport closed before response".to_string())?;
+        let value = read_envelope(reader, false)
+            .map_err(ResponseFailure::Transport)?
+            .ok_or_else(|| ResponseFailure::Transport("transport closed before response".into()))?;
+        if value.get("type").and_then(Value::as_str) == Some("refused") {
+            return Err(ResponseFailure::Refused);
+        }
         if value.get("type").and_then(Value::as_str) != Some("response") {
             continue;
         }
-        let response: ResponseEnvelope = serde_json::from_value(value)
-            .map_err(|error| format!("protocol error: invalid response envelope: {error}"))?;
+        let response: ResponseEnvelope = serde_json::from_value(value).map_err(|error| {
+            ResponseFailure::Transport(format!(
+                "protocol error: invalid response envelope: {error}"
+            ))
+        })?;
         if response.id.as_str() != request_id {
             continue;
         }
-        response.validate().map_err(|error| format!("protocol error: {}", error.message))?;
+        response.validate().map_err(|error| {
+            ResponseFailure::Transport(format!("protocol error: {}", error.message))
+        })?;
         if response.ok {
             return Ok(Ok(response.result.unwrap_or(Value::Null)));
         }
@@ -652,6 +711,31 @@ pub(super) fn send(reader: &mut Reader, encoded: &[u8]) -> Result<(), String> {
         .and_then(|()| stream.write_all(b"\n"))
         .and_then(|()| stream.flush())
         .map_err(|error| format!("transport error: {error}"))
+}
+
+/// Sends a request and preserves a refusal frame that arrives with EPIPE or
+/// connection reset. Those sockets carry no request outcome, but the daemon
+/// has explicitly told us the connection limit refused it.
+pub(super) fn send_request(reader: &mut Reader, encoded: &[u8]) -> Result<(), Failure> {
+    let result = {
+        let stream = reader.get_mut();
+        stream
+            .write_all(encoded)
+            .and_then(|()| stream.write_all(b"\n"))
+            .and_then(|()| stream.flush())
+    };
+    match result {
+        Ok(()) => Ok(()),
+        Err(error) if super::wire::refused_at_connect(reader, &error) => Err(Failure::Refused),
+        Err(error) => Err(Failure::Transport(format!("transport error: {error}"))),
+    }
+}
+
+pub(super) fn response_failure(failure: ResponseFailure) -> Failure {
+    match failure {
+        ResponseFailure::Transport(message) => Failure::Transport(message),
+        ResponseFailure::Refused => Failure::Refused,
+    }
 }
 
 /// One read on the connection; returns its result.
@@ -692,14 +776,14 @@ pub(super) fn call_as(
         "params": params,
     });
     if let Some(key) = idempotency_key {
-        request["idempotency_key"] = Value::String(key.to_owned());
+        request.set("idempotency_key", Value::String(key.to_owned()));
     }
     if let Some(credential) = credential {
-        request["credential"] = Value::String(credential.to_owned());
+        request.set("credential", Value::String(credential.to_owned()));
     }
     let encoded = serde_json::to_vec(&request).expect("JSON values serialize");
-    send(reader, &encoded).map_err(Failure::Transport)?;
-    match read_response(reader, &id).map_err(Failure::Transport)? {
+    send_request(reader, &encoded)?;
+    match read_response(reader, &id).map_err(response_failure)? {
         Ok(result) => Ok(result),
         Err(error) => Err(Failure::Resource(error)),
     }

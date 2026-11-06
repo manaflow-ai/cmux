@@ -189,18 +189,46 @@ impl Drop for WaitMark {
     }
 }
 
+/// The turn lock a prompt took for its turn, marked so (`Session::turn_claimed`): a prompt that
+/// comes before the turn shows queues behind it and is accepted at once (`queue.rs`
+/// `queue_slot`). The mark clears before the lock is released, so it never clears the mark of
+/// the prompt that takes the lock next.
+pub(super) struct ClaimedTurn<'a> {
+    claimed: &'a AtomicBool,
+    _lock: tokio::sync::MutexGuard<'a, ()>,
+}
+
+impl<'a> ClaimedTurn<'a> {
+    pub(super) fn new(session: &'a Session, lock: tokio::sync::MutexGuard<'a, ()>) -> Self {
+        session.turn_claimed.store(true, Ordering::SeqCst);
+        Self { claimed: &session.turn_claimed, _lock: lock }
+    }
+}
+
+impl Drop for ClaimedTurn<'_> {
+    // Runs before the fields drop: the mark clears while the lock is still held.
+    fn drop(&mut self) {
+        self.claimed.store(false, Ordering::SeqCst);
+    }
+}
+
 /// The turn lock, with the run slot a family turn of a sub-session holds (`queue.rs`): both are
 /// released together.
 pub(super) struct TurnGuard<'a> {
     // Fields drop in order: the slot frees while the turn lock is still held, so the same
     // child's next turn (which takes the lock first) never finds its old slot still counted.
     _slot: Option<RunSlot>,
-    _lock: tokio::sync::MutexGuard<'a, ()>,
+    _lock: ClaimedTurn<'a>,
 }
 
 impl<'a> TurnGuard<'a> {
-    pub(super) fn new(lock: tokio::sync::MutexGuard<'a, ()>, slot: Option<RunSlot>) -> Self {
+    pub(super) fn new(lock: ClaimedTurn<'a>, slot: Option<RunSlot>) -> Self {
         Self { _slot: slot, _lock: lock }
+    }
+
+    /// The run slot, for a turn its agent runs on into (`carried_turn.rs`): it stays taken.
+    pub(super) fn take_slot(&mut self) -> Option<RunSlot> {
+        self._slot.take()
     }
 }
 

@@ -66,8 +66,13 @@ export function docsChannelUrl(
   return `${targetPath}${search}${hash}`;
 }
 
+/**
+ * A docs path without its locale and nightly prefixes, to match a nav entry.
+ * Unlike `docsChannelUrl("release", ...)` it keeps nightly-only pages
+ * (Base, cmux-next) instead of falling back to Getting Started.
+ */
 export function docsNavPath(pathname: string, locale: string): string {
-  const releasePath = docsChannelUrl("release", pathname);
+  const releasePath = pathname.replace(/\/docs\/nightly(?=\/|$)/, "/docs");
   const localePrefix = `/${locale}`;
   return releasePath.startsWith(`${localePrefix}/`)
     ? releasePath.slice(localePrefix.length)

@@ -31,6 +31,7 @@
 use super::*;
 
 use crate::catalog::CatalogHarness;
+use cmux_json::JsonSet as _;
 
 /// Longest model id or effort a pick saves (the pane's own limits).
 const MAX_VALUE: usize = 256;
@@ -398,12 +399,12 @@ impl Hub {
         }
         let mut v = json!({});
         if let Some(m) = model {
-            v["model"] = json!(m.value);
-            v["modelSource"] = json!(m.source.as_str());
+            v.set("model", json!(m.value));
+            v.set("modelSource", json!(m.source.as_str()));
         }
         if let Some(e) = effort {
-            v["effort"] = json!(e.value);
-            v["effortSource"] = json!(e.source.as_str());
+            v.set("effort", json!(e.value));
+            v.set("effortSource", json!(e.source.as_str()));
         }
         Some(v)
     }

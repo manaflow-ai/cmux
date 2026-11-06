@@ -445,6 +445,36 @@ def phase(name, pid, ids, groups, churn_hz, trace=False):
     return entry
 
 
+def typed_terminal(builder, workspace_id, pane):
+    """The terminal STRESS types into: the tab the measured workspace's last pane shows, when it is a terminal.
+    snapshot.get names the shown tab in the pane's `selected_tab`; a terminal, browser or chat tab has no `selected`
+    key (ControlTopology+JSON.swift). When the pane shows another tab (its agent chat), this selects the pane's last
+    terminal with tab.focus and waits until `selected_tab` names it. A script run changes the selection only when it
+    asks for focus (ActionInvocation.allowsViewChange), so the run sends focus. Exits when the pane has no terminal or
+    does not show it."""
+    tabs = pane.get("tabs") or []
+    shown_id = pane.get("selected_tab")
+    terminal = next((t for t in tabs if t.get("id") == shown_id and t.get("kind") == "terminal"), None)
+    if terminal is not None:
+        return terminal
+    last = next((t for t in reversed(tabs) if t.get("kind") == "terminal"), None)
+    if last is None:
+        sys.exit(f"STRESS: the measured workspace's last pane {pane.get('id')} has no terminal")
+    shown = next((t.get("kind") for t in tabs if t.get("id") == shown_id), None)
+    note(f"stress: the last pane shows a {shown}, not its terminal; selecting terminal {last['id']}")
+    builder.action("tab.focus", target=f"tab:{last['id']}", focus=True)
+
+    def shows_terminal():
+        now = next((p for p in builder.panes(builder.workspace(workspace_id)) if p.get("id") == pane["id"]), None)
+        if (now or {}).get("selected_tab") != last["id"]:
+            return None
+        return next((t for t in now.get("tabs") or [] if t.get("id") == last["id"]), None)
+    shown_terminal = wait(shows_terminal, 20, step=0.1)
+    if shown_terminal is None:
+        sys.exit(f"STRESS: the measured workspace's last pane {pane.get('id')} does not show terminal {last['id']}")
+    return shown_terminal
+
+
 def main():
     global SOCKET, CONFIG
     # One launch path for GUI benches (bench_launch.py): the console-session check, the tag's socket in the state
@@ -461,7 +491,7 @@ def main():
     groups = []
     try:
         try:
-            bench.launch(timeout=180, settle=3.0)
+            bench.launch(timeout=180)
         except LaunchError as error:
             results["launch_failure"] = {"reason": error.reason, "detail": error.report.get("detail")}
             raise
@@ -494,9 +524,7 @@ def main():
             # in its first 10 panes), turned into `cat` so the tty echoes each key; the grid stays on screen.
             typed_id = builder.measured
             pane = builder.panes(builder.workspace(typed_id))[-1]
-            terminal = next((t for t in pane.get("tabs") or [] if t.get("kind") == "terminal" and t.get("selected")), None)
-            if terminal is None:
-                sys.exit(f"STRESS: the measured workspace's last pane {pane.get('id')} shows no terminal")
+            terminal = typed_terminal(builder, typed_id, pane)
             builder.send(terminal["id"], "exec cat\r")
             builder.show(typed_id)
             builder.focus_pane(pane["id"])
@@ -545,4 +573,5 @@ def main():
                      f"{opts.gate_p95_ms} ms or idle + {opts.gate_delta_ms} ms")
 
 
-main()
+if __name__ == "__main__":
+    main()

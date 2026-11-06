@@ -3,6 +3,7 @@
 // transcript, for the streaming reply's code block, a short one and one with a line wider than the
 // column. `window.__codeHandoff.measure()` waits for Pierre to paint the highlighted cards' lines,
 // then reports each card's height and its parts' (code-handoff-height.test.ts reads it).
+import type { CSSProperties } from "react";
 import { createRoot } from "react-dom/client";
 import { CodeBlock, loadHighlightedCode } from "../../src/agent-session/acpmux/conversation/CodeBlock";
 import { PlainCode } from "../../src/agent-session/acpmux/conversation/StreamingCode";
@@ -19,13 +20,22 @@ const FENCES = {
   reply: { lang: replyLang, code: replyCode },
   short: { lang: "ts", code: "const delay = policy.next();\nawait sleep(delay);" },
   wide: { lang: "ts", code: `const banner = "${"=".repeat(160)}";\nconsole.log(banner);` },
+  labeled: { lang: "text", code: "A named code card", label: "Result" },
+  newline: { lang: "ts", code: "const end = true;\n" },
 };
 export type FenceName = keyof typeof FENCES;
 
 /// The streaming harness's transcript column at its 900 px viewport.
 const COLUMN = 704;
 
-export type CardHeights = { card: number; header: number; body: number; lines: number };
+export type CardHeights = {
+  card: number;
+  header: number;
+  body: number;
+  lines: number;
+  font: string;
+  label: string;
+};
 export type FenceReport = {
   plain: CardHeights;
   highlighted: CardHeights;
@@ -38,23 +48,26 @@ const height = (el: Element | null | undefined) => el?.getBoundingClientRect().h
 function heights(card: HTMLElement | null): CardHeights {
   const body = card?.querySelector<HTMLElement>(".cv-codeblock__body");
   const root = body?.shadowRoot ?? body;
+  const line = root?.querySelector(".cv-code-plain__line, [data-line]");
   return {
     card: height(card),
     header: height(card?.querySelector(".cv-codeblock__header")),
     body: height(body),
     lines: root?.querySelectorAll(".cv-code-plain__line, [data-line]").length ?? 0,
+    font: line ? getComputedStyle(line).fontFamily : "",
+    label: card?.querySelector(".cv-codeblock__header > span:first-of-type")?.textContent ?? "",
   };
 }
 
 createRoot(document.getElementById("root")!).render(
-  <div className="cv-md" style={{ width: COLUMN }}>
-    {Object.entries(FENCES).map(([name, { code, lang }]) => (
+  <div className="cv-md" style={{ width: COLUMN, "--cv-mono": "serif" } as CSSProperties}>
+    {Object.entries(FENCES).map(([name, props]) => (
       <div key={name} data-fence={name}>
         <div data-card="plain">
-          <PlainCode code={code} lang={lang} />
+          <PlainCode {...props} />
         </div>
         <div data-card="highlighted">
-          <CodeBlock code={code} lang={lang} />
+          <CodeBlock {...props} />
         </div>
       </div>
     ))}

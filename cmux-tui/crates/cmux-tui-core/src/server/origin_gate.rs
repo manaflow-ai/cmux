@@ -115,14 +115,14 @@ fn classify_local_peer(
     LocalPeer::Other
 }
 
-fn peer_pid(key: &str) -> Option<u32> {
+pub(super) fn peer_pid(key: &str) -> Option<u32> {
     let (pid, version) = key.strip_prefix("token:")?.split_once('.')?;
     let pid = pid.parse().ok()?;
     (!version.is_empty() && pid > 0).then_some(pid)
 }
 
 #[cfg(unix)]
-fn peer_session_id(pid: u32) -> Option<u32> {
+pub(super) fn peer_session_id(pid: u32) -> Option<u32> {
     let pid = libc::pid_t::try_from(pid).ok()?;
     // SAFETY: getsid only reads kernel process metadata for the positive pid.
     let session = unsafe { libc::getsid(pid) };
@@ -130,7 +130,7 @@ fn peer_session_id(pid: u32) -> Option<u32> {
 }
 
 #[cfg(not(unix))]
-fn peer_session_id(_pid: u32) -> Option<u32> {
+pub(super) fn peer_session_id(_pid: u32) -> Option<u32> {
     None
 }
 
@@ -188,7 +188,7 @@ pub(super) fn is_page(mux: &Mux, client: u64) -> bool {
 }
 
 /// The origin `client` derives; a client with no record is an agent.
-fn derived_origin(mux: &Mux, client: u64) -> RequestOrigin {
+pub(super) fn derived_origin(mux: &Mux, client: u64) -> RequestOrigin {
     let state = mux.control_clients.state.lock().recover_poison();
     state.clients.get(&client).map_or(RequestOrigin::Agent, |record| record.origin.derive())
 }
@@ -220,6 +220,16 @@ fn check_pairing_accept(
 /// The actor of a durable mutation that `client` asks for on the legacy
 /// control protocol. A client with no record is never the local user.
 pub(super) fn connection_actor(mux: &Mux, client: u64) -> Actor {
+    if mux.control_clients.input_lane.on() {
+        // The published facts, never the registry lock (R-DAEMON-STATE S1).
+        let facts = mux.control_clients.state.load().recover_poison();
+        let Some(connection) = facts.clients.get(&client) else {
+            return Actor::Peer { id: "unregistered".to_string() };
+        };
+        let (transport, local) = (connection.transport, connection.actor.clone());
+        drop(facts);
+        return peer_or_local(mux, client, transport, local);
+    }
     let state = mux.control_clients.state.lock().recover_poison();
     let Some(record) = state.clients.get(&client) else {
         return Actor::Peer { id: "unregistered".to_string() };

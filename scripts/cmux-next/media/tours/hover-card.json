@@ -12,7 +12,7 @@
     {"title": "Tab cards, light", "cmux": ["settings", "unset", "appearance.background"], "wait": 3},
     {"title": "Tab cards, dark", "cmux": ["settings", "set", "appearance.theme", "Soft Blue"], "wait": 2},
     {"title": "Close the gallery", "rpc": {"method": "debug.hover_cards", "params": {"gallery": "none"}}, "wait": 1},
-    {"title": "New workspace", "cmux": ["workspace", "new", "--name", "Make the hover cards look like Codex's"], "wait": 2},
+    {"title": "New workspace", "rpc": {"method": "action.run", "params": {"action": "workspace new", "args": {"name": "Make the hover cards look like Codex's", "focus": true}, "origin": "script"}}, "wait": 2},
     {"title": "A real workspace card, dark", "cmux": ["action", "run", "workspace.showResources"], "wait": 3}
   ]
 }

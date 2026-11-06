@@ -6,6 +6,8 @@
 // Kept per chat in this page only: a pick in one chat never forks another, and leaving the chat
 // drops it (ComposerPickers).
 import { useCallback, useSyncExternalStore } from "react";
+import type { Handoff } from "./handoff/protocol";
+import type { HandoffReviewInput } from "./handoff/review";
 
 export type HeldFork = {
   /// The chat the pick was made in; only its next send forks.
@@ -14,6 +16,9 @@ export type HeldFork = {
   harness: string;
   /// The model picked there; none for a launch profile's tab, which starts on its own default.
   model?: string;
+  /// The harness's name as the menu labels it ("Claude (work)"): a launch profile folded into its
+  /// family's tab has no catalog entry of its own to name it.
+  name?: string;
   /// A typed combo's effort and Fast ("gpt high fast"), applied with the model.
   effort?: string;
   fast?: boolean;
@@ -95,4 +100,71 @@ export function sendHeldFork(
     sent?.(pick.sessionId);
     return target;
   });
+}
+
+/// What `chat.handoff.prepare` gets from a send with a held pick (sendHeldFork).
+export type HeldForkParams = {
+  harness: string;
+  model?: string;
+  effort?: string;
+  fast?: boolean;
+  message?: string;
+};
+
+/// `chat.handoff.prepare`'s work for a held pick (App.tsx): Continue In… to the pick's harness,
+/// the held model landed on the new chat before its review is ready (so Start never runs the
+/// message on that chat's default model), its effort and Fast best effort, then the message added
+/// to the review's context after a blank line. The review's checkpoint stays as the draft has it:
+/// the person still confirms it before Start. Resolves the new chat; undefined when Continue In…
+/// made no review. Throws when the model did not land or the message did not join the review (a
+/// refused or conflicting save, a review no longer shown), so the composer keeps the message and
+/// the hold (review of #37196).
+export async function prepareHeldFork(
+  params: HeldForkParams,
+  {
+    continueIn,
+    pickModel,
+    options,
+    record,
+    save,
+    saved,
+  }: {
+    continueIn(harness: string): Promise<string | undefined>;
+    /// Lands the model on the new chat; false when it did not take it.
+    pickModel(model: string, target: string): Promise<boolean>;
+    /// Sets the held effort and Fast on the new chat, best effort.
+    options?(target: string, picked: { effort?: string; fast?: boolean }): Promise<void>;
+    /// The review's record as it is now.
+    record(): Handoff | undefined;
+    save(review: HandoffReviewInput): Promise<Handoff | undefined>;
+    /// The message joined the review: the review draws its draft again.
+    saved?(): void;
+  },
+): Promise<string | undefined> {
+  const target = await continueIn(params.harness);
+  if (!target) return target;
+  if (params.model) {
+    // l10n-allow: the composer's promise only; the person sees the pick's own notice.
+    if (!(await pickModel(params.model, target))) throw new Error("model not set");
+    if (params.effort || params.fast)
+      await options?.(target, {
+        ...(params.effort ? { effort: params.effort } : {}),
+        ...(params.fast ? { fast: true } : {}),
+      }).catch(() => undefined);
+  }
+  const message = params.message ?? "";
+  if (!message.trim()) return target;
+  const shown = record();
+  // l10n-allow: the composer's promise only; the composer keeps the text, never shows this.
+  if (shown?.target.sessionId !== target) throw new Error("review not shown");
+  const accepted = await save({
+    capsule: shown.capsule.text.trim() ? `${shown.capsule.text}\n\n${message}` : message,
+    checkpoint: { reference: shown.capsule.checkpoint?.ref ?? "", confirmed: !!shown.capsule.checkpoint },
+    approvedMemoryReferences: shown.capsule.memoryRefs,
+    revision: shown.revision,
+  });
+  // l10n-allow: the composer's promise only; the composer keeps the text, never shows this.
+  if (!accepted) throw new Error("message not saved");
+  saved?.();
+  return target;
 }

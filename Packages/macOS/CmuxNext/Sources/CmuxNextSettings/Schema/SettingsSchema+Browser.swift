@@ -52,6 +52,14 @@ nonisolated enum BrowserSettingsSchema {
                 keywords: ["import", "browser", "chrome", "safari", "arc", "firefox", "bookmarks", "history", "passwords", "cookies", "suggestions"]
             ),
             SettingDescriptor(
+                BrowserCookieBannerSetting().configPath, section: .browser, group: importGroup,
+                title: SettingsText.keyed("settings.browser.importCookieBanner", "Offer to Import Cookies"),
+                help: SettingsText.keyed("settings.browser.importCookieBanner.help",
+                                         "Browser tabs offer to import cookies from your other browsers, so you stay signed in. Nothing imports until you click Import. Don't Show Again on the banner turns this off."),
+                kind: .toggle, default: .bool(BrowserCookieBannerSetting().fallback),
+                keywords: ["import", "cookies", "banner", "card", "sign in", "login", "chrome", "safari", "arc", "dismissed", "reset"]
+            ),
+            SettingDescriptor(
                 AgentCursorSetting().configPath, section: .browser, group: agentInput,
                 title: SettingsText.keyed("settings.browser.showAgentCursor", "Show Agent Cursor"),
                 help: SettingsText.keyed(
@@ -143,6 +151,16 @@ nonisolated enum BrowserSettingsSchema {
                 kind: .number(SettingNumber(0...3, step: 1, unit: .count)),
                 default: .number(Double(BrowserHibernationSetting.defaultNeighborRadius)),
                 keywords: ["neighbor", "adjacent", "preload", "warm", "instant", "switch", "hibernation", "freeze"]
+            ),
+            SettingDescriptor(
+                BrowserHibernationSetting.wakesOnHoverPath, section: .browser, group: memory,
+                title: SettingsText.keyed("settings.browser.wakeTabsOnHover", "Wake Tabs on Hover"),
+                help: SettingsText.keyed(
+                    "settings.browser.wakeTabsOnHover.help",
+                    "When the pointer rests on a tab or a workspace, its sleeping pages start to load before you click. Uses more memory."
+                ),
+                kind: .toggle, default: .bool(BrowserHibernationSetting.defaultWakesOnHover),
+                keywords: ["hover", "preload", "prerender", "warm", "instant", "hibernation", "sleep"]
             ),
             SettingDescriptor(
                 ["browser", "remoteLocalhost"], section: .browser, group: remote,

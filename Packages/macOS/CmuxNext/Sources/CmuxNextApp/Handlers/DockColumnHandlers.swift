@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextLayout
 
 /// Dock Column, Dock Column Left/Right/Top/Bottom, Float Column and Undock
@@ -29,6 +30,7 @@ enum DockColumnHandlers {
         registry.bind("column.float", requires: capability, daemon: ctx.services.activeDaemon, run: { invocation in
             try dock(invocation, edge: nil, mode: .overlay, ctx)
         })
+        WindowDockActions(host: ctx.services).bind(into: registry)
         registry.bind("column.undock", requires: capability, daemon: ctx.services.activeDaemon, run: { invocation in
             guard let (content, column) = ColumnHandlers.column(invocation, ctx) else { return }
             try ColumnDocking.apply(nil, to: column, in: content)

@@ -1,19 +1,21 @@
+import { announceScroll } from "./threadMinimap/scrollMotion";
+import { userScrollIntent } from "./conversation/userScroll";
 import * as automation from "./automation";
 import type { AcpmuxRow } from "./model";
 import type { PermissionDecision } from "./permissions/protocol";
 import { acpmuxPerf, frameStats, isBlank, median, round2, typingSummary } from "./perf";
 import { openPicker, pickerLabels } from "./pickerOpeners";
-import { syntheticRows } from "./synthetic";
-import { runStream, type StreamOptions } from "./streamDebug";
-import { loadRun, loadSeed, type LoadRunOptions } from "./loadDebug";
-import { workedTurnRows } from "./workedTurn";
-import { incomingRows } from "./incomingFixture";
-import { SHARED_PRESENCE, sharedRows } from "./multiplayer/sharedFixture";
+import type { StreamOptions } from "./streamDebug";
+import type { LoadRunOptions } from "./loadDebug";
 import { shownPresence } from "./multiplayer/LivePresence";
 import { acpWire, type AcpWireLog } from "./wire";
 import { followTrace } from "./followTrace";
 import { composerChips, layoutWatch, type LayoutWatchOptions } from "./layoutWatch";
+import type { IdleProbeOptions } from "./idleProbe";
 import { queuedRowsState } from "./queuedRowsState";
+import { composerAttachmentsState } from "./composerAttachmentsState";
+import { cloudSignedInForDebug } from "./cloudMachines";
+import type { SeedSnapshotFields } from "./waitingSteersFixture";
 
 // `window.cmuxAcpmuxDebug`, called by the DEBUG `debug.agent_pane` socket
 // method. The first measurement call turns on measurement (acpmuxPerf.enabled);
@@ -26,9 +28,16 @@ export type FlingOptions = { nominal_ms?: number; wait?: boolean };
 export type AcpmuxDebug = {
   /// Replaces the transcript with `count` synthetic rows, with the worked turn of
   /// workedTurn.ts when `fixture` is "worked-turn", or with received agent messages
-  /// (incomingFixture.ts) when it is "incoming", or with a shared chat (teammates' prompts, who
-  /// answered an ask, who else is here and typing; multiplayer/sharedFixture.ts) when it is "shared".
-  seedRows(count?: number, fixture?: string): Promise<Record<string, unknown>>;
+  /// (incomingFixture.ts) when it is "incoming", or with a turn linking a synthetic pull request page
+  /// (linkFixture.ts) when it is "link", or with a turn organized as Claude Code desktop
+  /// draws one (organizationFixture.ts) when it is "organization", or with a run of shell calls
+  /// summarized as Claude Code desktop summarizes one (toolSummaryFixture.ts) when it is
+  /// "tool-summary", or with a shared chat (teammates' prompts, who
+  /// answered an ask, who else is here and typing; multiplayer/sharedFixture.ts) when it is "shared",
+  /// or with step `count` (0-5, else 0) of the subagent tray's life (subagentsFixture.ts) when it is
+  /// "subagents", or with three steers waiting under a running turn (waitingSteersFixture.ts) when it is
+  /// "waiting-steers".
+  seedRows(count?: number, fixture?: string, agents?: number): Promise<Record<string, unknown>>;
   startFling(seconds?: number, options?: FlingOptions): Promise<Record<string, unknown>>;
   flingStats(): Record<string, unknown>;
   perfStats(options?: { raw?: boolean }): Record<string, unknown>;
@@ -46,6 +55,8 @@ export type AcpmuxDebug = {
   sendPrompt(text: string): Promise<Record<string, unknown>>;
   newChat(harness?: string, cwd?: string): Promise<Record<string, unknown>>;
   pickFolder(cwd: string): Record<string, unknown>;
+  composeSend(text: string): Promise<Record<string, unknown>>;
+  runMode(mode?: string): Record<string, unknown>;
   selectSession(sessionId: string): Record<string, unknown>;
   answerPermission(options?: {
     optionId?: string;
@@ -57,6 +68,8 @@ export type AcpmuxDebug = {
   models(): Record<string, unknown>;
   /** What moved on the page after it first showed its content, watched for `ms` (layoutWatch.ts). */
   layoutWatch(options?: LayoutWatchOptions): Promise<Record<string, unknown>>;
+  /** What the page asks for while nobody touches it, by call site, over `ms` (idleProbe.ts). */
+  idleProbe(options?: IdleProbeOptions): Promise<Record<string, unknown>>;
   /** Streams a scripted reply into a long synthetic transcript and reports the frames (streamDebug.ts). */
   stream(options?: StreamOptions): Promise<Record<string, unknown>>;
   /** Opens a mock session of `turns` heavy turns through the real client (loadDebug.ts). */
@@ -99,7 +112,8 @@ function nextFrame(): Promise<number> {
 
 export function createAcpmuxDebug(
   host: {
-    replaceRows(rows: AcpmuxRow[]): void;
+    /// `fields`: the snapshot fields a fixture's rows need beside them (a waiting steer's `newestOwnSteer`).
+    replaceRows(rows: AcpmuxRow[], fields?: SeedSnapshotFields): void;
     rowCount(): number;
     sessionId?(): string | undefined;
     automation?: automation.AutomationHost;
@@ -129,20 +143,52 @@ export function createAcpmuxDebug(
     };
   };
 
+  // The subagents fixture's steps share the time its step 0 began, so its rows keep their places.
+  let subagentsAt: number | undefined;
   return {
-    async seedRows(count = 5000, fixture) {
+    async seedRows(count = 5000, fixture, agents) {
+      const {
+        syntheticRows,
+        workedTurnRows,
+        incomingRows,
+        linkRows,
+        organizationRows,
+        toolSummaryRows,
+        SUBAGENT_TRAY_STEPS,
+        subagentTrayRows,
+        SHARED_PRESENCE,
+        sharedRows,
+        WAITING_STEERS_SNAPSHOT,
+        waitingSteersRows,
+      } = await import("./debugFixtures");
+      const trayStep = (count: number) =>
+        Number.isInteger(count) && count > 0 && count < SUBAGENT_TRAY_STEPS ? count : 0;
+      const trayOrigin = (count: number) => {
+        if (trayStep(count) === 0 || subagentsAt === undefined) subagentsAt = Date.now() - 60_000;
+        return subagentsAt;
+      };
       acpmuxPerf.enable();
       const rows =
-        fixture === "worked-turn"
-          ? workedTurnRows(Date.now() - 60_000)
-          : fixture === "incoming"
-            ? incomingRows(Date.now() - 120_000)
-            : fixture === "shared"
-              ? sharedRows(Date.now() - 720_000)
-              : syntheticRows(Math.max(3, Math.floor(count)), fixture === "short" ? "short" : "mixed");
+        fixture === "subagents"
+          ? subagentTrayRows(trayStep(count), trayOrigin(count), agents ?? 2)
+          : fixture === "worked-turn"
+            ? workedTurnRows(Date.now() - 60_000)
+            : fixture === "incoming"
+              ? incomingRows(Date.now() - 120_000)
+              : fixture === "link"
+                ? linkRows(Date.now() - 30_000)
+                : fixture === "organization"
+                  ? organizationRows(Date.now() - 120_000)
+                  : fixture === "tool-summary"
+                    ? toolSummaryRows(Date.now() - 60_000)
+                    : fixture === "shared"
+                      ? sharedRows(Date.now() - 1_020_000)
+                      : fixture === "waiting-steers"
+                        ? waitingSteersRows(Date.now() - 90_000)
+                        : syntheticRows(Math.max(3, Math.floor(count)), fixture === "short" ? "short" : "mixed");
       const start = performance.now();
       const committed = acpmuxPerf.nextCommit();
-      host.replaceRows(rows);
+      host.replaceRows(rows, fixture === "waiting-steers" ? WAITING_STEERS_SNAPSHOT : undefined);
       if (fixture === "shared") {
         // The presence to restore on leaving: kept across uninterrupted repeat seeds of this chat,
         // taken again once live presence or a switch displaced the fixture. The fixture's own
@@ -173,6 +219,7 @@ export function createAcpmuxDebug(
       acpmuxPerf.enable();
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
       if (!scroller) return { error: "no transcript" };
+      const requested = userScrollIntent(scroller).request();
       const run = ++generation;
       const duration = Math.max(0.1, seconds) * 1000;
       timestamps = [];
@@ -182,7 +229,12 @@ export function createAcpmuxDebug(
       const done = (async () => {
         const warmup: number[] = [];
         for (let frame = 0; frame < WARMUP_FRAMES; frame += 1) warmup.push(await nextFrame());
-        if (run !== generation) return;
+        if (run !== generation || !requested()) {
+          // Cancellation during warm-up returns before the animation phase, so clear the
+          // diagnostic flag here rather than leaving flingStats() stuck at running.
+          if (run === generation) running = false;
+          return;
+        }
         nominal =
           options.nominal_ms && options.nominal_ms > 0
             ? options.nominal_ms
@@ -194,11 +246,12 @@ export function createAcpmuxDebug(
         await new Promise<void>((resolve) => {
           let start: number | undefined;
           const tick = (now: number) => {
-            if (run !== generation) return resolve();
+            if (run !== generation || !requested()) return resolve();
             start ??= now;
             timestamps.push(now);
             const progress = Math.min(1, (now - start) / duration);
             scroller.scrollTop = from * (1 - progress);
+            announceScroll(scroller);
             acpmuxPerf.markFrame(
               now,
               isBlank(acpmuxPerf.mounted, scroller.scrollTop, scroller.clientHeight, scroller.scrollHeight),
@@ -225,6 +278,8 @@ export function createAcpmuxDebug(
         running,
         ...acpmuxPerf.stats(options.raw === true),
         agent: acpmuxPerf.agentLatency(),
+        start_state_shown: acpmuxPerf.startStateShown() ?? null,
+        launch: acpmuxPerf.launchTimeline(),
       };
     },
 
@@ -298,6 +353,11 @@ export function createAcpmuxDebug(
             subagentOf: document.querySelector(".cv-subagent-of__parent")?.textContent ?? null,
             // The composer's chips as drawn (model, effort, access), keyed by their menu label.
             composer: composerChips(),
+            // The composer's attachment tiles as drawn: loading (with its upload's percent), failed (why) or staged.
+            attachments: composerAttachmentsState(),
+            // The Cloud auth state consumed by EnvironmentPicker; undefined is the fresh-home
+            // absent/unknown state that still offers the sign-in action.
+            cloudSignedIn: cloudSignedInForDebug(),
             focused: document.hasFocus(),
           }
         : NO_AUTOMATION;
@@ -310,6 +370,12 @@ export function createAcpmuxDebug(
     },
     pickFolder(cwd) {
       return host.automation ? automation.pickFolder(host.automation, String(cwd ?? "")) : NO_AUTOMATION;
+    },
+    async composeSend(text) {
+      return host.automation ? automation.composeSend(host.automation, String(text ?? "")) : NO_AUTOMATION;
+    },
+    runMode(mode) {
+      return host.automation ? automation.runMode(host.automation, mode || undefined) : NO_AUTOMATION;
     },
     selectSession(sessionId) {
       return host.automation ? automation.selectSession(host.automation, String(sessionId ?? "")) : NO_AUTOMATION;
@@ -331,24 +397,33 @@ export function createAcpmuxDebug(
     layoutWatch(options = {}) {
       return layoutWatch(options);
     },
-    stream(options = {}) {
+
+    async idleProbe(options = {}) {
+      const { idleProbe } = await import("./idleProbe");
+      return idleProbe(options);
+    },
+    async stream(options = {}) {
+      const { runStream } = await import("./streamDebug");
       return runStream(host.replaceRows, options);
     },
-    loadSeed(turns = 5000) {
+    async loadSeed(turns = 5000) {
       const automationHost = host.automation;
-      if (!automationHost) return Promise.resolve(NO_AUTOMATION);
+      if (!automationHost) return NO_AUTOMATION;
+      const { loadSeed } = await import("./loadDebug");
       return loadSeed({ selectSession: automationHost.selectSession, rowCount: host.rowCount }, turns);
     },
-    loadRun(options = {}) {
+    async loadRun(options = {}) {
+      const { loadRun } = await import("./loadDebug");
       return loadRun({ sessionId: () => host.sessionId?.(), rowCount: host.rowCount }, options);
     },
   };
 }
 
-/// The prompts as drawn, top first: the "From the Chief" label, the collapsed view line and the bubble.
+/// The prompts as drawn, top first: who it is from (the "Sent from <Chief>" label, or a person's author
+/// chip, "Sam (guest)"), the collapsed view line and the bubble.
 function userBubblesState() {
   return [...document.querySelectorAll<HTMLElement>(".cv-user")].slice(0, 8).map((row) => ({
-    from: row.querySelector(".cv-user__from")?.textContent ?? null,
+    from: (row.querySelector(".cv-user__from") ?? row.querySelector(".cv-author__name"))?.textContent ?? null,
     context: row.querySelector(".cv-user__context summary")?.textContent ?? null,
     text: (row.querySelector(".cv-user__bubble")?.textContent ?? "").slice(0, 400),
     top: Math.round(row.getBoundingClientRect().top),

@@ -27,7 +27,8 @@ public nonisolated final class CloudHomeSource: HomeSource {
     /// only so the `CloudHomeSource+*.swift` extensions reach it.
     let state = Mutex(CloudHomeState())
     static let eventBuffer = 1024
-    static let inboxLimit = CloudInboxListRequest.maxLimit
+    /// Pages of 200 one inbox read follows at most (`allPages`).
+    static let inboxPages = 50
     static let hydrationWidth = 4
     /// How long an edit made outside a transcript keeps its conversation
     /// subscribed for its echo after its op answered (or was refused and

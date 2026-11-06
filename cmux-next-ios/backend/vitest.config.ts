@@ -15,6 +15,10 @@ export default defineConfig({
         bindings: {
           ENVIRONMENT: "test",
           TEAM_HUB_RETIRE_RETRY_MS: "0",
+          // A fake server key for the primary (dev) project: team creation runs its real Stack requests,
+          // which test/teams.test.ts answers with a fake Stack fetch. Membership and invites stay on the
+          // ENVIRONMENT=test fixtures below.
+          STACK_SECRET_SERVER_KEY: "test-server-key",
           STACK_TEST_JWKS: JSON.stringify({ keys: [stackPublic] }),
           STACK_TEST_PRIVATE_JWK: JSON.stringify(stackPrivate),
           // userId -> teams (dev project); alice and bob share team-a, mallory is only in team-m.

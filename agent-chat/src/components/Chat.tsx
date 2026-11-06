@@ -7,6 +7,7 @@ import { composerDraftKey, routedToTranscript, transcriptComposerLocked, type Op
 import { ArrowUp } from "./icons";
 import { isCtrlJ, insertNewlineAtCaret, useCommandMenu } from "./CommandMenu";
 import { optionAcceptsValue, optionsForSelectedModel } from "./options";
+import { QuestionCard, questionCardKey } from "./QuestionCard";
 import { StatusRow } from "./StatusRow";
 import { AgentMessageRow, Blocks } from "./Transcript";
 import { ShortcutOverlay, useKeymap } from "../hooks/useKeymap";
@@ -56,7 +57,7 @@ function useStickToBottom(scrollRef: RefObject<HTMLDivElement | null>, stickRef:
 }
 
 export function Chat() {
-  const { ready, connectionEpoch, providers, capabilities, providerOptions, session, routing, blocks, options, actions, commands, filesByCwd, fileDiffs, fileDiffErrors, ctrlJ, forkPending, handoffPending, reply, stop, focusTerminal, setOption, fork, handoff, compose, requestProviderOptions, requestFiles, requestFileDiff } = useCtx();
+  const { ready, connectionEpoch, providers, capabilities, providerOptions, session, routing, blocks, options, actions, commands, filesByCwd, fileDiffs, fileDiffErrors, ctrlJ, forkPending, handoffPending, reply, stop, focusTerminal, questions, questionAttempt, answerQuestion, setOption, fork, handoff, compose, requestProviderOptions, requestFiles, requestFileDiff } = useCtx();
   const [text, setText] = useState(() => draftStorage.getItem(composerDraftKey) || "");
   const [openOptionId, setOpenOptionId] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -186,6 +187,9 @@ export function Chat() {
             <span className="terminal-attention-text">{session.attention}</span>
             <button className="terminal-attention-btn" type="button" onClick={focusTerminal}>{agentChatText("answerInTerminal")}</button>
           </div>
+        ) : null}
+        {questions[0] ? (
+          <QuestionCard key={questionCardKey(questions[0], questionAttempt)} question={questions[0]} onAnswer={answerQuestion} />
         ) : null}
         <div id="chat-card">
           <div className="input-wrap chat-text-wrap">

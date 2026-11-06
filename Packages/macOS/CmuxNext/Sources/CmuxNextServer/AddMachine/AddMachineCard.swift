@@ -27,6 +27,12 @@ public final class AddMachineCard {
         present(over: window)
     }
 
+    /// Opens Check for a machine that joined with a one-line token and runs `machine doctor ID`.
+    public func checkJoined(id: String, name: String, rowID: String? = nil, over window: NSWindow?) {
+        model.beginJoinedCheck(id: id, name: name, rowID: rowID)
+        present(over: window)
+    }
+
     /// Nil once the run in flight ended ready, else why not.
     public func finished() async -> String? {
         await model.finished()

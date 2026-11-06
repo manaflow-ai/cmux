@@ -24,7 +24,8 @@ use cmux_chat_index::{AdapterKind, IndexedChat, Resume};
 use serde_json::{Value, json};
 
 use crate::adopt::HarnessHomes;
-use crate::config::{Config, HarnessKind, derive_family};
+use crate::config::{Config, HarnessKind, derive_family, store_family};
+use cmux_json::JsonSet as _;
 
 /// A configured profile and the harness stores it resumes from.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -47,12 +48,15 @@ pub fn store_profiles(config: &Config, homes: &HarnessHomes) -> Vec<StoreProfile
         .iter()
         .filter(|(_, profile)| profile.kind != HarnessKind::Terminal)
         .filter_map(|(name, profile)| {
-            let family = derive_family(name, profile);
+            // Any Claude Code profile (`claude-sr2`) reads Claude's store and can adopt from it.
+            let family = store_family(name, profile);
             if family != "claude" && family != "codex" && family != "opencode" {
                 return None;
             }
+            // Its spawn env: the defaults of its own family (`config::defaults_for`).
+            let own = derive_family(name, profile);
             let layers = [
-                config.defaults.get(&family).map_or(&none, |d| &d.env),
+                config.defaults.get(&own).map_or(&none, |d| &d.env),
                 config.defaults.get(name).map_or(&none, |d| &d.env),
                 &profile.env,
             ];
@@ -93,31 +97,34 @@ pub fn plan_open(
                 .or_else(|| family_profile(entry.harness, profiles));
             if let Some(profile) = profile {
                 let adopt = json!({"harness": profile, "agentSessionId": entry.session_id});
-                plan["kind"] = json!("adopt");
+                plan.set("kind", json!("adopt"));
                 // The profile is named freely; the family says what the chat is (View Only).
-                plan["family"] = json!(adapter_family(entry.harness));
-                plan["adopt"] = adopt.clone();
+                plan.set("family", json!(adapter_family(entry.harness)));
+                plan.set("adopt", adopt.clone());
                 if let Some(cwd) = &cwd {
-                    plan["sessionNew"] = json!({
-                        "cwd": cwd,
-                        "mcpServers": [],
-                        "_meta": {"acpmux": {"harness": profile, "adopt": adopt}},
-                    });
+                    plan.set(
+                        "sessionNew",
+                        json!({
+                            "cwd": cwd,
+                            "mcpServers": [],
+                            "_meta": {"acpmux": {"harness": profile, "adopt": adopt}},
+                        }),
+                    );
                 }
             } else {
                 let (argv, env) = terminal_resume(entry.harness, &entry.session_id, &stores, home);
-                plan["kind"] = json!("terminal");
-                plan["terminal"] = json!({"argv": argv, "env": env});
+                plan.set("kind", json!("terminal"));
+                plan.set("terminal", json!({"argv": argv, "env": env}));
             }
         }
         (Resume::Argv { argv, .. }, true) => {
-            plan["kind"] = json!("terminal");
-            plan["terminal"] = json!({"argv": argv, "env": {}});
+            plan.set("kind", json!("terminal"));
+            plan.set("terminal", json!({"argv": argv, "env": {}}));
         }
         // An id that is not a bare id never reaches a command line.
         (Resume::ReadOnly, _) | (_, false) => {
-            plan["kind"] = json!("readOnly");
-            plan["readOnly"] = json!({"path": entry.source_path});
+            plan.set("kind", json!("readOnly"));
+            plan.set("readOnly", json!({"path": entry.source_path}));
         }
     }
     Ok(plan)

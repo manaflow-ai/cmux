@@ -23,6 +23,15 @@ pub struct HostLock {
     _file: File,
 }
 
+impl Drop for HostLock {
+    fn drop(&mut self) {
+        // A concurrent fork can inherit this open file description. Closing
+        // our descriptor alone then leaves the flock held until the child
+        // closes its copy. Explicitly unlock when the host guard drops.
+        let _ = self._file.unlock();
+    }
+}
+
 #[derive(Debug)]
 pub enum LockError {
     /// Another open file holds the flock: a host already runs for this home.

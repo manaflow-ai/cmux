@@ -48,7 +48,10 @@ EXEMPT = {
         "runs the relay TLS verifier under Xcode 16.2 / Swift 6, below the "
         "floor on purpose",
     ("remote-daemon.yml", "remote-daemon-macos-tests"): "Go only; no Xcode",
+    ("nightly-next-launch-smoke.yml", "smoke"):
+        "launches the published nightly-next DMG; builds nothing, no Xcode",
     ("cmux-tui.yml", "lint"): "Rust only; no Xcode",
+    ("machine-vault-e2e.yml", "e2e"): "runs the published cmux CLI and a disposable user's join; builds nothing, no Xcode",
     ("cmux-tui.yml", "test"): "Rust only; no Xcode",
     ("cmux-next-daemon-macos-shadow.yml", "cmux-next-daemon-macos-shadow"):
         "Rust only; no Xcode (the macOS-only daemon tests, a non-blocking shadow "
@@ -66,9 +69,14 @@ EXEMPT = {
         "as the nightly and release callers always have; pinning it would "
         "change published artifacts",
     ("relay-publish-npm.yml", "smoke"): "npm package smoke test; no Xcode",
+    ("stable-next.yml", "perf-budgets"):
+        "only submits the perf budgets to the build fleet (cmux-ci run, exclusive measure step); "
+        "builds nothing here",
+    ("stable-next.yml", "smoke-27"): "launches the signed cmux NEXT Stable DMG; builds nothing, no Xcode",
+    ("stable-next.yml", "smoke-26"): "launches the signed cmux NEXT Stable DMG; builds nothing, no Xcode",
     ("nightly.yml", "decide"):
-        "control job: takes Blacksmith macOS only while Blacksmith Linux overflow is off "
-        "(CI_CLOUD_OVERFLOW_SAVED); git, gh and Python only, no Xcode",
+        "control job: attempt 1 of a nightly-next push takes the owned nightly slot "
+        "(CI_NIGHTLY_NEXT_BUILD_RUNNER); git, github-script and Python only, no Xcode",
     ("nightly.yml", "resolve-nightly-cmux-tui-client"):
         "control job: takes Blacksmith macOS only while Blacksmith Linux overflow is off "
         "(CI_CLOUD_OVERFLOW_SAVED); git, gh and Python only, no Xcode",
@@ -76,9 +84,6 @@ EXEMPT = {
         "control job: takes Blacksmith macOS only while Blacksmith Linux overflow is off "
         "(CI_CLOUD_OVERFLOW_SAVED); git, gh and Python only, no Xcode",
     ("nightly.yml", "pick-nightly-build-runner"):
-        "control job: takes Blacksmith macOS only while Blacksmith Linux overflow is off "
-        "(CI_CLOUD_OVERFLOW_SAVED); git, gh and Python only, no Xcode",
-    ("nightly.yml", "prepare-nightly-variant"):
         "control job: takes Blacksmith macOS only while Blacksmith Linux overflow is off "
         "(CI_CLOUD_OVERFLOW_SAVED); git, gh and Python only, no Xcode",
     ("nightly.yml", "pick-nightly-sign-runner"):
@@ -90,12 +95,28 @@ EXEMPT = {
     ("nightly.yml", "prepare-nightly-variant-primary"):
         "takes Blacksmith macOS only while Blacksmith Linux overflow is off; builds nothing, only "
         "lipo -thin, whose bytes match llvm-lipo's on Linux whatever the Xcode",
-    ("nightly.yml", "prepare-nightly-variant-fallback"):
+    ("nightly.yml", "prepare-nightly-variant"):
         "takes Blacksmith macOS only while Blacksmith Linux overflow is off; builds nothing, only "
         "lipo -thin, whose bytes match llvm-lipo's on Linux whatever the Xcode",
     ("cmux-next-batch.yml", "build"):
         "submits the stack to the build fleet and waits; the build runs on a "
         "fleet worker, never with this runner's Xcode",
+    ("cmux-next.yml", "swift-canary-fleet"):
+        "build-fleet gateway: checks nothing out and only runs cmux-ci "
+        "compile-check; the compile runs on a fleet worker, never with this "
+        "runner's Xcode",
+    ("cmux-next.yml", "app-compile-fleet"):
+        "build-fleet gateway: checks nothing out and only runs cmux-ci "
+        "compile-check; the compile runs on a fleet worker, never with this "
+        "runner's Xcode",
+    ("cmux-next.yml", "fast-tier-fleet"):
+        "build-fleet gateway: checks nothing out and only runs cmux-ci "
+        "run (package-test-lane.sh suites); the suites build on a fleet "
+        "worker, never with this runner's Xcode",
+    ("cmux-next.yml", "release-compile-fast"):
+        "build-fleet gateway: checks nothing out and only runs cmux-ci "
+        "compile-check --release; the compile runs on a fleet worker, never "
+        "with this runner's Xcode",
 }
 
 # (workflow, job, step name) allowed to set CMUX_CI_XCODE_ALLOW_BELOW_FLOOR.
@@ -148,7 +169,7 @@ def steps(job: str) -> list[tuple[str, str]]:
     """(name, text) for each step of a job."""
     lines = job.splitlines()
     try:
-        start = next(i for i, line in enumerate(lines) if re.match(r"^    steps:\s*$", line))
+        start = next(i for i, line in enumerate(lines) if re.match(r"^    steps:(?:\s+&[\w-]+)?\s*$", line))
     except StopIteration:
         return []
     found = []
@@ -164,6 +185,34 @@ def steps(job: str) -> list[tuple[str, str]]:
         name = re.search(r"^      [- ] name:\s*(.+)$", text, re.M)
         found.append((name.group(1).strip() if name else "", text))
     return found
+
+
+STEP_ANCHOR = re.compile(r"^      - &([\w-]+)\s*$")
+STEP_ALIAS = re.compile(r"^      - \*([\w-]+)\s*$")
+
+
+def step_anchors(workflow_jobs: dict[str, str]) -> dict[str, str]:
+    """Steps defined as `- &name` (shared with `- *name` elsewhere), keyed by anchor."""
+    found = {}
+    for job in workflow_jobs.values():
+        for _, body in steps(job):
+            match = STEP_ANCHOR.match(body.splitlines()[0])
+            if match:
+                found[match.group(1)] = body
+    return found
+
+
+def expand_step_aliases(job_steps: list[tuple[str, str]], anchors: dict[str, str]) -> list[tuple[str, str]]:
+    """Replace each `- *name` step with the anchored step it runs (#30471 turned steps into aliases)."""
+    expanded = []
+    for step_name, body in job_steps:
+        match = STEP_ALIAS.match(body.splitlines()[0]) if not step_name else None
+        if match and match.group(1) in anchors:
+            body = anchors[match.group(1)]
+            name = re.search(r"^      [- ] name:\s*(.+)$", body, re.M)
+            step_name = name.group(1).strip() if name else ""
+        expanded.append((step_name, body))
+    return expanded
 
 
 def is_macos(job: str) -> bool:
@@ -184,14 +233,23 @@ def check_workflow(name: str, text: str) -> list[str]:
     # A path such as scripts/build-x.sh keeps its name even when a job shares it.
     job_ids = [job_id for job_id in workflow_jobs if "-" in job_id]
     job_id_token = re.compile(r"(?<![\w/-])(" + "|".join(map(re.escape, job_ids)) + r")(?![\w-])") if job_ids else None
+    # A job whose steps are a YAML alias (`steps: *name`, a same-run twin) runs the anchored job's steps.
+    anchored = {m.group(1): job for job in workflow_jobs.values()
+                for m in [re.search(r"^    steps:\s+&([\w-]+)\s*$", job, re.M)] if m}
+    anchored_steps = step_anchors(workflow_jobs)
     for job_id, job in workflow_jobs.items():
+        alias = re.search(r"^    steps:\s+\*([\w-]+)\s*$", job, re.M)
+        if alias and alias.group(1) in anchored:
+            body = anchored[alias.group(1)]
+            after = body.index("\n", re.search(r"^    steps:", body, re.M).start()) + 1
+            job = job[:alias.start()] + "    steps:\n" + body[after:]
         key = (name, job_id)
         if not is_macos(job) or key in EXEMPT:
             continue
         where = f"{name} job {job_id}"
         if LITERAL_XCODE_PIN.search(job):
             errors.append(f"{where} pins a literal Xcode path; name the pool's Xcode in scripts/ci/xcode-pins.txt")
-        job_steps = steps(job)
+        job_steps = expand_step_aliases(steps(job), anchored_steps)
         select_at = next(
             (i for i, (_, body) in enumerate(job_steps) if SELECTOR in body and BELOW_FLOOR not in body),
             None,
@@ -333,6 +391,18 @@ def check_detects_regressions() -> list[str]:
                 "      - name: Report\n        run: swift --version  # for swift-check\n      - name: Select Xcode\n",
             ) + "  swift-check:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo ok\n",
             ["before scripts/select-ci-xcode.sh runs"],
+        ),
+        "selector through a step alias": (
+            base.replace("      - name: Select Xcode\n", "      - &select-xcode\n        name: Select Xcode\n")
+            + "  twin:\n    runs-on: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}\n    steps:\n"
+            "      - *select-xcode\n      - run: swift test\n",
+            [],
+        ),
+        "alias to another step is not the selector": (
+            base.replace("      - name: Test\n", "      - &test-step\n        name: Test\n")
+            + "  twin:\n    runs-on: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}\n    steps:\n"
+            "      - *test-step\n",
+            ["never runs"],
         ),
         "indirect Swift": (
             base.replace("./scripts/select-ci-xcode.sh", "echo skipped").replace(

@@ -32,12 +32,6 @@ pub const DEFAULT_CHIEF: &str = cmux_chief::rules::AGENT_MUX;
 /// `spawn`, `tell` and `chiefs`; the brain adds `profile` from `self_edit`).
 pub const MODEL_TOOLS: [&str; 4] = ["spawn", "tell", "profile", "chiefs"];
 
-/// The tool definition shared with the docs (schemas/chief-profile/tool.json).
-const TOOL_FILE: &str = include_str!("../../../../schemas/chief-profile/tool.json");
-
-/// The `chiefs` tool's definition (schemas/chief-profile/chiefs-tool.json).
-const CHIEFS_TOOL_FILE: &str = include_str!("../../../../schemas/chief-profile/chiefs-tool.json");
-
 /// The env key of this host's turn key: the host gives it to its own turn
 /// sessions only (session env, never a subagent's, never a preset or the
 /// launcher file), and the tools socket answers `chiefs` only to a caller
@@ -47,12 +41,7 @@ const CHIEFS_TOOL_FILE: &str = include_str!("../../../../schemas/chief-profile/c
 pub const TURN_KEY_ENV: &str = "OPTCHAT_TURN_SEAL";
 
 /// The `chiefs` tool (name, description, input schema) for the MCP list.
-pub fn chiefs_tool() -> Value {
-    let file: Value = serde_json::from_str(CHIEFS_TOOL_FILE).unwrap_or_else(|_| json!({}));
-    file.get("tool")
-        .cloned()
-        .unwrap_or_else(|| json!({"name": "chiefs"}))
-}
+pub use chief_kernel::tools::chiefs_tool;
 
 /// This host process's turn seal: made once, given to its own turn
 /// sessions only (their acpmux `session/new` env, brain/turns.rs), never to
@@ -78,12 +67,7 @@ fn fresh_turn_key() -> String {
 }
 
 /// The `profile` tool (name, description, input schema) for the MCP list.
-pub fn profile_tool() -> Value {
-    let file: Value = serde_json::from_str(TOOL_FILE).unwrap_or_else(|_| json!({}));
-    file.get("tool")
-        .cloned()
-        .unwrap_or_else(|| json!({"name": "profile"}))
-}
+pub use chief_kernel::tools::profile_tool;
 
 /// The largest picture `profile` sends (the registry's limit).
 pub const MAX_AVATAR_BYTES: u64 = 1024 * 1024;
@@ -145,36 +129,13 @@ impl Profile {
     /// the base rules. None for the default Chief with no profile text, so
     /// its prompt stays what it was before Chiefs had records.
     pub fn render(&self) -> Option<String> {
-        let (role, personality, added) = (
-            self.role.trim(),
-            self.personality.trim(),
-            self.instructions.trim(),
-        );
-        let plain_default = self.is_default
-            && role.is_empty()
-            && personality.is_empty()
-            && added.is_empty()
-            && matches!(self.display_name.trim(), "" | "Chief");
-        if plain_default {
-            return None;
-        }
-        let mut me = vec![format!("Name: {}", self.display_name.trim())];
-        if !role.is_empty() {
-            me.push(format!("Role: {role}"));
-        }
-        if !personality.is_empty() {
-            me.push(format!("Personality: {personality}"));
-        }
-        let mut text = format!(
-            "## This Chief (the rules above come first)\n{}",
-            me.join("\n")
-        );
-        if !added.is_empty() {
-            text.push_str(&format!(
-                "\n\n## Added instructions (the rules above come first)\n{added}"
-            ));
-        }
-        Some(text)
+        chief_kernel::render_record(&chief_kernel::Record {
+            display_name: self.display_name.clone(),
+            role: self.role.clone(),
+            personality: self.personality.clone(),
+            instructions: self.instructions.clone(),
+            is_default: self.is_default,
+        })
     }
 }
 
@@ -277,6 +238,9 @@ pub struct ChiefTools {
     client: Option<ProfileClient>,
     /// This host's turn key ([`TURN_KEY_ENV`]).
     turn_key: String,
+    /// `chiefs` create_channel: the app's `home.createChannel` (None: this
+    /// host runs outside the app).
+    channels: Option<crate::chief_channel::ChannelMaker>,
 }
 
 #[derive(Clone, Debug)]
@@ -298,6 +262,7 @@ impl ChiefTools {
             }),
             client: None,
             turn_key: new_turn_key(),
+            channels: None,
         }
     }
 
@@ -310,7 +275,33 @@ impl ChiefTools {
             }),
             client: Some(client),
             turn_key: new_turn_key(),
+            channels: None,
         }
+    }
+
+    /// The same tools, making channels with `channels` (`chiefs`
+    /// create_channel).
+    pub fn with_channels(
+        mut self,
+        channels: Option<crate::chief_channel::ChannelMaker>,
+    ) -> ChiefTools {
+        self.channels = channels;
+        self
+    }
+
+    /// A Chief granted `tools` with no record client (the tests' Chief).
+    #[cfg(test)]
+    fn granted(tools: &[&str]) -> ChiefTools {
+        let mut chief = ChiefTools::none();
+        chief.state = std::sync::RwLock::new(Loaded {
+            profile: None,
+            grant: Grant {
+                tools: Some(tools.iter().map(|t| (*t).to_owned()).collect()),
+                harnesses: BTreeSet::new(),
+            },
+            pending: false,
+        });
+        chief
     }
 
     /// Reads the record with `client` (None: the cloud source, no registry).
@@ -363,6 +354,7 @@ impl ChiefTools {
                     }),
                     client: Some(client),
                     turn_key: new_turn_key(),
+                    channels: None,
                 })
             }
             Err(e) => Err(format!("reading this Chief's record: {e}")),
@@ -479,6 +471,15 @@ impl ChiefTools {
     pub fn chiefs_call(&self, args: &Value) -> Result<String, String> {
         if !self.grant().allows("chiefs") {
             return Err(Grant::refusal("chiefs"));
+        }
+        match args.get("action").and_then(Value::as_str).unwrap_or("list") {
+            "create_channel" => {
+                let channels = self.channels.as_ref().ok_or(crate::chief_channel::NO_APP)?;
+                let args = args.as_object().cloned().unwrap_or_default();
+                return channels.create(&args, &self.turn_key);
+            }
+            "list" | "get" | "create" | "update" | "history" | "undo" => {}
+            other => return Err(no_action(other)),
         }
         let client = self
             .client
@@ -777,6 +778,13 @@ prompt when your brain next starts.",
     }
 }
 
+/// The refusal of an action `chiefs` does not have.
+fn no_action(action: &str) -> String {
+    format!(
+        "chiefs: no action {action}; one of list, get, create, update, history, undo, create_channel"
+    )
+}
+
 /// The fields `chiefs` create and update pass to the daemon.
 const MANAGE_FIELDS: [&str; 10] = [
     "display_name",
@@ -960,9 +968,7 @@ system prompt when its brain next starts."
                 };
                 Ok(format!("{}\n{note}", pretty(&record)))
             }
-            other => Err(format!(
-                "chiefs: no action {other}; one of list, get, create, update, history, undo"
-            )),
+            other => Err(no_action(other)),
         }
     }
 }
@@ -1098,4 +1104,149 @@ fn denied(error: SdkError) -> String {
         }
     }
     format!("profile: {error}")
+}
+
+/// `chiefs` create_channel (plans/cmux-next/chief-channels-DESIGN.md): this
+/// Mac's Chief makes a channel through the app's `home.createChannel`, the
+/// one path New Channel, `cmux chat channel create` and MCP take.
+#[cfg(test)]
+mod channel_tests {
+    use super::*;
+    use crate::chief_channel::ChannelMaker;
+    use crate::cloud_workspace::{AppActions, RunError};
+    use std::sync::{Arc, Mutex};
+
+    type Run = (String, Value, Option<String>);
+
+    struct FakeApp {
+        answer: Result<Value, RunError>,
+        runs: Mutex<Vec<Run>>,
+    }
+
+    impl AppActions for FakeApp {
+        fn run(
+            &self,
+            action: &str,
+            _target: Option<&str>,
+            args: Value,
+            key: Option<&str>,
+        ) -> Result<Value, RunError> {
+            self.runs
+                .lock()
+                .unwrap()
+                .push((action.to_owned(), args, key.map(str::to_owned)));
+            match &self.answer {
+                Ok(v) => Ok(v.clone()),
+                Err(RunError::Refused(e)) => Err(RunError::Refused(e.clone())),
+                Err(RunError::NoAnswer(e)) => Err(RunError::NoAnswer(e.clone())),
+            }
+        }
+    }
+
+    fn app(answer: Result<Value, RunError>) -> Arc<FakeApp> {
+        Arc::new(FakeApp {
+            answer,
+            runs: Mutex::new(Vec::new()),
+        })
+    }
+
+    fn made() -> Value {
+        json!({"conversation": "conv_launch", "chief": "agent_launch", "chief_name": "Launch Chief",
+               "invited": [{"who": "ana@example.com", "ok": true, "code": ""}]})
+    }
+
+    fn tools(granted: &[&str], app: Option<Arc<FakeApp>>) -> ChiefTools {
+        ChiefTools::granted(granted)
+            .with_channels(app.map(|a| ChannelMaker::new(a as Arc<dyn AppActions>)))
+    }
+
+    fn create(title: &str) -> Value {
+        json!({"action": "create_channel", "title": title, "display_name": "Launch Chief",
+               "people": ["ana@example.com", "Leo"]})
+    }
+
+    #[test]
+    fn a_chief_with_chiefs_makes_a_channel_through_the_app() {
+        let app = app(Ok(made()));
+        let tools = tools(&["chiefs"], Some(app.clone()));
+        let answer = tools.chiefs_call(&create("Launch")).unwrap();
+        assert!(answer.contains("conv_launch"), "{answer}");
+        assert!(answer.contains("Launch Chief"), "{answer}");
+        let runs = app.runs.lock().unwrap().clone();
+        assert_eq!(runs.len(), 1);
+        let (action, args, key) = &runs[0];
+        assert_eq!(action, "home.createChannel");
+        assert_eq!(
+            args,
+            &json!({"title": "Launch", "members": "ana@example.com, Leo", "chief": "Launch Chief"})
+        );
+        assert!(
+            key.as_deref().unwrap().starts_with("chief-channel-"),
+            "{key:?}"
+        );
+    }
+
+    #[test]
+    fn the_same_create_resent_keeps_its_key_and_another_gets_its_own() {
+        let app = app(Ok(made()));
+        let tools = tools(&["chiefs"], Some(app.clone()));
+        tools.chiefs_call(&create("Launch")).unwrap();
+        tools.chiefs_call(&create("Launch")).unwrap();
+        tools.chiefs_call(&create("Design")).unwrap();
+        let keys: Vec<_> = app
+            .runs
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|r| r.2.clone())
+            .collect();
+        assert_eq!(keys[0], keys[1]);
+        assert_ne!(keys[0], keys[2]);
+    }
+
+    #[test]
+    fn without_the_chiefs_grant_nothing_runs() {
+        let app = app(Ok(made()));
+        let tools = tools(&["spawn"], Some(app.clone()));
+        let refused = tools.chiefs_call(&create("Launch")).unwrap_err();
+        assert!(refused.contains("chiefs"), "{refused}");
+        assert!(app.runs.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_bad_call_is_refused_before_the_app_runs() {
+        let app = app(Ok(made()));
+        let tools = tools(&["chiefs"], Some(app.clone()));
+        let no_title = tools
+            .chiefs_call(&json!({"action": "create_channel", "title": "  "}))
+            .unwrap_err();
+        assert!(no_title.contains("title"), "{no_title}");
+        let unknown = tools
+            .chiefs_call(
+                &json!({"action": "create_channel", "title": "Launch", "tools": ["spawn"]}),
+            )
+            .unwrap_err();
+        assert!(unknown.contains("no field tools"), "{unknown}");
+        assert!(app.runs.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_apps_refusal_and_its_absence_reach_the_model() {
+        let refusing = app(Err(RunError::Refused("not signed in".into())));
+        let refused = tools(&["chiefs"], Some(refusing))
+            .chiefs_call(&create("Launch"))
+            .unwrap_err();
+        assert!(refused.contains("not signed in"), "{refused}");
+        let away = tools(&["chiefs"], None)
+            .chiefs_call(&create("Launch"))
+            .unwrap_err();
+        assert!(away.contains("cmux app"), "{away}");
+    }
+
+    #[test]
+    fn an_unknown_action_names_create_channel() {
+        let tools = tools(&["chiefs"], None);
+        let e = tools.chiefs_call(&json!({"action": "nope"})).unwrap_err();
+        assert!(e.contains("create_channel"), "{e}");
+    }
 }

@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 
 use super::*;
 use crate::terminal_end::TerminalEnd;
+use cmux_json::JsonSet as _;
 
 impl Mux {
     #[cfg(test)]
@@ -81,7 +82,13 @@ impl Mux {
             self.emit(MuxEvent::SurfaceExited(id, None));
             return;
         }
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        // Its last output's publications commit before the exit does (an
+        // ended terminal commits none), and before the creation fences, which a
+        // registry wait here must not hold.
+        if let Some(surface) = self.surface(id) {
+            self.settle_terminal_publications(&surface);
+        }
+        let _creation_handoff = self.resource_creation_handoff.write().unwrap();
         let _creation_fence = self.resource_creation_execution.lock().unwrap();
         if let Some(surface) = self.surface(id)
             && let Some(identity) = self.resource_terminal_host_identity(&surface)
@@ -218,6 +225,10 @@ impl Mux {
                 loss.log();
                 loss
             });
+        // An `on_exit` shell restart below needs a host root (`host_loss` is
+        // read from it).
+        #[cfg(unix)]
+        let has_host_root = host_loss.is_some();
         // cx-6so.49: whether this loss may respawn, checked before the locks.
         #[cfg(any(unix, windows))]
         let respawn_candidate =
@@ -306,8 +317,8 @@ impl Mux {
             // this revision derives `tab_id: null, tab_ids: []` from topology;
             // a delta that disagrees leaves clients with a graph that no
             // snapshot at the same cursor can confirm.
-            terminal_snapshot["tab_id"] = Value::Null;
-            terminal_snapshot["tab_ids"] = serde_json::json!([]);
+            terminal_snapshot.set("tab_id", Value::Null);
+            terminal_snapshot.set("tab_ids", serde_json::json!([]));
         }
         let topology = detach_projection.as_ref().map(|projection| {
             (&projection.patch, &projection.changes, projection.workspace_close.as_ref())
@@ -363,8 +374,34 @@ impl Mux {
             })
         })
         .flatten();
+        // Planned in this critical section, as the respawn above: from the
+        // commit on, the terminal reads respawning, never dead and never
+        // neither live nor restarting (an app session's owner counts it,
+        // server/owner_keepers.rs).
+        #[cfg(unix)]
+        let restart = drop_to_shell
+            .filter(|_| has_host_root)
+            .map(|slot| (slot, self.plan_user_restart_locked(&registry, &mut state, slot)));
         drop(state);
+        // A signal exit whose detach waits out the shutdown lead is
+        // scheduled under the registry lock, as the respawn above is planned:
+        // from the commit on, it keeps an app session's owner until it
+        // settles (`kept_terminal_count` reads both under this lock), so a
+        // stop never begins a shutdown that would make the person's kill a
+        // host loss.
+        if let Some(until_ms) = settle_until_ms {
+            self.schedule_exit_settle(terminal_id, until_ms);
+        }
         drop(registry);
+        #[cfg(unix)]
+        match restart {
+            Some((_, Ok(plan))) => self.start_user_restart(plan),
+            Some((slot, Err(error))) => eprintln!(
+                "cmux-tui: could not drop the ended command of tab {slot} into a shell: {error:#}"
+            ),
+            None => {}
+        }
+        #[cfg(not(unix))]
         if let Some(slot) = drop_to_shell {
             self.drop_exited_terminal_to_shell(slot);
         }
@@ -420,12 +457,13 @@ impl Mux {
                     public_terminal_id.as_ref().map(|id| self.exited_end_json(id.as_str(), end));
                 self.finish_terminal_exit_detach(effects.with_end(end));
             } else if detach_proof.is_none() || settle_until_ms.is_some() {
-                // The tabs stay and now show the terminal dead.
-                self.emit(MuxEvent::TreeChanged);
+                // The tabs stay and now show the terminal dead: each of them is a `tab-changed`,
+                // not a coarse `tree-changed` that makes a client read the whole tree (#32408).
+                match public_terminal_id.as_ref() {
+                    Some(public_id) => self.emit_terminal_tabs_changed(public_id),
+                    None => self.emit(MuxEvent::TreeChanged),
+                }
             }
-        }
-        if let Some(until_ms) = settle_until_ms {
-            self.schedule_exit_settle(terminal_id, until_ms);
         }
         Ok(!replayed)
     }
@@ -433,6 +471,7 @@ impl Mux {
     /// Start the shell of an `on_exit` shell terminal whose process ended in
     /// the tab at `slot`, through the manual restart (`restart_dead_tab`).
     /// A refused restart (the owner shuts down) leaves the tab kept, dead.
+    #[cfg(not(unix))]
     fn drop_exited_terminal_to_shell(&self, slot: SurfaceId) {
         let Some(mux) = self.exit_settles.owner() else { return };
         if let Err(error) = mux.restart_dead_tab(slot) {

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # request-nightly-next.sh: feat-cmux-next asks main to promote a commit to
 # nightly-next only when that commit's cmux-tui tree is published and
-# daemon-tested. Its Release compile is not awaited (2026-10-26): the nightly
+# verified. Its daemon tests are not awaited (2026-10-28) and neither is its
+# Release compile (2026-10-26): the nightly
 # build compiles the commit itself and publishes nothing when that fails.
 # cmux-next.yml still asks after its Release compile, and cmux-tui-artifacts.yml
 # and nightly-next-tick after the publication, so nightly-next always points at
@@ -15,7 +16,8 @@
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
-git_q() { git -c user.name=t -c user.email=t@example.com -c init.defaultBranch=main "$@" >/dev/null 2>&1; }
+# git_q, and no background git maintenance in the scratch repositories.
+source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"
 fail() { printf '%s\n' "$@" >&2; exit 1; }
 sha() { shasum -a 256 "$1" | awk '{print $1}'; }
 bin=cmux-tui-aarch64-apple-darwin
@@ -312,39 +314,64 @@ CMUX_NIGHTLY_NEXT_MAX_REFUSED=1 request --tree-ready "$head"
 [[ "$status" == 0 ]] && ! dispatched "$fresh" && ! dispatched "$stale" \
   || fail "the search must stop after CMUX_NIGHTLY_NEXT_MAX_REFUSED refusals (exit $status):" "$out" "$(cat "$TMP/gh.log")"
 rm -f "$TMP/bin/node"
+# A runner with no node cannot check the strings, which is no proof they are
+# fresh: the promoting run (NIGHTLY_NEXT_PROMOTE=1) fails red and requests
+# nothing. A run that only reports still reports, with a warning.
+nonode="$TMP/nonode"; mkdir -p "$nonode"
+IFS=: read -r -a path_dirs <<<"$TMP/bin:$PATH"
+for dir in "${path_dirs[@]}"; do
+  for tool in "$dir"/*; do
+    name="${tool##*/}"
+    [[ "$name" != node && -x "$tool" && ! -e "$nonode/$name" ]] || continue
+    ln -s "$tool" "$nonode/$name"
+  done
+done
+git_q -C "$src" checkout -q --detach "$strings"
+status=0; : > "$TMP/gh.log"
+out=$(cd "$src" && env -u GITHUB_STEP_SUMMARY -u GITHUB_OUTPUT -u CMUX_TUI_TREE_DISPATCH PATH="$nonode" \
+  RUNNER_TEMP="$TMP/runner" GITHUB_RUN_ID=1 NIGHTLY_NEXT_PROMOTE=1 \
+  bash scripts/cmux-next/request-nightly-next.sh --repo o/r --sha "$strings" --release-compile-green 2>&1) || status=$?
+[[ "$status" == 1 ]] && ! dispatched "$strings" \
+  || fail "a promoting run without node must fail and request nothing (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+grep -q "no node" <<<"$out" || fail "the failure must name the missing node:" "$out"
+status=0; : > "$TMP/gh.log"
+out=$(cd "$src" && env -u GITHUB_STEP_SUMMARY -u GITHUB_OUTPUT -u CMUX_TUI_TREE_DISPATCH PATH="$nonode" \
+  RUNNER_TEMP="$TMP/runner" GITHUB_RUN_ID=1 NIGHTLY_NEXT_PROMOTE= \
+  bash scripts/cmux-next/request-nightly-next.sh --repo o/r --sha "$strings" --release-compile-green 2>&1) || status=$?
+[[ "$status" == 0 ]] && ! grep -q "workflow run nightly.yml" "$TMP/gh.log" \
+  || fail "a reporting run without node must not fail (exit $status):" "$out"
+grep -q "not checked" <<<"$out" || fail "the report must say the strings were not checked:" "$out"
 git_q -C "$src" checkout -q --detach "$head"
 
 # A tree published before its daemon tests ended (source.json daemonTests
-# "separate", chief 2026-10-13) is promoted only once daemon-tests.json exists.
+# "separate", chief 2026-10-13) is promoted without daemon-tests.json: since
+# 2026-10-28 no nightly waits on the daemon tests (run 40651931144's failed
+# Zig download held the feed for hours). Leo, 2026-10-23: "we want no smoke tests".
 publish "$other"
 okey=$(key "$other")
 printf '{"key": "%s", "commit": "%s", "daemonTests": "separate"}\n' "$okey" "$other" > "$cdn/tree/$okey/source.json"
 git_q -C "$src" checkout -q --detach "$other"
 request --sha "$other" --release-compile-green
-[[ "$status" == 0 ]] && ! dispatched "$other" && grep -q "daemon tests have not passed" <<<"$out" \
-  || fail "a tree without its daemon-tests marker must not be promoted (exit $status):" "$out" "$(cat "$TMP/gh.log")"
-printf '{"key": "%s", "result": "success"}\n' "$okey" > "$cdn/tree/$okey/daemon-tests.json"
-request --sha "$other" --release-compile-green
-[[ "$status" == 0 ]] && dispatched "$other" || fail "a tree with its daemon-tests marker must be promoted (exit $status):" "$out" "$(cat "$TMP/gh.log")"
-# A marker from before the runner-OS field was dropped still promotes.
-printf '{"key": "%s", "result": "success", "os": "Linux"}\n' "$okey" > "$cdn/tree/$okey/daemon-tests.json"
-request --sha "$other" --release-compile-green
-[[ "$status" == 0 ]] && dispatched "$other" || fail "a marker carrying the old os field must still promote (exit $status):" "$out" "$(cat "$TMP/gh.log")"
-git_q -C "$src" checkout -q --detach "$head"
+[[ "$status" == 0 ]] && dispatched "$other" \
+  || fail "a published tree without its daemon-tests marker must be promoted (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+rc=0; tout=$(cd "$src" && PATH="$TMP/bin:$PATH" bash scripts/cmux-next/tree-commit-marker.sh tree-ready "$okey" 2>&1) || rc=$?
+[[ "$rc" == 0 && "$tout" == "publishedBy=$other" ]] \
+  || fail "tree-ready must answer ready for a published tree with no daemon-tests marker (exit $rc):" "$tout"
 
-# A read of source.json that is neither 200 nor 404 is a read failure: never
-# promoted (row 18 of the 2026-10-27 audit: it used to skip the daemon-tests check).
+# daemon-tested (kept for its other callers) still reads the marker: 1 without
+# it, 0 with it, and a read of source.json that is neither 200 nor 404 is a
+# read failure (row 18 of the 2026-10-27 audit), never a pass.
+rc=0; (cd "$src" && PATH="$TMP/bin:$PATH" bash scripts/cmux-next/tree-commit-marker.sh daemon-tested "$okey" >/dev/null 2>&1) || rc=$?
+[[ "$rc" == 1 ]] || fail "daemon-tested without daemon-tests.json must exit 1, got $rc"
+printf '{"key": "%s", "result": "success"}\n' "$okey" > "$cdn/tree/$okey/daemon-tests.json"
+rc=0; (cd "$src" && PATH="$TMP/bin:$PATH" bash scripts/cmux-next/tree-commit-marker.sh daemon-tested "$okey" >/dev/null 2>&1) || rc=$?
+[[ "$rc" == 0 ]] || fail "daemon-tested with daemon-tests.json must exit 0, got $rc"
 echo "tree/$okey/source.json" > "$cdn/FAILW"
-git_q -C "$src" checkout -q --detach "$other"
-request --sha "$other" --release-compile-green
-[[ "$status" == 0 ]] && ! dispatched "$other" && grep -q "read failure" <<<"$out" \
-  || fail "a source.json read failure must not promote (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+rc=0; (cd "$src" && PATH="$TMP/bin:$PATH" bash scripts/cmux-next/tree-commit-marker.sh daemon-tested "$okey" >/dev/null 2>&1) || rc=$?
+[[ "$rc" == 3 ]] || fail "daemon-tested on a source.json read failure must exit 3, got $rc"
 rm -f "$cdn/FAILW"
 # A source.json transfer that fails after a 200 (curl exit 18) is a read failure too.
 echo "tree/$okey/source.json" > "$cdn/TRUNC"
-request --sha "$other" --release-compile-green
-[[ "$status" == 0 ]] && ! dispatched "$other" && grep -q "read failure" <<<"$out" \
-  || fail "a truncated source.json read must not promote (exit $status):" "$out" "$(cat "$TMP/gh.log")"
 rc=0; (cd "$src" && PATH="$TMP/bin:$PATH" bash scripts/cmux-next/tree-commit-marker.sh daemon-tested "$okey" >/dev/null 2>&1) || rc=$?
 [[ "$rc" == 3 ]] || fail "daemon-tested on a truncated read must exit 3, got $rc"
 rm -f "$cdn/TRUNC"
@@ -466,7 +493,7 @@ git_q -C "$src" checkout -q --detach "$head"
 
 # The writer (tree-commit-marker.sh write, cmux-tui-artifacts.yml mark-tree-commits)
 # marks HEAD and its first-parent ancestors in the window whose tree is published
-# and daemon-tested, write-once, and nothing else. A stub upload stands in for R2.
+# and verified, write-once, and nothing else. A stub upload stands in for R2.
 touch "$cdn/NOAUTO"; rm -rf "$cdn/tree-commits"
 cat > "$src/scripts/ci/upload-r2-object.py" <<STUB
 import shutil, sys, os
@@ -497,11 +524,63 @@ before=$(cksum < "$cdn/tree-commits/$other.json")
 wout=$(cd "$src" && PATH="$TMP/bin:$PATH" R2_ENDPOINT=https://r2.invalid GITHUB_RUN_ID=78 \
   bash scripts/cmux-next/tree-commit-marker.sh write --window 3 2>&1) || fail "a second writer run must succeed:" "$wout"
 [[ "$(cksum < "$cdn/tree-commits/$other.json")" == "$before" ]] || fail "markers are write-once"
-# A tree whose daemon tests have not passed is not ready: not marked.
+# A published tree whose daemon tests have not passed is ready (2026-10-28): marked.
 rm -f "$cdn/tree/$okey/daemon-tests.json" "$cdn/tree-commits/$other.json"
 wout=$(cd "$src" && PATH="$TMP/bin:$PATH" R2_ENDPOINT=https://r2.invalid bash scripts/cmux-next/tree-commit-marker.sh write --window 1 2>&1) \
+  || fail "the writer failed:" "$wout"
+[[ -f "$cdn/tree-commits/$other.json" ]] || fail "a published tree without its daemon tests must be marked:" "$wout"
+# A tree that is not published is not ready: not marked.
+rm -f "$cdn/tree-commits/$other.json"
+mv "$cdn/tree/$okey/$bin.sha256" "$TMP/held.sha256"
+wout=$(cd "$src" && PATH="$TMP/bin:$PATH" R2_ENDPOINT=https://r2.invalid bash scripts/cmux-next/tree-commit-marker.sh write --window 1 2>&1) \
   || fail "the writer must succeed when nothing is ready:" "$wout"
-[[ ! -f "$cdn/tree-commits/$other.json" ]] || fail "a tree without its daemon tests must not be marked:" "$wout"
+[[ ! -f "$cdn/tree-commits/$other.json" ]] || fail "an unpublished tree must not be marked:" "$wout"
+mv "$TMP/held.sha256" "$cdn/tree/$okey/$bin.sha256"
+# --tip-branch: a run that publishes a tree late marks the newer branch commits sharing
+# it (their own runs ran before the tree existed and marked nothing). The run at
+# $head published its tree; $app, a later app-only commit, shares the key.
+rm -rf "$cdn/tree-commits"
+git_q -C "$src" checkout -q --detach "$head"
+wout=$(cd "$src" && PATH="$TMP/bin:$PATH" R2_ENDPOINT=https://r2.invalid bash scripts/cmux-next/tree-commit-marker.sh write --window 1 2>&1) \
+  || fail "the writer failed:" "$wout"
+[[ -f "$cdn/tree-commits/$head.json" && ! -f "$cdn/tree-commits/$app.json" ]] \
+  || fail "without --tip-branch the writer walks only HEAD's window:" "$wout"
+git_q -C "$src" update-ref refs/heads/marker-tip "$app"
+wout=$(cd "$src" && PATH="$TMP/bin:$PATH" R2_ENDPOINT=https://r2.invalid bash scripts/cmux-next/tree-commit-marker.sh write --window 1 --tip-branch marker-tip 2>&1) \
+  || fail "the writer with --tip-branch failed:" "$wout"
+[[ "$(git -C "$src" rev-parse --is-shallow-repository)" == false ]] || fail "--tip-branch must not make a full clone shallow"
+[[ -f "$cdn/tree-commits/$app.json" ]] || fail "--tip-branch must mark a newer commit that shares the published tree:" "$wout"
+python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["commit"]==sys.argv[2] and d["key"]==sys.argv[3], d' \
+  "$cdn/tree-commits/$app.json" "$app" "$(key "$head")" || fail "the tip's marker must name its own commit and the shared key"
+grep -q "1 written" <<<"$wout" || fail "--tip-branch must write each commit once (HEAD was already marked):" "$wout"
+rm -f "$cdn/tree-commits/$app.json"
+wout=$(cd "$src" && PATH="$TMP/bin:$PATH" R2_ENDPOINT=https://r2.invalid bash scripts/cmux-next/tree-commit-marker.sh write --window 1 --tip-branch no-such-branch 2>&1) \
+  || fail "a tip that does not fetch must not fail the writer:" "$wout"
+[[ -f "$cdn/tree-commits/$head.json" && ! -f "$cdn/tree-commits/$app.json" ]] && grep -q "could not fetch no-such-branch" <<<"$wout" \
+  || fail "a tip that does not fetch marks from HEAD alone, with a warning:" "$wout"
+rc=0; (cd "$src" && PATH="$TMP/bin:$PATH" R2_ENDPOINT=https://r2.invalid bash scripts/cmux-next/tree-commit-marker.sh write --tip-branch 'bad name' >/dev/null 2>&1) || rc=$?
+[[ "$rc" == 2 ]] || fail "a --tip-branch that is not a branch name is a usage error (exit 2), got $rc"
+# A tip commit whose tree key definition (key script or input list) differs from
+# this checkout's is not keyed here, even when this checkout's key would match.
+git_q -C "$src" checkout -q -b keydef "$app"
+echo "# a key definition change" >> "$src/scripts/cmux-next/cmux-tui-tree-inputs.txt"
+git_q -C "$src" commit -m "key definition" scripts/cmux-next/cmux-tui-tree-inputs.txt
+keydef=$(git -C "$src" rev-parse HEAD)
+git_q -C "$src" checkout -q --detach "$head"
+wout=$(cd "$src" && PATH="$TMP/bin:$PATH" R2_ENDPOINT=https://r2.invalid bash scripts/cmux-next/tree-commit-marker.sh write --window 2 --tip-branch keydef 2>&1) \
+  || fail "the writer with a cross-definition --tip-branch failed:" "$wout"
+[[ ! -f "$cdn/tree-commits/$keydef.json" ]] || fail "a tip commit with another key definition must not be marked here:" "$wout"
+grep -q "key definition differs" <<<"$wout" || fail "the writer must say why it skipped the tip commit:" "$wout"
+# The same holds for an ancestor in HEAD's window: run from $keydef, the older
+# commits (another key definition) are not marked by it.
+rm -rf "$cdn/tree-commits"
+git_q -C "$src" checkout -q --detach "$keydef"
+wout=$(cd "$src" && PATH="$TMP/bin:$PATH" R2_ENDPOINT=https://r2.invalid bash scripts/cmux-next/tree-commit-marker.sh write --window 3 2>&1) \
+  || fail "the writer from a key definition change failed:" "$wout"
+[[ ! -f "$cdn/tree-commits/$app.json" && ! -f "$cdn/tree-commits/$head.json" ]] \
+  || fail "an ancestor with another key definition must not be marked:" "$wout"
+grep -q "key definition differs" <<<"$wout" || fail "the writer must say why it skipped the ancestor:" "$wout"
+git_q -C "$src" checkout -q --detach "$other"
 # check: 200 naming the commit, 404, and anything else (another commit, a 500) a read failure (3).
 printf '{"commit": "%s", "key": "%s", "publishedBy": "%s", "markedBy": "https://u"}\n' "$head" "$okey" "$other" > "$cdn/tree-commits/$other.json"
 rc=0; (cd "$src" && PATH="$TMP/bin:$PATH" bash scripts/cmux-next/tree-commit-marker.sh check "$other" >/dev/null 2>&1) || rc=$?
@@ -538,6 +617,110 @@ rc=0; (cd "$src" && PATH="$TMP/bin:$PATH" bash scripts/cmux-next/tree-commit-mar
 rm -f "$cdn/NOAUTO" "$src/scripts/ci/upload-r2-object.py"
 git_q -C "$src" checkout -q --detach "$head"
 
+# NIGHTLY_NEXT_TREE_AT_INSTALL: the feat-cmux-next tip whose tree is still building
+# is requested at once when its own nightly.yml waits for the tree at install
+# and an artifacts run builds that tree; main's promote guard (G5) accepts it on
+# the same line. Without the line, or with no active run, it waits as before.
+git_q -C "$src" checkout -q -b pending "$app"
+echo four > "$src/cmux-tui/a"; git_q -C "$src" add -A; git_q -C "$src" commit -m "tui four, no line"
+noline=$(git -C "$src" rev-parse HEAD)
+branch "$noline"
+echo 1 > "$TMP/gh-runs"
+request --tree-ready "$noline"
+[[ "$status" == 0 ]] && ! dispatched "$noline" || fail "a building tree without the nightly.yml line must not be requested:" "$out"
+{ echo "env:"; echo "  NIGHTLY_NEXT_TREE_AT_INSTALL: v1"; cat "$src/.github/workflows/nightly.yml"; } > "$TMP/nightly.yml"
+mv "$TMP/nightly.yml" "$src/.github/workflows/nightly.yml"
+echo five > "$src/cmux-tui/a"; git_q -C "$src" add -A; git_q -C "$src" commit -m "tui five, with the line"
+pending=$(git -C "$src" rev-parse HEAD)
+branch "$pending"
+echo 0 > "$TMP/gh-runs"
+request --tree-ready "$pending"
+[[ "$status" == 0 ]] && ! dispatched "$pending" || fail "with no active artifacts run the building tip must wait:" "$out"
+grep -q "no active cmux-tui-artifacts run builds tree" <<<"$out" || fail "the wait must say why:" "$out"
+echo 1 > "$TMP/gh-runs"
+request --tree-ready "$pending"
+[[ "$status" == 0 ]] && dispatched "$pending" || fail "the building tip with the line and an active run must be requested:" "$out" "$(cat "$TMP/gh.log")"
+grep -q "its cmux-tui tree is building" <<<"$out" || fail "the request must say the tree is building:" "$out"
+# A commit behind the tip is never requested this way.
+git_q -C "$src" commit --allow-empty -m "app on top"
+branch "$(git -C "$src" rev-parse HEAD)"
+git_q -C "$src" checkout -q --detach "$pending"
+request --tree-ready "$pending"
+! dispatched "$pending" || fail "only the feat-cmux-next tip is requested before its tree:" "$out"
+rm -f "$TMP/gh-runs"
+git_q -C "$src" checkout -q --detach "$head"
+
+# A commit whose app is the one the feed already publishes is not requested: nothing that
+# reaches the app changed since the commit the nightly-next tag names. The classifier
+# (scripts/ci/nightly_build_inputs.py) is stubbed: only App.swift reaches the app, so a
+# cmux-tui change is caught by its tree key alone.
+git_q -C "$src" checkout -q -b app-identical "$head"
+git_q -C "$src" tag -f nightly-next "$head"
+cat > "$src/scripts/ci/nightly_build_inputs.py" <<'PY'
+import json, sys
+paths = [line.strip() for line in sys.stdin if line.strip()]
+hit = [p for p in paths if p == "App.swift"]
+print(json.dumps({"build_inputs_changed": bool(hit),
+                  "reason": f"{hit[0]} reaches the app" if hit else "no changed path reaches the app the Nightly publishes"}))
+PY
+echo notes > "$src/NOTES.md"; git_q -C "$src" add -A; git_q -C "$src" commit -m "notes only"
+same=$(git -C "$src" rev-parse HEAD)
+request --sha "$same" --release-compile-green
+[[ "$status" == 0 ]] && ! dispatched "$same" || fail "an app-identical commit must not be promoted:" "$out" "$(cat "$TMP/gh.log")"
+grep -q "nothing that reaches the app changed since the published ${head:0:12} (no changed path reaches" <<<"$out" \
+  && grep -q "already on nightly-next" <<<"$out" || fail "the skip must name the published commit and stop the tick's walk:" "$out"
+# The next app change is promoted at once: a skip never holds a real update back.
+echo app2 > "$src/App.swift"; git_q -C "$src" add -A; git_q -C "$src" commit -m "app change"
+changed=$(git -C "$src" rev-parse HEAD)
+request --sha "$changed" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$changed" || fail "an app change since the published commit must be promoted:" "$out" "$(cat "$TMP/gh.log")"
+# A change to the bundled cmux-tui binaries' inputs that the classifier calls neutral is
+# promoted: its tree key differs from the published commit's.
+git_q -C "$src" tag -f nightly-next "$changed"
+echo tui-runtime > "$src/cmux-tui/a"; git_q -C "$src" add -A; git_q -C "$src" commit -m "tui input the classifier misses"
+tuichange=$(git -C "$src" rev-parse HEAD)
+publish "$tuichange"
+request --sha "$tuichange" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$tuichange" || fail "a cmux-tui tree change must be promoted even when the classifier finds nothing:" "$out" "$(cat "$TMP/gh.log")"
+git_q -C "$src" checkout -q --detach "$changed"
+# A move out of the app (App.swift into docs/) removes an app input: promoted, never read as docs only.
+git_q -C "$src" tag -f nightly-next "$changed"
+mkdir -p "$src/docs"; git_q -C "$src" mv App.swift docs/App.swift; git_q -C "$src" commit -m "move the app file into docs"
+moved=$(git -C "$src" rev-parse HEAD)
+request --sha "$moved" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$moved" || fail "a move out of an app path must be promoted:" "$out" "$(cat "$TMP/gh.log")"
+git_q -C "$src" tag -f nightly-next "$head"
+# A revert of a promotion still building is promoted at once: its app matches the published
+# one but not the one nightly-next is about to publish.
+git_q -C "$src" checkout -q --detach "$same"
+git_q -C "$src" tag -f nightly-next "$same"
+echo pending-app > "$src/App.swift"; git_q -C "$src" add -A; git_q -C "$src" commit -m "app change still building"
+building=$(git -C "$src" rev-parse HEAD)
+git_q -C "$src" update-ref refs/heads/nightly-next "$building"
+git_q -C "$src" revert --no-edit HEAD
+reverted=$(git -C "$src" rev-parse HEAD)
+request --sha "$reverted" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$reverted" || fail "a revert of an outstanding promotion must be promoted:" "$out" "$(cat "$TMP/gh.log")"
+# A docs-only commit on top of that promotion is still promoted: the published app differs from it.
+git_q -C "$src" checkout -q --detach "$building"
+echo more > "$src/NOTES.md"; git_q -C "$src" add -A; git_q -C "$src" commit -m "notes on the building app"
+notes_on_building=$(git -C "$src" rev-parse HEAD)
+request --sha "$notes_on_building" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$notes_on_building" || fail "a commit whose app differs from the published one must be promoted:" "$out"
+git_q -C "$src" update-ref -d refs/heads/nightly-next
+git_q -C "$src" tag -f nightly-next "$head"
+git_q -C "$src" checkout -q --detach "$same"
+# A classifier that cannot answer, or no published commit, promotes as before.
+git_q -C "$src" checkout -q --detach "$same"
+echo 'raise SystemExit(3)' > "$src/scripts/ci/nightly_build_inputs.py"
+request --sha "$same" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$same" || fail "an unreadable classifier must not hold back a promotion:" "$out" "$(cat "$TMP/gh.log")"
+git -C "$src" checkout -q -- scripts/ci/nightly_build_inputs.py
+git_q -C "$src" tag -d nightly-next
+request --sha "$same" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$same" || fail "with no published commit the promotion is requested:" "$out" "$(cat "$TMP/gh.log")"
+git_q -C "$src" checkout -q --detach "$head"
+
 # The checkout must be the commit it asks for; bad input is a usage error.
 request --sha "$app" --release-compile-green
 [[ "$status" == 2 ]] || fail "a --sha other than HEAD must exit 2, got $status:" "$out"
@@ -546,4 +729,4 @@ request --sha nothex --release-compile-green
 request --sha "$head"
 [[ "$status" == 2 ]] || fail "--sha without --release-compile-green must exit 2, got $status:" "$out"
 : "$other"
-echo "PASS: nightly-next promotion waits for the published, daemon-tested tree, not the Release compile"
+echo "PASS: nightly-next promotion waits for the published tree, not its daemon tests or the Release compile"

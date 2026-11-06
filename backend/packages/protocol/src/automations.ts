@@ -3,6 +3,7 @@ import { automationCapabilityOps } from "./automation-caps.ts"
 import { MachineId } from "./cloud-machine-ops.ts"
 import { ConversationId } from "./ops-home-schemas.ts"
 import { DisplayName, HostId, TeamId, UserId } from "./schemas.ts"
+import { isPattern } from "./json-checks.ts"
 
 /**
  * Automation shape v1 (spec cloud-and-automations.md "Data"). The SchedulerDO
@@ -11,7 +12,7 @@ import { DisplayName, HostId, TeamId, UserId } from "./schemas.ts"
  */
 
 const prefixedId = (prefix: string, identifier: string, description: string) =>
-  Schema.String.check(Schema.isPattern(new RegExp(`^${prefix}_[a-z0-9]{20}$`))).annotate({ identifier, description })
+  Schema.String.check(isPattern(new RegExp(`^${prefix}_[a-z0-9]{20}$`))).annotate({ identifier, description })
 
 export const AutomationId = prefixedId("auto", "AutomationId", "An automation definition, owned by its team's SchedulerDO.")
 export const TriggerId = prefixedId("trg", "TriggerId", "One trigger of an automation; assigned by the owner.")
@@ -107,12 +108,12 @@ export const Step = Schema.Union([
  * DNS names with a letter TLD, so IP literals never match.
  */
 export const EgressHost = Schema.String.check(
-  Schema.isPattern(/^(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$/),
+  isPattern(/^(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$/),
   Schema.isMaxLength(253)
 ).annotate({ identifier: "EgressHost" })
 
 /** A full Git commit id (40 lowercase hex). Short ids and branch names never pin a run. */
-export const CommitSha = Schema.String.check(Schema.isPattern(/^[0-9a-f]{40}$/)).annotate({ identifier: "CommitSha" })
+export const CommitSha = Schema.String.check(isPattern(/^[0-9a-f]{40}$/)).annotate({ identifier: "CommitSha" })
 
 /**
  * Where an automation's code lives (decisions A12, C1): a directory
@@ -124,8 +125,8 @@ export const CommitSha = Schema.String.check(Schema.isPattern(/^[0-9a-f]{40}$/))
  */
 export const CodeRef = Schema.Struct({
   commit: CommitSha,
-  path: Schema.String.check(Schema.isPattern(/^automations\/[a-z0-9][a-z0-9-]{0,62}$/)),
-  export: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^[A-Za-z_$][A-Za-z0-9_$]{0,63}$/)))
+  path: Schema.String.check(isPattern(/^automations\/[a-z0-9][a-z0-9-]{0,62}$/)),
+  export: Schema.optionalKey(Schema.String.check(isPattern(/^[A-Za-z_$][A-Za-z0-9_$]{0,63}$/)))
 }).annotate({ identifier: "CodeRef" })
 export type CodeRef = typeof CodeRef.Type
 
@@ -154,9 +155,14 @@ export const Body = Schema.Union([
    */
   Schema.Struct({
     type: Schema.Literal("chief"),
-    chief: Schema.String.check(Schema.isPattern(/^agent_[A-Za-z0-9_.-]{1,64}$/)),
+    chief: Schema.String.check(isPattern(/^agent_[A-Za-z0-9_.-]{1,64}$/)),
     conversation: ConversationId,
-    prompt: NonEmptyText(8000)
+    prompt: NonEmptyText(8000),
+    destination: Schema.optionalKey(Schema.Struct({
+      type: Schema.Literal("slack"),
+      slackTeamId: Schema.String.check(isPattern(/^T[A-Z0-9]+$/)),
+      channelId: Schema.String.check(isPattern(/^[CDG][A-Z0-9]+$/))
+    }))
   }),
   /** Chief-written Workflows code (decision A11) at a pinned commit; runs on Tier 1 Dynamic Workers. */
   Schema.Struct({
@@ -185,6 +191,35 @@ export const Budget = Schema.Struct({
   tool_calls: Schema.optionalKey(Int(1, 1_000_000))
 }).annotate({ identifier: "Budget" })
 
+/**
+ * Team scope and placement (docs/automations-teleport-teams.md). `team` (the default, and every
+ * automation made before sharing) is visible to every member; `private` only to its creator, its
+ * editors and the team's admins and owners.
+ */
+export const Sharing = Schema.Literals(["team", "private"]).annotate({ identifier: "Sharing" })
+/** What a late fire does: `latest` fires the newest missed slot if younger than 24 h, `all` each (at most 10), `none` nothing. */
+export const CatchUp = Schema.Literals(["latest", "all", "none"]).annotate({ identifier: "CatchUp" })
+/** Where a teleport goes: the Chief teleport's grammar (`home`, `ssh:<host>[:<dir>]`) plus `cloud`. */
+export const TeleportDestination = NonEmptyText(256)
+/** A pending single-writer handoff: while it is set, nothing fires the automation. */
+export const Handoff = Schema.Struct({
+  id: Schema.String.check(isPattern(/^tp_[0-9a-f]{32}$/)),
+  to: TeleportDestination,
+  epoch: Schema.Int,
+  at: Schema.Int
+}).annotate({ identifier: "Handoff" })
+export type Handoff = typeof Handoff.Type
+/** An automation that left this store: it names where it went and never fires here. */
+export const MovedAutomation = Schema.Struct({
+  id: AutomationId,
+  name: DisplayName,
+  moved_to: TeleportDestination,
+  moved_id: NonEmptyText(64),
+  epoch: Schema.Int,
+  moved_at: Schema.Int
+}).annotate({ identifier: "MovedAutomation" })
+export type MovedAutomation = typeof MovedAutomation.Type
+
 export const Automation = Schema.Struct({
   id: AutomationId,
   owner: TeamId,
@@ -200,7 +235,23 @@ export const Automation = Schema.Struct({
   created_by: UserId,
   created_at: Schema.Int,
   updated_at: Schema.Int,
-  next_run_at: Schema.NullOr(Schema.Int)
+  next_run_at: Schema.NullOr(Schema.Int),
+  /** Absent on automations made before sharing: `team`. */
+  sharing: Schema.optionalKey(Sharing),
+  /** Members who may change it besides its creator and the team's admins and owners. */
+  editors: Schema.optionalKey(Schema.Array(UserId).check(Schema.isMaxLength(50))),
+  /** Absent: `latest`. */
+  catch_up: Schema.optionalKey(CatchUp),
+  /** The one store that fires it; a Cloud automation is `cloud`. */
+  home: Schema.optionalKey(Schema.Literal("cloud")),
+  /** 1 at create, one more on each teleport. */
+  epoch: Schema.optionalKey(Schema.Int),
+  /** The newest scheduled time already fired (ms), carried across a teleport. */
+  last_slot: Schema.optionalKey(Schema.NullOr(Schema.Int)),
+  /** Set while a teleport away from Cloud is in progress (fenced: never fires). */
+  handoff: Schema.optionalKey(Handoff),
+  /** The handoff that brought it here (import dedupe). */
+  origin: Schema.optionalKey(Schema.Struct({ handoff: NonEmptyText(64), from: TeleportDestination, source_id: NonEmptyText(64) }))
 }).annotate({ identifier: "Automation" })
 export type Automation = typeof Automation.Type
 
@@ -245,7 +296,10 @@ export const AutomationCreateParams = Schema.Struct({
   body: Body,
   target: Schema.optionalKey(TargetPolicy),
   concurrency: Schema.optionalKey(Concurrency),
-  budget: Schema.optionalKey(Budget)
+  budget: Schema.optionalKey(Budget),
+  sharing: Schema.optionalKey(Sharing),
+  editors: Schema.optionalKey(Schema.Array(UserId).check(Schema.isMaxLength(50))),
+  catch_up: Schema.optionalKey(CatchUp)
 })
 
 export const AutomationUpdateParams = Schema.Struct({
@@ -259,7 +313,10 @@ export const AutomationUpdateParams = Schema.Struct({
   body: Schema.optionalKey(Body),
   target: Schema.optionalKey(TargetPolicy),
   concurrency: Schema.optionalKey(Concurrency),
-  budget: Schema.optionalKey(Budget)
+  budget: Schema.optionalKey(Budget),
+  sharing: Schema.optionalKey(Sharing),
+  editors: Schema.optionalKey(Schema.Array(UserId).check(Schema.isMaxLength(50))),
+  catch_up: Schema.optionalKey(CatchUp)
 })
 
 export const AutomationSelector = Schema.Struct({ automation: AutomationId })
@@ -327,4 +384,60 @@ export const RunDispatchedParams = Schema.Struct({ run: RunId })
 export const RunPolicyApplyParams = Schema.Struct({
   version: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
   runs_allowed: Schema.Boolean
+})
+
+/**
+ * Accept step of a teleport (docs/automations-teleport-teams.md section 2): the spec the source
+ * fenced, with the handoff that carries its epoch and last fired slot. One copy per handoff id.
+ */
+export const AutomationImportParams = Schema.Struct({
+  ...AutomationCreateParams.fields,
+  handoff: Schema.Struct({
+    id: Schema.String.check(isPattern(/^tp_[0-9a-f]{32}$/)),
+    from: TeleportDestination,
+    source_id: NonEmptyText(64),
+    epoch: Int(1, 1_000_000),
+    last_slot: Schema.NullOr(Schema.Int)
+  })
+})
+
+/** Fence step when Cloud is the source: no fire and no run until complete or abort. */
+export const AutomationTeleportBeginParams = Schema.Struct({
+  automation: AutomationId,
+  handoff: Schema.Struct({ id: Schema.String.check(isPattern(/^tp_[0-9a-f]{32}$/)), to: TeleportDestination })
+})
+
+/** Release step: the Cloud copy becomes a tombstone naming the destination's id. */
+export const AutomationTeleportCompleteParams = Schema.Struct({
+  automation: AutomationId,
+  handoff: Schema.String.check(isPattern(/^tp_[0-9a-f]{32}$/)),
+  moved_id: NonEmptyText(64)
+})
+
+/** The destination refused: lift the fence, the Cloud copy fires again. */
+export const AutomationTeleportAbortParams = Schema.Struct({
+  automation: AutomationId,
+  handoff: Schema.String.check(isPattern(/^tp_[0-9a-f]{32}$/))
+})
+
+/** What `automation.teleport.begin` answers: the full automation and what the destination needs. */
+export const AutomationTeleportBegun = Schema.Struct({
+  automation: Automation,
+  epoch: Schema.Int,
+  last_slot: Schema.NullOr(Schema.Int)
+}).annotate({ identifier: "AutomationTeleportBegun" })
+
+/** One automation audit entry: who changed what; never a body or a secret. */
+export const AutomationAuditEntry = Schema.Struct({
+  n: Schema.Int,
+  at: Schema.Int,
+  actor: NonEmptyText(200),
+  op: NonEmptyText(80),
+  automation: AutomationId,
+  summary: Text(500)
+}).annotate({ identifier: "AutomationAuditEntry" })
+
+export const AutomationAuditListParams = Schema.Struct({
+  automation: Schema.optionalKey(AutomationId),
+  limit: Schema.optionalKey(Int(1, 500))
 })

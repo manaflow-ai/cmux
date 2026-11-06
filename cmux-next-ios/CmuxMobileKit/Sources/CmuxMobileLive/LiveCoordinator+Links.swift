@@ -49,7 +49,9 @@ extension LiveCoordinator {
             }
             var fields: [String: Any] = [:]
             for (key, value) in params { fields[key] = value }
-            return try await client.request(command, params: fields)
+            return try await client.request(command, params: fields,
+                                            deadline: session.terminalFeed.requestDeadline,
+                                            clock: session.terminalFeed.clock)
         }
         session.terminalFeed.type = { [weak session] surface, bytes, connection in
             guard let session, session.workspaces.connectionSerial == connection, let client = session.workspaces.daemon else {
@@ -57,9 +59,27 @@ extension LiveCoordinator {
             }
             _ = try WorkspaceSync.check(try await client.request("send", params: ["surface": surface, "bytes": bytes.base64EncodedString()]))
         }
+        session.workspaces.onErrorChanged = { [weak self, weak session] in
+            guard let self, let session else { return }
+            self.updateDiagnostics(session)
+        }
         session.workspaces.onTree = { [weak self, weak session] tree in
             guard let self, let session else { return }
+            session.daemonError = nil
             self.apply(tree, session: session)
+            self.updateDiagnostics(session)
+        }
+        session.workspaces.onRows = { [weak self, weak session] tree, ids, agentChanged in
+            guard let self, let session, self.sessions[session.macID] === session else { return }
+            session.tree = tree
+            self.store.updateWorkspaces(macID: session.macID, rows: tree.workspaces.filter { ids.contains($0.id) })
+            if agentChanged {
+                session.terminalFeed.treeChanged(tree, macID: session.macID,
+                                                connection: session.workspaces.connectionSerial, changedWorkspaceIDs: ids)
+            } else {
+                session.terminalFeed.updateTreeMetadata(tree)
+            }
+            self.scheduleSnapshotSave()
         }
         session.terminalFeed.send = { [weak session] surface, text, expectForeground, agentSession, connection in
             guard let agentSession else { throw LinkError(code: "no-session", message: "The agent session is not known") }
@@ -119,6 +139,7 @@ extension LiveCoordinator {
     // MARK: Link
 
     func linkChanged(_ session: MacSession, _ link: (any MacLink)?) {
+        for relay in session.cloudChats.values { relay.disconnect() }
         #if DEBUG
         if let link { runNetworkProbeIfAsked(link) }
         #endif
@@ -126,7 +147,13 @@ extension LiveCoordinator {
         session.currentLink = link
         session.servedLink = nil
         session.pairingGate = nil
+        // A new link pairs from the start: the old link's retry ends, the backoff starts over.
+        session.pairingRetry?.cancel()
+        session.pairingRetry = nil
+        session.pairingRetries = 0
         session.acpmux.approver = nil
+        session.chatsError = nil
+        session.daemonError = nil
         // Pairing belongs to one link (review M1): a banner for another Mac, or a
         // stale "waiting" that holds back the workspaces deadline, never carries over.
         setPairing(.idle, for: session)
@@ -137,6 +164,7 @@ extension LiveCoordinator {
                 await session.acpmux.bind(nil)
             }
             if chiefMacID == macID { chiefOffline() }
+            ChiefComputer.shared.macChanged()
             return
         }
         if let prepared = session.link.takePrepared(for: link) as? PreparedLink {
@@ -211,6 +239,11 @@ extension LiveCoordinator {
             }
             return
         }
+        guard session.currentLink === link, sessions[macID] === session else { return }
+        for relay in session.cloudChats.values { relay.bind(link) }
+        #if DEBUG
+        UploadProbe.start(on: link, macName: session.name)  // the pair-e2e rig's upload leg; inert without its launch argument
+        #endif
         // The workspaces deadline waited while the Mac asked its person: start it again.
         if store.macData[macID]?.source != .live { armWorkspacesDeadline(session, link) }
         // Terminal tabs attach lazily (`terminalSession(tabID:)`), each on its
@@ -228,6 +261,9 @@ extension LiveCoordinator {
         }
         // Streamed browser tabs that dropped open again on the focused Mac's link.
         StreamedBrowserDirectory.shared.linkChanged(macID: session.macID)
+        // The Mac app's own Feed requests, for as long as this link lives (#33818).
+        let needsYou = session.needsYou
+        Task { await needsYou.read(on: link, macID: macID) }
         do {
             let channel = try await link.openChannel(service: "acpmux", args: [:])
             // The link closed while the channel opened: nothing more on it.
@@ -275,6 +311,8 @@ extension LiveCoordinator {
     /// Opens the `daemon` channel and loads the workspaces; a failure or a
     /// Mac that never answers shows as a failure with Retry.
     private func bindWorkspaces(_ session: MacSession, _ link: any MacLink, prepared: Result<WorkspaceSync.Prepared, LinkError>? = nil) {
+        session.daemonError = nil
+        updateDiagnostics(session)
         armWorkspacesDeadline(session, link)
         let macID = session.macID
         Task { [weak self] in
@@ -290,12 +328,16 @@ extension LiveCoordinator {
                 }
                 // The link may have moved on (closed, or this Mac was removed).
                 if let error = session.workspaces.lastError, session.currentLink === link, self.store.macData[macID]?.source != .live {
-                    self.store.handleMacData(.failed(error), macID: macID)
+                    session.daemonError = error
+                    self.updateDiagnostics(session)
+                    self.store.handleMacData(.failed("Offline"), macID: macID)
                 }
             } catch {
                 log.error("daemon channel: \(String(describing: error), privacy: .public)")
                 if session.currentLink === link {
-                    self.store.handleMacData(.failed(LinkController.reason(error)), macID: macID)
+                    session.daemonError = LinkController.reason(error)
+                    self.updateDiagnostics(session)
+                    self.store.handleMacData(.failed("Offline"), macID: macID)
                 }
             }
         }
@@ -313,8 +355,23 @@ extension LiveCoordinator {
             // timeout fails the channel itself.
             if session.pairingState.isWaiting { return }
             log.error("workspaces did not arrive in time")
-            self.store.handleMacData(.failed("the Mac didn't send its workspaces"), macID: macID)
+            session.daemonError = "the Mac didn't send its workspaces"
+            self.updateDiagnostics(session)
+            self.store.handleMacData(.failed("Offline"), macID: macID)
         }
+    }
+
+    /// Retry the Mac represented by the global connection banner.
+    public func retryConnection() {
+        // Phase observation can lag a Retry tap. Prefer the banner's owner,
+        // but keep the focused link retryable before its banner is published.
+        let macID = banner?.identity ?? focusedMacID
+        guard !store.isOffline, let macID else { retry(); return }
+        // Missing or offline targets need registration and refreshed discovery,
+        // not just a touch of the link against stale presence.
+        guard let session = sessions[macID], session.link.target != nil,
+              session.link.phase != .macOffline else { retry(); return }
+        retry(macID: macID)
     }
 
     /// Retry for a Mac (the Workspaces Retry and Reconnect): pairs the link
@@ -359,6 +416,8 @@ extension LiveCoordinator {
         let protocolVersion = object?["link"] as? Int ?? 1
         let capabilities = Set(object?["capabilities"] as? [String] ?? [])
         if store.macCapabilities[macID] != capabilities { store.macCapabilities[macID] = capabilities }
+        // The Mac is up and said what it serves: Chief info's Computer card reads its Cloud directory again.
+        ChiefComputer.shared.macChanged()
         log.info("Mac host: \(object?["hostd"] as? String ?? "before 0.2", privacy: .public), link protocol \(protocolVersion, privacy: .public)")
         let outdated = protocolVersion < 2
         guard outdated != session.outdated else { return }
@@ -403,20 +462,41 @@ extension LiveCoordinator {
             switch outcome {
             case .paired(let macDevice):
                 self.setPairing(.paired, for: session)
+                session.pairingRetries = 0
                 // Allowed already: a code for this Mac has nothing left to approve.
                 pairing.invites.drop(mac: macID)
-                session.acpmux.approver = AcpmuxHub.Approver(phoneID: pairing.phoneID, macDevice: macDevice) { reason in
-                    try await keys.authorizeApproval(reason: reason)
+                session.acpmux.approver = AcpmuxHub.Approver(phoneID: pairing.phoneID, macDevice: macDevice) { _ in
+                    try keys.approvalSigner()
                 }
                 return true
             case .legacy:
                 self.setPairing(.idle, for: session)
+                session.pairingRetries = 0
                 return true
             case .refused(let error):
                 log.error("pairing refused: \(error.code, privacy: .public) \(error.message, privacy: .public)")
                 self.setPairing(error.code == "denied" ? .denied(mac: name) : .failed(LinkPairing.refusalText(error)), for: session)
+                self.schedulePairingRetry(session, link, after: error.code)
                 return false
             }
+        }
+    }
+
+    /// Asks the Mac again on `link` by itself after a refusal, so a Mac that becomes ready (or
+    /// a prompt answered late) lets the phone in without the person tapping Retry or relaunching
+    /// the Mac app. Runs while `link` stays this Mac's current, unserved link.
+    func schedulePairingRetry(_ session: MacSession, _ link: any MacLink, after code: String) {
+        session.pairingRetry?.cancel()
+        guard let delay = LinkPairing.retryDelay(after: code, attempt: session.pairingRetries) else { return }
+        session.pairingRetries += 1
+        let macID = session.macID
+        // task-owner: stored in `session.pairingRetry`; a newer refusal or retry cancels it
+        session.pairingRetry = Task { [weak self, weak session, clock] in
+            do { try await clock.sleep(for: delay) } catch { return }
+            guard let self, let session, self.sessions[macID] === session, session.currentLink === link,
+                  session.servedLink == nil else { return }
+            log.info("pairing: asking the Mac again (attempt \(session.pairingRetries, privacy: .public))")
+            self.retry(macID: macID)
         }
     }
 
@@ -506,6 +586,15 @@ extension LiveCoordinator {
         }
     }
 
+    /// Opens the Mac's link if it was idle and waits for its agents (acpmux) to answer, up to
+    /// `timeout`: New Agent Chat from Shortcuts may run before anything linked that Mac.
+    public func agentsReady(on macID: String, timeout: Duration = .seconds(20)) async -> Bool {
+        guard canLink(macID: macID) else { return false }
+        touch(macID)
+        guard let session = sessions[macID] else { return false }
+        return await session.acpmux.waitUntilReady(timeout: timeout, clock: clock)
+    }
+
     /// The Mac was used now: its link opens if it was closed, and stays while recent.
     public func touch(_ macID: String) {
         lastShown[macID] = ContinuousClock.now
@@ -538,7 +627,13 @@ extension LiveCoordinator {
     /// the `file` service, relative paths resolved against the tab's directory.
     public func terminalArtifactSource(tabID: String, macID: String? = nil) -> any ArtifactSource {
         let owner = session(tabID: tabID, macID: macID)
-        return LinkFileArtifactSource(macName: owner?.name ?? "your Mac", baseDirectory: owner?.tree?.directories[tabID]) { [weak owner] in
+        let directory = owner?.tree?.directories[tabID]
+        let scope = owner.flatMap {
+            ArtifactThumbnailOwner.remote(accountID: userID, macID: $0.macID,
+                                          resource: "terminal:\(tabID):\(directory ?? "")")
+        }
+        return LinkFileArtifactSource(macName: owner?.name ?? "your Mac", baseDirectory: directory,
+                                      thumbnailCacheScope: scope) { [weak owner] in
             await owner?.servedLink
         }
     }
@@ -546,16 +641,16 @@ extension LiveCoordinator {
     /// Sends a terminal attachment to the tab's Mac (the `upload` service)
     /// into the tab's folder, next to acpmux's attachments, or the Mac's own
     /// uploads folder when the tab has none; returns the file's path there.
-    public func terminalUploader(tabID: String, macID: String? = nil) -> @MainActor (Data, String) async throws -> String {
-        { [weak self] data, name in
+    public func terminalUploader(tabID: String, macID: String? = nil) -> @MainActor (LinkUpload.Payload, String) async throws -> String {
+        { [weak self] payload, name in
             guard let self, let owner = self.session(tabID: tabID, macID: macID), let link = owner.servedLink else {
                 throw LinkUpload.Failure(code: "offline", message: "the Mac isn't connected")
             }
             let cwd = LinkUpload.folder(owner.tree?.directories[tabID])
             do {
-                return try await LinkUpload.upload(data, name: name, cwd: cwd, over: link)
+                return try await LinkUpload.upload(payload, name: name, cwd: cwd, over: link)
             } catch let failure as LinkUpload.Failure where cwd != nil && (failure.code == "forbidden" || failure.code == "not_found") {
-                return try await LinkUpload.upload(data, name: name, cwd: nil, over: link)
+                return try await LinkUpload.upload(payload, name: name, cwd: nil, over: link)
             }
         }
     }
@@ -568,7 +663,14 @@ extension LiveCoordinator {
         guard chiefMacID != focusedMacID else { return }
         let owner = focused
         guard let link = owner.servedLink else {
-            if chiefMacID != nil { chiefOffline() } else { useChiefCloudCopy(macName: owner.name) }
+            if chiefMacID != nil {
+                chiefOffline()
+            } else {
+                // Name the Mac first: what is written to its cloud copy is for this Mac
+                // (the outbox's target), not for whichever Mac connects next.
+                ChiefSession.shared.macID = owner.macID
+                useChiefCloudCopy(macName: owner.name)
+            }
             return
         }
         Task { [weak self] in
@@ -627,7 +729,9 @@ extension LiveCoordinator {
         session.reconnect = { [weak self] in self?.retryChief() }
         session.macName = owner.name
         // A file a Chief message links to previews from this Mac (absolute paths only).
-        session.fileSource = LinkFileArtifactSource(macName: owner.name, baseDirectory: nil) { [weak owner] in
+        let fileScope = ArtifactThumbnailOwner.remote(accountID: userID, macID: owner.macID, resource: "chief")
+        session.fileSource = LinkFileArtifactSource(macName: owner.name, baseDirectory: nil,
+                                                    thumbnailCacheScope: fileScope) { [weak owner] in
             await owner?.servedLink
         }
         // Chief's settings show this Mac's last known model until it answers.
@@ -680,7 +784,7 @@ extension LiveCoordinator {
                 return
             }
             session.status = nil
-            // Answers to Chief's questions sign with this phone's key after Face ID.
+            // Answers to Chief's questions sign with this phone's approval key.
             session.answerSigner = { [weak self] in self?.chiefAnswerSigner() }
             session.use(ChiefDaemonBackend(client: client))
             chiefLive = true
@@ -800,9 +904,9 @@ extension LiveCoordinator {
             }
         case .connected:
             store.macConnection[macID] = .connected
-        case .waiting(_, _, let reason, _):
-            store.handleMacData(.failed(reason), macID: macID)
-            store.macConnection[macID] = .failed(reason)
+        case .waiting:
+            store.handleMacData(.failed("Offline"), macID: macID)
+            store.macConnection[macID] = .failed("Offline")
         }
         scheduleSnapshotSave()
     }
@@ -843,15 +947,29 @@ extension LiveCoordinator {
         for session in sessions.values {
             guard let target = session.link.target,
                   let line = session.link.phase.statusLine(macName: target.name, media: session.link.media) else { continue }
-            var parts = [line]
-            if session.link.phase.isConnected, let chatsError = session.chatsError { parts.append("Chats: \(chatsError)") }
-            if session.outdated { parts.append("Update cmux on this Mac") }
-            status[target.macID] = parts.joined(separator: " · ")
+            // Keep the section header actionable and calm. Raw acpmux/daemon
+            // failures belong in diagnostics, never in the normal status line.
+            status[target.macID] = session.outdated ? "\(line) · Update cmux on this Mac" : line
         }
         return status
     }
 
+    private func updateDiagnostics(_ session: MacSession) {
+        guard sessions[session.macID] === session else { return }
+        guard session.link.phase != .idle else {
+            if store.macLinkDiagnostics.removeValue(forKey: session.macID) != nil { return }
+            return
+        }
+        var parts = [session.link.phase.diagnosticLine(macName: session.name, media: session.link.media)]
+        if let error = session.chatsError { parts.append("Chats: \(error)") }
+        if let error = session.daemonError ?? session.workspaces.lastError { parts.append("Workspaces: \(error)") }
+        let detail = parts.compactMap { $0 }.joined(separator: "\n")
+        let value = detail.isEmpty ? nil : detail
+        if store.macLinkDiagnostics[session.macID] != value { store.macLinkDiagnostics[session.macID] = value }
+    }
+
     func phaseChanged(_ session: MacSession) {
+        updateDiagnostics(session)
         updateMacState(session)
         updateTerminalsOffline(session)
         let status = statusLines()
@@ -866,7 +984,7 @@ extension LiveCoordinator {
         case .idle:
             banner = nil
         case .macOffline:
-            banner = .macOffline(name)
+            banner = .macOffline(name, identity: session.macID)
         case .connected:
             if everConnected, banner != nil, banner != .connected {
                 banner = .connected
@@ -879,21 +997,17 @@ extension LiveCoordinator {
             }
             everConnected = true
             if let macID = session.link.target?.macID { connectedMacIDs.insert(macID) }
-        case .connecting(let transport, let attempt):
-            // Blips heal silently: the reconnecting banner waits 1.5 s.
+        case .connecting(_, let attempt):
             if attempt == 1, !everConnected {
-                banner = .connecting(to: "\(name) over \(transport.displayName)")
-            } else if banner == nil || banner == .connected {
-                bannerTask = Task { [weak self, clock] in
-                    do { try await clock.sleep(for: .milliseconds(1500)) } catch { return }
-                    self?.banner = .reconnecting(to: name)
-                }
+                banner = .connecting(to: name, identity: session.macID)
+            } else {
+                banner = .reconnecting(to: name, identity: session.macID)
             }
         case .waiting(let transport, let attempt, let reason, _):
             banner = Self.waitingBanner(
                 macName: name, transport: transport, reason: reason, attempt: attempt,
                 wasConnected: session.link.target.map { connectedMacIDs.contains($0.macID) } ?? false,
-                relayAvailable: relayAvailable)
+                relayAvailable: relayAvailable, identity: session.macID)
         }
     }
 
@@ -905,16 +1019,18 @@ extension LiveCoordinator {
     /// a connection failure. A Mac a link was connected to is being
     /// reconnected (the machine keeps retrying), so a lost link reads
     /// "Reconnecting", not "Can't reach", which reads as giving up, for the
-    /// first `reconnectingAttempts` attempts. A Mac never reached, or still
-    /// unreachable after those, says so; without TURN neither transport gets
-    /// through from another network (WireGuard's backend relay is retired).
-    nonisolated static func waitingBanner(macName: String, transport: CmuxMobileTransport.TransportKind, reason: String,
+    /// first `reconnectingAttempts` attempts. Longer failures offer a retry;
+    /// transport and relay details stay in Settings diagnostics.
+    nonisolated static func waitingBanner(macName: String, transport _: CmuxMobileTransport.TransportKind, reason: String,
                                           attempt: Int, wasConnected: Bool,
-                                          relayAvailable: Bool?) -> ConnectionBannerState {
-        if reason == LinkController.reason(LinkError(code: "offline", message: "")) { return .macOffline(macName) }
-        if wasConnected, attempt <= reconnectingAttempts { return .reconnecting(to: macName) }
-        let relay = relayAvailable == false ? ". Relay (TURN) unavailable" : ""
-        return .failed("Can't reach \(macName) over \(transport.displayName)\(relay)")
+                                          relayAvailable _: Bool?, identity: String? = nil) -> ConnectionBannerState {
+        if reason == LinkController.reason(LinkError(code: "offline", message: "")) {
+            return .macOffline(macName, identity: identity)
+        }
+        if wasConnected, attempt <= reconnectingAttempts {
+            return .reconnecting(to: macName, identity: identity)
+        }
+        return .connectionFailed.identified(identity)
     }
 }
 

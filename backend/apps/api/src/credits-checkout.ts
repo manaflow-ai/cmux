@@ -30,6 +30,20 @@ export const creditsKey = (env: Env): { ok: true; key: string } | { ok: false; r
   return { ok: false, reason: mode === "live" ? "live_key_refused" : mode === "none" ? "no_key" : "invalid_key" }
 }
 
+/** The top-up range (paid-plans-DESIGN.md §6.2): CREDITS_TOPUP_MIN_USD and CREDITS_TOPUP_MAX_USD, defaults 5 and 2,500. */
+export const topupRange = (env: Env): { min: number; max: number } => {
+  const min = Number(env.CREDITS_TOPUP_MIN_USD ?? 5)
+  const max = Number(env.CREDITS_TOPUP_MAX_USD ?? 2500)
+  return Number.isFinite(min) && Number.isFinite(max) && min >= 1 && max >= min && max <= 100_000 ? { min, max } : { min: 5, max: 2500 }
+}
+
+/** Any amount in the range with at most two decimals (whole cents). */
+export const validTopup = (env: Env, usd: unknown): usd is number => {
+  if (typeof usd !== "number" || !Number.isFinite(usd)) return false
+  const { min, max } = topupRange(env)
+  return usd >= min && usd <= max && Math.abs(Math.round(usd * 100) - usd * 100) < 1e-6
+}
+
 /** CHIEF_CREDITS_TOPUP_USD: the amounts a person may pick (whole USD), default 10, 20, 50, 100. */
 export const topupAmounts = (env: Env): ReadonlyArray<number> => {
   const list = (env.CHIEF_CREDITS_TOPUP_USD ?? "10,20,50,100").split(",").map((v) => Number(v.trim())).filter((n) => Number.isInteger(n) && n >= 1 && n <= 10_000)
@@ -80,9 +94,10 @@ export const createCheckout = async (env: Env, key: string, origin: string, team
   const form: Record<string, string> = {
     mode: "payment",
     ...(customer ? { customer } : { customer_creation: "always" }),
-    // One tap next time (paid-plan.md §5): the card is saved on the team's customer, and a later top-up
+    // One tap next time (paid-plan.md §5) and auto-reload (paid-plans-DESIGN.md §6.3): the card is saved on the
+    // team's customer for off-session use, and a later top-up
     // shows it (cards saved this way are "limited" redisplay, which Checkout hides unless asked).
-    "payment_intent_data[setup_future_usage]": "on_session",
+    "payment_intent_data[setup_future_usage]": "off_session",
     ...(customer ? { "saved_payment_method_options[allow_redisplay_filters][0]": "always", "saved_payment_method_options[allow_redisplay_filters][1]": "limited", "saved_payment_method_options[allow_redisplay_filters][2]": "unspecified" } : {}),
     "line_items[0][quantity]": "1",
     "line_items[0][price_data][currency]": "usd",

@@ -163,6 +163,7 @@ impl Node {
         self.call(|| unsafe {
             ffi::tailscale_listen(self.sd, network.as_ptr(), addr.as_ptr(), &mut fd)
         })?;
+        close_on_exec(fd);
         Ok(Listener { fd })
     }
 
@@ -175,6 +176,7 @@ impl Node {
         self.call(|| unsafe {
             ffi::tailscale_dial(self.sd, network.as_ptr(), addr.as_ptr(), &mut fd)
         })?;
+        close_on_exec(fd);
         Ok(unsafe { UnixStream::from_raw_fd(fd) })
     }
 
@@ -236,6 +238,8 @@ impl Drop for Node {
     }
 }
 
+const LISTENER_CLOSED: &str = "listener closed";
+
 /// A TCP listener on the tailnet. Each accepted connection carries the
 /// peer's tailnet IP, which is what [`Node::whois`] takes.
 pub struct Listener {
@@ -248,9 +252,10 @@ impl Listener {
         let mut conn = -1;
         match unsafe { ffi::tailscale_accept(self.fd, &mut conn) } {
             0 => {}
-            libc::EBADF => return Err(Error("listener closed".into())),
+            libc::EBADF => return Err(Error(LISTENER_CLOSED.into())),
             _ => return Err(Error("accept failed".into())),
         }
+        close_on_exec(conn);
         let stream = unsafe { UnixStream::from_raw_fd(conn) };
         let mut buf = vec![0 as c_char; 64];
         if unsafe { ffi::tailscale_getremoteaddr(self.fd, conn, buf.as_mut_ptr(), buf.len()) } != 0
@@ -305,13 +310,43 @@ impl Listener {
             }
             return Ok(None);
         }
-        self.accept().map(Some).map_err(|e| std::io::Error::other(e.0))
+        // EBADF keeps its errno, so a caller can tell a closed listener (stop) from one record
+        // that failed (accept again).
+        self.accept().map(Some).map_err(|e| {
+            if e.0 == LISTENER_CLOSED {
+                std::io::Error::from_raw_os_error(libc::EBADF)
+            } else {
+                std::io::Error::other(e.0)
+            }
+        })
     }
 }
 
 impl Drop for Listener {
     fn drop(&mut self) {
-        unsafe { libc::close(self.fd) };
+        // libtailscale stops listening once a read on its end of this socketpair sees EOF. A
+        // process forked meanwhile can hold a copy of our end (until its exec, or past it with a
+        // libtailscale that does not set close-on-exec), and close alone sends no EOF while a
+        // copy is open, so tsnet would keep accepting. Shutdown acts on the socket, whatever
+        // copies remain.
+        unsafe {
+            libc::shutdown(self.fd, libc::SHUT_RDWR);
+            libc::close(self.fd);
+        }
+    }
+}
+
+/// Marks an fd from libtailscale close-on-exec. Our libtailscale patch already creates and
+/// receives them that way (`patches/0002-fds-close-on-exec.patch`); this keeps them from
+/// leaking into every process the host spawns if a libtailscale without it is linked
+/// (`LIBTAILSCALE_A`). An inherited copy outlives our close: the socket stays open, so
+/// libtailscale sees no EOF and keeps the listener or connection alive.
+fn close_on_exec(fd: RawFd) {
+    unsafe {
+        let flags = libc::fcntl(fd, libc::F_GETFD);
+        if flags >= 0 && flags & libc::FD_CLOEXEC == 0 {
+            libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC);
+        }
     }
 }
 
@@ -340,6 +375,23 @@ mod tests {
         let error = cstring("private-auth-key\0suffix").unwrap_err().to_string();
         assert_eq!(error, "NUL byte in node configuration");
         assert!(!error.contains("private-auth-key"));
+    }
+
+    /// libtailscale tears its listener down when a read on its end of the socketpair returns
+    /// EOF. A process spawned while the listener is open holds a copy of our end; dropping the
+    /// listener must still end libtailscale's side.
+    #[test]
+    fn dropping_a_listener_ends_libtailscales_side_while_a_child_holds_a_copy() {
+        use std::io::Read;
+        let (ours, mut theirs) = UnixStream::pair().unwrap();
+        let listener = Listener { fd: ours.into_raw_fd() };
+        let inherited = unsafe { libc::dup(listener.fd) };
+        assert!(inherited >= 0, "dup: {}", std::io::Error::last_os_error());
+        drop(listener);
+        theirs.set_nonblocking(true).unwrap();
+        let mut byte = [0_u8; 1];
+        assert_eq!(theirs.read(&mut byte).unwrap(), 0, "libtailscale's side must read EOF");
+        unsafe { libc::close(inherited) };
     }
 
     #[test]

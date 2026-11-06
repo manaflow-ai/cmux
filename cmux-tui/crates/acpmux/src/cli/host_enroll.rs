@@ -11,6 +11,7 @@ use crate::cli::hosts::{self, DAEMON_BIN, Remote, SshRemote};
 use crate::client::Client;
 use crate::harness_health::channel::quote as shell_quote;
 use anyhow::Result;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -37,6 +38,11 @@ pub(crate) struct Plan {
     pub remote_binary: String,
     /// Run `peer-back` (`--reverse`); off by default, it is reported `skip`.
     pub reverse: bool,
+    /// `host enroll` (Add Machine): this Mac lends the machine its GitHub login
+    /// (`github_broker.rs`). `host doctor` never changes what a peer is lent.
+    pub lends_github: bool,
+    /// Only an explicit enroll may record an unknown key during its first reach check.
+    pub accept_new_host_key: bool,
 }
 
 impl Plan {
@@ -47,6 +53,7 @@ impl Plan {
         harnesses: Vec<String>,
         remote_binary: String,
         reverse: bool,
+        accept_new_host_key: bool,
     ) -> Self {
         Self {
             name: name.unwrap_or_else(|| hosts::short_name(&host)),
@@ -55,6 +62,8 @@ impl Plan {
             harnesses,
             remote_binary,
             reverse,
+            lends_github: true,
+            accept_new_host_key,
         }
     }
 }
@@ -70,6 +79,9 @@ const INSTALL_FROM_APP: &str = "Install cmux on {host} from the app (Machines > 
 
 /// The remote user harness folder (what `ProfileSources::current` reads on
 /// a standalone acpmux or a shipped cmux), as a shell assignment.
+/// `--harness local`: every profile in this machine's harness folder (what
+/// Add Machine copies, so a remote chat starts with the agents this Mac has).
+pub(crate) const LOCAL_HARNESSES: &str = "local";
 const REMOTE_HARNESS_DIR: &str = "d=${XDG_CONFIG_HOME:-$HOME/.config}/cmux/harnesses";
 
 /// Set by a caller that stops a run by its process group (the app's Add
@@ -111,9 +123,9 @@ pub(crate) async fn run(client: Arc<Client>, plan: Plan, fix: bool, json_out: bo
         let result = match gate(step, &done) {
             Some(skip) => skip,
             None => match step {
-                Step::Peer => host_peering::peer(&client, &t, fix).await,
+                Step::Peer => host_peering::peer(&client, &t, fix, plan.lends_github).await,
                 Step::PeerBack if !plan.reverse => peer_back_off(),
-                Step::PeerBack => host_peering::peer_back(&t, fix).await,
+                Step::PeerBack => optional(host_peering::peer_back(&t, fix).await),
                 Step::Approvals => {
                     let io = host_peering::Live(Some(&*client));
                     crate::cli::host_approvals::approvals_with(&io, &t, fix).await
@@ -138,13 +150,22 @@ pub(crate) async fn run(client: Arc<Client>, plan: Plan, fix: bool, json_out: bo
         if let Some(step) = report.steps.iter().find(|step| step.state == StepState::Fail) {
             let mut data = step.data.clone().unwrap_or_else(|| json!({}));
             if let Some(reason) = step.reason {
-                data["reason"] = json!(reason);
+                data.set("reason", json!(reason));
             }
             error = error.with_data(data);
         }
         return Err(error.into());
     }
     Ok(())
+}
+
+/// A step the machine works without (`peer-back`: only the host's way back
+/// to this machine): a failure is a warning, so it never fails the add.
+fn optional(mut result: StepResult) -> StepResult {
+    if result.state == StepState::Fail {
+        result.state = StepState::Warn;
+    }
+    result
 }
 
 /// `peer-back` without `--reverse`: two daemons that list each other relay
@@ -197,7 +218,7 @@ fn machine_steps(
         let result = match (step, update, gate(step, &done)) {
             (Step::Update, None, _) => continue,
             (_, _, Some(skip)) => skip,
-            (Step::Reach, ..) => reach(r),
+            (Step::Reach, ..) => reach(r, plan.accept_new_host_key),
             (Step::Install, ..) => install(r, &plan.name, &plan.remote_binary, fix),
             (Step::Daemon, ..) => {
                 let (result, listening) = daemon(r, &plan.name, plan.port, fix);
@@ -301,6 +322,7 @@ enum SshFailure {
     SshOff,
     KeyRejected,
     HostKeyChanged,
+    HostKeyUntrusted,
     Other,
 }
 
@@ -309,8 +331,10 @@ impl SshFailure {
         let s = stderr.to_ascii_lowercase();
         let any = |needles: &[&str]| needles.iter().any(|n| s.contains(n));
         // ssh prints the host key warning before anything else it reports.
-        if any(&["remote host identification has changed", "host key verification failed"]) {
+        if any(&["remote host identification has changed"]) {
             Self::HostKeyChanged
+        } else if any(&["host key verification failed"]) {
+            Self::HostKeyUntrusted
         } else if any(&["connection refused"]) {
             Self::SshOff
         } else if any(&["permission denied", "too many authentication failures"]) {
@@ -336,7 +360,8 @@ impl SshFailure {
             Self::NoRoute => "no route to the host",
             Self::SshOff => "ssh is off (connection refused)",
             Self::KeyRejected => "the ssh key was rejected",
-            Self::HostKeyChanged => "the host key does not match or is not known yet",
+            Self::HostKeyChanged => "the host key has changed",
+            Self::HostKeyUntrusted => "the host key is not trusted",
             Self::Other => "ssh failed",
         }
     }
@@ -356,7 +381,10 @@ impl SshFailure {
                 "Add this machine's public key to ~/.ssh/authorized_keys on {bare} (for example `ssh-copy-id {host}`), then check again."
             ),
             Self::HostKeyChanged => format!(
-                "If {bare} was reinstalled, remove its old key with `ssh-keygen -R {bare}`; then (or if it is new to this machine) run `ssh {host}` once and accept its key."
+                "Verify {bare}'s new fingerprint with its owner before removing the old key with `ssh-keygen -R {bare}` and reconnecting."
+            ),
+            Self::HostKeyUntrusted => format!(
+                "Run `ssh {host}` to inspect the host key. For a new machine, Add Machine or `acpmux machine enroll {host} --accept-new-host-key` records its first key; changed keys are still refused."
             ),
             Self::Other => format!("Run `ssh {host}` in a terminal to see why it fails."),
         }
@@ -373,9 +401,9 @@ fn tailnet_acl_hint(host: &str) -> Option<String> {
     ))
 }
 
-fn reach(r: &dyn Remote) -> StepResult {
+fn reach(r: &dyn Remote, accept_new_host_key: bool) -> StepResult {
     let host = r.host();
-    match r.exec("true", None) {
+    match r.first_contact(accept_new_host_key) {
         Ok(out) if out.ok => {
             StepResult::new(Step::Reach, StepState::Ok, format!("ssh {host} works"))
         }
@@ -409,10 +437,16 @@ fn build_of(line: &str) -> Option<&str> {
 /// whole and a pattern that matched nothing fails `-f`.
 const PROBE_BINS: &str = r#"seen=; for b in "$(command -v acpmux 2>/dev/null)" ~/.local/bin/acpmux /Applications/cmux*.app/Contents/Resources/bin/acpmux ~/.local/bin/cmux-tui ~/.cmux/bin/cmux-tui "$(command -v cmux-tui 2>/dev/null)"; do [ -n "$b" ] && [ -f "$b" ] && [ -x "$b" ] || continue; case "$seen" in *"|$b|"*) continue ;; esac; seen="$seen|$b|"; case "$b" in */acpmux) set -- "$b" ;; *) set -- "$b" acp ;; esac; printf 'bin\t%s\t%s\n' "$b" "$("$@" --version 2>/dev/null | head -n 1)"; printf 'real\t%s\t%s\n' "$b" "$(readlink -f "$b" 2>/dev/null)"; printf 'status\t%s\t%s\n' "$b" "$("$@" --json daemon status 2>/dev/null | tr -d '\n')"; done; printf '\0'; "#;
 
-/// [`PROBE_BINS`], then the remote daemon config.
+/// Whether a Linux host can make the sandbox every session another machine
+/// starts there runs in (`linux_sandbox::bwrap::probe`'s flags): `ok`,
+/// `broken` (installed, but too old or user namespaces are off), `missing`,
+/// or `n/a` off Linux.
+const PROBE_BWRAP: &str = r#"printf 'bwrap\t%s\n' "$(if [ "$(uname -s)" != Linux ]; then echo n/a; elif /usr/bin/bwrap --unshare-user --unshare-net --disable-userns --ro-bind / / true >/dev/null 2>&1; then echo ok; elif [ -x /usr/bin/bwrap ]; then echo broken; else echo missing; fi)"; "#;
+
+/// [`PROBE_BWRAP`], [`PROBE_BINS`], then the remote daemon config.
 fn probe_script() -> String {
     format!(
-        "printf 'uname\\t%s\\n' \"$(uname -sm)\"; {PROBE_BINS}cat {}/config.json 2>/dev/null",
+        "printf 'uname\\t%s\\n' \"$(uname -sm)\"; {PROBE_BWRAP}{PROBE_BINS}cat {}/config.json 2>/dev/null",
         hosts::REMOTE_HOME
     )
 }
@@ -438,6 +472,9 @@ struct Probe {
     /// `~/.local/bin/acpmux` link to that cmux-tui (`host setup`, enroll's
     /// daemon step) is not: its exe is the link's target.
     run_by_cmux_tui: bool,
+    /// [`PROBE_BWRAP`]'s answer on Linux (`ok`, `broken`, `missing`); None
+    /// off Linux or from a host that did not say.
+    bwrap: Option<String>,
     config: String,
 }
 
@@ -477,6 +514,11 @@ fn parse_probe(stdout: &str) -> Probe {
     for line in list.lines() {
         if let Some(uname) = line.strip_prefix("uname\t") {
             probe.uname = uname.trim().to_owned();
+            continue;
+        }
+        if let Some(state) = line.strip_prefix("bwrap\t") {
+            let state = state.trim();
+            probe.bwrap = (!state.is_empty() && state != "n/a").then(|| state.to_owned());
             continue;
         }
         let mut parts = line.splitn(3, '\t');
@@ -699,7 +741,7 @@ pub(super) fn platform_skew(
         .filter(|target| Some(*target) != local_target)
         .map(|target| {
             format!(
-                "Run `acpmux host update {name} --binary-dir DIR` (DIR/acpmux-{target}), or rebuild acpmux on {host} for its OS and architecture (see docs/remote-agents-and-cloud.md)."
+                "Run `acpmux machine update {name} --binary-dir DIR` (DIR/acpmux-{target}), or rebuild acpmux on {host} for its OS and architecture (see docs/remote-agents-and-cloud.md)."
             )
         })
         .unwrap_or_else(|| {
@@ -726,7 +768,7 @@ pub(super) fn platform_skew(
 /// The step for a host whose acpmux is cmux's own: its build is the app's
 /// business, so another build only warns, and nothing is pushed.
 fn app_build(step: Step, host: &str, used: &InUse, ok: &str) -> StepResult {
-    let want = crate::hub::BUILD;
+    let want = crate::hub::build();
     match used.build.as_deref() {
         Some(b) if b == want => StepResult::new(step, StepState::Ok, ok),
         b => StepResult::new(
@@ -753,7 +795,7 @@ fn app_build(step: Step, host: &str, used: &InUse, ok: &str) -> StepResult {
 
 fn install(r: &dyn Remote, name: &str, bin: &str, fix: bool) -> StepResult {
     let host = r.host();
-    let want = crate::hub::BUILD;
+    let want = crate::hub::build();
     let from_app = INSTALL_FROM_APP.replace("{host}", host);
     let probed = match probe(r) {
         Ok(p) => p,
@@ -816,9 +858,9 @@ fn install(r: &dyn Remote, name: &str, bin: &str, fix: bool) -> StepResult {
                 return step;
             }
             return StepResult::new(Step::Install, StepState::Warn, why)
-                .with_fix(format!("Run `acpmux host update {name}`."))
+                .with_fix(format!("Run `acpmux machine update {name}`."))
                 .with_reason("peer_version_skew")
-                .with_try(format!("acpmux host update {name}"));
+                .with_try(format!("acpmux machine update {name}"));
         }
         return fail(
             Step::Install,
@@ -1029,6 +1071,28 @@ fn remote_harness_discovered(r: &dyn Remote, id: &str) -> bool {
         .is_some_and(|profile| profile.get("unavailable").is_none())
 }
 
+/// `ids` with [`LOCAL_HARNESSES`] replaced by the ids of this machine's
+/// profiles (`<id>.toml` in its harness folder), sorted, without repeats.
+fn local_profile_ids(local: &Local, ids: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = ids.iter().filter(|id| *id != LOCAL_HARNESSES).cloned().collect();
+    if let Some(entries) = local.harness_dir.as_deref().and_then(|d| std::fs::read_dir(d).ok()) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("toml") || !path.is_file() {
+                continue;
+            }
+            if let Some(id) = path.file_stem().and_then(|s| s.to_str())
+                && crate::config::profiles::valid_id(id)
+            {
+                out.push(id.to_owned());
+            }
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
 fn harness(
     r: &dyn Remote,
     peer_name: &str,
@@ -1039,6 +1103,20 @@ fn harness(
     if ids.is_empty() {
         return StepResult::new(Step::Harness, StepState::Skip, "no --harness given");
     }
+    let expanded;
+    let ids = if ids.iter().any(|id| id == LOCAL_HARNESSES) {
+        expanded = local_profile_ids(local, ids);
+        if expanded.is_empty() {
+            return StepResult::new(
+                Step::Harness,
+                StepState::Skip,
+                "this machine has no agent profiles to copy",
+            );
+        }
+        &expanded[..]
+    } else {
+        ids
+    };
     let remote_home = match hosts::run(r, "printf %s \"$HOME\"") {
         Ok(h) if h.starts_with('/') => h,
         Ok(h) => {
@@ -1059,7 +1137,7 @@ fn harness(
             .unwrap_or(false);
         if !local_profile && remote_harness_discovered(r, id) {
             parts.push(format!(
-                "{id} discovered on the host (profile copy skipped; verify with `acpmux new --host {peer_name} -m {id} -d`) ",
+                "{id} discovered on the host (profile copy skipped; verify with `acpmux new --machine {peer_name} -m {id} -d`) ",
             ));
             continue;
         }

@@ -6,10 +6,14 @@ use super::*;
 
 #[cfg(unix)]
 mod dev_orphan_exit;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+pub(crate) mod lost_paths;
 
 pub(crate) fn run_headless<F>(
     mux: &Arc<Mux>,
     socket_path: &Path,
+    exit_with: Option<local_owner::ExitWith>,
+    #[cfg(any(target_os = "macos", target_os = "linux"))] reachable: Option<lost_paths::Reachable>,
     remote_runtime_finished: F,
 ) -> anyhow::Result<()>
 where
@@ -20,6 +24,11 @@ where
         "{BIN}: headless, control socket at {}",
         socket_path.display()
     );
+    #[cfg(target_vendor = "apple")]
+    fatal_faults_end_the_owner();
+    // Under `dx serve --hot-patch`, take patches for this process.
+    #[cfg(feature = "hotpatch")]
+    cmux_tui_core::hotpatch::connect();
     // The daemon is ready: apps with an `always` server start off this path.
     #[cfg(unix)]
     cmux_tui_core::server::start_apps_when_ready(mux);
@@ -63,6 +72,25 @@ where
     // running (dev_orphan_exit.rs).
     #[cfg(unix)]
     let orphan_exit = dev_orphan_exit::start_for_owner(mux);
+    // An app session's or its Chief session's owner stops once its app has
+    // left and nothing keeps it (R-LIFECYCLE stage 1, on unless its switch
+    // is 0; owner_keepers.rs). Only an owner that clients reach through its
+    // socket alone, as below.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    let keepers = start_owner_keepers(mux, reachable.is_some());
+    // An owner whose socket or state directory is gone, with no client
+    // connected, stops: nothing can reach it again (lost_paths.rs).
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    let lost_paths = reachable.and_then(|reachable| lost_paths::start(mux, reachable));
+    // `--exit-with-pid`: armed once startup work has begun, so the stop
+    // ends every terminal that work made (a starter already gone stops the
+    // owner at once).
+    // Under a test, the test process when no `--exit-with-pid` names one
+    // (cx-leo45).
+    #[cfg(any(target_vendor = "apple", target_os = "linux"))]
+    local_owner::exit_with(mux, exit_with.or_else(local_owner::test_owner_exit_with));
+    #[cfg(not(any(target_vendor = "apple", target_os = "linux")))]
+    let _ = exit_with;
     let (lock, wake) = &HEADLESS_WAKE;
     let mut generation = lock.lock().unwrap();
     while !(shutdown_requested() || mux.daemon_shutdown_requested() || remote_runtime_finished()) {
@@ -87,7 +115,92 @@ where
     if let Some(orphan_exit) = orphan_exit {
         orphan_exit.stop();
     }
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    if let Some(lost_paths) = lost_paths {
+        lost_paths.stop();
+    }
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    if let Some(keepers) = keepers {
+        keepers.stop();
+    }
     Ok(())
+}
+
+/// Whether `session` is an app's: its session (`cmux-app`, `cmux-app-*`,
+/// BuildIdentity+AppNames.swift) or its Chief session (`cmux-chief-<home
+/// hash>`, ChiefHome.swift; `cmux chief` starts the same one). Both are
+/// started detached by `ensure` and connected to with a role-main hello.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn app_owned_session(session: &str) -> bool {
+    session == "cmux-app" || session.starts_with("cmux-app-") || session.starts_with("cmux-chief-")
+}
+
+/// The keepers watch for an app's owner ([`app_owned_session`]) that
+/// clients reach only through its socket. R-LIFECYCLE stage 1 has no switch
+/// (PERF FLAGS deleted `CMUX_TUI_OWNER_KEEPERS`): the rule always runs.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn start_owner_keepers(
+    mux: &Arc<Mux>,
+    reached_only_by_socket: bool,
+) -> Option<cmux_tui_core::server::OwnerKeepersWatch> {
+    if !(app_owned_session(&mux.session) && reached_only_by_socket) {
+        return None;
+    }
+    let watched = cmux_tui_core::server::watch_owner_keepers(mux, |mux, keepers| {
+        crate::client_log::stderr_log!(
+            "lifecycle",
+            "{BIN}: stopped the owner of session {}: its app left and nothing keeps it \
+             (clients {}, terminals {:?}, browser host {}, app servers {}, Chief brains {}); its \
+             terminals and state stay for the next owner",
+            mux.session,
+            keepers.clients,
+            keepers.terminals,
+            keepers.browser_host,
+            keepers.app_servers,
+            keepers.chief_brains
+        );
+    });
+    match watched {
+        Ok(watch) => Some(watch),
+        Err(error) => {
+            // No watch thread: the owner runs on until something stops it.
+            crate::client_log::stderr_log!(
+                "lifecycle",
+                "{BIN}: cannot start the owner keepers watch: {error}"
+            );
+            None
+        }
+    }
+}
+
+/// macOS: a memory fault ends a headless owner at once, with no handler.
+///
+/// When the volume holding the owner's executable is force-removed (an
+/// ejected disk image, a CI runner's instance-store volume that vanished
+/// under a DerivedData build), every code page that is not resident can no
+/// longer be read. The Rust runtime's SIGBUS/SIGSEGV handler (its
+/// stack-overflow check) is itself code in that executable, so the kernel
+/// cannot run it and the faulting thread retries without end at about 100%
+/// system time. Two orphaned probe owners on aws-m4pro-5 spun at 390-570%
+/// for 13 hours this way. With the default action the kernel ends the
+/// process on the first such fault (with a crash report) and runs none of
+/// its code. Reproduced on Blacksmith macOS: with the handler the owner
+/// spun at about 3.7 s of CPU a second after `hdiutil detach -force`; with
+/// the default it was gone within 200 ms.
+///
+/// The only loss is the runtime's "has overflowed its stack" message: a
+/// stack overflow still ends the owner, as a plain SIGBUS/SIGSEGV crash.
+/// The owner's terminal hosts are separate processes and keep running for
+/// the next owner to adopt. Nothing in the owner handles these signals
+/// otherwise; Linux keeps an unlinked executable's pages readable, so it
+/// is unaffected.
+#[cfg(target_vendor = "apple")]
+fn fatal_faults_end_the_owner() {
+    for signal in [libc::SIGBUS, libc::SIGSEGV] {
+        // SAFETY: restores the default action of a synchronous fault
+        // signal; no handler of this process is replaced but the runtime's.
+        unsafe { libc::signal(signal, libc::SIG_DFL) };
+    }
 }
 
 /// The WebSocket token: `--ws-token`, else `server.ws_token`. A headless

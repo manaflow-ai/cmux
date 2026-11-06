@@ -14,8 +14,8 @@ import os
 /// - The list (``MobileHostPairedDevices``, a 0600 file per user) goes to hostd as its
 ///   `devices` line and, as approval keys, to acpmux (``MobileHostApproverSync``).
 /// - A phone that signs out asks to be forgotten (``MobileHostEvent/unpaired(phoneDeviceID:)``);
-///   Settings > Mobile removes one with ``revokePhone(id:)``; signing out of
-///   this Mac forgets them all.
+///   Settings > Mobile removes one with ``revokePhone(id:)``; the person's own sign-out
+///   of this Mac forgets them all (``signOutStarted()``), a session that ends by itself does not.
 extension IPhoneHostService {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.iphone.pairing")
     /// The pairing dialog: only the user answers it (a phone it admits reaches the
@@ -24,43 +24,42 @@ extension IPhoneHostService {
     static let allowButton = "allow"
     static let denyButton = "deny"
 
-    private var pairedFile: MobileHostPairedDevicesFile? {
-        dependencies.map {
-            MobileHostPairedDevicesFile(
-                directory: $0.stateDirectory,
-                seal: MobileHostKeychainPairingSeal(bundleID: $0.stateDirectory.deletingLastPathComponent().lastPathComponent))
-        }
-    }
-
-    /// Loads the list of the signed-in user; a sign-out forgets that user's phones. The list is
+    /// Loads the list of the signed-in user (none while signed out; the stored list stays). The list is
     /// read off the main actor (its seal is a Keychain item), after every save already queued;
     /// until it is in, no phone is trusted and no pairing is decided (each needs `paired`).
+    /// The store's one list file for `directory`, wired to the last quit's record and watched by the quit deadline.
+    func configurePairedFile(_ directory: URL) {
+        let record = pairedQuitRecord
+        let file = pairedStore.configure(directory: directory, lastQuitCutOff: { record?.lastQuitCutOffPairedPhones() ?? false },
+                                         cutOffSettled: { record?.pairedCutOffSettled() })
+        guard pairedFile !== file else { return }
+        pairedFile = file
+        pairedQuitWatch.watch(file)
+    }
+
     func loadPaired(signedOut: Bool) {
-        guard let file = pairedFile else { return }
-        // A sign-out forgets the phones before anything else, even while the list is still read.
-        if signedOut, let previous = paired?.userID ?? pairedLoad.userID {
-            file.saveInBackground(MobileHostPairedDevices(userID: previous))
-        }
-        if paired?.userID != account?.userID { resetPrompts() }
-        paired = nil
-        let read = pairedLoad.begin(userID: account?.userID)
+        if let directory = dependencies?.stateDirectory { configurePairedFile(directory) }
+        if pairedStore.current?.userID != account?.userID { resetPrompts() }
+        pairedStore.select(userID: account?.userID)
+        paired = pairedStore.current
+        // task-owner: one queued read; generation checks discard a superseded account
+        Task { [pairedStore] in await pairedStore.reload() }
         if approverSync == nil, let environment = dependencies?.acpmuxEnvironment {
             approverSync = makeApproverSync(environment)
         }
         pushPaired()
-        guard let userID = account?.userID else { return }
-        // task-owner: one read per account change; its answer is dropped once a newer read began
-        Task { [weak self] in
-            let list = await file.loadInBackground(userID: userID)
-            guard let self, let done = self.pairedLoad.finish(read, userID: userID, list: list) else { return }
-            if done.forgot {
-                // A phone signed out or was removed while the list was read.
-                self.savePaired(done.list)
-            } else {
-                self.paired = done.list
-                self.pushPaired()
-            }
-        }
+    }
+
+    /// The person signs out of this Mac (``CloudService/willSignOut``, while the account is still
+    /// selected): its phones are forgotten, so each asks again after a sign-in. A session that ends
+    /// by itself (a refused refresh token, a Keychain that would not hand back the tokens) keeps
+    /// them: signing in again must not ask the person to allow every phone again.
+    public func signOutStarted() {
+        pairedStore.forgetForSignOut()
+        // A prompt still open would allow its phone after the forget.
+        resetPrompts()
+        paired = nil
+        pushPaired()
     }
 
     /// Settings > Mobile: forget a phone. Its live links end now, its next link asks
@@ -69,20 +68,10 @@ extension IPhoneHostService {
         prompts.forget(id: id)
         showPairDialog()
         if prompts.pending.isEmpty { quietAttention() }
+        pairedStore.forget(id: id)
         let supervisor = supervisor
         // task-owner: one hop to the supervisor actor; dropping a phone with no link is a no-op
         Task { await supervisor.drop(phoneDeviceIDs: [id]) }
-        guard var list = paired else {
-            // The list is still being read: the phone is removed from it once it is in, and the
-            // stored list stops counting now (right after the read, on the save queue).
-            if pairedLoad.userID != nil {
-                pairedLoad.forget(id)
-                pairedFile?.withdrawTrust()
-            }
-            return
-        }
-        list.remove(id)
-        savePaired(list)
     }
 
     func pairingEvent(_ event: MobileHostEvent) {
@@ -99,7 +88,7 @@ extension IPhoneHostService {
 
     private func ask(_ request: MobileHostPairRequest) {
         // A request hostd sent before connections were turned off asks nothing.
-        guard allowed, let list = paired else { return }
+        guard allowed, let list = pairedStore.current else { return }
         switch list.decision(for: request) {
         case .trusted, .denied:
             // hostd may hold an older list: send the current one again.
@@ -110,23 +99,22 @@ extension IPhoneHostService {
         }
         // Test-only (DEBUG builds; nil in Release): a tagged rig instance's seeded phone
         // pairs without the person-only prompt (IPhonePairingSeed).
-        if let seed = dependencies?.pairingSeed, seed.trusts(request), var trusted = paired, trusted.userID == account?.userID {
+        if let seed = dependencies?.pairingSeed, seed.trusts(request), pairedStore.current?.userID == account?.userID {
             Self.logger.info("phone \(request.phoneDeviceID.prefix(8), privacy: .public) paired from the test seed")
-            trusted.approve(request, at: Date())
-            savePaired(trusted)
+            savePaired { $0.approve(request, at: Date()) }
             return
         }
         // This Mac's pairing code: the live pre-approval, minted for this device id, allows the phone
         // once, in place of the person's Allow. hostd served this phone only because the service
         // stamped its dial with the signed-in user, and the list is that user's.
-        if !removed, var trusted = paired,
+        if !removed, let trusted = pairedStore.current,
            Self.redeems(request, tokens: &pairTokens, macDeviceID: state.deviceID, pairedUserID: trusted.userID,
                         accountUserID: account?.userID) {
             Self.logger.info("phone \(request.phoneDeviceID.prefix(8), privacy: .public) paired from this Mac's pairing code")
-            var allowed = request
-            allowed.pairToken = nil
-            trusted.approve(allowed, at: Date())
-            savePaired(trusted)
+            var withoutToken = request
+            withoutToken.pairToken = nil
+            let allowed = withoutToken
+            savePaired { $0.approve(allowed, at: Date()) }
             // An earlier request from this phone (before it scanned) is answered: its prompt closes,
             // so a stale Allow cannot overwrite the keys just approved.
             prompts.forget(id: request.phoneDeviceID)
@@ -168,11 +156,14 @@ extension IPhoneHostService {
             return
         }
         let name = Self.displayName(request)
-        var lines = [IPhoneHostStrings.pairBody(account?.email ?? account?.userID ?? "")]
+        let who = account?.email ?? account?.userID ?? ""
+        var lines = [request.isMachine ? IPhoneHostStrings.machinePairBody(who) : IPhoneHostStrings.pairBody(who)]
         if let registered = request.registeredAt { lines.append(IPhoneHostStrings.deviceRegistered(registered)) }
-        lines.append(IPhoneHostStrings.pairKey(MobileHostPairedDevices.fingerprint(request.approvalKey)))
+        // A machine has no approval key: its identity key is the one it proves at every link.
+        let key = request.isMachine ? request.identityKey : request.approvalKey
+        lines.append(IPhoneHostStrings.pairKey(MobileHostPairedDevices.fingerprint(key)))
         let spec = CmuxDialogSpec(
-            title: IPhoneHostStrings.pairTitle(name), lines: lines,
+            title: IPhoneHostStrings.pairTitle(name, key: request.shortFingerprint), lines: lines,
             buttons: [CmuxDialogButton(id: Self.denyButton, title: IPhoneHostStrings.pairDeny, role: .cancel),
                       CmuxDialogButton(id: Self.allowButton, title: IPhoneHostStrings.pairAllow, role: .default)],
             identifier: Self.pairDialogIdentifier)
@@ -212,9 +203,8 @@ extension IPhoneHostService {
         prompts.answer(id: request.phoneDeviceID, allowed: allow, at: Date())
         if prompts.pending.isEmpty { quietAttention() }
         Self.logger.info("phone \(request.phoneDeviceID.prefix(8), privacy: .public) \(allow ? "allowed" : "denied", privacy: .public)")
-        if var list = paired, list.userID == account?.userID {
+        savePaired { list in
             if allow { list.approve(request, at: Date()) } else { list.deny(request) }
-            savePaired(list)
         }
         showPairDialog()
     }
@@ -274,11 +264,13 @@ extension IPhoneHostService {
 
     /// Every save (a phone added, removed or re-keyed) makes the list it replaces stop counting
     /// (``MobileHostPairedDevicesFile/save(_:)``).
-    private func savePaired(_ list: MobileHostPairedDevices) {
-        paired = list
-        // Off the main actor, in order (the seal is a Keychain item); a failure is logged there.
-        pairedFile?.saveInBackground(list)
-        pushPaired()
+    private func savePaired(_ edit: @escaping @Sendable (inout MobileHostPairedDevices) -> Void) {
+        guard let user = account?.userID else { return }
+        let logger = Self.logger
+        // Queued in this turn, so a removal right after it (Settings > Mobile) still wins.
+        pairedStore.submit(for: user, generation: pairedStore.generation, edit) { error in
+            if let error { logger.error("paired phones not saved: \(String(describing: error), privacy: .public)") }
+        }
     }
 
     /// The approver sync, which also hands hostd each phone's own acpmux credential.
@@ -293,8 +285,8 @@ extension IPhoneHostService {
     }
 
     /// hostd's `devices` line and acpmux's approvers follow the list.
-    private func pushPaired() {
-        let list = paired ?? MobileHostPairedDevices(userID: "")
+    func pushPaired() {
+        let list = pairedStore.current ?? MobileHostPairedDevices(userID: "")
         // At once: the next hostd start or restart gets this list, never an older one.
         supervisor.setNewestDevices(list)
         guard let directory = dependencies?.stateDirectory,
@@ -307,8 +299,8 @@ extension IPhoneHostService {
     /// setting); every other phone's record is revoked. Until the account's list is read (or
     /// connections are off), none gets one and none is revoked for being unlisted.
     func pushListedPhones() {
-        let paired = paired ?? MobileHostPairedDevices(userID: "")
-        approverSync?.updatePhones(paired: Set(paired.devices.map(\.id)),
+        let paired = pairedStore.current ?? MobileHostPairedDevices(userID: "")
+        approverSync?.updatePhones(paired: Set(paired.hostdDevices.map(\.id)),
                                    listed: phonesKnown ? paired.listed(in: knownPhones) : nil)
     }
 }

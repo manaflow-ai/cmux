@@ -396,6 +396,7 @@
    "params": {
     "cwd": 1,
     "mcpServers": 1,
+    "additionalDirectories": 1,
     "_meta": {
      "acpmux": {
       "harness": 1,
@@ -532,7 +533,8 @@
    "method": "_acpmux/sessions",
    "params": {
     "limit": 1,
-    "cursor": 1
+    "cursor": 1,
+    "usage": 1
    }
   },
   "mode_fields": null,
@@ -565,7 +567,8 @@
     "beforeSeq": 1,
     "limit": 1,
     "maxBytes": 1,
-    "kinds": 1
+    "kinds": 1,
+    "promptIndex": 1
    }
   },
   "mode_fields": null,
@@ -870,7 +873,8 @@
    "method": "acp.session.fork",
    "params": {
     "sessionId": 1,
-    "throughSeq": 1
+    "throughSeq": 1,
+    "live": true
    }
   },
   "mode_fields": null,
@@ -1171,7 +1175,8 @@
    "params": {
     "sessionId": 1,
     "question": 1,
-    "model": 1
+    "model": 1,
+    "inline": true
    }
   },
   "mode_fields": null,
@@ -1890,6 +1895,143 @@
       "model": "m"
      }
     }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "workflow transcript page accepts only its bounded cursors",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/subagent_transcript",
+   "params": {
+    "sessionId": "s",
+    "runId": "wf_run",
+    "agentId": "agent",
+    "before": 3,
+    "after": 7,
+    "limit": 25
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "workflow transcript never accepts control metadata",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/subagent_transcript",
+   "params": {
+    "sessionId": "s",
+    "runId": "wf_run",
+    "agentId": "agent",
+    "_meta": {
+     "acpmux": {
+      "via": "web"
+     }
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "workflow transcript rejects an unbounded byte parameter",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/subagent_transcript",
+   "params": {
+    "sessionId": "s",
+    "runId": "wf_run",
+    "agentId": "agent",
+    "maxBytes": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "an older native page names only its chat and marked cursor",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/native_history",
+   "params": {
+    "sessionId": "s",
+    "before": 4096,
+    "mark": "transcript-boundary-mark"
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "an older native page never names a file",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/native_history",
+   "params": {
+    "sessionId": "s",
+    "before": 4096,
+    "file": "/etc/passwd"
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/peers every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/peers",
+   "params": {}
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/peers refuses any param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/peers",
+   "params": {
+    "peer": "other"
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "agent_hold known params pass",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/agent_hold",
+   "params": {
+    "sessionId": "a",
+    "held": true
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "agent_hold unknown param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/agent_hold",
+   "params": {
+    "sessionId": "a",
+    "held": true,
+    "peerSessionId": "b"
    }
   },
   "mode_fields": null,

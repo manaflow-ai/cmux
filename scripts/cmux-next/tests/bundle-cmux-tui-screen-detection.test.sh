@@ -54,19 +54,21 @@ bundle "$TMP/build/one/cmux-tui" tree
 bundle "$TMP/build/one/cmux-tui" pin
 [[ ! -e "$bin/cmux-agent-screen-detection" ]] || fail "pin mode bundled bin/cmux-agent-screen-detection"
 
-# Pin mode with no cmux-tui source clears every output the phase owns (#24979):
-# a kept bin/cmux could pair with companions from another tree, and a detector a
-# dev build left there must not run from a Release app.
+# Deferred mode (the job installs the client after the build) clears every
+# output the phase owns (#24979): a kept bin/cmux could pair with companions
+# from another tree, and a detector a dev build left there must not run from a
+# Release app. Pin mode without its pin fails and clears them the same way
+# (bundle-cmux-tui-pin-no-fallback.test.sh).
 bundle "$TMP/build/one/cmux-tui" tree
 [[ -e "$bin/cmux-agent-screen-detection" ]] || fail "setup: tree mode did not bundle the detector"
-mkdir -p "$TMP/no-src" "$TMP/empty-cache"
+mkdir -p "$TMP/no-src"
 env -u CMUX_NEXT_TUI_BIN -u CMUX_TUI_CLIENT_LOCAL -u CMUX_NEXT_AGENT_SCREEN_DETECTION_BIN \
   TARGET_BUILD_DIR="$TMP/app" UNLOCALIZED_RESOURCES_FOLDER_PATH=Contents/Resources \
-  SRCROOT="$TMP/no-src" CONFIGURATION=Release CMUX_NEXT_TUI_MODE=pin CMUX_TUI_CLIENT_CACHE="$TMP/empty-cache" \
-  bash "$ROOT/scripts/cmux-next/bundle-cmux-tui.sh" >"$TMP/out" 2>&1 || { cat "$TMP/out" >&2; fail "no-source run failed"; }
-grep -q 'no cmux-tui binary to bundle' "$TMP/out" || { cat "$TMP/out" >&2; fail "setup: the no-source path did not run"; }
-[[ ! -e "$bin/cmux" ]] || fail "the no-source exit kept a stale bin/cmux"
-[[ ! -e "$bin/cmux-agent-screen-detection" ]] || fail "the no-source exit kept a stale bin/cmux-agent-screen-detection"
+  SRCROOT="$TMP/no-src" CONFIGURATION=Release CMUX_NEXT_TUI_MODE=deferred \
+  bash "$ROOT/scripts/cmux-next/bundle-cmux-tui.sh" >"$TMP/out" 2>&1 || { cat "$TMP/out" >&2; fail "deferred run failed"; }
+grep -q 'CMUX_NEXT_TUI_MODE=deferred: bundled no cmux-tui' "$TMP/out" || { cat "$TMP/out" >&2; fail "setup: the deferred path did not run"; }
+[[ ! -e "$bin/cmux" ]] || fail "the deferred exit kept a stale bin/cmux"
+[[ ! -e "$bin/cmux-agent-screen-detection" ]] || fail "the deferred exit kept a stale bin/cmux-agent-screen-detection"
 
 # Publication stages the detector per macOS target with
 # scripts/ci/stage-agent-detector.sh (cmux-tui-build-package.yml, macos-cross.sh

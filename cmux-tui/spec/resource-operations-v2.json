@@ -7361,6 +7361,41 @@
       },
       "extra": false
     },
+    "ClosedAgentSessionRecord": {
+      "kind": "object",
+      "fields": {
+        "session": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "description": "The bound acpmux session id; null while an agent tab has not bound one."
+        },
+        "harness": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            }
+          },
+          "description": "The harness type that owns the session, such as claude or codex."
+        }
+      },
+      "extra": false,
+      "constraints": [
+        "The public record intentionally omits the session host and install identity."
+      ]
+    },
     "ClosedTabRecord": {
       "kind": "object",
       "fields": {
@@ -7370,9 +7405,11 @@
             "kind": "enum",
             "values": [
               "terminal",
-              "browser"
+              "browser",
+              "conversation"
             ]
-          }
+          },
+          "description": "An agent chat reads as conversation under closed-conversation-tabs-v1; older connections retain browser and safe agent_session metadata."
         },
         "name": {
           "required": true,
@@ -7420,6 +7457,14 @@
             "kind": "primitive",
             "name": "boolean"
           }
+        },
+        "agent_session": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "ClosedAgentSessionRecord"
+          },
+          "description": "The safe public identity of a closed agent chat; host/install metadata is omitted."
         },
         "page": {
           "required": false,
@@ -7872,6 +7917,17 @@
             }
           },
           "description": "The `closed.list` groups this call stored, oldest first; `closed.reopen` of each restores exactly what it closed. Absent only on a replay of a call committed before the field existed."
+        },
+        "gone_ids": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "With `layout-bulk-bare-v1`, a `selection`'s ids that were already gone when the call came: closed, as asked, never a refusal. Absent from an older daemon."
         }
       },
       "extra": false
@@ -8939,7 +8995,8 @@
         "unstaged",
         "staged",
         "committed",
-        "branch"
+        "branch",
+        "commits"
       ]
     },
     "GitChangeStatus": {
@@ -9030,6 +9087,56 @@
       },
       "extra": false
     },
+    "GitPatchPage": {
+      "kind": "object",
+      "fields": {
+        "offset": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "next_offset": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "total_bytes": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 64,
+            "max_length": 64
+          }
+        },
+        "data_base64": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "complete": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        }
+      },
+      "extra": false
+    },
     "GitDiffResult": {
       "kind": "object",
       "fields": {
@@ -9107,7 +9214,7 @@
             "kind": "primitive",
             "name": "uint32"
           },
-          "description": "total_files minus the files returned."
+          "description": "Files after this page; continue with next_path as after_path."
         },
         "untracked_skipped": {
           "required": false,
@@ -9116,6 +9223,23 @@
             "name": "uint32"
           },
           "description": "Untracked files left out to keep the read bounded."
+        },
+        "patch_page": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "GitPatchPage"
+          },
+          "description": "With patch_offset: a bounded page of the selected file's raw unified patch, with a digest of the complete output. Join decoded bytes only while revision remains identical."
+        },
+        "next_path": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "If files remain after this page, pass this path as after_path to read the next page."
         }
       },
       "extra": false
@@ -10029,7 +10153,7 @@
             "kind": "primitive",
             "name": "uint32"
           },
-          "description": "total_files minus the files returned."
+          "description": "Files after this page; continue with next_path as after_path."
         },
         "untracked_skipped": {
           "required": false,
@@ -10038,6 +10162,23 @@
             "name": "uint32"
           },
           "description": "Untracked files left out to keep the read bounded."
+        },
+        "patch_page": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "GitPatchPage"
+          },
+          "description": "With patch_offset: a bounded page of the selected file's raw unified patch, with a digest of the complete output. Join decoded bytes only while revision remains identical."
+        },
+        "next_path": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "If files remain after this page, pass this path as after_path to read the next page."
         }
       },
       "extra": false
@@ -11474,10 +11615,12 @@
             "values": [
               "terminal_tab",
               "browser_tab",
+              "conversation_tab",
               "screen",
               "workspace"
             ]
-          }
+          },
+          "description": "conversation_tab requires closed-conversation-tabs-v1; older connections read browser_tab."
         },
         "cwd": {
           "required": false,
@@ -12930,6 +13073,22 @@
         "Committed items (message, message_updated, read_cursor, conversation) carry the conversation rev they produced; typing and draft items are ephemeral, carry no rev and are never replayed."
       ]
     },
+    "ChiefContinueResult": {
+      "kind": "object",
+      "fields": {
+        "continued": {
+          "required": true,
+          "type": {"kind": "primitive", "name": "boolean"},
+          "description": "true when the last owner-stopped messages were reopened and a turn started."
+        },
+        "reason": {
+          "required": false,
+          "type": {"kind": "primitive", "name": "string"},
+          "description": "busy when a turn, queued message or pending resume prevents Continue."
+        }
+      },
+      "extra": false
+    },
     "ChiefStopResult": {
       "kind": "object",
       "fields": {
@@ -12981,6 +13140,22 @@
             }
           },
           "description": "For restart: one line per subagent that could not go on."
+        }
+      },
+      "extra": false
+    },
+    "ChiefRetryResult": {
+      "kind": "object",
+      "fields": {
+        "retried": {
+          "required": true,
+          "type": {"kind": "primitive", "name": "boolean"},
+          "description": "true when the named owner message was reopened and a retry turn started."
+        },
+        "reason": {
+          "required": false,
+          "type": {"kind": "primitive", "name": "string"},
+          "description": "busy or invalid_message when Retry cannot start."
         }
       },
       "extra": false
@@ -13361,6 +13536,119 @@
             "name": "uint32"
           },
           "description": "Members still in the stash; 0 means the stash is gone."
+        }
+      },
+      "extra": false
+    },
+    "ConductorImportFound": {
+      "kind": "object",
+      "fields": {
+        "database": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Conductor's conductor.db, when it is there."
+        },
+        "workspaces": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "~/conductor/workspaces, where Conductor makes its worktrees, when it is there."
+        },
+        "app": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Conductor.app in /Applications or ~/Applications, when it is there."
+        }
+      },
+      "extra": false
+    },
+    "ConductorImportPlanResult": {
+      "kind": "object",
+      "fields": {
+        "found": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "ConductorImportFound"
+          }
+        },
+        "plan": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "JsonValue"
+            }
+          },
+          "description": "The dry run (the cmux-conductor-import crate's Plan: source, cloud dates, projects with their workspaces and dispositions, cleanup, warnings); null when nothing is found or error is set."
+        },
+        "error": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "Why there is no plan: conductor.db could not be read, or the stored ledger is a newer cmux's or unreadable."
+        }
+      },
+      "extra": false
+    },
+    "ConductorImportRecordResult": {
+      "kind": "object",
+      "fields": {
+        "workspace": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        },
+        "stage": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "pending",
+              "done"
+            ]
+          }
+        },
+        "cmux_workspace": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "runs": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Completed runs, after this record."
         }
       },
       "extra": false
@@ -16468,6 +16756,30 @@
         "validation.invalid"
       ]
     },
+    "chief.continue": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": ["machine"],
+      "params": {
+        "selectors": {"machine": "required", "session": "required"},
+        "fields": {
+          "chief": {
+            "required": false,
+            "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 70},
+            "description": "The Chief whose brain receives the owner action; absent selects the default Chief."
+          }
+        },
+        "extra": false
+      },
+      "result": {"kind": "apply", "name": "MutationResult", "arguments": [{"kind": "ref", "name": "ChiefContinueResult"}]},
+      "errors": ["idempotency.conflict", "operation.failed", "origin.forbidden", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"],
+      "constraints": [
+        "Owner only (risk: owner). Only the owner's trusted connection may call it; agent-bound, relayed, WebSocket and page connections are refused before forwarding.",
+        "The daemon forwards one line to the selected Chief brain's tools socket. A missing brain is unavailable and never starts for this operation.",
+        "Reopens the messages closed by the owner's last Stop and starts one Continue turn; with nothing stopped it returns continued false and starts nothing. Busy returns continued false with reason busy."
+      ]
+    },
     "chief.engine.get": {
       "class": "read",
       "idempotency": "forbidden",
@@ -17512,6 +17824,35 @@
         "Every committed state is kept as a revision (chief.profile.history, the newest 100 per Chief) and can be restored with chief.profile.undo."
       ]
     },
+    "chief.retry": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": ["machine"],
+      "params": {
+        "selectors": {"machine": "required", "session": "required"},
+        "fields": {
+          "chief": {
+            "required": false,
+            "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 70},
+            "description": "The Chief whose brain receives the owner action; absent selects the default Chief."
+          },
+          "message": {
+            "required": true,
+            "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 128},
+            "description": "The person's message id in the selected Chief conversation to answer again."
+          }
+        },
+        "extra": false
+      },
+      "result": {"kind": "apply", "name": "MutationResult", "arguments": [{"kind": "ref", "name": "ChiefRetryResult"}]},
+      "errors": ["idempotency.conflict", "operation.failed", "origin.forbidden", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"],
+      "constraints": [
+        "Owner only (risk: owner). Only the owner's trusted connection may call it; agent-bound, relayed, WebSocket and page connections are refused before forwarding.",
+        "The daemon forwards one line to the selected Chief brain's tools socket. A missing brain is unavailable and never starts for this operation.",
+        "Reopens and re-answers the named person message using its current contents. Busy returns retried false with reason busy; an unknown, retracted, non-owner or other-conversation message returns retried false with reason invalid_message."
+      ]
+    },
     "chief.stop": {
       "class": "mutation",
       "idempotency": "required",
@@ -18108,6 +18449,14 @@
             },
             "description": "Reopen the member of the newest group that holds this tab (a tab member, or the screen or workspace member that contains it), under the SAME tab id, so a `cmux://tab/` link to it keeps working. Excludes `closed` and `members`. `resource.not_found` when no group holds it: the tab is open, or its record was deleted."
           },
+          "workspace": {
+            "required": false,
+            "type": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            },
+            "description": "Reopen the workspace member of the newest group that recorded this closed workspace, so a `cmux://workspace/` link to a closed workspace opens it again (as a new workspace). Excludes `closed`, `members` and `tab`. `resource.not_found` when no group holds it: the workspace is open, it closed before its id was recorded, or its record was deleted."
+          },
           "fallback_pane": {
             "required": false,
             "type": {
@@ -18275,6 +18624,117 @@
         "The layout document of the resulting ScreenSnapshot does not carry dock flags; the JSON-lines Screen.columns[].dock does."
       ]
     },
+    "conductor_import.plan": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false,
+        "constraints": [
+          "Reads Conductor under the daemon's HOME, never a path from the caller: conductor.db read-only, or the workspaces folder alone when the database is gone. git worktree list confirms each workspace adopted in place.",
+          "The plan reads the stored ledger and the workspaces open now: a workspace recorded done stays already-imported while its cmux workspace is open.",
+          "A ledger from a newer cmux gives plan null and error \"ledger from a newer cmux\"; it is left as it is."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "ConductorImportPlanResult"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "conductor_import.record": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "workspace": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The Conductor workspace id (a plan workspace's id)."
+          },
+          "stage": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "pending",
+                "done"
+              ]
+            },
+            "description": "pending before the app makes the workspace, done once it is made."
+          },
+          "cmux_workspace": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The cmux workspace made for it. Required with done; with pending it names a half-made one so a cut-off run's is closed first."
+          },
+          "run_completed": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "true counts one completed run."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "The ledger is one row of the personal state store; a newer cmux's or an unreadable ledger is refused with validation.invalid and not written over."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ConductorImportRecordResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
     "conversation.draft": {
       "class": "mutation",
       "idempotency": "required",
@@ -18339,8 +18799,7 @@
             "required": true,
             "type": {
               "kind": "primitive",
-              "name": "string",
-              "max_length": 65536
+              "name": "string"
             }
           },
           "fresh": {
@@ -18349,7 +18808,7 @@
               "kind": "primitive",
               "name": "boolean"
             },
-            "description": "true: text is the whole segment so far (or its last 64 KiB with truncated) and replaces it; false: text is a delta appended to the segment."
+            "description": "true: text is the whole segment so far and replaces it; false: text is a delta appended to the segment."
           },
           "done": {
             "required": true,
@@ -19416,6 +19875,33 @@
             },
             "default": 500,
             "description": "Files returned, in path order; the rest are counted in files_omitted."
+          },
+          "after_path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "Read files strictly after this path in path order; the previous reply's next_path continues a large file listing."
+          },
+          "patch_offset": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "A raw patch byte offset. Requires include_patch and exactly one changed text file in paths; returns patch_page instead of clipped file.patch. Start at 0."
+          },
+          "patch_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 64,
+              "max_length": 64
+            },
+            "description": "The first patch_page revision; required when patch_offset is greater than zero. Continuations read that immutable capture, even if the working file changes. An expired capture refuses with patch_expired; restart at zero. A first-page revision mismatch refuses with repository_changed."
           }
         },
         "extra": false
@@ -19925,7 +20411,27 @@
               "kind": "ref",
               "name": "GitDiffScope"
             },
-            "description": "uncommitted: the working tree against HEAD, with untracked files. unstaged: the working tree against the index, with untracked files. staged: the index against HEAD. committed: HEAD against its first parent. branch: the working tree against the merge base with the base branch, with untracked files."
+            "description": "uncommitted: the working tree against HEAD, with untracked files. unstaged: the working tree against the index, with untracked files. staged: the index against HEAD. committed: HEAD against its first parent. branch: the working tree against the merge base with the base branch, with untracked files. commits: head against its merge base with base (a pull request's change), both full commit ids already in the repository; nothing is fetched, and a missing one refuses with commit_missing."
+          },
+          "base": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 40,
+              "max_length": 64
+            },
+            "description": "The commits scope's base: the full commit id of the branch the change goes into. Required with commits, ignored otherwise."
+          },
+          "head": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 40,
+              "max_length": 64
+            },
+            "description": "The commits scope's head: the full commit id of the change. Required with commits, ignored otherwise."
           },
           "paths": {
             "required": false,
@@ -19982,6 +20488,33 @@
             },
             "default": 500,
             "description": "Files returned, in path order; the rest are counted in files_omitted."
+          },
+          "after_path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "Read files strictly after this path in path order; the previous reply's next_path continues a large file listing."
+          },
+          "patch_offset": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "A raw patch byte offset. Requires include_patch and exactly one changed text file in paths; returns patch_page instead of clipped file.patch. Start at 0."
+          },
+          "patch_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 64,
+              "max_length": 64
+            },
+            "description": "The first patch_page revision; required when patch_offset is greater than zero. Continuations read that immutable capture, even if the working file changes. An expired capture refuses with patch_expired; restart at zero. A first-page revision mismatch refuses with repository_changed."
           }
         },
         "extra": false
@@ -21855,7 +22388,7 @@
               "kind": "resource_id",
               "resource": "terminal"
             },
-            "description": "Clear only this terminal's notifications. Omit terminal_id and workspace_id to clear every retained notification in the session."
+            "description": "Clear only this terminal's notifications. Omit terminal_id, workspace_id and notification_id to clear every retained notification in the session."
           },
           "workspace_id": {
             "required": false,
@@ -21864,6 +22397,14 @@
               "resource": "workspace"
             },
             "description": "Clear only this workspace's notifications: its terminal-less rows (cmux notify --workspace) and those of every terminal and tab it shows. Not with terminal_id."
+          },
+          "notification_id": {
+            "required": false,
+            "type": {
+              "kind": "resource_id",
+              "resource": "notification"
+            },
+            "description": "Clear only this one notification (a notification.list row id). Not with terminal_id or workspace_id."
           },
           "expected_revision": {
             "required": false,
@@ -29787,7 +30328,17 @@
                 "max_length": 200
               }
             },
-            "description": "tab-attention-v1: an agent needs the person to act in this tab (confirm, log in, approve, pick). The reason is one line the person reads, at most 200 bytes of UTF-8; null clears the mark. Shown as the tab's extra.attention {reason, at_ms} (present only while marked) on every client, which draw it as needs-you. It never moves focus. Viewing the tab keeps it; the agent's clear, a browser tab's navigation to another page, or the tab's close clears it."
+            "description": "tab-attention-v1: an agent needs the person to act in this tab (confirm, log in, approve, pick). The reason is one line the person reads, at most 200 bytes of UTF-8; null clears the mark. Shown as the tab's extra.attention {reason, at_ms, request_id} (present only while marked) on every client, which draw it as needs-you. It never moves focus. Viewing the tab keeps it; the agent's clear, a browser tab's navigation to another page, or the tab's close clears it."
+          },
+          "attention_request_id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 32,
+              "max_length": 32
+            },
+            "description": "tab-attention-request-id-v1: with attention:null, clear only the mark whose extra.attention.request_id equals this opaque 32-byte lowercase hexadecimal identity. A stale identity is a successful no-op and returns the current tab. Requires attention:null; never use at_ms as identity or fall back to an unconditional clear when capability or identity is absent."
           },
           "expected_revision": {
             "required": false,
@@ -32234,6 +32785,18 @@
             },
             "description": "Make the new workspace the focused one. Default false: the focused workspace stays."
           },
+          "placement": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "top",
+                "after_current",
+                "bottom"
+              ]
+            },
+            "description": "Where the new workspace goes in the sidebar order, for this create: top (first, below Home), after_current or bottom. Default: the workspaces.newPlacement setting."
+          },
           "cwd": {
             "required": false,
             "type": {
@@ -33495,6 +34058,14 @@
               "name": "uint32"
             },
             "description": "Position among all groups; defaults to the end."
+          },
+          "reuse": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Answer the room's first group of this name (outer spaces trimmed, case kept) instead of making another; made when none has it."
           },
           "expected_revision": {
             "required": false,

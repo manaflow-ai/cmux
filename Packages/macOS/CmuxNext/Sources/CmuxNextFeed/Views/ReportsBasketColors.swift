@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextDesign
 
-/// The reports basket's colors as AppKit values, resolved with the panel's other colors
+/// The Feed's AppKit colors (the reports basket and the list rows), resolved with the panel's other colors
 /// (``FeedColors/resolved(background:)``) inside the host's theme scope. Until a host resolves,
 /// the app theme's (`ThemeTokens.unresolved`), never macOS's grays.
 struct ReportsBasketColors: Equatable {
@@ -12,6 +12,8 @@ struct ReportsBasketColors: Equatable {
     var selection = ThemeTokens.unresolved.selectionFill.nsColor
     var separator = ThemeTokens.unresolved.separator.nsColor
     var danger = ThemeTokens.unresolved.danger.nsColor
+    var hover = ThemeTokens.unresolved.hoverFill.nsColor
+    var attention = ThemeTokens.unresolved.attention.nsColor
     /// Draw hairlines at all (`appearance.borders`).
     var borders = true
 
@@ -24,7 +26,8 @@ struct ReportsBasketColors: Equatable {
             background: fixed(background), primary: fixed(Palette.textPrimary),
             secondary: fixed(Palette.textSecondary), tertiary: fixed(Palette.textTertiary),
             selection: fixed(Palette.selectionFill), separator: fixed(Palette.separator),
-            danger: fixed(Palette.danger), borders: Borders.drawsLines)
+            danger: fixed(Palette.danger), hover: fixed(Palette.hoverFill), attention: fixed(Palette.attention),
+            borders: Borders.drawsLines)
     }
 }
 

@@ -20,7 +20,7 @@ import Testing
         let top = Self.entries().compactMap { entry -> ActionID? in
             switch entry {
             case let .action(id), let .choices(id), let .submenu(id, _): id
-            case .separator, .folder: nil
+            case .separator, .folder, .group: nil
             }
         }
         #expect(top.contains(id), "\(id) is not a top-level row of the group menu (inside a folder, or gone)")
@@ -45,7 +45,7 @@ import Testing
                 switch entry {
                 case let .action(id), let .choices(id): [id]
                 case let .submenu(id, _): [id]
-                case let .folder(_, children): ids(children)
+                case let .folder(_, children), let .group(_, children): ids(children)
                 case .separator: []
                 }
             }

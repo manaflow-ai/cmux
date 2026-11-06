@@ -1,9 +1,17 @@
 #!/usr/bin/env bash
 # The tree-commit marker: one public, write-once object per feat-cmux-next
-# commit saying its cmux-tui tree is published and daemon-tested, so main's
-# promote guard (scripts/ci/promote-nightly-next.mjs) and request-nightly-next.sh
-# can check a commit without the tree key algorithm, which main does not have,
-# and without a GitHub API call.
+# commit saying its cmux-tui tree is published and verified, so main's promote
+# guard (scripts/ci/promote-nightly-next.mjs) and request-nightly-next.sh can
+# check a commit without the tree key algorithm, which main does not have, and
+# without a GitHub API call.
+#
+# Since 2026-10-28 the marker does not wait for the tree's daemon tests. They
+# still run after the publish and report their result, and the feat-cmux-next
+# channel (scripts/ci/cmux-tui-point-channel.sh) still follows only
+# daemon-tested trees, but no nightly waits on them. A Zig package download
+# failure in those tests (run 40651931144) left 60 commits unmarked and held a
+# launch-crash fix off the nightly feed. Leo, 2026-10-23: "we want no smoke
+# tests".
 #
 # Contract (readers must keep to it):
 #   GET https://files.cmux.com/cmux-tui/tree-commits/<sha40>.json?t=<now>
@@ -14,22 +22,29 @@
 #     network error, a body that does not parse or names another commit): a
 #     read failure, never "not ready"; callers fail closed and say so.
 #   Written write-once by cmux-tui-artifacts.yml (mark-tree-commits) on every
-#   feat-cmux-next push or dispatch run whose tree is published and
-#   daemon-tested, for each first-parent commit in the last 40 of the run's
-#   commit (the run's own included) whose tree is ready.
+#   feat-cmux-next push or dispatch run whose tree is published, for each
+#   first-parent commit in the last 40 of the run's commit (the run's own
+#   included) whose tree is ready, and for the same window
+#   from the branch tip: a run that publishes a tree late (a takeover after the
+#   owner's publish failed) marks the newer commits that share it, whose own
+#   runs found it unpublished and ended (the 2026-10-28 promote waited on them).
 #   Backfill: gh workflow run cmux-tui-artifacts.yml -R manaflow-ai/cmux --ref feat-cmux-next
 #
 # Usage:
 #   tree-commit-marker.sh check <sha>       exit 0 marked (prints key=), 1 not marked, 3 read failure
 #   tree-commit-marker.sh daemon-tested <key>
 #                                            exit 0 when the tree's daemon tests passed (or it
-#                                            predates separate daemon tests), 1 not yet, 3 read failure
-#   tree-commit-marker.sh tree-ready <key>   exit 0 published, verified and daemon-tested
-#                                            (prints publishedBy=), 1 not (a 404), 3 a read failure
-#                                            or an unverifiable tree
-#   tree-commit-marker.sh write [--window N] marks HEAD and its first-parent ancestors (default
-#                                            40) whose tree is ready; needs R2_ENDPOINT and the
-#                                            R2 AWS_* credentials
+#                                            predates separate daemon tests), 1 not yet, 3 read
+#                                            failure; not part of tree-ready
+#   tree-commit-marker.sh tree-ready <key>   exit 0 published and verified (prints publishedBy=),
+#                                            1 not (a 404), 3 a read failure or an unverifiable
+#                                            tree
+#   tree-commit-marker.sh write [--window N] [--tip-branch B]
+#                                            marks HEAD and its first-parent ancestors (default
+#                                            40) whose tree is ready, and with --tip-branch the
+#                                            same window from origin's B too (later commits that
+#                                            share a tree this run just published); needs
+#                                            R2_ENDPOINT and the R2 AWS_* credentials
 # Env: CMUX_TUI_PIN_BASE (default https://files.cmux.com/cmux-tui).
 set -euo pipefail
 
@@ -98,34 +113,79 @@ daemon_tested() { # <key>
   esac
 }
 
+# Tree <key> is published and verified (pin-cmux-tui.sh verify-key: its sha256,
+# source.json and the publishing commit's attested manifest agree). Its daemon
+# tests are not asked for (see the header).
 tree_ready() { # <key>
   local key="$1" out rc=0
-  local rc=0
   out="$(bash "$script_dir/pin-cmux-tui.sh" verify-key "$key")" || rc=$?
   case "$rc" in
     0) ;;
     1) return 1 ;;
     *) return 3 ;;
   esac
-  daemon_tested "$key" || rc=$?
-  (( rc == 0 )) || return "$rc"
   echo "publishedBy=${out#commit=}"
 }
 
+# key_definition <rev>: the blobs that define the tree key at <rev> (the key
+# script and its input list), one line; fails when either is missing.
+key_definition() {
+  local script inputs
+  script="$(git -C "$repo_root" rev-parse --verify -q "$1:scripts/ci/cmux_tui_tree_key.py")" || return 1
+  inputs="$(git -C "$repo_root" rev-parse --verify -q "$1:scripts/cmux-next/cmux-tui-tree-inputs.txt")" || return 1
+  echo "$script $inputs"
+}
+
 write_markers() {
-  local window=40 rev key ready published code rrc marked=0 skipped=0
+  local window=40 tip_branch="" tip="" rev key ready published code rrc marked=0 skipped=0
   # One readiness check per distinct key: $tmp/keys/<key> holds "ready <publisher>" or "no".
   mkdir -p "$tmp/keys"
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --window) window="${2:-}"; shift 2 ;;
+      --tip-branch) tip_branch="${2:-}"; shift 2 ;;
       *) echo "error: unknown argument $1" >&2; exit 2 ;;
     esac
   done
   [[ "$window" =~ ^[1-9][0-9]?$ ]] || { echo "error: --window must be 1 to 99" >&2; exit 2; }
+  [[ -z "$tip_branch" || "$tip_branch" =~ ^[A-Za-z0-9._/-]+$ ]] || { echo "error: --tip-branch takes a branch name" >&2; exit 2; }
   [[ -n "${R2_ENDPOINT:-}" ]] || { echo "error: R2_ENDPOINT is required to write markers" >&2; exit 2; }
   local run_url="${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-manaflow-ai/cmux}/actions/runs/${GITHUB_RUN_ID:-local}"
+  # The commits to walk: HEAD's window, then the tip's, each once. Listed up
+  # front so a failed rev-list fails the run instead of ending the walk early.
+  git -C "$repo_root" rev-list --first-parent -n "$window" HEAD > "$tmp/head-revs" \
+    || { echo "error: could not list HEAD's first-parent history" >&2; exit 1; }
+  cp "$tmp/head-revs" "$tmp/revs"
+  # Fetched only after HEAD's window is listed: in a shallow checkout a
+  # --depth fetch of a tip less than a window ahead moves the shallow boundary
+  # into HEAD's window (the objects stay, so the listed commits still key). In
+  # a full clone no --depth, which would make it shallow. A failed fetch marks
+  # from HEAD alone, as before --tip-branch.
+  if [[ -n "$tip_branch" ]]; then
+    local depth=()
+    [[ "$(git -C "$repo_root" rev-parse --is-shallow-repository)" == true ]] && depth=(--depth="$((window + 1))")
+    if git -C "$repo_root" fetch -q --no-tags ${depth[@]+"${depth[@]}"} origin "refs/heads/$tip_branch" 2>/dev/null; then
+      tip="$(git -C "$repo_root" rev-parse FETCH_HEAD)"
+    else
+      echo "warning: could not fetch $tip_branch; marking from this run's commit only" >&2
+    fi
+  fi
+  if [[ -n "$tip" ]]; then
+    git -C "$repo_root" rev-list --first-parent -n "$window" "$tip" > "$tmp/tip-revs" \
+      || { echo "error: could not list the tip's first-parent history" >&2; exit 1; }
+    grep -vxF -f "$tmp/head-revs" "$tmp/tip-revs" >> "$tmp/revs" || true
+  fi
+  # Every commit is keyed with this checkout's key script and input list, so it
+  # is marked only when its own copies are the same: an older commit from before
+  # a key definition change, or a tip commit after one, is left to a run whose
+  # definition matches it (its own run, or the backfill).
+  local key_def
+  key_def="$(key_definition HEAD)" || { echo "error: could not read this checkout's tree key definition" >&2; exit 1; }
   while read -r rev; do
+    if [[ "$(key_definition "$rev" 2>/dev/null)" != "$key_def" ]]; then
+      echo "commit ${rev:0:12}: its tree key definition differs from this run's; not marked here"
+      skipped=$((skipped + 1)); continue
+    fi
     key="$(python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2 "$rev" 2>/dev/null)" || {
       echo "commit ${rev:0:12}: no tree key; not marked"; skipped=$((skipped + 1)); continue; }
     if [[ ! -f "$tmp/keys/$key" ]]; then
@@ -168,7 +228,7 @@ PY
       echo "error: could not write the tree-commit marker of $rev" >&2
       exit 1
     fi
-  done < <(git -C "$repo_root" rev-list --first-parent -n "$window" HEAD)
+  done < "$tmp/revs"
   echo "tree-commit markers: $marked written, $skipped commits not ready or unreadable, window $window"
 }
 
@@ -179,6 +239,6 @@ case "$cmd" in
   daemon-tested) daemon_tested "${1:-}" ;;
   tree-ready) tree_ready "${1:-}" ;;
   write) write_markers "$@" ;;
-  -h|--help|"") sed -n '2,33p' "$0" ;;
+  -h|--help|"") sed -n '2,48p' "$0" ;;
   *) echo "error: unknown command $cmd" >&2; exit 2 ;;
 esac

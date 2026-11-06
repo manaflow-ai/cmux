@@ -104,14 +104,19 @@ public final class HomeInboxSource {
 
     private static func read(_ connection: DaemonConnection, owners: [String]) async -> Read {
         guard await connection.identity?.supports(DaemonCapability.homeInbox.rawValue) == true else { return .unsupported }
-        guard let reply = try? await connection.request(HomeInboxRequest(owners: owners)) else { return .failed }
+        // The Cloud rows are every page of the inbox, read by the daemon within its budget plus one
+        // page's read (under the Cloud's 30 s request timeout); the local rows answer at once.
+        let timeout: Duration? = owners.contains("cloud") ? CloudConversationClient.networkTimeout : nil
+        guard let reply = try? await connection.request(HomeInboxRequest(owners: owners), timeout: timeout) else { return .failed }
         return .reply(reply)
     }
 
     // MARK: Writes (the person's own list state; the owner's rows follow with its event)
 
-    /// Pins (after the person's other pins) or unpins `id`.
+    /// Pins (after the person's other pins) or unpins `id`. A row already pinned keeps its place:
+    /// nothing is sent.
     public func setPinned(_ on: Bool, _ id: String) {
+        if on, rows?.first(where: { $0.id == id })?.pinned == true { return }
         edit(id) { row in
             row.pinned = on
             row.pinPosition = on ? Self.now() : nil

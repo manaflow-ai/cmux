@@ -9,6 +9,9 @@ nonisolated enum RenamedSettingKeys {
         // `appearance.background` replaced the paintings-only `appearance.backdropArt`
         // (BackdropSelectionSetting reads it when `appearance.background` is absent).
         if path == BackdropSelectionSetting().configPath { return BackdropArtSetting().configPath }
+        // `agentPane.display.sessionInfo.placement` replaced `agentPane.display.inspector.placement`, the
+        // panel's old name (Leo, 2026-11-01: "WHY THE F***ING HAS IT STILL BEEN CALLED INSPECTOR").
+        if path == AgentPaneDisplaySettingsSchema.sessionInfoPlacementPath { return AgentPaneDisplaySettingsSchema.legacySessionInfoPlacementPath }
         return WorkspaceRowSetting.legacyPath(for: path)
     }
 

@@ -7,7 +7,10 @@
 //! both into its own ghostty terminal. Rendering, key encoding, and mode
 //! queries then work identically in both cases.
 
+use cmux_json::JsonSet as _;
+
 mod cursor_provenance;
+mod frontend_projection;
 mod remote;
 pub(crate) mod sidebar_doc;
 pub(crate) mod tree;
@@ -38,6 +41,7 @@ use ghostty_vt::{
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
+pub(crate) use frontend_projection::ProjectionKey;
 pub(crate) use remote::sidebar_doc::SidebarDropAnchors;
 pub use remote::{
     RemoteMessageReader, RemoteMessageWriter, RemoteSession, RemoteSurface, RemoteTransport,
@@ -386,8 +390,8 @@ fn initial_bootstrap(tree: &TreeView) -> InitialBootstrap {
 /// Attach optional cols/rows fields to a remote command.
 fn with_size(mut cmd: Value, size: Option<(u16, u16)>) -> Value {
     if let Some((cols, rows)) = size {
-        cmd["cols"] = json!(cols);
-        cmd["rows"] = json!(rows);
+        cmd.set("cols", json!(cols));
+        cmd.set("rows", json!(rows));
     }
     cmd
 }
@@ -908,8 +912,12 @@ impl Session {
                                     "expected_revision": revision,
                                 });
                                 match target["key"].as_str() {
-                                    Some(key) if !key.is_empty() => request["key"] = json!(key),
-                                    _ => request["workspace"] = target["id"].clone(),
+                                    Some(key) if !key.is_empty() => {
+                                        request.set("key", json!(key));
+                                    }
+                                    _ => {
+                                        request.set("workspace", target["id"].clone());
+                                    }
                                 }
                                 Some(remote.request(with_size(request, size)).map(|_| ()))
                             }

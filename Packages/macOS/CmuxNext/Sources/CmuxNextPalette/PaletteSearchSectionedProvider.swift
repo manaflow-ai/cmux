@@ -24,6 +24,7 @@ final class PaletteSearchSectionedProvider: PaletteProvider {
     nonisolated deinit {}
 
     var immediateItems: [PaletteItem]? { base.immediateItems.map(sectioned) }
+    var refreshesOnOpen: Bool { base.refreshesOnOpen }
 
     func items() async -> [PaletteItem] { sectioned(await base.items()) }
 

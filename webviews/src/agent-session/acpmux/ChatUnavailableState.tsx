@@ -1,3 +1,4 @@
+import { RESUME_NOTE_DELAY_MS, useAfterDelay } from "./afterDelay";
 import type { ChatUnavailable } from "./chatUnavailable";
 import { Spinner } from "./conversation/icons";
 import { relativeTime } from "./conversation/relativeTime";
@@ -7,21 +8,34 @@ import { currentLanguage, useT } from "./i18n";
 /// new chat hero's type (EmptyState.tsx), it says which case it is. Deleted: Remove from Sidebar
 /// closes the tab. Its machine is not connected: the machine, when it was last seen, and Reconnect,
 /// which reads the machines and the chat list again (the chat opens once it is listed). Still
-/// connecting: only that, never "unavailable" (Leo 2026-10-21: "second pic is weird has "this chat
-/// isn't available""). Not listed and never seen here (it may be deleted, or in an acpmux this tab is
-/// not routed to): "Can't find this chat", never "deleted". Every case keeps what MissingChat.tsx
+/// connecting (the grace, chatUnavailable.ts): nothing, an empty area where the chat opens once it
+/// is listed; never "unavailable" (Leo 2026-10-21: "second pic is weird has "this chat isn't
+/// available"") and no spinner or "Reconnecting…" (Leo, 2026-10-29: "STOP SHOWING FUCKING BULLSHIT
+/// ON LOAD"). Not listed and never seen here (it may be deleted, or in an acpmux this tab is
+/// not routed to): "Can't find this chat", never "deleted". Every case but loading keeps what MissingChat.tsx
 /// offered (Lawrence, 86dec887282): the chat's short session id, so a person knows which chat it was,
+/// More than one chat here goes by the id the tab recorded (its name, or a harness's own session id),
+/// and none by acpmux's id: "This session no longer exists", never "Reconnecting…" forever.
 /// Resume from Transcript, which opens All Chats, where the chat's saved transcript resumes in a new
 /// session, and Close Tab (a deleted chat's is Remove from Sidebar).
+///
+/// `line`: the chat's rows as last read are drawn below (direct.ts `drawMissingTail`), so the same
+/// case and actions sit as one line under the header, above the transcript, instead of in its place;
+/// still loading draws no line at all.
 export function ChatUnavailableState({
   unavailable,
   session,
   machine,
   now = Date.now(),
+  onResumeMachine,
+  resuming = false,
+  error,
   onRemove,
   onReconnect,
   onResume,
   onClose,
+  noteDelayMs = RESUME_NOTE_DELAY_MS,
+  line = false,
 }: {
   unavailable: ChatUnavailable;
   /// The session the tab recorded (`missingSession`); its first 13 characters show under the detail.
@@ -29,53 +43,141 @@ export function ChatUnavailableState({
   /// The machine the app says the tab's chat is on (the handshake's `machineName`), for a deleted chat.
   machine?: string;
   now?: number;
+  onResumeMachine?(): void;
+  resuming?: boolean;
+  error?: string;
   onRemove(): void;
   onReconnect(): void;
   onResume?(): void;
   /// Close Tab, on every case but deleted (Remove from Sidebar closes that one's tab).
   onClose?(): void;
+  /// How long a paused machine, and a resume, stay out of sight (afterDelay.ts); the gallery's
+  /// settled variants pass 0.
+  noteDelayMs?: number;
+  /// Over the chat's last-read rows: a line under the header, not the centered state.
+  line?: boolean;
 }) {
   const t = useT();
+  // A pause is invisible at first, as a resume is (Leo, 2026-11-03: the wait "you mostly perceive as
+  // "thinking""): a machine that wakes within RESUME_NOTE_DELAY_MS never shows its card, and one
+  // resuming shows its spinner only past it. The spinner's slot is kept from the first frame, so it
+  // shifts nothing when it appears.
+  const pausedShown = useAfterDelay(unavailable.reason === "paused", noteDelayMs);
+  const resumeSlow = useAfterDelay(resuming, noteDelayMs);
+  // Still loading, or paused for less than the threshold: nothing shows, in the loading layout, until
+  // the chat opens or the wait goes on (then offline or paused, below).
+  if (unavailable.reason === "connecting" || (unavailable.reason === "paused" && !pausedShown))
+    return line ? null : (
+      <div className="acpmux-empty acpmux-unavailable" data-unavailable="connecting" aria-busy="true" />
+    );
   // A deleted chat names the machine acpmux had it on when the pane knows it, else the tab's machine;
   // one not connected names only the peer acpmux had it on, never this Mac's name (the handshake's
   // for a chat of this Mac); one not found here is not on the tab's machine.
   const named =
     unavailable.reason === "deleted"
       ? (unavailable.machine ?? machine)
-      : unavailable.reason === "notFound"
+      : unavailable.reason === "notFound" || unavailable.reason === "gone"
         ? machine
         : unavailable.machine;
   let title: string;
   let detail: string | undefined;
   let action: { label: string; run(): void; kind: string } | undefined;
-  if (unavailable.reason === "deleted") {
+  if (unavailable.reason === "paused") {
+    title = t("unavailable.paused.title");
+    detail = t("unavailable.paused.detail", { machine: named ?? machine ?? "" });
+    if (onResumeMachine)
+      action = {
+        label: t("unavailable.resumeMachine"),
+        run: onResumeMachine,
+        kind: "resumeMachine",
+      };
+  } else if (unavailable.reason === "machineDeleted") {
+    title = t("unavailable.machineDeleted.title");
+    detail = t("unavailable.machineDeleted.detail", { machine: named ?? machine ?? "" });
+  } else if (unavailable.reason === "deleted") {
     title = t("unavailable.deleted.title");
     detail = named ? t("unavailable.deleted.detailOn", { machine: named }) : t("unavailable.deleted.detail");
     action = { label: t("unavailable.remove"), run: onRemove, kind: "remove" };
+  } else if (unavailable.reason === "gone") {
+    // The tab's id names more than one chat here, and none by its id: no machine coming back
+    // opens it, so it never reads as "Reconnecting…" (Leo, 2026-11-05). Resume from Transcript
+    // (All Chats, where the person picks the chat they meant) and Close Tab stay.
+    title = t("unavailable.gone.title");
+    detail = t("unavailable.gone.detail");
   } else if (unavailable.reason === "notFound") {
     // Not listed here and never seen here: it may be deleted, or in an acpmux this tab is not routed
     // to (a Chief home's own), so the pane never says it was deleted.
     title = t("unavailable.notFound.title");
     detail = named ? t("unavailable.notFound.detailOn", { machine: named }) : t("unavailable.notFound.detail");
-  } else if (unavailable.reason === "connecting") {
-    title = `${t("header.reconnecting")}…`;
   } else {
     title = `${t("header.reconnecting")}…`;
     detail =
       unavailable.lastSeen !== undefined
-        ? t("unavailable.offline.lastSeen", { time: relativeTime(unavailable.lastSeen, now, currentLanguage()) })
+        ? t("unavailable.offline.lastSeen", {
+            time: relativeTime(unavailable.lastSeen, now, currentLanguage()),
+          })
         : t("unavailable.offline.detail");
     action = { label: t("unavailable.reconnect"), run: onReconnect, kind: "reconnect" };
   }
   // Remove from Sidebar closes a deleted chat's tab; every other case keeps MissingChat's Close Tab.
   const closes = onClose !== undefined && unavailable.reason !== "deleted";
+  const actions = (action || onResume || closes) && (
+    <div className="acpmux-unavailable-actions">
+      {action && (
+        <button
+          type="button"
+          className="acpmux-unavailable-action"
+          data-action={action.kind}
+          disabled={resuming}
+          onClick={action.run}
+        >
+          {action.label}
+        </button>
+      )}
+      {onResume && (
+        <button type="button" className="acpmux-unavailable-action" data-action="resume" onClick={onResume}>
+          {t("link.missing.resume")}
+        </button>
+      )}
+      {closes && (
+        <button type="button" className="acpmux-unavailable-action" data-action="close" onClick={onClose}>
+          {t("link.missing.close")}
+        </button>
+      )}
+    </div>
+  );
+  if (line)
+    return (
+      <div
+        className="acpmux-link-missing acpmux-unavailable-line"
+        data-unavailable={unavailable.reason}
+        role={unavailable.reason === "offline" || unavailable.reason === "paused" ? "status" : "alert"}
+        data-enter="top"
+      >
+        <p className="acpmux-peer-copy-title">
+          {(unavailable.reason === "offline" || resuming) && (
+            <Spinner size={12} loading className="acpmux-peer-copy-spinner" />
+          )}
+          {title}
+        </p>
+        {error && (
+          <p className="acpmux-watch-hint" role="alert">
+            {error}
+          </p>
+        )}
+        {detail && <p className="acpmux-watch-hint">{detail}</p>}
+        {actions}
+      </div>
+    );
   return (
     <div
       className="acpmux-empty acpmux-unavailable"
       data-unavailable={unavailable.reason}
-      role={unavailable.reason === "connecting" || unavailable.reason === "offline" ? "status" : "alert"}
+      // A paused machine is a calm state, never an alert (a resume is one click or one send away).
+      role={unavailable.reason === "offline" || unavailable.reason === "paused" ? "status" : "alert"}
+      data-enter="fade"
     >
-      {unavailable.reason === "connecting" || unavailable.reason === "offline" ? (
+      {unavailable.reason === "offline" ? (
         <Spinner size={28} loading className="acpmux-unavailable-spinner" />
       ) : (
         <svg
@@ -92,7 +194,7 @@ export function ChatUnavailableState({
           focusable="false"
         >
           <rect x="4.75" y="6.75" width="26.5" height="22.5" rx="6" />
-          {unavailable.reason === "deleted" || unavailable.reason === "notFound" ? (
+          {unavailable.reason === "deleted" || unavailable.reason === "notFound" || unavailable.reason === "gone" ? (
             <path d="M13.5 18h9" />
           ) : (
             <path d="M11.5 18h1M17.5 18h1M23.5 18h1" />
@@ -100,31 +202,31 @@ export function ChatUnavailableState({
         </svg>
       )}
       <h2 className="acpmux-empty-title acpmux-unavailable-title">{title}</h2>
-      {detail && <p className="acpmux-unavailable-detail">{detail}</p>}
-      {session && (
-        <p className="acpmux-unavailable-detail acpmux-unavailable-session">
-          {t("unavailable.session", { session: shortSession(session) })}
-        </p>
-      )}
-      {(action || onResume || closes) && (
-        <div className="acpmux-unavailable-actions">
-          {action && (
-            <button type="button" className="acpmux-unavailable-action" data-action={action.kind} onClick={action.run}>
-              {action.label}
-            </button>
-          )}
-          {onResume && (
-            <button type="button" className="acpmux-unavailable-action" data-action="resume" onClick={onResume}>
-              {t("link.missing.resume")}
-            </button>
-          )}
-          {closes && (
-            <button type="button" className="acpmux-unavailable-action" data-action="close" onClick={onClose}>
-              {t("link.missing.close")}
-            </button>
-          )}
-        </div>
-      )}
+      <div className="acpmux-unavailable-copy">
+        {unavailable.reason === "paused" ? (
+          <span className="acpmux-unavailable-progress" aria-hidden={!resumeSlow}>
+            {resumeSlow && (
+              <span className="acpmux-unavailable-progress-mark" data-enter="fade">
+                <Spinner size={20} loading />
+              </span>
+            )}
+          </span>
+        ) : (
+          resuming && <Spinner size={20} loading />
+        )}
+        {error && (
+          <p className="acpmux-unavailable-detail" role="alert">
+            {error}
+          </p>
+        )}
+        {detail && <p className="acpmux-unavailable-detail">{detail}</p>}
+        {session && (
+          <p className="acpmux-unavailable-detail acpmux-unavailable-session">
+            {t("unavailable.session", { session: shortSession(session) })}
+          </p>
+        )}
+        {actions}
+      </div>
     </div>
   );
 }

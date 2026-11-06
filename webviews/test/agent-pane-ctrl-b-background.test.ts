@@ -6,9 +6,10 @@
 // composer's caret. Which chats offer it is acpmux's word (the summary's `backgroundsWork`), not the
 // harness's name: the model router's `cmux` chat does, a Codex chat and an ACP agent named
 // `claude-acp` never show the hint. A running subagent draws no tool row, and takes Ctrl-B by
-// itself. When nothing moved (acpmux found nothing in the foreground, refused, never answered, or
-// the connection closed), a notice above the composer says so until the next key
-// (conversation/backgroundNotice.ts). The page is the pane's dev entry with its browser host,
+// itself. A notice above the composer says what Ctrl-B did until the next key
+// (conversation/backgroundNotice.ts): the work moved, Claude Code said so but the command still
+// runs in the foreground, or nothing moved (acpmux found nothing in the foreground, refused, never
+// answered, or the connection closed). The page is the pane's dev entry with its browser host,
 // talking JSON-RPC to a stand-in acpmux daemon.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -313,6 +314,24 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
     await page.waitForFunction(
       () => getComputedStyle(document.querySelector(".cv-worked.is-below .cv-command__bg")!).opacity === "1",
     );
+    // It reads on the line as every trailing item does (Leo, 2026-11-03: "this isn't really centered
+    // with the tool call i think it should be or at least it looks weird?"): the line's size, so its
+    // words share the command's baseline and middle, never a smaller face centered beside it.
+    const marks = await line.evaluate((node) => {
+      // Where a selector's words draw: their glyph box, and the face's size.
+      const read = (selector: string) => {
+        const target = node.querySelector<HTMLElement>(selector)!;
+        const range = document.createRange();
+        range.selectNodeContents(target);
+        const box = range.getBoundingClientRect();
+        return { top: box.top, bottom: box.bottom, size: getComputedStyle(target).fontSize };
+      };
+      return { hint: read(".cv-command__bg"), line: read(".cv-shimmer__base") };
+    });
+    expect(marks.hint.size).toBe(marks.line.size);
+    // One face at one size: the same glyph box top and bottom means the same baseline.
+    expect(Math.abs(marks.hint.top - marks.line.top)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(marks.hint.bottom - marks.line.bottom)).toBeLessThanOrEqual(0.5);
     await page.close();
   });
 
@@ -326,7 +345,39 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
     await page.close();
   });
 
-  test("work that moved shows no notice", async () => {
+  test("the hint is a button that moves the work, whichever pane has the keyboard", async () => {
+    // Leo, 2026-11-03: "this run in background sometimes i can't actually do anything to put it in
+    // the background". The hint shows on hover in a pane that may not have the keyboard, where Ctrl-B
+    // goes to another pane; a click on it always reaches this chat.
+    backgrounded.length = 0;
+    backgroundReply = "moved";
+    const page = await open(CLAUDE);
+    const line = page.locator(".cv-worked.is-below");
+    const hint = line.getByRole("button", { name: translate("tools.backgroundHintLabel") });
+    await hint.waitFor({ timeout: 5_000 });
+    expect(await hint.textContent()).toBe("⌃B to run in background");
+    // Away from the page: Ctrl-B never reaches it, the click does.
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await line.hover();
+    await hint.click();
+    expect(await requested()).toEqual([{ sessionId: CLAUDE }]);
+    await page.close();
+  });
+
+  test("the hint button takes the keyboard: focused, Return moves the work", async () => {
+    backgrounded.length = 0;
+    backgroundReply = "moved";
+    const page = await open(CLAUDE);
+    const hint = page.getByRole("button", { name: translate("tools.backgroundHintLabel") });
+    await hint.waitFor({ timeout: 5_000 });
+    await hint.focus();
+    expect(await hint.evaluate((node) => node === document.activeElement)).toBe(true);
+    await page.keyboard.press("Enter");
+    expect(await requested()).toEqual([{ sessionId: CLAUDE }]);
+    await page.close();
+  });
+
+  test("work that moved says so, and a command still in the foreground a moment later says it stayed", async () => {
     const page = await open(CLAUDE);
     await page.getByText("⌃B to run in background").waitFor({ timeout: 5_000 });
     await composer(page).click();
@@ -334,11 +385,10 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
     expect(await requested()).toEqual([{ sessionId: CLAUDE }]);
     await once(() => backgroundAnswers > 0, "answered the background request").catch(() => {});
     expect(backgroundAnswers).toBe(1);
-    // The answer reaches the page and React draws what it earns within two frames.
-    await page.evaluate(
-      () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(undefined)))),
-    );
-    expect(await page.locator(".acpmux-background-notice").count()).toBe(0);
+    await noticeText(page, "moved").waitFor({ timeout: 5_000 });
+    // The stand-in daemon says it moved, but its transcript's command never ends: the check after
+    // BACKGROUND_CHECK_MS finds it still running in the foreground.
+    await noticeText(page, "kept").waitFor({ timeout: 5_000 });
     await page.close();
   });
 

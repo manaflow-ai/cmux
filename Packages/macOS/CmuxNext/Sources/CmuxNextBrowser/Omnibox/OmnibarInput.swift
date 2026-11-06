@@ -100,6 +100,9 @@ public nonisolated enum OmnibarInput: Equatable, Sendable {
     case showFullURLsChanged(Bool)
     case searchEngineChanged
     case pasteAndGo(String)
+    /// A URL or text dropped on the focused omnibar (Chromium
+    /// `OmniboxViewViews::PerformDrop`): it replaces the text, all selected.
+    case dropped(String)
 }
 
 /// Side effects the reducer asks for. `OmnibarController` runs them after

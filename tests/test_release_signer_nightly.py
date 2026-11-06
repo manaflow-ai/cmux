@@ -61,10 +61,27 @@ class IdentityTests(unittest.TestCase):
                         SPARKLE_PUBLIC_KEY="IOPItMLjtc4NsROTNZ6a/jsUW+C4fcicl6SNjVVvzRM=",
                         NIGHTLY_MARKETING_VERSION="1.2.3-nightly.9", NIGHTLY_BUILD="99", SHORT_SHA="abc1234")
 
-    def stamp(self, plist, fmt=plistlib.FMT_BINARY, **env):
+    def stamp(self, plist, fmt=plistlib.FMT_BINARY, flags=(), **env):
         self.plist.write_bytes(plistlib.dumps(plist, fmt=fmt))
-        return subprocess.run(["python3", "-I", str(IDENTITY), str(self.plist)], env=dict(self.env, **env),
+        return subprocess.run(["python3", "-I", str(IDENTITY), *flags, str(self.plist)], env=dict(self.env, **env),
                               capture_output=True, text=True)
+
+    def test_legacy_stamps_the_nightly_identity_without_the_callback_override(self):
+        # nightly.yml legacy-signer-app: the values scripts/ci/nightly-next-legacy-identity.sh sets on a Mac.
+        feed = "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"
+        result = self.stamp(dict(self.base, LSEnvironment={"OTHER": "1", "CMUX_AUTH_CALLBACK_SCHEME": "cmux"}),
+                            flags=("--legacy",), CHANNEL_APP_NAME="cmux NIGHTLY",
+                            CHANNEL_BUNDLE_ID="com.cmuxterm.app.nightly", CHANNEL_URL_SCHEME="cmux-nightly",
+                            FEED_URL=feed)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        out = plistlib.loads(self.plist.read_bytes())
+        self.assertEqual((out["CFBundleName"], out["CFBundleDisplayName"], out["CFBundleIdentifier"]),
+                         ("cmux NIGHTLY", "cmux NIGHTLY", "com.cmuxterm.app.nightly"))
+        self.assertEqual(out["CFBundleURLTypes"][1]["CFBundleURLSchemes"], ["cmux-nightly"])
+        self.assertEqual(out["LSEnvironment"], {"OTHER": "1"})
+        self.assertEqual(out["SUFeedURL"], feed)
+        self.assertEqual(out["SUPublicEDKey"], self.env["SPARKLE_PUBLIC_KEY"])
+        self.assertEqual((out["CFBundleVersion"], out["CMUXCommit"]), ("99", "abc1234"))
 
     def test_stamps_every_entry_and_keeps_the_format(self):
         result = self.stamp(self.base)

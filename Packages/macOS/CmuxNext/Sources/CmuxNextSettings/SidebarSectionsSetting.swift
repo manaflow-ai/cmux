@@ -10,12 +10,13 @@ public nonisolated enum SidebarSectionsSetting {
     /// R87: the key nightly-next builds wrote before the rename, read for
     /// one release when `sidebar.pinnedBandsScroll` is absent. Remove after it.
     static let legacyScrollPath = ["sidebar", "stickyBandsScroll"]
-    public static let showWorkspaceTabsPath = ["sidebar", "showWorkspaceTabs"]
     public static let minimalModePath = ["sidebar", "minimalMode"]
     /// Minimal mode (cx-w1r5): rows draw only icon, name and marks; section
     /// headers become thin lines.
     public static let minimalPath = ["sidebar", "minimal"]
     public static let densityPath = ["sidebar", "density"]
+    /// `sidebar.textSize` (``SidebarTextSize``): the list's text, leading glyphs and rows together.
+    public static let textSizePath = ["sidebar", "textSize"]
     /// `sidebar.style`: standard or the thin rail (plans/cmux-next/minimal-sidebar.md).
     public static let stylePath = ["sidebar", "style"]
     public static let showProjectsPath = ["sidebar", "showProjects"]
@@ -25,7 +26,14 @@ public nonisolated enum SidebarSectionsSetting {
     public static let showSpacesPath = ["sidebar", "showSpaces"]
     public static let showProfileControlPath = ["sidebar", "showProfileControl"]
     public static let showSearchButtonPath = ["sidebar", "showSearchButton"]
+    /// `sidebar.showNewWorkspaceChooser`: the chevron beside the titlebar's + (off by default).
+    public static let showNewWorkspaceChooserPath = ["sidebar", "showNewWorkspaceChooser"]
+    /// The sidebar prototypes Leo asked for as toggles (2026-10-21), App Store cards (`SidebarFeatures`).
+    public static let workspacesAsTabsPath = ["sidebar", "workspacesAsTabs"]
+    public static let chromeGroupsPath = ["sidebar", "chromeGroups"]
+    public static let sideBySidePath = ["sidebar", "sideBySide"]
     public static let noFadePath = ["sidebar", "noFade"]
+    public static let controlsOnHoverPath = ["sidebar", "controlsOnHover"]
     public static let tipsPath = ["sidebar", "cards", "tips"]
     public static let detailedStatusIconsPath = ["sidebar", "detailedStatusIcons"]
     public static let showTimestampsPath = ["sidebar", "showTimestamps"]
@@ -33,6 +41,8 @@ public nonisolated enum SidebarSectionsSetting {
     public static let showLocalMachinePath = ["sidebar", "showLocalMachine"]
     public static let groupHeaderMemberCountPath = ["sidebar", "groupHeader", "memberCount"]
     public static let groupHeaderUnreadCountPath = ["sidebar", "groupHeader", "unreadCount"]
+    /// `sidebar.groupHeader.background` (``SidebarGroupBackgroundStyle``): glass, solid, or cmux's own group look (glass).
+    public static let groupHeaderBackgroundPath = ["sidebar", "groupHeader", "background"]
 
     static func tipsDescriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(tipsPath, section: .appearance, group: group,
@@ -108,6 +118,24 @@ public nonisolated enum SidebarSectionsSetting {
                           keywords: ["sidebar", "group", "groups", "unread", "badge", "notifications", "count", "header"])
     }
 
+    /// Lawrence 2026-11-05: "groups must always have a visible bg color, groups should support both glassy and solid
+    /// bgs too". Every choice keeps the background visible; this picks its material only.
+    static func groupHeaderBackgroundDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(groupHeaderBackgroundPath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.groupHeader.background", "Group Background"),
+                          help: SettingsText.keyed("settings.sidebar.groupHeader.background.help",
+                                                   "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color."),
+                          kind: .choice(SidebarGroupBackgroundStyle.allCases.map { style in
+                              switch style {
+                              case .auto: SettingChoice(style.rawValue, SettingsText.keyed("settings.choice.groupBackgroundAuto", "Automatic"))
+                              case .glass: SettingChoice(style.rawValue, SettingsText.keyed("settings.choice.groupBackgroundGlass", "Glass"))
+                              case .solid: SettingChoice(style.rawValue, SettingsText.keyed("settings.choice.groupBackgroundSolid", "Solid"))
+                              }
+                          }),
+                          default: .string(SidebarSectionsPreferences.defaults.groupHeaderBackground.rawValue),
+                          keywords: ["sidebar", "group", "groups", "background", "glass", "glassy", "solid", "opaque", "translucent", "fill", "header"])
+    }
+
     static func densityDescriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(densityPath, section: .appearance, group: group,
                           title: SettingsText.keyed("settings.sidebar.density", "Sidebar Density"),
@@ -122,6 +150,24 @@ public nonisolated enum SidebarSectionsSetting {
                           }),
                           default: .string(SidebarSectionsPreferences.defaults.density.rawValue),
                           keywords: ["sidebar", "density", "expanded", "compact", "comfortable", "rows", "preview", "two lines", "taller", "t3", "codex"])
+    }
+
+    /// Lawrence msg 17752: "we also need option for sidebar text to be very significantly bigger. this is
+    /// how big chatgpt is by default, let's match them". Larger is that size.
+    static func textSizeDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(textSizePath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.textSize", "Sidebar Text Size"),
+                          help: SettingsText.keyed("settings.sidebar.textSize.help",
+                                                   "Makes the sidebar's names, headers, icons and rows larger together. Larger matches the ChatGPT app's sidebar."),
+                          kind: .choice(SidebarTextSize.allCases.map { size in
+                              switch size {
+                              case .standard: SettingChoice(size.rawValue, SettingsText.keyed("settings.choice.default", "Default"))
+                              case .large: SettingChoice(size.rawValue, SettingsText.keyed("settings.choice.sidebarTextLarge", "Large"))
+                              case .larger: SettingChoice(size.rawValue, SettingsText.keyed("settings.choice.sidebarTextLarger", "Larger"))
+                              }
+                          }),
+                          default: .string(SidebarSectionsPreferences.defaults.textSize.rawValue),
+                          keywords: ["sidebar", "text", "size", "font", "bigger", "larger", "large", "zoom", "readable", "accessibility", "chatgpt", "rows"])
     }
 
     static func styleDescriptor(group: SettingText) -> SettingDescriptor {
@@ -153,14 +199,6 @@ public nonisolated enum SidebarSectionsSetting {
                           keywords: ["sidebar", "minimal", "hide", "hover", "settings", "account"])
     }
 
-    static func showWorkspaceTabsDescriptor(group: SettingText) -> SettingDescriptor {
-        SettingDescriptor(showWorkspaceTabsPath, section: .appearance, group: group,
-                          title: SettingsText.keyed("settings.sidebar.showWorkspaceTabs", "Show Workspace Tabs"),
-                          help: SettingsText.keyed("settings.sidebar.showWorkspaceTabs.help", "Lists tabs beneath each workspace in the sidebar."),
-                          kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showWorkspaceTabs),
-                          keywords: ["sidebar", "workspace", "tabs"])
-    }
-
     /// Projects, which its header's menu hides (Leo 2026-10-06). All chats has
     /// Show All Chats on New Tab (`showChatsDescriptor`).
     static func sectionDescriptors(group: SettingText) -> [SettingDescriptor] {
@@ -174,9 +212,10 @@ public nonisolated enum SidebarSectionsSetting {
                               kind: .choice([
                                   SettingChoice(SidebarGroupBy.none.rawValue, SettingsText.keyed("settings.choice.groupByNone", "None")),
                                   SettingChoice(SidebarGroupBy.folder.rawValue, SettingsText.keyed("settings.choice.groupByFolder", "Folder")),
+                                  SettingChoice(SidebarGroupBy.recents.rawValue, SettingsText.keyed("settings.choice.groupByRecents", "Projects and Recents")),
                               ]),
                               default: .string(SidebarSectionsPreferences.defaults.groupBy.rawValue),
-                              keywords: ["sidebar", "projects", "group", "folder", "directory", "cwd"]),
+                              keywords: ["sidebar", "projects", "group", "folder", "directory", "cwd", "recents", "recent", "chatgpt", "history"]),
             // The bottom band's pieces (cx-wab7m): right-click hides each, the band shows it again.
             SettingDescriptor(showSpacesPath, section: .appearance, group: group,
                               title: SettingsText.keyed("settings.sidebar.showSpaces", "Show Spaces"),
@@ -193,6 +232,32 @@ public nonisolated enum SidebarSectionsSetting {
                                                        "A magnifying glass after the profile button searches workspaces, tabs, history, agent chats, settings and commands. Off, Search stays in the command palette."),
                               kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showSearchButton),
                               keywords: ["sidebar", "search", "find", "magnifying glass", "everything", "footer", "hide", "show"]),
+            // The titlebar's New Workspace chooser chevron (Lawrence 2026-10-30: a linear list by default).
+            SettingDescriptor(showNewWorkspaceChooserPath, section: .appearance, group: group,
+                              title: SettingsText.keyed("settings.sidebar.showNewWorkspaceChooser", "Show New Workspace Menu Button"),
+                              help: SettingsText.keyed("settings.sidebar.showNewWorkspaceChooser.help",
+                                                       "A chevron beside the + in the sidebar's titlebar opens the New Workspace menu. Off, right-click the + for the same menu."),
+                              kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showNewWorkspaceChooser),
+                              keywords: ["sidebar", "new workspace", "chevron", "dropdown", "menu", "titlebar", "hide", "show"]),
+            // Leo's sidebar prototypes as toggles (2026-10-21: "They're just toggles in the app store area").
+            SettingDescriptor(workspacesAsTabsPath, section: .appearance, group: group,
+                              title: SettingsText.keyed("settings.sidebar.workspacesAsTabs", "Workspaces as Tabs"),
+                              help: SettingsText.keyed("settings.sidebar.workspacesAsTabs.help",
+                                                       "Each workspace is one line, like Claude's sidebar, and Command-Shift-[ and ] go to the previous or next workspace instead of the previous or next tab."),
+                              kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.workspacesAsTabs),
+                              keywords: ["sidebar", "compact", "tabs", "one line", "claude", "workspaces", "switch"]),
+            SettingDescriptor(chromeGroupsPath, section: .appearance, group: group,
+                              title: SettingsText.keyed("settings.sidebar.chromeGroups", "Chrome-Style Groups"),
+                              help: SettingsText.keyed("settings.sidebar.chromeGroups.help",
+                                                       "A group's colored name chip joins a thicker rail with a clipped corner, and the rail ends in a rounded cap, like Chrome's tab groups."),
+                              kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.chromeGroups),
+                              keywords: ["sidebar", "chrome", "groups", "chip", "rail", "shape", "clip"]),
+            SettingDescriptor(sideBySidePath, section: .appearance, group: group,
+                              title: SettingsText.keyed("settings.sidebar.sideBySide", "Workspaces Side by Side"),
+                              help: SettingsText.keyed("settings.sidebar.sideBySide.help",
+                                                       "A press on a workspace row switches only when you release it, so you can hold and drag the row onto a pane's edge to show that workspace beside the current one. Workspaces on screen are highlighted."),
+                              kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.sideBySide),
+                              keywords: ["sidebar", "split", "side by side", "drag", "release", "multi view", "claude code"]),
             // Show Whole Sidebar (No Fade): the list shows with no edge fade and the profile and search bar hides.
             SettingDescriptor(noFadePath, section: .appearance, group: group,
                               title: SettingsText.keyed("settings.sidebar.noFade", "Show Whole Sidebar Without Fade"),
@@ -200,6 +265,13 @@ public nonisolated enum SidebarSectionsSetting {
                                                        "The sidebar's edges stop fading and the whole list shows. It also hides the bottom profile and search bar. Off, the edges fade and the bar shows."),
                               kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.noFade),
                               keywords: ["sidebar", "fade", "whole", "full", "everything", "edges", "profile", "search", "footer", "show", "hide"]),
+            // Show Sidebar Controls Only on Hover: the controls show only while the pointer is over the sidebar.
+            SettingDescriptor(controlsOnHoverPath, section: .appearance, group: group,
+                              title: SettingsText.keyed("settings.sidebar.controlsOnHover", "Show Sidebar Controls Only on Hover"),
+                              help: SettingsText.keyed("settings.sidebar.controlsOnHover.help",
+                                                       "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show."),
+                              kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.controlsOnHover),
+                              keywords: ["sidebar", "minimal", "hover", "hide", "show", "controls", "buttons", "search", "profile", "spaces", "footer", "clean"]),
         ]
     }
 
@@ -261,13 +333,6 @@ public nonisolated enum SidebarSectionsSetting {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.minimalMode", message: "expected one of " + choices))
             }
         }
-        if let value = root.value(at: showWorkspaceTabsPath) {
-            if let flag = value.boolValue {
-                result.showWorkspaceTabs = flag
-            } else {
-                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.showWorkspaceTabs", message: "expected true or false"))
-            }
-        }
         result.sessionTree = flag(root, sessionTreePath, fallback: result.sessionTree, &diagnostics)
         if let value = root.value(at: tipsPath) {
             if let flag = value.boolValue {
@@ -282,14 +347,28 @@ public nonisolated enum SidebarSectionsSetting {
         result.showSpaces = flag(root, showSpacesPath, fallback: result.showSpaces, &diagnostics)
         result.showProfileControl = flag(root, showProfileControlPath, fallback: result.showProfileControl, &diagnostics)
         result.showSearchButton = flag(root, showSearchButtonPath, fallback: result.showSearchButton, &diagnostics)
+        result.showNewWorkspaceChooser = flag(root, showNewWorkspaceChooserPath, fallback: result.showNewWorkspaceChooser, &diagnostics)
+        result.workspacesAsTabs = flag(root, workspacesAsTabsPath, fallback: result.workspacesAsTabs, &diagnostics)
+        result.chromeGroups = flag(root, chromeGroupsPath, fallback: result.chromeGroups, &diagnostics)
+        result.sideBySide = flag(root, sideBySidePath, fallback: result.sideBySide, &diagnostics)
         result.noFade = flag(root, noFadePath, fallback: result.noFade, &diagnostics)
+        result.controlsOnHover = flag(root, controlsOnHoverPath, fallback: result.controlsOnHover, &diagnostics)
         result.minimal = flag(root, minimalPath, fallback: result.minimal, &diagnostics)
         result.detailedStatusIcons = flag(root, detailedStatusIconsPath, fallback: result.detailedStatusIcons, &diagnostics)
         result.showTimestamps = flag(root, showTimestampsPath, fallback: result.showTimestamps, &diagnostics)
         result.showColors = flag(root, showColorsPath, fallback: result.showColors, &diagnostics)
+        result.workspaceColorIndicator = WorkspaceColorsSetting.parseIndicatorStyle(root, fallback: result.workspaceColorIndicator, &diagnostics)
         result.showLocalMachine = flag(root, showLocalMachinePath, fallback: result.showLocalMachine, &diagnostics)
         result.groupHeaderMemberCount = flag(root, groupHeaderMemberCountPath, fallback: result.groupHeaderMemberCount, &diagnostics)
         result.groupHeaderUnreadCount = flag(root, groupHeaderUnreadCountPath, fallback: result.groupHeaderUnreadCount, &diagnostics)
+        if let value = root.value(at: groupHeaderBackgroundPath) {
+            if let text = value.stringValue, let style = SidebarGroupBackgroundStyle(rawValue: text) {
+                result.groupHeaderBackground = style
+            } else {
+                let choices = SidebarGroupBackgroundStyle.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.groupHeader.background", message: "expected one of " + choices))
+            }
+        }
         result.priorityViewEnabled = flag(root, SidebarPriorityViewSetting.enabledPath, fallback: result.priorityViewEnabled, &diagnostics)
         result.priorityViewShown = flag(root, SidebarPriorityViewSetting.shownPath, fallback: result.priorityViewShown, &diagnostics)
         if let value = root.value(at: groupByPath) {
@@ -306,6 +385,14 @@ public nonisolated enum SidebarSectionsSetting {
             } else {
                 let choices = SidebarDensity.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.density", message: "expected one of " + choices))
+            }
+        }
+        if let value = root.value(at: textSizePath) {
+            if let text = value.stringValue, let size = SidebarTextSize(rawValue: text) {
+                result.textSize = size
+            } else {
+                let choices = SidebarTextSize.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.textSize", message: "expected one of " + choices))
             }
         }
         if let value = root.value(at: stylePath) {

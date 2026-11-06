@@ -9,6 +9,9 @@ nonisolated enum ServerStrings {
     }
 
     static var title: String { t("panel.title", "Server") }
+    static var startFailed: String { t("refusal.startFailed", "Could not start the server. Run `cmux server up` in a terminal to see why.") }
+    static var stopFailed: String { t("refusal.stopFailed", "Could not stop the server. Run `cmux server down` in a terminal to see why.") }
+    static var pairStartFailed: String { t("refusal.pairStartFailed", "Could not start pairing. Run `cmux server pair` in a terminal to see why.") }
     static var serving: String { t("status.serving", "Serving") }
     static var off: String { t("status.off", "Off") }
     static var unpaired: String { t("status.unpaired", "Not paired") }

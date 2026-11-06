@@ -146,10 +146,12 @@ await requireBrowserLane("composer-glass.test.ts", async () => {
             );
           else expect(shadow, `${id} draws the liquid glass's specular hairline`).toMatch(/0px 0\.5px 0px 0px inset/);
         }
-        // The location strip is part of the box: the same glass.
+        // A new chat's location strip is its chips standing over the card (#25304, Leo 2026-10-25),
+        // with no fill or frost of their own: the card under it is the glass. Codex's tray keeps the
+        // card's glass (below).
         const strip = await look(page, "strip");
-        expect(strip.fill[3], "strip fill alpha").toBeLessThan(0.9);
-        expect(strip.backdrop, "strip blurs what is under it").toContain("blur(");
+        expect(strip.fill[3], "the strip draws no fill").toBe(0);
+        expect(strip.backdrop, "the strip frosts nothing").toBe("none");
         await page.close();
       });
 
@@ -262,8 +264,13 @@ await requireBrowserLane("composer-glass.test.ts", async () => {
     await cdp.send("Emulation.setEmulatedMedia", {
       features: [{ name: "prefers-reduced-transparency", value: "reduce" }],
     });
+    // The filled strip is Codex's tray; a new chat's default strip draws no fill to make solid
+    // (#25304), and frosts nothing either way.
+    const tray = await look(page, "codex-strip");
+    expect(tray.fill[3], "system Reduce Transparency makes the tray solid").toBe(1);
+    expect(tray.backdrop).toBe("none");
     const strip = await look(page, "strip");
-    expect(strip.fill[3], "system Reduce Transparency makes the strip solid").toBe(1);
+    expect(strip.fill[3], "the default strip stays unfilled").toBe(0);
     expect(strip.backdrop).toBe("none");
     await page.close();
   });

@@ -1,0 +1,18 @@
+{
+  "format": "cmux-avatar/1",
+  "id": "mochi",
+  "name": "Mochi",
+  "sheet": "sheet.png",
+  "frame": { "width": 32, "height": 32 },
+  "fps": 8,
+  "pixelArt": true,
+  "faces": "right",
+  "states": {
+    "idle": { "row": 0, "frames": 4, "fps": 4 },
+    "working": { "row": 1, "frames": 8 },
+    "thinking": { "row": 2, "frames": 6, "fps": 5 },
+    "waiting": { "row": 3, "frames": 4, "fps": 6 },
+    "done": { "row": 4, "frames": 5, "fps": 8, "loop": false },
+    "error": { "row": 5, "frames": 4, "fps": 6, "loop": false }
+  }
+}

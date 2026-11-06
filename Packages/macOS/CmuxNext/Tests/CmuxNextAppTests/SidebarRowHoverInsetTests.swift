@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Leo 2026-10-19: moving the pointer up and to the left out of a sidebar
@@ -11,7 +12,7 @@ import Testing
 /// the gap, so a sweep down or up the list never flickers (#20315). Since Leo
 /// 2026-10-20 a hovered row hands the hover to any row whose fill the pointer
 /// is on (`SidebarRowHoverFollowTests`).
-@MainActor @Suite(.serialized) struct SidebarRowHoverInsetTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarRowHoverInsetTests {
     private static func list(grouped: Bool = false) -> (SidebarListView, NSWindow, [SidebarRow]) {
         let titles = ["newtab", "workspace-2", "workspace-3", "Agent Activity"]
         let workspaces = titles.enumerated().map { SidebarWorkspace(id: WorkspaceID("ws-\($0.offset)"), title: $0.element) }
@@ -23,6 +24,7 @@ import Testing
         let list = SidebarListView(model: model)
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 240, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.contentView = list
         list.frame = NSRect(x: 0, y: 0, width: 240, height: 600)
         list.reload(animated: false)
@@ -37,7 +39,7 @@ import Testing
 
     @Test func theGapBetweenTwoRowsHoversNeitherWhenNothingIsHovered() throws {
         let (list, window, rows) = Self.list()
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         try #require(rows.count == 4)
         let above = rows[1], below = rows[2]
         try #require(below.y > above.maxY, "the rows have no gap")
@@ -52,7 +54,7 @@ import Testing
 
     @Test func aRowsRoundedCornerTakesNoHoverFromRest() throws {
         let (list, window, rows) = Self.list()
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         try #require(rows.count == 4)
         let above = rows[1]
         let frameAbove = list.frame(for: above)
@@ -69,7 +71,7 @@ import Testing
 
     @Test func theMarginBesideARowDoesNotHoverIt() throws {
         let (list, window, rows) = Self.list()
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         let row = try #require(rows.first)
         let frame = list.frame(for: row)
         try #require(frame.minX >= 1, "the rows fill the list's width")
@@ -80,7 +82,7 @@ import Testing
 
     @Test func aSweepUpTheListKeepsExactlyOneRowHovered() throws {
         let (list, window, rows) = Self.list()
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         try #require(rows.count == 4)
         let x = list.frame(for: rows[0]).midX
         var y = try #require(rows.last).maxY - list.frame(for: rows[0]).height / 2
@@ -99,7 +101,7 @@ import Testing
     /// so a click there must not act on the row above.
     @Test func aClickActsOnTheHoveredRowNotTheTileUnderThePointer() throws {
         let (list, window, rows) = Self.list()
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         try #require(rows.count == 4)
         let above = rows[1], below = rows[2]
         let frameAbove = list.frame(for: above), frameBelow = list.frame(for: below)
@@ -146,7 +148,7 @@ import Testing
 
     @Test func theBottomLeftCornerOfTheRowAboveHoversNothingFromRest() throws {
         let (list, window, rows) = Self.list()
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         let frameAbove = list.frame(for: rows[1])
         list.setHovered(nil)
         #expect(Self.hover(list, x: frameAbove.minX + 1, y: frameAbove.maxY - Metrics.space1 - 1) == nil)
@@ -154,7 +156,7 @@ import Testing
 
     @Test func theFirstRowsTopEdgeHoversNothing() throws {
         let (list, window, rows) = Self.list()
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         let frame = list.frame(for: try #require(rows.first))
         list.setHovered(nil)
         #expect(Self.hover(list, x: frame.midX, y: frame.minY + Metrics.space1 / 2) == nil)
@@ -162,7 +164,7 @@ import Testing
 
     @Test func aGroupedRowsPillStartsAtItsGutter() throws {
         let (list, window, rows) = Self.list(grouped: true)
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         let row = try #require(rows.first(where: { $0.group != nil }), "no grouped row")
         let frame = list.frame(for: row)
         try #require(frame.minX >= 1)

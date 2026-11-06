@@ -71,6 +71,32 @@ pub fn refusal_in(cwd: &Path, home: Option<&Path>) -> Option<String> {
     guarded(&resolved, &homes).and_then(refused)
 }
 
+/// Why a spare (`hub/pool/`, the shape of a session the person already
+/// started in `cwd`) may not start there, or `None` when it may. As
+/// `unasked_refusal`, except that off macOS the home folder itself is
+/// allowed: there no privacy prompt guards it, and a machine whose chats run
+/// in the home folder (a cmux Cloud machine) is the one a spare is for. The
+/// root folder, other volumes and the privacy-protected folders stay refused.
+pub fn spare_refusal(cwd: &Path) -> Option<String> {
+    spare_refusal_in(cwd, dirs::home_dir().as_deref(), cfg!(target_os = "macos"))
+}
+
+/// `spare_refusal` for the user whose home folder is `home`, on macOS or not.
+pub fn spare_refusal_in(cwd: &Path, home: Option<&Path>, macos: bool) -> Option<String> {
+    let refusal = refusal_in(cwd, home)?;
+    let is_home = |h: &Path| {
+        fold(cwd) == fold(h)
+            || std::fs::canonicalize(cwd)
+                .ok()
+                .zip(std::fs::canonicalize(h).ok())
+                .is_some_and(|(c, h)| fold(&c) == fold(&h))
+    };
+    if !macos && home.is_some_and(is_home) {
+        return None;
+    }
+    Some(refusal)
+}
+
 /// The folder for agents acpmux starts with no person asking (the model
 /// probes at daemon start): `<acpmux home>/unattended`, owned by acpmux and
 /// empty of the person's files. Never the home folder: an agent scans its
@@ -88,7 +114,10 @@ pub fn unattended_cwd_in(acpmux_home: &Path, home: Option<&Path>) -> PathBuf {
     } else {
         std::env::temp_dir().join("acpmux-unattended")
     };
-    if let Err(e) = owner_only_dir(&dir) {
+    // Not made under a lost home (`config::mark_home_lost`): it may be another daemon's now.
+    let made = crate::config::refuse_lost_home(&dir)
+        .and_then(|()| owner_only_dir(&dir).map_err(anyhow::Error::from));
+    if let Err(e) = made {
         tracing::warn!(dir = %dir.display(), "unattended agent folder: {e}");
     }
     dir
@@ -167,5 +196,21 @@ mod owner_only_tests {
         assert_eq!(dir, home.join("unattended"));
         assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
         let _ = std::fs::remove_dir_all(&home);
+    }
+}
+
+#[cfg(test)]
+mod spare_tests {
+    use super::*;
+
+    #[test]
+    fn a_spare_may_start_in_the_home_folder_off_macos_only() {
+        let home = Path::new("/home/someone");
+        assert!(spare_refusal_in(home, Some(home), false).is_none());
+        assert!(spare_refusal_in(Path::new("/home/someone/"), Some(home), false).is_none());
+        assert!(spare_refusal_in(home, Some(home), true).is_some(), "macOS keeps the refusal");
+        assert!(spare_refusal_in(Path::new("/"), Some(home), false).is_some());
+        assert!(spare_refusal_in(Path::new("relative"), Some(home), false).is_some());
+        assert!(spare_refusal_in(Path::new("/home/someone/work"), Some(home), false).is_none());
     }
 }

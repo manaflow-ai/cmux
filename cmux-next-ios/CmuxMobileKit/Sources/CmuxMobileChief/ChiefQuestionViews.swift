@@ -7,8 +7,7 @@ import UIKit
 
 /// Under the chat header while Chief asks something: one glass bar, as
 /// Messages shows a business chat's pending request, that opens the
-/// question. It says where an answer is ("Waiting for Face ID…",
-/// "Sending…") and goes away once the Mac stored it.
+/// question. It says where an answer is ("Sending…") and goes away once the Mac stored it.
 struct ChiefQuestionBar: View {
     let session: ChiefSession
     let open: (AgentQuestion) -> Void
@@ -17,6 +16,8 @@ struct ChiefQuestionBar: View {
     /// The bar starts fading out (true) or in (false) over `duration`: the
     /// host fades its backing band with it (R3-2).
     var fading: (_ out: Bool, _ duration: Double) -> Void = { _, _ in }
+    /// The away-Mac bar's Ask Cloud Chief (the screen hands over the composer's text).
+    var askCloudChief: () -> Void = {}
 
     /// What the bar shows. It outlives `session.barItem` by the fade, so
     /// the bar leaves before the conversation moves up into its room (R3-2).
@@ -26,7 +27,10 @@ struct ChiefQuestionBar: View {
     static let fadeDuration = 0.2
 
     var body: some View {
-        VStack(spacing: 0) { content }
+        VStack(spacing: 0) {
+            content
+            ChiefOutboxView(session: session, resized: resized)
+        }
             .onAppear {
                 shown = session.barItem
                 visible = shown != nil
@@ -61,6 +65,7 @@ struct ChiefQuestionBar: View {
         case .question(let question)?: question.id + (session.answers[question.id]?.statusText ?? "")
         case .failure(let id, _)?: id
         case .unavailable(let reason, let retrying)?: reason + (retrying ? "\u{0}" : "")
+        case .macAway(let reason)?: "away\u{0}" + reason
         case nil: ""
         }
     }
@@ -70,6 +75,8 @@ struct ChiefQuestionBar: View {
             failureBar(failure)
         } else if case .unavailable(let reason, let retrying)? = shown {
             unavailableBar(reason: reason, retrying: retrying)
+        } else if case .macAway(let reason)? = shown {
+            macAwayBar(reason: reason)
         } else if case .question(let question)? = shown {
             let flow = session.answers[question.id] ?? ChiefAnswerFlow()
             Button { open(question) } label: {
@@ -162,6 +169,37 @@ struct ChiefQuestionBar: View {
         .allowsHitTesting(visible)
     }
 
+    /// The Mac is away: Chief reads its cloud copy, so what is sent waits
+    /// for the Mac. Ask Cloud Chief hands the composer's text (or the newest
+    /// message) to the Cloud Chief now. It was a navigation bar button the
+    /// hidden bar never showed.
+    private func macAwayBar(reason: String) -> some View {
+        Button { askCloudChief() } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "icloud").font(.body).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(reason).font(.footnote.weight(.semibold)).lineLimit(2)
+                    Text("Messages wait for your Mac.").font(.footnote).foregroundStyle(.secondary).lineLimit(2)
+                }
+                Spacer(minLength: 4)
+                Text("Ask Cloud Chief").font(.footnote.weight(.semibold)).foregroundStyle(.tint)
+            }
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(.rect)
+            .background(Color(uiColor: .secondarySystemBackground), in: .rect(cornerRadius: 20, style: .continuous))
+        }
+        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+        .buttonStyle(.plain)
+        .padding(.horizontal, 16)
+        .accessibilityIdentifier("chief.askCloudChief")
+        .accessibilityHint("Sends your message to Cloud Chief with this chat's recent messages")
+        .opacity(visible ? 1 : 0)
+        .allowsHitTesting(visible)
+    }
+
     @ViewBuilder private func label(_ question: AgentQuestion, flow: ChiefAnswerFlow) -> some View {
         let icon = Group {
             if flow.isBusy {
@@ -214,7 +252,7 @@ struct ChiefQuestionBar: View {
 /// Chief's question, answered here. The question and its choices scroll;
 /// the status line and the one action stay pinned at the bottom of the
 /// sheet, so they are on screen at every text size (R2-2). Choosing an
-/// option only selects it; "Send Answer" (Face ID) sends (R2-8). The sheet
+/// option only selects it; "Send Answer" sends (R2-8). The sheet
 /// closes only once the Mac stored the answer.
 struct ChiefQuestionSheet: View {
     let session: ChiefSession
@@ -296,7 +334,7 @@ struct ChiefQuestionSheet: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(session.title ?? session.identity.title).font(.headline)
                 if !typeSize.isAccessibilitySize {
-                    Text("Your answer is signed with Face ID on this iPhone.")
+                    Text("Your answer is signed on this iPhone.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
@@ -401,12 +439,12 @@ struct ChiefQuestionSheet: View {
                 Button {
                     if let question, let answer { session.answer(question, with: answer) }
                 } label: {
-                    Label("Send Answer", systemImage: "faceid").frame(maxWidth: .infinity)
+                    Label("Send Answer", systemImage: "paperplane.fill").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 .disabled(!canSend)
-                .accessibilityHint("Asks for Face ID, then sends your answer to Chief")
+                .accessibilityHint("Sends your answer to Chief")
                 .accessibilityIdentifier("chief.question.send")
             }
         }

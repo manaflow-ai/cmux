@@ -28,19 +28,34 @@ symbol, on the fleet's Linux pool and on a warm macOS slot. The imports undeclar
 are listed in IMPORT_BASELINE (each one is debt: declare it, or stop importing it, and drop its line); a new
 one fails.
 
-Usage: scripts/cmux-next/check-package-dependency-lists.py [--fix] [PACKAGE_SWIFT]
-  --fix  rewrite each marked list in canonical order (a merge resolution that
-         kept both sides' lines in any order becomes canonical)
+Usage: scripts/cmux-next/check-package-dependency-lists.py [--fix] [--fix-imports] [--json] [PACKAGE_SWIFT]
+  --fix          rewrite each marked list in canonical order (a merge resolution that
+                 kept both sides' lines in any order becomes canonical)
+  --fix-imports  declare each new undeclared import in its target's dependencies: a marked list
+                 gets the entry in sorted order, an inline list `["A", "B"]` gets it before `]`, any
+                 other list gets it as its own line before `]`
+  --json         print {"problems": [...], "missing": [{"target", "module"}]} on stdout
+
+The pre-push gate (scripts/cmux-next/prepush-gate.py) runs this check on a push that changes the CmuxNext
+package, and cmux-next-package-deps-heal.yml runs it after every feat-cmux-next push, which a direct push
+reaches without a hook: on a red it opens a pull request made with --fix-imports (2026-10-29: a63986a4 and
+e875485c each added a test import its target did not declare, straight to the branch, and "Package
+dependency lists sorted" was red on every pull request after them until #27173 and #27219).
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+# The masker: beside this file first (the pre-push hook's installed copy, install-git-hooks.sh and refresh_checks.py put
+# it there, so a push cannot change how its own imports are read), else the repository's scripts/.
+sys.path[:0] = [str(Path(__file__).resolve().parent), str(ROOT / "scripts")]
+from swift_source_mask import mask_swift_source  # noqa: E402
 DEFAULT_MANIFEST = ROOT / "Packages/macOS/CmuxNext/Package.swift"
 MARKER = "// sorted: scripts/cmux-next/check-package-dependency-lists.py"
 REQUIRED = ("CmuxNextAppTests",)
@@ -54,7 +69,6 @@ IMPORT_BASELINE = frozenset((
     "CmuxNextBridge: CmuxNextDesign", "CmuxNextBridge: CmuxNextWakeups",
     "CmuxNextControlTests: CmuxNextDesign",
     "CmuxNextCookieImport: CmuxNextCompat",
-    "CmuxNextMobileHostTests: CmuxNextMobile",
     "CmuxNextPaletteTests: CmuxNextActions", "CmuxNextPaletteTests: CmuxNextDesign",
     "CmuxNextPhoneAccessTests: CmuxNextMobile",
 ) + tuple(f"CmuxNextAppTests: {module}" for module in (
@@ -62,7 +76,7 @@ IMPORT_BASELINE = frozenset((
     "CmuxNextBrowser", "CmuxNextCloud", "CmuxNextCodeRouter", "CmuxNextControl", "CmuxNextDesignTokens",
     "CmuxNextDevices", "CmuxNextErrorJournal", "CmuxNextHostPressure", "CmuxNextIcons",
     "CmuxNextPages", "CmuxNextPopups", "CmuxNextRemoteBrowser", "CmuxNextRemoteLocalhost", "CmuxNextRemoteView",
-    "CmuxNextResources", "CmuxNextServer", "CmuxNextSettingsWindow",
+    "CmuxNextResources", "CmuxNextSettingsWindow",
     "CmuxNextTerminal")))
 TARGET = re.compile(r'^\s*\.(target|testTarget|executableTarget)\(\s*$')
 IMPORT = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*((public|package|internal|private|fileprivate)\s+)?import\s+(\w+)")
@@ -177,30 +191,152 @@ def check(text: str, fix: bool) -> tuple[list[str], str]:
     return problems, "\n".join(out)
 
 
+def closing(text: str, start: int) -> int:
+    """Index of the bracket that closes the `(` or `[` at START, skipping string literals and `//` comments;
+    -1 when it never closes."""
+    pairs = {"(": ")", "[": "]"}
+    stack = [pairs[text[start]]]
+    i = start + 1
+    while i < len(text):
+        char = text[i]
+        if char == '"':
+            i += 1
+            while i < len(text) and text[i] != '"':
+                i += 2 if text[i] == "\\" else 1
+        elif text.startswith("//", i):
+            newline = text.find("\n", i)
+            i = len(text) if newline < 0 else newline
+            continue
+        elif char in pairs:
+            stack.append(pairs[char])
+        elif char in ")]":
+            if char != stack.pop():
+                return -1
+            if not stack:
+                return i
+        i += 1
+    return -1
+
+
+def without_comments(text: str) -> str:
+    """TEXT with its `//` and (nested) `/* */` comments blanked to spaces, newlines kept, so every index still points
+    at the same character; string literals are left as they are."""
+    out = list(text)
+    i = 0
+    while i < len(text):
+        if text[i] == '"':
+            i += 1
+            while i < len(text) and text[i] != '"':
+                i += 2 if text[i] == "\\" else 1
+            i += 1
+        elif text.startswith("//", i):
+            end = text.find("\n", i)
+            end = len(text) if end < 0 else end
+            out[i:end] = " " * (end - i)
+            i = end
+        elif text.startswith("/*", i):
+            start, depth, i = i, 1, i + 2
+            while i < len(text) and depth:
+                if text.startswith("/*", i):
+                    depth, i = depth + 1, i + 2
+                elif text.startswith("*/", i):
+                    depth, i = depth - 1, i + 2
+                else:
+                    i += 1
+            out[start:i] = [c if c == "\n" else " " for c in text[start:i]]
+        else:
+            i += 1
+    return "".join(out)
+
+
+def target_spans(text: str) -> dict[str, tuple[str, int, int]]:
+    """{name: (kind, the index of its `(`, the index of the `)` that closes it)} for each target the manifest
+    declares (`.target(`, `.testTarget(`, `.executableTarget(`), its arguments on that line or on the next ones
+    (review of 6e507c72: `.target(name: "CmuxNextMallocZone")` on one line was never read). A `.target(name:)`
+    inside another target's call is a dependency, not a declaration; a `//` or `/* */` comment declares nothing
+    (review of c9beb1af: a commented-out duplicate after the real one replaced its span)."""
+    text = without_comments(text)
+    spans = {}
+    inside = -1  # the end of the last target's call: a match before it is nested in that call
+    for match in re.finditer(r"\.(target|testTarget|executableTarget)\(", text):
+        open_at = match.end() - 1
+        if open_at < inside:
+            continue
+        close_at = closing(text, open_at)
+        if close_at < 0:
+            continue
+        name = re.search(r'name:\s*"([^"]+)"', text[open_at:close_at])
+        if name:
+            spans[name.group(1)] = (match.group(1), open_at, close_at)
+            inside = close_at
+    return spans
+
+
+def argument(text: str, open_at: int, close_at: int, label: str) -> tuple[int, int] | None:
+    """(index of the `[` after `LABEL:`, index of its closing `]`) for a top-level argument of the call whose
+    parentheses are at OPEN_AT..CLOSE_AT, or None when the call has no such argument."""
+    i = open_at + 1
+    while i < close_at:
+        char = text[i]
+        if char == '"':
+            i += 1
+            while i < close_at and text[i] != '"':
+                i += 2 if text[i] == "\\" else 1
+            i += 1
+            continue
+        if text.startswith("//", i):
+            newline = text.find("\n", i)
+            i = close_at if newline < 0 else newline
+            continue
+        if char in "([":
+            i = closing(text, i) + 1
+            if i <= 0:
+                return None
+            continue
+        found = re.match(rf"{re.escape(label)}:\s*\[", text[i:close_at])
+        if found and (i == 0 or not (text[i - 1].isalnum() or text[i - 1] == "_")):
+            bracket = i + found.end() - 1
+            end = closing(text, bracket)
+            return (bracket, end) if end > 0 else None
+        i += 1
+    return None
+
+
+def top_level_strings(text: str, open_at: int, close_at: int) -> list[str]:
+    """The string-literal entries of the array at OPEN_AT..CLOSE_AT: not strings inside a call such as
+    `.product(name: "X", package: "X")`, and not comments."""
+    found, i = [], open_at + 1
+    while i < close_at:
+        char = text[i]
+        if char == '"':
+            end = text.index('"', i + 1)
+            found.append(text[i + 1:end])
+            i = end + 1
+        elif text.startswith("//", i):
+            newline = text.find("\n", i)
+            i = close_at if newline < 0 else newline
+        elif char in "([":
+            i = closing(text, i) + 1 or close_at
+        else:
+            i += 1
+    return [name for name in found if re.fullmatch(r"[A-Za-z0-9_]+", name)]
+
+
 def manifest_targets(text: str) -> dict[str, tuple[str, set[str], str | None]]:
-    """{name: (kind, the local target names in its dependencies, its `path:` or None)} from the manifest text."""
-    lines = text.split("\n")
+    """{name: (kind, the local target names in its dependencies, its `path:` or None)} from the manifest text. The
+    dependencies are the string entries of the target's own `dependencies:` array, matched bracket for bracket (a
+    regex up to the next `]` read a following `resources:` list as dependencies). Comments are blanked first: a
+    `/* dependencies: ["X"] */` declares nothing (review of 3f01de17)."""
+    text = without_comments(text)
     targets = {}
-    for index, line in enumerate(lines):
-        kind = TARGET.match(line)
-        if not kind:
-            continue
-        depth, body = 0, []
-        for inner in lines[index:]:
-            body.append(inner)
-            depth += inner.count("(") - inner.count(")")
-            if depth <= 0:
-                break
-        block = "\n".join(body)
-        name = re.search(r'name:\s*"([^"]+)"', block)
-        if not name:
-            continue
-        deps = re.search(r"dependencies:\s*\[(.*?)\n\s*\]", block, re.S) or re.search(r"dependencies:\s*\[(.*?)\]", block, re.S)
-        declared = set(re.findall(r'^\s*"([A-Za-z0-9_]+)"', deps.group(1), re.M)) if deps else set()
-        if deps:
-            declared |= set(re.findall(r'(?:\[|,)\s*"([A-Za-z0-9_]+)"', deps.group(1)))
-        path = re.search(r'path:\s*"([^"]+)"', block)
-        targets[name.group(1)] = (kind.group(1), declared, path.group(1) if path else None)
+    for name, (kind, open_at, close_at) in target_spans(text).items():
+        span = argument(text, open_at, close_at, "dependencies")
+        declared = set(top_level_strings(text, span[0], span[1])) if span else set()
+        if span:
+            # `.target(name: "X")`, the form that tells a target from a product of the same name.
+            declared |= set(re.findall(r'\.target\(\s*name:\s*"([A-Za-z0-9_]+)"', text[span[0]:span[1]]))
+        path = re.search(r'path:\s*"([^"]+)"', text[open_at:close_at])
+        targets[name] = (kind, declared, path.group(1) if path else None)
     return targets
 
 
@@ -211,37 +347,139 @@ def undeclared_imports(text: str, package_root: Path) -> list[str]:
     for name, (kind, declared, path) in targets.items():
         folder = package_root / (path or (("Tests" if kind == "testTarget" else "Sources") + "/" + name))
         for source in sorted(folder.rglob("*.swift")):
-            for line in source.read_text(encoding="utf-8", errors="replace").split("\n"):
+            # Comments and string contents masked: a test's golden source that says `import X` imports nothing.
+            for line in mask_swift_source(source.read_text(encoding="utf-8", errors="replace")).split("\n"):
                 match = IMPORT.match(line)
                 if match and match.group(5) in targets and match.group(5) != name and match.group(5) not in declared:
                     found.add(f"{name}: {match.group(5)}")
     return sorted(found)
 
 
+def missing_imports(text: str, package_root: Path) -> list[tuple[str, str]]:
+    """(target, module) for each undeclared import IMPORT_BASELINE does not hold: what --fix-imports declares."""
+    return [tuple(pair.split(": ", 1)) for pair in undeclared_imports(text, package_root) if pair not in IMPORT_BASELINE]
+
+
 def import_problems(text: str, package_root: Path) -> list[str]:
     found = undeclared_imports(text, package_root)
-    problems = [f"{pair.split(':')[0]}: imports {pair.split(': ')[1]} but does not declare it in its dependencies "
-                "(an incremental build then keeps objects compiled against its old interface)"
-                for pair in found if pair not in IMPORT_BASELINE]
+    problems = [f"{target}: imports {module} but does not declare it in its dependencies (an incremental build then "
+                f"keeps objects compiled against its old interface). Fix: add \"{module}\" to the dependencies of {target}, "
+                "or run scripts/cmux-next/check-package-dependency-lists.py --fix-imports"
+                for target, module in missing_imports(text, package_root)]
     problems += [f"IMPORT_BASELINE lists {pair}, which is declared or gone now: drop its line"
                  for pair in sorted(IMPORT_BASELINE - set(found))]
     return problems
 
 
+class FixError(Exception):
+    pass
+
+
+def add_dependency(text: str, target: str, module: str) -> str:
+    """TEXT with "MODULE" added to TARGET's own `dependencies:` array (see --fix-imports); FixError when it can't be.
+    The array is found bracket for bracket inside the target's call, never by the next `]` on a line."""
+    span = target_spans(text).get(target)
+    if span is None:
+        raise FixError(f"no target named {target}")
+    _, open_at, close_at = span
+    entry = f'"{module}"'
+    code = without_comments(text)  # same indices as TEXT; a commented-out `dependencies:` is not the array
+    deps = argument(code, open_at, close_at, "dependencies")
+    if deps is None:  # no dependencies yet: one goes right after the name (SwiftPM's argument order)
+        name = re.search(r'name:\s*"[^"]+"', code[open_at:close_at])
+        end = open_at + name.end()
+        if "\n" not in text[open_at:close_at]:  # a one-line call stays on its line
+            return text[:end] + f", dependencies: [{entry}]" + text[end:]
+        line_start = text.rfind("\n", 0, open_at + name.start()) + 1
+        indent = text[line_start:open_at + name.start()]
+        if not indent.strip() == "":  # `name:` shares its line with `.target(`: indent one step past it
+            indent = " " * (len(indent) - len(indent.lstrip()) + 4)
+        rest = text[end:close_at]
+        if rest.lstrip().startswith(","):
+            comma = end + rest.index(",")
+            return text[:comma + 1] + f"\n{indent}dependencies: [{entry}]," + text[comma + 1:]
+        return text[:end] + f",\n{indent}dependencies: [{entry}]" + text[end:]
+    bracket, end = deps
+    line_start = text.rfind("\n", 0, bracket) + 1
+    line_end = text.find("\n", bracket)
+    if OPEN.match(text[line_start:line_end if line_end >= 0 else len(text)]):
+        lines = text.split("\n")
+        start = text.count("\n", 0, bracket)
+        entries, close = entries_of(lines, start)
+        indent = (entries[0][1][:len(entries[0][1]) - len(entries[0][1].lstrip())] if entries
+                  else OPEN.match(lines[start]).group(1) + "    ")
+        lines.insert(close, f"{indent}{entry},")
+        return check("\n".join(lines), fix=True)[1]
+    inside = text[bracket + 1:end]
+    last = code_end(inside)  # the end of the last entry (or of a trailing comma), before any trailing comment
+    if last == 0:  # no entry yet; a comment-only list keeps its comment after the new entry
+        return text[:bracket + 1] + entry + (text[bracket + 1:] if inside.strip() else text[end:])
+    if "\n" not in inside[last:]:  # the `]` follows the last entry on its line: `"A", "B"]` or `...)]`
+        separator = " " if inside[:last].endswith(",") else ", "
+        return text[:bracket + 1 + last] + separator + entry + text[bracket + 1 + last:]
+    # The `]` on a line of its own: a new line before it, indented like the last entry, after that entry's line (its
+    # comment stays with it).
+    previous_start = inside.rfind("\n", 0, last) + 1
+    previous = inside[previous_start:last]
+    indent = previous[:len(previous) - len(previous.lstrip())]
+    comma = "" if inside[:last].endswith(",") else ","
+    at, line_end = bracket + 1 + last, bracket + 1 + inside.index("\n", last)
+    return text[:at] + comma + text[at:line_end] + f"\n{indent}{entry}," + text[line_end:]
+
+
+def code_end(inside: str) -> int:
+    """The index just past the last character of INSIDE that is code, not whitespace or a `//` comment."""
+    end = i = 0
+    while i < len(inside):
+        if inside[i] == '"':
+            i += 1
+            while i < len(inside) and inside[i] != '"':
+                i += 2 if inside[i] == "\\" else 1
+            end = i = i + 1
+        elif inside.startswith("//", i):
+            newline = inside.find("\n", i)
+            i = len(inside) if newline < 0 else newline
+        else:
+            end = i + 1 if not inside[i].isspace() else end
+            i += 1
+    return min(end, len(inside))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--fix", action="store_true")
+    parser.add_argument("--fix-imports", action="store_true")
+    parser.add_argument("--json", action="store_true")
     parser.add_argument("manifest", nargs="?", type=Path, default=DEFAULT_MANIFEST)
     args = parser.parse_args()
+    # With --json, stdout is exactly one JSON object: what a fixer did goes to stderr.
+    human = sys.stderr if args.json else sys.stdout
     text = args.manifest.read_text(encoding="utf-8")
     problems, fixed = check(text, args.fix)
     if args.fix:
         if fixed != text:
             args.manifest.write_text(fixed, encoding="utf-8")
-            print(f"sorted the dependency lists in {args.manifest}")
+            print(f"sorted the dependency lists in {args.manifest}", file=human)
         problems, _ = check(fixed, False)
-    if (args.manifest.parent / "Sources").is_dir():  # a package tree, not a bare manifest (the tests' --fix runs)
+        text = fixed
+    package_tree = (args.manifest.parent / "Sources").is_dir()  # a package tree, not a bare manifest (the tests' --fix runs)
+    missing = missing_imports(text, args.manifest.parent) if package_tree else []
+    if args.fix_imports and missing:
+        declared = text
+        for target, module in missing:
+            try:
+                declared = add_dependency(declared, target, module)
+                print(f"declared {module} in the dependencies of {target}", file=human)
+            except (FixError, ListError) as error:
+                print(f"{args.manifest}: could not declare {module} in {target}: {error}", file=sys.stderr)
+        args.manifest.write_text(declared, encoding="utf-8")
+        text = declared
+        problems, _ = check(text, False)
+        missing = missing_imports(text, args.manifest.parent)
+    if package_tree:
         problems += import_problems(text, args.manifest.parent)
+    if args.json:
+        print(json.dumps({"problems": problems, "missing": [{"target": t, "module": m} for t, m in missing]}))
     for problem in problems:
         print(f"{args.manifest}: {problem}", file=sys.stderr)
     if problems:

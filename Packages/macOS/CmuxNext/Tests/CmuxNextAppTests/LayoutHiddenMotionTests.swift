@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextLayout
 import CmuxNextDesign
+import CmuxNextTestSupport
 import CmuxNextWakeups
 import Testing
 
@@ -9,6 +10,7 @@ import Testing
 /// showed, the hidden workspace's clock stopped, and showing it again never restarted it. Hiding
 /// a layout now ends its motion where it was going.
 @MainActor
+@Suite(.closesItsWindows)
 struct LayoutHiddenMotionTests {
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }
@@ -30,10 +32,13 @@ struct LayoutHiddenMotionTests {
             window.contentView = root
             root.layoutSubtreeIfNeeded()
         }
+
+        func tearDown() { window.closeAfterTest() }
     }
 
     @Test func showingAfterAnInterruptedScreenSwitchFinishesTheTransition() throws {
         let fixture = Screens()
+        defer { fixture.tearDown() }
         let root = fixture.root
         let incoming = try #require(root.screenViews["s2"])
         let outgoing = try #require(root.screenViews["s1"])
@@ -43,12 +48,13 @@ struct LayoutHiddenMotionTests {
         #expect(!incoming.hasMotion)
         #expect(root.driver.isRunning)
 
-        // No frame or layout pass may finish the transition before the workspace parks.
+        // No frame or layout pass ran before the workspace parks. The park lands the switch in flight with the panes
+        // (c5a36a3fe86, LayoutParkedLiveTests), so the show finds nothing left to slide and schedules no frame.
         root.isHidden = true
         #expect(!root.driver.isRunning)
         root.isHidden = false
         #expect(root.isLive)
-        #expect(root.driver.isRunning, "the incoming screen needs scheduled frames even when its panes are settled")
+        #expect(!root.driver.isRunning, "the show restarted a screen switch the park already landed")
         let scheduler = FrameScheduler.forWindow(fixture.window)
         for tick in 0..<240 {
             if !root.driver.isRunning { break }
@@ -63,6 +69,7 @@ struct LayoutHiddenMotionTests {
 
     @Test func showingAnUnchangedSettledRootLeavesTheDriverIdle() {
         let fixture = Screens()
+        defer { fixture.tearDown() }
         let root = fixture.root
         let moving = root.screenViews.values.contains(where: \.hasMotion)
         #expect(!moving)
@@ -82,6 +89,7 @@ struct LayoutHiddenMotionTests {
         root.context.reduceMotionOverride = false
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         window.contentView = root
         root.layoutSubtreeIfNeeded()
         // The test is the clock: the display link never ticks.

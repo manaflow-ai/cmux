@@ -322,7 +322,8 @@ MAC_TOOLCHAIN = {
 # The env flags each Mac job passes; '' is a value (an empty swift filter runs every selected target).
 MAC_FLAGS = {
     "swift-test": {"swift_targets": "CmuxNextAppTests", "swift_filter": "", "mini": "true",
-                   "xcode_app": "/Applications/Xcode_26.6.app", "web_bundles": "0123abcd", "layout_reducer": "false"},
+                   "xcode_app": "/Applications/Xcode_26.6.app", "web_bundles": "0123abcd", "layout_reducer": "false",
+                   "generated_base": ""},
     "generated-files": {"mini": "true", "xcode_app": "/Applications/Xcode_26.6.app", "web_bundles": "0123abcd"},
     "release-compile": {"mini": "true", "xcode_app": "/Applications/Xcode_26.6.app"},
 }
@@ -338,7 +339,8 @@ COMMON_INPUTS = (
     "docs/read-by-tests.json", "fixtures/read-dir/case.json", "Packages/macOS/CmuxNext/ci-target-graph.json",
 )
 JOB_INPUTS = {
-    "swift-test": ("webviews/src/app.ts", "cmux-tui/Cargo.lock", "cmux-tui/crates/cmux-layout-reducer/src/lib.rs"),
+    "swift-test": ("webviews/src/app.ts", "cmux-tui/Cargo.lock", "cmux-tui/crates/cmux-layout-reducer/src/lib.rs",
+                   "scripts/ci/defaults_guard.py", "docs/mdm/index.md"),
     "generated-files": ("webviews/src/app.ts", "scripts/ci/defaults_guard.py", "docs/mdm/index.md"),
     "release-compile": ("LICENSE", "scripts/verify-app-bundle-licenses.sh",
                         "cmux-tui/build-support/notices", "cmux-tui/rust-toolchain.toml",
@@ -435,7 +437,8 @@ class MacJobInputs(unittest.TestCase):
         changed = {"xcode": "Xcode 26.6 Build version 17F56", "macos": "26.0.2", "macos_build": "25A363",
                    "arch": "x86_64", "pool": "blacksmith", "image": "macos26-20261012.1", "mini": "false",
                    "xcode_app": "/Applications/Xcode_26.7.app", "web_bundles": "4567cdef",
-                   "swift_targets": "all", "swift_filter": "^(CmuxNextAppTests)\\\\.", "layout_reducer": "true"}
+                   "swift_targets": "all", "swift_filter": "^(CmuxNextAppTests)\\\\.", "layout_reducer": "true",
+                   "generated_base": "a" * 40}
         for job in MAC_JOBS:
             base = self.key(job)
             for name, value in changed.items():

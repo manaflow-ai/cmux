@@ -155,7 +155,7 @@ public final class ChiefReplicaBackend: ConversationBackend, @unchecked Sendable
                 throw ConversationBackendError(code: -32601, message: String(localized: "Your Mac is offline. Only text can wait for it."))
             }
             guard let socket else {
-                throw ConversationBackendError(code: -1, message: String(localized: "Not connected to the Cloud copy of your Mac's Chief yet."))
+                throw ConversationBackendError(code: -1, message: String(localized: "mobile.chief.offline", defaultValue: "Chief is offline.", bundle: .module))
             }
             let key = draft.clientMessageID
             let frame: [String: Any] = ["t": "op", "stream": stream, "op": "conversation.message.send",
@@ -198,7 +198,7 @@ public final class ChiefReplicaBackend: ConversationBackend, @unchecked Sendable
             while !closed, !Task.isCancelled {
                 let welcomed = await connectOnce()
                 if closed || Task.isCancelled { return }
-                continuation?.yield(.disconnected(reason: String(localized: "Reconnecting to the Cloud copy of your Mac's Chief")))
+                continuation?.yield(.disconnected(reason: String(localized: "mobile.chief.reconnecting", defaultValue: "Reconnecting…", bundle: .module)))
                 attempt = welcomed ? 0 : attempt + 1
                 // A bounded, cancellable wait between dials (close() cancels the runner).
                 try? await Task.sleep(for: ChiefCloudBackend.Core.retryDelay(attempt: attempt))

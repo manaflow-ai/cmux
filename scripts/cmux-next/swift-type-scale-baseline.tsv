@@ -22,17 +22,12 @@ Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedGitHubActions.swift	size	
 Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedGlyph.swift	size	1
 Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedInboxHeader.swift	size	4
 Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedInboxRow.swift	size	2
-Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedInboxSection.swift	size	2
 Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedInboxView.swift	size	3
-Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedListView.swift	size	3
-Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedNoticeRow.swift	size	2
 Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedPromptSummary.swift	size	10
 Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedPromptSummary.swift	weight	2
 Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedView.swift	size	1
 Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunView.swift	size	6
 Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunView.swift	weight	2
-Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/Steps/ImportConsentView.swift	size	1
-Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/Views/OnboardingMetrics.swift	size	3
 Packages/macOS/CmuxNext/Sources/CmuxNextRemoteView/Pane/RemoteChromeControls.swift	size	2
 Packages/macOS/CmuxNext/Sources/CmuxNextRemoteView/Pane/RemoteChromeControls.swift	weight	2
 Packages/macOS/CmuxNext/Sources/CmuxNextRemoteView/Pane/RemotePathBadgeView.swift	weight	1
@@ -54,7 +49,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerPanelView.swift	size	
 Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerRows.swift	size	3
 Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/WordsGrid.swift	weight	1
 Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarCardTextButton.swift	weight	1
-Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarStyle.swift	weight	2
+Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarStyle.swift	weight	1
 Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/WorkspaceStatusView.swift	weight	1
 Packages/macOS/CmuxNext/Sources/CmuxNextTabs/Demo/DemoContentView.swift	size	1
 Packages/macOS/CmuxNext/Sources/CmuxNextTasks/Views/NewTaskField.swift	size	1

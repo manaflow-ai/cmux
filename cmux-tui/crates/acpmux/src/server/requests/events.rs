@@ -3,7 +3,12 @@
 
 use super::*;
 
-pub(super) fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcError> {
+pub(super) fn handle(
+    hub: &Arc<Hub>,
+    m: &str,
+    params: &Value,
+    caller: Option<&str>,
+) -> Result<Value, RpcError> {
     let s = hub.resolve(session_key(params)?)?;
     if m == method::MUX_ATTACHMENT {
         let id =
@@ -14,11 +19,28 @@ pub(super) fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, R
     let before = params.get("beforeSeq").and_then(Value::as_u64);
     let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(5000) as usize;
     let max_bytes = Some(crate::hub::page_bytes(params));
-    let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
+    // A client that bounds its page wants the transcript in it, not superseded tool output.
+    let filter = crate::hub::EventFilter::parse(params.get("kinds"))?
+        .omitting_superseded(params.get("maxBytes").is_some_and(|b| !b.is_null()));
     let (last, created) = {
         let meta = s.meta();
         (meta.last_seq, meta.created_at)
     };
+    // The prompt index (`Hub::prompt_index`): every prompt before `beforeSeq`, cut short, in one
+    // reply, so the rail draws a long chat's every turn before its history pages in. A daemon
+    // without it reads `promptIndex` as nothing and answers the bounded page the pane also asks for.
+    if params.get("promptIndex").and_then(Value::as_bool) == Some(true) {
+        let records =
+            hub.prompt_index(&s.id, before).map_err(|e| RpcError::internal(e.to_string()))?;
+        let through = newest_seq(&records);
+        return Ok(json!({
+            "events": values(&s.id, records),
+            "hasMore": false,
+            "lastSeq": last,
+            "pageThrough": through,
+            "createdAt": created,
+        }));
+    }
     if after > last {
         return Err(RpcError::invalid_params(format!(
             "cursor_future: afterSeq {after} is beyond the last event {last}"
@@ -32,6 +54,7 @@ pub(super) fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, R
     // page that stops short of the log (older records, or one more page to read) holds only to its
     // own last record.
     let through = if before.is_none() && !page.has_more { last } else { newest_seq(&page.events) };
+    hub.lane_report_events_read(caller, &s.id, &page.events);
     Ok(json!({
         "events": values(&s.id, page.events),
         "hasMore": page.has_more,

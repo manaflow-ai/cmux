@@ -17,6 +17,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { freestyleClient } from "../vms/drivers/freestyle";
 import {
+  PUBLICATION_API_KEY_COOKIE,
   PUBLICATION_SESSION_COOKIE,
   PUBLICATION_TRANSACTION_COOKIE,
   normalizePublicationHostname,
@@ -30,7 +31,14 @@ export const CMUX_FORWARD_AUTH_TIMEOUT_MS = 1_500;
 export const FREESTYLE_WEB_EDGE_HOST = "beta-web.freestyle.sh";
 export const FREESTYLE_CERTIFICATE_NAMESERVER = "beta-dns.freestyle.sh";
 
-const PROTECTED_PREVIEW_COOKIES = [
+export const PROTECTED_PREVIEW_COOKIES = [
+  CMUX_PREVIEW_SESSION_COOKIE,
+  CMUX_PREVIEW_TRANSACTION_COOKIE,
+  PUBLICATION_API_KEY_COOKIE,
+] as const;
+
+/** The list before API keys; a config with it is still CMUX's and is updated in place. */
+const LEGACY_PROTECTED_PREVIEW_COOKIES = [
   CMUX_PREVIEW_SESSION_COOKIE,
   CMUX_PREVIEW_TRANSACTION_COOKIE,
 ] as const;
@@ -116,7 +124,7 @@ export type PublicationDnsInstruction = {
 
 /**
  * CMUX's stable representation of Freestyle's verification response. The
- * published 0.2.10 SDK calls these fields `id`, `recordName`, and
+ * published 0.2.21 SDK calls these fields `id`, `recordName`, and
  * `verificationCode`; those names deliberately stop at this adapter.
  */
 export type PublicationDomainVerification = {
@@ -340,7 +348,8 @@ function isCmuxForwardAuthConfig(
   return (
     canonicalUrlForComparison(config.url) === options.url &&
     headerNames.includes("authorization") &&
-    sameStringSet(config.protectedCookies, PROTECTED_PREVIEW_COOKIES) &&
+    (sameStringSet(config.protectedCookies, PROTECTED_PREVIEW_COOKIES) ||
+      sameStringSet(config.protectedCookies, LEGACY_PROTECTED_PREVIEW_COOKIES)) &&
     (config.authResponseHeaders?.length ?? 0) === 0
   );
 }

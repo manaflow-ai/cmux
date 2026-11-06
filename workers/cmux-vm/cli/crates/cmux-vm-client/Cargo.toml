@@ -12,6 +12,15 @@ rust-version.workspace = true
 [lib]
 doctest = false
 
+[features]
+default = ["default-tls", "system-proxy"]
+# reqwest's own TLS (rustls with aws-lc). Off when a host binary brings its own rustls
+# provider (the cmux CLI).
+default-tls = ["reqwest/default-tls"]
+# The macOS and Windows system proxy settings (SystemConfiguration on macOS). Off in the
+# cmux CLI, whose own HTTP clients do not link that framework; HTTP(S)_PROXY still applies.
+system-proxy = ["reqwest/system-proxy"]
+
 [dependencies]
 bytes.workspace = true
 futures.workspace = true

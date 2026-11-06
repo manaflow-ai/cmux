@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import CmuxNextWakeups
 
@@ -25,6 +26,9 @@ final class CEFFirstPaintBridge {
     /// Nonisolated, like the matcher that reads it: the module's default
     /// isolation is MainActor, and `isFirstContentfulPaint` is pure.
     nonisolated static let firstContentfulPaint = "firstContentfulPaint"
+    /// Blink's lifecycle event name for the first frame of a document presented, with or without content: from then
+    /// on the document takes input (lead on STATUS 9778: a page with an empty field never had a contentful paint).
+    nonisolated static let firstPaint = "firstPaint"
 
     /// Weak: the tab owns the relay that owns this bridge.
     private weak var tab: CEFTab?
@@ -60,8 +64,12 @@ final class CEFFirstPaintBridge {
     /// document owns the page area from now on. Always false, so this only
     /// reads the stream and never takes a message off it: an agent relaying
     /// raw protocol messages still sees every lifecycle event.
-    func handle(_ json: String) -> Bool {
-        if Self.isFirstContentfulPaint(json, mainFrame: mainFrame) { painted() }
+    func handle(_ head: DevToolsMessageHead) -> Bool {
+        if Self.isFirstContentfulPaint(head, mainFrame: mainFrame) {
+            painted()
+        } else if Self.isLifecycleEvent(head, named: Self.firstPaint, mainFrame: mainFrame) {
+            tab?.documentDidFirstPaint(contentful: false) // the document takes keys; the page area hand-over still waits for content
+        }
         return false
     }
 
@@ -72,7 +80,8 @@ final class CEFFirstPaintBridge {
         ChatOpenTrace.shared.mark(.firstContentfulPaint, chromiumPane: tab?.host.key.pane.rawValue)
         if let tab { tab.runtime.benchMarks.firstPaint(tab.id.rawValue) }
         #endif
-        tab?.documentDidSettle()
+        tab?.documentDidFirstPaint()
+        tab?.documentDidPaint()
     }
 
     /// Whether `json` is the first contentful paint of `mainFrame`. A
@@ -80,12 +89,22 @@ final class CEFFirstPaintBridge {
     /// before the main frame is known, when every frame does: that is the
     /// load-end behavior at worst, never a missed hand-over.
     nonisolated static func isFirstContentfulPaint(_ json: String, mainFrame: String?) -> Bool {
-        guard json.contains("\"Page.lifecycleEvent\""), json.contains("\"\(firstContentfulPaint)\""),
-              let data = json.data(using: .utf8),
+        isFirstContentfulPaint(DevToolsMessageHead(json: json), mainFrame: mainFrame)
+    }
+
+    /// The same check for a message whose head the relay already read.
+    nonisolated static func isFirstContentfulPaint(_ head: DevToolsMessageHead, mainFrame: String?) -> Bool {
+        isLifecycleEvent(head, named: firstContentfulPaint, mainFrame: mainFrame)
+    }
+
+    /// Whether `head` is the lifecycle event `name` of `mainFrame` (every frame before the main frame is known).
+    nonisolated static func isLifecycleEvent(_ head: DevToolsMessageHead, named name: String, mainFrame: String?) -> Bool {
+        guard head.method == "Page.lifecycleEvent", head.contains("\"\(name)\""),
+              let data = head.json.data(using: .utf8),
               let message = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               message["method"] as? String == "Page.lifecycleEvent",
               let params = message["params"] as? [String: Any],
-              params["name"] as? String == firstContentfulPaint
+              params["name"] as? String == name
         else { return false }
         guard let mainFrame else { return true }
         return params["frameId"] as? String == mainFrame

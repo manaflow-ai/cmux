@@ -37,7 +37,7 @@ use serde_json::{Map, Value, json};
 use super::GlobalArgs;
 use super::app::{ActionName, action_run_params, insert_run_key, request_with_retry};
 use super::command::{RequestPlan, WireOperation};
-use super::resolve::{Failure, read, read_response, send};
+use super::resolve::{Failure, read, read_response, response_failure, send_request};
 
 type Reader = BufReader<Box<dyn transport::Stream>>;
 
@@ -460,8 +460,8 @@ fn mutate(
     });
     let encoded = super::resolve::encode_request_bytes(&request)
         .map_err(|error| Failure::Transport(format!("cmux: {error}")))?;
-    send(reader, &encoded).map_err(Failure::Transport)?;
-    match read_response(reader, &id).map_err(Failure::Transport)? {
+    send_request(reader, &encoded)?;
+    match read_response(reader, &id).map_err(response_failure)? {
         Ok(result) => Ok(result),
         Err(error) => Err(Failure::Resource(error)),
     }

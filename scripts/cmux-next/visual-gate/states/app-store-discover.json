@@ -1,0 +1,28 @@
+{
+  "title": "App Store: Discover lists the four examples",
+  "settings": {
+    "labs": {
+      "previewFeatures": true
+    }
+  },
+  "launch_args": [],
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 3
+    },
+    {
+      "title": "App Store",
+      "cmux": [
+        "action",
+        "run",
+        "appStore.show",
+        "--focus",
+        "--tab",
+        "discover"
+      ],
+      "wait": 4,
+      "cite": "Packages/macOS/CmuxNext/Sources/CmuxNextActions/Catalog/AppStoreActionCatalog.swift"
+    }
+  ]
+}

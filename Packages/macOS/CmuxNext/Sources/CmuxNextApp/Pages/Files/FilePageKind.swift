@@ -16,27 +16,12 @@ nonisolated enum FilePageKind: String, Sendable, CaseIterable {
     case markdown
     case editor
 
-    @MainActor var descriptor: PageDescriptor {
-        switch self {
-        case .markdown: .markdown
-        case .editor: .editor
-        }
-    }
+    @MainActor var descriptor: PageDescriptor { self == .markdown ? .markdown : .editor }
 
-    var page: InternalPageID {
-        switch self {
-        case .markdown: .markdown
-        case .editor: .editor
-        }
-    }
+    var page: InternalPageID { self == .markdown ? .markdown : .editor }
 
     /// The page's theme surface (`appearance.surfaces.markdown`, `.editor`).
-    var surface: SurfaceKind {
-        switch self {
-        case .markdown: .markdown
-        case .editor: .editor
-        }
-    }
+    var surface: SurfaceKind { self == .markdown ? .markdown : .editor }
 
     /// `cmux.markdown`, `cmux.editor`: the op prefix without its dot.
     @MainActor var namespace: String { descriptor.id }
@@ -47,33 +32,13 @@ nonisolated enum FilePageKind: String, Sendable, CaseIterable {
     var section: String { rawValue }
 
     /// The viewers' recents list this page reads and records into (R89).
-    @MainActor var recents: ViewerRecents.Kind {
-        switch self {
-        case .markdown: .markdown
-        case .editor: .file
-        }
-    }
+    @MainActor var recents: ViewerRecents.Kind { self == .markdown ? .markdown : .file }
 
-    var symbol: String {
-        switch self {
-        case .markdown: "doc.richtext"
-        case .editor: "chevron.left.forwardslash.chevron.right"
-        }
-    }
+    var symbol: String { self == .markdown ? "doc.richtext" : "chevron.left.forwardslash.chevron.right" }
 
-    var icon: IconName {
-        switch self {
-        case .markdown: .fileText
-        case .editor: .code
-        }
-    }
+    var icon: IconName { self == .markdown ? .fileText : .code }
 
-    var title: String {
-        switch self {
-        case .markdown: FilePageStrings.markdownTitle
-        case .editor: FilePageStrings.editorTitle
-        }
-    }
+    var title: String { self == .markdown ? FilePageStrings.markdownTitle : FilePageStrings.editorTitle }
 
     /// Whether this page opens `url`: the markdown page only Markdown files, the editor any file.
     func accepts(_ url: URL) -> Bool {

@@ -13,6 +13,7 @@ ahead of the token, or an unpinned action.
 
 import pathlib
 import re
+import json
 import unittest
 
 import yaml
@@ -175,7 +176,15 @@ class TestboxBrokerGuardTests(unittest.TestCase):
     def test_the_runner_label_is_declared_for_actionlint(self) -> None:
         label = self.job["runs-on"]
         config = (ROOT / ".github" / "actionlint.yaml").read_text(encoding="utf-8")
-        self.assertRegex(config, rf"(?m)^\s*-\s*{re.escape(label)}\s*$")
+        pool = re.fullmatch(r"\$\{\{\s*fromJSON\(vars\.RUNNER_POOLS\)\.([A-Za-z0-9_]+)\s*\}\}", label)
+        if pool:
+            self.assertEqual(pool.group(1), "linux_32")
+            runners = json.loads((ROOT / ".github" / "runners.json").read_text(encoding="utf-8"))
+            for member in runners["pools"][pool.group(1)]["members"]:
+                with self.subTest(member=member):
+                    self.assertRegex(config, rf"(?m)^\s*-\s*{re.escape(member)}\s*$")
+        else:
+            self.assertRegex(config, rf"(?m)^\s*-\s*{re.escape(label)}\s*$")
 
 
 if __name__ == "__main__":

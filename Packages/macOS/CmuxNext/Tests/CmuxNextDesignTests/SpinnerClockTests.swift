@@ -38,6 +38,30 @@ import Testing
         #expect(abs(phaseAt500 - unixPhase) < 1e-6)
     }
 
+    @Test func twoWorkingSpinnersStartedAcrossASleepShareOnePhase() throws {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let period = try #require(Motion.indicators.period(.spinner))
+        // The media clock stops while the Mac sleeps; Unix time does not. Read afresh per spinner
+        // (the old default), Unix time put one started after a sleep out of step with one turning
+        // since before it (Leo 2026-11-01: "why did you desync these"). The default clock now
+        // counts from the media clock alone on one offset per process, so the two spinners below,
+        // started 0.37 s apart on the media clock, share a phase whatever the wall clock did.
+        let early = StatusIndicatorLayer(clock: SpinnerClock(mediaTime: { 500 }))
+        let late = StatusIndicatorLayer(clock: SpinnerClock(mediaTime: { 500.37 }))
+        let plan = StatusIndicatorPlan.working(tint: .spinner)
+        for indicator in [early, late] {
+            indicator.frame = CGRect(x: 0, y: 0, width: 16, height: 16)
+            indicator.apply(plan, config: StatusIndicatorConfig())
+        }
+        let first = try #require(early.glyphLayer?.animation(forKey: "spin"))
+        let second = try #require(late.glyphLayer?.animation(forKey: "spin"))
+        let turns = (second.beginTime - first.beginTime) / period
+        #expect(abs(turns - turns.rounded()) < 1e-6, "begin times \(first.beginTime) and \(second.beginTime) are out of step")
+        let clock = SpinnerClock(mediaTime: { 42 })
+        #expect(abs(clock.unixTime() - 42 - SpinnerClock.processEpoch) < 1e-9)
+    }
+
     @Test func spinnersTurnClockwise() throws {
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }

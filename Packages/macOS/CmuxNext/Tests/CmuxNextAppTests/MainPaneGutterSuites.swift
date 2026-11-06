@@ -1,4 +1,5 @@
 import CmuxNextDesign
+import CmuxNextTestSupport
 import CoreGraphics
 import Testing
 
@@ -6,7 +7,7 @@ import Testing
 /// edge, its corners and the chrome shade. They run one at a time under this parent, so a test
 /// that sets the gutter (the Debug Settings flush opt-in, gutter 0) never runs beside one that
 /// reads the default.
-@MainActor @Suite(.serialized) struct MainPaneGutterSuites {
+@MainActor @Suite(.closesItsWindows, .serialized) struct MainPaneGutterSuites {
     /// Runs `body` with the main pane gutter at `points` (the Debug Settings override), then
     /// removes the override.
     static func withGutter<T>(_ points: CGFloat, _ body: () throws -> T) rethrows -> T {

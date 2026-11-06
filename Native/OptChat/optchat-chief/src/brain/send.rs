@@ -13,12 +13,27 @@ use std::path::PathBuf;
 use cmux_conversation::{Op, PartRef};
 
 use super::Brain;
-use super::media::{self, MAX_MEDIA_BYTES, MediaRef};
+use super::media::{self, MediaRef};
 use crate::tools::SendCall;
 
 impl Brain {
     /// The `send` tool.
     pub(super) fn send(&mut self, call: SendCall) -> Result<String, String> {
+        // The length gate: the first long send of a turn comes back for
+        // Chief to cut; the next one posts (chief_kernel::replies). A send
+        // marked `long` (a list the person asked for) posts the first time.
+        if let Some(refusal) = chief_kernel::replies::length_check(
+            call.text.as_deref().unwrap_or(""),
+            self.chief.reply_max_words,
+            self.length_refused || call.long,
+        ) {
+            self.length_refused = true;
+            self.trace.emit(
+                "chief.reply_too_long",
+                serde_json::json!({"words": chief_kernel::replies::reply_words(call.text.as_deref().unwrap_or(""))}),
+            );
+            return Err(refusal);
+        }
         let home = std::env::var_os("HOME").map(PathBuf::from);
         // Every attachment is checked before anything is posted, so a bad
         // call can be fixed and sent again whole.
@@ -40,21 +55,13 @@ impl Brain {
             if meta.len() == 0 {
                 return Err(format!("send: attachment {} is empty", path.display()));
             }
-            if meta.len() > MAX_MEDIA_BYTES {
-                return Err(format!(
-                    "send: attachment {} is {} MB; the limit is {} MB",
-                    path.display(),
-                    meta.len() / 1_000_000,
-                    MAX_MEDIA_BYTES / 1_000_000
-                ));
-            }
             if files.iter().any(|f| f.path == path) {
                 continue;
             }
             let mime_type = media::attachment_type(&path);
             files.push(MediaRef {
                 path,
-                mime_type,
+                mime_type: mime_type.into(),
                 image_syntax: None,
             });
         }
@@ -115,9 +122,9 @@ impl Brain {
         {
             return Ok("outcome: noop. this message is already sent".to_owned());
         }
-        // The text as a reply's (subagent links), then a URL line each, then
-        // one `![name](<path>)` line per file: it leaves the text once the
-        // file is uploaded, and stays as its fallback when the upload fails.
+        // The text as a reply's (subagent links), then a URL line each.
+        // The file manifest stays separate: attachment count must not
+        // consume the message's text allowance.
         let mut text = call
             .text
             .as_deref()
@@ -128,20 +135,6 @@ impl Brain {
                 text.push('\n');
             }
             text.push_str(url);
-        }
-        for file in &mut files {
-            let name = file
-                .path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("file")
-                .replace([']', '[', '\n'], " ");
-            if !text.is_empty() {
-                text.push('\n');
-            }
-            let start = text.len();
-            text.push_str(&format!("![{name}](<{}>)", file.path.display()));
-            file.image_syntax = Some(start..text.len());
         }
         if text.len() > super::REPLY_BYTES {
             return Err(format!(

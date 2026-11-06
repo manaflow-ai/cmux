@@ -21,6 +21,14 @@ nonisolated enum LinkRoutingSchema {
                                          "When off, links you click in terminals, agent chats, Home and cmux pages open in your default browser. Shift-Command-click opens a link in the other browser."),
                 kind: .toggle, default: .bool(fallback.opensInCmuxBrowser), keywords: ["link", "url", "click", "default browser", "terminal", "chat"]
             ),
+            SettingDescriptor(
+                LinkRouting.signInPagesPath, section: .browser, group: group,
+                title: SettingsText.keyed("settings.browser.openSignInPages", "Open Sign-In Pages in cmux Browser"),
+                help: SettingsText.keyed("settings.browser.openSignInPages.help",
+                                         "Sign-in and device-code pages, such as GitHub's device page or a page gh, aws or an agent opens to sign in, open in a cmux browser tab even when other links open in your default browser. URLs to Always Open Externally still win."),
+                kind: .toggle, default: .bool(fallback.signInPagesInCmux),
+                keywords: ["sign in", "login", "device code", "oauth", "auth", "passkey", "default browser", "gh auth login"]
+            ),
             // Classic's key: read when the new one is absent, never written by Settings. Listed so
             // MDM profiles and team policies written for it still apply.
             SettingDescriptor(
@@ -43,7 +51,8 @@ nonisolated enum LinkRoutingSchema {
                 help: SettingsText.keyed("settings.browser.externalLinkPatterns.help",
                                          "Links that match open in your default browser. Text matches anywhere in the URL, * and ? are wildcards, and re: starts a regular expression."),
                 summary: SettingsText.keyed("settings.browser.externalLinkPatterns.summary", "Links that open in your default browser"),
-                kind: .stringList, default: .array([]), keywords: ["denylist", "blocklist", "regex", "external", "default browser"]
+                kind: .stringList, default: .array([]), keywords: ["denylist", "blocklist", "regex", "external", "default browser"],
+                placeholder: SettingText(key: nil, text: "*.example.com/*")
             ),
             SettingDescriptor(
                 TextEditorSetting.configPath, section: .general, group: SettingsText.keyed("settings.group.files", "Files"),

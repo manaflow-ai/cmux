@@ -1,11 +1,32 @@
 ---
 name: cmux-backend
-description: "Backend TypeScript and Cloud VM development rules for cmux. Use when editing web/app/api, web/services, backend scripts, Cloud VM lifecycle, provider integrations, Postgres, Stack Auth pricing gates, migrations, or provider image build scripts."
+description: "Where cmux Cloud backend code goes (new code: the private manaflow-ai/cmux-platform repo) and the rules for the backend code still in cmux. Use before writing any cloud backend code (control plane, VM API routes and DTOs, provider drivers, billing, entitlements, auth callbacks, the NEXT Worker) and when editing web/app/api, web/services, web/db, backend/apps/api, workers/, Cloud VM lifecycle, Postgres, Stack Auth pricing gates, migrations, or provider image build scripts."
 ---
 
 # cmux Backend
 
-## Core rules
+## Where cloud backend code goes
+
+New cloud backend code goes to the private repository **manaflow-ai/cmux-platform**, not here: the control
+plane, VM API routes and their DTOs, provider drivers, metering and billing, entitlements, the hand-off server,
+and the NEXT Worker's server logic. It follows that repository's stack: Effect `HttpApi` (contract in `src/api/`,
+handlers in `src/server/`), its committed `openapi.json` (`bun run openapi`), and `vp run ci`. Read its README
+and open PRs first.
+
+The backend code still in this repository (`web/app/api`, `web/services`, `web/db`, `backend/apps/api`,
+`backend/db`, `web/orpc/server`, `workers/cmux-vm`, `workers/device-hub`, `workers/iroh-v2`, `workers/presence`,
+`services/iroh-relay-minter`; the list is
+`.github/cloud-backend-paths.json`) moves to cmux-platform one PR-sized move at a time: the port lands in
+cmux-platform first, then a cmux PR deletes the copy here, and a move changes no behavior. Until a piece has
+moved, a fix to it may land here; say so on a line of the PR description that starts `cmux-platform:`. A new
+feature on that code moves the code first. `pr-cloud-backend-check` warns on a PR that changes those paths
+without that line.
+
+What stays here: the client (the app, `Packages/`, `webviews/`), the CLI (`workers/cmux-vm/cli`,
+`workers/cmux-vm/sdk`, the Rust `cmux`), the GUI, and the protocol (`backend/packages/protocol`,
+`backend/catalog`).
+
+## Rules for backend code still in this repository
 
 - Default backend TypeScript to Effect under `web/app/api/**`, `web/services/**`, and backend scripts touching providers, databases, auth, rate limits, retries, timeouts, or telemetry.
 - Keep Next route handlers thin: parse the request, run one Effect program at the boundary, map typed errors to HTTP responses, treat unexpected defects separately.

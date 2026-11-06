@@ -10,6 +10,7 @@
 // of three the clips replaced.
 import type { ReleaseItem, ReleaseView } from "./model";
 import { categoryLabel, Groups, ItemActions, Media, RowActions, type PartsContext } from "./ReleaseParts";
+import { ChangePullRequest } from "./ChangePullRequest";
 
 /** At most this many changes lead the section. */
 const LEAD_MAX = 3;
@@ -78,7 +79,9 @@ export function SpanNews({ view, ctx }: { view: ReleaseView; ctx: PartsContext }
               <Media media={item.media!} className="cln-clip-media" strings={ctx.strings} />
               <div className="cln-clip-text">
                 <span className="cln-card-kind">{categoryLabel(ctx.strings, item.category)}</span>
-                <h2 className="cln-clip-title">{item.title}</h2>
+                <h2 className="cln-clip-title">
+                  {item.pr ? <ChangePullRequest pr={item.pr} title={item.title} /> : item.title}
+                </h2>
                 <p className="cln-clip-caption">{clipCaption(item)}</p>
                 <ItemActions item={item} ctx={ctx} />
               </div>
@@ -90,8 +93,10 @@ export function SpanNews({ view, ctx }: { view: ReleaseView; ctx: PartsContext }
         <div className="cln-lead-row" data-count={lead.length}>
           {lead.map((item, index) => (
             <article key={`${item.id}-${index}`} className="cln-lead">
-              {item.media && <Media media={item.media} className="cln-lead-media" />}
-              <h2 className="cln-lead-title">{item.title}</h2>
+              {item.media && <Media media={item.media} className="cln-lead-media" strings={ctx.strings} />}
+              <h2 className="cln-lead-title">
+                {item.pr ? <ChangePullRequest pr={item.pr} title={item.title} /> : item.title}
+              </h2>
               {item.summary && <p className="cln-lead-summary">{firstParagraph(item.summary)}</p>}
               <ItemActions item={item} ctx={ctx} />
             </article>
@@ -103,9 +108,11 @@ export function SpanNews({ view, ctx }: { view: ReleaseView; ctx: PartsContext }
           {cards.map((item, index) => (
             <li key={`${item.id}-${index}`} className="cln-card">
               <span className="cln-card-kind">{categoryLabel(ctx.strings, item.category)}</span>
-              <h3 className="cln-card-title">{item.title}</h3>
+              <h3 className="cln-card-title">
+                {item.pr ? <ChangePullRequest pr={item.pr} title={item.title} /> : item.title}
+              </h3>
               {item.summary && <p className="cln-card-summary">{firstParagraph(item.summary)}</p>}
-              {item.media && <Media media={item.media} className="cln-card-media" />}
+              {item.media && <Media media={item.media} className="cln-card-media" strings={ctx.strings} />}
               <RowActions item={item} ctx={ctx} />
             </li>
           ))}
@@ -122,7 +129,11 @@ export function SpanNews({ view, ctx }: { view: ReleaseView; ctx: PartsContext }
             {fixed.map((item, index) => (
               <li key={`${item.id}-${index}`}>
                 <span className="cl-row-text">
-                  <span className="cl-row-title">{item.title}</span>
+                  {item.pr ? (
+                    <ChangePullRequest pr={item.pr} title={item.title} />
+                  ) : (
+                    <span className="cl-row-title">{item.title}</span>
+                  )}
                   {item.summary && <span className="cl-row-summary"> {firstParagraph(item.summary)}</span>}
                 </span>
                 <RowActions item={item} ctx={ctx} />

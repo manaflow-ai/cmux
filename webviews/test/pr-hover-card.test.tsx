@@ -70,11 +70,6 @@ const answer = {
   },
 };
 
-const tool = (id: string, command: string, output = "") => ({
-  id,
-  tool: { id, kind: "execute", title: command, status: "completed", exitCode: 0, command, output },
-});
-
 async function rig() {
   const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
   const { resetPullRequestStore } = await import("../src/agent-session/acpmux/chips/pullRequestStore");
@@ -109,37 +104,6 @@ function shownText(element: Element): string {
   for (const hidden of copy.querySelectorAll("title, .acpmux-pr-card__sr")) hidden.remove();
   return copy.textContent ?? "";
 }
-
-test("a pull request bar opens the pull request card", async () => {
-  const { act } = await import("react");
-  const { createRoot } = await import("react-dom/client");
-  const { UiProvider } = await import("../src/ui/UiProvider");
-  const { PullRequestDock } = await import("../src/agent-session/acpmux/summary/PullRequestDock");
-  const host = await rig();
-  const element = dom.window.document.getElementById("root")!;
-  const root = createRoot(element);
-  const rows = [
-    { kind: "activity", id: "a1", version: 1, items: [tool("t1", `gh pr create --title "${TITLE}"`, URL)] },
-  ];
-  await act(async () =>
-    root.render(
-      <UiProvider container={element}>
-        <PullRequestDock rows={rows as never} sessionId="card" />
-      </UiProvider>,
-    ),
-  );
-  const bar = element.querySelector<HTMLElement>(".acpmux-pr-dock__bar")!;
-  await act(async () => bar.focus());
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-  expectFullCard(element.querySelector<HTMLElement>(".acpmux-pr-card"));
-  expect(host.calls.filter((call) => call.method === "pr.inspect")).toEqual([
-    { method: "pr.inspect", params: { url: URL } },
-  ]);
-  // The bar itself carries no tooltip: the card is the hover.
-  expect(bar.hasAttribute("title")).toBe(false);
-  await act(async () => root.unmount());
-  host.done();
-});
 
 test("a pull request chip in a reply opens the same card", async () => {
   const { act } = await import("react");
@@ -228,12 +192,10 @@ test("the card's chrome is quiet: borderless buttons, no divider, no underline, 
   expect(rule(".cv-link-preview__head")).not.toContain("border");
   expect(rule(".acpmux-pr-card__lines")).toContain("display:inline-flex");
   // Glass: the shared liquid glass (.ui-glass) paints the card, so the card itself sets no fill;
-  // plain glass and Reduce Transparency get the tooltip's tint and blur through the glass tokens.
+  // its level is the popover glass every hover card wears (glass.css GLASS LEVELS), never its own.
   const card = rule(".cv-link-preview");
   expect(card).not.toContain("background");
   expect(card).not.toContain("box-shadow");
   expect(rule(".cv-link-preview.ui-card")).toContain("--glass-elevation:");
-  const fallback = rule(':root:not([data-glass="lens"], [data-glass="spectrum"]) .cv-link-preview.ui-card.ui-glass');
-  expect(fallback).toContain("--glass-tint:var(--tooltip-tint");
-  expect(fallback).toContain("--glass-backdrop:var(--tooltip-blur");
+  expect(styles).not.toMatch(/\.cv-link-preview[^{}]*\{[^}]*--glass-(tint|backdrop):/);
 });

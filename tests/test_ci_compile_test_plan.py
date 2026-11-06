@@ -110,6 +110,33 @@ class CompileTestPlanTests(unittest.TestCase):
         self.assertEqual(self.plan(["scripts/ci/cmux_next_route.py", "scripts/cmux-next/prepush-gate.py",
                                     "App/CmuxNextApp.swift", "webviews/src/app.tsx"]), {})
 
+    def test_skip_package_leaves_cmuxnext_out_and_keeps_the_lane_packages(self) -> None:
+        # The pull-request check skips CmuxNext: cmux-next.yml's swift test job builds its test targets.
+        skip = frozenset({CMUXNEXT})
+        self.assertEqual(dict(self.module.plan(ROOT, PR_23360, skip)), {})
+        plan = dict(self.module.plan(ROOT, ["Packages/Shared/CMUXAuthCore/Sources/CMUXAuthCore/AuthTokens.swift"], skip))
+        self.assertNotIn(CMUXNEXT, plan)
+        self.assertIn("Packages/Shared/CMUXAuthCore", plan)
+        # Without the skip (the tip compile, a hand-run compile-tests) CmuxNext stays.
+        self.assertIn(CMUXNEXT, self.plan(PR_23360))
+
+    def run_cli(self, changed_paths: list[str], *extra: str) -> subprocess.CompletedProcess:
+        with tempfile.TemporaryDirectory() as scratch:
+            changed = Path(scratch) / "changed.txt"
+            changed.write_text("\n".join(changed_paths) + "\n", encoding="utf-8")
+            return subprocess.run(
+                [sys.executable, str(SCRIPT), "--root", str(ROOT), "--changed-files", str(changed), *extra],
+                capture_output=True, text=True,
+            )
+
+    def test_cli_skip_package(self) -> None:
+        done = self.run_cli(PR_23360, "--skip-package", CMUXNEXT)
+        self.assertEqual((done.returncode, done.stdout), (0, ""), done.stderr)
+        # A directory that is no local package is refused, so a typo never silently plans everything.
+        done = self.run_cli(PR_23360, "--skip-package", "Packages/macOS/NoSuchPackage")
+        self.assertEqual(done.returncode, 2, done.stdout + done.stderr)
+        self.assertIn("not a local package directory", done.stderr)
+
     def test_cli_prints_one_line_per_package(self) -> None:
         with tempfile.TemporaryDirectory() as scratch:
             changed = Path(scratch) / "changed.txt"
@@ -134,7 +161,8 @@ class CompileTestsPhaseArgsTests(unittest.TestCase):
                               capture_output=True, text=True, timeout=60)
 
     def test_needs_one_full_merge_base_sha(self) -> None:
-        for args in ((), ("abc123",), ("A" * 40,), ("0" * 40, "extra")):
+        for args in ((), ("abc123",), ("A" * 40,), ("0" * 40, "extra"), ("0" * 40, "--skip-package="),
+                     ("0" * 40, "--skip-package", CMUXNEXT)):
             done = self.run_lane(*args)
             self.assertEqual(done.returncode, 2, (args, done.stdout, done.stderr))
             self.assertIn("compile-tests MERGE_BASE_SHA", done.stderr)
@@ -169,7 +197,9 @@ exit 1
 
 # The plan comes from FAKE_PLAN (";" between packages), and one package's
 # submodule setup fails when it is FAKE_BROKEN_SETUP.
-FAKE_PLAN = r"""import os
+FAKE_PLAN = r"""import os, sys
+with open(os.environ["FAKE_SEEN"], "a") as seen:
+    seen.write("plan " + " ".join(sys.argv[1:]) + "\n")
 for line in os.environ.get("FAKE_PLAN", "").split(";"):
     if line.strip():
         print(line.strip())
@@ -221,13 +251,14 @@ class CompileTestsPhaseTests(unittest.TestCase):
         subprocess.run([*git, "commit", "-qm", "change"], check=True)
         self.seen = self.tmp / "seen"
 
-    def lane(self, plan: str, bad: str = "", refused: str = "", broken: str = "") -> subprocess.CompletedProcess:
+    def lane(self, plan: str, bad: str = "", refused: str = "", broken: str = "",
+             extra: tuple[str, ...] = ()) -> subprocess.CompletedProcess:
         self.seen.write_text("")
         env = {key: value for key, value in os.environ.items() if not key.startswith("GITHUB_")}
         env.update(PATH=f"{self.bin}:{env['PATH']}", DEVELOPER_DIR=str(self.dev), RUNNER_TEMP=str(self.tmp),
                    FAKE_SEEN=str(self.seen), FAKE_PLAN=plan, FAKE_BAD=bad, FAKE_REFUSED=refused,
                    FAKE_BROKEN_SETUP=broken)
-        return subprocess.run(["bash", "scripts/ci/package-test-lane.sh", "compile-tests", self.base],
+        return subprocess.run(["bash", "scripts/ci/package-test-lane.sh", "compile-tests", self.base, *extra],
                               cwd=self.repo, env=env, capture_output=True, text=True, timeout=120)
 
     def builds(self) -> list[str]:
@@ -240,6 +271,19 @@ class CompileTestsPhaseTests(unittest.TestCase):
         self.assertNotIn(MARKER, done.stdout)
         self.assertEqual(len(self.builds()), 3, self.builds())
         self.assertTrue(any("--build-tests" in b and "Beta" in b for b in self.builds()))
+
+    def plan_calls(self) -> list[str]:
+        return [line for line in self.seen.read_text().splitlines() if line.startswith("plan ")]
+
+    def test_skip_package_reaches_the_plan(self) -> None:
+        done = self.lane("Packages/macOS/Beta", extra=("--skip-package=Packages/macOS/CmuxNext",))
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        [call] = self.plan_calls()
+        self.assertIn("--skip-package Packages/macOS/CmuxNext", call)
+        # Without it the plan is asked for everything.
+        self.lane("Packages/macOS/Beta")
+        [call] = self.plan_calls()
+        self.assertNotIn("--skip-package", call)
 
     def test_an_empty_plan_builds_nothing(self) -> None:
         done = self.lane("")
@@ -291,6 +335,32 @@ def step_script() -> str:
             break
         body.append(line[indent:])
     return "\n".join(body) + "\n"
+
+
+class PullRequestCompilesCmuxNextTests(unittest.TestCase):
+    """The pull-request check compiles CmuxNext's test targets again: cmux-next.yml's swift test job
+    runs on a pull request only with full-ci (2026-11-05), so nothing else builds them on a PR."""
+
+    def test_the_workflow_skips_no_package_in_either_plan(self) -> None:
+        text = WORKFLOW.read_text()
+        self.assertNotIn("SKIP:", text)
+        self.assertIn('compile_test_plan.py --changed-files "$RUNNER_TEMP/changed.txt" > ', text)
+        # The fleet lane plans again on the Mac: it gets no skip either.
+        self.assertNotIn("--skip-package", step_script())
+
+    def test_swift_test_runs_on_a_pull_request_only_with_full_ci(self) -> None:
+        # If swift test ran on every same-repository PR again, this check would compile CmuxNext twice.
+        text = (ROOT / ".github" / "workflows" / "cmux-next.yml").read_text()
+        job = re.split(r"\n  [A-Za-z0-9_-]+:[^\n]*\n", text.split("\n  swift-test:\n", 1)[1], maxsplit=1)[0]
+        condition = re.search(r"^    if: (.*)$", job, re.M).group(1)
+        self.assertNotIn("github.event.pull_request.head.repo.full_name == github.repository", condition)
+        self.assertIn("github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')",
+                      condition)
+
+    def test_the_tip_compile_keeps_cmuxnext(self) -> None:
+        tip = (ROOT / ".github" / "workflows" / "cmux-next-tip-test-compile.yml").read_text()
+        self.assertNotIn("--skip-package", tip)
+        self.assertNotIn("--skip-package", (ROOT / "scripts" / "ci" / "tip-test-compile.sh").read_text())
 
 
 class AdvisoryVerdictTests(unittest.TestCase):

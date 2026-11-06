@@ -23,6 +23,16 @@ nonisolated enum SidebarDocWire {
     struct Batch: Decodable {
         var revision: Revision?
         var changes: [Lossy<Change>]
+
+        /// The idempotency key of the change a batch echoes, or nil.
+        static func key(of data: Data) -> String? {
+            (try? JSONDecoder().decode(Key.self, from: data))?.idempotencyKey
+        }
+
+        private struct Key: Decodable {
+            var idempotencyKey: String?
+            enum CodingKeys: String, CodingKey { case idempotencyKey = "idempotency_key" }
+        }
     }
 
     struct Change: Decodable {
@@ -161,7 +171,9 @@ nonisolated enum SidebarDocWire {
                                   label: label ?? self.body.string("label"), iconURL: self.body.string("icon_url") ?? (extra?.value as? [String: Any])?["icon_url"] as? String,
                                   pinnedInGroup: (extra?.value as? [String: Any])?["pinned"] as? Bool == true,
                                   archived: (extra?.value as? [String: Any])?["archived"] as? Bool == true,
-                                  autoArchive: SidebarDocAutoArchiveRule(wire: (extra?.value as? [String: Any])?["auto_archive"]))
+                                  autoArchive: SidebarDocAutoArchiveRule(wire: (extra?.value as? [String: Any])?["auto_archive"]),
+                                  sort: SidebarGroupSort(wire: (extra?.value as? [String: Any])?["sort"]),
+                                  room: self.body.tag == "group" ? self.body.string("profile") : (extra?.value as? [String: Any])?["room"] as? String)
         }
     }
 

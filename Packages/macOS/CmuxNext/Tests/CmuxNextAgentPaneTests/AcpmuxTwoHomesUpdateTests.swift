@@ -45,7 +45,7 @@ struct AcpmuxTwoHomesUpdateTests {
             // Build N starts acpmux from its bundle on both homes.
             var before: [Int32?] = []
             for index in homes.indices {
-                try await AcpmuxHost(environment: try environment(index)).prewarm()
+                try await AcpmuxHost(daemons: AcpmuxLocalDaemons(), environment: try environment(index)).prewarm()
                 let now = try await pid(index)
                 before.append(now)
                 record(now)
@@ -61,7 +61,7 @@ struct AcpmuxTwoHomesUpdateTests {
             var after: [Int32?] = []
             for index in homes.indices {
                 step = "build N+1's launch on home \(homes[index].lastPathComponent)"
-                try await AcpmuxHost(environment: try environment(index)).prewarm()
+                try await AcpmuxHost(daemons: AcpmuxLocalDaemons(), environment: try environment(index)).prewarm()
                 let now = try await pid(index)
                 after.append(now)
                 record(now)

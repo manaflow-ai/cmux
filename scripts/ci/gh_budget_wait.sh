@@ -16,6 +16,11 @@
 #   gh_budget_wait.sh --backoff TRY [WHAT]
 #                                    wait (once, bounded) after try TRY of a call
 #                                    made outside gh (an action) failed; never fails
+#   gh_budget_wait.sh --backoff-probe TRY PROBE [WHAT]
+#                                    as --backoff, but waits until GitHub stops
+#                                    refusing PROBE (a gh api path on the same API
+#                                    as the refused call) for the rate limit, for
+#                                    the reset each refusal names; never fails
 #
 # A refused call is tried at most GH_BUDGET_WAIT_ATTEMPTS times (default 6), and
 # one job waits at most GH_BUDGET_WAIT_MAX_SECONDS in all (default 3600, the
@@ -32,6 +37,7 @@ set -u
 ledger_dir="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/gh-budget-wait"
 max_total="${GH_BUDGET_WAIT_MAX_SECONDS:-3600}"
 attempts="${GH_BUDGET_WAIT_ATTEMPTS:-6}"
+throttled='rate limit exceeded|secondary rate limit|abuse detection|too many requests|HTTP 429'
 
 # No ledger yet is nothing waited; one that cannot be read or parsed counts as the whole
 # budget spent (fail closed: an earlier step's waits are unknown).
@@ -128,6 +134,71 @@ if [ "${1:-}" = "--backoff" ]; then
   exit 0
 fi
 
+# probe_refusal_wait PROBE ROUND: reads PROBE once (`gh api -i`, which prints the response
+# headers even for an error status). When GitHub refuses it for the rate limit (a 429, or a 403
+# with x-ratelimit-remaining: 0, a Retry-After or a message naming the limit), prints the seconds
+# until that refusal says to come back: Retry-After, else x-ratelimit-reset, else (a secondary
+# limit names no reset) the backoff for round ROUND. At least 5 s, so a refusal that names no
+# time is not read again at once. Exit 1 when GitHub answers it otherwise: a 2xx, a 404, a
+# permission 403 or no answer at all is not a rate limit.
+probe_refusal_wait() {
+  local out status retry remaining reset now left round="${2:-1}"
+  out="$("$REAL_GH" api -i "$1" 2>&1)"
+  out="$(printf '%s\n' "$out" | tr -d '\r')"
+  status="$(printf '%s\n' "$out" | awk 'toupper($1) ~ /^HTTP\// { code = $2 } END { print code }')"
+  retry="$(printf '%s\n' "$out" | awk -F': *' 'tolower($1) == "retry-after" { v = $2 } END { print v }')"
+  remaining="$(printf '%s\n' "$out" | awk -F': *' 'tolower($1) == "x-ratelimit-remaining" { v = $2 } END { print v }')"
+  reset="$(printf '%s\n' "$out" | awk -F': *' 'tolower($1) == "x-ratelimit-reset" { v = $2 } END { print v }')"
+  case "$status" in
+    429) ;;
+    403)
+      case "$retry" in '' | *[!0-9]*) ;; *) remaining=0 ;; esac
+      [ "$remaining" = 0 ] || printf '%s\n' "$out" | grep -qiE "$throttled" || return 1 ;;
+    *) return 1 ;;
+  esac
+  now="$(date +%s)"
+  case "$retry" in '' | *[!0-9]*) retry="" ;; esac
+  case "$reset" in '' | *[!0-9]*) reset=0 ;; esac
+  if [ -n "$retry" ]; then
+    left="$retry"
+  elif [ "$remaining" = 0 ] && [ "$reset" -gt "$now" ]; then
+    left=$((reset - now + 5))
+  else
+    left=$((60 << (round - 1)))
+    [ "$left" -le 300 ] || left=300
+  fi
+  [ "$left" -ge 5 ] || left=5
+  echo "$left"
+}
+
+# --backoff-probe TRY PROBE [WHAT]: the wait after try TRY of a call that is not gh (the
+# attestation's write) was refused, read from GitHub's own answer instead of a fixed schedule.
+# The action that was refused hides the response, so PROBE, a cheap read on the same API with the
+# same token, stands in for it: while GitHub refuses PROBE for the rate limit, this waits for the
+# reset that refusal names and reads it again, and once GitHub answers it the caller's next try
+# runs at once. When PROBE answers on the first read (a limit the read does not share, or no
+# limit at all), nothing says when the refused call may go again, so this waits as --backoff TRY.
+# Within the job total; never fails, so the next try decides.
+if [ "${1:-}" = "--backoff-probe" ]; then
+  try="${2:-1}"
+  probe="${3:-}"
+  what="${4:-a GitHub API call}"
+  case "$try" in '' | *[!0-9]* | 0) try=1 ;; esac
+  if [ -z "$probe" ] || ! want="$(probe_refusal_wait "$probe" "$try")"; then
+    wait_for_budget "$(seconds_to_reset "$try")" "$what failed (try $try), likely the API rate limit" || true
+    exit 0
+  fi
+  round="$try"
+  while wait_for_budget "$want" "$what failed (try $try), and GitHub refuses $probe for the rate limit"; do
+    round=$((round + 1))
+    want="$(probe_refusal_wait "$probe" "$round")" || {
+      log_wait "GitHub answers $probe again; the next try of $what runs now"
+      break
+    }
+  done
+  exit 0
+fi
+
 if [ "${1:-}" = "--reserve" ]; then
   want="${2:-200}"
   left="$("$REAL_GH" api rate_limit --jq '.resources.core.remaining' 2>/dev/null || echo "")"
@@ -158,7 +229,7 @@ while [ "$try" -le "$attempts" ]; do
   fi
   rc=$?
   if [ "$rc" -eq 0 ] || [ "$try" -eq "$attempts" ] ||
-    ! grep -qiE 'rate limit exceeded|secondary rate limit|abuse detection|too many requests|HTTP 429' "$work/err" "$work/out"; then
+    ! grep -qiE "$throttled" "$work/err" "$work/out"; then
     break
   fi
   wait_for_budget "$(seconds_to_reset "$try")" "gh ${1:-} ${2:-} was refused for the API rate limit (try $try of $attempts)" || break

@@ -57,6 +57,8 @@ export type SchemaRow = {
   url_key?: string;
   default: unknown;
   default_label: LocalizedText | null;
+  /** What a list row's empty field shows; null or absent shows none (a host list: its host example). */
+  placeholder?: LocalizedText | null;
   keywords: string[];
   agent_settable: boolean;
   kept_on_reset_all: boolean;
@@ -92,7 +94,16 @@ export type PageCategory = {
   dev_only?: boolean;
 };
 
-export type PageLayout = { default_category: string; categories: PageCategory[] };
+/** A titled run of categories in the page's sidebar (Swift `SettingsPageLayout.SidebarSection`);
+ * the lead run (General, Updates) has a null title. */
+export type PageSidebarSection = { id: string; title: LocalizedText | null; categories: string[] };
+
+export type PageLayout = {
+  default_category: string;
+  categories: PageCategory[];
+  /** The sidebar's sections, every category once in category order. */
+  sidebar_sections: PageSidebarSection[];
+};
 
 type Schema = {
   rows: SchemaRow[];

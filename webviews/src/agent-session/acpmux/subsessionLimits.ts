@@ -1,6 +1,6 @@
 // How many of a chat's sub-sessions (the chats its agent started with `start_session`) run a turn
 // at once: acpmux's `subsessionLimits.maxRunning`, read from the attach reply's session detail and its `limits`
-// records, set with `_acpmux/subsession/limits` (inspector/SubagentLimitStepper.tsx). Leo, 2026-10-21:
+// records, set with `_acpmux/subsession/limits` (session-info/SubagentLimitStepper.tsx). Leo, 2026-10-21:
 // "increase or decrease subagent amounts ad hoc".
 import type { SubsessionLimits, SubsessionLimitSource } from "./model";
 import type { StartedSession } from "./started/startedSessions";

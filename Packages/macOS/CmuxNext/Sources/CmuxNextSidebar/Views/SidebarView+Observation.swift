@@ -42,20 +42,24 @@ extension SidebarViewComponents {
         var workspacesAsTabs: Bool
         /// Group by Status (`SidebarTunables.groupByStatus`, Debug, off by default).
         var groupsByStatus: Bool
-        /// The "Done (N)" fold (`SidebarTunables.doneFold`): turning it on or off lays the list out again.
-        var foldsDone: Bool
         /// The row limit (`SidebarTunables.groupRowLimit`): changing it lays the list out again.
         var rowLimit: Int
         /// Where group lines sit (`sidebar.groupLineLayout`): headers reach and lines move, so the list lays out again.
         var groupLineLayout: SidebarGroupLineLayout
+        var groupChromeShape: Bool
         /// Whether a joined line runs out of its header's bar (`SidebarGroupLine.joinsBar`, the band header style)
         /// or starts after the cut: its frame moves, so the list lays out again.
         var groupLineJoinsBar: Bool
+        /// Whether a group with no color draws its block (`sidebar.noColorGroup` not plain) or nothing: the
+        /// group's line view changes kind, so the list lays out again.
+        var noColorBlocks: Bool
+        /// Where leading glyphs sit in the icon column (`sidebar.leadingColumn`): every row lays out again.
+        var leadingColumn: SidebarLeadingColumnLook
         init(_ model: SidebarModel, _ design: DesignSettings) {
             sectionsRevision = model.observedStructureRevision
             selection = model.selection
             selected = model.selectedItem
-            onScreen = SidebarTunables.multiView.value ? model.onScreen : []
+            onScreen = SidebarTunables.multiViewOn ? model.onScreen : []
             profiles = model.profiles
             activeProfile = model.activeProfileID
             filter = model.filterText
@@ -68,18 +72,20 @@ extension SidebarViewComponents {
             preferences = design.sidebarSections
             suppressedApps = model.suppressedApps
             metrics = .standard
-            fontSize = Typography.body.pointSize
+            fontSize = SidebarStyle.titleFont.pointSize
             titlebarHeight = Metrics.titlebarHeight
             cards = SidebarBottomCards(update: model.updateCard, nowPlaying: model.nowPlaying, updated: model.updatedCard, notice: model.noticeCard)
             tree = SidebarSessionTree.shared.drawn
             pullRequests = SidebarSessionTree.shared.pullRequests
             history = SidebarChatHistory.shared.state
-            workspacesAsTabs = SidebarTunables.workspacesAsTabs.value
+            workspacesAsTabs = SidebarTunables.workspacesAsTabsOn
             groupsByStatus = SidebarTunables.groupByStatus.value
-            foldsDone = SidebarTunables.doneFold.value
             rowLimit = SidebarTunables.rowLimit
             groupLineLayout = SidebarGroupLineLayout.tunable.value
+            groupChromeShape = SidebarStyle.groupChromeShape
             groupLineJoinsBar = SidebarGroupLine.joinsBar
+            noColorBlocks = SidebarNoColorGroupLook.tunable.value != .plain
+            leadingColumn = SidebarLeadingColumnLook.tunable.value
         }
     }
     func observe() {
@@ -102,7 +108,7 @@ extension SidebarViewComponents {
     func render(_ state: RenderState) {
         guard state != lastState else { return }
         let chromeChanged = lastState?.metrics != state.metrics || lastState?.fontSize != state.fontSize
-            || lastState?.titlebarHeight != state.titlebarHeight
+            || lastState?.titlebarHeight != state.titlebarHeight || lastState?.leadingColumn != state.leadingColumn
         let profileChanged = lastState?.activeProfile != state.activeProfile
         let profilesChanged = lastState?.profiles != state.profiles || profileChanged
             || lastState?.layout != state.layout || lastState?.itemInfo != state.itemInfo
@@ -113,10 +119,11 @@ extension SidebarViewComponents {
         let rowsChanged = lastState?.sectionsRevision != state.sectionsRevision || lastState?.filter != state.filter || chromeChanged || profileChanged
             || state.preferences.changesList(from: lastState?.preferences) || lastState?.tree != state.tree
             || lastState?.history != state.history
-            || lastState?.workspacesAsTabs != state.workspacesAsTabs || lastState?.foldsDone != state.foldsDone
+            || lastState?.workspacesAsTabs != state.workspacesAsTabs
             || lastState?.groupsByStatus != state.groupsByStatus
             || lastState?.rowLimit != state.rowLimit || lastState?.groupLineLayout != state.groupLineLayout
-            || lastState?.groupLineJoinsBar != state.groupLineJoinsBar
+            || lastState?.groupChromeShape != state.groupChromeShape
+            || lastState?.groupLineJoinsBar != state.groupLineJoinsBar || lastState?.noColorBlocks != state.noColorBlocks
         let listChanged = rowsChanged || selectionChanged
         // A selected session never hides in a fold (a notification, the palette or Cmd-number chose it).
         if selectionChanged { state.selection.forEach(SidebarSessionTree.shared.reveal) }
@@ -124,12 +131,14 @@ extension SidebarViewComponents {
         model.applyListPreferences(state.preferences)
         model.groupByStatus(state.groupsByStatus)
         // Minimal mode or an item's control changed: show or hide the chosen bands now.
-        if lastState?.preferences.minimalMode != state.preferences.minimalMode || lastState?.itemInfo != state.itemInfo {
+        // Controls on hover too (`sidebar.controlsOnHover`): its controls fade to the new rule.
+        if lastState?.preferences.minimalMode != state.preferences.minimalMode || lastState?.itemInfo != state.itemInfo
+            || lastState?.preferences.controlsOnHover != state.preferences.controlsOnHover {
             setChromeRevealed(isChromeRevealed)
         }
         // A selected top item (a workspace's tile, a band item) repaints only itself and the one before it;
         // before any reload below, so a block it configures draws the new selection.
-        if lastState?.selected != state.selected { showActiveTopItem() }
+        if lastState?.selected != state.selected || lastState?.selection != state.selection { showActiveTopItem() }
         // A document change (a drop) moves the list's rows and its blocks together: the blocks update now, not at
         // the next layout pass, so the list reloads once with both (ptr8: a settle on the rows alone showed the
         // stale blocks for a frame: the dragged tile back in Pinned, the rows bumped, the card aimed 24 pt off).

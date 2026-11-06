@@ -6,8 +6,9 @@
 //!   it never lands in a program the shell's startup files started;
 //! - else an agent session whose harness is known resumes, started as it was
 //!   (its flags and account directory, `relaunch_store::agent_launch`):
-//!   `CLAUDE_CONFIG_DIR=<dir> claude --resume <id> <flags>` or
-//!   `CODEX_HOME=<dir> codex resume <id> <flags>`. It runs (Return after it)
+//!   `CLAUDE_CONFIG_DIR=<dir> claude --resume <id> <flags>`,
+//!   `CODEX_HOME=<dir> codex resume <id> <flags>` or
+//!   `muse resume <id> <flags>`. It runs (Return after it)
 //!   when all of these hold:
 //!   - `sessions.resumeAgents` in the settings file is on (the default;
 //!     "Resume Agents After Restart");
@@ -15,8 +16,10 @@
 //!     quoting it is written in;
 //!   - its flags turn no approvals off (`--dangerously-skip-permissions`,
 //!     `--permission-mode bypassPermissions`, codex `--yolo`, `-s
-//!     danger-full-access` or `-a never`; a claude settings file or agent
-//!     and a codex profile count too, as they may): a respawn never starts an agent with its
+//!     danger-full-access` or `-a never`, muse `--yolo`, `--disable-approval`,
+//!     `--disable-sandbox` or `--approval-mode never`; a claude settings file
+//!     or agent, a codex profile, and a muse permission profile, preset,
+//!     agent overlay or `-c` setting count too, as they may): a respawn never starts an agent with its
 //!     approvals off by itself (#22292). Such a resume is typed without
 //!     Return instead;
 //!   - when it is written, shell integration itself marks the prompt (OSC
@@ -25,6 +28,10 @@
 //!     the prompt: the Return reaches the shell, with only this command.
 //!
 //!   Otherwise nothing is typed; the marker line shows the resume command.
+//! - else a shell the freeing tier parked (`park-tabs`, `relaunch.on_show`)
+//!   gets its last finished command (`kept_tabs.last_command_json`) typed
+//!   without Return, one line only, on the same marked, empty, foreground
+//!   prompt: the person runs it again with one key;
 //! - any other command never runs again and is never typed: the marker line
 //!   shows its command line (the full argv when this daemon process
 //!   launched it, else the relaunch record's argv without credential-like
@@ -156,12 +163,14 @@ impl Mux {
 
     /// What respawned terminal `terminal_id` types on its new prompt, if
     /// anything: the resume command a person set for it, else its agent's
-    /// resume, only with `resume_agents` (the setting) and a POSIX shell.
+    /// resume, only with `resume_agents` (the setting) and a POSIX shell,
+    /// else the last command of a freed shell (`freed_last`), without Return.
     pub(in crate::mux) fn respawn_prefill(
         &self,
         terminal_id: &str,
         record: Option<&StoredRelaunch>,
         resume_agents: bool,
+        freed_last: Option<&str>,
     ) -> Option<Prefill> {
         match self.terminal_resume_command(terminal_id) {
             Ok(Some(text)) => return Some(Prefill { kind: Prefilled::Resume, text, run: false }),
@@ -172,7 +181,9 @@ impl Mux {
                 );
             }
         }
-        agent_prefill(record?, resume_agents)
+        record
+            .and_then(|record| agent_prefill(record, resume_agents))
+            .or_else(|| freed_last.and_then(last_command_prefill))
     }
 
     /// Set (`Some`) or clear (`None`) the resume command of one hosted
@@ -196,6 +207,18 @@ impl Mux {
             .unwrap_or_else(PoisonError::into_inner)
             .terminal_resume_command(terminal_id)
     }
+}
+
+/// A freed shell's last command, typed on its new prompt without Return, so
+/// the person runs it again with one key. One line only: a command with a
+/// newline (a heredoc, a pasted script) would run its first lines by itself.
+fn last_command_prefill(command: &str) -> Option<Prefill> {
+    let text = command.trim();
+    (!text.is_empty() && !text.contains(['\n', '\r'])).then(|| Prefill {
+        kind: Prefilled::LastCommand,
+        text: text.to_owned(),
+        run: false,
+    })
 }
 
 /// The agent resume `record` types on its new prompt, if any: only with
@@ -227,6 +250,20 @@ fn turns_approvals_off(harness: &str, flags: &[String]) -> bool {
                 || has_value(&["-s", "--sandbox"], "danger-full-access")
                 || has_value(&["-a", "--ask-for-approval"], "never")
         }
+        // A permission profile, a preset, an agent overlay or a setting can
+        // turn approval or the sandbox off.
+        "muse" => {
+            has(&[
+                "--yolo",
+                "--disable-approval",
+                "--disable-sandbox",
+                "--permission-profile",
+                "--preset",
+                "--agents",
+                "-c",
+                "--config",
+            ]) || has_value(&["--approval-mode"], "never")
+        }
         _ => true,
     }
 }
@@ -257,6 +294,11 @@ fn flag_values<'a>(flags: &'a [String], names: &[&str]) -> Vec<&'a str> {
 pub(in crate::mux) enum RanText {
     Command(String),
     Agent(String),
+    /// A freed shell's last command (`kept_tabs.last_command_json`).
+    Last {
+        command: String,
+        exit_code: Option<i32>,
+    },
 }
 
 impl RanText {
@@ -264,6 +306,7 @@ impl RanText {
         match self {
             Self::Command(command) => Ran::Command(command),
             Self::Agent(command) => Ran::Agent(command),
+            Self::Last { command, exit_code } => Ran::Last { command, exit_code: *exit_code },
         }
     }
 }
@@ -293,7 +336,7 @@ pub(in crate::mux) fn resume_command(
             argv.extend(["--resume".to_string(), session_id.to_string()]);
             argv.extend(flags);
         }
-        "codex" => {
+        "codex" | "muse" => {
             argv.extend(["resume".to_string(), session_id.to_string()]);
             argv.extend(flags);
         }
@@ -341,7 +384,20 @@ mod tests {
         assert_eq!(resume_command("codex", "s.1_2", None).as_deref(), Some("codex resume s.1_2"));
         assert_eq!(resume_command("claude", "abc;rm -rf", None), None);
         assert_eq!(resume_command("claude", &"a".repeat(129), None), None);
+        assert_eq!(
+            resume_command("muse", "01a14ec1-9cca-7b72-832c-5148ab7bcd41", None).as_deref(),
+            Some("muse resume 01a14ec1-9cca-7b72-832c-5148ab7bcd41")
+        );
         assert_eq!(resume_command("opencode", "abc", None), None);
+    }
+
+    #[test]
+    fn a_muse_resume_starts_the_cli_with_its_flags() {
+        let launch = AgentLaunch { args: strings(&["--model", "muse-wonder-1.0"]), env: vec![] };
+        assert_eq!(
+            resume_command("muse", "s1", Some(&launch)).as_deref(),
+            Some("muse resume s1 --model muse-wonder-1.0")
+        );
     }
 
     #[test]
@@ -402,6 +458,22 @@ mod tests {
         {
             assert!(!turns_approvals_off("codex", &strings(flags)), "{flags:?}");
         }
+        for flags in [
+            &["--yolo"][..],
+            &["--disable-approval"],
+            &["--disable-sandbox"],
+            &["--approval-mode", "never"],
+            &["--approval-mode=never"],
+            &["--permission-profile", "open"],
+            &["--preset", "empty"],
+            &["-c", "approval.mode=\"never\""],
+        ] {
+            assert!(turns_approvals_off("muse", &strings(flags)), "{flags:?}");
+        }
+        for flags in [&["--model", "muse-wonder-1.0"][..], &["--approval-mode", "on-request"], &[]]
+        {
+            assert!(!turns_approvals_off("muse", &strings(flags)), "{flags:?}");
+        }
     }
 
     /// A 60-column screen that received `bytes`.
@@ -455,6 +527,18 @@ mod tests {
         );
         let typed = [PROMPT, b"git sta".as_slice()].concat();
         assert_eq!(resume.input(&mut screen(&typed), true), None);
+    }
+
+    #[test]
+    fn a_freed_shells_last_command_is_typed_without_return() {
+        let last = last_command_prefill("  cargo test -p core  ").expect("one line is typed");
+        assert_eq!(last.kind, Prefilled::LastCommand);
+        assert_eq!(last.input(&mut screen(PROMPT), true).as_deref(), Some("cargo test -p core"));
+        assert_eq!(last.input(&mut screen(PROMPT), false), None, "not over a foreground job");
+        let typed = [PROMPT, b"git sta".as_slice()].concat();
+        assert_eq!(last.input(&mut screen(&typed), true), None);
+        assert_eq!(last_command_prefill("cat <<EOF\nhi\nEOF"), None, "never a multi-line one");
+        assert_eq!(last_command_prefill("   "), None);
     }
 
     #[test]

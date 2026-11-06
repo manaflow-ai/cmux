@@ -114,8 +114,14 @@ strings_fresh() { # <sha>
     return 0
   fi
   if ! command -v node >/dev/null 2>&1; then
-    echo "warning: no node on this runner; the page strings of ${1:0:12} are not checked" >&2
     [[ "$1" == "$head" ]] || cleanup_strings
+    # No node proves nothing about the strings: the run that promotes
+    # (NIGHTLY_NEXT_PROMOTE=1) fails instead of requesting unchecked strings.
+    if [[ "${NIGHTLY_NEXT_PROMOTE:-}" == 1 ]]; then
+      echo "error: no node on this runner; the page strings of ${1:0:12} cannot be checked, so it is not promoted" >&2
+      return 2
+    fi
+    echo "warning: no node on this runner; the page strings of ${1:0:12} are not checked" >&2
     return 0
   fi
   if git -C "$root" ls-files --error-unmatch webviews/src/pages/settings/generated/strings.json >/dev/null 2>&1; then
@@ -131,9 +137,18 @@ strings_fresh() { # <sha>
 # (empty otherwise). It bounds the --tree-ready search from below, and a commit
 # it already contains is never requested again: main's promote job keeps one
 # waiting request, so a stale request would evict a newer one.
-promoted="" promoted_unknown=""
-if line="$(git ls-remote origin refs/heads/nightly-next 2>/dev/null)"; then
-  [[ ! "${line%%[[:space:]]*}" =~ ^[0-9a-f]{40}$ ]] || promoted="${line%%[[:space:]]*}"
+# One read gives nightly-next and the commit its feed last published (the publish moves the
+# nightly-next tag to it, scripts/ci/update-release-tag.py): no second round trip.
+promoted="" promoted_unknown="" published=""
+if refs="$(git ls-remote origin refs/heads/nightly-next refs/tags/nightly-next 'refs/tags/nightly-next^{}' 2>/dev/null)"; then
+  while read -r oid ref; do
+    [[ "$oid" =~ ^[0-9a-f]{40}$ ]] || continue
+    case "$ref" in
+      refs/heads/nightly-next) promoted="$oid" ;;
+      refs/tags/nightly-next) [[ -n "$published" ]] || published="$oid" ;;
+      'refs/tags/nightly-next^{}') published="$oid" ;;  # an annotated tag's commit
+    esac
+  done <<<"$refs"
 else
   promoted_unknown=1
 fi
@@ -144,26 +159,85 @@ already_promoted() { # <sha>
   git cat-file -e "$promoted^{commit}" 2>/dev/null && git merge-base --is-ancestor "$1" "$promoted" 2>/dev/null
 }
 
+# app_unchanged <sha>: 0 when nothing that can change the app the nightly publishes changed
+# between the published commit and <sha>, by scripts/ci/nightly_build_inputs.py (the classifier
+# main's nightly skips with: the cmux-next target and what it bundles, the cmux-tui client paths,
+# and every path the nightly workflow runs). Such a promotion builds and publishes the same app
+# again: of 92 NEXT nightlies published 2026-11-01/02 only 3 were app-identical, but each costs a
+# full build, signing and two notarizations. Any doubt (no published commit, history too shallow,
+# not a descendant, an unreadable classifier, a different cmux-tui tree key) answers 1, and the
+# commit is promoted.
+app_unchanged_reason=""
+# same_app <base> <sha>: 0 when nothing that reaches the app changed from <base> to <sha>.
+same_app() { # <base> <sha>
+  git cat-file -e "$1^{commit}" 2>/dev/null || return 1
+  git merge-base --is-ancestor "$1" "$2" 2>/dev/null || return 1
+  [[ -f "$repo_root/scripts/ci/nightly_build_inputs.py" ]] || return 1
+  local files verdict
+  files="$(git diff --no-renames --name-only "$1" "$2")" || return 1  # a move out of the app names its old path too
+  if [[ -z "$files" ]]; then
+    app_unchanged_reason="the same tree"
+    return 0
+  fi
+  verdict="$(printf '%s\n' "$files" | python3 "$repo_root/scripts/ci/nightly_build_inputs.py" --files-from - 2>/dev/null)" || return 1
+  [[ "$verdict" == *'"build_inputs_changed": false'* ]] || return 1
+  # The classifier does not see every input of the bundled cmux-tui binaries (workers/cmux-vm/cli,
+  # skills/cmux-browser are tree inputs it calls neutral): the tree key must match too. Read only
+  # here, after the classifier found nothing, so an app change pays nothing for it.
+  local key_base key_sha
+  key_base="$(python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2 "$1" 2>/dev/null)" || return 1
+  key_sha="$(python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2 "$2" 2>/dev/null)" || return 1
+  [[ "$key_base" =~ ^[0-9a-f]{40}$ && "$key_base" == "$key_sha" ]] || return 1
+  app_unchanged_reason="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["reason"])' "$verdict" 2>/dev/null || echo unchanged)"
+}
+app_unchanged() { # <sha>
+  app_unchanged_reason=""
+  [[ -n "$published" && "$published" != "$1" ]] || return 1
+  same_app "$published" "$1" || return 1
+  # A promotion still building (nightly-next past the published commit) publishes its own app
+  # next: <sha> must match that one too, or a revert of it would wait for it to publish first.
+  if [[ -n "$promoted" && "$promoted" != "$published" ]] \
+     && ! git merge-base --is-ancestor "$promoted" "$published" 2>/dev/null; then
+    local reason="$app_unchanged_reason"
+    same_app "$promoted" "$1" || return 1
+    app_unchanged_reason="$reason"
+  fi
+}
+
 # request <sha>: 0 = requested or already on nightly-next, 1 = not promotable
-# (no gate, stale strings), 2 = the dispatch itself failed (an API error: the
-# caller exits 1).
+# (no gate, stale strings), 2 = the dispatch itself failed (an API error) or
+# the promoting run has no node to check the strings with (the caller exits 1).
 request() { # <sha>
   if already_promoted "$1"; then
     echo "not requesting ${1:0:12}: it is already on nightly-next (${promoted:0:12})"
+    return 0
+  fi
+  # The tick's walk stops on "already on nightly-next": an older commit changes even less.
+  if app_unchanged "$1"; then
+    echo "not requesting ${1:0:12}: nothing that reaches the app changed since the published ${published:0:12} ($app_unchanged_reason), so its app is already on nightly-next"
     return 0
   fi
   if ! has_notary_gate "$1"; then
     echo "not promoting ${1:0:12}: its nightly.yml has no NIGHTLY_NEXT_NOTARY_PAUSED gate"
     return 1
   fi
-  if ! strings_fresh "$1"; then
+  local strings_rc=0
+  strings_fresh "$1" || strings_rc=$?
+  (( strings_rc != 2 )) || return 2
+  if (( strings_rc != 0 )); then
     echo "not promoting ${1:0:12}: its generated page strings are stale (node webviews/scripts/pages/gen-strings.mjs --check); an older or later commit with fresh strings is promoted"
     return 1
   fi
   # Main's promote guard requires the tree-commit marker (the same check), so
-  # a commit without one is not requested: the backfill marks it.
+  # a commit without one is not requested: the backfill marks it. A tip whose
+  # tree is still building (request_tree_pending) is the exception main's
+  # guard makes too: its nightly waits for the marker before it publishes.
   local marker_rc=0
-  bash "$script_dir/tree-commit-marker.sh" check "$1" >/dev/null || marker_rc=$?
+  if [[ "${tree_pending_request:-}" == "$1" ]]; then
+    echo "${1:0:12}: its tree is still building; its nightly.yml waits for it at install (NIGHTLY_NEXT_TREE_AT_INSTALL)"
+  else
+    bash "$script_dir/tree-commit-marker.sh" check "$1" >/dev/null || marker_rc=$?
+  fi
   if (( marker_rc == 1 )); then
     echo "not promoting ${1:0:12}: its tree is ready but it has no tree-commit marker yet"
     backfill "${1:0:12} has a ready tree and no tree-commit marker"
@@ -180,7 +254,45 @@ request() { # <sha>
     echo "error: could not request the nightly-next promotion of $1" >&2
     return 2
   fi
-  echo "requested nightly-next promotion of $1 (published, daemon-tested cmux-tui tree; its nightly compiles it)"
+  if [[ "${tree_pending_request:-}" == "$1" ]]; then
+    echo "requested nightly-next promotion of $1 (its cmux-tui tree is building; its nightly compiles the app now and installs the tree's client)"
+  else
+    echo "requested nightly-next promotion of $1 (published, verified cmux-tui tree; its nightly compiles it)"
+  fi
+}
+
+# NIGHTLY_NEXT_TREE_AT_INSTALL: the feat-cmux-next tip whose tree is a
+# confirmed 404 (never a read failure), whose own nightly.yml carries the line
+# main's promote guard reads, and whose tree a cmux-tui-artifacts run is
+# building now (the run of the tip or of a first-parent ancestor with the same
+# key) is requested at once: its nightly compiles the app while the tree builds.
+# Returns request()'s codes, or 1 when it does not apply.
+request_tree_pending() {
+  local tip_line tip_key verify=0 commit runs active=""
+  tip_line="$(git ls-remote origin refs/heads/feat-cmux-next 2>/dev/null)" || return 1
+  [[ "${tip_line%%[[:space:]]*}" == "$sha" ]] || return 1
+  # The whole file first: `git show | grep -q` fails under pipefail on an early match.
+  local workflow
+  workflow="$(git show "$sha:.github/workflows/nightly.yml" 2>/dev/null)" || return 1
+  grep -qxE '[[:space:]]*NIGHTLY_NEXT_TREE_AT_INSTALL: v1[[:space:]]*' <<<"$workflow" || return 1
+  tip_key="$(python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2 "$sha" 2>/dev/null)" || return 1
+  bash "$script_dir/pin-cmux-tui.sh" verify-key "$tip_key" >/dev/null 2>&1 || verify=$?
+  (( verify == 1 )) || return 1
+  while read -r commit; do
+    [[ "$(python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2 "$commit" 2>/dev/null)" == "$tip_key" ]] || break
+    runs="$(gh run list --repo "$repo" --workflow cmux-tui-artifacts.yml --commit "$commit" --limit 5 --json status \
+      --jq '[.[] | select(.status != "completed")] | length' 2>/dev/null)" || continue
+    if [[ "$runs" =~ ^[1-9][0-9]*$ ]]; then active="$commit"; break; fi
+  done < <(git rev-list --first-parent -n 40 "$sha" 2>/dev/null)
+  if [[ -z "$active" ]]; then
+    echo "not requesting ${sha:0:12} before its tree: no active cmux-tui-artifacts run builds tree $tip_key"
+    return 1
+  fi
+  echo "${sha:0:12}: tree $tip_key is building in the cmux-tui-artifacts run of ${active:0:12}"
+  tree_pending_request="$sha"
+  local rc=0
+  request "$sha" || rc=$?
+  return "$rc"
 }
 
 # backfill <reason>: one cmux-tui-artifacts dispatch on feat-cmux-next, which
@@ -228,6 +340,12 @@ backfill() { # <reason>
 if ! resolved="$(env -u GITHUB_OUTPUT -u GITHUB_STEP_SUMMARY CMUX_TUI_TREE_DISPATCH=0 \
     CMUX_TUI_TREE_SEARCH_COMMITS=1 bash "$script_dir/pin-cmux-tui.sh" resolve-newest-published 2>&1)"; then
   printf '%s\n' "$resolved"
+  pending_rc=0
+  request_tree_pending || pending_rc=$?
+  case "$pending_rc" in
+    0) exit 0 ;;
+    2) exit 1 ;;
+  esac
   echo "not promoting ${sha:0:12}: the nightly cannot resolve a published cmux-tui tree for it yet"
   # The feat-cmux-next tip with no cmux-tui-artifacts run at all (a push that
   # started none, such as a GITHUB_TOKEN push) gets one. A tip whose run failed
@@ -249,17 +367,10 @@ fi
 key="$(sed -n 's/^key=//p' <<<"$resolved" | head -1)"
 [[ "$key" =~ ^[0-9a-f]{40}$ ]] || { printf '%s\n' "$resolved" >&2; echo "error: the resolver printed no tree key" >&2; exit 1; }
 
-# 1b. The daemon tests passed for this tree (tree-commit-marker.sh daemon-tested,
-# the check the marker writer uses). A read of source.json or daemon-tests.json
-# that is neither 200 nor 404 is a read failure: nothing is promoted (it used to
-# skip the daemon-tests check when source.json did not read).
-tested_rc=0
-bash "$script_dir/tree-commit-marker.sh" daemon-tested "$key" || tested_rc=$?
-case "$tested_rc" in
-  0) ;;
-  1) echo "not promoting ${sha:0:12}: tree $key is not daemon-tested yet; the artifacts run requests it when the tests pass"; exit 0 ;;
-  *) echo "not promoting ${sha:0:12}: read failure on tree $key's metadata (above); the next tick asks again"; exit 0 ;;
-esac
+# The tree's daemon tests are not awaited (2026-10-28, tree-commit-marker.sh's
+# header): they run after the publish and report on their own, and a failed
+# download in them held the feed for hours. Leo, 2026-10-23: "we want no smoke
+# tests".
 
 # 2. Both modes: the newest feat-cmux-next commit, by first-parent history,
 # that descends from nightly-next and has this tree key, whatever its Release

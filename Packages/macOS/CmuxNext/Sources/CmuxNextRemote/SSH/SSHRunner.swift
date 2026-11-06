@@ -7,6 +7,11 @@ public struct SSHProcessResult: Sendable {
     public var status: Int32
     public var stdout: String
     public var stderr: String
+
+    /// The last line of `stderr` (what a failed remote command said last), or nil when it is empty.
+    public var lastStderrLine: String? {
+        stderr.split(separator: "\n").last.map(String.init)
+    }
 }
 
 /// Runs one short process to completion: an ssh with a script on stdin (the
@@ -47,25 +52,33 @@ public struct SSHProcessRunner {
             inputPipe = pipe
             process.standardInput = pipe
         }
+        if let inputPipe {
+            // A remote command can close stdin while the caller is still writing. Handle EPIPE
+            // in the writer instead of allowing SIGPIPE to terminate the app.
+            _ = fcntl(inputPipe.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
+        }
         let output = Mutex(Output())
         let stdoutEnded = ExitLatch()
         stdout.fileHandleForReading.readabilityHandler = { handle in
             // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
-            let data = handle.availableData
-            if data.isEmpty {
+            switch handle.readReady() {
+            case .bytes(let data): output.withLock { if $0.stdout.count < 1 << 20 { $0.stdout.append(data) } }
+            case .retry: return
+            case .end:
                 handle.readabilityHandler = nil
                 stdoutEnded.finish(0)
-                return
             }
-            output.withLock { if $0.stdout.count < 1 << 20 { $0.stdout.append(data) } }
         }
         stderr.fileHandleForReading.readabilityHandler = { handle in
             // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
-            let data = handle.availableData
-            if data.isEmpty { handle.readabilityHandler = nil; return }
-            output.withLock { state in
-                state.stderr.append(data)
-                if state.stderr.count > 16 * 1024 { state.stderr.removeFirst(state.stderr.count - 16 * 1024) }
+            switch handle.readReady() {
+            case .bytes(let data):
+                output.withLock { state in
+                    state.stderr.append(data)
+                    if state.stderr.count > 16 * 1024 { state.stderr.removeFirst(state.stderr.count - 16 * 1024) }
+                }
+            case .retry: return
+            case .end: handle.readabilityHandler = nil
             }
         }
         let exit = ExitLatch()

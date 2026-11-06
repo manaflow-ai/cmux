@@ -79,13 +79,15 @@ nonisolated public struct CloudCodexBrokerTarget: Sendable {
     }
 
     /// The account API establishes ownership for this caller before the running
-    /// bridge is queried for its token-delivery capability.
-    nonisolated public init(api: CloudAPIClient, machineID: String, scope: CloudCodexBrokerScope) {
+    /// bridge is queried for its token-delivery capability. A Worker machine (the app server link)
+    /// passes its link's owner answer (`callerOwnsVM`) and its record's status (`isLive`).
+    nonisolated public init(api: CloudAPIClient, machineID: String, scope: CloudCodexBrokerScope,
+                            callerOwnsVM: @escaping @Sendable () async throws -> Bool,
+                            isLive: @escaping @Sendable () async throws -> Bool) {
         let api = api.pinningTeam(scope.teamID)
+        // Guest files are controlled by the VM and cannot authorize token delivery.
         self.init(machineID: machineID, capability: {
-            // Guest files are controlled by the VM and cannot authorize token delivery.
-            let endpoint = try await api.attachEndpoint(machineID)
-            guard endpoint.vmKind == "owner" else {
+            guard try await callerOwnsVM() else {
                 return Capability(ownerVM: false, protocolVersion: 0, codexExternalAccessToken: false)
             }
             let result = try await api.exec(machineID, command: Self.statusCommand, timeoutMs: 8_000)
@@ -115,9 +117,7 @@ nonisolated public struct CloudCodexBrokerTarget: Sendable {
                 guard case .http(let status, let code, _, _, _) = error,
                       status == 404, code == "vm_file_not_found" else { throw error }
             }
-        }, isLive: {
-            (try await api.machine(machineID)).status.isLive
-        })
+        }, isLive: isLive)
     }
 }
 

@@ -31,6 +31,41 @@ public nonisolated struct AgentActivityFrameRef: Sendable, Hashable {
     }
 }
 
+/// Which stored size of a frame to read (`activity_frame` `size`). The host
+/// keeps a thumbnail (about 320 px long edge) for every event with pixels; a
+/// full frame only when the session records `events+frames` or `video`.
+public nonisolated enum AgentActivityFrameSize: String, Sendable, Hashable {
+    case thumb
+    case full
+}
+
+/// A frame's encoded bytes as the host sent them, passed to the page as is
+/// (no decode or re-encode in the App).
+public nonisolated struct AgentActivityFrameData: Sendable, Hashable {
+    /// `image/jpeg`, `image/png` or another `image/` type.
+    public let mime: String
+    public let base64: String
+
+    public init(mime: String, base64: String) {
+        self.mime = mime
+        self.base64 = base64
+    }
+
+    /// The frame as a `data:` URL for an `<img>`.
+    public var dataURL: String { "data:\(mime);base64,\(base64)" }
+}
+
+/// The window an event acted on or read, as the host named it: its process and WindowServer id.
+public nonisolated struct AgentActivityTargetWindow: Sendable, Hashable {
+    public let pid: Int32
+    public let windowID: UInt32
+
+    public init(pid: Int32, windowID: UInt32) {
+        self.pid = pid
+        self.windowID = windowID
+    }
+}
+
 /// One row of a session's event log.
 public nonisolated struct AgentActivityEvent: Sendable, Hashable, Identifiable {
     public var id: UInt64 { seq }
@@ -50,11 +85,14 @@ public nonisolated struct AgentActivityEvent: Sendable, Hashable, Identifiable {
     public let afterFrame: AgentActivityFrameRef?
     /// Click position as a fraction of the frame (0...1, top-left origin).
     public let clickPoint: CGPoint?
+    /// The window the event targeted, when the host named both its process and its id.
+    public let window: AgentActivityTargetWindow?
 
     public init(
         seq: UInt64, time: Date, kind: AgentActivityEventKind, tool: String? = nil, target: String? = nil,
         ok: Bool = true, errorCode: String? = nil, durationMs: Int? = nil, redactedTextLength: Int? = nil,
-        beforeFrame: AgentActivityFrameRef? = nil, afterFrame: AgentActivityFrameRef? = nil, clickPoint: CGPoint? = nil
+        beforeFrame: AgentActivityFrameRef? = nil, afterFrame: AgentActivityFrameRef? = nil, clickPoint: CGPoint? = nil,
+        window: AgentActivityTargetWindow? = nil
     ) {
         self.seq = seq
         self.time = time
@@ -68,6 +106,7 @@ public nonisolated struct AgentActivityEvent: Sendable, Hashable, Identifiable {
         self.beforeFrame = beforeFrame
         self.afterFrame = afterFrame
         self.clickPoint = clickPoint
+        self.window = window
     }
 
     /// The frame the timeline shows for this event (after, else before).

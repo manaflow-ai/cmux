@@ -550,7 +550,31 @@ class Pass:
         day_ago = iso(self.host.now() - 86400)
         fixed = ([f for f in self.fixed_was if f.get("at", "") >= day_ago] + self.new_fixed)[-20:]
         state = {"since": self.since, "last": {k: v for k, v in self.last.items() if self.host.now() - v < 86400}, "fixed": fixed, "dnsFailures": self.dns_failures}
-        problems = sorted(self.problems, key=lambda p: ORDER.index(p["check"]))[:MAX_PROBLEMS]
+        ordered = sorted(self.problems, key=lambda p: ORDER.index(p["check"]))
+        if len(ordered) <= MAX_PROBLEMS:
+            problems = ordered
+        else:
+            # A crowd of failed services or peers must not hide a critical disk alarm
+            # or every occurrence of another check. Retain critical rows first,
+            # then one row per remaining check, then fill with the usual priorities.
+            selected = [p for p in ordered if p.get("severity") == "critical"][:MAX_PROBLEMS]
+            seen = {p["check"] for p in selected}
+            for p in ordered:
+                if len(selected) == MAX_PROBLEMS:
+                    break
+                if p["check"] not in seen:
+                    selected.append(p)
+                    seen.add(p["check"])
+            ids = {id(p) for p in selected}
+            for p in ordered:
+                if len(selected) == MAX_PROBLEMS:
+                    break
+                if id(p) not in ids:
+                    selected.append(p)
+                    ids.add(id(p))
+            # The primary health headline should name the critical condition.
+            problems = sorted(selected, key=lambda p: (
+                p.get("severity") != "critical", ORDER.index(p["check"])))
         health = {"schema": 1, "checkedAt": iso(self.host.now()), "problems": problems, "fixed": fixed}
         return health, state
 

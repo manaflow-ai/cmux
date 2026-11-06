@@ -48,4 +48,10 @@ public nonisolated struct NotificationPreferences: Hashable, Sendable {
     public func postsDesktop(for source: NotificationSource) -> Bool {
         sources[source]?.desktop ?? true
     }
+
+    /// Reads a machine-qualified mute. A bare id is the local machine's, and a remote workspace's
+    /// only while no workspace on this Mac has that id (``NotificationWorkspaceKey/legacyRemoteKey``).
+    public func workspaceMuted(machine: String, workspace: String, localMachine: String, localHolds: (String) -> Bool) -> Bool {
+        NotificationWorkspaceKey.mutes(mutedWorkspaces, machine: machine, workspace: workspace, localMachine: localMachine, localHolds: localHolds)
+    }
 }

@@ -22,6 +22,8 @@ enum ImportCountsText {
 /// an editable row shows the shared hover and pressed fill (`ChromeHover`).
 final class ImportProfileRow: NSView {
     static let height: CGFloat = 44
+    /// How far the icon and the trailing controls sit inside the row: room for the hover fill.
+    static let contentInset: CGFloat = 4
     private var toggle: (() -> Void)?
     private let box = ThemedCheckbox(checkboxWithTitle: "", target: nil, action: nil)
     /// The shared themed spinner, in phase with every other one (cx-qtgj2).
@@ -51,7 +53,7 @@ final class ImportProfileRow: NSView {
         translatesAutoresizingMaskIntoConstraints = false
         icon.imageScaling = .scaleProportionallyUpOrDown
         avatar.wantsLayer = true
-        avatar.layer?.cornerRadius = 8
+        avatar.layer?.cornerRadius = Metrics.controlCornerRadius
         avatar.layer?.masksToBounds = true
         avatar.imageScaling = .scaleProportionallyUpOrDown
         names.addArrangedSubview(name)
@@ -73,26 +75,32 @@ final class ImportProfileRow: NSView {
         detail.alignment = .right
         let spinnerSlot = Self.slot(width: 18, containing: spinner)
         let markSlot = Self.slot(width: 18, containing: mark)
-        let accessSlot = Self.slot(width: 132, containing: accessButton)
+        // Open System Settings and Allow Access… end where the checkboxes end, so every row's
+        // trailing control shares one edge; the button lies over the box slot (its box is then hidden).
+        let accessSlot = NSView()
+        accessSlot.translatesAutoresizingMaskIntoConstraints = false
+        accessSlot.widthAnchor.constraint(equalToConstant: 132).isActive = true
         let boxSlot = Self.slot(width: 20, containing: box)
         targetMenu.translatesAutoresizingMaskIntoConstraints = false
         targetMenu.widthAnchor.constraint(lessThanOrEqualToConstant: 160).isActive = true
         let trailing = NSStackView(views: [detail, targetMenu, spinnerSlot, markSlot, accessSlot, boxSlot])
         trailing.spacing = 8
-        for view in [icon, avatar, names, trailing] as [NSView] {
+        for view in [icon, avatar, names, trailing, accessButton] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
         NSLayoutConstraint.activate([
             heightAnchor.constraint(equalToConstant: Self.height),
-            icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4), icon.centerYAnchor.constraint(equalTo: centerYAnchor),
+            icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.contentInset), icon.centerYAnchor.constraint(equalTo: centerYAnchor),
             icon.widthAnchor.constraint(equalToConstant: 30), icon.heightAnchor.constraint(equalToConstant: 30),
             avatar.trailingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 4),
             avatar.bottomAnchor.constraint(equalTo: icon.bottomAnchor, constant: 3),
             avatar.widthAnchor.constraint(equalToConstant: 16), avatar.heightAnchor.constraint(equalToConstant: 16),
             names.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 12), names.centerYAnchor.constraint(equalTo: centerYAnchor),
             names.trailingAnchor.constraint(lessThanOrEqualTo: trailing.leadingAnchor, constant: -12),
-            trailing.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4), trailing.centerYAnchor.constraint(equalTo: centerYAnchor),
+            trailing.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.contentInset), trailing.centerYAnchor.constraint(equalTo: centerYAnchor),
+            accessButton.trailingAnchor.constraint(equalTo: boxSlot.trailingAnchor), accessButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            accessButton.leadingAnchor.constraint(greaterThanOrEqualTo: accessSlot.leadingAnchor),
         ])
         clearProfile()
     }
@@ -177,6 +185,7 @@ final class ImportProfileRow: NSView {
         alphaValue = 0
         box.alphaValue = 0
         accessButton.alphaValue = 0
+        accessButton.isHidden = true
         spinner.alphaValue = 0
         mark.alphaValue = 0
         spinner.spin(false)
@@ -198,7 +207,7 @@ final class ImportProfileRow: NSView {
         if FileManager.default.fileExists(atPath: conventionalURL.path) {
             return NSWorkspace.shared.icon(forFile: conventionalURL.path)
         }
-        return NSImage.icon(.browser, size: 16)
+        return NSImage.icon(.browser, size: 30) // the icon view's side: a bitmap glyph is not stretched up
     }
 
     /// The cmux profiles this row can go into: "New Profile" (its own,
@@ -265,6 +274,8 @@ final class ImportProfileRow: NSView {
         box.isEnabled = editable && !requiresFullDiskAccess
         accessButton.isEnabled = showsAccess
         accessButton.alphaValue = showsAccess ? 1 : 0
+        // Hidden, not only clear: it lies over the checkbox, which takes the click instead.
+        accessButton.isHidden = !showsAccess
         var showsBox = false
         var spins = false
         var markIcon: IconName?

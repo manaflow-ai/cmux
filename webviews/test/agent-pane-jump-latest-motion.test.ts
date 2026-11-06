@@ -229,22 +229,48 @@ await requireBrowserLane("agent-pane-jump-latest-motion.test.ts", async () => {
         },
         { capture: true },
       );
-      window.cmuxAfterPaint((frame) => {
-        if (holder.__frames !== frames) return false;
+      // Read as the frame paints: in a ResizeObserver made after the pane's, on a probe resized in
+      // each frame's callbacks, so the read comes after the frame's layout and the pane's own
+      // observer, right before the paint. A read in a task after the frame (cmuxAfterPaint) could
+      // come after an already-queued task grew the streaming reply: a state no frame painted, the
+      // reply a paragraph longer than its placement (-36 px under the card, CI's Chromium).
+      const probe = document.createElement("div");
+      probe.style.cssText = "position:fixed;left:0;top:0;height:1px;width:1px;pointer-events:none;visibility:hidden";
+      document.body.append(probe);
+      let wide = false;
+      const read = (frame: number) => {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
         const card = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
         const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")];
         const last = rows.reduce((a, b) =>
           Number(b.getAttribute("aria-posinset")) > Number(a.getAttribute("aria-posinset")) ? b : a,
         );
+        // Where the row is laid out: a row that arrives live rises 4px into place (`cv-enter`'s
+        // translate, #20003), which draws it and never moves layout, so it is not read as the row
+        // under the card. The turn's footer arrives so as the glide lands.
+        const rise = parseFloat(getComputedStyle(last).translate.split(" ")[1] ?? "0") || 0;
         frames.push({
           at: frame,
           top: scroller.scrollTop,
           height: scroller.scrollHeight,
           fromEnd: Math.round(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight),
-          rowAboveCard: Math.round(card.top - last.getBoundingClientRect().bottom),
+          rowAboveCard: Math.round(card.top - (last.getBoundingClientRect().bottom - rise)),
         });
-      });
+      };
+      const observer = new ResizeObserver(() => read(performance.now()));
+      observer.observe(probe);
+      window.cmuxAfterPaint(
+        () => {
+          if (holder.__frames === frames) return;
+          observer.disconnect();
+          probe.remove();
+          return false;
+        },
+        () => {
+          wide = !wide;
+          probe.style.width = wide ? "2px" : "1px";
+        },
+      );
     });
   /// The frames painted after the jump was clicked, and the click's time.
   const stopFrames = (page: Page) =>

@@ -4,8 +4,7 @@ import Testing
 @testable import CmuxNextCloud
 
 /// No `.timeLimit`: every wait here is on a reply or an exit, and none checks
-/// a deadline (shutdownEscalatesOnlyOwnedHolderThatIgnoresTERM measures its
-/// own). Each test starts a python3 holder; in the full parallel package run,
+/// a deadline. Each test starts a python3 holder; in the full parallel package run,
 /// where tests take 100-500 s of wall clock, the 1 minute limit expired on
 /// cancellationOnlySettlesItsCaller before its replies arrived. A holder that
 /// never answers is a hang that scripts/cmux-next/swift-test-with-hang-sampler.sh
@@ -68,14 +67,17 @@ struct CloudCodexBrokerSessionTests {
         try await withSession { session, _ in
             let reply = try await session.request(method: "ignore-term")
             let pid = try #require(reply.chatgptAccountID.flatMap(Int32.init))
-            let clock = ContinuousClock()
-            let started = clock.now
+            // The holder ignores SIGTERM, so both shutdowns returning with the
+            // holder gone proves the SIGKILL escalation; without it they never
+            // return, a hang the sampler names. No wall-clock bound: a starved
+            // full parallel run took 71 s for the 2 s grace and the exit hop.
             async let first: Void = session.shutdown()
             async let second: Void = session.shutdown()
             _ = await (first, second)
-            #expect(started.duration(to: clock.now) < .seconds(8))
-            #expect(kill(pid, 0) == -1)
-            #expect(errno == ESRCH)
+            let killResult = kill(pid, 0)
+            let killErrno = errno
+            #expect(killResult == -1)
+            #expect(killErrno == ESRCH)
         }
     }
 

@@ -1,6 +1,8 @@
 import AppKit
 import CmuxNextBridge
+import CmuxNextDaemonService
 import CmuxNextDesign
+import CmuxNextLayout
 import CmuxNextSidebar
 
 // Debug Settings `sidebar.multiView` (Leo 2026-10-21, item D): the window shows the workspaces of
@@ -8,42 +10,65 @@ import CmuxNextSidebar
 // focus model, titlebar and actions see; the others are parked contents (no focus topology) whose views stay on
 // screen in their slots. A press in one focuses it (`ShellWindow.sendEvent`), as does a click on its sidebar row; a
 // click on a row off screen shows that workspace alone. `SidebarModel.onScreen` is the set on screen. With the
-// toggle off none of this runs: the set stays nil and onScreen empty.
+// toggle off the set stays nil and onScreen empty, also while window docks arrange the frame (`setOnScreen`).
 extension WindowController {
     /// The gap between workspaces shown side by side.
     static var multiViewGap: CGFloat { Metrics.space2 }
-    /// The Debug toggle, read where the window's show observer tracks it, so turning it off goes back to one workspace.
-    static var multiViewEnabled: Bool { SidebarTunables.multiView.value }
+    /// The setting or Debug toggle, read where the window's show observer tracks it, so turning it off goes back to one workspace.
+    static var multiViewEnabled: Bool { SidebarTunables.multiViewOn }
 
-    /// Puts `state.viewSet` on screen around `content` and tells the sidebar which workspaces are on screen. The set
-    /// drops workspaces that closed or left the window, and ends (nil) once `content` is not in it or one is left.
-    /// Runs in the turn that shows a workspace or a page, so no frame shows the old arrangement.
+    /// Puts the window frame on screen: its docked workspaces (`window.dockedWorkspaces`, `state.docks`) at their
+    /// edges, and on the stage the workspace the sidebar selected, or `state.viewSet` around it (`sidebar.multiView`).
+    /// Tells the sidebar which workspaces are on screen. The set drops workspaces that closed or left the window, and
+    /// ends (nil) once the stage's workspace is not in it or one is left; docks of such workspaces go too (W3). Runs in
+    /// the turn that shows a workspace or a page, so no frame shows the old arrangement.
     func arrangeOnScreen() {
-        guard SidebarTunables.multiView.value else { return leaveMultiView() }
+        let multi = SidebarTunables.multiViewOn, docking = LayoutTunables.dockedWorkspaces.value
+        guard multi || docking else { return leaveMultiView() }
         guard let content else {
             // A top page or the connecting view fills the content area: no workspace is on screen.
             clearArrangement()
             return setOnScreen([])
         }
         let shown = content.workspace.id
-        let listed = Set(services.windows.registry.members(of: state.id))
-        let set = state.viewSet.flatMap { $0.contains(shown) ? $0 : nil }?
-            .pruned { $0 == shown || (listed.contains($0) && services.machines.workspace(id: $0) != nil) }
-            .flatMap { $0.ids.count > 1 ? $0 : nil }
+        let members = services.windows.registry.members(of: state.id)
+        let listed = Set(members)
+        let alive = { (id: String) in id == shown || (listed.contains(id) && self.services.machines.workspace(id: id) != nil) }
+        // The frame (docked-workspace-DESIGN.md W3 to W5): docks of workspaces that left go, selecting a hidden
+        // docked workspace shows its dock, and the stage keeps its workspace while a dock has the focus.
+        var docks = docking ? state.docks : WindowDocks()
+        // A workspace Toggle opened for an empty edge docks once the daemon reports it.
+        for (id, edge) in pendingDocks where alive(id) {
+            pendingDocks[id] = nil
+            if docking { docks.dock(id, at: edge) }
+        }
+        docks.prune(keeping: alive)
+        _ = docks.reveal(shown)
+        let stage = docks.isEmpty ? shown : docks.stage(focused: shown, previous: state.stageWorkspaceID,
+                                                         recency: state.workspaceRecency, listed: members)
+        if docking, state.docks != docks || state.stageWorkspaceID != (docks.isEmpty ? nil : stage) {
+            state.docks = docks
+            state.stageWorkspaceID = docks.isEmpty ? nil : stage
+            services.windows.recordSaver.stateDidChange(state)
+        }
+        let set = multi ? state.viewSet.flatMap { stage.map($0.contains) == true ? $0 : nil }?
+            .pruned { $0 == stage || alive($0) }
+            .flatMap { $0.ids.count > 1 ? $0 : nil } : nil
         if state.viewSet != set {
             state.viewSet = set
             services.windows.recordSaver.stateDidChange(state)
         }
-        guard let set else {
+        guard set != nil || !docks.visible.isEmpty else {
             clearArrangement()
             return setOnScreen([shown])
         }
+        let stageIDs = set?.ids ?? stage.map { [$0] } ?? []
         var views: [String: NSView] = [shown: content.contentView]
-        for id in set.ids where id != shown {
+        for id in stageIDs + docks.visible.map(\.workspace) where id != shown {
             if let companion = companion(id) { views[id] = companion.contentView }
         }
         let host = root.contentHost
-        // Companions that left the set go off screen; the ones in it come on.
+        // Companions that left the frame go off screen; the ones in it come on.
         for (id, controller) in parked where views[id] == nil && controller.contentView.superview === host && !controller.contentView.isHidden && id != state.workspaceID {
             controller.contentView.isHidden = true
             controller.park(serial: controller.parkedSerial)
@@ -59,10 +84,21 @@ extension WindowController {
             view.autoresizingMask = []
             view.isHidden = false
         }
-        let gap = Self.multiViewGap
+        let gap = Self.multiViewGap, geometry = WindowFrameGeometry(gap: Self.multiViewGap)
+        let floating = Set(docks.visible.filter { $0.mode == .overlay }.map(\.workspace))
+        for (id, view) in views { view.applyDockedWorkspaceChrome(floating: floating.contains(id)) }
+        host.stackFloatingDocks(front: Set(floating.compactMap { views[$0].map(ObjectIdentifier.init) }))
+        let frame = docks
         host.arrangeContent = { bounds in
-            for (id, frame) in set.frames(in: CGRect(origin: .zero, size: bounds.size), gap: gap) {
-                // The host is not flipped: the tree's y runs down.
+            let placement = geometry.place(frame, in: CGRect(origin: .zero, size: bounds.size))
+            var frames = placement.docks.map { (id: $0.workspace, frame: $0.frame) }
+            if let set {
+                frames += set.frames(in: placement.stage, gap: gap)
+            } else if let stage {
+                frames.append((stage, placement.stage))
+            }
+            for (id, frame) in frames {
+                // The host is not flipped: the frame's y runs down.
                 views[id]?.frame = CGRect(x: frame.minX, y: bounds.height - frame.maxY, width: frame.width, height: frame.height).integral
             }
         }
@@ -95,7 +131,7 @@ extension WindowController {
     /// takes it where the layout has no split edge (`WorkspaceDragResolver.outcome`): Home's pinned dock takes no drop,
     /// and a screen edge dock band would merge the workspace into a new dock of the shown one.
     func besideEdge(at screenPoint: CGPoint, dragging ids: [String], group: String?) -> TabDropEdge? {
-        guard SidebarTunables.multiView.value, group == nil, ids.count == 1, let target = content(atScreen: screenPoint),
+        guard SidebarTunables.multiViewOn, group == nil, ids.count == 1, let target = content(atScreen: screenPoint),
               ids.first != target.workspace.id, let window = target.contentView.window else { return nil }
         let view = target.contentView
         let rect = window.convertToScreen(view.convert(view.bounds, to: nil))
@@ -113,9 +149,9 @@ extension WindowController {
     /// A press in a workspace shown beside the focused one focuses it first, so the press lands in focused content.
     /// The view the press hits decides, so a sheet, popover or floating pane over it keeps the press.
     func focusOnScreenWorkspace(at windowPoint: CGPoint) {
-        guard SidebarTunables.multiView.value, let set = state.viewSet, let shown = content?.workspace.id,
+        guard SidebarTunables.multiViewOn || LayoutTunables.dockedWorkspaces.value, let shown = content?.workspace.id,
               let hit = window?.contentView?.hitTest(windowPoint) else { return }
-        for id in set.ids where id != shown {
+        for id in besideIDs where id != shown {
             guard let view = parked[id]?.contentView, !view.isHiddenOrHasHiddenAncestor, hit.isDescendant(of: view) else { continue }
             services.windows.show(workspaceID: id, in: state)
             return
@@ -125,10 +161,22 @@ extension WindowController {
     /// The workspaces on screen: the focused one, then the ones shown beside it.
     var onScreenContents: [WorkspaceContentController] {
         guard let content else { return [] }
-        guard let set = state.viewSet else { return [content] }
-        return [content] + set.ids.compactMap { id in
+        let ids = besideIDs.filter { $0 != content.workspace.id }
+        guard !ids.isEmpty else { return [content] }
+        return [content] + ids.compactMap { id in
             parked[id].flatMap { $0.contentView.superview === root.contentHost && !$0.contentView.isHidden ? $0 : nil }
         }
+    }
+
+    /// The workspaces that may be on screen beside the shown one: Floating docks first (they are on top), then the
+    /// `sidebar.multiView` set, the other docks and the stage's workspace while a dock has the focus.
+    private var besideIDs: [String] {
+        let visible = LayoutTunables.dockedWorkspaces.value ? state.docks.visible : []
+        var ids = visible.filter { $0.mode == .overlay }.map(\.workspace) + (state.viewSet?.ids ?? [])
+        ids += visible.filter { $0.mode != .overlay }.map(\.workspace)
+        if LayoutTunables.dockedWorkspaces.value, let stage = state.stageWorkspaceID { ids.append(stage) }
+        var seen = Set<String>()
+        return ids.filter { seen.insert($0).inserted }
     }
 
     /// The workspace on screen whose layout has screen `screenID` (a drop's column or dock anchor).
@@ -180,6 +228,7 @@ extension WindowController {
         }
         // The workspace a page covers fills the content area again too, so a page closing shows no half-size frame.
         if let view = (content ?? state.workspaceID.flatMap { parked[$0] })?.contentView {
+            view.applyDockedWorkspaceChrome(floating: false)
             view.frame = host.bounds
             view.autoresizingMask = [.width, .height]
         }
@@ -196,7 +245,32 @@ extension WindowController {
     }
 
     private func setOnScreen(_ ids: Set<String>) {
-        let value = Set(ids.map(SidebarWorkspaceID.init))
+        let value = Self.multiViewEnabled ? Set(ids.map(SidebarWorkspaceID.init)) : []
         if sidebar.model.onScreen != value { sidebar.model.onScreen = value }
+    }
+}
+
+// Docked workspaces and the window dock (plans/cmux-next/docked-workspace-DESIGN.md): the frame operations are
+// CmuxNextDaemonService's (`WindowDockFrame+Operations`); the window gives them its state with one-line forwards.
+extension WindowController: WindowDockFrame {
+    var frameWindowID: String { state.id }
+    var frameDocks: WindowDocks { get { state.docks } set { state.docks = newValue } }
+    var frameFocusedWorkspaceID: String? { state.workspaceID }
+    var frameStageWorkspaceID: String? { get { state.stageWorkspaceID } set { state.stageWorkspaceID = newValue } }
+    var frameShownWorkspaceID: String? { content?.workspace.id }
+    var frameMembers: [String] { services.windows.registry.members(of: state.id) }
+    func frameShow(_ id: String, thisWindow: Bool) { services.windows.show(workspaceID: id, in: state, from: thisWindow ? .thisWindow : .anywhere) }
+    func frameCreateWorkspace(cwd: String?) async -> String? { await services.windows.createWorkspace(cwd: cwd, into: state.id) }
+    func frameDockWhenReported(_ id: String, at edge: DockEdge) {
+        pendingDocks[id] = edge
+        frameDidChange()
+    }
+    func frameClaim(_ id: String) { services.windows.claim(workspaceID: id, in: state, select: false) }
+    func frameSaveRecord() { services.windows.recordSaver.stateDidChange(state) }
+
+    /// Places the changed frame now and saves the window record on settle.
+    func frameDidChange() {
+        arrangeOnScreen()
+        frameSaveRecord()
     }
 }

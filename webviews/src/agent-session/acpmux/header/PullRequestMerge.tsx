@@ -5,6 +5,7 @@
 // with GitHub before it merges. The chip keeps where the merge stands, so closing the popover
 // mid-merge never offers a second one.
 import { useEffect, useRef } from "react";
+import { StableLabel } from "../../../ui/StableLabel";
 import { useT } from "../i18n";
 import type { HeaderPullRequest } from "./headerState";
 
@@ -83,7 +84,10 @@ export function PullRequestMerge({
               aria-disabled={merging.step === "merging" ? true : undefined}
               onClick={() => merging.step === "confirm" && run()}
             >
-              {merging.step === "merging" ? t("header.prMerging") : t("header.prMergeConfirm")}
+              <StableLabel
+                label={merging.step === "merging" ? t("header.prMerging") : t("header.prMergeConfirm")}
+                alternatives={[t("header.prMergeConfirm"), t("header.prMerging")]}
+              />
             </button>
           </div>
         </>

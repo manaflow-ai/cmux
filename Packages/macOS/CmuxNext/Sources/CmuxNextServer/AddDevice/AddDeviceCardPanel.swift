@@ -13,7 +13,7 @@ final class AddDeviceCardPanel: NSPanel {
     init(model: AddDeviceModel) {
         self.model = model
         content = AddDeviceView(model: model)
-        glass = Glass.makePanel(content: content, style: .regular, cornerRadius: 14)
+        glass = Glass.makePanel(content: content, style: .regular, cornerRadius: Metrics.surfaceCornerRadius)
         super.init(contentRect: NSRect(origin: .zero, size: NSSize(width: AddDeviceView.width, height: 240)),
                    styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView], backing: .buffered, defer: true)
         ThemeScope.app.adopt(self)
@@ -35,6 +35,15 @@ final class AddDeviceCardPanel: NSPanel {
     }
 
     override var canBecomeKey: Bool { true }
+
+    /// The card got the focus (the person came back from the new machine's terminal): the one-line
+    /// join reads the machine list once (``MachineJoinLineModel/refresh()``); nothing polls it.
+    override func becomeKey() {
+        super.becomeKey()
+        guard let join = model.joinLine, join.line != nil else { return }
+        // task-owner: one list read per focus; the model drops it once the line is gone.
+        Task { await join.refresh() }
+    }
     override var canBecomeMain: Bool { false }
 
     /// Shows the card over `window` and gives it the keys (Add Device is always opened by a person).

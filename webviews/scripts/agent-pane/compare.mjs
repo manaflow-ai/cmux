@@ -109,7 +109,7 @@ const server = await createServer({
 await server.listen();
 const url = server.resolvedUrls.local[0];
 try {
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({ channel: "chrome" });
   try {
     for (const name of names) console.log(await run(browser, name, scenarios[name]));
   } finally {

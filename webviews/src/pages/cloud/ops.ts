@@ -8,6 +8,12 @@
 
 export const CloudOps = {
   authStatus: "cmux.cloud.auth.status",
+  /**
+   * Event stream: the app's account changed (a sign-in or sign-out anywhere in the app, a restored
+   * session, a team switch). The first event is the current account; the page reads `authStatus`
+   * again on each one. A host that does not serve it answers an unknown op, and the page goes on.
+   */
+  authWatch: "cmux.cloud.auth.watch",
   machineList: "cmux.cloud.machine.list",
   machineWatch: "cmux.cloud.machine.watch",
   machineCreate: "cmux.cloud.machine.create",
@@ -42,6 +48,23 @@ export const CloudOps = {
   portClose: "cmux.cloud.port.close",
   browserOpen: "cmux.cloud.browser.open",
 } as const;
+
+/** Native preview actions. They are intentionally separate from server ops so
+ * the Cloud app card can invoke the same share/revoke flow later. */
+export const CloudActions = {
+  previewShare: "cloudPreviewShare",
+  previewRevoke: "cloudPreviewRevoke",
+} as const;
+
+export interface PreviewShareResult {
+  confirmed?: boolean;
+  machine_id?: string;
+  port?: number;
+  linkId?: string;
+  url?: string;
+  expiresAt?: number;
+  revoked?: boolean;
+}
 
 /**
  * Account ops no catalog declares yet (first-party-apps/cloud/README.md "Gaps": the host credential
@@ -252,6 +275,10 @@ export interface CloudMachine {
   last_active_at?: number | null;
   idle_policy?: { idle_seconds?: number | null } | null;
   error?: { code: string; message?: string | null; at?: number | null } | null;
+  /** US dollars an hour while running, from the server's rate table (display only; no rates here). */
+  hourly_rate_usd?: number | null;
+  /** Epoch milliseconds the machine last started running; null unless it is running. */
+  running_since?: number | null;
   /** The record's own revision: a decimal string that only grows. */
   revision: string;
 }
@@ -432,6 +459,13 @@ export interface BrowserRoute {
 export interface CloudTeam {
   id: string;
   name: string;
+}
+
+/** One event of `cmux.cloud.auth.watch`: the app's account (`user` and `team` null when signed out). */
+export interface AccountEvent {
+  signedIn: boolean;
+  user?: string | null;
+  team?: string | null;
 }
 
 /** `cloud.auth.status`: the host answers from its own sign-in. */

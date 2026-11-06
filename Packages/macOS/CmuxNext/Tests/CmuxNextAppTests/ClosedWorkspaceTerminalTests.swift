@@ -11,6 +11,10 @@ import Testing
 /// A terminal whose tab its daemon's tree no longer lists now goes, preview and all; one the
 /// tree still lists stays.
 @MainActor struct ClosedWorkspaceTerminalTests {
+    /// AppServices reads `NSApp` (an implicitly unwrapped Optional) from its observers and services;
+    /// a suite run in its own process has no shared application until something makes it.
+    init() { _ = NSApplication.shared }
+
     private static func tree(_ workspaces: [UInt64]) -> DaemonTree {
         DaemonTree(workspaces: workspaces.map { id in
             let pane = PaneSnapshot(id: PaneID(rawValue: id), tabs: [TabSnapshot(surface: SurfaceID(rawValue: id), title: "~")])

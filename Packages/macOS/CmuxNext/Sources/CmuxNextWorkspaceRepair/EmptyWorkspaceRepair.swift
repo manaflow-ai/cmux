@@ -105,6 +105,7 @@ public final class EmptyWorkspaceRepair {
     /// that touches none of them must examine none (sidebar churn).
     @ObservationIgnored private(set) var visited = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.empty-workspace")
+    private let createLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.workspace-create")
 
     /// The daemon-facing closures come from the App (`init(daemon:)`), which
     /// owns the connection and the workspace close path.
@@ -233,9 +234,10 @@ public final class EmptyWorkspaceRepair {
 
     /// The store's home workspace (workspace-kind-v1) starts empty on
     /// purpose and the daemon never closes it: HomeService owns its content
-    /// (the Chief conversation tab), so it is neither repaired nor closed.
+    /// (the Chief conversation tab), so it is neither repaired nor closed; nor is a window's own
+    /// Home (cmux#27880), whose page the app makes.
     private static func isHome(_ workspace: WorkspaceModel) -> Bool {
-        workspace.kind == "home"
+        workspace.isAnyHome
     }
 
     private static func hasPane(_ workspace: WorkspaceModel) -> Bool {
@@ -258,7 +260,7 @@ public final class EmptyWorkspaceRepair {
         // Disconnected: the next change this repair sees tries again.
         guard canCreate() else { retries.insert(key); return false }
         states[key] = .closing
-        populated[key] = nil
+        let populatedEpoch = populated.removeValue(forKey: key)
         let close = close, cause = cause, create = create
         // task-owner: one decision per emptied workspace; the claim is the state above
         Task {
@@ -282,8 +284,30 @@ public final class EmptyWorkspaceRepair {
             do {
                 try await close(key)
             } catch {
-                // Still open and empty: the next change repairs it instead.
-                if states[key] == .closing { states[key] = nil }
+                // Still open: keep the last-tab-close evidence, so the next
+                // change this repair sees closes it again instead of refilling
+                // it with a terminal (#17632). Only when nothing newer replaced
+                // it: after a reconnect (a new epoch) the old evidence is stale,
+                // and a pane seen on the new connection already recorded its own.
+                // Either way the workspace is examined again on the next change:
+                // its pane changes were ignored while the close owned it, so it
+                // may be empty again with that newer evidence.
+                if states[key] == .closing {
+                    states[key] = nil
+                    if let populatedEpoch, populatedEpoch == epoch(), populated[key] == nil {
+                        populated[key] = populatedEpoch
+                    }
+                    // A reconnect can replace the workspace model while this close is in
+                    // flight, so its pane flip may not reach the old watcher. The failed close
+                    // still proves that this workspace had a terminal before it emptied; carry
+                    // that evidence into the current epoch for the retry.
+                    if populated[key] != epoch() { populated[key] = epoch() }
+                    // Pane changes observed while the close was owned by this task were
+                    // intentionally ignored. Re-examine the workspace on the next store change
+                    // even when a reconnect replaced its evidence; a populated workspace is a
+                    // no-op, while an empty one gets the close it missed.
+                    retries.insert(key)
+                }
                 logger.error("closing emptied workspace failed: \(String(describing: error), privacy: .public)")
             }
         }
@@ -358,6 +382,31 @@ public final class EmptyWorkspaceRepair {
             return try await body()
         } catch {
             if states[key] == .awaitingPane { states[key] = nil; recordFailure(key, error) }
+            throw error
+        }
+    }
+
+    /// Creates workspace `key` (`createWorkspace`) and its first terminal or tab (`createTerminal`),
+    /// and never leaves it half-created: when a step fails, `closeWorkspace` closes the key, except
+    /// after a refused create (it made nothing, and the key may name a live workspace). The create
+    /// failure stays the one error thrown; a failed close is logged.
+    public func withTerminal<T>(
+        _ key: WorkspaceKey,
+        createWorkspace: () async throws -> Void,
+        createTerminal: (WorkspaceKey) async throws -> T,
+        closeWorkspace: (WorkspaceKey) async throws -> Void
+    ) async throws -> T {
+        var refused = false // a refused create made nothing (the key may name a live workspace)
+        do {
+            do { try await createWorkspace() } catch { refused = (error as? DaemonError).map { if case .command = $0 { true } else { false } } ?? false; throw error }
+            return try await createTerminal(key)
+        } catch {
+            if !refused { do {
+                try await closeWorkspace(key)
+            } catch let closeError {
+                // The create failure stays the one error the user sees.
+                createLogger.error("closing a half-created workspace failed: \(String(describing: closeError), privacy: .public)")
+            } }
             throw error
         }
     }

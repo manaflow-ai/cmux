@@ -85,13 +85,14 @@ import Testing
     /// No acpmux, or nothing on the socket, is not running; a handoff's mark says restarting
     /// until it settles. One `--version` and one status call each, no daemon started.
     @Test func theLineIsReadOnceFromTheSocketAndTheHandoffMark() async {
-        #expect(await Summary.current(nil) == Summary(build: nil, state: .notRunning))
+        let daemons = AcpmuxLocalDaemons()
+        #expect(await Summary.current(nil, daemons: daemons) == Summary(build: nil, state: .notRunning))
         let environment = Self.environment()
-        #expect(await Summary.current(environment).state == .notRunning)
-        Summary.mark(home: environment.home, restarting: true)
-        #expect(await Summary.current(environment).state == .restarting)
-        Summary.mark(home: environment.home, restarting: false)
-        #expect(await Summary.current(environment).state == .notRunning)
+        #expect(await Summary.current(environment, daemons: daemons).state == .notRunning)
+        daemons.mark(home: environment.home, restarting: true)
+        #expect(await Summary.current(environment, daemons: daemons).state == .restarting)
+        daemons.mark(home: environment.home, restarting: false)
+        #expect(await Summary.current(environment, daemons: daemons).state == .notRunning)
     }
 
     /// A bundled acpmux that never answers `--version` does not hold the card: the probe's bound
@@ -105,7 +106,7 @@ import Testing
                                             socketPath: stall.directory.appendingPathComponent("acpmux.sock").path,
                                             daemonArguments: [], childEnvironment: [:])
         let clock = ManualClock()
-        let line = Task { await Summary.current(environment, versionClock: clock) }
+        let line = Task { await Summary.current(environment, daemons: AcpmuxLocalDaemons(), versionClock: clock) }
         // The child runs and the bound is armed: only the clock ends the probe now.
         await stall.waitUntilStarted()
         try await clock.waitForSleeper(within: .seconds(60))

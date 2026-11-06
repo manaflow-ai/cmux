@@ -1,8 +1,8 @@
-import { useMinuteClock } from "../clock";
+import { useLabelClock } from "../clock";
 import { usePaneLanguage } from "../i18n";
 import { textLinks } from "../chips/paths";
 import { Tooltip } from "../../../ui/Tooltip";
-import { relativeTime } from "./relativeTime";
+import { nextRelativeTime, relativeTime } from "./relativeTime";
 import type { ReactNode } from "react";
 
 const DAY_MS = 86_400_000;
@@ -10,8 +10,53 @@ const TOKEN_START = "\uE000";
 const TOKEN_END = "\uE001";
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})$/;
 const CLOCK = /^(?<hour>[01]\d|2[0-3]):(?<minute>[0-5]\d)(?::(?<second>[0-5]\d))?(?<zone>Z| UTC)$/;
-const DETECT =
-  /\b(?:\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})|(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?Z|(?:[01]\d|2[0-3]):[0-5]\d UTC)\b/g;
+const CLOCK_TIME = "(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d)?";
+const DETECT = new RegExp(
+  `\\b(?:\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d+)?)?(?:Z|[+-]\\d{2}:?\\d{2})|(?<![\\d.:])(?:${CLOCK_TIME}Z|${CLOCK_TIME} UTC))\\b`,
+  "g",
+);
+const CLOCK_TIMES = new RegExp(CLOCK_TIME, "g");
+// A list or range of clock times ("23:55 and 01:28 UTC", "23:55, 00:10 and 01:28 UTC",
+// "23:55–01:28 UTC") shares the zone that follows its last time. Found by a linear scan over
+// the clock times, not one nested pattern, so long runs of times cannot backtrack.
+const CLOCK_TOKEN = new RegExp(`(?<![\\w.:])${CLOCK_TIME}(?![\\d:])`, "g");
+const CLOCK_JOIN = /^(?:\s*,\s*(?:(?:and|or)\s+)?|\s+(?:and|or|to|through|until)\s+|\s*[\u2013\u2014-]\s*)$/;
+const ISO_SPAN = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?/g;
+const CLOCK_ZONE = /^(?: UTC|Z)\b/;
+const MAX_JOIN = 12;
+
+/** Spans of two or more clock times joined by commas, "and", "to" or a dash, ending in a zone. */
+function clockLists(text: string): Array<{ start: number; end: number }> {
+  const lists: Array<{ start: number; end: number }> = [];
+  let run: { start: number; end: number; count: number } | undefined;
+  const close = () => {
+    if (!run || run.count < 2) return;
+    const zone = text.slice(run.end, run.end + 4).match(CLOCK_ZONE);
+    if (zone) lists.push({ start: run.start, end: run.end + zone[0].length });
+  };
+  // Clock-like pieces of an ISO timestamp ("T05:21", "-07:00") are not clock times themselves.
+  const iso = [...text.matchAll(ISO_SPAN)].map((m) => [m.index!, m.index! + m[0].length] as const);
+  let isoAt = 0;
+  for (const match of text.matchAll(CLOCK_TOKEN)) {
+    const start = match.index!;
+    while (isoAt < iso.length && iso[isoAt]![1] <= start) isoAt++;
+    if (isoAt < iso.length && start >= iso[isoAt]![0]) {
+      close();
+      run = undefined;
+      continue;
+    }
+    const end = start + match[0].length;
+    if (run && start - run.end <= MAX_JOIN && CLOCK_JOIN.test(text.slice(run.end, start))) {
+      run.end = end;
+      run.count++;
+    } else {
+      close();
+      run = { start, end, count: 1 };
+    }
+  }
+  close();
+  return lists;
+}
 const SHORT_UNITS: readonly (readonly [Intl.RelativeTimeFormatUnit, number])[] = [
   ["day", 86_400_000],
   ["hour", 3_600_000],
@@ -97,6 +142,23 @@ function markdownDestinations(text: string): { start: number; end: number }[] {
 }
 
 function decorateProseSegment(text: string, messageAt?: number): string {
+  let out = "";
+  let from = 0;
+  const flush = (to: number) => {
+    out += decorateSingles(text.slice(from, to), messageAt);
+  };
+  for (const list of clockLists(text)) {
+    const encoded = encodeMatch(text.slice(list.start, list.end), messageAt);
+    if (encoded === undefined) continue;
+    flush(list.start);
+    out += encoded;
+    from = list.end;
+  }
+  flush(text.length);
+  return out;
+}
+
+function decorateSingles(text: string, messageAt?: number): string {
   DETECT.lastIndex = 0;
   let out = "";
   let from = 0;
@@ -110,6 +172,29 @@ function decorateProseSegment(text: string, messageAt?: number): string {
   return from ? out + text.slice(from) : text;
 }
 
+function encodeMatch(source: string, messageAt?: number): string | undefined {
+  const times = [...source.matchAll(CLOCK_TIMES)];
+  if (!Number.isFinite(messageAt)) return undefined;
+  // Walk back from the last time: it is the latest one at or before the message, and each
+  // earlier one is the latest at or before the time that follows it.
+  const resolved: number[] = [];
+  let reference = messageAt!;
+  for (let index = times.length - 1; index >= 0; index--) {
+    reference = resolveClock(times[index]![0], reference);
+    resolved[index] = reference;
+  }
+  let out = "";
+  let from = 0;
+  times.forEach((time, index) => {
+    const start = time.index!;
+    // The last time keeps the zone it shares with the rest ("01:28 UTC").
+    const end = index === times.length - 1 ? source.length : start + time[0].length;
+    out += source.slice(from, start) + encodeToken({ source: source.slice(start, end), at: resolved[index]! });
+    from = end;
+  });
+  return out;
+}
+
 /** Resolve one supported timestamp to epoch milliseconds. Bare UTC clocks use messageAt's date. */
 export function resolveTimestamp(source: string, messageAt?: number): number | undefined {
   if (ISO.test(source)) {
@@ -118,13 +203,16 @@ export function resolveTimestamp(source: string, messageAt?: number): number | u
   }
   const clock = source.match(CLOCK);
   if (!clock || !Number.isFinite(messageAt)) return undefined;
-  const hour = Number(clock.groups?.hour);
-  const minute = Number(clock.groups?.minute);
-  const second = Number(clock.groups?.second ?? 0);
-  const message = new Date(messageAt!);
-  let resolved = Date.UTC(message.getUTCFullYear(), message.getUTCMonth(), message.getUTCDate(), hour, minute, second);
-  if (resolved > messageAt!) resolved -= DAY_MS;
-  return resolved;
+  const { hour, minute, second } = clock.groups!;
+  return resolveClock(`${hour}:${minute}${second === undefined ? "" : `:${second}`}`, messageAt!);
+}
+
+/** The latest UTC occurrence of an "HH:MM[:SS]" clock time at or before `reference`. */
+function resolveClock(time: string, reference: number): number {
+  const [hour, minute, second] = time.split(":").map(Number);
+  const day = new Date(reference);
+  const resolved = Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), hour!, minute!, second ?? 0);
+  return resolved > reference ? resolved - DAY_MS : resolved;
 }
 
 function encodeToken(token: TimeToken): string {
@@ -192,8 +280,22 @@ export function timestampHoverLabel(at: number, now: number, locale?: string): s
   return `${localTime(at, locale)}, ${relative}`;
 }
 
+/** First shared minute where the tooltip or accessible age changes. Its source token is static. */
+export function nextTimestampHover(at: number, now: number): number {
+  if (!Number.isFinite(at)) return Infinity;
+  const age = Math.max(0, now - at);
+  // Below one raw minute the tooltip uses relativeTime, whose rounded seconds can already say
+  // "1 minute ago". Preserve that first update, and the switch to the short unit at 60 seconds.
+  if (age < 60_000) return Math.min(nextRelativeTime(at, now), Math.ceil((at + 60_000) / 60_000) * 60_000);
+  const index = SHORT_UNITS.findIndex(([, size]) => age >= size);
+  const size = index < 0 ? 60_000 : SHORT_UNITS[index][1];
+  const nextCount = index < 0 ? 60_000 : (Math.round(age / size) + 0.5) * size;
+  const nextUnit = index > 0 ? SHORT_UNITS[index - 1][1] : Infinity;
+  return Math.max(now + 60_000, Math.ceil((at + Math.min(nextCount, nextUnit)) / 60_000) * 60_000);
+}
+
 export function TimeHover({ token }: { token: TimeToken }): ReactNode {
-  const now = useMinuteClock();
+  const now = useLabelClock(token.at, nextTimestampHover);
   const locale = usePaneLanguage();
   const label = timestampHoverLabel(token.at, now, locale);
   return (

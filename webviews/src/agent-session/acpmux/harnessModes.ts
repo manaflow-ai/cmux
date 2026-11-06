@@ -110,6 +110,15 @@ export function harnessFamilyMenu(
   return familyMenu(family, harness);
 }
 
+/** The native label for a reported mode id, with a safe Full access fallback for older adapters. */
+export function harnessModeName(family: string | undefined, harness: string | undefined, modeId: string): string {
+  const row = familyMenu(family, harness)?.rows.find((candidate) => candidate.id === modeId);
+  if (row) return row.name;
+  if (modeId === "bypassPermissions") return "Bypass permissions";
+  if (modeId === "agent-full-access") return "Full access";
+  return "Full access";
+}
+
 function familyMenu(family: string | undefined, harness: string | undefined): HarnessModeMenu | undefined {
   const of = (value: string | undefined) => {
     const id = (value ?? "").toLowerCase();

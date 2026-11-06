@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextIcons
 @testable import CmuxNextApp
 @testable import CmuxNextBrowser
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -10,7 +11,7 @@ import Testing
 /// extensions there by default, like the Extensions three-dot button, the Extensions button, and
 /// all the pinned extensions"). Before, the button showed only while an extension was pinned
 /// (cx-d0d.81) and the Extensions menu hid in More.
-@MainActor @Suite struct BrowserToolbarExtensionsButtonTests {
+@MainActor @Suite(.closesItsWindows) struct BrowserToolbarExtensionsButtonTests {
     private func chromiumTab(_ actions: [CEFExtensionAction] = []) -> MockBrowserTab {
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com")))
         tab.showsExtensionToolbar = true
@@ -22,6 +23,7 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
+        defer { window.closeAfterTest() }
         let chrome = BrowserChromeView(tab: tab)
         chrome.frame = window.contentLayoutRect
         window.contentView = chrome

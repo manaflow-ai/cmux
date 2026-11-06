@@ -17,6 +17,7 @@ use cmux_conversation::{
     ConversationHead, CreateRequest, Message, Op, OpRequest, Origin, Participant, Reject, Summary,
     encode_id, format_rfc3339_millis, summary, valid_participant_id, valid_token,
 };
+use cmux_json::JsonSet as _;
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -866,7 +867,7 @@ impl ConversationEvent {
                     "marked_unread": marked_unread,
                 });
                 if let Some(position) = pin_position {
-                    value["pin_position"] = json!(position);
+                    value.set("pin_position", json!(position));
                 }
                 value
             }
@@ -921,6 +922,13 @@ impl ConversationEvent {
     }
 }
 
+/// Who types where: conversation, then participant, then the connections
+/// (control client ids) whose `on` holds it.
+pub(crate) type TypingByConversation = std::collections::BTreeMap<
+    String,
+    std::collections::BTreeMap<String, std::collections::BTreeSet<u64>>,
+>;
+
 /// The owner's hosting state on the mux: the store, opened on first use, and
 /// the lock held across one write and the event it publishes, so subscribers
 /// see each conversation's `rev` in commit order. Lock order: `publish`, then
@@ -937,9 +945,9 @@ pub(crate) struct ConversationHost {
     pub(crate) bindings: Mutex<std::collections::BTreeMap<u64, String>>,
     /// Who is typing in each conversation now (memory only): typing is never
     /// stored, but a snapshot says who types so a client that missed a
-    /// typing item can recover the state.
-    pub(crate) typing:
-        Mutex<std::collections::BTreeMap<String, std::collections::BTreeSet<String>>>,
+    /// typing item can recover the state. Each typist keeps the connections
+    /// that turned it on: it ends when the last of them closes (cmux#32727).
+    pub(crate) typing: Mutex<TypingByConversation>,
     /// Remote-relay peers, pairing records and revocation limits.
     pub(crate) remote: crate::remote_relay_state::RemoteRelayState,
 }

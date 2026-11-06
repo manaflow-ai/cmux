@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Testing
 import CmuxNextCompat
 @testable import CmuxNextDaemon
@@ -7,6 +8,8 @@ import CmuxNextCompat
 /// typing and view verbs and the client's echo in `set-client-info` (so it streams presence); one
 /// that does not gets neither verb and no echo, so an older daemon sees nothing new.
 @Suite(.timeLimit(.minutes(1))) struct AgentSessionAttachClientPresenceTests {
+    private struct EndpointFailure: Error {}
+
     @Test func aDaemonWithPresenceGetsTypingViewAndTheEcho() async throws {
         let daemon = try PresenceDaemon(capabilities: ["agent-session-attach-v1", "agent-session-presence-v1"])
         defer { daemon.stop() }
@@ -31,6 +34,61 @@ import CmuxNextCompat
         let sent = daemon.frames
         #expect(sent.map { $0["cmd"] as? String } == ["identify", "set-client-info"])
         #expect((sent[1]["capabilities"] as? [String] ?? []).isEmpty)
+    }
+
+    /// A first connection whose handshake fails (its daemon does not serve attach) ends no
+    /// attachment when the machine link reconnects: the retry attaches, and the page's handler
+    /// gets no `agent-session-closed` from the failed try.
+    @Test func aFailedHandshakeThatReconnectsEndsNoAttachment() async throws {
+        let refusing = try PresenceDaemon(capabilities: [])
+        defer { refusing.stop() }
+        let serving = try PresenceDaemon(capabilities: ["agent-session-attach-v1"])
+        defer { serving.stop() }
+        let tries = OSAllocatedUnfairLock(initialState: 0)
+        let reconnects = OSAllocatedUnfairLock(initialState: 0)
+        let events = OSAllocatedUnfairLock<[String]>(initialState: [])
+        let client = AgentSessionAttachClient(surface: 7, reconnect: { reconnects.withLock { $0 += 1 }; return true }) {
+            DaemonEndpoint(socketPath: tries.withLock { count in count += 1; return count } == 1 ? refusing.path : serving.path)
+        }
+        _ = try await client.attach(afterSeq: nil, beforeSeq: nil, limit: nil, kinds: nil) { name, _ in
+            events.withLock { $0.append(name) }
+        }
+        // Let the failed try's close run before checking.
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(reconnects.withLock { $0 } == 1)
+        #expect(!events.withLock { $0 }.contains("agent-session-closed"))
+        #expect(serving.frames.map { $0["cmd"] as? String }.contains("agent-session-attach"))
+        await client.close()
+    }
+
+    /// Without a reconnect, or when the link does not come back, a failed handshake ends the
+    /// attachment as before.
+    @Test func aFailedHandshakeThatDoesNotReconnectEndsTheAttachment() async throws {
+        let refusing = try PresenceDaemon(capabilities: [])
+        defer { refusing.stop() }
+        let events = OSAllocatedUnfairLock<[String]>(initialState: [])
+        let client = AgentSessionAttachClient(surface: 7, reconnect: { false }) { DaemonEndpoint(socketPath: refusing.path) }
+        await #expect(throws: AgentSessionAttachError.self) {
+            _ = try await client.attach(afterSeq: nil, beforeSeq: nil, limit: nil, kinds: nil) { name, _ in
+                events.withLock { $0.append(name) }
+            }
+        }
+        #expect(events.withLock { $0 } == ["agent-session-closed"])
+        await client.close()
+    }
+
+    @Test func anEndpointFailureThatDoesNotReconnectClosesTheAttachment() async throws {
+        let events = OSAllocatedUnfairLock<[String]>(initialState: [])
+        let client = AgentSessionAttachClient(surface: 7, reconnect: { false }) {
+            throw EndpointFailure()
+        }
+        await #expect(throws: EndpointFailure.self) {
+            _ = try await client.attach(afterSeq: nil, beforeSeq: nil, limit: nil, kinds: nil) { name, _ in
+                events.withLock { $0.append(name) }
+            }
+        }
+        #expect(events.withLock { $0 } == ["agent-session-closed"])
+        await client.close()
     }
 
     /// The bundled daemon serves it, and only the attach client echoes it: every other connection's

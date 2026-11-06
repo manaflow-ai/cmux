@@ -192,6 +192,11 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
             let _ = failure_tx.try_send(AppEvent::PtyFailuresReady);
         }
     })?;
+    // An older session server, or a staged build that waits for its restart
+    // (staged_update.rs): said once in the status line.
+    if let Some(notice) = crate::staged_update::startup_notice() {
+        let _ = tx.try_send(AppEvent::Mux(MuxEvent::Status(notice.to_owned())));
+    }
     let session_generation = 1;
     let (session, session_event_worker, mux_titles, mux_recovery_generation) =
         start_ordered_session(
@@ -417,6 +422,7 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
         pane_focus_history: PaneFocusHistory::default(),
         reported_focus: None,
         client_focus_id: client_focus_identity(),
+        docks: Default::default(),
         rendered_terminal_bounds: HashMap::new(),
         rendered_kitty_graphics: HashMap::new(),
         visible_size_surfaces: HashSet::new(),
@@ -513,6 +519,7 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
         last_applied_refresh_sequence: 0,
         applied_destination_generation: 0,
         pending_session_completions: VecDeque::new(),
+        pending_completed_selection: None,
         mux_titles,
         pty_failures,
         mux_recovery_generation,

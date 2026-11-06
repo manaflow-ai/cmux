@@ -107,6 +107,9 @@ async fn a_web_source_is_resolved_like_its_handler_and_refused_when_it_cannot_be
         let created = local.new_on(&d, "fake", json!({"policy": "approve-all", "_meta": {"acpmux": {"harness": "fake", "name": "loose-one"}}})).await;
         let sid = id(&created);
         let _ = local.call("_acpmux/kill", json!({"sessionId": sid})).await;
+        // The old daemon's shutdown seal: in one process the journal's lock passes to the next
+        // open only on it.
+        hub.seal();
         ("loose-one".to_owned(), sid)
     };
     // A new daemon: the session is stored, not live.
@@ -130,14 +133,20 @@ async fn a_web_source_is_resolved_like_its_handler_and_refused_when_it_cannot_be
             .new_on(&d, "fake", json!({"_meta": {"acpmux": {"harness": "fake", "name": n}}}))
             .await);
     }
-    for key in ["no-such-session", "dup"] {
+    // The ambiguous prefix is refused first by the VM-boundary admission
+    // (`Hub::refuse_at_vm_boundary`), which every request that is not the
+    // person's own passes before the guard, with the resolver's own error.
+    for (key, refusal) in
+        [("no-such-session", "cannot be resolved"), ("dup", "\"dup\" matches 2 sessions")]
+    {
         let r = web
             .call(
                 "session/load",
                 json!({"sessionId": key, "cwd": d.join("work"), "mcpServers": []}),
             )
             .await;
-        assert!(err(&r).contains("cannot be resolved"), "{key}: {r}");
+        assert!(r.get("result").is_none(), "{key}: {r}");
+        assert!(err(&r).contains(refusal), "{key}: {r}");
     }
     let _ = std::fs::remove_dir_all(&d);
 }

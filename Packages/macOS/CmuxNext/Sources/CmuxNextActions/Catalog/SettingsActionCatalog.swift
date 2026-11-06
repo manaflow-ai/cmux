@@ -63,6 +63,13 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 keywords: ["shortcuts", "keybindings", "hotkeys", "help"], category: .settings, symbol: "keyboard",
                 surfaces: [.palette, .menu], cliName: "settings search-keyboard-shortcuts", mainMenu: .help
             ),
+            // Settings > Menus: every right-click menu's arrangement (Customize Menu… opens it on one menu).
+            ActionDescriptor(
+                id: "settings.customizeMenus",
+                title: String(localized: "action.settings.customizeMenus", defaultValue: "Customize Right-Click Menus…", bundle: .module),
+                keywords: ["context menu", "right click", "menu", "customize", "reorder", "hide", "more"], category: .settings,
+                symbol: "contextualmenu.and.cursorarrow", surfaces: [.palette, .menu], cliName: "settings customize-menus", mainMenu: .app
+            ),
             // The Keyboard Shortcuts editor (R59), a React page tab; no
             // default key (defaults do not change, K1).
             ActionDescriptor(
@@ -85,14 +92,14 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.palette.installCLI", defaultValue: "Install cmux CLI in PATH", bundle: .module),
                 keywords: ["command line", "shell"], category: .settings, symbol: "terminal", surfaces: [.palette],
                 // Another app's `cmux` at /usr/local/bin is never replaced
-                // silently: `--replace` replaces it, `--cmux_next` installs
+                // silently: `--replace` replaces it, `--cmux-next` installs
                 // /usr/local/bin/cmux-next beside it; without either the app
                 // installs cmux-next beside it and its toast offers Replace.
                 arguments: [
                     ActionArgument(name: "replace",
                                    title: String(localized: "argument.installCLI.replace", defaultValue: "Replace Another App's cmux", bundle: .module),
                                    kind: .bool, isRequired: false),
-                    ActionArgument(name: "cmux_next",
+                    ActionArgument(name: "cmuxNext",
                                    title: String(localized: "argument.installCLI.cmuxNext", defaultValue: "Install as cmux-next", bundle: .module),
                                    kind: .bool, isRequired: false),
                 ],
@@ -122,6 +129,35 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.palette.checkForUpdates", defaultValue: "Check for Updates…", bundle: .module),
                 keywords: ["update", "version", "sparkle"], category: .settings, symbol: "arrow.down.circle",
                 surfaces: [.palette, .menu], cliName: "settings check-for-updates", mainMenu: .app
+            ),
+            // Live Web Reload (docs/cmux-next/hot-reload.md): load cmux's web UI from a checkout's dev
+            // server, so a saved edit shows at once with no build. The CLI is `cmux live start|stop`.
+            ActionDescriptor(
+                id: "liveWeb.start",
+                title: String(localized: "action.liveWeb.start", defaultValue: "Edit cmux Live…", bundle: .module),
+                keywords: ["live web reload", "hot reload", "dev server", "edit", "web ui", "webviews", "vite", "checkout", "develop"],
+                category: .settings, symbol: "bolt.horizontal.circle", surfaces: [.palette],
+                arguments: [CatalogArgument.optionalPathString]
+            ),
+            ActionDescriptor(
+                id: "liveWeb.stop",
+                title: String(localized: "action.liveWeb.stop", defaultValue: "Stop Editing cmux Live", bundle: .module),
+                keywords: ["live web reload", "hot reload", "dev server", "built-in", "bundled", "web ui"],
+                category: .settings, symbol: "bolt.horizontal.circle.fill", surfaces: [.palette]
+            ),
+            // Swift live mode (docs/cmux-next/live-code.md): a tagged build restarts into the live code
+            // build of its commit and back, sessions kept. The CLI is `cmux live start|stop --swift`.
+            ActionDescriptor(
+                id: "liveSwift.start",
+                title: String(localized: "action.liveSwift.start", defaultValue: "Start Swift Live Mode", bundle: .module),
+                keywords: ["live code", "hot reload", "hot swap", "swift", "patch", "interposable", "labs", "restart"],
+                category: .settings, symbol: "swift", surfaces: [.palette]
+            ),
+            ActionDescriptor(
+                id: "liveSwift.stop",
+                title: String(localized: "action.liveSwift.stop", defaultValue: "Stop Swift Live Mode", bundle: .module),
+                keywords: ["live code", "hot reload", "swift", "normal build", "optimized", "labs", "restart"],
+                category: .settings, symbol: "swift", surfaces: [.palette]
             ),
             ActionDescriptor(
                 id: "updates.whatsNew",
@@ -169,6 +205,16 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 keywords: ["rollback", "roll back", "downgrade", "previous", "revert", "update", "nightly", "drop back"],
                 category: .settings, symbol: "arrow.uturn.backward.circle", surfaces: [.palette, .menu],
                 cliName: "settings rollback-update", mainMenu: .app, destructive: true
+            ),
+            // Any recent nightly, older or newer, not only the kept one (Leo 2026-11-02: "idk if i should go without a
+            // way to revert nightlies to an older version convieniently"): opens Settings > Updates at its Channels
+            // card, whose Switch installs the build and skips the one left behind. `cmux nightly install` is its CLI.
+            ActionDescriptor(
+                id: "updates.installEarlierBuild",
+                title: String(localized: "action.updates.installEarlierBuild", defaultValue: "Install an Earlier Nightly…", bundle: .module),
+                keywords: ["rollback", "roll back", "downgrade", "older", "earlier", "previous", "revert", "nightly", "build", "version"],
+                category: .settings, symbol: "clock.arrow.circlepath", surfaces: [.palette, .menu],
+                cliName: "settings install-earlier-nightly", mainMenu: .app
             ),
             ActionDescriptor(
                 id: "palette.pro.upgrade",
@@ -392,6 +438,22 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 symbol: "arrow.up.forward.app", surfaces: [.palette], cliName: "settings open-links-in-default-browser",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
+            // Sign-in pages (`browser.openSignInPagesInCmux`): a sign-in or device-code page opens in a
+            // cmux tab whatever the link settings, or follows them. Settings changes with no object.
+            ActionDescriptor(
+                id: "links.signInPagesInCmux",
+                title: String(localized: "action.links.signInPagesInCmux", defaultValue: "Sign-In Pages: Open in cmux Browser", bundle: .module),
+                keywords: ["sign in", "login", "device", "code", "oauth", "auth", "passkey", "browser", "helium", "gh auth login"], category: .settings,
+                symbol: "person.badge.key", surfaces: [.palette], cliName: "settings open-sign-in-pages-in-cmux",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            ActionDescriptor(
+                id: "links.signInPagesByLinkSettings",
+                title: String(localized: "action.links.signInPagesByLinkSettings", defaultValue: "Sign-In Pages: Follow Link Settings", bundle: .module),
+                keywords: ["sign in", "login", "device", "code", "oauth", "auth", "default browser", "external", "system"], category: .settings,
+                symbol: "person.badge.key.fill", surfaces: [.palette], cliName: "settings sign-in-pages-follow-link-settings",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
             ActionDescriptor(
                 id: "focusRing.toggle",
                 title: String(localized: "action.focusRing.toggle", defaultValue: "Toggle Focus Ring", bundle: .module),
@@ -448,6 +510,99 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.appearance.glass.lens.toggle", defaultValue: "Toggle Liquid Glass Lens", bundle: .module),
                 keywords: ["glass", "liquid glass", "lens", "refraction", "wallpaper", "plain glass", "appearance"],
                 category: .settings, symbol: "drop", surfaces: [.palette, .menu], mainMenu: .debug, isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
+            // Lawrence 2026-11-02: "get rid of host-pressure warning by default, can be enabled in cmd shift p tho".
+            // Set the Debug toggle `hostPressure.enabled` (off by default), as Enable / Disable Channels set theirs
+            // (DEV and NIGHTLY, where the tunable store is active).
+            ActionDescriptor(
+                id: "hostPressure.showWarning",
+                title: String(localized: "action.hostPressure.showWarning", defaultValue: "Show Host Pressure Warning", bundle: .module),
+                keywords: ["host pressure", "cpu", "ram", "memory", "load", "busy", "overloaded", "warning", "gauge", "enable"],
+                category: .settings, symbol: "gauge.with.dots.needle.67percent", surfaces: [.palette], isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
+            ActionDescriptor(
+                id: "hostPressure.hideWarning",
+                title: String(localized: "action.hostPressure.hideWarning", defaultValue: "Hide Host Pressure Warning", bundle: .module),
+                keywords: ["host pressure", "cpu", "ram", "memory", "load", "busy", "overloaded", "warning", "gauge", "disable"],
+                category: .settings, symbol: "gauge.with.dots.needle.67percent", surfaces: [.palette], isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
+            // Lawrence msgs 19596, 19605, 19613, 19627: a live Swift playground of tab bar designs (crowded
+            // tabs, the new-tab control, the trailing ⋮), each row the real tab strip (Debug menu, DEV and NIGHTLY).
+            ActionDescriptor(
+                id: "debug.tabBarPlayground",
+                title: String(localized: "action.debug.tabBarPlayground", defaultValue: "Tab Bar Playground", bundle: .module),
+                keywords: ["tab bar", "tabs", "playground", "gallery", "variants", "crowded", "new tab", "plus", "chevron", "more", "debug"],
+                category: .settings, symbol: "rectangle.3.group", surfaces: [.palette, .menu], mainMenu: .debug,
+                isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
+            // User 2026-11-03 ("we need to make sure every single theme, all the UI elements are colored properly"):
+            // every bundled theme as the App Theme, each element's ink on its grounds with its contrast, failures
+            // ringed red; the same audit EveryThemeElementContrastTests runs (Debug menu, DEV and NIGHTLY).
+            ActionDescriptor(
+                id: "debug.allThemesPlayground",
+                title: String(localized: "action.debug.allThemesPlayground", defaultValue: "All Themes Playground", bundle: .module),
+                keywords: ["themes", "app theme", "contrast", "colors", "playground", "gallery", "audit", "debug"],
+                category: .settings, symbol: "paintpalette", surfaces: [.palette, .menu], mainMenu: .debug,
+                isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
+            // Lawrence msg 19746: "show me all the possible sidebar states, and i will critique their sizings": every
+            // sidebar row state at every density and text size, light and dark, each the real row with its trailing
+            // marks measured (Debug menu, DEV and NIGHTLY).
+            ActionDescriptor(
+                id: "debug.sidebarStatesPlayground",
+                title: String(localized: "action.debug.sidebarStatesPlayground", defaultValue: "Sidebar States Playground", bundle: .module),
+                keywords: ["sidebar", "states", "rows", "playground", "gallery", "density", "text size", "dots", "spinner", "sizes", "debug"],
+                category: .settings, symbol: "sidebar.left", surfaces: [.palette, .menu], mainMenu: .debug,
+                isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
+            // Leo 2026-11-04: "shouldn't the nightly itself or whatever stable app be able to simply do this? Like the
+            // view if you wanna separate it out". The app's UI from your checkout's gallery dev server in a window of
+            // the running app (`ViewWindow`), no DEV or shell build; `port`, `width`, `height` and any mock app key
+            // (`fixture`, `density`, `script`, ...) as arguments (Debug menu, DEV and NIGHTLY).
+            ActionDescriptor(
+                id: "debug.viewWindow",
+                title: String(localized: "action.debug.viewWindow", defaultValue: "Open View Window", bundle: .module),
+                keywords: ["view", "window", "preview", "shell", "live", "hot reload", "dev server", "gallery", "mock app", "checkout", "debug"],
+                category: .settings, symbol: "macwindow.on.rectangle", surfaces: [.palette, .menu], mainMenu: .debug,
+                isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
+            // Leo 2026-11-05 (HQ#7149 L10): "the view of the app that's separate ... with your actual config, your
+            // actual settings": a real window of this app whose pages load from a worktree's dev server, the other
+            // windows untouched (WebProjection, CmuxNextPages; Debug menu, DEV and NIGHTLY).
+            ActionDescriptor(
+                id: "debug.projection",
+                title: String(localized: "action.debug.projection", defaultValue: "Open Projection Window", bundle: .module),
+                keywords: ["projection", "worktree", "dev server", "hot reload", "live", "preview", "view", "window", "debug"],
+                category: .settings, symbol: "rectangle.on.rectangle", surfaces: [.palette, .menu],
+                arguments: [
+                    ActionArgument(name: "server", title: String(localized: "argument.projection.server", defaultValue: "Server", bundle: .module), kind: .string, isRequired: false),
+                    ActionArgument(name: "worktree", title: String(localized: "argument.projection.worktree", defaultValue: "Worktree", bundle: .module), kind: .string, isRequired: false),
+                    ActionArgument(name: "test", title: String(localized: "argument.projection.test", defaultValue: "Test Command", bundle: .module), kind: .string, isRequired: false),
+                    ActionArgument(name: "page", title: String(localized: "argument.projection.page", defaultValue: "Page", bundle: .module), kind: .string, isRequired: false),
+                ],
+                mainMenu: .debug,
+                isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
+            // One click runs the projection's one named test in its worktree, in the projection window.
+            ActionDescriptor(
+                id: "debug.projection.runTest",
+                title: String(localized: "action.debug.projection.runTest", defaultValue: "Run Projection Test", bundle: .module),
+                keywords: ["projection", "test", "run", "worktree", "debug"],
+                category: .settings, symbol: "checkmark.circle", surfaces: [.palette, .menu],
+                arguments: [
+                    ActionArgument(name: "test", title: String(localized: "argument.projection.test", defaultValue: "Test Command", bundle: .module), kind: .string, isRequired: false),
+                ],
+                mainMenu: .debug,
+                isDebugOnly: true,
+                startsTerminal: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
             // The per-action budget's HUD (zero-latency.md, the budget contract): the newest action runs

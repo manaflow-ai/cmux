@@ -1,3 +1,4 @@
+import CmuxNextFiles
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
@@ -37,8 +38,8 @@ extension FilePageProvider {
         let folderPart = prefix.lastIndex(of: "/").map { String(prefix[...$0]) } ?? ""
         let start = String(prefix.dropFirst(folderPart.count)).lowercased()
         // Symlinks resolved before the folder check: a link in the folder may point anywhere.
-        let root = canonical(base.deletingLastPathComponent())
-        let directory = folderPart.isEmpty ? root : canonical(root.appending(path: folderPart, directoryHint: .isDirectory))
+        let root = LocalFilePageFiles.resolved(base.deletingLastPathComponent())
+        let directory = folderPart.isEmpty ? root : LocalFilePageFiles.resolved(root.appending(path: folderPart, directoryHint: .isDirectory))
         guard directory.path == root.path || directory.path.hasPrefix(root.path + "/") else { return [] }
         let names: [String] = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
         // Typed steps: the one chain took 0.4 s to type-check on Xcode 26.6.

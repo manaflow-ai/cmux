@@ -72,7 +72,8 @@ struct OpenFileLimitTests {
         defer { descriptors.forEach { close($0) } }
         for _ in 0..<600 {
             let fd = open("/dev/null", O_RDONLY)
-            try #require(fd >= 0, "open failed after \(descriptors.count) descriptors: errno \(errno)")
+            let openErrno = errno
+            try #require(fd >= 0, "open failed after \(descriptors.count) descriptors: errno \(openErrno)")
             descriptors.append(fd)
         }
     }

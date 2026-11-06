@@ -22,7 +22,7 @@ struct KeyWindowRole {
     /// button and do nothing when it has none, and destructive content
     /// actions are off. It never falls through to the main window behind
     /// it. Debug builds log a fault once per such window (the owner must
-    /// call `install(kind:content:scope:)`).
+    /// call `install(kind:content:scope:activeLook:)`).
     @MainActor
     static func resolve(_ key: NSWindow, ownedByMain: Bool, isPalette: Bool) -> KeyWindowRole? {
         let root = key.windowKindRoot

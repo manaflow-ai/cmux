@@ -50,7 +50,7 @@ const absentNamespace = (binding: string) => {
 const openLimit = { limit: async () => ({ success: true }) }
 
 /** The bindings the chat owners read that a server does not have. */
-const ABSENT = ["FEED_DO", "CHIEF_BRAIN_DO", "OPENCODE_BRAIN_DO", "HOST_DO", "PAIRING_DO", "HAND_DO", "CLOUD_DO", "TEAM_VM_DO", "SCHEDULER_DO", "CONNECTION_DO", "ACCOUNT_INDEX_DO", "DOMAIN_DO", "USAGE_METER_DO", "SPEND_GUARD_DO", "FREE_DEVICE_DO", "WIRE_TICKET_DO"]
+const ABSENT = ["FEED_DO", "CHIEF_BRAIN_DO", "OPENCODE_BRAIN_DO", "HOST_DO", "PAIRING_DO", "HAND_DO", "CLOUD_DO", "TEAM_VM_DO", "SCHEDULER_DO", "CONNECTION_DO", "ACCOUNT_INDEX_DO", "DOMAIN_DO", "USAGE_METER_DO", "SPEND_GUARD_DO", "FREE_DEVICE_DO", "WIRE_TICKET_DO", "TRAJECTORY_DO"]
 
 /** The self-hosted server's owners and env: the cloud classes on the local runtime. */
 export interface ServerRuntime {

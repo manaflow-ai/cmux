@@ -28,22 +28,13 @@ final class AppDevToolsRelay: ProviderDevToolsRelay {
     }
 
     func prepareRelay(targetID: String) async -> Bool {
-        guard let services, drivable?(targetID) == true, let (tab, _) = services.locateTab(targetID),
+        guard let services, drivable?(targetID) == true, let (tab, _) = services.locateTabOnAnyMachine(targetID),
               tab.browserEngine == BrowserEngineTag.cef.rawValue else { return false }
         marking?.agentWillDrive(targetID: targetID)
         guard let page = await agentReadyPage(tab) else { return false }
-        if !page.agentRelay.hasBrowser { page.agentRelay.createBrowser() }
-        let created = await page.agentRelay.browserCreated()
-        if created { keepRendering(targetID) }
+        let created = await page.agentRelay.started()
+        if created, let entry = services.cache.existingBrowser(targetID) { renderWindows?.keepRendering(tabID: targetID, entry: entry) }
         return created
-    }
-
-    /// A driven Chromium tab whose pane window is in no app window renders
-    /// in the off-screen render window (``AgentRenderWindows``).
-    private func keepRendering(_ targetID: String) {
-        guard let services, let renderWindows, let entry = services.cache.existingBrowser(targetID),
-              let page = entry.tab as? CEFTab, page.agentRelay.needsRenderWindow else { return }
-        _ = renderWindows.keepRendering(tabID: targetID, chrome: entry.chrome, webView: nil)
     }
 
     /// The tab's live Chromium page once it is agent-driven, starting it
@@ -66,7 +57,7 @@ final class AppDevToolsRelay: ProviderDevToolsRelay {
             case is DeferredBrowserTab:
                 cache.startDeferred(key, url: nil)
             case nil:
-                guard let model = services.locateTab(key)?.0 else { return nil }
+                guard let model = services.locateTabOnAnyMachine(key)?.0 else { return nil }
                 _ = cache.browser(for: model)
             default:
                 // A WebKit page for a Chromium record: CEF is not available.
@@ -103,7 +94,9 @@ final class AppDevToolsRelay: ProviderDevToolsRelay {
 
     func send(targetID: String, message: String) -> CEFDevToolsRawSend {
         // A pane that showed the tab may have let it go since the last call.
-        if relayed[targetID]?.page?.agentRelay.needsRenderWindow == true { keepRendering(targetID) }
+        if relayed[targetID]?.page?.agentRelay.needsRenderWindow == true, let entry = services?.cache.existingBrowser(targetID) {
+            renderWindows?.keepRendering(tabID: targetID, entry: entry)
+        }
         return relayed[targetID]?.page?.agentRelay.send(message) ?? .noBrowser
     }
 

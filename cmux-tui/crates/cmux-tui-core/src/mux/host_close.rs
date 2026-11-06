@@ -3,13 +3,12 @@
 //! A terminal close commits its tombstone and removes every view first, so
 //! the tree and the reply reflect the close at once. Ending the host process
 //! can take up to [`TERMINAL_HOST_CLOSE_WAIT`]: the close path hands the host
-//! to a small worker pool, which sends the termination request, awaits the
-//! host's receipt, and then awaits the durable exit receipt. The requesting
-//! connection never waits for the host: its termination receipt arrives
-//! through the surface's reader thread, behind the terminal's queued output,
-//! so a busy stream can hold it for the whole control timeout. Many closes
-//! therefore end their hosts in parallel instead of one after another on the
-//! requesting connection.
+//! to a small signaling pool. Each signal's exit wait runs independently, so
+//! a slow close-reply stream cannot occupy every signaling worker while later
+//! terminals wait in the queue. The requesting connection never waits for the
+//! host: its termination receipt arrives through the surface's reader thread,
+//! behind the terminal's queued output, so a busy stream can hold it for the
+//! whole control timeout.
 
 #[cfg(any(unix, windows))]
 use std::collections::VecDeque;
@@ -18,30 +17,18 @@ use std::path::PathBuf;
 
 use super::*;
 
-/// Upper bound on concurrent host-exit waiters. Every host already received
-/// its termination request, so a waiter only observes an exit in progress.
+/// Upper bound on concurrent host-exit signalers. Exit waits run in their own
+/// short-lived threads and never consume these workers.
 #[cfg(any(unix, windows))]
 const MAX_HOST_CLOSE_WORKERS: usize = 8;
+const MAX_HOST_CLOSE_WAIT_WORKERS: usize = 8;
 
 #[cfg(any(unix, windows))]
 struct PendingHostClose {
     runtime: Arc<Surface>,
-    step: HostCloseStep,
     identity: Option<TerminalHostIdentity>,
     host_root: Option<PathBuf>,
-}
-
-#[cfg(any(unix, windows))]
-enum HostCloseStep {
-    /// Not yet asked to exit. A worker signals it and queues the wait
-    /// behind the other signals, so a batch close signals every host first.
-    Signal,
-    /// Asked to exit. `None` when the host could not be signaled through its
-    /// connection; the worker then falls back to the host record. The
-    /// deadline starts when the host is signaled, not when the close was
-    /// queued: a teardown that queues a thousand closes must not spend the
-    /// later hosts' exit time waiting in the queue.
-    Await(Option<crate::surface::HostTermination>, Instant),
+    termination: Option<(crate::surface::HostTermination, Instant)>,
 }
 
 #[derive(Default)]
@@ -49,7 +36,10 @@ enum HostCloseStep {
 struct HostCloseState {
     #[cfg(any(unix, windows))]
     queue: VecDeque<PendingHostClose>,
+    #[cfg(any(unix, windows))]
+    wait_queue: VecDeque<PendingHostClose>,
     workers: usize,
+    wait_workers: usize,
     /// Closes queued or in progress.
     pending: usize,
     /// Steps (signals and finished closes) since start; a waiter measures
@@ -68,7 +58,7 @@ impl TerminalHostCloses {
     #[cfg(any(unix, windows))]
     fn enqueue(self: &Arc<Self>, close: PendingHostClose) {
         let spawn = {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             state.queue.push_back(close);
             state.pending += 1;
             if state.workers < MAX_HOST_CLOSE_WORKERS {
@@ -89,15 +79,15 @@ impl TerminalHostCloses {
         {
             // Thread exhaustion must not strand a queued close: finish the
             // queue on this thread instead.
-            self.work();
+            self.clone().work();
         }
     }
 
     #[cfg(any(unix, windows))]
-    fn work(&self) {
+    fn work(self: Arc<Self>) {
         loop {
             let close = {
-                let mut state = self.state.lock().unwrap();
+                let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
                 match state.queue.pop_front() {
                     Some(close) => close,
                     None => {
@@ -106,24 +96,70 @@ impl TerminalHostCloses {
                     }
                 }
             };
-            let close = match close.step {
-                HostCloseStep::Signal => signal_host_close(close),
-                HostCloseStep::Await(..) => {
-                    finish_host_close(close);
-                    None
-                }
-            };
-            let mut state = self.state.lock().unwrap();
-            // Waiters measure progress, so every step wakes them: a long
-            // signal phase counts too, not only finished closes.
+            let close = signal_host_close(close);
+            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             state.steps = state.steps.wrapping_add(1);
             self.idle.notify_all();
             if let Some(close) = close {
-                // Signaled: its wait goes behind the signals still queued.
-                state.queue.push_back(close);
+                // Never let an exit wait occupy a signaling worker. Close
+                // requests can arrive slowly (for example while each reply
+                // commits state), so keeping the wait in this pool starves
+                // later signals and makes hosts trail the last reply.
+                state.wait_queue.push_back(close);
+                let spawn_waiter = if state.wait_workers < MAX_HOST_CLOSE_WAIT_WORKERS {
+                    state.wait_workers += 1;
+                    true
+                } else {
+                    false
+                };
+                drop(state);
+                if !spawn_waiter {
+                    continue;
+                }
+                let closes = self.clone();
+                if std::thread::Builder::new()
+                    .name("terminal-host-close-wait".into())
+                    .spawn(move || closes.wait_work())
+                    .is_err()
+                {
+                    let close = {
+                        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+                        state.wait_workers -= 1;
+                        state.wait_queue.pop_back()
+                    };
+                    if let Some(close) = close {
+                        finish_host_close(close);
+                        self.complete();
+                    }
+                }
                 continue;
             }
             state.pending -= 1;
+            self.idle.notify_all();
+        }
+    }
+
+    fn complete(&self) {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.steps = state.steps.wrapping_add(1);
+        state.pending -= 1;
+        self.idle.notify_all();
+    }
+
+    fn wait_work(self: Arc<Self>) {
+        loop {
+            let close = {
+                let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+                match state.wait_queue.pop_front() {
+                    Some(close) => close,
+                    None => {
+                        state.wait_workers -= 1;
+                        return;
+                    }
+                }
+            };
+            finish_host_close(close);
+            self.complete();
         }
     }
 
@@ -134,7 +170,7 @@ impl TerminalHostCloses {
     /// fixed deadline from the first enqueue made the hosts at the end of a
     /// large teardown miss it.
     pub(crate) fn wait_idle(&self, stall: Duration, ceiling: Instant) -> bool {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         let mut progress = (state.steps, Instant::now() + stall);
         while state.pending != 0 {
             if state.steps != progress.0 {
@@ -144,28 +180,28 @@ impl TerminalHostCloses {
             else {
                 return false;
             };
-            state = self.idle.wait_timeout(state, remaining).unwrap().0;
+            state =
+                self.idle.wait_timeout(state, remaining).unwrap_or_else(PoisonError::into_inner).0;
         }
         true
     }
 
     #[cfg(test)]
     pub(crate) fn pending(&self) -> usize {
-        self.state.lock().unwrap().pending
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).pending
     }
 }
 
 /// Ask one queued host to exit. Returns the close to await, or `None` when a
 /// local runtime was killed inline.
 #[cfg(any(unix, windows))]
-fn signal_host_close(mut close: PendingHostClose) -> Option<PendingHostClose> {
-    let termination = match close.runtime.begin_host_termination() {
+fn signal_host_close(close: PendingHostClose) -> Option<PendingHostClose> {
+    let PendingHostClose { runtime, identity, host_root, .. } = close;
+    let termination = match runtime.begin_host_termination() {
         Ok(Some(termination)) => Some(termination),
         Ok(None) => {
-            close.runtime.kill();
-            if let (Some(identity), Some(root)) =
-                (close.identity.as_ref(), close.host_root.as_ref())
-            {
+            runtime.kill();
+            if let (Some(identity), Some(root)) = (identity.as_ref(), host_root.as_ref()) {
                 terminate_discovered_terminal_host_in(
                     root,
                     &identity.terminal_id,
@@ -175,39 +211,48 @@ fn signal_host_close(mut close: PendingHostClose) -> Option<PendingHostClose> {
             return None;
         }
         Err(error) => {
-            if let Some(identity) = close.identity.as_ref() {
+            if let Some(identity) = identity.as_ref() {
                 eprintln!(
                     "cmux-tui: terminal {} close could not signal its host: {error:#}",
                     identity.terminal_id
                 );
             }
+            runtime.kill();
+            if let (Some(identity), Some(root)) = (identity.as_ref(), host_root.as_ref()) {
+                terminate_discovered_terminal_host_in(
+                    root,
+                    &identity.terminal_id,
+                    Some(&identity.incarnation),
+                );
+            }
             None
         }
     };
-    close.step = HostCloseStep::Await(termination, Instant::now() + TERMINAL_HOST_CLOSE_WAIT);
-    Some(close)
+    Some(PendingHostClose {
+        runtime,
+        identity,
+        host_root,
+        termination: termination
+            .map(|termination| (termination, Instant::now() + TERMINAL_HOST_CLOSE_WAIT)),
+    })
 }
 
 #[cfg(any(unix, windows))]
 fn finish_host_close(close: PendingHostClose) {
-    let PendingHostClose { runtime, step, identity, host_root } = close;
-    let HostCloseStep::Await(termination, deadline) = step else {
-        unreachable!("only a signaled host close is awaited");
-    };
-    let acknowledged =
-        match termination.map(|termination| runtime.wait_for_host_exit(termination, deadline)) {
-            Some(Ok((path, exit))) => acknowledge_exact_terminal_host_exit(&path, &exit),
-            Some(Err(error)) => {
-                if let Some(identity) = identity.as_ref() {
-                    eprintln!(
-                        "cmux-tui: terminal {} close could not await host exit: {error:#}",
-                        identity.terminal_id
-                    );
-                }
-                false
+    let PendingHostClose { runtime, termination, identity, host_root } = close;
+    let Some((termination, deadline)) = termination else { return };
+    let acknowledged = match runtime.wait_for_host_exit(termination, deadline) {
+        Ok((path, exit)) => acknowledge_exact_terminal_host_exit(&path, &exit),
+        Err(error) => {
+            if let Some(identity) = identity.as_ref() {
+                eprintln!(
+                    "cmux-tui: terminal {} close could not await host exit: {error:#}",
+                    identity.terminal_id
+                );
             }
-            None => false,
-        };
+            false
+        }
+    };
     runtime.kill();
     if !acknowledged && let (Some(identity), Some(root)) = (identity, host_root) {
         terminate_discovered_terminal_host_in(
@@ -244,9 +289,9 @@ impl Mux {
             let host_root = self.surface_options.lock().unwrap().terminal_host_root.clone();
             self.terminal_host_closes.enqueue(PendingHostClose {
                 runtime: runtime.clone(),
-                step: HostCloseStep::Signal,
                 identity,
                 host_root,
+                termination: None,
             });
         }
         #[cfg(not(any(unix, windows)))]
@@ -271,9 +316,9 @@ impl Mux {
                 }
                 self.terminal_host_closes.enqueue(PendingHostClose {
                     runtime,
-                    step: HostCloseStep::Signal,
                     identity,
                     host_root: host_root.clone(),
+                    termination: None,
                 });
             }
         }

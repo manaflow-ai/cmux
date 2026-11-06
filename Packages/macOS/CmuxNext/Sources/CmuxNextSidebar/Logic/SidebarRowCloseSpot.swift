@@ -4,7 +4,8 @@ public import CmuxNextDesign
 /// chevron and the status mark on the trailing column (`sidebar.rowCloseSpot`). Leo 2026-10-27: "I now feel
 /// like the X is a bit off center ... the rightmost three things, they make sense, but this one, not so much
 /// ... Here, I'll just highlight what Chrome has." Chrome's tab group header shows only ⋮ and its chevron, at
-/// its end. The gallery (`SidebarRowCloseSpotGalleryTests`) draws every choice.
+/// its end. The gallery (`SidebarRowCloseSpotGalleryTests`) draws every choice. Under every choice the status mark
+/// hides while the close or the menu shows (Leo 2026-10-28: "just don't show the spinner").
 public nonisolated enum SidebarRowCloseSpot: String, Sendable, CaseIterable, Hashable, TunableChoice {
     /// ⋮ ⌄ ✕: the close takes the row's end on hover, where the status mark was; the mark gives way while the
     /// row is hovered. Nothing sits between the menu and the chevron.

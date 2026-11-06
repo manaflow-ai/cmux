@@ -6,14 +6,18 @@
 //! The turn's latest tool call titles it ("Run cargo test -p acpmux"); its
 //! plan's entry in progress is the step around it. Both live on the running
 //! turn only (`TurnInfo`) and end with it, so a finished turn never reads as
-//! still doing its last tool. Each is kept twice: raw for the owner's views,
-//! and masked before its cut for the sub-session tools (`subsession_row`), so
-//! a secret across the cut leaves no head there.
+//! still doing its last tool. Each is kept masked before its cut
+//! (`secret_scan`): a tool call's title is often a command with its
+//! arguments, and every view of the summary shows it (the app's sidebar row,
+//! `acpmux ls --fields turn.activity`, the sub-session tools), so a secret in
+//! it, or across the cut, leaves no head anywhere.
 //!
 //! The turn also keeps the ids of its tool calls in flight (started, not yet
 //! completed or failed): a turn with none, whose model has been quiet for
 //! `stalledTurnMs`, has stalled (`stalled_since`). A long build in one tool
-//! call is in flight, so it never stalls.
+//! call is in flight, so it never stalls. Those in flight that run a known build
+//! or test (`host_load::heavy_of_tool`) say so: the machine's load sample reads
+//! them from `daemon status` (`host_pressure.heavy`) instead of scanning processes.
 
 use super::*;
 
@@ -25,19 +29,17 @@ const MAX_OPEN_TOOLS: usize = 256;
 /// What a running turn does now (`TurnInfo::doing`), one line each.
 #[derive(Debug, Clone, Default)]
 pub struct TurnActivity {
-    /// Its latest tool call's title. None until it calls one.
+    /// Its latest tool call's title, masked. None until it calls one.
     pub activity: Option<String>,
-    /// Its plan's entry in progress.
+    /// Its plan's entry in progress, masked.
     pub plan_step: Option<String>,
-    /// `activity` with its secrets masked before its cut (`secret_scan`).
-    pub masked_activity: Option<String>,
-    /// `plan_step` with its secrets masked before its cut.
-    pub masked_plan_step: Option<String>,
     /// The ids of its tool calls in flight.
     pub open_tools: std::collections::BTreeSet<String>,
     /// How many tool calls started past [`MAX_OPEN_TOOLS`] are in flight, by count, not id: the
     /// end of a call whose id isn't kept ends one of them.
     pub open_past_cap: usize,
+    /// The tool calls of [`Self::open_tools`] that run a known build or test, by id.
+    pub open_heavy: std::collections::BTreeMap<String, crate::host_load::Heavy>,
 }
 
 impl TurnActivity {
@@ -50,12 +52,24 @@ impl TurnActivity {
         }
         let status = update.get("status").and_then(Value::as_str);
         if matches!(status, Some("completed" | "failed")) {
+            self.open_heavy.remove(id);
             if !self.open_tools.remove(id) {
                 self.open_past_cap = self.open_past_cap.saturating_sub(1);
             }
             return;
         }
-        // A new call, or an update that says it runs; an update with no status changes nothing.
+        self.note_open(id, kind, status);
+        // Its command may come with the call or in a later update (a call named early).
+        if self.open_tools.contains(id)
+            && let Some(heavy) = crate::host_load::heavy_of_tool(update)
+        {
+            self.open_heavy.insert(id.to_owned(), heavy);
+        }
+    }
+
+    /// A new call, or an update that says it runs, is in flight; an update with no status changes
+    /// nothing.
+    fn note_open(&mut self, id: &str, kind: Option<&str>, status: Option<&str>) {
         if status.is_none() && kind != Some("tool_call") || self.open_tools.contains(id) {
             return;
         }
@@ -76,29 +90,16 @@ impl TurnActivity {
         ) {
             self.note_tool(update);
         }
-        match activity_of(update).zip(masked_activity_of(update)) {
-            Some((Activity::Tool(title), Activity::Tool(masked))) => {
-                self.activity = Some(title);
-                self.masked_activity = Some(masked);
-            }
-            Some((Activity::PlanStep(step), Activity::PlanStep(masked))) => {
-                self.plan_step = step;
-                self.masked_plan_step = masked;
-            }
-            _ => {}
+        match activity_of(update) {
+            Some(Activity::Tool(title)) => self.activity = Some(title),
+            Some(Activity::PlanStep(step)) => self.plan_step = step,
+            None => {}
         }
     }
 
     /// Whether a tool call of the turn is in flight.
     pub(super) fn tool_in_flight(&self) -> bool {
         !self.open_tools.is_empty() || self.open_past_cap > 0
-    }
-
-    /// Puts the masked lines in `turn`, a summary's running turn, for the
-    /// sub-session tools.
-    pub(super) fn mask_into(&self, turn: &mut Value) {
-        turn["activity"] = json!(self.masked_activity);
-        turn["planStep"] = json!(self.masked_plan_step);
     }
 }
 
@@ -111,21 +112,16 @@ pub(super) enum Activity {
     PlanStep(Option<String>),
 }
 
-/// The activity in `update` (a `session/update`'s `update`), if any. A tool
-/// call without a title says nothing new; an update to an existing call
-/// counts only when it retitles it.
+/// The activity in `update` (a `session/update`'s `update`), if any, each
+/// line masked and then cut to [`ACTIVITY_CHARS`] (`session::masked_preview`).
+/// A tool call without a title says nothing new; an update to an existing
+/// call counts only when it retitles it.
 pub(super) fn activity_of(update: &Value) -> Option<Activity> {
-    activity_cut(update, short_text)
-}
-
-/// [`activity_of`] with its text masked before the cut (`session::masked_preview`).
-fn masked_activity_of(update: &Value) -> Option<Activity> {
-    activity_cut(update, super::session::masked_preview)
-}
-
-/// The activity in `update`, each line cut to [`ACTIVITY_CHARS`] by `cut`.
-fn activity_cut(update: &Value, cut: fn(&str, usize) -> String) -> Option<Activity> {
-    let line = |v: &Value| v.as_str().map(|t| cut(t, ACTIVITY_CHARS)).filter(|t| !t.is_empty());
+    let line = |v: &Value| {
+        v.as_str()
+            .map(|t| super::session::masked_preview(t, ACTIVITY_CHARS))
+            .filter(|t| !t.is_empty())
+    };
     match update.get("sessionUpdate").and_then(Value::as_str)? {
         "tool_call" | "tool_call_update" => line(&update["title"]).map(Activity::Tool),
         "plan" => {
@@ -239,6 +235,41 @@ mod tests {
     }
 
     #[test]
+    fn a_build_in_flight_is_heavy_until_it_ends() {
+        let mut doing = TurnActivity::default();
+        let call = |id: &str, command: &str| {
+            json!({"sessionUpdate": "tool_call", "toolCallId": id, "kind": "execute",
+                   "status": "in_progress", "rawInput": {"command": command}})
+        };
+        doing.note_tool(&call("a", "cd /w && cargo build -p acpmux"));
+        doing.note_tool(&call("b", "git status"));
+        let build = crate::host_load::classify_command("cargo build");
+        assert_eq!(doing.open_heavy.get("a").copied(), build);
+        assert!(!doing.open_heavy.contains_key("b"), "not a build or test");
+        // A call named early gets its command in a later update.
+        doing.note_tool(
+            &json!({"sessionUpdate": "tool_call", "toolCallId": "c", "status": "pending"}),
+        );
+        doing.note_tool(&json!({"sessionUpdate": "tool_call_update", "toolCallId": "c",
+                                "rawInput": {"command": ["bash", "-lc", "go test ./..."]}}));
+        assert_eq!(
+            doing.open_heavy.get("c").copied(),
+            crate::host_load::classify_command("go test")
+        );
+        doing.note_tool(
+            &json!({"sessionUpdate": "tool_call_update", "toolCallId": "a", "status": "completed"}),
+        );
+        doing.note_tool(
+            &json!({"sessionUpdate": "tool_call_update", "toolCallId": "c", "status": "failed"}),
+        );
+        assert!(doing.open_heavy.is_empty());
+        // An update for a call that is not in flight adds nothing.
+        doing.note_tool(&json!({"sessionUpdate": "tool_call_update", "toolCallId": "z",
+                                "rawInput": {"command": "cargo test"}}));
+        assert!(doing.open_heavy.is_empty());
+    }
+
+    #[test]
     fn tool_calls_past_the_cap_stay_in_flight_only_until_they_end() {
         let mut doing = TurnActivity::default();
         let n = MAX_OPEN_TOOLS + 3;
@@ -273,6 +304,25 @@ mod tests {
         // A tool call in flight (a long build) never stalls, and 0 turns it off.
         assert_eq!(stalled_since(1_000, 0, true, 99_000_000, after), None);
         assert_eq!(stalled_since(1_000, 0, false, 99_000_000, None), None);
+    }
+
+    #[test]
+    fn a_secret_in_a_tool_title_or_plan_step_is_masked() {
+        // A fake key, assembled so no file holds one.
+        let key = format!("AKIA{}", "Q7ZJ4XK2MD5P3WRT");
+        let mut doing = TurnActivity::default();
+        doing.note(&json!({"sessionUpdate": "tool_call", "toolCallId": "t1",
+                           "title": format!("curl -H 'x-key: {key}' https://example.com")}));
+        doing.note(&json!({"sessionUpdate": "plan", "entries": [
+            {"content": format!("log in with {key}"), "status": "in_progress"}]}));
+        let (activity, step) = (doing.activity.unwrap(), doing.plan_step.unwrap());
+        assert!(activity.starts_with("curl -H") && !activity.contains(&key), "{activity}");
+        assert!(step.starts_with("log in with") && !step.contains(&key), "{step}");
+        // Masked before the cut: a key straddling it leaves no head.
+        let pad = "x ".repeat((ACTIVITY_CHARS - 10) / 2);
+        let u = json!({"sessionUpdate": "tool_call", "title": format!("{pad}{key}")});
+        let cut = format!("{:?}", activity_of(&u));
+        assert!(cut.contains('…') && !cut.contains("AKIAQ7"), "{cut}");
     }
 
     #[test]

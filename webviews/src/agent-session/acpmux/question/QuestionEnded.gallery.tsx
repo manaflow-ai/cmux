@@ -1,13 +1,14 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 // How an ask that ended without an answer reads, by how it ended (record.ts `cancelReason`): Skipped,
-// Stopped before an answer, or Not answered when the record can't tell. Three looks of the line:
-// line (shipped, the muted line #24325 drew), pill (the answered row's pill) and rule (a hairline).
+// Stopped before an answer, or Not answered when the record can't tell. Three looks: card (shipped,
+// the answered card's shape with the outcome in grey under the question), pill (a borderless fill)
+// and rule (no card, a hairline at its start).
 import cancelled from "../../../../../Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/cancelled.json";
 import { componentEntry } from "../../../gallery/format";
 import type { AgentQuestion, CancelReason } from "./model";
 import { QuestionCard } from "./QuestionCard";
 
-type Look = "line" | "pill" | "rule";
+type Look = "card" | "pill" | "rule";
 type Props = { reason?: CancelReason; look: Look };
 
 function EndedInPane({ reason, look }: Props) {
@@ -41,11 +42,11 @@ export default componentEntry({
   styles: () => Promise.all([import("../styles.css"), import("./QuestionEnded.gallery.css")]),
   load: async () => EndedInPane,
   variants: {
-    "skipped-line": variant("skipped", "line", "Shipped: Skip pressed; the muted line says Skipped."),
-    "stopped-line": variant("stopped", "line", "Shipped: the turn stopped before an answer; the line says so."),
-    "unknown-line": variant(undefined, "line", "Shipped: the record can't tell (no reject option); Not answered."),
-    "skipped-pill": variant("skipped", "pill", "Alternative: in the answered row's pill."),
-    "stopped-pill": variant("stopped", "pill", "Alternative: in the answered row's pill."),
+    "skipped-card": variant("skipped", "card", "Shipped: Skip pressed; Skipped in grey under the question."),
+    "stopped-card": variant("stopped", "card", "Shipped: the turn stopped before an answer; the card says so."),
+    "unknown-card": variant(undefined, "card", "Shipped: the record can't tell (no reject option); Not answered."),
+    "skipped-pill": variant("skipped", "pill", "Alternative: a borderless fill."),
+    "stopped-pill": variant("stopped", "pill", "Alternative: a borderless fill."),
     "skipped-rule": variant("skipped", "rule", "Alternative: a hairline rule at its start."),
     "stopped-rule": variant("stopped", "rule", "Alternative: a hairline rule at its start."),
   },

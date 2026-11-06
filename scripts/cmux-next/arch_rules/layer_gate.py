@@ -40,9 +40,9 @@ that debt). A base map that does not parse is judged as the newest earlier map t
 (arch_counts.placing_map), the layers the targets held before it broke, so a push that repairs it is still
 refused for a relabel or a target it leaves unplaced. Test targets are ignored. Each refusal names the edge and both layers, then the fix: lift the
 shared type to a core target, or define a protocol seam in the consumer and conform in the App (DESIGN
-sections 2-4). The one escape (a reviewed reason only): the push adds a dated exception for ID to
-plans/cmux-next/arch-ratchet.json's `exceptions` ({"date": "YYYY-MM-DD", "row": "layer-gate", "allow": <n>,
-"why": "..."}); the arch ratchet loader lets that push carry n of this rule's refusals. There is no
+sections 2-4). The one escape (a reviewed reason only): the push adds a dated exception for ID as a new file
+plans/cmux-next/arch-exceptions/<id>.json ({"date": "YYYY-MM-DD", "row": "layer-gate", "allow": <n>,
+"why": "...", and the review fields arch-ratchet.py names}); the arch ratchet loader lets that push carry n of this rule's refusals. There is no
 environment-variable skip. Local pre-push only, never CI.
 
 The manifest reader, the map reader and the edge classes are arch_counts.py's (`parse_manifest`,
@@ -68,6 +68,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -394,8 +395,12 @@ def blobs(repo, specs: list[tuple[str, str]]) -> list[str | None]:
     """The text of each (rev, path) in REPO from one `git cat-file --batch`, None where the rev lacks it."""
     env = {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_WORK_TREE")}
     request = "".join(f"{rev}:{path}\n" for rev, path in specs).encode()
-    out = subprocess.run(["git", "-C", str(repo), "cat-file", "--batch"], input=request, capture_output=True,
-                         env=env, check=True).stdout
+    # Through a file, never `input=`: a write into a pipe can block in the kernel past any timeout (git_batch.py).
+    with tempfile.TemporaryFile() as stdin:
+        stdin.write(request)
+        stdin.seek(0)
+        out = subprocess.run(["git", "-C", str(repo), "cat-file", "--batch"], stdin=stdin, capture_output=True,
+                             env=env, check=True, timeout=60).stdout
     texts, pos = [], 0
     for _ in specs:
         newline = out.index(b"\n", pos)
@@ -463,8 +468,8 @@ def escape() -> str:
     entry a refused edge needs: the count rule does not refuse the layer row rise that the refusal answers."""
     today = datetime.date.today().isoformat()
     return (f"The only escape (a reviewed reason, never to pass the hook): add {{\"date\": \"{today}\", \"row\": "
-            f"\"{ID}\", \"allow\": 1, \"why\": \"<the reviewed reason>\"}} per refusal to the exceptions of "
-            f"{counts.RATCHET_JSON} in this push.")
+            f"\"{ID}\", \"allow\": 1, \"why\": \"<the reviewed reason>\"}} per refusal (and the review fields "
+            "arch-ratchet.py names) as a new file plans/cmux-next/arch-exceptions/<id>.json in this push.")
 
 
 def git(repo: Path | str, *args: str) -> str:

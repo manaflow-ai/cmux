@@ -1,0 +1,51 @@
+{
+  "id": "barrage-six-asks-one-message",
+  "group": "barrage",
+  "owner": "tenacity-loop",
+  "about": "one message with six asks of four kinds: every one is taken (three agents, a stated rule, an answer, a reminder by a wake or a Cloud Chief job), none dropped",
+  "stubs": [
+    {
+      "cmd": "gh",
+      "match": "pr view 25881",
+      "stdout": "title:\tcmux-next iOS: launch screen chevron\nstate:\tMERGED\nmerged at:\t2026-10-27T18:02:11Z"
+    }
+  ],
+  "turns": [
+    {
+      "text": "ok a bunch of stuff: the sidebar flickers when a workspace closes, fix it. also the pinned tabs are too tall now, make them 28pt. also add a setting to hide the dock icon. did #25881 merge? from now on always put the PR link in every status line. and remind me tomorrow at 9am to review the pricing page",
+      "checks": [
+        {
+          "type": "called",
+          "cmd": "spawn",
+          "re": "(?i)flicker"
+        },
+        {
+          "type": "called",
+          "cmd": "spawn",
+          "re": "(?i)pinned"
+        },
+        {
+          "type": "called",
+          "cmd": "spawn",
+          "re": "(?i)dock icon"
+        },
+        {
+          "type": "called",
+          "cmd": "remember",
+          "re": "(?i)PR link"
+        },
+        {
+          "type": "called",
+          "re": "(?i)remind[\\s\\S]*pricing|pricing[\\s\\S]*remind"
+        },
+        {
+          "type": "reply_matches",
+          "re": "(?i)merged"
+        },
+        {
+          "type": "no_question"
+        }
+      ]
+    }
+  ]
+}

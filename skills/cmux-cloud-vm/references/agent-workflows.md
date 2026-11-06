@@ -17,7 +17,7 @@ cmux cloud new-terminal-on-machine --target machine:vm-…   # a new workspace w
 cmux cloud ssh --target machine:vm-…                       # another terminal tab in its first workspace
 ```
 
-Creating a machine (`cmux cloud new-machine`) asks the person in the app first and
+Creating a machine (`cmux machine new`) asks the person in the app first and
 needs the user's authorization; it answers with the new `machine_id`. Prefer an existing machine and another workspace on it:
 `cmux cloud list-machines --json` lists them (`machine_id`, `target`, `status`), so a
 setup script checks for its machine before it creates one. Create only on `loaded: true`
@@ -97,7 +97,9 @@ machine (for example `DISPLAY=:1 xdotool key ctrl+l`). `vm open <id>:desktop`,
 `vm open <id>:port/<n>` and `cloud domains publish|verify|access|rm` were removed;
 `cmux cloud machine-ports --target machine:vm-…` shows the ports in the app, and
 the machine's menu (Copy Machine Link) copies a private preview link. `cmux cloud domain-list` and `cmux cloud publication-list` list
-domains; publishing a public HTTPS domain has no CLI path now.
+domains; publishing a public HTTPS domain has no CLI path now. To hand a client or
+another agent an API on the machine, `cmux cloud provision-api --target machine:vm-… --port <port>`
+answers a URL and an API key in one call (references/commands.md).
 
 ## 7. Showing the human
 

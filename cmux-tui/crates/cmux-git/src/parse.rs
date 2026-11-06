@@ -179,13 +179,15 @@ fn git_path_token(input: &str) -> Option<(String, &str)> {
             } else if byte == b'\\' {
                 escaped = true;
             } else if byte == b'"' {
-                return Some((unquote(&input[..=index])?, &input[index + 1..]));
+                let (quoted, rest) = input.split_at_checked(index + 1)?;
+                return Some((unquote(quoted)?, rest));
             }
         }
         None
     } else {
         let end = input.find(' ').unwrap_or(input.len());
-        Some((input[..end].to_string(), &input[end..]))
+        let (token, rest) = input.split_at_checked(end)?;
+        Some((token.to_string(), rest))
     }
 }
 

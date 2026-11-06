@@ -5,7 +5,8 @@
 import type { ChannelBuild, ChannelSwitch, ChannelsState } from "./ops";
 
 const repo = "https://github.com/manaflow-ai/cmux";
-const titles = { promoted: "Promoted", held: "Held", pulled: "Pulled", pending: "Awaiting Verdict" } as const;
+// A build with no canary verdict (`pending`) has no badge.
+const titles = { promoted: "Promoted", held: "Held", pulled: "Pulled", pending: null } as const;
 
 function build(
   number: number,
@@ -26,6 +27,8 @@ function build(
     installed: false,
     kept: false,
     prs: [{ number: number * 7, url: `${repo}/pull/${number * 7}` }],
+    // This Mac follows a feed: every build but the installed and pulled ones offers Switch.
+    switch: health !== "pulled" && !extra.installed,
     ...extra,
   };
 }
@@ -33,6 +36,7 @@ function build(
 const empty = "No builds on this channel yet.";
 
 const nightlyBuilds = [
+  build(3422, "a0f2e3d4", "pending"),
   build(3421, "9f1e2d3c", "pulled", { pulled_reason: "Crashes on launch" }),
   build(3420, "8e0d1c2b", "held"),
   build(3419, "3c1d9e0a", "promoted", { installed: true, compare_url: null }),
@@ -59,6 +63,7 @@ export const mockChannels: ChannelsState = {
     compare: "Changes Since Yours",
     commit: "Commit",
     release: "Release Page",
+    switch: "Switch",
   },
   tracks: [
     { ring: "stable", title: "Stable", followed: false, release_url: null, empty, builds: [] },

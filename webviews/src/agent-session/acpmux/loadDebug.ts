@@ -1,3 +1,4 @@
+import { userScrollIntent } from "./conversation/userScroll";
 // `debug.agent_pane load_seed` and `load_run`: the chat under load, through the real client.
 // load_seed records a session of thousands of heavy turns (loadFixture.ts) in the mock daemon
 // and opens it, so the whole transcript comes in through attach, the reducer and the snapshot
@@ -116,12 +117,14 @@ export async function loadRun(
   const seconds = Math.max(1, options.seconds ?? 8);
   const speed = Math.max(0, options.scroll_speed ?? 3000);
   const depth = Math.max(0.5, options.scroll_depth ?? 40);
+  const requested = userScrollIntent(scroller).request();
   scroller.scrollTop = scroller.scrollHeight;
   const warmup: number[] = [];
   for (let index = 0; index < 30; index += 1) warmup.push(await frame());
   // A page still busy from the seed stretches the warmup frames; no display here is slower than 60 Hz.
   const nominal = Math.min(1000 / 60, Math.max(1, median(warmup.slice(1).map((time, index) => time - warmup[index]!))));
   acpmuxPerf.resetFrames();
+  acpmuxPerf.resetRenders();
   const streaming = mock.streamLoadTurn(session, {
     seconds,
     chunkChars: Math.max(1, Math.floor(options.chunk_chars ?? 32)),
@@ -134,6 +137,7 @@ export async function loadRun(
   const work: number[] = [];
   const late: number[] = [];
   let blank = 0;
+  let liveLineHidden = 0;
   // The scroll: up from the bottom at `speed` until `depth` viewports above it, then back down to
   // the bottom, again and again, while the reply streams in below.
   const span = depth * scroller.clientHeight;
@@ -156,7 +160,10 @@ export async function loadRun(
       }
     }
     previous = now;
-    if (!streamDone) scroller.scrollTop = scroller.scrollHeight - scroller.clientHeight - offset;
+    if (!streamDone && requested()) scroller.scrollTop = scroller.scrollHeight - scroller.clientHeight - offset;
+    // The live line under a reply whose text streams stays shown, reading "Writing" (Thinking.tsx
+    // `quietKey`): it never leaves and comes back mid-turn.
+    if (!streamDone && document.querySelector(".cv-worked--live.is-quiet")) liveLineHidden += 1;
     const blankNow = isBlank(acpmuxPerf.mounted, scroller.scrollTop, scroller.clientHeight, scroller.scrollHeight);
     if (blankNow) blank += 1;
     acpmuxPerf.markFrame(now, blankNow);
@@ -165,6 +172,9 @@ export async function loadRun(
     if (streamDone) tail += 1;
   }
   const streamed = await streaming;
+  // Renders per component over the run (`acpmuxPerf.render`): the pane root, the composer and
+  // each row by id (`row:<id>`), so a caller can tell what a streamed chunk re-rendered.
+  const renders = Object.fromEntries(acpmuxPerf.renders);
   const sorted = [...work].sort((a, b) => a - b);
   const stats = acpmuxPerf.stats(false) as Record<string, unknown>;
   // The longest frames, in order, with what they spent where.
@@ -197,10 +207,12 @@ export async function loadRun(
     over_60hz_budget: sorted.filter((ms) => ms > 1000 / 60).length,
     frames: work.length,
     blank_frames: blank,
+    live_line_hidden_frames: liveLineHidden,
     layout_ms: stats.layout,
     react_ms: stats.react,
     other_ms: stats.other,
     spans: stats.spans,
+    renders,
     longest,
   };
 }

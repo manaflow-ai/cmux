@@ -22,8 +22,16 @@ use crate::status::Status;
 /// One kernel event the platform woke for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Wake {
-    /// The realtime clock was set (`TFD_TIMER_CANCEL_ON_SET`).
+    /// An identity client accepted before this turn's metadata observation.
+    Identity,
+    /// The realtime clock was set (`TFD_TIMER_CANCEL_ON_SET`) and moved
+    /// against the boot clock by at least [`RESUME_CLOCK_JUMP_NS`]: the
+    /// machine was paused, restored or forked.
     ClockSet,
+    /// The realtime clock was set but moved against the boot clock by less
+    /// than [`RESUME_CLOCK_JUMP_NS`]: a provider's clock sync (Freestyle sets
+    /// it on every exec and file operation), not a resume.
+    ClockAdjusted,
     /// The set of global addresses changed (rtnetlink, filtered).
     Address,
     /// The driver wrote `/run/cmux/instance-id`.
@@ -45,6 +53,22 @@ pub enum Wake {
     StopDeadline,
 }
 
+/// How far the realtime clock must move against the boot clock for a clock
+/// set to count as a resume. A snapshot restore (pause, fork) freezes the boot
+/// clock, so the set that follows moves realtime by the whole time the machine
+/// was stopped; a provider's sync on a running machine moves it by its drift.
+pub const RESUME_CLOCK_JUMP_NS: i128 = 2_000_000_000;
+
+/// The wake for a clock set that moved `realtime - boottime` from
+/// `before_ns` to `after_ns`.
+pub fn clock_set_wake(before_ns: i128, after_ns: i128) -> Wake {
+    if (after_ns - before_ns).abs() >= RESUME_CLOCK_JUMP_NS {
+        Wake::ClockSet
+    } else {
+        Wake::ClockAdjusted
+    }
+}
+
 /// A reaped process the machine cares about.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Exit {
@@ -57,6 +81,8 @@ pub enum Exit {
 
 /// The syscall boundary of the agent.
 pub trait Platform {
+    /// End remote authority before a potentially blocking clone/metadata read.
+    fn invalidate_remote_authority(&self) {}
     /// Blocks until at least one wake.
     fn wait(&mut self) -> io::Result<Vec<Wake>>;
     /// Collects exits after a [`Wake::ProcessExit`].
@@ -75,6 +101,8 @@ pub trait Platform {
     fn daemon_pid(&self) -> Option<u32>;
     /// Publishes the status file.
     fn write_status(&mut self, status: &Status) -> io::Result<()>;
+    /// Answers accepted identity clients only after the fresh observation's actions.
+    fn reply_identity(&mut self, _settled_instance: Option<&str>) {}
 }
 
 /// Lines for the journal (stderr) and, optionally, an action log file.
@@ -163,7 +191,12 @@ impl<P: Platform> Agent<P> {
             let wakes = self.platform.wait()?;
             self.wakes += 1;
             let inputs = self.translate(&wakes);
-            if self.dispatch(inputs) {
+            let exiting = self.dispatch(inputs);
+            let settled = (!exiting && self.machine.identity_settled())
+                .then(|| self.machine.current_id())
+                .flatten();
+            self.platform.reply_identity(settled);
+            if exiting {
                 self.publish();
                 return Ok(());
             }
@@ -184,8 +217,23 @@ impl<P: Platform> Agent<P> {
         let mut terminate = false;
         for wake in wakes {
             match wake {
+                Wake::Identity => {
+                    observe = true;
+                    // Failure must fence an inherited identity, just like a clone signal.
+                    clone_signal = true;
+                }
                 Wake::ClockSet => {
+                    self.platform.invalidate_remote_authority();
                     resumed = true;
+                    observe = true;
+                    clone_signal = true;
+                }
+                // A clock sync on a running machine: the metadata is read
+                // again with the clone signal (a failed read still fences
+                // the identity), but remote authority, the roles and their
+                // receivers stay up and no `Resumed` is sent. Ending them
+                // here dropped the Native receiver on every provider exec.
+                Wake::ClockAdjusted => {
                     observe = true;
                     clone_signal = true;
                 }
@@ -198,6 +246,7 @@ impl<P: Platform> Agent<P> {
                 }
                 Wake::ConfigFile => rest.push(Input::ConfigChanged),
                 Wake::DriverFile => {
+                    self.platform.invalidate_remote_authority();
                     observe = true;
                     clone_signal = true;
                 }
@@ -358,7 +407,9 @@ impl<P: Platform> Agent<P> {
 
 fn wake_name(wake: Wake) -> &'static str {
     match wake {
+        Wake::Identity => "identity",
         Wake::ClockSet => "clock",
+        Wake::ClockAdjusted => "clock-adjusted",
         Wake::Address => "net",
         Wake::DriverFile => "driver-file",
         Wake::BakeFile => "bake-file",
@@ -379,5 +430,125 @@ pub fn daemon_name(state: &DaemonState) -> &'static str {
         DaemonState::Running => "running",
         DaemonState::Stopping(_) => "stopping",
         DaemonState::Backoff => "backoff",
+    }
+}
+
+#[cfg(test)]
+mod identity_tests {
+    use super::*;
+
+    struct Fake {
+        observations: VecDeque<Option<&'static str>>,
+        wakes: VecDeque<Wake>,
+        reads: usize,
+        replies: Vec<(usize, Option<String>)>,
+        invalidations: std::cell::Cell<usize>,
+    }
+
+    impl Platform for Fake {
+        fn invalidate_remote_authority(&self) {
+            self.invalidations.set(self.invalidations.get() + 1);
+        }
+        fn wait(&mut self) -> io::Result<Vec<Wake>> {
+            Ok(vec![self.wakes.pop_front().unwrap()])
+        }
+        fn reap(&mut self) -> Vec<Exit> {
+            vec![]
+        }
+        fn observe(&mut self) -> Observation {
+            self.reads += 1;
+            Observation {
+                instance_id: self.observations.pop_front().unwrap().map(str::to_owned),
+                bake_id: None,
+                bound_id: Some("a".into()),
+                clone_signal: false,
+            }
+        }
+        fn adopt_daemon(&mut self) -> Option<u32> {
+            Some(1)
+        }
+        fn run(&mut self, _: &Action) -> io::Result<Option<Input>> {
+            Ok(None)
+        }
+        fn daemon_pid(&self) -> Option<u32> {
+            Some(1)
+        }
+        fn write_status(&mut self, _: &Status) -> io::Result<()> {
+            Ok(())
+        }
+        fn reply_identity(&mut self, id: Option<&str>) {
+            self.replies.push((self.reads, id.map(str::to_owned)));
+        }
+    }
+
+    #[test]
+    fn identity_queries_observe_again_and_refuse_failed_metadata_or_clone_transition() {
+        let fake = Fake {
+            observations: [Some("a"), Some("a"), None, Some("b")].into(),
+            wakes: [Wake::Identity, Wake::Identity, Wake::Identity, Wake::Terminate].into(),
+            reads: 0,
+            replies: vec![],
+            invalidations: std::cell::Cell::new(0),
+        };
+        let mut agent =
+            Agent::new(fake, vec![], Err("no roles".into()), ActionLog::new(None).unwrap());
+        agent.run().unwrap();
+        assert_eq!(
+            agent.platform.replies,
+            vec![(2, Some("a".into())), (3, None), (4, None), (4, None)]
+        );
+    }
+
+    /// Runs `wakes` on a bound machine and returns its action log and how
+    /// often remote authority was ended.
+    fn run_wakes(wakes: &[Wake]) -> (String, usize) {
+        let fake = Fake {
+            observations: std::iter::repeat_n(Some("a"), wakes.len() + 1).collect(),
+            wakes: wakes.iter().copied().chain([Wake::Terminate]).collect(),
+            reads: 0,
+            replies: vec![],
+            invalidations: std::cell::Cell::new(0),
+        };
+        let path = std::env::temp_dir().join(format!(
+            "cmux-host-clock-{}-{}.log",
+            std::process::id(),
+            wakes.len()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let mut agent =
+            Agent::new(fake, vec![], Err("no roles".into()), ActionLog::new(Some(&path)).unwrap());
+        agent.run().unwrap();
+        let log = std::fs::read_to_string(&path).unwrap_or_default();
+        let _ = std::fs::remove_file(&path);
+        // Every clock wake still reads the metadata again (the clone check).
+        assert_eq!(agent.platform.reads, wakes.len() + 1);
+        (log, agent.platform.invalidations.get())
+    }
+
+    #[test]
+    fn a_clock_sync_keeps_remote_authority_and_sends_no_resume() {
+        let (log, invalidations) = run_wakes(&[Wake::ClockAdjusted, Wake::ClockAdjusted]);
+        assert_eq!(invalidations, 0, "a clock sync ended remote authority: {log}");
+        assert!(!log.contains("event=resumed"), "a clock sync sent Resumed: {log}");
+    }
+
+    #[test]
+    fn a_resume_clock_jump_ends_remote_authority_and_sends_resume() {
+        let (log, invalidations) = run_wakes(&[Wake::ClockSet]);
+        assert_eq!(invalidations, 1);
+        assert!(log.contains("event=resumed"), "a resume sent no Resumed: {log}");
+    }
+
+    #[test]
+    fn only_a_clock_jump_past_the_threshold_is_a_resume() {
+        let base = 1_793_780_000_000_000_000_i128;
+        // Drift a provider's exec sync corrects, either way.
+        assert_eq!(clock_set_wake(base, base + 3_000_000), Wake::ClockAdjusted);
+        assert_eq!(clock_set_wake(base, base - 250_000_000), Wake::ClockAdjusted);
+        assert_eq!(clock_set_wake(base, base + RESUME_CLOCK_JUMP_NS - 1), Wake::ClockAdjusted);
+        // A pause or fork: the boot clock stood still while time went on.
+        assert_eq!(clock_set_wake(base, base + RESUME_CLOCK_JUMP_NS), Wake::ClockSet);
+        assert_eq!(clock_set_wake(base, base + 140_000_000_000), Wake::ClockSet);
+        assert_eq!(clock_set_wake(base, base - 30_000_000_000), Wake::ClockSet);
     }
 }

@@ -41,6 +41,7 @@ final class TerminalThemeSetting {
                       background: ReducedBackgroundsSetting.drawn(snapshot.windowBackground, reduced: snapshot.reducedBackgrounds),
                       terminalOverridden: snapshot.surfaceBackgrounds.overridesTerminal)
             edits = snapshot.themeEdits
+            edits.highlight = snapshot.highlightColor
         }
     }
 
@@ -57,8 +58,11 @@ final class TerminalThemeSetting {
     private var applied: State?
     /// Reloads the Ghostty config with the overrides (tests count it).
     var reload: () -> Void = { GhosttyRuntime.shared.reloadConfig() }
+    /// The Ghostty config files' own opacity and blur, as the runtime's last load of them recorded (tests pass their
+    /// own: a config load anywhere in the process records this Mac's again); set before `follow`.
+    var ghostty: () -> GhosttyConfigBackground = { GhosttyConfigBackground.loaded }
     /// Repaints the window from the theme with the new background, before the reload.
-    lazy var repaint: () -> Void = { [backdropScope] in ThemeBridge.repaintBackground(store: backdropScope.store) }
+    lazy var repaint: () -> Void = { [backdropScope, ghostty] in ThemeBridge.repaintBackground(store: backdropScope.store, ghostty: ghostty()) }
     /// The reload after the last step of a window background drag (the Opacity slider).
     private let reloadTimer = DemandTimer(owner: "terminal-theme.background-reload")
     /// How long that reload waits after a step (tests lengthen it, so a slow host's steps still coalesce).
@@ -80,7 +84,7 @@ final class TerminalThemeSetting {
     /// follows their changes.
     func follow(_ settings: SettingsController) {
         // An opacity write with Material unset names the material of the config files' own blur.
-        settings.ghosttyBackgroundBlur = { GhosttyConfigBackground.loaded.blur }
+        settings.ghosttyBackgroundBlur = { [ghostty] in ghostty().blur }
         // The theme, its edits, the window background, the backdrop art and the tuning follow
         // `applied`, so a theme picker's, the Opacity, Hue or Saturation slider's or the background
         // picker's live preview repaints the window; the rest follows the loaded
@@ -131,6 +135,7 @@ final class TerminalThemeSetting {
         var state = State(snapshot)
         state.theme = theme
         state.edits = edits
+        state.edits.highlight = snapshot.highlightColor
         state.background = ReducedBackgroundsSetting.drawn(background, reduced: reduced)
         apply(state)
     }
@@ -166,7 +171,7 @@ final class TerminalThemeSetting {
         if let previous {
             var others = state
             others.background = previous.background
-            guard others == previous, !Self.changesSurfaces(from: previous.background, to: state.background) else {
+            guard others == previous, !ghostty().surfacesChange(from: previous.background, to: state.background) else {
                 reloadTimer.cancel()
                 return reload()
             }
@@ -179,16 +184,6 @@ final class TerminalThemeSetting {
         let loaded = Self.primed ?? State(theme: nil, font: .init(), background: .init())
         Self.primed = nil
         if state != loaded { reload() }
-    }
-
-    /// Whether the terminals need the reload at once: the window turns translucent or opaque (the
-    /// surfaces' default background changes) or its material changes.
-    static func changesSurfaces(from old: WindowBackgroundOverride, to new: WindowBackgroundOverride) -> Bool {
-        let (opacity, blur) = (GhosttyConfigBackground.loaded.opacity, GhosttyConfigBackground.loaded.blur)
-        let before = old.resolved(backgroundOpacity: opacity, backgroundBlur: blur)
-        let after = new.resolved(backgroundOpacity: opacity, backgroundBlur: blur)
-        return (before.backgroundOpacity >= 1) != (after.backgroundOpacity >= 1)
-            || WindowMaterialChoice(ghosttyBlur: before.backgroundBlur) != WindowMaterialChoice(ghosttyBlur: after.backgroundBlur)
     }
 
     private static func set(_ state: State) {

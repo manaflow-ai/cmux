@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # check-overlay-glass.py: a floating surface painted solid (the popup surface, an elevated fill, a
 # system window color, ReduceTransparency.alwaysOpaque, the opt-in card fill, a solid SwiftUI
-# background, AppKit's tooltip material, a tooltip or hover window without the shared glass) fails; a `glass-opaque-allow:` reason and the shared glass pass; a stale allowance fails.
+# background, AppKit's tooltip material, a tooltip or hover window without the shared glass, a toast, sheet or card window without it, a
+# near-opaque veil on a glass surface, the card fill outside its file) fails; a `glass-opaque-allow:` reason and the shared glass pass; a stale allowance fails.
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 CHECK="$ROOT_DIR/scripts/cmux-next/check-overlay-glass.py"
@@ -38,6 +39,53 @@ expect_fail tipwindow hover-window 'final class TooltipPanel: NSPanel {
     let blur = NSVisualEffectView()
 }'
 expect_fail previewwindow hover-window 'final class LinkHoverPreviewWindow: NSWindow {}'
+# A SurfaceRole's glass (Glass.makeSurface) is the shared glass too.
+expect_pass tipwindow-role 'final class TooltipPanel: NSPanel {
+    let glass = Glass.makeSurface(.tooltip, cornerRadius: 5, interactive: false)
+}'
+expect_pass menu-panel-role 'final class DemoMenuPanel: NSPanel {
+    let card = Glass.makeSurface(.menu, content: rows)
+}'
+
+# Toasts, sheets, dialogs, cards, banners, bubbles and notices are glass too: their window builds the
+# shared glass, no near-opaque veil lies over it, and the mostly opaque card fill stays in its file.
+expect_fail toast-window surface-window 'final class DemoToastPanel: NSPanel {
+    let blur = NSView()
+}'
+expect_fail sheet-window surface-window 'final class DemoSheetWindow: NSWindow {}'
+expect_pass toast-window-glass 'final class DemoToastPanel: NSPanel {
+    let surface = Glass.makeOverlayPanel(content: body, tone: .neutralGlass(.toast))
+}'
+expect_pass sheet-window-surface-role 'final class DemoSheetPanel: NSPanel {
+    let surface = Glass.makeSurface(.sheet, content: body)
+}'
+expect_fail dense-veil-surface-role dense-fill 'final class DemoCard: NSView {
+    let surface = Glass.makeSurface(.card, content: body)
+    func paint() { veil.layer?.backgroundColor = Palette.textPrimary.withAlphaComponent(0.95).cgColor }
+}'
+expect_pass card-window-raw-glass 'final class DemoCardPanel: NSPanel {
+    let glass = Glass.makePanel(content: body, style: .regular, cornerRadius: 14)
+}'
+expect_pass card-window-overlay-surface 'final class DemoCardPanel: NSPanel {
+    let backdrop = OverlaySurfaceView(material: nil)
+}'
+expect_pass toast-window-escaped '// glass-opaque-allow: a test window that never shows
+final class DemoToastPanel: NSPanel {}'
+expect_fail dense-veil dense-fill 'final class DemoCard: NSView {
+    let surface = Glass.makeOverlayPanel(content: body)
+    func paint() { veil.layer?.backgroundColor = Palette.textPrimary.withAlphaComponent(0.94).cgColor }
+}'
+expect_fail dense-swiftui dense-fill 'struct DemoCard: View {
+    let surface = CardSurfaceView()
+    var body: some View { Text("x").background(Color.gray.opacity(0.95)) }
+}'
+expect_pass light-veil 'final class DemoCard: NSView {
+    let surface = Glass.makeOverlayPanel(content: body)
+    func paint() { veil.layer?.backgroundColor = Palette.textPrimary.withAlphaComponent(0.13).cgColor }
+}'
+# A pane that builds no glass is not a floating surface: its dense fill is not this rule's.
+expect_pass dense-no-glass '        pane.layer?.backgroundColor = Palette.textPrimary.withAlphaComponent(0.94).cgColor'
+expect_fail card-material card-material '        let card = CardMaterial(tokens, lift: 0.1)'
 
 expect_fail menu-panel popup-host 'final class DemoMenuPanel: NSPanel {
     let card = NSVisualEffectView()
@@ -263,5 +311,32 @@ if out="$(python3 -I "$CHECK" "$tmp")"; then
 fi
 grep -q "ServerMenuBarController.swift:1: \[popup-host\] stale allowance" <<<"$out" || { echo "check-overlay-glass.test: the deleted host's entry not named stale"; echo "$out"; exit 1; }
 rm -f "$tmp/scripts/cmux-next/check-overlay-glass.py"
+
+# A teammate's surfaces (Lawrence R48) are never flagged: an opaque fill there passes.
+rm -f "$src"/*.swift
+r48="$tmp/Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/Windows"
+mkdir -p "$r48"
+printf '%s\n' '        layer?.backgroundColor = Palette.elevatedBackground.cgColor' > "$r48/ThemeTokens+Surface.swift"
+out="$(python3 -I "$CHECK" "$tmp")" || { echo "check-overlay-glass.test: a teammate surface was flagged"; echo "$out"; exit 1; }
+rm -rf "$r48"
+
+# A card window whose glass another file builds passes while that file builds it, and fails when not.
+server="$tmp/Packages/macOS/CmuxNext/Sources/CmuxNextServer"
+mkdir -p "$server/Views"
+printf '%s\n' 'public final class AddServerCardPanel: NSPanel {}' > "$server/Views/AddServerCardPanel.swift"
+printf '%s\n' 'final class ServerHostView: NSView { let backdrop = OverlaySurfaceView(material: nil) }' > "$server/ServerHostView.swift"
+out="$(python3 -I "$CHECK" "$tmp")" || { echo "check-overlay-glass.test: the mapped card window failed"; echo "$out"; exit 1; }
+printf '%s\n' 'final class ServerHostView: NSView { let backdrop = NSView() }' > "$server/ServerHostView.swift"
+if out="$(python3 -I "$CHECK" "$tmp")"; then
+  echo "check-overlay-glass.test: a mapped card window with no glass passed"; echo "$out"; exit 1
+fi
+grep -q "AddServerCardPanel.swift:1: \[surface-window\]" <<<"$out" || { echo "check-overlay-glass.test: the mapped card window not named"; echo "$out"; exit 1; }
+# A mapped file that declares no surface window any more is stale.
+printf '%s\n' 'public final class AddServerCardHost: NSView {}' > "$server/Views/AddServerCardPanel.swift"
+if out="$(python3 -I "$CHECK" "$tmp")"; then
+  echo "check-overlay-glass.test: a stale SURFACE_GLASS_FROM entry passed"; echo "$out"; exit 1
+fi
+grep -q "\[surface-window\] stale allowance" <<<"$out" || { echo "check-overlay-glass.test: the stale entry not named"; echo "$out"; exit 1; }
+rm -rf "$server"
 
 echo "check-overlay-glass.test: ok"

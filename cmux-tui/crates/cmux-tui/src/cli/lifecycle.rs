@@ -5,6 +5,7 @@ use cmux_tui_core::platform::transport;
 use serde_json::{Value, json};
 
 use super::{GlobalArgs, OutputMode};
+use cmux_json::JsonSet as _;
 
 const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
 
@@ -22,6 +23,8 @@ pub(super) enum ServerAction {
     /// running owner keeps the grace it was started with.
     Ensure {
         terminal_reap_grace: Option<Duration>,
+        /// Test harnesses: the spawned owner ends with this pid (`local_owner::exit_with`).
+        exit_with_pid: Option<crate::local_owner::ExitWith>,
         /// Private app contract (P8 3b-2): read the app's install key from
         /// stdin and hand it to an owner this call spawns.
         install_key_stdin: bool,
@@ -43,6 +46,14 @@ pub(super) enum ServerAction {
         end_terminals: bool,
         /// How long to wait for an owner that still restores its session
         /// (`--restore-wait-seconds`, default `local_owner::RESTORE_DEADLINE`).
+        restore_wait: Duration,
+    },
+    /// The daemon swap (HQ#7149 R4): stop the owner as an update hands it off
+    /// (its terminal hosts live on), wait for it to exit, then ensure an owner
+    /// from this binary, which adopts them. A daemon edit reaches the running
+    /// session with every terminal kept. Starts an owner when none runs.
+    Restart {
+        force: bool,
         restore_wait: Duration,
     },
     ReloadConfig,
@@ -118,6 +129,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     let socket_output = socket.to_string_lossy().into_owned();
     if let ServerAction::Ensure {
         terminal_reap_grace,
+        exit_with_pid,
         install_key_stdin,
         progress,
         websocket,
@@ -134,21 +146,43 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         };
         return run_ensure(
             expected_session,
-            terminal_reap_grace,
+            (terminal_reap_grace, exit_with_pid),
             install_key,
             (socket, socket_is_derived),
             (progress, replace_unresponsive),
-            websocket,
+            (websocket, None),
             global.output,
         );
     }
-    if let ServerAction::Stop { force, end_terminals, restore_wait } = plan.action {
+    // A restart is a stop that keeps the terminals, then an ensure.
+    let restart = matches!(plan.action, ServerAction::Restart { .. });
+    let action = match plan.action {
+        ServerAction::Restart { force, restore_wait } => {
+            ServerAction::Stop { force, end_terminals: false, restore_wait }
+        }
+        action => action,
+    };
+    // The new owner takes the stopped owner's session (its `identify`), so a
+    // restart by `--socket` alone never starts a "main" owner beside it.
+    let ensure_after_stop = |session: Option<String>, previous_pid: Option<u32>| {
+        run_ensure(
+            session,
+            (None, None),
+            None,
+            (socket.clone(), socket_is_derived),
+            (false, false),
+            (None, previous_pid),
+            global.output,
+        )
+    };
+    if let ServerAction::Stop { force, end_terminals, restore_wait } = action {
         let stop = StopWait {
             socket: &socket,
             socket_is_derived,
             session: expected_session.as_deref(),
             limit: restore_wait,
             retry_flags: (force, end_terminals),
+            restart,
             output: global.output,
         };
         if let Err(exit_code) = stop.wait_for_restore() {
@@ -157,7 +191,10 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     }
     let stream = match cmux_tui_core::server::connect_session_socket(&socket, socket_is_derived) {
         Ok(stream) => stream,
-        Err(error) if matches!(plan.action, ServerAction::Stop { .. }) && is_absent(&error) => {
+        Err(error) if restart && is_absent(&error) => {
+            return ensure_after_stop(expected_session, None);
+        }
+        Err(error) if matches!(action, ServerAction::Stop { .. }) && is_absent(&error) => {
             return print_success(
                 json!({
                     "status":"not_running",
@@ -269,9 +306,27 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         );
     }
 
-    match plan.action {
-        ServerAction::Ensure { .. } | ServerAction::CompactRegistry { .. } => {
-            unreachable!("ensure and compact-registry return before the lifecycle exchange")
+    match action {
+        ServerAction::Ensure { .. }
+        | ServerAction::CompactRegistry { .. }
+        | ServerAction::Restart { .. } => {
+            unreachable!(
+                "ensure, compact-registry and restart return before the lifecycle exchange"
+            )
+        }
+        // A wedged owner answers identify, but serves no workspace change: the
+        // app runs `server status` first and ensures only when it fails, so
+        // say it is not running and the app's ensure replaces it (#32621).
+        ServerAction::Status
+            if cmux_tui_core::server::connect_session_socket(&socket, socket_is_derived)
+                .is_ok_and(|stream| crate::local_owner::is_wedged(stream, None)) =>
+        {
+            local_error(
+                "server.wedged",
+                crate::localization::catalog().local_server.wedged,
+                global.output,
+                3,
+            )
         }
         ServerAction::Status => print_success(
             json!({
@@ -430,6 +485,14 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             if let Err(message) = wait_for_close(&mut connection, deadline) {
                 return local_error("server.stop_incomplete", &message, global.output, 3);
             }
+            if restart {
+                // The old owner closes its socket before it exits; the new
+                // owner starts once the old process is gone.
+                if let Err(message) = wait_for_exit(pid, Instant::now() + Duration::from_secs(10)) {
+                    return local_error("server.stop_incomplete", &message, global.output, 3);
+                }
+                return ensure_after_stop(Some(actual_session.to_owned()), Some(pid));
+            }
             print_success(
                 json!({
                     "status":"stopped",
@@ -500,6 +563,8 @@ struct StopWait<'a> {
     limit: Duration,
     /// `--force` and `--end-terminals`, repeated in the retry command.
     retry_flags: (bool, bool),
+    /// A `server restart`'s stop: the retry command restarts, never only stops.
+    restart: bool,
     output: OutputMode,
 }
 
@@ -629,8 +694,12 @@ impl StopWait<'_> {
     fn give_up(&self, phase: RestorePhase, started: Instant) -> i32 {
         let waited = started.elapsed();
         let longer = (self.limit * 2).max(crate::local_owner::RESTORE_DEADLINE);
-        let mut retry =
-            super::fix_command::stop_daemon(&super::fix_command::this_cli(), self.socket);
+        let cli = super::fix_command::this_cli();
+        let mut retry = if self.restart {
+            super::fix_command::restart_daemon_in_place(&cli, self.socket)
+        } else {
+            super::fix_command::stop_daemon(&cli, self.socket)
+        };
         let (force, end_terminals) = self.retry_flags;
         if force {
             retry.push_str(" --force");
@@ -707,15 +776,17 @@ fn read_install_key_from_stdin() -> std::io::Result<cmux_tui_core::server::Front
 /// `server ensure`: connect to a ready owner, spawning a detached one when
 /// nothing serves the socket. Reports `running` for an owner that already
 /// existed and `started` for one this call spawned. `socket` is the socket
-/// path and whether it was derived from the session name; the flag pair is
-/// `--restore-progress` and `--replace-unresponsive`.
+/// path and whether it was derived from the session name; the owner pair is
+/// the reap grace and `--exit-with-pid`, the flag pair `--restore-progress`
+/// and `--replace-unresponsive`. `previous_pid` is the owner a `server
+/// restart` stopped: an owner this call starts then reports `restarted`.
 fn run_ensure(
     expected_session: Option<String>,
-    terminal_reap_grace: Option<Duration>,
+    (terminal_reap_grace, exit_with_pid): (Option<Duration>, Option<crate::local_owner::ExitWith>),
     install_key: Option<cmux_tui_core::server::FrontendKey>,
     (socket, socket_is_derived): (std::path::PathBuf, bool),
     (progress, replace_unresponsive): (bool, bool),
-    websocket: Option<crate::local_owner::EnsureWebSocket>,
+    (websocket, previous_pid): (Option<crate::local_owner::EnsureWebSocket>, Option<u32>),
     output: OutputMode,
 ) -> i32 {
     let messages = &crate::localization::catalog().local_server;
@@ -728,6 +799,7 @@ fn run_ensure(
         term: None,
         initial_host_colors: None,
         terminal_reap_grace,
+        exit_with_pid,
         install_key,
         // The app's Chief owner: the brain tools socket this client was
         // started with (taken out of its environment at start).
@@ -756,7 +828,10 @@ fn run_ensure(
             }
         }
     } else {
-        None
+        // A wedged owner answers `identify`, so the app never sees it stuck and
+        // never asks for the replace: every ensure replaces it (#32621). A
+        // replace that fails leaves the normal ensure to report the owner.
+        crate::local_owner::replace_if_wedged(&spec).ok().flatten().map(|replaced| replaced.pid)
     };
     let deadline = Instant::now() + crate::local_owner::ENSURE_DEADLINE;
     let report = |restoring: &crate::local_owner::Restoring| {
@@ -775,6 +850,9 @@ fn run_ensure(
                 crate::local_owner::Ensured::Started(ready) if replaced.is_some() => {
                     ("replaced", messages.replaced, ready)
                 }
+                crate::local_owner::Ensured::Started(ready) if previous_pid.is_some() => {
+                    ("restarted", messages.restarted, ready)
+                }
                 crate::local_owner::Ensured::Started(ready) => ("started", messages.started, ready),
             };
             let mut result = json!({
@@ -786,35 +864,28 @@ fn run_ensure(
                 "message":message,
             });
             if let Some(pid) = replaced {
-                result["replaced_pid"] = json!(pid);
+                result.set("replaced_pid", json!(pid));
+            }
+            if let Some(pid) = previous_pid {
+                result.set("previous_pid", json!(pid));
             }
             print_success(result, output)
         }
         Err(error) => {
-            let (code, message, exit_code) = match error {
-                crate::local_owner::EnsureError::Spawn(_error) => {
-                    ("server.spawn_failed", messages.owner_spawn_failed(), 3)
-                }
-                crate::local_owner::EnsureError::NotReady => {
-                    ("server.unavailable", messages.owner_not_ready.to_string(), 3)
-                }
-                crate::local_owner::EnsureError::RestoreTimeout => {
-                    ("server.restore_timeout", messages.owner_restore_timeout.to_string(), 3)
-                }
-                crate::local_owner::EnsureError::WrongOwner => {
-                    ("server.wrong_owner", messages.wrong_owner.to_string(), 1)
-                }
+            let message = messages.ensure_failed(&error);
+            let (code, exit_code) = match error {
+                crate::local_owner::EnsureError::Spawn(_error) => ("server.spawn_failed", 3),
+                crate::local_owner::EnsureError::NotReady => ("server.unavailable", 3),
+                crate::local_owner::EnsureError::RestoreTimeout => ("server.restore_timeout", 3),
+                crate::local_owner::EnsureError::Busy => ("server.busy", 3),
+                crate::local_owner::EnsureError::WrongOwner => ("server.wrong_owner", 1),
                 crate::local_owner::EnsureError::DifferentSession => {
-                    ("server.different_session", messages.different_session.to_string(), 1)
+                    ("server.different_session", 1)
                 }
-                crate::local_owner::EnsureError::DifferentState => {
-                    ("server.different_state", messages.different_state.to_string(), 1)
-                }
-                crate::local_owner::EnsureError::InvalidIdentity => {
-                    ("server.invalid_identity", messages.invalid_identity.to_string(), 3)
-                }
+                crate::local_owner::EnsureError::DifferentState => ("server.different_state", 1),
+                crate::local_owner::EnsureError::InvalidIdentity => ("server.invalid_identity", 3),
                 crate::local_owner::EnsureError::UnsupportedProtocol => {
-                    ("server.unsupported_protocol", messages.unsupported_protocol.to_string(), 3)
+                    ("server.unsupported_protocol", 3)
                 }
             };
             // The app learns that the old owner is gone even when the new
@@ -974,6 +1045,28 @@ fn wait_for_close(
             }
         }
     }
+}
+
+/// Waits until the stopped owner `pid` has exited, so the owner a restart
+/// starts never meets the old one still holding the session.
+fn wait_for_exit(pid: u32, deadline: Instant) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        let Ok(pid) = libc::pid_t::try_from(pid) else {
+            return Ok(());
+        };
+        // SAFETY: signal 0 only checks that the pid exists. EPERM means
+        // another user's process holds the pid now: the owner is gone.
+        while unsafe { libc::kill(pid, 0) } == 0 {
+            if Instant::now() >= deadline {
+                return Err(crate::localization::catalog().local_server.stop_timeout.to_string());
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = (pid, deadline);
+    Ok(())
 }
 
 fn usage_error(message: &str, output: OutputMode) -> i32 {

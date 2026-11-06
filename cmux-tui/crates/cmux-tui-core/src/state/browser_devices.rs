@@ -21,6 +21,7 @@
 
 use std::sync::OnceLock;
 
+use cmux_json::JsonSet as _;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Map, Value, json};
 
@@ -695,7 +696,7 @@ pub(crate) fn resolve(stored: &str) -> Option<Value> {
     }
     let mut agent = json!({"userAgent": user_agent});
     if let Some(metadata) = &metadata {
-        agent["userAgentMetadata"] = metadata.clone();
+        agent.set("userAgentMetadata", metadata.clone());
     }
     let touch_call = if touch {
         json!({"enabled": true, "maxTouchPoints": 1})

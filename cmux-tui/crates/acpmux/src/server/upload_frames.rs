@@ -129,15 +129,18 @@ fn parse(frame: &[u8]) -> Result<(Value, Value, usize), (Value, RpcError)> {
     if frame.get(..4) != Some(MAGIC) {
         return Err(bad("it does not begin with AMUP"));
     }
-    let len = frame.get(4..8).ok_or_else(|| bad("no header length"))?;
-    let len = u32::from_be_bytes([len[0], len[1], len[2], len[3]]) as usize;
+    let len = frame
+        .get(4..8)
+        .and_then(|b| <[u8; 4]>::try_from(b).ok())
+        .ok_or_else(|| bad("no header length"))?;
+    let len = u32::from_be_bytes(len) as usize;
     if len > MAX_HEADER {
         return Err(bad("the header is over 16 KiB"));
     }
     let start = 8usize.checked_add(len).filter(|&end| end <= frame.len());
     let start = start.ok_or_else(|| bad("the header is longer than the frame"))?;
-    let header: Value =
-        serde_json::from_slice(&frame[8..start]).map_err(|e| bad(&format!("header: {e}")))?;
+    let header: Value = serde_json::from_slice(frame.get(8..start).unwrap_or_default())
+        .map_err(|e| bad(&format!("header: {e}")))?;
     // Every answer is small: an id a client chose is echoed only when it is short.
     let id = match header.get("id") {
         Some(id @ Value::Number(_)) => id.clone(),
@@ -198,6 +201,8 @@ async fn write(
         Err(e) => e,
     };
     let Some((peer, id, _)) = hub.resolve_remote(key) else { return Err(missing) };
+    // No wait for a reconnecting link here: this frame holds back every later message on the app's
+    // connection (`InFlight`). The upload's begin already waited for it (`peer_forward.rs`).
     if !peer.supports_file_put_chunks() {
         return Err(file_uploads::peer_unsupported(&peer));
     }

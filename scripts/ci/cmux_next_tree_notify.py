@@ -19,6 +19,17 @@ publish-cmux-tui-tree.py writes it last and only once, so it is the record
 that the tree is published: a run cancelled after (or while another run)
 published the key reports ready, not the run's conclusion (#23517).
 
+A failed marker is kept (a later publication of the key still starts its
+jobs), so every artifacts run that fails the same key would report it in red
+again. A key that cannot build (a stale Cargo.lock on the base it came from)
+is failed by every branch push cut from that base: on 2026-11-02 three
+`cmux-next base tier` markers were re-dispatched in red about every 2 minutes
+for hours, draining the routing App's REST quota. So a failed state is
+reported once per marker: the run history of cmux-next.yml (read once per
+notify) is the record, and a marker whose run name already has a dispatch
+created after the marker was uploaded is not dispatched again. A ready
+state always dispatches.
+
 Usage: cmux_next_tree_notify.py --repo OWNER/NAME --key KEY --state ready|failed
        [--reason TEXT]
 Needs GH_TOKEN with actions: write (dispatch, delete markers), contents: read
@@ -42,9 +53,16 @@ import zipfile
 from typing import Callable, Protocol
 
 SHA = re.compile(r"^[0-9a-f]{40}$")
+ISO_TIME = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
 REF = re.compile(r"^[A-Za-z0-9._/-]{1,200}$")
 TIERS = ("daemon", "scheme")
+# A marker's tip_suite -> the tiers it may carry and the dispatch input that names its same-tree run
+# (`cmux-next tip daemon suite · <sha>`, `cmux-next base tier · <sha>`).
+TIP_SUITES = {"daemon": {"daemon"}, "base": {"daemon", "scheme"}}
+TIP_SUITE_INPUTS = {"daemon": "tip_daemon_suite", "base": "base_tier"}
 MAX_MARKERS = 50
+# The run history read for the once-per-marker failed report: 100 runs a page.
+RUN_PAGES = 5
 WORKFLOW = "cmux-next.yml"
 TREE_BASE = "https://files.cmux.com/cmux-tui/tree"
 
@@ -134,6 +152,16 @@ def read_marker(api: Api, artifact: dict, key: str) -> dict | None:
             return None
     elif dev_daily is not False:
         return None
+    # The tip daemon suite (cmux-next.yml tip_daemon_suite): a dispatch on feat-cmux-next of the daemon
+    # tier only, which tests its exact commit whatever the tip is by then. The base tier
+    # (cmux-next.yml base_tier, cmux-next-base-tier-kick.yml) likewise, with the daemon and scheme tiers.
+    tip_suite = marker.get("tip_suite")
+    if tip_suite is not None and (not isinstance(tip_suite, str) or tip_suite not in TIP_SUITES
+                                  or marker.get("origin") != "dispatch" or dev_daily
+                                  or marker.get("branch") != "feat-cmux-next"
+                                  or marker.get("ref_kind", "heads") != "heads"
+                                  or not set(tiers) <= TIP_SUITES[tip_suite]):
+        return None
     if marker.get("origin") in ("push", "dispatch"):
         if dev_daily and marker.get("origin") != "push":
             return None
@@ -172,6 +200,11 @@ def is_current(api: Api, repo: str, marker: dict) -> bool:
         # recorded SHA and the publisher's source gate verifies it again.
         if marker.get("dev_daily"):
             return True
+        # Likewise the tip daemon suite and the base tier: each is the base's verdict for that commit, and in a
+        # landing burst the tip always moves before its tree publishes (2026-10-30: no base daemon-test
+        # verdict for hours, so no pull request's daemon-test red could be compared with the base).
+        if marker.get("tip_suite"):
+            return True
         # A tag has no head to move on (and is not a branch to look up).
         if marker.get("ref_kind") == "tags":
             return True
@@ -179,6 +212,37 @@ def is_current(api: Api, repo: str, marker: dict) -> bool:
         return head.get("object", {}).get("sha") == marker["sha"]
     pull = api.get(f"repos/{repo}/pulls/{marker['pr']}")
     return pull.get("state") == "open" and pull.get("head", {}).get("sha") == marker["status_sha"]
+
+
+def run_name(marker: dict) -> str:
+    """The name cmux-next.yml's run-name gives this marker's same-tree run."""
+    if marker.get("dev_daily"):
+        return f"cmux NEXT DEV daily · {marker['dev_daily_sha']}"
+    if marker.get("tip_suite") == "daemon":
+        return f"cmux-next tip daemon suite · {marker['sha']}"
+    if marker.get("tip_suite") == "base":
+        return f"cmux-next base tier · {marker['sha']}"
+    return f"cmux-next · {marker['sha']}"
+
+
+def dispatched_runs(api: Api, repo: str, since: str) -> dict[str, list[str]]:
+    """cmux-next.yml dispatch runs created at or after `since`: run name -> created_at times."""
+    names: dict[str, list[str]] = {}
+    for page in range(1, RUN_PAGES + 1):
+        listing = api.get(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?event=workflow_dispatch"
+                          f"&created=%3E%3D{since}&per_page=100&page={page}")
+        runs = listing.get("workflow_runs", []) if isinstance(listing, dict) else []
+        for run in runs:
+            if not isinstance(run, dict):
+                continue
+            # The evaluated run-name: `display_title` (GitHub also puts it in `name` when the workflow
+            # sets run-name, as cmux-next.yml does; both are read so neither field alone is relied on).
+            for title in {run.get("display_title"), run.get("name")}:
+                if isinstance(title, str):
+                    names.setdefault(title, []).append(str(run.get("created_at", "")))
+        if len(runs) < 100:
+            break
+    return names
 
 
 def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
@@ -193,6 +257,16 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
     listing = api.get(f"repos/{repo}/actions/artifacts?name=cmux-next-tree-wait-{key}&per_page=100")
     artifacts = [artifact for artifact in listing.get("artifacts", []) if not artifact.get("expired")]
     dispatched = 0
+    # The failed report goes out once per marker (module docstring): read the run history once.
+    history: dict[str, list[str]] | None = None
+    stamps = [str(artifact.get("created_at", "")) for artifact in artifacts[:MAX_MARKERS]]
+    stamps = [stamp for stamp in stamps if ISO_TIME.match(stamp)]
+    if state == "failed" and stamps:
+        try:
+            history = dispatched_runs(api, repo, min(stamps))
+        except (RuntimeError, OSError, ValueError) as error:
+            log(f"::warning::could not read cmux-next.yml's run history ({error}); "
+                f"failed markers are reported again")
     for artifact in artifacts[:MAX_MARKERS]:
         run_id = artifact.get("workflow_run", {}).get("id")
         marker = read_marker(api, artifact, key)
@@ -212,6 +286,12 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
             log(f"::notice title=same-tree cmux-tui skipped::run {run_id} ({marker['status_sha'][:12]}): "
                 f"tree {key} is unavailable; no pin ref is created. Re-run after a trusted publication.")
             continue
+        uploaded = str(artifact.get("created_at", ""))
+        if state == "failed" and history is not None and ISO_TIME.match(uploaded) and any(
+                created >= uploaded for created in history.get(run_name(marker), [])):
+            log(f"run {run_id}: `{run_name(marker)}` already reported tree {key} after this marker; "
+                f"not dispatched again (a publication of the key still starts it)")
+            continue
         inputs = {
             "same_tree_sha": marker["sha"],
             "same_tree_status_sha": marker["status_sha"],
@@ -223,6 +303,10 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
         }
         if marker.get("dev_daily"):
             inputs.update(dev_daily="true", dev_daily_sha=marker["dev_daily_sha"])
+        if marker.get("tip_suite"):
+            # Names the run `cmux-next tip daemon suite · <sha>` or `cmux-next base tier · <sha>`, which
+            # the dispatchers and base_red_excuse.py look up.
+            inputs[TIP_SUITE_INPUTS[marker["tip_suite"]]] = "true"
         for ref in dispatch_refs(marker, repo):
             status = api.post(f"repos/{repo}/actions/workflows/{WORKFLOW}/dispatches", {"ref": ref, "inputs": inputs})
             if status == 204:

@@ -47,7 +47,9 @@ public struct FirefoxSessionReader {
             for tab in window["tabs"] as? [[String: Any]] ?? [] {
                 let entries = tab["entries"] as? [[String: Any]] ?? []
                 guard !entries.isEmpty else { continue }
-                let index = min(max((tab["index"] as? Int ?? entries.count) - 1, 0), entries.count - 1)
+                // 1-based, and any integer in a file this program did not write: clamp before the
+                // subtraction (`Int.min - 1` traps).
+                let index = min(max(tab["index"] as? Int ?? entries.count, 1), entries.count) - 1
                 guard let text = entries[index]["url"] as? String, let url = ImportableURL.parse(text) else { continue }
                 let title = (entries[index]["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 tabs.append(ImportedTab(url: url, title: title, window: windowIndex, pinned: tab["pinned"] as? Bool ?? false))

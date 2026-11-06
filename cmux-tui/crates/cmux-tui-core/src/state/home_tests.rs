@@ -330,6 +330,32 @@ fn home_raw_tree_names_the_home_workspace() {
     mux.shutdown();
 }
 
+/// The `workspace-added` event that announces the home names it `kind: "home"`, as every
+/// later tree read does. A subscriber applies that event before its next tree read, so an
+/// event that said `normal` showed the home as an ordinary workspace row for a moment (the
+/// app's Cmd-2 then picked that row, and the window showed Home: SidebarCmdNumberTwiceTests).
+#[test]
+fn home_workspace_added_event_names_the_home() {
+    let session = Session::new("added-kind");
+    let mux = session.open();
+    empty_workspace(&mux, "work");
+    let events = mux.subscribe();
+    let home = ensure_home(&mux, "connect")["value"]["workspace_id"].as_str().unwrap().to_string();
+    let added = std::iter::from_fn(|| events.try_recv().ok())
+        .find_map(|event| match event {
+            MuxEvent::TreeDelta(delta)
+                if delta.kind == TreeDeltaKind::WorkspaceAdded
+                    && delta.entity["resource_id"] == home.as_str() =>
+            {
+                Some(delta)
+            }
+            _ => None,
+        })
+        .expect("ensure_home emits workspace-added for the home");
+    assert_eq!(added.entity["kind"], "home", "workspace-added entity: {}", added.entity);
+    mux.shutdown();
+}
+
 /// The app's hidden home is not one of the user's workspaces: the first one
 /// it names after `ensure_home` is `workspace-1`, not `workspace-2` (a
 /// first launch showed its only workspace as `workspace-2`).

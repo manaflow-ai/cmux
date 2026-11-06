@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Leo 2026-10-21, on the cmux NEXT sidebar: "ALL THIS RELATIVELY UNNECESSARY SPACING AFTER GROUPS AND
@@ -8,7 +9,7 @@ import Testing
 /// last member, under a folder's last row, under the Pinned block's last row and under the last pinned
 /// chat, as between any two rows. A pinned workspace row's pin starts where an unpinned row's content
 /// starts and centers on its row as that row's content does.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarUniformRowSpacingTests {
     static let group = GroupID("grp")
     static let pins = [LayoutItemID("itm_pin_1"), LayoutItemID("itm_pin_2")]
@@ -254,7 +255,7 @@ struct SidebarUniformRowSpacingTests {
         (DesignSettings.shared.sidebarSections.density, Motion.reduceMotionOverride) = (density, true)
         defer { (DesignSettings.shared.sidebarSections.density, Motion.reduceMotionOverride) = (saved, savedMotion) }
         let h = Harness()
-        defer { h.window.orderOut(nil) }
+        defer { h.window.close() }
         let spacing = h.list.displayed.rowSpacing
         #expect(spacing > 0)
         let lastPin = h.inList(try h.pinnedRow(Self.pins[1]))
@@ -266,12 +267,12 @@ struct SidebarUniformRowSpacingTests {
         #expect(abs(w4.minY - w3.maxY - spacing) < 0.5)
     }
 
-    @Test(arguments: SidebarDensity.allCases) func thePinStartsAndCentersAsAnUnpinnedRowsContent(_ density: SidebarDensity) throws {
+    @Test(arguments: SidebarDensity.allCases) func thePinStartsOnAnUnpinnedRowsIconColumn(_ density: SidebarDensity) throws {
         let (saved, savedMotion) = (DesignSettings.shared.sidebarSections.density, Motion.reduceMotionOverride)
         (DesignSettings.shared.sidebarSections.density, Motion.reduceMotionOverride) = (density, true)
         defer { (DesignSettings.shared.sidebarSections.density, Motion.reduceMotionOverride) = (saved, savedMotion) }
         let h = Harness()
-        defer { h.window.orderOut(nil) }
+        defer { h.window.close() }
         let pinned = try h.pinnedRow(Self.pins[0])
         let ink = try #require(pinned.pinInkFrame, "the pinned workspace row draws no pin")
         let pin = h.list.convert(ink, from: pinned)
@@ -280,10 +281,15 @@ struct SidebarUniformRowSpacingTests {
         // An unpinned row's leading slot: its icon, or where its title starts without one.
         let content = h.list.convert(unpinned.icon.frame, from: unpinned)
         let unpinnedFrame = h.inList(unpinned)
-        #expect(abs(pin.minX - content.minX) < 0.5, "the pin's ink starts at \(pin.minX), an unpinned row's content at \(content.minX)")
-        #expect(abs((pin.midY - pinnedFrame.minY) - (content.midY - unpinnedFrame.minY)) < 0.5,
-                "the pin centers \(pin.midY - pinnedFrame.minY) pt into its row, an unpinned row's content \(content.midY - unpinnedFrame.minY) pt")
-        #expect(abs(pinnedFrame.height - unpinnedFrame.height) < 0.01)
+        // The pin's ink starts where an unpinned row's icon column (or its text-only title) starts: the row inset
+        // (Lawrence msg 19643, "left alignment here is bad").
+        #expect(abs(pin.minX - content.minX) < 0.5, "the pin's ink starts at \(pin.minX), an unpinned row's icon column at \(content.minX)")
+        #expect(abs((pin.midY - pinnedFrame.midY) - (content.midY - unpinnedFrame.midY)) < 0.5,
+                "the pin sits \(pin.midY - pinnedFrame.midY) pt off its row's middle, an unpinned row's content \(content.midY - unpinnedFrame.midY) pt")
+        // A pinned row takes the band's row: an unpinned row's height, except at Expanded, where it is Comfortable's
+        // (Lawrence 2026-11-04, pinned rows were too short; 9353f4addd2).
+        #expect(abs(pinnedFrame.height - SidebarRowTokens.current.band.rowHeight) < 0.01)
+        if density != .expanded { #expect(abs(pinnedFrame.height - unpinnedFrame.height) < 0.01) }
         // The pinned row's title still starts after its pin.
         #expect(h.list.convert(pinned.titleFrame, from: pinned).minX >= pin.maxX)
     }

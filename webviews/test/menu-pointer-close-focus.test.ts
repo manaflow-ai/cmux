@@ -11,6 +11,7 @@ import { chromium, webkit, type Browser, type BrowserType, type Page } from "pla
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { COMPACT_MODEL_MENU, OTHER_MODEL_ROW, finishModelClick } from "./support/compactModelMenu";
 
 await requireBrowserLane("menu-pointer-close-focus.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -101,24 +102,61 @@ await requireBrowserLane("menu-pointer-close-focus.test.ts", async () => {
       );
       return {
         ring: ringed ? String(ringed.className).split(" ").slice(0, 2).join(".") : "",
-        focused: String(document.activeElement?.className ?? "").split(" ")[0] ?? "",
+        focused: document.activeElement?.closest(".nt-field")
+          ? "nt-field"
+          : (String(document.activeElement?.className ?? "").split(" ")[0] ?? ""),
       };
     });
 
   for (const [engine] of engines) {
-    for (const [name, selector] of [
+    test(`${engine}: press-drag selection preserves the release modifier for Fork`, async () => {
+      const page = await open(engine, "agent-pane.header-tools", "idle");
+      try {
+        await page.evaluate(() => {
+          const picks: boolean[] = [];
+          Object.assign(window, { forkReleaseModifiers: picks });
+          document.addEventListener(
+            "click",
+            (event) => {
+              const row = (event.target as Element).closest('[role="menuitem"]');
+              if (row?.textContent?.trim() === "Fork") picks.push(event.altKey);
+            },
+            true,
+          );
+        });
+        const trigger = (await page.getByRole("button", { name: "Chat actions", exact: true }).boundingBox())!;
+        await page.mouse.move(trigger.x + trigger.width / 2, trigger.y + trigger.height / 2);
+        await page.mouse.down();
+        const row = page.getByRole("menuitem", { name: "Fork", exact: true });
+        await row.waitFor();
+        const box = (await row.boundingBox())!;
+        // Option can be pressed after opening: it is the release that chooses the action.
+        await page.keyboard.down("Alt");
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        await page.mouse.up();
+        await page.keyboard.up("Alt");
+        expect(
+          await page.evaluate(() => (window as unknown as { forkReleaseModifiers: boolean[] }).forkReleaseModifiers),
+        ).toEqual([true]);
+      } finally {
+        await page.close();
+      }
+    });
+    for (const [name, selector, popup] of [
       // The model button's menu (Leo 2026-10-20: one model button; its menu holds Effort and Fast mode).
-      ["Model", chip("Model")],
-      ["Computer", 'button[aria-label^="Computer"]'],
+      ["Model", chip("Model"), COMPACT_MODEL_MENU],
+      // The environment chip's searchable destination popover (#25316: a dialog with a search field;
+      // not behind Labs since Leo's 2026-10-30 order).
+      ["Environment", 'button[aria-label^="Environment"]', ".ui-popup.acpmux-location-menu"],
     ])
       test(`${engine}: ${name}: a press outside the open menu leaves no ring`, async () => {
         const page = await open(engine);
         // Nothing focused first, so the menu has nowhere to return but its chip.
         await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
         await press(page, selector!);
-        await page.locator(".ui-popup.ui-menu").first().waitFor();
+        await page.locator(popup!).first().waitFor();
         await page.mouse.click(750, 590);
-        await page.locator(".ui-popup.ui-menu").first().waitFor({ state: "detached" });
+        await page.locator(popup!).first().waitFor({ state: "detached" });
         await settled(page);
         expect((await ring(page)).ring).toBe("");
         await page.close();
@@ -128,25 +166,27 @@ await requireBrowserLane("menu-pointer-close-focus.test.ts", async () => {
       const page = await open(engine);
       await page.locator(".nt-field").click();
       await press(page, chip("Model"));
-      await page.locator(".acpmux-quick-menu").first().waitFor();
-      await press(page, ".acpmux-quick-menu [role=menuitemradio]:not([aria-checked=true]):not([data-disabled])");
+      await page.locator(COMPACT_MODEL_MENU).first().waitFor();
+      await press(page, OTHER_MODEL_ROW);
+      await finishModelClick(page);
+      await settled(page);
       expect(await ring(page)).toEqual({ ring: "", focused: "nt-field" });
       await page.close();
     });
 
     test(`${engine}: one press on another chip opens its picker and keeps it, focus and all`, async () => {
       const page = await open(engine);
-      await press(page, 'button[aria-label^="Computer"]');
-      await page.locator(".ui-popup.ui-menu").first().waitFor();
+      await press(page, 'button[aria-label^="Environment"]');
+      await page.locator(".ui-popup.acpmux-location-menu").first().waitFor();
       await press(page, chip("Model"));
-      // The first menu's close lands after its fade; it must not pull focus back out of the picker.
-      await page.locator(".ui-popup.ui-menu:not(.acpmux-quick-menu)").first().waitFor({ state: "detached" });
+      // The first popover's close lands after its fade; it must not pull focus back out of the picker.
+      await page.locator(".ui-popup.acpmux-location-menu").first().waitFor({ state: "detached" });
       await settled(page);
       const state = await page.evaluate(() => ({
         expanded: [...document.querySelectorAll("button[aria-haspopup][aria-expanded=true]")].map((button) =>
           button.getAttribute("aria-label"),
         ),
-        inPopup: !!document.activeElement?.closest(".acpmux-quick-menu"),
+        inPopup: !!document.activeElement?.closest(":is(.acpmux-cols, .acpmux-quick-menu)"),
       }));
       expect(state).toEqual({ expanded: ["Model"], inPopup: true });
       await page.close();
@@ -155,9 +195,9 @@ await requireBrowserLane("menu-pointer-close-focus.test.ts", async () => {
     test(`${engine}: Escape still puts the keyboard back on the chip, with its ring`, async () => {
       const page = await open(engine);
       await press(page, chip("Model"));
-      await page.locator(".acpmux-quick-menu").first().waitFor();
+      await page.locator(COMPACT_MODEL_MENU).first().waitFor();
       await page.keyboard.press("Escape");
-      await page.locator(".acpmux-quick-menu").first().waitFor({ state: "detached" });
+      await page.locator(COMPACT_MODEL_MENU).first().waitFor({ state: "detached" });
       await settled(page);
       const after = await page.evaluate(
         (selector) =>

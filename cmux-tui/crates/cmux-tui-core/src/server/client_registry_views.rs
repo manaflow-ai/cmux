@@ -20,8 +20,19 @@ use crate::SurfaceId;
 use crate::panic_free::RecoverPoison;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::sync::Arc;
 
 impl ClientRegistry {
+    /// Ends `client`'s connection at once, both ways (a link guest whose share or guest ended):
+    /// its reader sees the close and the usual disconnect forgets the connection.
+    pub(super) fn abort_connection(&self, client: u64) {
+        let writer =
+            self.state.lock().recover_poison().clients.get(&client).map(|r| r.writer.clone());
+        if let Some(writer) = writer {
+            writer.abort();
+        }
+    }
+
     pub(super) fn attach_surface(
         &self,
         client: u64,
@@ -374,6 +385,50 @@ impl ClientRegistry {
                 record.retired_surfaces.remove(&expired);
             }
         }
+    }
+
+    /// The terminal `client`'s keys to `surface` go to, while the client is attached to it and the terminal lives
+    /// (`AttachedSurface::input`), with whether the client can type into it (`AttachedSurface::can_type`). Reads this
+    /// registry only, never the session lock.
+    pub(super) fn attached_input_surface(
+        &self,
+        client: u64,
+        surface: SurfaceId,
+    ) -> Option<(Arc<crate::Surface>, bool)> {
+        let state = self.state.lock().recover_poison();
+        let attached = state.clients.get(&client)?.attached.get(&surface)?;
+        let (kept, generation) = &attached.input;
+        let can_type = attached.can_type();
+        // A change of this id's route since it was kept (respawn, close, move): the id may name another terminal now.
+        // Only this id's route counts: a tab created or closed elsewhere keeps it (TYPING FIX 2).
+        if *generation != crate::route_table::route_generation(surface) {
+            return None;
+        }
+        let input = kept.upgrade()?;
+        drop(state);
+        (!input.is_dead()).then_some((input, can_type))
+    }
+
+    /// Keeps `surface` as the terminal `client`'s keys to `id` go to, when the client is attached to `id` (the id the
+    /// keys name: a runtime found through the terminal catalog has another id). True when it was kept and the client
+    /// can type into `id` (`AttachedSurface::can_type`): its keys are the person's.
+    /// `generation`: `id`'s route generation read BEFORE the lookup that found `surface`, so a change of its route
+    /// during that lookup leaves a kept terminal the next key checks again.
+    pub(super) fn remember_attached_input(
+        &self,
+        client: u64,
+        id: SurfaceId,
+        surface: &Arc<crate::Surface>,
+        generation: u64,
+    ) -> bool {
+        let mut state = self.state.lock().recover_poison();
+        let Some(attached) =
+            state.clients.get_mut(&client).and_then(|record| record.attached.get_mut(&id))
+        else {
+            return false;
+        };
+        attached.input = (Arc::downgrade(surface), generation);
+        attached.can_type()
     }
 
     pub(super) fn detach_surface(

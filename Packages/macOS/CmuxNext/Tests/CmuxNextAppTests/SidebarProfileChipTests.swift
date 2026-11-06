@@ -1,12 +1,13 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// The sidebar's bottom-left profile control (Leo and Lawrence 2026-10-20): the
 /// avatar alone at any width, with no name and no chevron; the name shows on
 /// hover and the full identity in its menu. Search and the spaces dots follow it.
-@MainActor @Suite(.serialized) struct SidebarProfileChipTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarProfileChipTests {
     struct Harness {
         let sidebar: SidebarView
         let window: NSWindow
@@ -53,6 +54,27 @@ import Testing
         // Search and the dots sit after the avatar.
         let search = h.frame(of: h.sidebar.searchButton)
         #expect(!h.sidebar.searchButton.isHidden && search.minX >= frame.maxX, "search \(search) after the avatar \(frame)")
+    }
+
+    /// Swift live mode's mark sits right after the avatar on its line, before Search, and the
+    /// spaces dots start after it (Leo 2026-11-06: "at the bottom just to the right of the
+    /// profile circle in the sidebar").
+    @Test func theLiveModeBadgeFollowsTheAvatar() async throws {
+        let h = await make(width: 240)
+        defer { h.window.close() }
+        let badge = LiveModeBadgeView()
+        h.sidebar.liveModeBadge = badge
+        h.settle()
+        let avatar = h.frame(of: try #require(h.sidebar.footerBand.profileControl?.view))
+        let mark = h.frame(of: badge)
+        #expect(mark.width > 0 && mark.minX >= avatar.maxX && mark.minX - avatar.maxX <= Metrics.space2 + 0.5,
+                "the mark \(mark) right after the avatar \(avatar)")
+        #expect(abs(mark.midY - avatar.midY) < 1, "on the avatar's line")
+        #expect(mark.maxX <= h.frame(of: h.sidebar.searchButton).minX, "before Search")
+        #expect(h.frame(of: h.sidebar.profileBar).minX >= mark.maxX, "the dots start after the mark")
+        h.sidebar.liveModeBadge = nil
+        h.settle()
+        #expect(badge.superview == nil)
     }
 
     /// Signed in, the avatar alone shows at rest; hovering it says the email (Leo 2026-10-21).

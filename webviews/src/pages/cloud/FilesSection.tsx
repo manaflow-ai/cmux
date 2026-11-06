@@ -4,7 +4,7 @@
 // calls `fs.remove`, `file.push` or `file.pull` itself. A push or pull shows as a transfer row that
 // is running until its `file.transfer.changed` event; a busy refusal shows a message with Retry. A
 // machine whose daemon has no file ops yet (`fs-v1`) shows "Not available yet" for that machine.
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { formatBytes, plainKeys, type SectionProps } from "./sectionParts";
 import { joinPath } from "./files";
 import { CloudOps } from "./ops";
@@ -48,6 +48,13 @@ function Preview({ store, detail, strings }: Pick<SectionProps, "store" | "detai
   const { t } = strings;
   const preview = detail.files?.preview;
   const [draft, setDraft] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const savingNow = useRef(false);
+  const draftRevision = useRef(0);
+  const updateDraft = (next: string | null) => {
+    draftRevision.current += 1;
+    setDraft(next);
+  };
   if (!preview) return null;
   const body = () => {
     if (preview.tooLarge)
@@ -60,15 +67,27 @@ function Preview({ store, detail, strings }: Pick<SectionProps, "store" | "detai
           className="cloud-input cloud-file-editor cloud-mono"
           aria-label={preview.path}
           value={draft}
-          onChange={(event) => setDraft(event.target.value)}
+          onChange={(event) => updateDraft(event.target.value)}
         />
       );
     return <pre className="cloud-file-preview cloud-mono">{preview.text}</pre>;
   };
   const save = () => {
-    if (draft === null) return;
-    // The draft stays until the write succeeds, so a failed or refused save loses no text.
-    void store.files.save(preview.path, draft).then((saved) => saved && setDraft(null));
+    if (draft === null || savingNow.current) return;
+    const submittedRevision = draftRevision.current;
+    savingNow.current = true;
+    setSaving(true);
+    // Typing stays available during a write. Only its submitted edit may close on success;
+    // a newer edit (including Cancel followed by Edit) belongs to the next save.
+    void store.files
+      .save(preview.path, draft)
+      .then((saved) => {
+        if (saved && submittedRevision === draftRevision.current) setDraft(null);
+      })
+      .finally(() => {
+        savingNow.current = false;
+        setSaving(false);
+      });
   };
   return (
     <div className="cloud-file-view">
@@ -79,17 +98,17 @@ function Preview({ store, detail, strings }: Pick<SectionProps, "store" | "detai
             <button
               type="button"
               className="cloud-link-button cloud-file-edit"
-              onClick={() => setDraft(preview.text ?? "")}
+              onClick={() => updateDraft(preview.text ?? "")}
             >
               {t(L.filesEdit)}
             </button>
           )}
           {draft !== null && (
             <>
-              <button type="button" className="cloud-link-button" onClick={() => setDraft(null)}>
+              <button type="button" className="cloud-link-button" onClick={() => updateDraft(null)}>
                 {t(L.cancel)}
               </button>
-              <button type="button" className="cloud-link-button cloud-file-save" onClick={save}>
+              <button type="button" className="cloud-link-button cloud-file-save" disabled={saving} onClick={save}>
                 {t(L.save)}
               </button>
             </>

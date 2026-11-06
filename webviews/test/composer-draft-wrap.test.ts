@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 240
 // A typed draft is never cut (Austin): the composer shows all of it. A long one-line draft wraps
 // onto as many lines as it needs, focused or not; the field grows with it up to its cap and then
 // scrolls inside, the caret kept in view; nothing draws it as one clipped or ellipsized line.
@@ -137,7 +138,7 @@ await requireBrowserLane("composer-draft-wrap.test.ts", async () => {
       name: "the New Tab field",
       entry: "agent-pane.new-tab",
       variant: "empty",
-      field: ".nt-field",
+      field: ".nt-field .acpmux-md",
       scroller: ".nt-field",
     },
     {

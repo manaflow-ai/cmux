@@ -103,7 +103,7 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
   /** team_vm.status also says when the team has no owner (TeamDO holds the roles; review P2-3). An unreachable TeamDO leaves the field out. */
   override async readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<ReadResult> {
     const r = await super.readOp(entity, principal, op, params)
-    const noOwner = r.ok && op === "team_vm.status" ? await (this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(entity)) as unknown as { noOwner(e: string): Promise<boolean> }).noOwner(entity).catch(() => undefined) : undefined
+    const noOwner = r.ok && op === "team_vm.status" ? await this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(entity)).noOwner(entity).catch(() => undefined) : undefined
     return noOwner === undefined || !r.ok ? r : { ...r, value: { ...(r.value as object), no_owner: noOwner } }
   }
 
@@ -381,7 +381,7 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
       try {
         if (pending.action === "create") {
           // The prefix names NEW VMs only: an existing VM is always reached by its stored id (state.vm), so a
-          // prefix change (FREESTYLE-NAMES) never renames, adopts or loses the VM a team already has.
+          // prefix change (the naming decision) never renames, adopts or loses the VM a team already has.
           const prefix = driver.slugPrefix() ?? this.env.TEAM_VM_SLUG_PREFIX ?? ""
           const slug = this.createSlug(state.team, state.epoch + 1, prefix, `tvm:${pending.requested_by ?? "unknown"}`)
           const vm = await driver.ensureVm(slug, state.team, state.epoch + 1)
@@ -417,8 +417,7 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
   }
 
   private async drainRegistry(): Promise<void> {
-    const ns = this.env.TEAM_VM_DO as unknown as DurableObjectNamespace
-    const registry = ns.get(ns.idFromName(TEAM_VM_REGISTRY)) as unknown as { registryEvent(ev: RegistryEvent): Promise<void> }
+    const registry = this.env.TEAM_VM_DO.get(this.env.TEAM_VM_DO.idFromName(TEAM_VM_REGISTRY))
     if ((await this.outbox.drain((ev) => registry.registryEvent(ev))) && this.boundEngine) this.scheduleAlarm()
   }
 

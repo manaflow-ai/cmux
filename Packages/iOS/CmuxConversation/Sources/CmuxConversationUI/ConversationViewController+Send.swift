@@ -42,8 +42,10 @@ extension ConversationViewController: ConversationComposerViewDelegate {
         let files = attachments.compactMap(\.file)
         // Create the flight before the row exists so the row inserts hidden.
         let flight = SendFlight(text: text, attachments: photos.map(\.image), fieldFrame: fieldFrame, textFrame: textFrame)
-        // A bubble effect replaces the flight: the bubble makes its entrance in place.
-        let flies = effect?.kind != .bubble
+        // A bubble effect replaces the flight: the bubble makes its entrance in
+        // place. A reply joins the open thread instead (`refreshReplyThread`).
+        let replying = replyTarget != nil
+        let flies = effect?.kind != .bubble && !replying
         pendingFlight = flies ? flight : nil
         composer.clearAfterSend()
         photoDrawer?.clearSelection()
@@ -55,7 +57,6 @@ extension ConversationViewController: ConversationComposerViewDelegate {
         }
         pendingFlight = nil
         pendingFlightRowIDs = []
-        if replyTarget != nil { exitReplyMode(settling: false) }
         if flies { launch(flight, rowID: rowID) }
         if effect != nil { playSentEffect(rowID: rowID) }
         // The send button leaves with the text; VoiceOver stays in the field.
@@ -116,10 +117,10 @@ extension ConversationViewController: ConversationComposerViewDelegate {
             let bubble = BubbleBackgroundView()
             bubble.side = .trailing
             bubble.hasTail = model.showsTail
-            bubble.fillColor = ConversationTheme.outgoingBubble
+            bubble.fillColor = ConversationTheme.sentFill
             // The landed bubble's screen-fixed gradient, sampled where it lands,
             // so the color doesn't change at the hand-off to the cell.
-            bubble.screenGradient = ConversationTheme.iMessageGradient
+            bubble.screenGradient = ConversationTheme.sentFillGradient
             let label = ConversationEffectLabel()
             label.numberOfLines = 0
             label.attributedText = layoutCache.attributedText(for: model)
@@ -257,6 +258,8 @@ extension ConversationViewController {
               let cell = collectionView.cellForItem(at: indexPath) as? MessageCell else { return }
         if replyTarget != nil { exitReplyMode() }
         editingMessageID = message.id
+        // The trailing control cancels the edit; the host's page menu waits.
+        header.suppressesActionMenu = true
         revealRowID = message.rowID
         let overlay = MessageEditOverlay(text: message.text)
         overlay.onSave = { [weak self] text in
@@ -267,11 +270,12 @@ extension ConversationViewController {
         }
         overlay.onCancel = { [weak self] in self?.exitEditMode() }
         editOverlay = overlay
-        overlay.install(in: view, sourceFrame: cell.convert(cell.liftedContentFrame, to: view), topInset: header.frame.maxY)
+        overlay.install(in: view, keyboard: keyboardDock.guide, sourceFrame: cell.convert(cell.liftedContentFrame, to: view), topInset: header.frame.maxY)
     }
 
     func exitEditMode() {
         editingMessageID = nil
+        header.suppressesActionMenu = false
         revealRowID = nil
         editOverlay?.dismiss {}
         editOverlay = nil

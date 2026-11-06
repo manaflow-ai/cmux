@@ -29,8 +29,6 @@ extension MessagesLabHomeView {
         for y in stride(from: bubble.body.maxY, to: min(b.maxY, bubble.body.maxY + 240), by: 3) {
             for x in stride(from: b.minX, to: b.maxX, by: 8) {
                 let p = CGPoint(x: x, y: y)
-                // hostControl runs the header's actions (a rename popover, a modal assign menu): never probe there.
-                if demo.threadHeaderFrame?.contains(p) == true { continue }
                 guard case let .dispatch(.openThreadPath(path))? = demo.hostControl(at: p), path.last?.messageId == target else { continue }
                 controller.clicked(p)
                 return debugOpenThreadPath
@@ -42,7 +40,8 @@ extension MessagesLabHomeView {
     /// Reply to Selection from the keyboard or the palette (`home.replyToSelection`): the selected
     /// text of one message is the reply's quote. False when there is no such selection.
     public func replyToSelection() -> Bool {
-        guard controller.intents?.canReply == true, let quote = controller.selectionQuote() else { return false }
+        guard controller.intents?.canReply == true, let quote = controller.selectionQuote(),
+              controller.intents?.canInteract(with: quote.source.messageId) != false else { return false }
         controller.replyToSelection(quote)
         return true
     }

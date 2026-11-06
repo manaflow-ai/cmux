@@ -1,7 +1,8 @@
 //! Prompts that another program hands to a session, for `cmux agent
-//! message`. The caller's message id is the prompt id, so the daemon runs a
-//! message once even when the caller sends it again after a crash or a
-//! daemon restart (the id is also looked up in the session's log).
+//! message`, and the session list used by `cmux agent list`. The caller's
+//! message id is the prompt id, so the daemon runs a message once even when
+//! the caller sends it again after a crash or a daemon restart (the id is
+//! also looked up in the session's log).
 
 use crate::cli::output::{PromptId, queue_prompt};
 use crate::client::Client;
@@ -27,6 +28,13 @@ pub async fn resolve_session(client: &Client, key: &str) -> Result<(String, Stri
     Ok((id.to_owned(), name.to_owned()))
 }
 
+/// The sessions currently known to the running daemon. This call never starts
+/// acpmux; callers that cannot connect simply omit the acpmux rows.
+pub async fn sessions(client: &Client) -> Result<Vec<Value>> {
+    let listed = client.request(method::MUX_SESSIONS, json!({})).await?;
+    Ok(listed.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default())
+}
+
 /// Queue `text` as a prompt of `session` under `prompt_id` and return once
 /// the daemon accepted it: started now, or queued behind a running turn.
 /// `steer` sends it into a running turn of an agent that steers
@@ -46,8 +54,12 @@ pub async fn deliver(
         resend: true,
         from_agent: None,
         supersede: None,
+        class: None,
+        pr: None,
+        thread: None,
         cli_host: None,
         attachments: Vec::new(),
+        notice: None,
     };
     queue_prompt(client, session, text, steer, provenance, &prompt).await
 }

@@ -1,8 +1,10 @@
 import AppKit
 import CmuxNextDevices
 @testable import CmuxNextMacScreen
+import CmuxNextServer
 import CmuxNextWakeups
 import CmuxScreenKit
+import CmuxNextTestSupport
 import CryptoKit
 import Foundation
 import Testing
@@ -705,6 +707,128 @@ struct MacScreenHubHostOrderTests {
         return (host, hub)
     }
 
+    /// The one-line join's consent (app-owned Mac Screen, so acpmux cannot gate it): with the Labs switch
+    /// on and an acpmux without `machine-consent-v1`, a ticket is ended unserved and the one-time sheet shows.
+    @Test func aDaemonWithoutConsentSupportRefusesMacScreenAndShowsTheSheet() async {
+        let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
+        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        let hub = testHub()
+        let host = pages.hubHost
+        host.hub = { hub }
+        let made = CallLog(), ends = CallLog()
+        host.makeSignaling = { _, _ in
+            made.items.append("signaling")
+            return OpenSignaling()
+        }
+        host.endSession = { _, id, reason in ends.items.append("\(id) \(reason)") }
+        let fake = JoinConsentTests.Fake()
+        fake.capable = false
+        let consent = JoinConsentModel(services: fake.services())
+        await consent.refresh()
+        host.consentGate = { await consent.allowsMacScreen(control: $0.scope == .full, requester: $0.peer.name) }
+        consent.changed = { [weak consent, weak host] in host?.consentChanged { consent?.permitsMacScreen(control: $0 == .full) ?? false } }
+        host.serve(ticket("s1", role: .host, scope: .view, peer: "v1"))
+        for _ in 0..<1000 where ends.items.isEmpty { await Task.yield() }
+        #expect(host.session == nil && made.items.isEmpty, "nothing served")
+        #expect(ends.items == ["s1 failed"])
+        #expect(consent.ask == JoinConsentRefusal(requester: "Studio", surface: .screen))
+        // The same Mac with consent support and Screen sharing on serves the view (read when it arrives).
+        fake.capable = true
+        fake.record.screen = true
+        host.serve(ticket("s2", role: .host, scope: .view, peer: "v1"))
+        for _ in 0..<1000 where host.session == nil { await Task.yield() }
+        #expect(host.session?.id == "s2" && made.items == ["signaling"])
+        // Turning Screen sharing off stops the running session here at once, before the hub answers.
+        let hubAnswers = JoinConsentTests.Gate()
+        host.endSession = { _, id, reason in
+            ends.items.append("\(id) \(reason)")
+            await hubAnswers.wait()
+        }
+        #expect(await consent.set(.screen, on: false) == nil)
+        #expect(host.session == nil)
+        for _ in 0..<1000 where ends.items.count < 2 { await Task.yield() }
+        #expect(ends.items == ["s1 failed", "s2 host_stopped"])
+        hubAnswers.open()
+    }
+
+    /// Consent reads that answer out of order: the newer ticket serves and the older one is replaced,
+    /// never the other way around.
+    @Test func anOlderTicketWhoseReadAnswersLaterNeverReplacesANewerOne() async {
+        let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
+        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        let hub = testHub()
+        let host = pages.hubHost
+        host.hub = { hub }
+        host.makeSignaling = { _, _ in OpenSignaling() }
+        let ends = CallLog()
+        host.endSession = { _, id, reason in ends.items.append("\(id) \(reason)") }
+        let first = JoinConsentTests.Gate(), second = JoinConsentTests.Gate()
+        host.consentGate = { ticket in
+            await (ticket.sessionId == "s1" ? first : second).wait()
+            return true
+        }
+        host.serve(ticket("s1", role: .host, scope: .view, peer: "v1"))
+        host.serve(ticket("s2", role: .host, scope: .view, peer: "v2"))
+        second.open()
+        for _ in 0..<1000 where host.session == nil { await Task.yield() }
+        #expect(host.session?.id == "s2")
+        first.open()
+        for _ in 0..<1000 where ends.items.isEmpty { await Task.yield() }
+        #expect(host.session?.id == "s2", "the newer session keeps serving")
+        #expect(ends.items == ["s1 replaced"])
+        host.sessionOver("s2")
+    }
+
+    /// Two deliveries of one session, their consent reads answering in either order: the newer delivery
+    /// decides it, and the older one never ends or serves it.
+    @Test(arguments: [true, false])
+    func twoDeliveriesOfOneSessionAreDecidedByTheNewer(newerFirst: Bool) async {
+        let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
+        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        let hub = testHub()
+        let host = pages.hubHost
+        host.hub = { hub }
+        host.makeSignaling = { _, _ in OpenSignaling() }
+        let ends = CallLog()
+        host.endSession = { _, id, reason in ends.items.append("\(id) \(reason)") }
+        var gates: [JoinConsentTests.Gate] = []
+        host.consentGate = { _ in
+            let gate = JoinConsentTests.Gate()
+            gates.append(gate)
+            await gate.wait()
+            return gates.count == 2 && gate === gates[1] // only the newer delivery's read allows
+        }
+        host.serve(ticket("s1", role: .host, scope: .view, peer: "v1"))
+        host.serve(ticket("s1", role: .host, scope: .view, peer: "v1"))
+        for _ in 0..<1000 where gates.count < 2 { await Task.yield() }
+        let order = newerFirst ? [gates[1], gates[0]] : [gates[0], gates[1]]
+        for gate in order {
+            gate.open()
+            for _ in 0..<50 { await Task.yield() }
+        }
+        #expect(host.session?.id == "s1", "served once, by the newer delivery")
+        #expect(ends.items.isEmpty, "the older delivery ends nothing")
+        host.sessionOver("s1")
+    }
+
+    @Test func stopSharingEndsATicketStillWaitingForConsent() async {
+        let (host, _) = serving()
+        let ends = CallLog()
+        host.endSession = { _, id, reason in ends.items.append("\(id) \(reason)") }
+        let read = JoinConsentTests.Gate()
+        host.consentGate = { _ in
+            await read.wait()
+            return true
+        }
+        host.serve(ticket("s2", role: .host, scope: .view, peer: "v2"))
+        await host.stopSession()?.value
+        read.open()
+        for _ in 0..<1000 where ends.items.count < 2 { await Task.yield() }
+        for _ in 0..<20 { await Task.yield() }
+        #expect(host.session == nil, "the waiting ticket never serves")
+        #expect(Set(ends.items) == ["s1 host_stopped", "s2 host_stopped"])
+    }
+
     @Test func revokeSetsNoneAndWaitsForTheHubsRevocation() async {
         let (host, _) = serving()
         let revoked = CallLog()
@@ -731,10 +855,33 @@ struct MacScreenHubHostOrderTests {
 }
 
 /// The host's approval prompt is visible every time, not only the first.
-@MainActor
+@MainActor @Suite(.closesItsWindows)
 struct MacScreenApprovalPanelTests {
+    @Test(arguments: [false, true])
+    func settlingTheLastRequestClosesItsPanel(observerFirst: Bool) throws {
+        let prompt = MacScreenApprovalPrompt()
+        defer { prompt.update([]) }
+        let hub = testHub()
+        let request = SessionRequest(id: "settled", viewerId: "v1", viewerName: "Laptop", scope: .view)
+        prompt.update([request])
+        _ = try #require(prompt.panelFrame)
+        // decide() has removed the request from the hub. Its pending-request observer may
+        // run before the answer's settlement, or afterward; both must close the last panel.
+        if observerFirst { prompt.update(hub.pendingRequests) }
+        prompt.settle(request.id, hub: hub)
+        #expect(prompt.current == nil)
+        #expect(prompt.panelFrame == nil)
+        prompt.update(hub.pendingRequests)
+        #expect(prompt.panelFrame == nil)
+
+        // Closing drops the old panel; a later request still gets a usable replacement.
+        prompt.update([SessionRequest(id: "next", viewerId: "v1", viewerName: "Laptop", scope: .full)])
+        _ = try #require(prompt.panelFrame)
+    }
+
     @Test func everyPromptHasAVisibleFrame() throws {
         let prompt = MacScreenApprovalPrompt()
+        defer { prompt.update([]) }
         let first = SessionRequest(id: "s1", viewerId: "v1", viewerName: "Laptop", viewerKeyFingerprint: String(repeating: "ab", count: 32), scope: .view)
         let second = SessionRequest(id: "s2", viewerId: "v1", viewerName: "Laptop", scope: .full)
         prompt.update([first])
@@ -748,5 +895,79 @@ struct MacScreenApprovalPanelTests {
             if let screen = NSScreen.main ?? NSScreen.screens.first { #expect(screen.frame.intersects(frame)) }
         }
         prompt.update([])
+    }
+}
+
+/// The viewer picks the protocol with its offer: a WebRTC offer (the iPhone's
+/// Screen Sharing viewer) is served by the WebRTC host, never by cmux.rd/1.
+struct MacScreenRdHostRoutingTests {
+    /// Signals the test feeds, and what the host sent back.
+    nonisolated final class FedSignaling: ScreenSignaling, @unchecked Sendable {
+        let signals: [ScreenSignal]
+        private let lock = NSLock()
+        private var sentSignals: [ScreenSignal] = []
+        init(_ signals: [ScreenSignal]) { self.signals = signals }
+        func messages() -> AsyncThrowingStream<ScreenSignal, any Error> {
+            let signals = signals
+            return AsyncThrowingStream { continuation in
+                for signal in signals { continuation.yield(signal) }
+                continuation.finish()
+            }
+        }
+        func send(_ signal: ScreenSignal) async throws { lock.withLock { sentSignals.append(signal) } }
+        func iceServers() async throws -> [ICEServerConfig] { [] }
+        func close() {}
+        var endsSessionOnClose: Bool { true }
+        var sent: [ScreenSignal] { lock.withLock { sentSignals } }
+    }
+
+    nonisolated final class Received: @unchecked Sendable {
+        private let lock = NSLock()
+        private var items: [ScreenSignal] = []
+        func append(_ signal: ScreenSignal) { lock.withLock { items.append(signal) } }
+        var signals: [ScreenSignal] { lock.withLock { items } }
+    }
+
+    private let session = MacScreenRdHost.Session(id: "s1", name: "Studio", viewerID: "v1", viewOnly: false,
+                                                  servers: MacScreenRdServers([]))
+
+    @Test func aWebRTCOfferAndTheSignalsAfterItGoToTheWebRTCHost() async throws {
+        let offer = ScreenSignal.offer("v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\na=fingerprint:sha-256 AB:CD\r\n")
+        let candidate = ScreenSignal.candidate(ScreenICECandidate(candidate: "candidate:1 1 udp 1 10.0.0.2 5000 typ host",
+                                                                  sdpMid: "0", sdpMLineIndex: 0))
+        let received = Received()
+        let host = MacScreenRdHost(session: session) { signaling in
+            for try await signal in signaling.messages() { received.append(signal) }
+        }
+        let signaling = FedSignaling([offer, candidate, .bye])
+        try await host.serve(signaling)
+        #expect(received.signals == [offer, candidate, .bye])
+        #expect(!host.startedProcess, "no cmux.rd/1 host for a WebRTC viewer")
+    }
+
+    @Test func aCmuxRdOfferNeverReachesTheWebRTCHost() async throws {
+        var document = MacScreenRdDocument(key: String(repeating: "ab", count: 32))
+        document.maxFps = 60
+        let received = Received()
+        let host = MacScreenRdHost(session: session) { signaling in
+            for try await signal in signaling.messages() { received.append(signal) }
+        }
+        // No bundled cmux in the test runner: the rd host fails to start instead.
+        let failures = Received()
+        host.onEvent = { event in if case .sourceFailed = event { failures.append(.bye) } }
+        try await host.serve(FedSignaling([.offer(document.text), .bye]))
+        #expect(received.signals.isEmpty)
+        #expect(failures.signals.count == 1)
+    }
+}
+
+/// Auto streams no wider than the pane shows (a Retina host's full size costs every stage).
+struct MacScreenRdWishTests {
+    @Test func autoFollowsThePaneWidthAndTheFixedPresetsDoNot() {
+        #expect(MacScreenRdDocument.wish(.auto, refresh: 60).maxWidth == nil, "no pane yet: the display's own")
+        #expect(MacScreenRdDocument.wish(.auto, refresh: 60, paneWidth: 2081).maxWidth == 2096, "rounded up to 16")
+        #expect(MacScreenRdDocument.wish(.auto, refresh: 60, paneWidth: 600).maxWidth == 1280, "never under 1280")
+        #expect(MacScreenRdDocument.wish(.high, refresh: 60, paneWidth: 1000).maxWidth == nil, "High keeps the full size")
+        #expect(MacScreenRdDocument.wish(.smooth, refresh: 120, paneWidth: 1000) == (1920, 120))
     }
 }

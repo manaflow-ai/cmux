@@ -2,8 +2,15 @@
 // rows under the field for the typed text, the `!` conversion and the chat cards. No React, no
 // host: NewTabScreen renders what these return.
 import type { AcpmuxSnapshot } from "../model";
-import { ageLabel, recentSessions } from "../NewTabPage";
-import { EMPTY_OMNIBAR, matchScore, omnibarRows, type OmnibarContext, type OmnibarRow } from "../omnibar";
+import { ageLabel, recentSessions } from "../newTabModel";
+import {
+  EMPTY_OMNIBAR,
+  matchScore,
+  omnibarRows,
+  type OmnibarContext,
+  type OmnibarProfile,
+  type OmnibarRow,
+} from "../omnibar";
 import { activityTime, listed, normalizedSessionEntry, sessionMark, type AcpmuxSessionEntry } from "../sessionList";
 import { classifyNewTabInput, TERMINAL_PREFIX } from "../newTabIntent";
 import { type Translate, translate } from "../i18n";
@@ -26,11 +33,21 @@ export type ScreenRow =
   | { type: "tab"; id: string; title: string; detail?: string; icon?: string; url?: string }
   | { type: "workspace"; id: string; title: string; detail?: string }
   | { type: "history"; url: string; title?: string; icon?: string }
+  /// A Commands palette action (Cmd-Shift-P) the host runs (`app.action`); `detail` is its section.
+  | { type: "action"; id: string; title: string; detail?: string; keycaps?: string[] }
   /// The text as a prompt to `harness`, named `agent` (its `model` when known).
   | { type: "ask"; text: string; harness: string; agent: string; model?: string }
   /// A create action (cx-ag5.7): New terminal, New browser tab or New chat, as under the field.
   /// `strip`: drawn in the quiet strip under the rows, not as a row; still in the arrow keys' order.
-  | { type: "create"; kind: CreateKind; strip?: true };
+  | { type: "create"; kind: CreateKind; strip?: true }
+  /// Open in Profile… (Lawrence 2026-11-05): the field becomes a search of every browser profile,
+  /// for the address `url` that `text` resolved to (``profileRows``).
+  | { type: "inProfile"; url: string; text: string }
+  /// Open `url` in a profile made for it: named `name` (the profile search), else the host's next
+  /// default name ("Profile 3").
+  | { type: "newProfile"; url: string; name?: string }
+  /// Open `url` in the browser profile `id` (a row of the profile search).
+  | { type: "profile"; url: string; id: string; name: string; color?: string };
 
 /// What a create row opens, in the order the rows list them.
 export type CreateKind = "terminal" | "browser" | "chat";
@@ -46,6 +63,8 @@ export const MAX_SUGGESTIONS = 8;
 export const MAX_COMPLETIONS = 3;
 /// The shortest word an address completes: "go" or "no" stays a prompt, not google.com or notion.so.
 const MIN_COMPLETION_LENGTH = 3;
+/// Commands palette actions shown under the matches.
+export const MAX_ACTION_ROWS = 3;
 /// Chat cards under the field.
 export const CHAT_CARD_COUNT = 3;
 
@@ -87,7 +106,7 @@ export function screenRows(
     order?: SuggestionOrder;
   },
 ): ScreenRow[] {
-  const rows = navigationRows(text, context);
+  const rows = withProfileRows(navigationRows(text, context), text, context);
   if (!rows.length) return rows;
   const order = context.order ?? DEFAULT_SUGGESTION_ORDER;
   const create = order === "minimal" ? [] : (context.create ?? []);
@@ -100,16 +119,87 @@ export function screenRows(
   ];
 }
 
+/// A typed web address gets Open in Profile… (with more than one profile to pick from) and Open in
+/// New Profile right under the row that opens it, when the host names its profiles. A local file,
+/// a search or a prompt has no browser profile to pick.
+function withProfileRows(rows: ScreenRow[], text: string, context: { omnibar: OmnibarContext; home?: string }) {
+  const profiles = context.omnibar.profiles;
+  if (!profiles || !rows.length) return rows;
+  const intent =
+    typingPort(text, context.home) ?? classifyNewTabInput(text, context.home ? { home: context.home } : {});
+  if (intent.kind !== "url" || !/^https?:/i.test(intent.url)) return rows;
+  const url = intent.url;
+  const address = canonicalAddress(url);
+  // Under the address's own row: its open row, or the open tab that shows that page.
+  const at = rows.findIndex(
+    (row) => (row.type === "open" && row.url === url) || (row.type === "tab" && row.url === address),
+  );
+  const extra: ScreenRow[] = [
+    ...(profiles.length > 1 ? [{ type: "inProfile", url, text: text.trim() } as const] : []),
+    { type: "newProfile", url },
+  ];
+  const after = at < 0 ? 0 : at + 1;
+  return [...rows.slice(0, after), ...extra, ...rows.slice(after)];
+}
+
+/// The profile search's rows for `query` (Open in Profile…): every profile whose name matches, best
+/// first (a prefix, then a word start, then letters inside a word or in order: "pnl" finds
+/// "Personal"), the profiles' own order breaking ties; the empty search lists them all. Last, a new
+/// profile for `url`: named `query` when no profile has that name, else the host's default name.
+export function profileRows(query: string, url: string, profiles: readonly OmnibarProfile[]): ScreenRow[] {
+  const needle = query.trim();
+  const matched = profiles
+    .map((profile, index) => ({ profile, index, score: needle ? profileScore(needle, profile.name) : 1 }))
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .map(({ profile }): ScreenRow => ({
+      type: "profile",
+      url,
+      id: profile.id,
+      name: profile.name,
+      ...(profile.color ? { color: profile.color } : {}),
+    }));
+  const folded = needle.toLocaleLowerCase();
+  const taken = profiles.some((profile) => profile.name.trim().toLocaleLowerCase() === folded);
+  return [...matched, { type: "newProfile", url, ...(needle && !taken ? { name: needle } : {}) }];
+}
+
+/// How well `needle` names a profile called `name`: the omnibar's match (3 a prefix, 2 a word start,
+/// 1 inside a word), else 0.5 for its letters in order ("wrk" for "Work"), else 0.
+function profileScore(needle: string, name: string): number {
+  const score = matchScore(needle, name);
+  if (score > 0) return score;
+  const hay = name.toLocaleLowerCase();
+  let at = 0;
+  for (const letter of needle.toLocaleLowerCase().replace(/\s+/g, "")) {
+    at = hay.indexOf(letter, at);
+    if (at < 0) return 0;
+    at += 1;
+  }
+  return 0.5;
+}
+
 /// Whether `row` is drawn in the strip under the rows.
 export function inStrip(row: ScreenRow): boolean {
   return row.type === "create" && row.strip === true;
+}
+
+/// An address with its port still to come (`localhost:`, `example.com:`): the address it was a key
+/// ago, so its row stays put while the port is typed instead of leaving for one key and coming
+/// back (the rows under it jumped 28 px down, up and down again; agent-pane.new-tab#create-strip-narrow).
+function typingPort(text: string, home?: string): { kind: "url"; url: string } | undefined {
+  const trimmed = text.trim();
+  if (!trimmed.endsWith(":") || trimmed.endsWith("::")) return undefined;
+  const intent = classifyNewTabInput(trimmed.slice(0, -1), home ? { home } : {});
+  return intent.kind === "url" && !intent.url.startsWith("file:") ? intent : undefined;
 }
 
 function navigationRows(
   text: string,
   context: { omnibar: OmnibarContext; home?: string; ask?: ScreenAsk; order?: SuggestionOrder },
 ): ScreenRow[] {
-  const intent = classifyNewTabInput(text, context.home ? { home: context.home } : {});
+  const intent =
+    typingPort(text, context.home) ?? classifyNewTabInput(text, context.home ? { home: context.home } : {});
   // A pairing link offers nothing: no search, no Ask, no address, no create row (they carry the text).
   if (intent.kind === "none" || intent.kind === "terminal" || intent.kind === "refused") return [];
   const order = context.order ?? DEFAULT_SUGGESTION_ORDER;
@@ -126,14 +216,42 @@ function navigationRows(
   const rest = found.filter((row) => row !== top);
   const cap = order === "minimal" ? MINIMAL_MATCH_ROWS : MAX_MATCH_ROWS;
   const fit = (lead: ScreenRow[]) =>
-    ranked(rest).slice(0, Math.min(cap, MAX_SUGGESTIONS - lead.length - search.length));
+    ranked(rest, context.omnibar.uses).slice(0, Math.min(cap, MAX_SUGGESTIONS - lead.length - search.length));
   // No agent to ask: a question or a word is searched, an address still opens first.
   if (!ask.length) {
-    if (!top) return [...search, ...fit(search)];
-    return [top, ...fit([top]), ...search];
+    if (!top) return [...search, ...fit(search), ...actionRows(query, context.omnibar)];
+    return [top, ...fit([top]), ...actionRows(query, context.omnibar), ...search];
   }
   const lead = top ? (order === "chat" ? [...ask, top] : [top, ...ask]) : ask;
-  return [...lead, ...fit(lead), ...search];
+  return [...lead, ...fit(lead), ...actionRows(query, context.omnibar), ...search];
+}
+
+/// The Commands palette actions the text names, best match first (the palette's order breaks
+/// ties): a title or keyword starting with it, or for 3+ characters containing it.
+export function actionRows(query: string, omnibar: OmnibarContext, limit = MAX_ACTION_ROWS): ScreenRow[] {
+  const actions = omnibar.actions ?? [];
+  if (!actions.length || !query) return [];
+  const uses = omnibar.uses ?? {};
+  return (
+    actions
+      .map((action, index) => ({
+        action,
+        index,
+        score: matchScore(query, action.title, ...action.keywords),
+        used: uses[`action:${action.id}`] ?? 0,
+      }))
+      .filter((entry) => entry.score >= 2 || (entry.score > 0 && query.length >= SUBSTRING_MATCH_LENGTH))
+      // Within a match tier, the palette's pick history: what the person runs often and lately first.
+      .sort((a, b) => b.score - a.score || b.used - a.used || a.index - b.index)
+      .slice(0, limit)
+      .map(({ action }): ScreenRow => ({
+        type: "action",
+        id: action.id,
+        title: action.title,
+        ...(action.detail ? { detail: action.detail } : {}),
+        ...(action.keycaps ? { keycaps: action.keycaps } : {}),
+      }))
+  );
 }
 
 /// Whether `query` is a site's whole first name or reads as a host, for the completion `row`.
@@ -339,12 +457,20 @@ function rowKeys(row: ScreenRow): string[] {
   }
 }
 
-/// Open tabs, then workspaces, then pages to open; the order inside each kind stays.
-function ranked(rows: ScreenRow[]): ScreenRow[] {
+/// Open tabs, then workspaces, then pages to open. Inside each kind, the palette's pick history
+/// (`uses`, the Commands palette's FrecencyStore): what the person picks often and lately first, then
+/// the order the rows came in.
+function ranked(rows: ScreenRow[], uses: Record<string, number> = {}): ScreenRow[] {
   const rank = (row: ScreenRow) => (row.type === "tab" ? 0 : row.type === "workspace" ? 1 : 2);
+  const used = (row: ScreenRow) =>
+    row.type === "tab"
+      ? (uses[`tab:${row.id}`] ?? 0)
+      : row.type === "workspace"
+        ? (uses[`workspace:${row.id}`] ?? 0)
+        : 0;
   return rows
-    .map((row, index) => ({ row, index }))
-    .sort((a, b) => rank(a.row) - rank(b.row) || a.index - b.index)
+    .map((row, index) => ({ row, index, used: used(row) }))
+    .sort((a, b) => rank(a.row) - rank(b.row) || b.used - a.used || a.index - b.index)
     .map((entry) => entry.row);
 }
 

@@ -1,3 +1,4 @@
+import { artifactRuntimeVite } from "./scripts/agent-pane/artifactRuntimePlugin.mjs";
 import { reactWithCompiler } from "./reactCompiler.mjs";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite-plus";
@@ -22,6 +23,7 @@ export default defineConfig({
   // reformatting them would change the bundle for no behavior change.
   // The handoff schema is a published wire fixture; schema.test.ts verifies its exact bytes.
   ...cmuxCheckConfig({
+    effectCleanupPlugin: fileURLToPath(new URL("./scripts/lint/effect-cleanup.mjs", import.meta.url)),
     fmtIgnorePatterns: [
       "src/diff/generated/**",
       // A markdown test document: its exact syntax (*** rules, odd spacing) is what it tests.
@@ -38,6 +40,8 @@ export default defineConfig({
       "src/agent-session/acpmux/icons/cmuxIconsCustom.json",
       // scripts/agent-icons/generate.py --check owns these bytes.
       "src/agent-session/shared/agentBrands.generated.ts",
+      // Build output of scripts/pages/gen-design-scale.mjs.
+      "src/ui/designTokens.generated.ts",
       // scripts/icon-picker/gen-emoji-data.mjs --check owns these bytes.
       "src/icon-picker/generated/**",
       // cmux-tui/bindings/codegen/page_router.py --check owns these bytes.
@@ -51,6 +55,7 @@ export default defineConfig({
   // `bun run dev`: every surface on one port (dev-server/plugins.ts). Build ignores it.
   server: { host: "127.0.0.1", port: DEV_SERVER_PORT, strictPort: true },
   plugins: [
+    artifactRuntimeVite(),
     // Serve-only dev hosts (diff sidecar, markdown shell, agent pane pages); never in the build.
     ...cmuxDevServer(),
     // React Compiler: Babel by default, Oxc with CMUX_REACT_COMPILER=oxc (reactCompiler.mjs).

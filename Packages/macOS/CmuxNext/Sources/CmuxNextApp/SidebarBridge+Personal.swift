@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -21,7 +22,7 @@ extension SidebarBridge {
         switch intent {
         case .reorder(let ids, let position):
             let before = model.sections
-            placePersonal(ids, at: position, in: before, edit: rows.add(intent)) // pending until the store holds it (cx-odqn)
+            placePersonal(ids, at: position, in: before, edit: rows.edits.add(intent)) // pending until the store holds it (cx-odqn)
         case .move(let ids, let group):
             // The drag's rule for every path: a group holds one machine row's workspaces.
             guard SidebarEdits.canMove(ids, toGroup: group, in: model.sections) else { resync(); return true }
@@ -41,24 +42,25 @@ extension SidebarBridge {
             // until the store has it, so no echo undoes a click (cx-qno.17).
             guard let shown = model.group(group)?.isCollapsed else { return true }
             let collapsed = !shown, v2 = statePersonal
-            rows.fold(group, collapsed: collapsed, on: services.machines.local, resync: { [weak self] in self?.resync() }) {
+            rows.fold(group, collapsed: collapsed, on: services.machines.local, failed: saveFailed(intent)) {
                 if v2 { return try await $0.state.updateWorkspaceGroup(group.rawValue, collapsed: collapsed) }
                 try await $0.updatePersonalGroup(WorkspaceGroupID(rawValue: group.rawValue), collapsed: collapsed)
             }
         case .ungroup(let group):
-            model.apply(intent)
+            // A pending edit until the store has the delete (#26382): the group leaves in this turn, and no
+            // live recompute before the delete lands shows it again; a failed delete brings it back and says why.
             let v2 = statePersonal
-            personal("delete-personal-group") {
+            personal("delete-personal-group", intent, edit: rows.edits.add(intent)) {
                 if v2 { return try await $0.state.deleteWorkspaceGroup(group.rawValue) }
                 try await $0.deletePersonalGroup(WorkspaceGroupID(rawValue: group.rawValue))
             }
         case .reorderGroup(let group, _):
-            let edit = rows.add(intent)
+            let edit = rows.edits.add(intent)
             // The intent's index counts section nodes; the daemon wants a
             // group-order index (and, mixed, the group's place among the rows).
             let place = PersonalSidebarPlanner(machines: services.machines).groupPlacement(of: group, in: model.sections)
             let v2 = statePersonal, move = place.move, top = place.topIndex
-            personal("move-personal-group", edit: edit) { connection in
+            personal("move-personal-group", intent, edit: edit, until: life.personal.writes.claim(group: group.rawValue, "order")) { connection in
                 if let move {
                     if v2 {
                         try await connection.state.moveWorkspaceGroup(group.rawValue, to: move)
@@ -82,22 +84,57 @@ extension SidebarBridge {
         // A position the sidebar document listed names the group by its item (`itm_g_<id>`); the home session
         // knows only the personal id, and an unknown one would take the rows out of their group.
         let group = position.group.map { WorkspaceGroupID(rawValue: SidebarDocStore.personalGroupID(item: $0.rawValue)) }
-        let (failed, applied) = rows.outcome(edit, resync: { [weak self] in self?.resync() })
-        guard let plan = PersonalSidebarPlanner(machines: services.machines).dropPlan(ids, at: position, in: sections) else { return failed() }
-        let regroup = statePersonal ? plan.regroup : []
-        // Only the dropped workspaces leave their group; a group they empty goes (cx-rcby).
-        let moving = plan.steps.filter(\.moves).map(\.workspace), life = self.life
-        let ending = life.emptied(by: moving, into: group)
-        life.commit("set-personal-workspace", ending: ending, recheck: { life.emptied(by: moving, into: group) }, failed: failed,
-                    applied: applied) { connection in
-            for step in plan.steps {
-                try await connection.state.placePersonalWorkspace(session: step.workspace.session, key: step.workspace.key,
-                                                                  resource: step.workspace.resource,
-                                                                  group: step.moves ? (group.map { .set($0) } ?? .clear) : .unchanged,
-                                                                  index: step.index)
+        // The queue settles a placement that did not apply (the rows show the store's again); `commit` leaves it.
+        let settle: @MainActor () -> Void = { [weak self] in
+            self?.rows.edits.settle(edit)
+            self?.resync()
+        }
+        // A save that failed says why (#26382); a skipped placement, or one an earlier failure stopped, does not.
+        let action = SidebarIntent.reorder(ids, to: position).saveAction
+        let report: @MainActor (ActionWorkFailure) -> Void = { [weak self] failure in
+            self?.services.registry.reportFailure(of: ActionID(rawValue: action.id), title: action.title, failure)
+        }
+        let home = services.machines.local, logger = home.logger, queue = services.personalPlacements, claim = life.personal.writes.claim(workspaces: placements(ids).map { ($0.session, $0.key.rawValue) })
+        queue.enqueue(on: home, failed: settle) { [weak self] in
+            guard let self, let state, services.windows.registry.value.window(state.id)?.isOpen == true,
+                  ids.allSatisfy({ services.machines.workspace(id: $0.rawValue) != nil }),
+                  let plan = PersonalSidebarPlanner(machines: services.machines).dropPlan(ids, at: position, in: sections) else { return .skipped }
+            // `sections` retains this intent's neighbors. The planner now reads
+            // personal order containing every successful preceding write.
+            let regroup = statePersonal ? plan.regroup : []
+            let moving = plan.steps.filter(\.moves).map(\.workspace), life = self.life, writes = life.personal.writes
+            let ending = life.emptied(by: moving, into: group)
+            let sent = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+                var finished = false
+                let finish: @MainActor (Bool) -> Void = { ok in
+                    guard !finished else { return }
+                    finished = true
+                    done.resume(returning: ok)
+                }
+                life.commit("set-personal-workspace", ending: ending, recheck: { ending.filter(life.isEmptyUnpinned) }, until: claim,
+                            unanswered: { await queue.releaseHeld(on: home) }, failed: report, completed: { finish($0) }) { sending in
+                    for step in plan.steps { // a step a later move took is that move's to send (last write wins)
+                        guard await writes.isCurrent(claim, workspace: step.workspace.session, step.workspace.key.rawValue) else { continue }; do {
+                            try await SidebarFoldPersist.resending(owner: "sidebar.placementSave", mayHaveApplied: DaemonError.missedDeadline) {
+                                try await sending.state.placePersonalWorkspace(session: step.workspace.session, key: step.workspace.key,
+                                                                                  resource: step.workspace.resource,
+                                                                                  group: step.moves ? (group.map { .set($0) } ?? .clear) : .unchanged,
+                                                                                  index: step.index)
+                            }
+                        } catch let error as DaemonError where error.isWorkspaceNotFound {
+                            // The workspace ended after the plan read it (an agent open under load whose half-made workspace
+                            // closed): nothing is left to place, and no notice says a move failed (Leo, 2026-11-03).
+                            logger.info("personal placement: workspace \(step.workspace.key.rawValue, privacy: .public) is gone; its step is dropped")
+                        }
+                    }
+                    guard let first = plan.first else { return }
+                    for id in regroup { try await sending.state.updateWorkspaceGroup(id.rawValue, topIndex: .set(first)) }
+                }
             }
-            guard let first = plan.first else { return }
-            for id in regroup { try await connection.state.updateWorkspaceGroup(id.rawValue, topIndex: .set(first)) }
+            guard sent else { return .failed } // claimed at the move; unanswered or unconnected, `commit` sends it again
+            if let connection = home.connection { _ = await home.appliedThroughReply(on: connection, after: "personal placement") }
+            rows.edits.settle(edit)
+            return .applied
         }
     }
 
@@ -113,10 +150,10 @@ extension SidebarBridge {
         PersonalSidebarPlanner(machines: services.machines).placements(ids)
     }
 
-    /// Sends one personal-state command to the home daemon; a failure
-    /// re-syncs the sidebar; a pending `edit` settles (SidebarRows.send).
-    private func personal(_ label: String, edit: SidebarPendingEdits.Token? = nil,
-                          _ body: @escaping DaemonCommandBody) {
-        rows.send(label, edit: edit, on: services.machines.local, resync: { [weak self] in self?.resync() }, body)
+    /// Sends one personal-state command for `intent` to the home daemon; a failure
+    /// re-syncs the sidebar and says why; a pending `edit` settles (SidebarRows.send).
+    private func personal(_ label: String, _ intent: SidebarIntent, edit: SidebarPendingEdits.Token? = nil,
+                          until claim: PersonalWriteLedger.Claim? = nil, _ body: @escaping DaemonCommandBody) {
+        rows.send(label, edit: edit, on: services.machines.local, until: claim, failed: saveFailed(intent), body)
     }
 }

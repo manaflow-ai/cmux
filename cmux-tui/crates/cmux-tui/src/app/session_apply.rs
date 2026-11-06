@@ -11,7 +11,9 @@ use cmux_tui_core::{PaneId, SurfaceId, SurfaceKind};
 use crate::app::overlays::{Prompt, PromptTarget};
 use crate::app::pointer::Drag;
 use crate::app::pointer::deferred::SemanticDestinationOutcome;
-use crate::app::session_mutation::{SessionCompletion, SessionCompletionAction};
+use crate::app::session_mutation::{
+    PendingCompletedSelection, SessionCompletion, SessionCompletionAction,
+};
 use crate::app::{
     App, BACKGROUND_REFRESH_RETRIES, RenderAction, adjust_active_tab_after_removal,
     localized_clear_history_failure, preserve_client_view,
@@ -32,32 +34,11 @@ impl App {
             SessionCompletionAction::SurfaceCreated { surface }
             | SessionCompletionAction::SurfaceMoved { surface } => {
                 self.resolve_semantic_destination(semantic_intent, surface);
-                self.select_completed_surface(surface);
+                self.select_or_defer_completed_surface(surface, false);
             }
             SessionCompletionAction::BrowserTabCreated { surface } => {
                 self.resolve_semantic_destination(semantic_intent, surface);
-                self.select_completed_surface(surface);
-                let pane = self
-                    .tab_locations
-                    .get(&surface)
-                    .and_then(|[workspace, screen, pane, _]| {
-                        self.tree
-                            .workspaces()
-                            .get(*workspace)
-                            .and_then(|workspace| workspace.screens.get(*screen))
-                            .and_then(|screen| screen.panes.get(*pane))
-                    })
-                    .filter(|pane| {
-                        pane.active_surface() == Some(surface)
-                            && pane
-                                .tabs
-                                .get(pane.active_tab)
-                                .is_some_and(|tab| tab.kind == SurfaceKind::Browser)
-                    })
-                    .map(|pane| pane.id);
-                if let Some(pane) = pane {
-                    self.focus_omnibar_with_buffer(pane, String::new(), false);
-                }
+                self.select_or_defer_completed_surface(surface, true);
             }
             SessionCompletionAction::LayoutUndoConfirmation { pane, revision, closes_panes } => {
                 self.cancel_pty_mouse_drag();
@@ -117,6 +98,70 @@ impl App {
         localization::catalog().sidebar.confirm_layout_undo.replace("{items}", &identities)
     }
 
+    /// Selects the surface a completed mutation created or moved. The
+    /// completion can arrive before the cached tree that holds the surface
+    /// (remote mode applies completions against whatever tree is cached), so
+    /// a created surface that is not there yet is remembered and selected by
+    /// `replace_tree` when it lands. The pending selection survives unrelated
+    /// mutation failures: a surface whose creation failed never lands.
+    fn select_or_defer_completed_surface(&mut self, surface: SurfaceId, browser: bool) {
+        if !self.tab_locations.contains_key(&surface) {
+            self.pending_completed_selection = Some(PendingCompletedSelection {
+                surface,
+                browser,
+                focus_at_completion: self.tree.active_surface(),
+            });
+            return;
+        }
+        self.pending_completed_selection = None;
+        self.select_completed_surface_now(surface, browser);
+    }
+
+    /// Applies a deferred completion selection once its surface is in the
+    /// cached tree. A focus change since the completion means the user moved
+    /// on, so the selection is dropped instead of pulling them back.
+    fn apply_pending_completed_selection(&mut self) {
+        let Some(pending) = self.pending_completed_selection else { return };
+        if !self.tab_locations.contains_key(&pending.surface) {
+            return;
+        }
+        self.pending_completed_selection = None;
+        if self.tree.active_surface() == pending.focus_at_completion {
+            self.select_completed_surface_now(pending.surface, pending.browser);
+        }
+    }
+
+    fn select_completed_surface_now(&mut self, surface: SurfaceId, browser: bool) {
+        self.select_completed_surface(surface);
+        if browser {
+            self.focus_completed_browser_omnibar(surface);
+        }
+    }
+
+    fn focus_completed_browser_omnibar(&mut self, surface: SurfaceId) {
+        let pane = self
+            .tab_locations
+            .get(&surface)
+            .and_then(|[workspace, screen, pane, _]| {
+                self.tree
+                    .workspaces()
+                    .get(*workspace)
+                    .and_then(|workspace| workspace.screens.get(*screen))
+                    .and_then(|screen| screen.panes.get(*pane))
+            })
+            .filter(|pane| {
+                pane.active_surface() == Some(surface)
+                    && pane
+                        .tabs
+                        .get(pane.active_tab)
+                        .is_some_and(|tab| tab.kind == SurfaceKind::Browser)
+            })
+            .map(|pane| pane.id);
+        if let Some(pane) = pane {
+            self.focus_omnibar_with_buffer(pane, String::new(), false);
+        }
+    }
+
     fn select_completed_surface(&mut self, surface: SurfaceId) {
         let Some([workspace_index, screen_index, pane_index, tab_index]) =
             self.tab_locations.get(&surface).copied()
@@ -150,6 +195,7 @@ impl App {
         self.semantic_destination_outcomes.clear();
         self.prefix_armed = false;
         self.pending_session_completions.clear();
+        self.pending_completed_selection = None;
         self.pending_size_releases.clear();
         self.status_message = Some(localization::catalog().session.operation_canceled.to_string());
     }
@@ -319,6 +365,7 @@ impl App {
         }
         self.absorb_server_focus_change(focus_before);
         self.rebuild_tab_locations();
+        self.apply_pending_completed_selection();
         self.reapply_mux_titles();
     }
 

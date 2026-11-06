@@ -1,0 +1,538 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "mobile.chief.menu.chatColors": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Chat Colors…"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Chatfarben …"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Couleurs de la discussion…"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "ألوان الدردشة…"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Colores del chat…"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "聊天顏色⋯"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "聊天颜色…"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "채팅 색상…"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "チャットの色…"}}
+      }
+    },
+    "mobile.chief.colors.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Chat Colors"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Chatfarben"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Couleurs de la discussion"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "ألوان الدردشة"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Colores del chat"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "聊天顏色"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "聊天颜色"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "채팅 색상"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "チャットの色"}}
+      }
+    },
+    "mobile.chief.colors.mine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "My Messages"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Meine Nachrichten"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Mes messages"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "رسائلي"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Mis mensajes"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "我的訊息"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "我的信息"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "내 메시지"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "自分のメッセージ"}}
+      }
+    },
+    "mobile.chief.colors.theirs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Their Messages"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Ihre Nachrichten"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Leurs messages"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "رسائلهم"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Sus mensajes"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "對方的訊息"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "对方的信息"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "상대방 메시지"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "相手のメッセージ"}}
+      }
+    },
+    "mobile.chief.colors.bubble": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Bubble"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Blase"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Bulle"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "الفقاعة"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Burbuja"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "泡泡"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "气泡"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "말풍선"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "吹き出し"}}
+      }
+    },
+    "mobile.chief.colors.text": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Text"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Text"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Texte"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "النص"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Texto"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "文字"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "文字"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "텍스트"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "テキスト"}}
+      }
+    },
+    "mobile.chief.colors.automatic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Automatic"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Automatisch"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Automatique"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تلقائي"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Automático"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "自動"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "自动"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "자동"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "自動"}}
+      }
+    },
+    "mobile.chief.colors.default": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Default"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Standard"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Par défaut"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "الافتراضي"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Predeterminado"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "預設"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "默认"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "기본값"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "デフォルト"}}
+      }
+    },
+    "mobile.chief.colors.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Reset"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Zurücksetzen"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Réinitialiser"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "إعادة تعيين"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Restablecer"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "重置"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "还原"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "재설정"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "リセット"}}
+      }
+    },
+    "mobile.chief.colors.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Only this chat changes, on this iPhone."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Nur dieser Chat ändert sich, auf diesem iPhone."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Seule cette discussion change, sur cet iPhone."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تتغير هذه الدردشة فقط، على هذا الـiPhone."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Solo cambia este chat, en este iPhone."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "只有此聊天會改變，僅在此 iPhone 上。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "只有此聊天会改变，仅在此 iPhone 上。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "이 iPhone에서 이 채팅만 바뀝니다."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "このiPhoneのこのチャットだけが変わります。"}}
+      }
+    },
+    "mobile.chief.menu.more": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "More"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Mehr"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Plus"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "المزيد"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Más"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "更多"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "更多"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "더 보기"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "その他"}}
+      }
+    },
+    "mobile.chief.zoom.in": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Zoom In"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Vergrößern"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Agrandir"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تكبير"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Ampliar"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "放大"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "放大"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "확대"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "拡大"}}
+      }
+    },
+    "mobile.chief.zoom.out": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Zoom Out"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Verkleinern"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Réduire"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تصغير"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Reducir"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "縮小"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "缩小"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "축소"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "縮小"}}
+      }
+    },
+    "mobile.chief.zoom.actual": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Actual Size"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Originalgröße"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Taille réelle"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "الحجم الفعلي"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Tamaño real"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "實際大小"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "实际大小"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "실제 크기"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "実際のサイズ"}}
+      }
+    },
+    "mobile.chief.zoom.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Text Size: %@"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Textgröße: %@"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Taille du texte : %@"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "حجم النص: %@"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Tamaño del texto: %@"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "文字大小：%@"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "文字大小：%@"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "텍스트 크기: %@"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "テキストサイズ：%@"}}
+      }
+    },
+    "mobile.chief.serviceSubtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Runs your agents"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Führt deine Agents aus"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Exécute vos agents"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يشغّل وكلاءك"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Ejecuta tus agentes"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "執行你的代理程式"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "运行你的代理"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "에이전트를 실행합니다"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "エージェントを実行"}}
+      }
+    },
+    "mobile.chief.notSent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Not sent"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Nicht gesendet"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Non envoyé"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "لم يُرسل"}},
+        "es": {"stringUnit": {"state": "translated", "value": "No enviado"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "未傳送"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "未发送"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "전송되지 않음"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "未送信"}}
+      }
+    },
+    "mobile.chief.draftKept": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Your draft is saved here."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Dein Entwurf wird hier gespeichert."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Votre brouillon est enregistré ici."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تم حفظ مسودتك هنا."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Tu borrador se guarda aquí."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "草稿已儲存在這裡。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "草稿已保存在这里。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "초안이 여기에 저장됩니다."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "下書きはここに保存されます。"}}
+      }
+    },
+    "mobile.chief.continueInCloud": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Continue in the Cloud Chief chat."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Im Cloud-Chief-Chat fortfahren."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Continuer dans le chat Cloud Chief."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "المتابعة في دردشة Cloud Chief."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Continuar en el chat de Cloud Chief."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在 Cloud Chief 聊天中繼續。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在 Cloud Chief 聊天中继续。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Cloud Chief 채팅에서 계속하기"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Cloud Chief チャットで続行"}}
+      }
+    },
+    "mobile.chief.modelUnreachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Chief couldn't reach its model."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Chief konnte sein Modell nicht erreichen."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Chief n’a pas pu joindre son modèle."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تعذّر على Chief الوصول إلى نموذجه."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Chief no pudo acceder a su modelo."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Chief 無法連線至其模型。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Chief 无法连接到其模型。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Chief가 모델에 연결하지 못했습니다."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Chief はモデルに接続できませんでした。"}}
+      }
+    },
+    "mobile.chief.modelBusy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Chief's model is busy."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Das Modell von Chief ist ausgelastet."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Le modèle de Chief est occupé."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "نموذج Chief مشغول."}},
+        "es": {"stringUnit": {"state": "translated", "value": "El modelo de Chief está ocupado."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Chief 的模型忙碌中。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Chief 的模型正忙。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Chief의 모델이 사용 중입니다."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Chief のモデルはビジー状態です。"}}
+      }
+    },
+    "mobile.chief.modelSignIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Sign in to Chief's model on your Mac."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Melde dich auf deinem Mac beim Modell von Chief an."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Connectez-vous au modèle de Chief sur votre Mac."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "سجّل الدخول إلى نموذج Chief على جهاز Mac."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Inicia sesión en el modelo de Chief en tu Mac."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在 Mac 上登入 Chief 的模型。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在 Mac 上登录 Chief 的模型。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Mac에서 Chief의 모델에 로그인하세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Mac で Chief のモデルにサインインしてください。"}}
+      }
+    },
+    "mobile.chief.failedReply": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Chief couldn't finish this reply."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Chief konnte diese Antwort nicht fertigstellen."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Chief n’a pas pu terminer cette réponse."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تعذّر على Chief إكمال هذا الرد."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Chief no pudo terminar esta respuesta."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Chief 無法完成此回覆。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Chief 无法完成此回复。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Chief가 이 답변을 완료하지 못했습니다."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Chief はこの返信を完了できませんでした。"}}
+      }
+    },
+    "mobile.chief.macRetrying": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Mac unavailable · Retrying…"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Mac nicht verfügbar · Wird erneut versucht…"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Mac indisponible · Nouvelle tentative…"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "جهاز Mac غير متاح · جارٍ إعادة المحاولة…"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Mac no disponible · Reintentando…"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Mac 無法使用 · 正在重試…"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Mac 不可用 · 正在重试…"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Mac을 사용할 수 없음 · 다시 시도 중…"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Mac を利用できません · 再試行中…"}}
+      }
+    },
+    "mobile.chief.busyRetrying": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Chief busy · Retrying…"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Chief ausgelastet · Wird erneut versucht…"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Chief occupé · Nouvelle tentative…"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "Chief مشغول · جارٍ إعادة المحاولة…"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Chief ocupado · Reintentando…"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Chief 忙碌中 · 正在重試…"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Chief 正忙 · 正在重试…"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Chief 사용 중 · 다시 시도 중…"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Chief はビジー状態 · 再試行中…"}}
+      }
+    },
+    "mobile.chief.modelsRetrying": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Models unavailable · Retrying…"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Modelle nicht verfügbar · Wird erneut versucht…"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Modèles indisponibles · Nouvelle tentative…"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "النماذج غير متاحة · جارٍ إعادة المحاولة…"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Modelos no disponibles · Reintentando…"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "模型無法使用 · 正在重試…"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "模型不可用 · 正在重试…"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "모델을 사용할 수 없음 · 다시 시도 중…"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "モデルを利用できません · 再試行中…"}}
+      }
+    },
+    "mobile.chief.settingsFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Couldn't load Chief's settings."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Die Einstellungen von Chief konnten nicht geladen werden."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Impossible de charger les réglages de Chief."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تعذّر تحميل إعدادات Chief."}},
+        "es": {"stringUnit": {"state": "translated", "value": "No se pudieron cargar los ajustes de Chief."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無法載入 Chief 的設定。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法加载 Chief 的设置。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Chief의 설정을 불러오지 못했습니다."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Chief の設定を読み込めませんでした。"}}
+      }
+    },
+    "mobile.chief.offline": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Chief is offline."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Chief ist offline."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Chief est hors ligne."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "Chief غير متصل."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Chief está sin conexión."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Chief 處於離線狀態。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Chief 处于离线状态。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Chief가 오프라인 상태입니다."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Chief はオフラインです。"}}
+      }
+    },
+    "mobile.chief.reconnecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Reconnecting…"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Wird erneut verbunden…"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Reconnexion…"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "جارٍ إعادة الاتصال…"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Reconectando…"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "正在重新連線…"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "正在重新连接…"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "다시 연결 중…"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "再接続中…"}}
+      }
+    },
+    "mobile.chief.notificationsFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "These settings apply to this iPhone."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Diese Einstellungen gelten für dieses iPhone."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Ces réglages s’appliquent à cet iPhone."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تنطبق هذه الإعدادات على هذا الـ iPhone."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Estos ajustes se aplican a este iPhone."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "這些設定適用於此 iPhone。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "这些设置适用于此 iPhone。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "이 설정은 이 iPhone에 적용됩니다."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "これらの設定はこの iPhone に適用されます。"}}
+      }
+    },
+    "mobile.chief.busy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Chief is busy. Try again."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Chief ist ausgelastet. Versuche es erneut."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Chief est occupé. Réessayez."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "Chief مشغول. حاول مجددًا."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Chief está ocupado. Inténtalo de nuevo."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Chief 忙碌中。請再試一次。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Chief 正忙。请重试。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Chief가 사용 중입니다. 다시 시도하세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Chief はビジー状態です。もう一度お試しください。"}}
+      }
+    },
+    "mobile.chief.saveFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Couldn't save the change. Try again."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Änderung konnte nicht gespeichert werden. Versuche es erneut."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Impossible d’enregistrer la modification. Réessayez."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تعذّر حفظ التغيير. حاول مجددًا."}},
+        "es": {"stringUnit": {"state": "translated", "value": "No se pudo guardar el cambio. Inténtalo de nuevo."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無法儲存變更。請再試一次。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法保存更改。请重试。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "변경 사항을 저장하지 못했습니다. 다시 시도하세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "変更を保存できませんでした。もう一度お試しください。"}}
+      }
+    },
+    "mobile.chief.stopFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Couldn't stop Chief. Try again."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Chief konnte nicht gestoppt werden. Versuche es erneut."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Impossible d’arrêter Chief. Réessayez."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تعذّر إيقاف Chief. حاول مجددًا."}},
+        "es": {"stringUnit": {"state": "translated", "value": "No se pudo detener Chief. Inténtalo de nuevo."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無法停止 Chief。請再試一次。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法停止 Chief。请重试。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Chief를 중지하지 못했습니다. 다시 시도하세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Chief を停止できませんでした。もう一度お試しください。"}}
+      }
+    },
+    "mobile.chief.outbox.waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Sends when connected"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Wird gesendet, sobald eine Verbindung besteht"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Envoi dès la reconnexion"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يُرسل عند الاتصال"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Se envía al conectarse"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "連線後傳送"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "连接后发送"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "연결되면 전송됨"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "接続時に送信"}}
+      }
+    },
+    "mobile.chief.outbox.photos": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Photos"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Fotos"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Photos jointes"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "الصور"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Fotos"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "照片"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "照片"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "사진"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "写真"}}
+      }
+    },
+    "mobile.chief.outbox.retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Retry"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Erneut versuchen"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Réessayer"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "إعادة المحاولة"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Reintentar"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "重試"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "重试"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "다시 시도"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "再試行"}}
+      }
+    },
+    "mobile.chief.outbox.deleteAll": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Delete All"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Alle löschen"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Tout supprimer"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "حذف الكل"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Eliminar todo"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "全部刪除"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "全部删除"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "모두 삭제"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "すべて削除"}}
+      }
+    },
+    "mobile.chief.diagnostics": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Diagnostics"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Diagnose"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Diagnostic"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "التشخيص"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Diagnóstico"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "診斷"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "诊断"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "진단"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "診断"}}
+      }
+    }
+  },
+  "version": "1.0"
+}

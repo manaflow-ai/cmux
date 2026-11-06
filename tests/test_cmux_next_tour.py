@@ -8,6 +8,8 @@ from __future__ import annotations
 import json
 import os
 import plistlib
+import re
+import shlex
 import shutil
 import signal
 import stat
@@ -16,6 +18,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,6 +37,16 @@ server.listen(8)
 lock = threading.Lock()
 with open(log, "a") as out:
     out.write(json.dumps({"method": "_launch", "params": {"no_activate": os.environ.get("CMUX_NEXT_NO_ACTIVATE")}}) + "\n")
+    markers = {key: os.environ[key] for key in ("CMUX_SOCKET_PATH", "CMUX_BUNDLE_ID", "CMUX_TAG", "MUX_AGENT_TOKEN_FILE")
+               if key in os.environ}
+    out.write(json.dumps({"method": "_markers", "params": markers}) + "\n")
+    customize_dir = os.environ.get("CMUX_CUSTOMIZE_DIR")
+    out.write(json.dumps({"method": "_customize", "params": {"dir": customize_dir,
+                                                             "made": bool(customize_dir) and os.path.isdir(customize_dir)}}) + "\n")
+    home = os.environ.get("CMUX_CAPTURE_SHELL_HOME") or ""
+    zshrc = os.path.join(home, ".zshrc")
+    out.write(json.dumps({"method": "_fixture", "params": {"shell_home": home,
+        "zshrc": open(zshrc).read() if home and os.path.isfile(zshrc) else None}}) + "\n")
 def answer(connection):
     with connection:
         data = b""
@@ -189,6 +202,39 @@ class AppWindowCaptureTests(unittest.TestCase):
         launches = [entry["params"] for entry in launches if entry["method"] == "_launch"]
         self.assertEqual(launches, [{"no_activate": "1"}], "the app refuses activation itself")
 
+    def test_the_app_runs_as_under_capture_with_a_fixture_prompt(self) -> None:
+        # pr-media's privacy check refused every core-tour shot for the CI Mac's name in the
+        # composer's machine picker and in the zsh prompt (`cmux@<host> ~ %`). Under capture
+        # (CMUX_CAPTURE_SHELL_HOME) the app names the showcase Mac and its zsh reads this home.
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        try:
+            import pr_media_privacy
+        finally:
+            sys.path.pop(0)
+        done, _ = self.run_tour()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        entries = [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
+        [fixture] = [entry["params"] for entry in entries if entry["method"] == "_fixture"]
+        self.assertTrue(Path(fixture["shell_home"]).is_absolute())
+        self.assertFalse(Path(fixture["shell_home"]).is_relative_to(self.root / "out"), "never published as media")
+        # What a shot shows: the machine label, and the prompt zsh draws in the tour's home (`%1~` is `~`).
+        match = re.search(r"(?m)^PROMPT='([^']*)'$", fixture["zshrc"])
+        self.assertIsNotNone(match, fixture["zshrc"])
+        prompt = match.group(1).replace("%1~", "~").replace("%#", "%")
+        self.assertNotRegex(prompt, r"%[^ ]", "no other prompt escape (%m, %n) names the host or account")
+        prompt += " echo hello from the cmux-next tour"
+        # "Studio Mac": AgentTabStore.showcaseMachineName, the name the app shows under capture.
+        found = pr_media_privacy.findings(["Studio Mac", prompt], list(pr_media_privacy.GENERIC_PATTERNS))
+        self.assertEqual(found, [])
+
+    def test_no_other_cmux_marker_reaches_the_app(self) -> None:
+        # Any of LaunchIdentity.otherCmuxMarkers makes the app drop the tour's socket and capture home
+        # as another cmux's, so a tour run from an agent's terminal would show the runner's prompt again.
+        done, _ = self.run_tour(MUX_AGENT_TOKEN_FILE=str(self.root / "token"))
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        entries = [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([entry["params"] for entry in entries if entry["method"] == "_markers"], [{}])
+
     def test_a_working_window_snapshot_never_probes_the_desktop(self) -> None:
         # A desktop capture shows whatever covers the window (permission
         # prompts, other jobs' windows), so it is only the fallback.
@@ -201,7 +247,8 @@ class AppWindowCaptureTests(unittest.TestCase):
                                        FAKE_CAPTURES=str(self.root / "captures.log"))
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual(manifest["capture_mode"], "direct")
-        self.assertEqual(manifest["frame_interval"], 0.5)
+        self.assertGreater(manifest["capture_fps"], 2)
+        self.assertIn("video_fallback", manifest)
         out = self.root / "out/demo"
         for step in manifest["steps"]:
             self.assertEqual(step["status"], "ok")
@@ -238,6 +285,27 @@ class AppWindowCaptureTests(unittest.TestCase):
         self.assertEqual(step["status"], "ok")
         self.assertEqual(step["postcondition"]["status"], "passed")
         self.assertIn("matched windows.0.frame", step["postcondition"]["detail"])
+
+    def test_a_shot_no_expect_checked_is_reported_unchecked(self) -> None:
+        # "ok" on a shot step only says the step ran: without an `expect` nothing read the screen it
+        # shows (a palette still with an empty field passed as "the command is selected", #28323).
+        self.tour.write_text(json.dumps({"title": "Demo", "steps": [
+            {"title": "Launch", "wait": 0, "shot": False},
+            {"title": "Unchecked shot", "cmux": ["action", "run", "splitRight"], "wait": 0},
+            {"title": "Checked shot", "wait": 0,
+             "expect": {"method": "debug.layers", "fields": {"windows.0.frame": [100, 100, 800, 600]}}},
+        ]}), encoding="utf-8")
+        done, manifest = self.run_tour()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(manifest["result"], "pass")
+        launch, unchecked, checked = manifest["steps"]
+        self.assertEqual([step["status"] for step in manifest["steps"]], ["ok", "ok", "ok"])
+        self.assertEqual([step["checked"] for step in manifest["steps"]], [False, False, True])
+        self.assertNotIn("shot", launch)
+        self.assertIn("shot", unchecked)
+        self.assertRegex(done.stdout, r"02 unchecked +Unchecked shot")
+        self.assertRegex(done.stdout, r"03 ok +Checked shot")
+        self.assertRegex(done.stdout, r"01 ok +Launch")
 
     def test_required_rendered_state_mismatch_fails(self) -> None:
         self.tour.write_text(json.dumps({"title": "Demo", "steps": [
@@ -344,6 +412,71 @@ class AppWindowCaptureTests(unittest.TestCase):
                 self.tour.write_text(json.dumps({"title": "Demo", "steps": [{"title": "Bad", "rpc": rpc}]}), encoding="utf-8")
                 with self.assertRaisesRegex(tour.TourError, "`rpc` must be"):
                     tour.load_tour(self.tour)
+
+    def test_env_sets_cmux_next_launch_variables_with_the_checkout_path(self) -> None:
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        self.tour.write_text(json.dumps({"title": "Demo", "env": {"CMUX_NEXT_BROWSER_IMPORT_HOME": "{repo}/fixtures/home"},
+                                         "steps": [{"title": "Launch"}]}), encoding="utf-8")
+        self.assertEqual(tour.load_tour(self.tour)["env"], {"CMUX_NEXT_BROWSER_IMPORT_HOME": f"{ROOT}/fixtures/home"})
+        for env in ({"PATH": "/x"}, {"CMUX_NEXT_X": 1}, ["CMUX_NEXT_X"]):
+            with self.subTest(env=env):
+                self.tour.write_text(json.dumps({"title": "Demo", "env": env, "steps": [{"title": "Launch"}]}), encoding="utf-8")
+                with self.assertRaisesRegex(tour.TourError, "`env` maps"):
+                    tour.load_tour(self.tour)
+
+    def test_every_tour_gets_its_own_customize_folder_and_customize_makes_it(self) -> None:
+        # With no CMUX_CUSTOMIZE_DIR the daemon falls back to the runner's own
+        # ~/.config/cmux/customize, so a personal extension there would draw itself into every
+        # tour's shots. Each tour therefore names its own folder, whether or not it writes an app
+        # there; `customize: true` is what makes the folder before the launch.
+        done, _ = self.run_tour()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        entries = [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
+        [plain] = [e["params"]["dir"] for e in entries if e["method"] == "_customize"]
+        self.assertTrue(plain and plain.endswith("/customize"), plain)
+        self.assertFalse(Path(plain).is_relative_to(Path.home() / ".config"), "never the runner's own")
+        [made] = [e["params"]["made"] for e in entries if e["method"] == "_customize"]
+        self.assertFalse(made, "no folder until a tour says it writes an app there")
+        self.log.unlink()
+        data = json.loads(self.tour.read_text(encoding="utf-8"))
+        self.tour.write_text(json.dumps({**data, "customize": True}), encoding="utf-8")
+        done, _ = self.run_tour()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        entries = [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
+        [folder] = [e["params"]["dir"] for e in entries if e["method"] == "_customize"]
+        self.assertTrue(folder and folder.endswith("/customize"), folder)
+        self.assertNotEqual(folder, plain, "each run gets its own work directory")
+        self.assertTrue([e["params"]["made"] for e in entries if e["method"] == "_customize"] == [True],
+                        "customize: true makes the folder before the launch")
+        self.assertFalse(Path(folder).is_relative_to(self.root / "out"), "never published as media")
+
+    def test_customize_must_be_true_or_false_and_repo_fills_step_words(self) -> None:
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        self.tour.write_text(json.dumps({"title": "Demo", "customize": "yes", "steps": [{"title": "Launch"}]}),
+                             encoding="utf-8")
+        with self.assertRaisesRegex(tour.TourError, "`customize` must be true or false"):
+            tour.load_tour(self.tour)
+        self.tour.write_text(json.dumps({"title": "Demo", "customize": True, "steps": [
+            {"title": "Copy", "cmux": ["terminal", "write", "--text", "cp {repo}/a ."]},
+            {"title": "Import", "cmux": ["browser", "import", "--from", "{repo}/fixture"]}]}), encoding="utf-8")
+        loaded = tour.load_tour(self.tour)
+        self.assertTrue(loaded["customize"])
+        # Typed into a shell: quoted, so a checkout path with a space stays one word.
+        self.assertEqual(loaded["steps"][0]["cmux"],
+                         ["terminal", "write", "--text", f"cp {shlex.quote(str(ROOT))}/a ."])
+        # An argv word is handed over as it is; the shell never sees it.
+        self.assertEqual(loaded["steps"][1]["cmux"], ["browser", "import", "--from", f"{ROOT}/fixture"])
+
+    def test_repo_in_typed_text_is_quoted_and_the_tour_must_not_quote_it(self) -> None:
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        quoted = tour.fill_repo(["terminal", "write", "--text", "cp {repo}/a ."], "/tmp/my checkout", "t")
+        self.assertEqual(quoted, ["terminal", "write", "--text", "cp '/tmp/my checkout'/a ."])
+        for text in ("cp \"{repo}\"/a .", "cp '{repo}'/a ."):
+            with self.assertRaisesRegex(tour.TourError, "drop the quotes"):
+                tour.fill_repo(["terminal", "write", "--text", text], "/tmp/checkout", "t")
 
     def test_display_must_be_true_or_false(self) -> None:
         self.tour.write_text(json.dumps({"title": "Demo", "steps": [
@@ -606,6 +739,254 @@ class StopTests(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertTrue(all(process.poll() is not None for process in mine), done.stdout + done.stderr)
         self.assertIsNone(theirs.poll(), "another slot's app was ended")
+
+
+class FixtureCropTests(unittest.TestCase):
+    def setUp(self) -> None:
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        self.tour = tour
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.path = Path(self.temp.name) / "row.png"
+        self.geometry = {"capture": {"x": 10, "y": 20, "width": 120, "height": 40},
+                         "window": {"width": 800, "height": 600}, "scale": 2, "menuVisible": True}
+        self.snapshot = {"method": "composited", "floating_windows": 1}
+        self.size = (1600, 1200)
+        self.config = {"method": "debug.native_row_tools_fixture", "params": {"inspect": True},
+                       "scale": 2, "menu": True}
+        self.app = mock.Mock()
+        self.app.request.side_effect = self.request
+
+    @staticmethod
+    def write_png_header(path: Path, width: int, height: int) -> None:
+        path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\x0dIHDR"
+                         + width.to_bytes(4, "big") + height.to_bytes(4, "big"))
+
+    def request(self, method: str, params: dict, **kwargs) -> dict:
+        if method == "debug.window_snapshot":
+            self.write_png_header(Path(params["path"]), *self.size)
+            return self.snapshot
+        self.assertEqual(params, {"inspect": True})
+        return self.geometry
+
+    def crop(self, argv: list[str], **kwargs) -> subprocess.CompletedProcess:
+        self.assertEqual(argv[:7], ["sips", "--cropToHeightWidth", "80", "240", "--cropOffset", "40", "20"])
+        self.write_png_header(Path(argv[-1]), 240, 80)
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    def test_crops_the_composited_menu_at_true_2x(self) -> None:
+        with mock.patch.object(self.tour.subprocess, "run", side_effect=self.crop) as crop:
+            self.assertIsNone(self.tour.capture_fixture(self.app, self.path, self.config))
+        crop.assert_called_once()
+        self.assertEqual(self.tour.png_size(self.path), (240, 80))
+        self.assertFalse(self.path.with_name("row-raw.png").exists())
+
+    def test_rejects_1x_without_upscaling(self) -> None:
+        self.size = (800, 600)
+        with mock.patch.object(self.tour.subprocess, "run") as crop:
+            self.assertIn("no upscaling", self.tour.capture_fixture(self.app, self.path, self.config))
+        crop.assert_not_called()
+        self.assertFalse(self.path.exists())
+
+    def test_rejects_missing_menu_or_appkit_fallback(self) -> None:
+        for fields in ({"floating_windows": 0}, {"method": "appkit"}):
+            with self.subTest(fields=fields):
+                self.snapshot = {"method": "composited", "floating_windows": 1, **fields}
+                self.assertIn("native menu overlay", self.tour.capture_fixture(self.app, self.path, self.config))
+                self.assertFalse(self.path.exists())
+
+    def test_rejects_fixture_that_did_not_open_its_menu(self) -> None:
+        self.geometry["menuVisible"] = False
+        self.assertIn("not visible", self.tour.capture_fixture(self.app, self.path, self.config))
+        self.assertFalse(self.path.exists())
+
+    def test_capture_failure_cannot_leave_a_passing_step(self) -> None:
+        step = {"title": "menu", "capture": self.config, "wait": 0}
+        with mock.patch.object(self.tour, "capture_fixture", return_value="no native menu overlay"):
+            result = self.tour.run_step(self.app, mock.Mock(), step, 1, self.path.parent)
+        self.assertEqual(result["status"], "failed")
+        self.assertNotIn("shot", result)
+
+    def test_rejects_geometry_outside_window_or_nonfinite(self) -> None:
+        for value in (790, -1, float("inf"), float("nan")):
+            with self.subTest(value=value):
+                self.geometry["capture"]["x"] = value
+                self.assertIsNotNone(self.tour.capture_fixture(self.app, self.path, self.config))
+                self.assertFalse(self.path.exists())
+
+    def test_verifies_cropped_pixel_dimensions(self) -> None:
+        def wrong_crop(argv, **kwargs):
+            self.write_png_header(Path(argv[-1]), 120, 40)
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        with mock.patch.object(self.tour.subprocess, "run", side_effect=wrong_crop):
+            self.assertIn("dimensions", self.tour.capture_fixture(self.app, self.path, self.config))
+        self.assertFalse(self.path.exists())
+
+
+class CheckedInToursTests(unittest.TestCase):
+    """Every tour under scripts/cmux-next/media/tours loads: one bad file (a step key tour.py does not
+    know, as #26274's "record" was) stops every pull request's tour before it starts, since the
+    runner checks them all."""
+
+    def test_every_checked_in_tour_loads(self) -> None:
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        tours = sorted((SCRIPT.parent / "tours").glob("*.json"))
+        self.assertTrue(tours)
+        for path in tours:
+            with self.subTest(tour=path.name):
+                tour.load_tour(path)
+
+
+class FocusAfterCloseTests(unittest.TestCase):
+    """A directional focus right after a pane close is refused at load: the close already focused a
+    neighbour, and with one pane left the move fails ("no pane left of the focused pane") and fails
+    the whole capture, as the main-pane tour's "Focus the chat" did on #27839."""
+
+    def setUp(self) -> None:
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        self.tour_module = tour
+        self.scratch = Path(tempfile.mkdtemp(prefix="tour-focus-close-"))
+        self.addCleanup(shutil.rmtree, self.scratch, ignore_errors=True)
+
+    def load(self, steps: list[dict]) -> dict:
+        path = self.scratch / "demo.json"
+        path.write_text(json.dumps({"title": "Demo", "steps": steps}), encoding="utf-8")
+        return self.tour_module.load_tour(path)
+
+    @staticmethod
+    def run_action(action: str) -> dict:
+        return {"title": action, "cmux": ["action", "run", action], "shot": False}
+
+    def test_a_directional_focus_right_after_a_close_is_refused(self) -> None:
+        for focus in ("focusLeft", "focusRight", "focusUp", "focusDown"):
+            with self.subTest(focus=focus), self.assertRaisesRegex(self.tour_module.TourError, "step 3 runs " + focus):
+                self.load([{"title": "Launch"}, self.run_action("closePane"), self.run_action(focus)])
+
+    def test_steps_that_open_no_pane_do_not_hide_the_close(self) -> None:
+        tunable = {"title": "Tunable", "rpc": {"method": "debug.tunables", "params": {"key": "x", "value": "off"}}}
+        setting = {"title": "Setting", "cmux": ["settings", "set", "sidebar.density", "compact"]}
+        with self.assertRaisesRegex(self.tour_module.TourError, "step 5 runs focusLeft after closePane"):
+            self.load([self.run_action("closePane"), tunable, setting, {"title": "Wait", "wait": 1},
+                       self.run_action("focusLeft")])
+
+    def test_other_focus_moves_do_not_hide_the_close(self) -> None:
+        for move in ("focusPaneByNumber", "focusNextPane", "focusPreviousPane", "pane.focus",
+                     "column.focusLeft", "focusHistoryBack"):
+            with self.subTest(move=move), self.assertRaisesRegex(
+                    self.tour_module.TourError, "step 3 runs focusLeft after closePane"):
+                self.load([self.run_action("closePane"), self.run_action(move), self.run_action("focusLeft")])
+
+    def test_a_pane_opened_after_the_close_allows_the_focus(self) -> None:
+        link = {"title": "Link", "rpc": {"method": "debug.terminal.links", "params": {"agentLink": "https://example.com"}}}
+        self.load([self.run_action("closePane"), link, self.run_action("focusLeft")])
+        self.load([self.run_action("closePane"), self.run_action("splitRight"), self.run_action("focusLeft")])
+        self.load([self.run_action("focusRight"), self.run_action("closePane"), self.run_action("focusPaneByNumber")])
+
+
+
+class WindowVideoTests(unittest.TestCase):
+    def test_compiler_failure_selects_the_still_fallback(self):
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        with tempfile.TemporaryDirectory() as root:
+            recording = tour.WindowVideo(mock.Mock(), 123, Path(root), Path(root))
+            with mock.patch.object(tour.sys, "platform", "darwin"), \
+                    mock.patch.object(tour.subprocess, "run", return_value=mock.Mock(returncode=1, stderr="SDK unavailable")):
+                self.assertFalse(recording.start())
+            self.assertIn("SDK unavailable", recording.reason)
+            self.assertIsNone(recording.process)
+
+    def test_failed_native_start_records_stills_with_measured_timing(self):
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        with tempfile.TemporaryDirectory() as root:
+            session = mock.Mock(prefix=[], capture_prefix=[], user="test")
+            session.shareable.side_effect = lambda path: (path.mkdir(parents=True, exist_ok=True) or path)
+            app = mock.Mock(identity={}, log_path=Path(root) / "absent")
+            app.main_window_frame.return_value = [0, 0, 800, 600]
+            native = mock.Mock(reason="SDK unavailable")
+            native.start.return_value = False
+            native.stop.return_value = False
+            def step(*args):
+                time.sleep(0.1)
+                return {"status": "ok"}
+            with mock.patch.object(tour, "App", return_value=app), \
+                    mock.patch.object(tour, "WindowVideo", return_value=native), \
+                    mock.patch.object(tour.Screen, "capture", return_value=None), \
+                    mock.patch.object(tour, "run_step", side_effect=step), \
+                    mock.patch.object(tour.signal, "signal"):
+                manifest = tour.run_tour(Path(root), {"name": "demo", "title": "Demo", "steps": [{"title": "Animate"}]},
+                                         Path(root), session)
+            self.assertNotIn("video", manifest)
+            self.assertEqual(manifest["video_fallback"], "SDK unavailable")
+            self.assertGreaterEqual(len(manifest["frames"]), 2)
+            self.assertGreater(manifest["capture_fps"], 2)
+            self.assertAlmostEqual(manifest["frame_interval"], 1 / manifest["capture_fps"])
+
+    def test_native_capture_stops_and_finalizes_before_the_app(self):
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        events = []
+        with tempfile.TemporaryDirectory() as root:
+            session = mock.Mock(prefix=[], capture_prefix=[], user="test")
+            session.shareable.side_effect = lambda path: (path.mkdir(parents=True, exist_ok=True) or path)
+            app = mock.Mock(identity={}, log_path=Path(root) / "absent")
+            app.main_window_frame.return_value = [0, 0, 800, 600]
+            app.stop.side_effect = lambda: events.append("app-stop")
+            native = mock.Mock(reason="")
+            native.start.return_value = True
+            native.stop.side_effect = lambda: (events.append("video-stop") or True)
+            with mock.patch.object(tour, "App", return_value=app), \
+                    mock.patch.object(tour, "WindowVideo", return_value=native), \
+                    mock.patch.object(tour.Screen, "capture", return_value=None), \
+                    mock.patch.object(tour, "run_step", return_value={"status": "ok"}), \
+                    mock.patch.object(tour.signal, "signal"), \
+                    mock.patch.object(tour.Recorder, "start") as stills:
+                manifest = tour.run_tour(Path(root), {"name": "demo", "title": "Demo", "steps": [{"title": "Animate"}]},
+                                         Path(root), session)
+            self.assertEqual(manifest["video"], "capture.mov")
+            self.assertEqual(events, ["video-stop", "app-stop"])
+            stills.assert_not_called()
+
+    def test_stop_times_out_and_kills_only_the_owned_recorder(self):
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour as video
+        with tempfile.TemporaryDirectory() as root:
+            recording = video.WindowVideo(mock.Mock(), 123, Path(root), Path(root))
+            process = mock.Mock(returncode=-9)
+            process.communicate.side_effect = [subprocess.TimeoutExpired("recorder", 20), ("", "")]
+            recording.process = process
+            self.assertFalse(recording.stop())
+            process.kill.assert_called_once_with()
+            self.assertIsNone(recording.process)
+
+class CustomizeTemplatesTourTests(unittest.TestCase):
+    """The customize-templates tour types each template into the app's terminal (base64, so
+    no shell expansion touches it, and no checkout is needed on the capture Mac); what it
+    types must be the files in skills/cmux-customization/templates as they are now."""
+
+    def test_the_tour_writes_the_checked_in_templates_and_probe(self) -> None:
+        import base64
+        tour = json.loads((ROOT / "scripts/cmux-next/media/tours/customize-templates.json").read_text(encoding="utf-8"))
+        texts = [step["cmux"][step["cmux"].index("--text") + 1] for step in tour["steps"]
+                 if "--text" in step.get("cmux", [])]
+        written = {}
+        for text in texts:
+            for payload, target in re.findall(r'echo ([A-Za-z0-9+/=]+) \| base64 -d > "([^"]+)"', text):
+                name = re.search(r"saved (\S+)", text)
+                key = f"{name.group(1)}/{Path(target).name}" if name else Path(target).name
+                written[key] = base64.b64decode(payload).decode("utf-8")
+        templates = ROOT / "skills/cmux-customization/templates"
+        expected = {f"{folder.name}/{file}": (folder / file).read_text(encoding="utf-8")
+                    for folder in templates.iterdir() if folder.is_dir() for file in ("cmux-app.json", "main.js")}
+        probe = ROOT / "scripts/cmux-next/media/fixtures/customize-reload-latency.py"
+        expected[probe.name] = probe.read_text(encoding="utf-8")
+        self.assertEqual(sorted(written), sorted(expected))
+        for key, text in expected.items():
+            self.assertEqual(written[key], text, f"{key}: regenerate the tour's payload from the file")
 
 
 if __name__ == "__main__":

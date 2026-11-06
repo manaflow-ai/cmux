@@ -1,6 +1,5 @@
 import AppKit
 import CmuxNextAgentPane
-import CmuxNextDesign
 import CmuxNextPages
 public import CmuxNextSettings
 public import CmuxNextUpdater
@@ -10,11 +9,12 @@ import Observation
 
 /// Web updates in the app (plans/cmux-next/web-ota.md). On a NIGHTLY bundle it names where each
 /// bundled web output sits in an update, starts the launch check of the kept update before a
-/// page loads, follows `updates.web`, and makes a ready update the served one at a safe point
-/// (``WebSwapGate``, WebUpdates+SafePoint.swift): at once while no page shows, else once nobody has
-/// touched cmux for a while (or it has been behind other apps for a moment) and every page answers
-/// that a reload keeps what it holds, then reloads every page and agent pane in place. Until then
-/// open pages keep the files they started with, so a page never mixes two builds' chunks.
+/// page loads, follows `updates.web`, and serves a ready update to every page that loads after it,
+/// then reloads each open page and agent pane in place at its own safe point (``WebSwapGate``,
+/// WebUpdates+SafePoint.swift): once it answers that a reload keeps what it holds and, for the page
+/// being typed into, once input went quiet. Until then an open page keeps reading the files it
+/// started with (``WebBundleServedViews``), so a page never mixes two builds' chunks, and one busy
+/// page never holds the others.
 /// The App calls ``follow(_:bundle:)`` with each `updates.*` read; the first call starts it.
 /// Observable, so the Settings card (``pageJSON``) follows the updater and the pending swap.
 @Observable
@@ -22,7 +22,8 @@ public final class WebUpdates {
     public static let shared = WebUpdates()
 
     public private(set) var updater: WebUpdater?
-    /// The folder to serve from the next safe point (`.some(nil)`: the bundled web).
+    /// The folder open pages reload into at their safe points while any still reads an older one
+    /// (`.some(nil)`: the bundled web).
     public private(set) var pending: URL??
     /// The update the last swap served (`.some(nil)`: the bundled web), none before the first.
     private var swapped: WebUpdatePointer??
@@ -42,8 +43,9 @@ public final class WebUpdates {
     @ObservationIgnored var resignedAt: ContinuousClock.Instant?
     /// Counts handoffs, so a look's page answers apply only to the update they were asked for.
     @ObservationIgnored var pendingGeneration = 0
-    /// The note of a swap made while cmux was behind other apps, shown when it comes back.
-    @ObservationIgnored var unseenNote: String?
+    /// When ``pending`` was handed over: past ``WebSwapGate/inputCap`` the page being typed into
+    /// needs only a short quiet.
+    @ObservationIgnored var pendingSince: ContinuousClock.Instant?
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
     @ObservationIgnored private var started = false
 
@@ -59,6 +61,22 @@ public final class WebUpdates {
         start(bundle: bundle, settings: settings)
     }
 
+    /// Names where each bundled web folder outside the pages folder sits inside an update
+    /// (``WebUpdateTree/outputs``), so its requests read the active update: the agent pane, Agent
+    /// Activity (the root the app registered for its page id at launch, before this runs) and the
+    /// viewers (`appResources`: the app's resources folder).
+    static func registerBundledFolders(_ overlay: WebBundleOverlay, appResources: URL?) {
+        if let agentPane = AgentPaneView.bundledPage?.deletingLastPathComponent() {
+            overlay.register(bundled: agentPane, output: WebUpdateTree.outputs[0])
+        }
+        if let activity = PageID.bundledRoot(for: "cmux.agent-activity") {
+            overlay.register(bundled: activity, output: WebUpdateTree.outputs[2])
+        }
+        if let appResources {
+            overlay.register(bundled: PageDescriptor.diffRoot(inAppResources: appResources), output: WebUpdateTree.outputs[4])
+        }
+    }
+
     /// Starts once. Before the first page loads, pages wait for the kept update's check; after,
     /// the kept update waits for a safe point.
     private func start(bundle: Bundle, settings: UpdatesSettings? = nil) {
@@ -70,18 +88,13 @@ public final class WebUpdates {
               let store = WebUpdateStore.standard(bundleIdentifier: bundle.bundleIdentifier)
         else { return }
         let overlay = WebBundleOverlay.shared
-        if let agentPane = AgentPaneView.bundledPage?.deletingLastPathComponent() {
-            overlay.register(bundled: agentPane, output: WebUpdateTree.outputs[0])
-        }
-        if let resources = bundle.resourceURL {
-            overlay.register(bundled: PageDescriptor.diffRoot(inAppResources: resources), output: WebUpdateTree.outputs[4])
-        }
+        Self.registerBundledFolders(overlay, appResources: bundle.resourceURL)
         let updater = WebUpdater(store: store, app: app)
         updater.onReady = { [weak self] tree, pointer in
             self?.handedOver = true
             self?.ready(tree, version: pointer)
         }
-        updater.served = { WebBundleOverlay.shared.activeTree }
+        updater.served = { Array(Set(WebBundleServedViews.shared.pinnedTrees + [WebBundleOverlay.shared.activeTree].compactMap { $0 })) }
         // Checks come every minute only while cmux is in the front (the activation observers follow it).
         updater.foreground = NSApp?.isActive ?? false
         self.updater = updater
@@ -112,7 +125,6 @@ public final class WebUpdates {
                 self?.resignedAt = nil
                 self?.updater?.noteActivation()
                 self?.scheduleSafePoint()
-                self?.showUnseenNote()
             }
         })
     }
@@ -137,47 +149,41 @@ public final class WebUpdates {
         return launchServed ? updater?.launchVersion : nil
     }
 
-    /// The updater kept `tree`, `version`'s (both nil: serve the bundled web): swap it in at the
-    /// next safe point.
+    /// The updater kept `tree`, `version`'s (both nil: serve the bundled web): pages that load
+    /// from now on get it, and each open page reloads into it at its own safe point.
     func ready(_ tree: URL?, version: WebUpdatePointer?) {
         pending = .some(tree)
         pendingVersion = version
+        pendingSince = .now
         // A new handoff: what held the last one says nothing about it, and a look asking the
         // pages now asked about the last one (``look()`` checks the generation).
         pendingGeneration += 1
         heldBy = nil
+        swapped = .some(version)
+        WebBundleOverlay.shared.activate(tree)
         scheduleSafePoint()
     }
 
-    /// Serves the pending folder now and reloads the pages; returns how many reloaded.
+    /// Reloads every open page still on an older update now, whatever holds it (`updates.web.apply`,
+    /// for tests and support); returns how many reloaded.
     @discardableResult
     public func applyPending() -> Int {
         guard let tree = pending else { return 0 }
+        let behind = WebBundleServedViews.shared.behind(tree)
+        finishPending()
+        // A swap shows nothing (Leo, 2026-10-30: "i dont think i need to see this"); Settings'
+        // Web UI card shows the served version.
+        return WebBundleServedViews.shared.reload(behind, to: tree)
+    }
+
+    /// Every open page reads the pending update: nothing is pending any more, and the trees no
+    /// page reads go.
+    func finishPending() {
         pending = nil
+        pendingSince = nil
         heldBy = nil
         safePoint.cancel()
-        let version = pendingVersion
-        swapped = .some(version)
-        guard WebBundleOverlay.shared.activate(tree) else { return 0 }
         // task-owner: one prune of the trees nothing serves now; it ends by itself
         if let updater { Task { await updater.pruneUnused() } }
-        let reloaded = WebBundleServedViews.shared.reloadServed()
-        // A swap back to the bundled pages (no version) clears an unseen note of an earlier one.
-        if reloaded > 0 { unseenNote = nil }
-        if reloaded > 0, let version { note(version.updatedNote) }
-        return reloaded
-    }
-
-    /// A quiet "Updated to <commit>" toast that dismisses itself (CmuxToastCenter), in the front
-    /// window now, or once cmux comes back to the front.
-    private func note(_ message: String) {
-        unseenNote = message
-        showUnseenNote()
-    }
-
-    private func showUnseenNote() {
-        guard let message = unseenNote, NSApp.isActive, let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
-        unseenNote = nil
-        _ = CmuxToastCenter.shared.show(CmuxToast(id: "web-update", message: message, duration: .seconds(4)), in: window)
     }
 }

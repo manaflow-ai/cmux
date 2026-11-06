@@ -38,6 +38,9 @@ test("a toggle lights while the App reports its split open, and not in open mode
   const { ChatHeaderTools } = await import("../src/agent-session/acpmux/header/ChatHeaderTools");
   const { configureQuickActions } = await import("../src/agent-session/acpmux/header/quickActions");
   const { applyHostEvent } = await import("../src/agent-session/acpmux/pageHost");
+  // Other header cases change these shared stores; this case starts from its own toggle state.
+  configureQuickActions({});
+  applyHostEvent({ kind: "headerState", value: { lit: [], browserOpensPreview: true } });
   root = createRoot(host);
   act(() =>
     root!.render(<ChatHeaderTools onTerminal={() => {}} onBrowser={() => {}} summary={null} menu={() => []} />),
@@ -60,4 +63,8 @@ test("a toggle lights while the App reports its split open, and not in open mode
   // In open mode every click opens another browser: there is no one panel to show as on.
   act(() => configureQuickActions({ quickActions: ["terminal", { id: "browser", mode: "open" }] }));
   expect(pressed()).toMatchObject({ Terminal: "false", Browser: null });
+  act(() => {
+    configureQuickActions({});
+    applyHostEvent({ kind: "headerState", value: { lit: [] } });
+  });
 });
