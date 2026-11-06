@@ -133,6 +133,25 @@ if "results['published-build']" not in job_text("report-nightly-failure"):
 if "needs.published-build.result == 'success'" not in str(JOBS.get("close-nightly-failure-issue", {}).get("if", "")):
     failures.append("close-nightly-failure-issue must close only in the run that ran the tail")
 
+# A job with a permissions block gets nothing it does not list, so a checkout needs contents: read.
+for name in ("dispatch-published-in", "published-build", *TAIL):
+    job = JOBS.get(name) or {}
+    perms = job.get("permissions")
+    checks_out = any("actions/checkout@" in str(step.get("uses", "")) for step in job.get("steps") or [])
+    if checks_out and isinstance(perms, dict) and perms.get("contents") not in ("read", "write"):
+        failures.append(f"{name} checks out the repository but its permissions leave out contents: read")
+
+# A dispatched run whose published-build fails has no record and no decide outputs: it still reports,
+# under nightly-next's incident label.
+report = JOBS.get("report-nightly-failure") or {}
+report_if = str(report.get("if", ""))
+if "inputs.nightly_next_post_publish != '' && needs.published-build.result == 'failure'" not in report_if:
+    failures.append("report-nightly-failure must report a failed published-build in the dispatched run")
+report_env = (report.get("steps") or [{}])[0].get("env") or {}
+for key in ("CHANNEL_RELEASE_TAG", "TRACK"):
+    if "'nightly-next'" not in str(report_env.get(key, "")):
+        failures.append(f"report-nightly-failure's {key} must fall back to nightly-next when the dispatched run has no record")
+
 # The record round-trips: packed in the run that published, read back in the dispatched run.
 if SCRIPT.exists():
     sha = "a" * 40
