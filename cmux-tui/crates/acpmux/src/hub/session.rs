@@ -265,6 +265,11 @@ pub struct Session {
     /// How many times its turn was stopped (`cancel.rs`): a prompt whose model-sized copies were
     /// made meanwhile is not written (`turns.rs`).
     pub(super) cancels: AtomicU64,
+    /// Woken by a Stop of its turn and a stop of the chat: a prompt whose agent start waits to be
+    /// tried again (`start_retry.rs`) ends that wait at once.
+    pub(super) start_retry_wake: Notify,
+    /// A prompt's agent start waits to be tried again (`start_retry.rs`): the row reads `starting`.
+    pub(super) start_retry_waits: AtomicBool,
     /// The turn id whose forced cancellation was already published. A second
     /// Stop for the same turn must not publish another forced answer.
     pub(super) cancel_forced_turn: StdMutex<Option<String>>,

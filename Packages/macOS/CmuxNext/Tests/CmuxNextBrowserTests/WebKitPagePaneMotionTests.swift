@@ -142,9 +142,10 @@ import WebKit
         #expect(shown, "the gap shows \(String(describing: webView.layer?.backgroundColor)), not the page's color now")
     }
 
-    /// A page parked in its pane's page area (another tab shows) during a key resize has its page area's size when it
-    /// shows again, never the size it had when it was parked.
-    @Test func aParkedWebKitPageHasItsPaneSizeWhenItShows() throws {
+    /// A page parked in its pane's page area (another tab shows) does no view work during a key resize: its web view takes
+    /// no frame in any motion frame (CLAUDE.md: hidden content updates the model only, then one layout when it shows). It
+    /// has its page area's size when it shows again, never the size it had when it was parked.
+    @Test func aParkedWebKitPageResizesOnceWhenItShows() throws {
         let pane = Pane(frame: NSRect(x: 200, y: 0, width: 600, height: 500))
         defer { pane.tearDown() }
         let other = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab()
@@ -155,11 +156,16 @@ import WebKit
         pane.chrome.parksLeavingPage = false
         pane.area.layoutSubtreeIfNeeded()
         try #require(pane.page.contentView.isHidden && pane.page.contentView.superview != nil, "SETUP: the page did not park")
+        let parkedSize = parked.frame.size
+
         pane.area.hold = PaneMotionHold(trailing: true, bottom: false)
+        var changes: [String] = []
         for dx in stride(from: CGFloat(10), through: 120, by: 10) {
             pane.area.frame = NSRect(x: 200 + dx, y: 0, width: 600 - dx, height: 500)
             pane.area.layoutSubtreeIfNeeded()
+            if parked.frame.size != parkedSize { changes.append("dx \(dx): \(parked.frame.size)") }
         }
+        #expect(changes.isEmpty, "the parked page took a frame in \(changes.count) of 12 key-resize frames: \(changes.prefix(3))")
         pane.area.hold = nil
         pane.area.layoutSubtreeIfNeeded()
 

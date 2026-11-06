@@ -177,8 +177,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-6243f112cad89191dfd8ff1e57085f43ac2a3de0/CCmuxAppFFI.xcframework.zip",
-    checksum: "63a8f4b36bf6384c6236702152e7edb6015f82c9a856d926af2714a90113712b"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-3c5c635f412c722d83d844a7f525b19caa3e87ed/CCmuxAppFFI.xcframework.zip",
+    checksum: "2da354101ea0295244567e0bb05cf7ca42df713608ea96a538120e848be181bd"
 )
 
 // Debug-only product consumed by Prototypes/UiLayerHost. Keeping this leaf
@@ -1309,7 +1309,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextCloudUITests",
-            dependencies: ["CmuxNextCloud", "CmuxNextCloudUI", "CmuxNextDesign"],
+            dependencies: ["CmuxNextCloud", "CmuxNextCloudUI", "CmuxNextDesign", "CmuxNextTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
         // Machines reached over the user's own OpenSSH: destinations, the
@@ -1690,7 +1690,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextBrowserHostTests",
-            dependencies: ["CmuxNextBrowser", "CmuxNextBrowserAutomation", "CmuxNextBrowserHost", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextBrowser", "CmuxNextBrowserAutomation", "CmuxNextBrowserHost", "CmuxNextTestSupport", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         .target(

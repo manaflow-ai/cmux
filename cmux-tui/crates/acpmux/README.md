@@ -442,8 +442,12 @@ unattended, with `ACPMUX_EVENT`, `ACPMUX_SESSION_NAME` and `ACPMUX_TEXT` set.
 `agentStartTimeoutMs` (default 90000) bounds a cold agent start (spawn, `initialize`,
 session load or new, config replay): past it the request fails with code -32000 and
 `data.reason` `deadline_exceeded` (`data.wait` `agent_start`), the agent is ended, the
-session stays open, and the log gets `agent_start_timed_out`. A person's start has no such
-bound. Neither has a `session/new` with `_meta.acpmux.waitStart` from a local connection that is
+session stays open, and the log gets `agent_start_timed_out`. A prompt whose start misses it is
+not failed: its turn stays open, the log gets `agent_start_retrying` `{turnId, promptId, attempt,
+of, delayMs, error}`, the row reads `starting`, and the start is tried again after 10, 20 and
+40 s (a ninth of the budget, doubling). A Stop, a stop of the session, its move or the daemon's
+shutdown ends that wait; when the 4 tries run out the turn fails with the deadline error, which
+says how many tries it took. A person's start has no such bound. Neither has a `session/new` with `_meta.acpmux.waitStart` from a local connection that is
 no agent's or lane's (the Chief's own sessions): its log gets `agent_start_waiting` as it starts,
 and it fails the same way only once its harness has used no CPU, with no thread ready, for 5
 minutes.

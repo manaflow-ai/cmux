@@ -54,6 +54,13 @@ The expected place of every row in every frame:
     more than 0.01. A remove takes the same path under both values (SidebarRowTransition.removeFrame:
     the closing row closes to height 0 on the rows' spring), so it is judged as in grow. Missed refreshes, rebuilt rows,
     flicker, re-wrap and the selection are judged the same in both modes. Default: --motion grow.
+  - A press with no user intent (film press `mode` "noswitch": a script's change, focus false) shows in one step under
+    the calm-movement rule (plans/cmux-next/sidebar-calm-movement.md, Lawrence 2026-10-20; SidebarListView.showModelChange):
+    it is judged as instant under any --motion. Every row is at its start or its end slot and all of them, the new row
+    (at full height, opacity >= 0.95) and the closing row (gone) change in one frame; missed refreshes, rebuilt rows,
+    flicker, re-wrap and the selection as always.
+  - Values: each row view's frame and opacity from its layer's presentation (CALayer.presentation(), read on the main
+    thread at the display frame tick by SidebarMotionProbe), not pixels; the report says so (`values`).
 Frame numbers are indexes into the film's frames. Exit 0 PASS, 1 FAIL, 2 not judged (no motion, cut motion, not
 120 Hz, no film). Not a CI job, step or gate: the INSTANT OWNER and pixel-perfect run it on their films.
 """
@@ -76,6 +83,9 @@ END_FRACTION = 0.95  # a step from p <= 0.05 to p >= 0.95 shows no frame between
 OPACITY_LOW, OPACITY_HIGH, FLICKER_OPACITY = 0.05, 0.95, 0.05
 FADE_BACK_EPS = 0.01  # snap: the new row's opacity may not fall by more than this from one frame to the next
 MOTIONS = ("grow", "snap")
+NO_INTENT_MODES = ("noswitch",)  # film press modes of a change no user in the window asked for (calm-movement rule)
+VALUES = ("each row view's frame and opacity from its layer's presentation (CALayer.presentation(), read on the main thread "
+          "at the display frame tick by SidebarMotionProbe), not pixels")
 LIST_CAP = 400  # entries kept per list in the JSON
 ORDER = ["FAIL", "INVALID", "INCOMPLETE", "NO MOTION", "PASS"]
 NO_IDENTITY = "not available: rebuilt rows judged from presence, opacity and jumps (the probe has no view ids)"
@@ -151,7 +161,7 @@ def films_from_json(data, name):
         for index, press in enumerate(data["presses"]):
             if isinstance(press, dict) and isinstance(press.get("frames"), list):
                 hints = hints_from_rows(press.get("rows_before"), press.get("rows_after"))
-                hints.update(kind=press.get("kind"), scale=scale)
+                hints.update(kind=press.get("kind"), scale=scale, mode=press.get("mode"))
                 label = f"{name}#{press.get('index', index)} {press.get('kind') or ''}".strip()
                 films.append((label, press["frames"], hints))
         return films
@@ -347,8 +357,9 @@ def judge_motion(frames, s, e, times, period, opts, scale, identity, hints):
     tol = opts.tolerance_px
     window = range(s, e + 1)
     start, end = frames[s]["views"], frames[e]["views"]
-    snap_mode = getattr(opts, "motion", "grow") == "snap"
-    inserted, closed, notes = pick_events(frames, s, e, hints, snap_mode)
+    instant = hints.get("mode") in NO_INTENT_MODES
+    snap_mode = getattr(opts, "motion", "grow") == "snap" and not instant
+    inserted, closed, notes = pick_events(frames, s, e, hints, snap_mode or instant)
     events = set(inserted) | set(closed)
     seen = sorted({k for i in window for k in frames[i]["views"]})
     complete = s >= 1 and e < len(frames) - 1
@@ -396,12 +407,14 @@ def judge_motion(frames, s, e, times, period, opts, scale, identity, hints):
     for k in resized:
         event_spec[k] = ("resized", start[k][3], end[k][3], None, None)
 
-    snap = snap_mode and bool(inserted) and not closed
-    snap_result = judge_snap(frames, s, e, inserted, start, end, scale, tol) if snap else None
+    snap = (snap_mode or instant) and bool(inserted or closed)
+    snap_result = (judge_instant(frames, s, e, inserted, closed, start, end, scale, tol) if instant else
+                   judge_snap(frames, s, e, inserted, start, end, scale, tol) if snap and inserted and not closed else None)
+    snap = snap_result is not None
     if snap:
         # Snap: the rows below are in their slots from the first motion frame (judged by judge_snap), the new row at full
         # height from its first frame: grow's curve and its height clause do not apply to the insert.
-        for k in inserted:
+        for k in list(inserted) + (list(closed) if instant else []):
             event_spec.pop(k, None)
         movers, still = {}, {}
 
@@ -593,7 +606,7 @@ def judge_motion(frames, s, e, times, period, opts, scale, identity, hints):
         "rebuilt": rebuilt[:LIST_CAP], "rebuilt_frames": sorted({r["frame"] for r in rebuilt}),
         "flicker": flicker[:LIST_CAP], "reflow": reflow[:LIST_CAP], "selection": selection,
         "verdict": verdict, "fails": fails, "notes": notes,
-        "motion": "snap" if snap else "grow",
+        "motion": "instant" if instant else ("snap" if snap else "grow"),
         **({k: v for k, v in snap_result.items() if k != "fails"} if snap_result else {}),
     }
 
@@ -700,6 +713,79 @@ def judge_snap(frames, s, e, inserted, start, end, scale, tol):
             "fade_held_frames": fade_held}
 
 
+def judge_instant(frames, s, e, inserted, closed, start, end, scale, tol):
+    """A press with no user intent (film mode noswitch: a script's change, focus false): the calm-movement rule shows it in
+    one step (plans/cmux-next/sidebar-calm-movement.md; SidebarListView.showModelChange). Every row shown at both ends is at
+    its start or its end slot in every frame and all rows that move change slot in the same frame; the new row draws at its
+    slot at full height and opacity >= OPACITY_HIGH from its first frame, in that frame (no fade, no grow); the closing row
+    is gone in that frame (no shrink, no fade)."""
+    window = range(s, e + 1)
+    fails, slot_errors, height_errors, faded = [], [], [], []
+    worst = {"frame": None, "key": None, "px": 0.0}
+    worst_h = {"frame": None, "key": None, "px": 0.0}
+    rows = {r: (start[r][1], end[r][1]) for r in start if r in end and is_row(r) and r not in inserted}
+    switch = {}
+    for r, (y0, y1) in rows.items():
+        moved = abs(y1 - y0) * scale > tol
+        at_end = False
+        for i in window:
+            views = frames[i]["views"]
+            if r not in views:
+                continue
+            off_start, off_end = abs(views[r][1] - y0) * scale, abs(views[r][1] - y1) * scale
+            if moved and not at_end and off_end <= tol:
+                at_end, switch[r] = True, i
+            err = off_end if at_end else min(off_start, off_end)
+            if err > worst["px"]:
+                worst = {"frame": i, "key": r, "px": err}
+            if err > tol:
+                slot_errors.append({"frame": i, "key": r, "px": round(err, 3)})
+    moments = set(switch.values())
+    for k in inserted:
+        box_end = end.get(k)
+        shown = [i for i in window if k in frames[i]["views"] and frames[i]["views"][k][2] * scale >= MOVER_PX
+                 and frames[i]["views"][k][3] * scale >= MOVER_PX]
+        if box_end is None or not shown:
+            continue
+        moments.add(shown[0])
+        for i in shown:
+            box = frames[i]["views"][k]
+            err_h, err_y = abs(box[3] - box_end[3]) * scale, abs(box[1] - box_end[1]) * scale
+            worst_h = max(worst_h, {"frame": i, "key": k, "px": err_h}, key=lambda w: w["px"])
+            worst = max(worst, {"frame": i, "key": k, "px": err_y}, key=lambda w: w["px"])
+            if err_h > tol:
+                height_errors.append({"frame": i, "key": k, "px": round(err_h, 3)})
+            if err_y > tol:
+                slot_errors.append({"frame": i, "key": k, "px": round(err_y, 3)})
+            if box[4] < OPACITY_HIGH:
+                faded.append(i)
+    for k in closed:
+        shown = [i for i in window if k in frames[i]["views"] and frames[i]["views"][k][3] * scale >= MOVER_PX]
+        gone = next((i for i in window if i > s and (k not in frames[i]["views"] or frames[i]["views"][k][3] * scale < MOVER_PX)), None)
+        if gone is not None:
+            moments.add(gone)
+        for i in shown:
+            box = frames[i]["views"][k]
+            if abs(box[3] - start[k][3]) * scale > tol:
+                height_errors.append({"frame": i, "key": k, "px": round(abs(box[3] - start[k][3]) * scale, 3)})
+            if box[4] < OPACITY_HIGH:
+                faded.append(i)
+    if len(moments) > 1:
+        fails.append(f"instant: not in one step: the rows and the new or closing row change at frames {sorted(moments)[:10]}")
+    slid = sorted({x["key"] for x in slot_errors})
+    if slid:
+        fails.append(f"instant: not in one step: rows between their start and end slot (a slide): {', '.join(slid[:6])}")
+    if height_errors:
+        fails.append(f"instant: not in one step: a new or closing row at partial height (frames {[x['frame'] for x in height_errors][:10]})")
+    if faded:
+        fails.append(f"instant: not in one step: a new or closing row fades (frames {sorted(set(faded))[:10]})")
+    return {"fails": fails, "row_errors": slot_errors[:LIST_CAP], "row_error_frames": sorted({x["frame"] for x in slot_errors}),
+            "max_row_error_px": round(worst["px"], 4), "max_row_error": dict(worst, px=round(worst["px"], 4)),
+            "height_errors": height_errors[:LIST_CAP], "height_error_frames": sorted({x["frame"] for x in height_errors}),
+            "max_height_error_px": round(worst_h["px"], 4), "max_height_error": dict(worst_h, px=round(worst_h["px"], 4)),
+            "change_frames": sorted(moments), "faded_frames": sorted(set(faded))}
+
+
 def judge_selection(frames, window, scale, tol):
     """The highlight keeps its offset to the row it selects; the selected key changes at most once and never blanks."""
     raws = [frames[i]["raw"] for i in window]
@@ -757,10 +843,10 @@ def judge_film(name, raw_frames, hints, opts):
     result = {
         "film": name, "frames": len(frames), "clock": clock or "none", "period_ms": round(period * 1000, 4),
         "period_source": period_source, "hz": round(1 / period, 3), "scale": scale, "scale_source": scale_source,
-        "tolerance_px": opts.tolerance_px, "identity": identity or NO_IDENTITY,
+        "tolerance_px": opts.tolerance_px, "identity": identity or NO_IDENTITY, "values": VALUES,
         "selection": "recorded" if any("selected" in r or "selection" in r for r in raws) else "not recorded",
     }
-    snap_mode = getattr(opts, "motion", "grow") == "snap"
+    snap_mode = getattr(opts, "motion", "grow") == "snap" and hints.get("mode") not in NO_INTENT_MODES
     judged = [judge_motion(frames, s, e, times, period, opts, scale, identity, hints)
               for s, e in windows(frames, hints, snap_mode)]
     contract = [m for m in judged if m["kind"] != "other"]
