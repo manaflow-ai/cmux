@@ -27,7 +27,7 @@ import Testing
             reserve: { [unowned self] in log.append("reserve"); return reservation },
             build: { [unowned self] in log.append("build"); let content = Content($0); built.append(content); return content },
             mount: { [unowned self] in log.append("mount"); $0.mounted = true },
-            teardown: { $0.tornDown = true }, workspace: \.workspace, isReserved: { [unowned self] in $0 === reservation })
+            teardown: { $0.tornDown = true }, workspace: { $0.workspace }, isReserved: { [unowned self] in $0 === reservation })
 
         func runStep() { steps.removeFirst()() }
     }

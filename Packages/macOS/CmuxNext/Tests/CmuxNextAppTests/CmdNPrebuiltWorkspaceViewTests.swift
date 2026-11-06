@@ -80,6 +80,40 @@ struct CmdNPrebuiltWorkspaceViewTests {
         }
     }
 
+    /// The race the first green step found: a Cmd-N while the refill is between its reserve and build steps takes the
+    /// reservation, and the build step then made a second view of the workspace the window shows (its focused pane went
+    /// missing). The press lands at each turn of a refill until one lands between the steps; the window then holds one
+    /// view of Cmd-N's workspace (no spare of it) and a focused pane within 2 s.
+    @Test func cmdNDuringTheRefillBuildsNoSecondViewOfItsWorkspace() async throws {
+        try await PasswordManagerRouteTests.withApp { services, _ in
+            services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-cmdn-prebuilt-race")
+            try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
+            let controller = try #require(services.windows.active, "no window")
+            let store = services.daemon.store
+            controller.reservedContent.fill()
+            // The first turn that shows the reservation made with no view mounted yet: the refill is between its steps.
+            let deadline = ContinuousClock.now + .seconds(20)
+            while !(store.reservedWorkspace != nil && controller.reservedContent.ready == nil), ContinuousClock.now < deadline { await Task.yield() }
+            try #require(store.reservedWorkspace != nil && controller.reservedContent.ready == nil, "the refill never stood between its steps")
+            let before = Set(store.workspaces.map(\.id))
+            let work = services.registry.capturingWork {
+                _ = services.registry.perform("newTab", invocation: ActionInvocation(origin: .user))
+            }
+            let key = try #require(store.workspaces.first { !before.contains($0.id) }?.id, "Cmd-N showed no workspace in its turn")
+            try await PasswordManagerRouteTests.until({
+                services.windows.active?.workspaceContent?.workspace.id == key && services.windows.active?.workspaceContent?.focusedPane != nil
+            }, within: .seconds(2), report: { "the window shows no focused pane of Cmd-N's workspace" })
+            // Let the refill's later steps run.
+            try await Task.sleep(for: .milliseconds(500))
+            let shown = try #require(controller.workspaceContent)
+            #expect(controller.reservedContent.ready?.workspace !== shown.workspace, "the refill built a second view of the shown workspace")
+            let views = controller.root.contentHost.subviews.filter { $0 is WorkspaceContentView }
+            let known = 1 + controller.parked.count + (controller.reservedContent.ready == nil ? 0 : 1)
+            #expect(views.count == known, "the window holds \(views.count) workspace views; its shown, parked and spare ones are \(known)")
+            for task in work { _ = await task.value }
+        }
+    }
+
     private static func descendants(of view: NSView?) -> [NSView] {
         guard let view else { return [] }
         return [view] + view.subviews.flatMap { descendants(of: $0) }
