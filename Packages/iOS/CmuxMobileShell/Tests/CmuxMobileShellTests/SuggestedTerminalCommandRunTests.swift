@@ -5,7 +5,7 @@ import Testing
 
 @MainActor
 struct SuggestedTerminalCommandRunTests {
-    @Test func sendsTheWholeEditedCommandAsOnePasteAndOneSubmit() async throws {
+    @Test func sendsTheWholeEditedCommandThroughTheValidatedAgentRoute() async throws {
         let router = RoutingHostRouter()
         let store = try await makeRoutingConnectedStore(router: router)
         await router.setCommandSession(.init(
@@ -21,11 +21,29 @@ struct SuggestedTerminalCommandRunTests {
             terminalID: .init(rawValue: RoutingHostRouter.terminalA)
         )
         #expect(sent)
-        let pastes = await router.pastes
-        #expect(pastes.count == 1)
-        #expect(pastes.first?.text == edited)
-        #expect(pastes.first?.submitKey == "return")
-        #expect(pastes.first?.surfaceID == RoutingHostRouter.terminalA)
+        let sends = await router.commandSends
+        #expect(sends.count == 1)
+        #expect(sends.first?.text == edited)
+        #expect(sends.first?.sessionID == "claude")
+        #expect(await router.pastes.isEmpty)
+    }
+
+    @Test func canonicalSendRejectsAnExitedAgentDespiteACachedDescriptor() async throws {
+        let router = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(router: router)
+        await router.setCommandSession(.init(
+            id: "claude", agentKind: .claude, workspaceID: RoutingHostRouter.workspaceID,
+            terminalID: RoutingHostRouter.terminalA
+        ))
+        await router.setRejectCommandSend(true)
+        let suggestion = TerminalCommandSuggestion(sessionID: "claude", text: "! pwd")
+        #expect(await !store.runSuggestedTerminalCommand(
+            suggestion, editedText: suggestion.text,
+            workspaceID: .init(rawValue: RoutingHostRouter.workspaceID),
+            terminalID: .init(rawValue: RoutingHostRouter.terminalA)
+        ))
+        #expect(await router.pastes.isEmpty)
+        #expect(await router.commandSends.isEmpty)
     }
 
     @Test func doesNotPasteIntoAChangedSessionBinding() async throws {

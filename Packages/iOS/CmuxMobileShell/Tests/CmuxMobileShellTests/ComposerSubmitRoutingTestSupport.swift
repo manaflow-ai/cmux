@@ -36,10 +36,14 @@ struct RoutingTestRuntime: MobileSyncRuntime {
 /// the paste_image call so the composer's keep-on-failure path runs.
 actor RoutingHostRouter {
     private var commandSession: ChatSessionDescriptor?
+    private var rejectCommandSend = false
+    private(set) var commandSends: [(sessionID: String?, text: String)] = []
 
     func setCommandSession(_ session: ChatSessionDescriptor) {
         commandSession = session
     }
+
+    func setRejectCommandSend(_ reject: Bool) { rejectCommandSend = reject }
     struct PasteImageRecord: Sendable {
         var surfaceID: String
         var format: String
@@ -283,12 +287,19 @@ actor RoutingHostRouter {
         var feedEventID: String?
         var itemID: String?
         var feedTextVersion: Double?
+        var sessionID: String? = nil
     }
 
     func response(_ info: RequestInfo) async -> Data? {
         let method = info.method
         let id = info.id
         switch method {
+        case "mobile.chat.send":
+            guard !rejectCommandSend, let commandSession, info.sessionID == commandSession.id else {
+                return try? Self.errorFrame(id: id, message: "agent process unavailable")
+            }
+            commandSends.append((info.sessionID, info.text ?? ""))
+            return try? Self.resultFrame(id: id, result: [:])
         case "mobile.chat.session":
             guard let commandSession,
                   let data = try? ChatWireCoding().encode(commandSession),
@@ -688,7 +699,8 @@ private actor RoutingTransport: CmxByteTransport {
                 submitKey: params?["submit_key"] as? String,
                 feedEventID: params?["feed_event_id"] as? String,
                 itemID: params?["item_id"] as? String,
-                feedTextVersion: params?["version"] as? Double
+                feedTextVersion: params?["version"] as? Double,
+                sessionID: params?["session_id"] as? String
             )
             Task { [router, weak self] in
                 guard let response = await router.response(info) else {

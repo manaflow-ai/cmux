@@ -2,6 +2,26 @@ import Testing
 @testable import CmuxAgentChat
 
 struct BangCommandParserTests {
+    @Test func escapedTrailingBackslashesDoNotConsumeFollowingProse() {
+        let command = "! printf '%s\\n' " + String(repeating: "\\", count: 2)
+        #expect(BangCommandParser.commands(in: command + "\nThen continue with the next step.") == [command])
+    }
+
+    @Test func ordinaryHereDocumentDoesNotStripTerminatorTabs() {
+        let command = "! bash <<EOF\necho before\n\tEOF\necho after\nEOF"
+        #expect(BangCommandParser.commands(in: command) == [command])
+    }
+
+    @Test func quotedArgumentsPreserveRealNewlines() {
+        let command = "! printf '%s\\n' 'first\nsecond'"
+        #expect(BangCommandParser.commands(in: command) == [command])
+    }
+
+    @Test func quotedHereDocumentTextIsOnlyAnArgument() {
+        let command = "! printf '%s\\n' '<<EOF'"
+        #expect(BangCommandParser.commands(in: command) == [command])
+    }
+
     @Test func preservesLongOriginalCommandWithoutDisplayLineBreaks() {
         let command = "! bash ~/Documents/Projects/" + String(repeating: "long-directory/", count: 16) + "scripts/migrate.sh"
         #expect(BangCommandParser.commands(in: "Run this:\n\(command)\n\nIt takes a while.") == [command])
