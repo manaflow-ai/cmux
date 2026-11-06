@@ -239,6 +239,20 @@ struct AgentAutoResumePolicyTests {
         #expect(tracker.observe(kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "overloaded") == .none)
     }
 
+    @Test func aStaleTurnCorrectionClosesTheTurnASpuriousStartReopened() {
+        // Codex can journal a turn-started for a prompt-submit that belongs to
+        // a finished turn, then correct it with the store's idle phase. The
+        // correction must close the turn again so a late error is ignored.
+        var tracker = AgentAutoResumeTracker()
+        #expect(tracker.observe(kind: .turnCompleted, surfaceId: surface, isSubagent: false, detail: nil) == .none)
+        #expect(tracker.observe(kind: .turnStarted, surfaceId: surface, isSubagent: false, detail: nil) == .none)
+        #expect(tracker.observe(
+            kind: .stateChanged, surfaceId: surface, isSubagent: false,
+            detail: "stale-turn-corrected", declaredPhase: .idle
+        ) == .none)
+        #expect(tracker.observe(kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "overloaded") == .none)
+    }
+
     @Test func aStateChangeDeclaringRunningReopensTheTurn() {
         var tracker = AgentAutoResumeTracker()
         #expect(tracker.observe(kind: .turnCompleted, surfaceId: surface, isSubagent: false, detail: nil) == .none)
