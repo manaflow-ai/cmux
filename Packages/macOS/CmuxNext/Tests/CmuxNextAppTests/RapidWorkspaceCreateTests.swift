@@ -62,7 +62,10 @@ struct RapidWorkspaceCreateTests {
         let session = "cn-race-\(UUID().uuidString.prefix(8).lowercased())"
         let launcher = DaemonLauncher(
             configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state")),
-            environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
+            // The daemon reads `workspaces.newPlacement` from the file a test writes for the app (`root/cmux.json`), so
+            // both place by one value; with none written both take the default.
+            environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color",
+                            "CMUX_NEXT_CONFIG_FILE": root.appendingPathComponent("cmux.json").path] })
         if !preseedWorkspaceNames.isEmpty {
             let owner = try await launcher.ensure()
             let seed = DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil, sessionEvents: sessionEvents),
@@ -332,7 +335,7 @@ struct RapidWorkspaceCreateTests {
     @Test func fiveQuickCmdNDrawEachNewRowFirstInEveryFrameAboveUnreadRows() async throws {
         let launched = try await Self.launch()
         let services = launched.services
-        // `top` named explicitly (the app's default is afterCurrent since #23014; Lawrence asked for the top).
+        // `top` named explicitly (the default is afterCurrent; Lawrence asked for the top).
         let url = launched.root.appendingPathComponent("cmux.json")
         try Data(#"{"workspaces":{"newPlacement":"top"}}"#.utf8).write(to: url)
         let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
