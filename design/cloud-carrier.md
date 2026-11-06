@@ -18,6 +18,99 @@ gets deleted. The work happens on `lane/cloud-carrier`, branched off `feat-cmux-
 The sources are cmux `feat-cmux-next` at `1405ced8` and cmux-platform `main` (2026-11-06). Paths starting
 `link/` are under `cmux-tui/crates/cmux-tui/src/link/`. Paths starting `P:` are in cmux-platform.
 
+## Leo's questions, answered
+
+Leo, 2026-11-06, verbatim:
+
+> But is this a good way to do it? Why is there a second? Okay, but how many network hops are we doing
+> actually? Like, did we come up with, like, simpler designs or whatever? So that's the single path,
+> right? Like we're not testing random other paths, are we?
+
+### Why are there two tunnels?
+
+The outer tunnel is Freestyle's. Its WireGuard gateway is the only way from a Mac into a Freestyle VPC,
+and the gateway decrypts what it carries. If we stopped there, Freestyle could read every byte, and
+Freestyle firewall rules on our one shared account would be the only lock on the door. The inner
+WireGuard session runs from the Mac to the VM, so the gateway only forwards ciphertext, and our own keys
+and tokens decide who gets in. leo-workspace `research/freestyle-network-vs-overlay-2026-11-05.md` (§6)
+makes that case.
+
+It is a sound reason, but it's the expensive way to get there:
+
+- **Two key systems.** There's a Freestyle tunnel per device and our own WireGuard keys inside it.
+- **Two provisioning flows.** Every device needs its own tunnel, plus a firewall rule per device, per
+  machine, per port. Each team mesh is capped at 50 devices.
+- **An access list that lands late.** The list that admits a device lands 10 to 30 s after create. That
+  delay caused the first-dial failures cmux#37155 and cmux#37171 patched. Leo's own failed start-chat
+  came from it, and so did the hourly probe that ran out of device slots.
+
+All of that is the cost of joining every device to Freestyle's network. The carrier below gets the same
+end-to-end property with one encrypted session and no network membership at all.
+
+### How many hops does a byte take?
+
+These are counts of the processes that forward or decrypt a byte between the Mac and the VM. The
+round-trip times are measurements we have; a cell says "not measured" where we don't have one.
+
+| Path | Hops, Mac → VM | Round trip, measured |
+|---|---|---|
+| Relay chat (today) | Mac → cmux-api Worker → platform Worker → `MachineRelay` DO → the VM's WebSocket, which leaves through Freestyle's egress: **3 Cloudflare hops** | Not measured for this path. The start matrix's rows show replies of 5.6 to 19 s (below), and the network is a small part of that. |
+| Native link (today) | Mac → Freestyle gateway (SF) → VM: **1 hop, 2 WireGuard layers** | 2.18 ms p50, 2.51 ms p99 near SF. From Santa Clara, 8-13 ms. Frankfurt is 146 ms and Tokyo 106-112 ms, because there's one gateway for the world. The inner layer adds one round trip (2-8 ms) to the first byte. (Research note §3, from TR 13.1.) |
+| Exec and files (today) | Mac → Freestyle API → VM, or Mac → our Worker → Freestyle API → VM: **1 or 2 hops** | Not measured as a hop. A resume's first exec measured 571-590 ms p50 (research note §2). |
+| **Carrier (this design)** | Mac → Cloudflare edge Worker → `RelayCircuit` DO → the VM's WebSocket: **2 Cloudflare hops** | 7.8 ms p50 and 14.2 ms p99 when the DO is in the client's colo, and 24.5 ms from a neighboring colo (research note §3, from the same DO relay code). Throughput was 21 MB/s batched. |
+| Freestyle tunnel alone, with app tokens | Mac → Freestyle gateway → VM: **1 hop, 1 layer** | About the native link's 2.2 ms, without the inner layer's one round trip. Not measured on its own. |
+
+None of these numbers is a carrier measurement on production yet. The Mac slice adds the carrier mode
+to the start matrix, which then measures the carrier's real rows, and every slice reports them.
+
+### Which single path, of the simpler designs?
+
+Three designs can each be the only path.
+
+| | (A) Freestyle tunnel as the underlay, our WireGuard and tokens on top (what ships today; the research note's pick) | (B) The Freestyle tunnel alone, with app-layer tokens | **(C) A Noise session over our DO relay (this design)** |
+|---|---|---|---|
+| Hops, Mac → VM | 1 hop, 2 layers | 1 hop, 1 layer | 2 Cloudflare hops, 1 layer |
+| Round trip near SF | 2.2 ms | about 2.2 ms | 7.8-14 ms; 24.5 ms from a neighboring colo |
+| Far away (Tokyo, Frankfurt) | 106-146 ms, all through one SF gateway | same | The nearest Cloudflare edge, then the DO's colo. Not measured from far away. |
+| First reply today | 5.6-19 s on the rows that answer. Five of the twelve rows listed fail on the link: two never connect and three fail fast with `login_unverified`. | Same machinery minus our receiver | Not measured yet. The network adds about 5-20 ms per round trip over (A), against replies of seconds. What it removes is the access-list wait and the policy reads, which are the failures. |
+| Who can read plaintext | The Mac and the VM. Freestyle sees ciphertext. | **Freestyle**: the gateway decrypts, and the VPC carries plaintext. | The Mac and the VM. Cloudflare and our relay see ciphertext and routing metadata. |
+| Who decides access | Our token, the receiver's policy, and Freestyle's access list, all three of which must agree | Freestyle's access list plus our token | Our grant, checked on the VM. The relay ticket only routes. |
+| A phone | Needs its own enrolled tunnel, an access-list entry per machine, and in-app userspace WireGuard. It counts against the 50-device mesh cap. | Same | A `wss` connection plus a grant. `cmux-remote` already speaks `relay+do`, so no device enrollment is needed. |
+| A locked Mac | Works while the screen is locked: keys use `AfterFirstUnlockThisDeviceOnly` (`AcpmuxMacApprover.swift:184`). Fails after a reboot until the first unlock. | Same | Same. The carrier's Noise key uses the same Keychain class. |
+| A paused machine | Tunnel traffic wakes it: 1.72 s p50, 6.79 s p95 | Same | The Connect route starts it, the way `/chat` does today: resume 0.42-0.44 s p50 after a short pause, 3.6-7.9 s after longer ones. The VM registers again on resume. |
+| Machines that aren't Freestyle VMs | No. Freestyle doesn't forward tunnel to tunnel. | No | Yes: any machine that can open a `wss` connection |
+
+**The pick is (C).**
+
+- **It's the only option that's one path for every device.** A Mac, a phone and a fleet box all
+  connect the same way, without joining Freestyle's network and without an access list that lands late.
+- **No server can read the traffic.** (B) gives that up, so (B) is out.
+- **(A) is today's design.** Its failures are the per-device network membership: the late access list,
+  the device cap, and Worker machines the fallback can't reach. Keeping it means keeping all of that.
+- **The cost** is 5 to 20 ms more per round trip near SF, against replies that take seconds. If the bulk
+  file rows of the start matrix show the relay throughput costs real time, the session's `Bulk` lane can
+  move to a direct route later, under the same keys and the same session. That would be an upgrade
+  inside the carrier, not a second path to test.
+
+The research note picked (A) when the question was Freestyle's network against our overlay, and the
+overlay was the code that shipped. Its own numbers say the 12 s start isn't network time (about 0.3 s
+is). Since then, the failures have come from the per-device membership that (A) needs.
+
+### Are we testing one path?
+
+Not yet. Today a start-chat sends the prompt over the relay, and it sends the folder copy, the seed and
+the secrets over the link. When Native fails, the app falls back to the plain link. So one matrix row
+exercises two or three paths.
+
+With the carrier:
+
+- **No fallback.** A build with `CMUX_NEXT_CLOUD_CARRIER=1` has no fallback. If the carrier fails, the
+  start fails and names the step it didn't get past.
+- **Each row proves its route.** Each start-matrix row records the route it used, and a row whose route
+  isn't `carrier` fails.
+- **Then only the carrier.** When the flag turns on in slice 6, the matrix runs only the carrier, and
+  slice 7 deletes the other paths.
+
 ## Today
 
 ### The architecture, fully
