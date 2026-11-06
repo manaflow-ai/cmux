@@ -124,10 +124,21 @@ FLAG_RE = re.compile(r"\bstatic\s+(?:let|var)\s+(\w*Enabled)\s*(?::\s*Bool\s*)?=
 # parentheses in nested arguments and string literals; interpolated keys are skipped.
 TUNABLE_RE = re.compile(r'\bTunable<[\w.?]+>\s*\.(choice|toggle|number|color|spring)\(\s*"([^"\\]+)"')
 # An independent review's verdict on the exact head, on a comment's or review's first line:
-# "Review (subagent, correctness first): SHIP at <full head sha>". Same grammar as
-# scripts/ci/risk_tier.py RECEIPT (and next_autoland, merge_audit).
-RECEIPT = re.compile(r"^\W*(?:independent\s+)?review\s*\(([^)\n]*)\)\s*:\W*(ship|block|fix|not ship|hold)(?![\w-])",
-                     re.I)
+# "Review (subagent, correctness first): SHIP at <full head sha>". The grammar, and when a receipt
+# counts, is scripts/ci/receipt_grammar.py, the one copy risk_tier.py reads too: a SHIP from the pull
+# request author's own account must name its reviewer agent and who started it, neither of them the
+# description's `Author-agent:` (cmux-ad m25 item 7). Imported where a receipt is read, so `snapshot`
+# and `source-stamp` run from a checkout that has only this file.
+SCRIPT_DIR = Path(__file__).resolve().parent
+
+
+def grammar():
+    if str(SCRIPT_DIR) not in sys.path:
+        sys.path.insert(0, str(SCRIPT_DIR))
+    import receipt_grammar
+    return receipt_grammar
+
+
 TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
 # Repository roles that trust a receipt's author whose association reads as untrusted: a member who
 # keeps the org membership private is CONTRIBUTOR to the workflow's token (#26153).
@@ -714,11 +725,11 @@ def receipt_items(pull: Mapping[str, object]) -> list[tuple[Mapping[str, object]
     return items + [(r, r.get("submittedAt")) for r in (pull.get("reviews") or {}).get("nodes") or []]
 
 
-def receipt_line(item: Mapping[str, object], head: str) -> re.Match[str] | None:
-    """The receipt on the item's first line when it names the full head and is not a self-review."""
+def receipt_line(item: Mapping[str, object], head: str):
+    """The receipt (receipt_grammar.Receipt) on the item's first line when it names the full head and is not a
+    self-review. Whether a SHIP from the author's own account counts is receipt_verdict's to decide."""
     first = next((line for line in str(item.get("body") or "").splitlines() if line.strip()), "")
-    line = RECEIPT.match(first)
-    return line if head and line and "self" not in line.group(1).lower() and head in first else None
+    return grammar().parse(first, head)
 
 
 def receipt_verdict(pull: Mapping[str, object], head: str,
@@ -728,9 +739,14 @@ def receipt_verdict(pull: Mapping[str, object], head: str,
     cmux-bot App is trusted only when GitHub reports its exact Bot login and immutable node id.
     A user whose association reads as untrusted is trusted when listed in `writers` (repository
     write access, looked up by `repo_writers`). A user in `unchecked` (their lookup failed, so nobody
-    knows) counts for a BLOCK only: an unverified receipt can make the guard red, never green."""
+    knows) counts for a BLOCK only: an unverified receipt can make the guard red, never green. A SHIP
+    from the pull request author's own account counts only as receipt_grammar.refusal allows (it names
+    a reviewer agent and who started it, neither the description's `Author-agent:`)."""
     writers = {w.lower() for w in writers}
     unchecked = {u.lower() for u in unchecked}
+    rules = grammar()
+    pr_author = str((pull.get("author") or {}).get("login") or "")
+    agents = rules.author_agents(str(pull.get("body") or ""))
     found = []
     for item, at in receipt_items(pull):
         author = item.get("author") or {}
@@ -748,10 +764,10 @@ def receipt_verdict(pull: Mapping[str, object], head: str,
             continue
         line = receipt_line(item, head)
         if line:
-            verdict = "ship" if line.group(2).lower() == "ship" else "block"
-            if blocks_only and verdict == "ship":
+            same = rules.same_account(str(author.get("login") or ""), pr_author)
+            if line.verdict == "ship" and (blocks_only or rules.refusal(line, same, agents)):
                 continue
-            found.append((str(at or ""), verdict == "block", verdict, f"review ({line.group(1).strip()})"))
+            found.append((str(at or ""), line.verdict == "block", line.verdict, line.who))
     if not found:
         return None
     _, _, verdict, who = max(found)
@@ -925,7 +941,7 @@ PULL_QUERY = """
 query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
-      author { login } headRefOid merged mergeCommit { oid }
+      author { login } body headRefOid merged mergeCommit { oid }
       reviews(last: 100) { nodes { author { login __typename ... on Bot { id } } authorAssociation state body submittedAt commit { oid } } }
       comments(last: 100) { nodes { databaseId body createdAt authorAssociation author { login __typename ... on Bot { id } } } }
     }
