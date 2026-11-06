@@ -306,7 +306,7 @@ public final class Engine: @unchecked Sendable {
         for _ in 0..<4 {
             guard let element = candidate else { return nil }
             let role = element.string(kAXRoleAttribute) ?? ""
-            if [kAXTextAreaRole, kAXTextFieldRole, kAXWebAreaRole, kAXScrollAreaRole, kAXWindowRole].contains(role) { return nil }
+            if [kAXTextAreaRole, kAXTextFieldRole, "AXWebArea", kAXScrollAreaRole, kAXWindowRole].contains(role) { return nil }
             if element.actionNames.contains(kAXPressAction) { return element }
             candidate = element.element(kAXParentAttribute)
         }
