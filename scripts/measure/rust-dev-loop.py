@@ -474,7 +474,7 @@ def main() -> int:
         cargo({}, targets["base"], ["test", "--locked", "--no-run", *pk], lp)
         have_nextest = shutil.which("cargo-nextest") is not None
         for i in range(a.n):
-            dt, rc, _ = cargo({}, targets["base"], ["test", "--locked", *pk], lp)
+            dt, rc, _ = cargo({}, targets["base"], ["test", "--locked", "--no-fail-fast", *pk], lp)
             rec("base", "test-cargo", dt, rc, 0, i)
             if have_nextest:
                 dt, rc, _ = cargo({}, targets["base"], ["nextest", "run", "--locked", "--no-fail-fast", *pk], lp)
