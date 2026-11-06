@@ -67,4 +67,22 @@ struct ImportSuggestionsCenterConductorTests {
         #expect(declined.state.conductorImportRan == nil)
         #expect(declined.conductorNote != nil)
     }
+
+    /// The capture seam (`debug.import_note`): on a Mac whose scan found no Conductor, and with the
+    /// note closed before, the stand-in finding brings the sidebar note and the Settings › Import
+    /// card back, and the note reads the generic copy.
+    @Test func theCaptureFixtureShowsTheNoteWithNoConductorHere() async throws {
+        let center = try await Self.center(now: { Self.weekBefore })
+        center.scanThisMac = { _ in [] }
+        await withCheckedContinuation { done in center.scan { done.resume() } }
+        #expect(center.conductorNote == nil)
+        center.showConductorNoteFixture()
+        let note = try #require(center.conductorNote)
+        #expect(note.title == ConductorImportStrings.noteTitle)
+        #expect(center.list().cards.contains { $0.id == Self.id })
+        _ = center.answerConductorNote(ImportSuggestionsCenter.conductorNoteID, action: nil)
+        #expect(center.conductorNote == nil)
+        center.showConductorNoteFixture()
+        #expect(center.conductorNote != nil)
+    }
 }
