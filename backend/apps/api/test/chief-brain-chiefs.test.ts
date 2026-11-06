@@ -143,4 +143,32 @@ describe("a Cloud Chief's chiefs tool", () => {
     const refusal = await manageChiefs(testEnv, lead, user, { action: "invite", chief: lead, people: ["x@example.com"] }, "ch-3").then(() => "committed", (e: Error) => e.message)
     expect(refusal).toContain("selector.not_found")
   }, SLOW_DO)
+
+  // chief-channels-DESIGN.md "Tools of a channel Chief": a Chief many people see invites to its own channel on its
+  // owner's word and does nothing else with the chiefs tool; its scope comes from the owner's record, not a request.
+  it("holds a channel Chief to its own channel", async () => {
+    const { token, user, lead } = await owner("chiefs-tool-channel-scope")
+    const parse = (out: string) => JSON.parse(out.slice(0, out.lastIndexOf("}") + 1)) as { id: string; channel: { conversation: string } }
+    const launch = parse(await manageChiefs(testEnv, lead, user, { action: "create_channel", title: "Launch" }, "sc-1"))
+    const design = parse(await manageChiefs(testEnv, lead, user, { action: "create_channel", title: "Design" }, "sc-2"))
+    await settle(user, token, launch.id)
+    expect(await brain(token, launch.id)).toMatchObject({ enabled: true, channel: launch.channel.conversation })
+    expect(await brain(token, lead)).toMatchObject({ channel: null })
+    const as = (args: Parameters<typeof manageChiefs>[3], key: string) => manageChiefs(testEnv, launch.id, user, args, key).then((t) => t, (e: Error) => `refused ${e.message}`)
+    // Its own channel needs no selector.
+    expect(JSON.parse(await as({ action: "invite", people: ["guest@example.com"] }, "sc-3"))).toEqual({ channel: launch.channel.conversation, invited: [{ who: "guest@example.com", ok: true }] })
+    const refused: Array<[Parameters<typeof manageChiefs>[3], string]> = [
+      [{ action: "invite", chief: design.id, people: ["x@example.com"] }, "sc-4"],
+      [{ action: "create", display_name: "Rogue" }, "sc-5"],
+      [{ action: "create_channel", title: "Side" }, "sc-6"],
+      [{ action: "update", chief: lead, role: "Renamed" }, "sc-7"],
+      [{ action: "list" }, "sc-8"]
+    ]
+    for (const [args, key] of refused) expect(await as(args, key)).toContain("chief_channel_scope")
+    // Nothing was written: no new Chief, the lead's role and the other channel's invites are as they were.
+    expect((await chiefs(token)).map((c) => c.display_name).sort()).toEqual(["Chief", "Design Chief", "Launch Chief", "Lead"])
+    expect(await brain(token, lead)).toMatchObject({ role: "Lead" })
+    const other = (await http("POST", "/v1/read", token, { op: "conversation.snapshot", params: { conversation: design.channel.conversation } })).json
+    expect(other.value.state.invites ?? []).toHaveLength(0)
+  }, SLOW_DO)
 })

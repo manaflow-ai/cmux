@@ -81,7 +81,7 @@ extension WorkspaceRowView {
             prBadge.setColor(Palette.textSecondary)
             tintSessionTree()
             let waits = if case .waiting = activityState { true } else { false }
-            agentMark.setTint(waits ? Palette.attention : agentMarkFallbackColor.map(SidebarStyle.color) ?? Palette.textSecondary)
+            agentMark.setTint(waits ? Palette.statusAttention : agentMarkFallbackColor.map(SidebarStyle.color) ?? Palette.textSecondary)
             // Fills, no borders but the focus ring below: drop target, selection, multi-selection or on screen, hover.
             let fill = isDropTarget || isSelected ? Palette.selectionFill : isSecondarySelected || isOnScreen ? Palette.secondarySelectionFill
                 : isHovered && !isPlaceholderRow && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil

@@ -50,11 +50,16 @@ HUMAN_OK_LABEL = "risk:human-ok"
 # The earlier name for the same maintainer sign-off; still honored.
 WAIVED_LABEL = "risk:waived"
 # An independent review's verdict on the exact head, on a comment's first line: "Review (subagent, correctness
-# first): SHIP at <full head sha>", the form next_autoland.py and merge_audit.py read. A self-review doesn't
-# count, and the newest verdict naming the head decides, so a later BLOCK beats an earlier SHIP. The same line
-# also counts anywhere in the description (outside <!-- comments -->), where it ranks below every comment.
-RECEIPT = re.compile(r"^\W*(?:independent\s+)?review\s*\(([^)\n]*)\)\s*:\W*(ship|block|fix|not ship|hold)(?![\w-])",
-                     re.I)
+# first): SHIP at <full head sha>", the form next_autoland.py and merge_audit.py read. The grammar, and when a
+# receipt counts, is scripts/ci/receipt_grammar.py (one copy, defaults_guard.py reads it too): a self-review doesn't
+# count, and a SHIP from the pull request author's own account counts only when it names a reviewer agent and who
+# started it, neither of them the description's `Author-agent:` (cmux-ad m25 item 7). The newest verdict naming the
+# head decides, so a later BLOCK beats an earlier SHIP. The same line also counts anywhere in the description
+# (outside <!-- comments -->), where it ranks below every comment.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import receipt_grammar  # noqa: E402
+
+RECEIPT = receipt_grammar.RECEIPT
 TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
 NEXT = "Packages/macOS/CmuxNext/Sources/"
 
@@ -195,7 +200,7 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # The gate grades every other pull request, so a change to it gets a person.
     ("high", "the risk gate itself", (
         ".github/CODEOWNERS", ".github/workflows/risk-tier.yml", ".github/workflows/risk-tier-tests.yml",
-        "scripts/ci/risk_tier.py",
+        "scripts/ci/risk_tier.py", "scripts/ci/receipt_grammar.py",
         # What refuses a red `risk evidence`: gh-merge-green, and next-autoland's batch lander.
         "scripts/gh-merge-green", "scripts/ci/next_batch.py", ".github/workflows/cmux-next-batch.yml",
     )),
@@ -578,7 +583,9 @@ def classify(files: list[str], patches: dict[str, str] | None = None, sources: d
 
 
 SIGN_OFF_HOW = (f"a line `Review (<reviewer>): SHIP at <full head sha>` from an independent review, in the "
-                f"description or leading a comment, an approving review from someone other than the author, or "
+                f"description or leading a comment (from the author's own account it must be `Review (<reviewer "
+                f"agent id>, started by <agent id>)`, neither of them the description's `Author-agent: <agent id>`), "
+                f"an approving review from someone other than the author, or "
                 f"`{HUMAN_OK_LABEL}` added by a maintainer (agents never add it)")
 
 
@@ -929,15 +936,16 @@ def head_verdicts(comments: list[dict], reviews: list[dict], head_sha: str,
     every comment and review (at ""): a later BLOCK comment still beats a SHIP line in it. Its author
     must be trusted the same way a commenter must."""
     found = []
+    body = (pr or {}).get("body")
 
-    def verdict(text: str, at: str, where: str = "") -> None:
-        line = RECEIPT.match(text)
-        if line and "self" not in line.group(1).lower() and head_sha in text:
-            found.append((at, "ship" if line.group(2).lower() == "ship" else "block",
-                          f"review ({line.group(1).strip()}){where}"))
+    def verdict(text: str, at: str, login: str, where: str = "") -> None:
+        got = receipt_grammar.counted(text, head_sha, login=login, author=author, body=body)
+        if got:
+            found.append((at, got.verdict, f"{got.who}{where}"))
 
     def receipt(item: dict, at: str) -> None:
-        verdict(next((line for line in (item.get("body") or "").splitlines() if line.strip()), ""), at)
+        verdict(next((line for line in (item.get("body") or "").splitlines() if line.strip()), ""), at,
+                (item.get("user") or {}).get("login") or "")
 
     def trusted(item: dict) -> bool:
         user = item.get("user") or {}
@@ -945,7 +953,7 @@ def head_verdicts(comments: list[dict], reviews: list[dict], head_sha: str,
 
     if pr and trusted(pr):
         for text in strip_comments(pr.get("body") or "").splitlines():
-            verdict(text, "", " in the description")
+            verdict(text, "", (pr.get("user") or {}).get("login") or "", " in the description")
 
     for review in reviews:
         if not trusted(review):
