@@ -879,24 +879,31 @@ def test_tui_python_wrapper_skips_venv_for_other_python_version(failures: list[s
             )
 
 
-def test_tui_python_wrapper_skips_non_python_launcher_ancestors(failures: list[str]) -> None:
-    """A frontend such as oh-my-hermes puts its own Node processes between
-    Hermes's Python launcher and the gateway (#36999). The wrapper must not run
-    the gateway with one of them; it keeps looking up for the Python launcher.
-    Two shells stand in for the Node processes.
+def run_tui_python_wrapper_under_frontend(marker: str) -> str:
+    """Run the gateway as a frontend such as oh-my-hermes does (#36999).
+
+    A Python launcher starts two shells, standing in for the frontend's Node
+    processes, which run the gateway through the wrapper. `marker` sets the
+    launcher pid the cmux `hermes` shim exports: "launcher" for the launcher's
+    own pid, "unrelated" for a live process that is not an ancestor, "unset"
+    for none. A `python3` first on PATH writes its own marker, so the result
+    tells the launcher from the wrapper's fallback.
     """
     with tempfile.TemporaryDirectory(prefix="cmux-hermes-python-test-") as td:
         tmp = Path(td)
         output = tmp / "selected"
-        # A `python3` on PATH that the wrapper would fall back to if it never
-        # reached the launcher; it writes its own marker.
         fallback_bin = tmp / "bin"
         fallback_bin.mkdir()
         make_executable([], fallback_bin / "python3", f"#!/bin/sh\nprintf path-python3 > '{output}'\n")
         env = os.environ.copy()
         env.pop("CMUX_HERMES_TUI_REAL_PYTHON", None)
         env.pop("HERMES_PYTHON_SRC_ROOT", None)
+        env.pop("CMUX_HERMES_AGENT_PID", None)
         env["PATH"] = f"{fallback_bin}{os.pathsep}{env.get('PATH', '')}"
+        unrelated = None
+        if marker == "unrelated":
+            unrelated = subprocess.Popen(["/bin/sleep", "60"])
+            env["CMUX_HERMES_AGENT_PID"] = str(unrelated.pid)
         gateway = [
             str(SOURCE_TUI_PYTHON_WRAPPER),
             "-c",
@@ -905,20 +912,40 @@ def test_tui_python_wrapper_skips_non_python_launcher_ancestors(failures: list[s
         ]
         frontend = ["/bin/sh", "-c", '"$0" "$@"; exit $?']
         launcher = (
-            "import subprocess, sys; "
-            "sys.exit(subprocess.run(sys.argv[1:]).returncode)"
+            "import os, subprocess, sys; "
+            "env = dict(os.environ); "
+            + ("env['CMUX_HERMES_AGENT_PID'] = str(os.getpid()); " if marker == "launcher" else "")
+            + "sys.exit(subprocess.run(sys.argv[1:], env=env).returncode)"
         )
-        result = subprocess.run(
-            [sys.executable, "-c", launcher, *frontend, *frontend, *gateway],
-            env=env,
-            capture_output=True,
-            text=True,
-        )
-        selected = output.read_text(encoding="utf-8") if output.exists() else ""
+        try:
+            subprocess.run(
+                [sys.executable, "-c", launcher, *frontend, *frontend, *gateway],
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+        finally:
+            if unrelated is not None:
+                unrelated.kill()
+                unrelated.wait()
+        return output.read_text(encoding="utf-8") if output.exists() else "nothing"
+
+
+def test_tui_python_wrapper_skips_non_python_launcher_ancestors(failures: list[str]) -> None:
+    cases = [
+        # The shim's pid is Hermes's launcher after its exec.
+        ("marked launcher", "launcher", "launcher"),
+        # An older shim exported no pid: the nearest Python ancestor is used.
+        ("no launcher pid", "unset", "launcher"),
+        # The gateway is not running under the Hermes the shim started, so a
+        # Python ancestor is not trusted as Hermes's interpreter.
+        ("launcher pid not an ancestor", "unrelated", "path-python3"),
+    ]
+    for label, marker, expected in cases:
+        selected = run_tui_python_wrapper_under_frontend(marker)
         expect(
-            result.returncode == 0 and selected == "launcher",
-            "non-Python frontend: expected the gateway to run under the Python launcher, "
-            f"got exit {result.returncode}, output {selected or 'nothing'}, stderr {result.stderr.strip()!r}",
+            selected == expected,
+            f"non-Python frontend, {label}: expected {expected}, got {selected}",
             failures,
         )
 
