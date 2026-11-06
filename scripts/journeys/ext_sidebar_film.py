@@ -36,7 +36,7 @@ Steps (`do`):
                                           film-SCENARIO.json in the journey folder (run.py fetches it) and returns the
                                           scenario's summary.
 
-  film_profile    {scenario, kind, presses?, gap?, seconds?}
+  film_profile    {scenario, kind, presses?, gap?, seconds?, mode?}
                                           Time Profiler (xctrace, attached to the app's pid) over PRESSES (default 5)
                                           presses of KIND (insert: Cmd-N, remove: Cmd-Shift-W), GAP seconds apart
                                           (default 2.5), no film and no socket reads meanwhile (they cost the main
@@ -45,6 +45,9 @@ Steps (`do`):
                                           motion window). Writes profile-SCENARIO.json: main-thread ms by function
                                           (inclusive and self), the top stacks, the sample count, each press's frame
                                           measure, and main-thread ms per motion frame (all main samples / motion frames).
+
+  film_tunable    {key, value}           sets a Debug Settings tunable (debug.tunables set; value null resets it);
+                                          each later film keeps the values set (`tunables`)
 
 Condition (inside `expect.all`; evidence kind app):
   film_recorded   {scenario, presses}     the film of SCENARIO has at least PRESSES presses with frames
@@ -133,6 +136,20 @@ def step_film_busy(j, step):
         raise D.StepError(f"film_busy: {len(started)} busy terminals, want {count}")
     time.sleep(float(step.get("settle", 2.0)))
     return {"busy": started}
+
+
+def step_film_tunable(j, step):
+    """Sets the Debug Settings tunable KEY to VALUE (`debug.tunables set`; null resets it to its default), e.g.
+    `sidebar.insertMotion` `spring` to film the grow motion beside the default `snap`. Answers the tunable's row."""
+    # A bench build's launch leaves the tunable store off: on for this launch, in memory only (debug-settings.md).
+    state = j.app.rpc("debug.tunables", {"action": "activate"}) or {}
+    reply = j.app.rpc("debug.tunables", {"action": "set", "key": step["key"], "value": step.get("value")})
+    if isinstance(reply, dict):
+        reply = dict(reply, store_active=state.get("active"))
+    if not isinstance(reply, dict) or reply.get("key") != step["key"]:
+        raise D.StepError(f"film_tunable: {step['key']} = {step.get('value')!r} gave {json.dumps(reply)[:300]}")
+    j.film_tunables = dict(getattr(j, "film_tunables", {}), **{step["key"]: reply.get("value")})
+    return reply
 
 
 def row_list(j):
@@ -260,7 +277,8 @@ def step_film_presses(j, step):
             shot["measure"] = measure(shot["frames"])
             presses.append(shot)
             time.sleep(gap)
-    film = {"scenario": scenario, "busy": list(getattr(j, "film_busy", [])), "presses": presses,
+    film = {"scenario": scenario, "busy": list(getattr(j, "film_busy", [])), "tunables": dict(getattr(j, "film_tunables", {})),
+            "presses": presses,
             "summary": summarize(presses)}
     films[scenario] = film
     (j.out / f"film-{scenario}.json").write_text(json.dumps(film, separators=(",", ":")) + "\n")
@@ -452,6 +470,9 @@ def step_film_profile(j, step):
     scenario, kind = step["scenario"], step.get("kind", "insert")
     presses, gap = int(step.get("presses", 5)), float(step.get("gap", 2.5))
     press = {"insert": ("n", ["cmd"]), "remove": ("w", ["cmd", "shift"])}[kind]
+    # `mode: noswitch`: a script's newTab with focus false (insert), or a Close Workspace aimed at a workspace an
+    # earlier noswitch insert made (remove): the row change without the window showing another workspace.
+    noswitch = step.get("mode") == "noswitch"
     seconds = int(step.get("seconds", 4 + presses * gap + 2))
     trace = j.out / f"profile-{scenario}.trace"
     xml = j.out / f"profile-{scenario}.xml"
@@ -467,10 +488,23 @@ def step_film_profile(j, step):
         counters_reset(j)
         j.app.rpc("debug.sidebar_rows", {"motion": "start"})
         time.sleep(0.15)  # still frames before the press
+        before = set(workspace_ids(j)) if noswitch else set()
         sent.append(now())
         sent_wall.append(time.time())
-        j.key(press[0], press[1])
+        if noswitch and kind == "insert":
+            j.app.rpc("action.run", {"action": "newTab", "origin": "script",
+                                     "args": {"name": f"film-np-{j.nonce}-{len(sent)}", "focus": False}})
+        elif noswitch:
+            pool = sorted(getattr(j, "film_noswitch_made", set()) & before)
+            if not pool:
+                raise D.StepError("film_profile noswitch remove: no workspace of a noswitch insert to close")
+            j.app.rpc("action.run", {"action": "closeWorkspace", "origin": "script", "args": {"confirm": True},
+                                     "target": f"workspace:{pool[-1]}"})
+        else:
+            j.key(press[0], press[1])
         time.sleep(gap)  # the press's motion ends; the main thread idles (no samples) until the next
+        if noswitch and kind == "insert":
+            j.film_noswitch_made = getattr(j, "film_noswitch_made", set()) | (set(workspace_ids(j)) - before)
         stopped = j.app.rpc("debug.sidebar_rows", {"motion": "stop"}, timeout=60) or {}
         measured = measure(stopped.get("frames") or [])
         measured["counters"] = counters_read(j)
@@ -515,7 +549,8 @@ def step_film_profile(j, step):
     total = sum(ns for ns, _ in main) / 1e6
     trees = {root: call_tree(main, root) for root in TREE_ROOTS}
     top = lambda d, n: [[k, round(v, 2)] for k, v in sorted(d.items(), key=lambda kv: -kv[1])[:n]]
-    profile = {"scenario": scenario, "kind": kind, "presses": presses, "rows": len(workspace_ids(j)),
+    profile = {"scenario": scenario, "kind": kind, "mode": "noswitch" if noswitch else "keys", "presses": presses,
+               "rows": len(workspace_ids(j)),
                "main_ms": round(total, 2), "main_ms_per_press": round(total / max(1, presses), 2),
                "samples": len(main), "all_samples": len(rows), "inclusive": top(inclusive, 150), "self": top(own, 80),
                "stacks": top(stacks, 60), "frames": measures, "export_head": head, "trees": trees,
@@ -543,5 +578,5 @@ def cond_film_recorded(j, want, cache):
 
 
 STEPS = {"film_grow": step_film_grow, "film_busy": step_film_busy, "film_presses": step_film_presses,
-         "film_profile": step_film_profile}
+         "film_profile": step_film_profile, "film_tunable": step_film_tunable}
 CONDITIONS = {"film_recorded": ("app", cond_film_recorded)}
