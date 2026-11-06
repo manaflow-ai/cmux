@@ -59,11 +59,36 @@ public struct CloudCarrierDial: Equatable, Sendable {
         ["carrier", "serve", "--machine", machine, "--socket", socket]
     }
 
-    /// The socket of `carrier serve`'s ready line (`{"ok":true,"socket":PATH,"route":"carrier"}`), else nil.
-    public static func readySocket(_ line: String) -> String? {
-        let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any]
-        guard object?["ok"] as? Bool == true, let socket = object?["socket"] as? String, !socket.isEmpty else { return nil }
-        return socket
+    /// One stderr line of `carrier serve`: its ready line, or a refusal (before it is ready, why it exits;
+    /// after, one refused connection's dial). Nil for anything else.
+    public enum ServeLine: Equatable, Sendable {
+        case ready(socket: String)
+        case refused(code: String, detail: String?)
+    }
+
+    /// Reads `{"ok":true,"socket":PATH,"route":"carrier"}` or `{"ok":false,"error_code":…,"error_detail"?:…}`.
+    public static func serveLine(_ line: String) -> ServeLine? {
+        guard let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any] else { return nil }
+        if object["ok"] as? Bool == true, let socket = object["socket"] as? String, !socket.isEmpty { return .ready(socket: socket) }
+        guard object["ok"] as? Bool == false, let code = object["error_code"] as? String else { return nil }
+        return .refused(code: code, detail: object["error_detail"] as? String)
+    }
+
+    /// A refused dial as the link wording the sidebar already has, step by step: `relay` dropped,
+    /// `parked_timeout` not ready yet (the machine's daemon never registered), any other step (`ticket`,
+    /// `handshake`) a failed connect naming it.
+    public static func linkError(code: String, detail: String?) -> CloudLinkError {
+        switch code {
+        case "relay": .disconnected(reason: code)
+        case "parked_timeout": .notUp(state: code)
+        default: .failed(code: code, message: detail.map { "\(code): \($0)" } ?? "")
+        }
+    }
+
+    /// The JSON line `carrier serve` reads on stdin to take a new access token for its next dials.
+    public static func tokenLine(_ accessToken: String) -> String {
+        let data = (try? JSONSerialization.data(withJSONObject: ["access_token": accessToken])) ?? Data()
+        return String(decoding: data, as: UTF8.self)
     }
 
     /// One machine's carrier for the signed-in person: the bundled CLI and the environment each child reads

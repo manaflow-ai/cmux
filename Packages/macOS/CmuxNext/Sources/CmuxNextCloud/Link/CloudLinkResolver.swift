@@ -15,6 +15,12 @@ public protocol CloudLinkResolver: Sendable {
     func open(_ key: CloudLinkKey, intent: String, origin: CloudLinkOrigin) async throws -> CloudLinkSocket
     /// Ends the machine's link (machine removed, sign-out, quit).
     func close(_ key: CloudLinkKey) async
+    /// Why the link refused a connection since the last connect, when it says (a carrier dial's step).
+    func refusal(_ key: CloudLinkKey) async -> CloudLinkError?
+}
+
+extension CloudLinkResolver {
+    public func refusal(_ key: CloudLinkKey) async -> CloudLinkError? { nil }
 }
 
 /// A link whose every connect fails with `error` (a capture scene's ended link).

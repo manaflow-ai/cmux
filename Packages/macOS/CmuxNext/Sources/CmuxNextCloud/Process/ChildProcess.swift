@@ -54,9 +54,23 @@ package final class ChildProcess: Sendable {
     /// a child that exits when its stdin closes then lives exactly as long as this owner wants.
     package func startHoldingInput() throws {
         let stdin = Pipe()
+        // A line to a child that exited fails instead of raising SIGPIPE, and a full pipe drops it, never blocks.
+        let writer = stdin.fileHandleForWriting.fileDescriptor
+        _ = fcntl(writer, F_SETNOSIGPIPE, 1)
+        _ = fcntl(writer, F_SETFL, fcntl(writer, F_GETFL) | O_NONBLOCK)
         state.withLock { $0.input = stdin.fileHandleForWriting }
         try launch(standardInput: stdin.fileHandleForReading)
         try? stdin.fileHandleForReading.close()
+    }
+
+    /// Writes `line` and a newline to the held stdin (``startHoldingInput()``); false when it is closed or did not take it all.
+    @discardableResult
+    package func writeInput(line: String) -> Bool {
+        let bytes = Array((line + "\n").utf8)
+        return state.withLock { state in
+            guard let input = state.input else { return false }
+            return bytes.withUnsafeBytes { Darwin.write(input.fileDescriptor, $0.baseAddress, $0.count) } == bytes.count
+        }
     }
 
     /// Closes the held stdin (``startHoldingInput()``); the child exits on its own.
