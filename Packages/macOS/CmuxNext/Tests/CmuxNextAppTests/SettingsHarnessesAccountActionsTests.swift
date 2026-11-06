@@ -16,6 +16,8 @@ import Testing
     /// False fails `_acpmux/accounts` (the daemon restarting).
     final class Answers: Sendable {
         let accounts = OSAllocatedUnfairLock(initialState: true)
+        /// `_acpmux/harness/health` calls: coming forward makes none.
+        let healthChecks = OSAllocatedUnfairLock(initialState: 0)
     }
 
     struct Call: Sendable, Equatable {
@@ -50,7 +52,10 @@ import Testing
         let answers = Answers()
         let harnesses = SettingsHarnesses(environment: { environment },
             fetch: { _ in [.init(id: "claude", kind: "claude-stdio", source: "path")] },
-            fetchHealth: { _, _ in Data(#"{"harnesses":[]}"#.utf8) },
+            fetchHealth: { _, _ in
+                answers.healthChecks.withLock { $0 += 1 }
+                return Data(#"{"harnesses":[]}"#.utf8)
+            },
             openTerminal: { line in
                 terminal.lines.append(line)
                 return true
@@ -162,8 +167,10 @@ import Testing
         #expect(h.reads.withLock { $0 } == before)
         _ = try await h.harnesses.run(["action": "accountSignOut", "account": "claude-2"], context: gesture())
         let signedOut = h.reads.withLock { $0 }
+        let checks = h.answers.healthChecks.withLock { $0 }
         _ = try await h.harnesses.run(["action": "focus"], context: nil)
         #expect(h.reads.withLock { $0 } == signedOut + 1)
+        #expect(h.answers.healthChecks.withLock { $0 } == checks, "coming forward reads only the accounts")
         _ = try await h.harnesses.run(["action": "focus"], context: nil)
         #expect(h.reads.withLock { $0 } == signedOut + 1)
     }

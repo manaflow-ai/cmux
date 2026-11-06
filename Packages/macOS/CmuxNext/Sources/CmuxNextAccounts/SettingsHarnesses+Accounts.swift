@@ -226,13 +226,14 @@ extension SettingsHarnesses {
 
     /// Settings came forward (`focus`): reads the accounts again when a sign-in or sign-out was typed into a
     /// terminal tab since the last time, else nothing, so coming back costs no daemon call.
-    /// The marks stay until a read of the accounts answers, so a failed read tries again next time; a
-    /// sign-in marked during the read stays for the next one.
+    /// Only the account list: no health check, plan or usage process. The marks stay until a read of the
+    /// accounts answers, so a failed read tries again next time; a sign-in marked during the read stays
+    /// for the next one.
     func refocused() async {
-        guard !pendingLogins.isEmpty else { return }
+        guard !pendingLogins.isEmpty, let environment = environment() else { return }
         let marked = pendingLogins
         let before = accountsRead
-        await refresh()
+        await readAccounts(environment, generation: generation)
         if accountsRead > before { pendingLogins.subtract(marked) }
     }
 

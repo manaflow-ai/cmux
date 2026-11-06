@@ -197,10 +197,12 @@ fn set(
         file.name = Some(name.trim().to_owned());
     }
     let written = routes::add(dir, id, &file, true).map_err(error)?;
-    // An account turned off is no longer a family's or the global default: new chats fall back to
-    // the CLI's own login instead of running on it (as a removed route's defaults are cleared).
+    // An account turned off is no longer a workspace's, a family's or the global default: new chats
+    // fall back to the CLI's own login instead of moving onto it by themselves (as a removed route's
+    // defaults are cleared). A chat bound to it keeps running on it (`RouteFile::disabled`).
     if file.disabled {
         routes::update_bindings(state, |b| {
+            b.workspaces.retain(|_, r| r != id);
             b.families.retain(|_, r| r != id);
             if b.global.as_deref() == Some(id) {
                 b.global = None;
@@ -309,7 +311,7 @@ mod tests {
     }
 
     #[test]
-    fn turning_off_the_default_account_clears_its_family_and_global_default() {
+    fn turning_off_the_default_account_clears_its_defaults_but_not_a_chats_binding() {
         let root = std::env::temp_dir().join(format!("acpmux-accounts-off-{}", std::process::id()));
         let (dir, state) = (root.join("routes"), root.join("state"));
         std::fs::create_dir_all(&dir).unwrap();
@@ -335,6 +337,8 @@ mod tests {
             b.families.insert("claude".into(), "claude-key".into());
             b.families.insert("codex".into(), "codex-2".into());
             b.global = Some("claude-key".into());
+            b.workspaces.insert("ws-1".into(), "claude-key".into());
+            b.chats.insert("chat-1".into(), "claude-key".into());
         })
         .unwrap();
         set(Some(&dir), &state, "claude-key", Some(true), None).unwrap();
@@ -343,6 +347,8 @@ mod tests {
         let b = routes::bindings(&state);
         assert_eq!(b.families.get("claude"), None, "a turned-off account still picks new chats");
         assert_eq!(b.global, None);
+        assert_eq!(b.workspaces.get("ws-1"), None, "a workspace default moves new chats onto it too");
+        assert_eq!(b.chats.get("chat-1").map(String::as_str), Some("claude-key"), "a bound chat keeps it");
         assert_eq!(b.families.get("codex").map(String::as_str), Some("codex-2"), "another family's default stays");
         let _ = std::fs::remove_dir_all(&root);
     }
