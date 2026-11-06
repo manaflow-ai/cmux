@@ -8,7 +8,8 @@ import { defineExperiment } from "../../../experiments/experiment";
 export const tableActionsPlace = defineExperiment({
   id: "table-actions-place",
   title: "Reply table actions",
-  description: "Where a reply table's Open and Copy sit on hover: in its top-right corner, above it, or just beside it.",
+  description:
+    "Where a reply table's Open and Copy sit on hover: in its top-right corner, above it, or just beside it.",
   arms: {
     corner: {
       label: "In the corner",

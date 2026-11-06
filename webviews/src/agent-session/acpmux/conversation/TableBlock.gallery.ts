@@ -49,8 +49,8 @@ const statusChat = chat([
   summary(1.9, { status: "completed", durationMs: 46_000 }),
 ]);
 
-// A table whose words cannot break (paths and hashes): only this kind scrolls sideways, with a fade
-// at the edge while more lies past it.
+// Paths and hashes: paths break at their slashes, so this fits a chat column; a token wider than
+// the column is the only thing that scrolls a table sideways, with a fade at the edge.
 const unbreakable = `| File | Head |
 | --- | --- |
 | webviews/src/agent-session/acpmux/conversation/TableBlock.tsx | 0e8648b1ba0c67d0be0123a61d7772ad05cc9deb |
@@ -110,7 +110,7 @@ export default agentPaneEntry({
       },
     },
     unbreakable: {
-      note: "Paths and hashes cannot wrap: only such a table scrolls sideways, its edge fading while more lies past it.",
+      note: "Paths break at their slashes and hashes fit: the table stays in the column. Only a wider token scrolls it, with a fading edge.",
       snapshot: chat([
         user("Which heads?", 2),
         assistant(unbreakable, 1.9),

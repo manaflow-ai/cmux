@@ -1390,7 +1390,8 @@
    after its last heading so the pill never covers a heading's words. A table with no header row
    keeps the room on its first row instead. */
 .cv-table-block[data-actions="corner"] .cv-table-tools {
-  top: calc((var(--cv-th-pad-top, 11px) - var(--cv-th-pad-bottom, 1.75px)) / 2 - var(--cv-table-tools-pad));
+  /* About level with the header's words: the header's taller top padding less the pill's own. */
+  top: var(--cv-table-tools-pad);
 }
 .cv-table-block[data-actions="corner"] .cv-table thead th:last-child,
 .cv-table-block[data-actions="corner"] .cv-table:not(:has(thead)) tr:first-child td:last-child {
@@ -1399,7 +1400,7 @@
 /* Above: the pill rises just over the table's top-right corner, over the end of the line before. */
 .cv-table-block[data-actions="above"] .cv-table-tools {
   top: auto;
-  bottom: calc(100% + 2px);
+  bottom: calc(100% + var(--cv-table-tools-pad));
 }
 .cv-table-block[data-actions="beside"] .cv-table-tools {
   right: auto;

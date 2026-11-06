@@ -1,6 +1,6 @@
 // Reply tables at chat width (Leo 2026-11-05, a status table clipped mid-word): every gallery
 // state at three pane widths, and each actions arm hovered. A table whose words can wrap fits its
-// column and never scrolls sideways; only the unbreakable one may. The screenshots go to
+// column and never scrolls sideways; only the unbreakable one may, and then its edge fades. The screenshots go to
 // $FAST_CHECKS_OUT for a before/after (cmux-ci test --artifact).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir } from "node:fs/promises";
@@ -43,42 +43,43 @@ await requireBrowserLane("agent-pane-table-capture.test.ts", async () => {
   describe("reply table captures", () => {
     for (const { variant, width, arm } of cases)
       test(`${variant} at ${width}${arm ? ` (${arm})` : ""}`, async () => {
-          const page = await browser!.newPage({ viewport: { width, height: 760 }, deviceScaleFactor: 2 });
-          await page.goto(
-            `http://127.0.0.1:${port()}${galleryFrame("agent-pane.table-block", { variant, width, arm })}`,
-          );
-          await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
-            timeout: 120_000,
-          });
-          const block = page.locator(".cv-table-block").first();
-          await block.waitFor();
-          if (variant !== "status") {
-            await block.hover();
-            await page.waitForTimeout(400);
-          }
-          await page.screenshot({ path: path.join(out, `${variant}-${width}${arm ? `-${arm}` : ""}.png`) });
-          const m = await page.evaluate(() => {
-            const block = document.querySelector<HTMLElement>(".cv-table-block")!;
-            const wrap = block.querySelector<HTMLElement>(".cv-table-wrap")!;
-            const column = block.parentElement!.getBoundingClientRect();
-            const overflowing = [...block.querySelectorAll<HTMLElement>("td, th")].filter(
-              (cell) => cell.scrollWidth > cell.clientWidth + 1,
-            ).length;
-            return {
-              block: block.getBoundingClientRect().right,
-              column: column.right,
-              sideways: wrap.scrollWidth - wrap.clientWidth,
-              moreRight: wrap.hasAttribute("data-more-right"),
-              overflowing,
-            };
-          });
-          console.log(`${variant}@${width}${arm ? `/${arm}` : ""}`, JSON.stringify(m));
-          expect(m.overflowing).toBe(0);
-          expect(m.block).toBeLessThanOrEqual(m.column + 0.5);
-          if (variant === "unbreakable") {
-            if (width < 960) expect(m.moreRight).toBe(true);
-          } else expect(m.sideways).toBeLessThanOrEqual(0.5);
-          await page.close();
+        const page = await browser!.newPage({ viewport: { width, height: 760 }, deviceScaleFactor: 2 });
+        await page.goto(`http://127.0.0.1:${port()}${galleryFrame("agent-pane.table-block", { variant, width, arm })}`);
+        await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
+          timeout: 120_000,
         });
+        const block = page.locator(".cv-table-block").first();
+        await block.waitFor();
+        if (variant !== "status") {
+          await block.hover();
+          await page.waitForFunction(
+            () => getComputedStyle(document.querySelector(".cv-table-tools")!).opacity === "1",
+          );
+        }
+        await page.screenshot({ path: path.join(out, `${variant}-${width}${arm ? `-${arm}` : ""}.png`) });
+        const m = await page.evaluate(() => {
+          const block = document.querySelector<HTMLElement>(".cv-table-block")!;
+          const wrap = block.querySelector<HTMLElement>(".cv-table-wrap")!;
+          const column = block.parentElement!.getBoundingClientRect();
+          const overflowing = [...block.querySelectorAll<HTMLElement>("td, th")].filter(
+            (cell) => cell.scrollWidth > cell.clientWidth + 1,
+          ).length;
+          return {
+            block: block.getBoundingClientRect().right,
+            column: column.right,
+            sideways: wrap.scrollWidth - wrap.clientWidth,
+            moreRight: wrap.hasAttribute("data-more-right"),
+            overflowing,
+          };
+        });
+        console.log(`${variant}@${width}${arm ? `/${arm}` : ""}`, JSON.stringify(m));
+        expect(m.overflowing).toBe(0);
+        expect(m.block).toBeLessThanOrEqual(m.column + 0.5);
+        // Paths break at their slashes and a 40-character hash fits at 480 px, so the
+        // unbreakable table may fit too; whenever one does scroll, its edge says so.
+        if (variant !== "unbreakable") expect(m.sideways).toBeLessThanOrEqual(0.5);
+        else if (m.sideways > 0.5) expect(m.moreRight).toBe(true);
+        await page.close();
+      });
   });
 });
