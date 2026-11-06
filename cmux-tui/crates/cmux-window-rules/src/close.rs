@@ -108,9 +108,11 @@ pub fn toast(tabs: &[ClosingTab]) -> Toast {
     if terminals.is_empty() { Toast::Skip } else { Toast::AskTerminals { terminals } }
 }
 
-/// The close warning settings.
+/// The close warning settings. Both are required on the wire: the app's
+/// fallback when settings are not loaded is on, so a missing field is a bug,
+/// never "off".
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase", default)]
+#[serde(rename_all = "camelCase")]
 pub struct Warnings {
     /// `app.warnBeforeClosingTab`.
     pub warn_tab: bool,
