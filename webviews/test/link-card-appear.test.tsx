@@ -76,7 +76,7 @@ const full = {
 
 /** A reply's pull request chip, focused so its card opens at once; the host answers `pr.inspect`
  * with whatever `answer()` says when it is asked. */
-async function openCard(answer: () => unknown) {
+async function openCard(answer: (params: Record<string, unknown>) => unknown) {
   const { act } = await import("react");
   const { createRoot } = await import("react-dom/client");
   const { UiProvider } = await import("../src/ui/UiProvider");
@@ -88,7 +88,7 @@ async function openCard(answer: () => unknown) {
   setPaneLanguage("en");
   resetPullRequestStore();
   resetLinkStore();
-  setChipHost(async (method) => (method === "pr.inspect" ? answer() : undefined));
+  setChipHost(async (method, params) => (method === "pr.inspect" ? answer(params) : undefined));
   const element = dom.window.document.getElementById("root")!;
   const root = createRoot(element);
   await act(async () =>
@@ -145,6 +145,19 @@ test("while the host reads, placeholder rows hold the card at its full size; the
     expect(card.querySelector("[data-placeholder]")).toBeNull();
     expect(card.querySelector(".acpmux-pr-card__who")?.textContent).toContain("teamleaderleo");
     expect(card.querySelector(".acpmux-pr-card__branches")?.textContent).toContain("feat-cmux-next");
+  } finally {
+    await opened.done();
+  }
+});
+
+test("a chip's cache-only ask that found nothing still opens the card with its rows held", async () => {
+  // The chip asked the host's cache when it drew and got nothing; the card's own ask starts the
+  // read. Until that ask answers, the card is not empty: it is about to be read.
+  const opened = await openCard((params) =>
+    params.cached ? { pullRequest: null, reading: false } : new Promise(() => {}),
+  );
+  try {
+    expect(opened.card()!.querySelectorAll("[data-placeholder]").length).toBe(4);
   } finally {
     await opened.done();
   }

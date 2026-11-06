@@ -76,4 +76,7 @@
 .acpmux-pr-card__bar{display:inline-block;width:calc(var(--grid-base) * 16);max-width:100%;height:calc(var(--grid-base) * 2);border-radius:var(--grid-base);background:color-mix(in srgb,var(--agent-muted) 18%,transparent);vertical-align:middle}
 .acpmux-pr-card__bar[data-size=m]{width:calc(var(--grid-base) * 36)}
 .acpmux-pr-card__bar[data-size=l]{width:calc(var(--grid-base) * 56)}
+/* Each held row is one text line tall, as the row it stands for (most rows are flex boxes, where a
+   bar alone would set the height). */
+.acpmux-pr-card__body [data-placeholder]:not(.acpmux-pr-card__changes),.acpmux-pr-card__body [data-placeholder]>div{align-items:center;min-height:var(--text-detail--line-height)}
 .acpmux-pr-card__age{color:var(--agent-muted);font-size:var(--text-caption);letter-spacing:var(--text-caption--letter-spacing)}

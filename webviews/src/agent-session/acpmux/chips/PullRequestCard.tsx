@@ -84,11 +84,12 @@ export function PullRequestCardBody({
   const plain = link ?? url;
   const answer = usePullRequestAnswer(plain, open);
   const read = answer?.pullRequest ?? undefined;
-  // The host is still reading (or has not answered the card's first ask): its rows are held at
-  // their size, so the card opens at about the size it ends at and no row pops in under the
-  // pointer (Leo 2026-11-06). A reader that is never asked (read only) or a host with nothing to
-  // say draws none.
-  const waiting = !read && !useTranscriptReadOnly() && (answer === undefined || answer.reading);
+  // The host is still reading (or has not answered the card's own ask yet: no answer, or only the
+  // chip's cache-only one): its rows are held at their size, so the card opens at about the size
+  // it ends at and no row pops in under the pointer (Leo 2026-11-06). A reader that is never asked
+  // (read only) or a host with nothing to say draws none.
+  const waiting =
+    !read && !useTranscriptReadOnly() && (answer === undefined || answer.reading || answer.cacheOnly === true);
   const title = read?.title || known.title;
   const state = read?.state || known.state;
   const now = Date.now();

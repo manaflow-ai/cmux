@@ -28,8 +28,8 @@ const ROUNDS = Number(process.argv[2] ?? 3);
 const TURNS = Number(process.argv[3] ?? 300);
 const ARMS = (process.env.ARMS?.split(",") ?? ["plain", "seethrough"]) as readonly string[];
 const HOVERS = Number(process.env.HOVERS ?? 6);
-const WINDOW_MS = Number(process.env.WINDOW_MS ?? 400);
 const CACHED = process.env.CACHED !== "0";
+const WINDOW_MS = Number(process.env.WINDOW_MS ?? (CACHED ? 400 : 1800));
 const READ_MS = Number(process.env.READ_MS ?? 150);
 const VARIANTS = (process.env.VARIANTS?.split(",") ?? ["build"]) as readonly string[];
 const VARIANT_CSS: Record<string, string> = {
@@ -113,6 +113,7 @@ function installHost({ cached, readMs }: { cached: boolean; readMs: number }) {
       files: [
         { path: "cmux-wg/src/dial.rs", additions: 49, deletions: 0 },
         { path: "cmux-wg/tests/dial.rs", additions: 37, deletions: 0 },
+        { path: "cmux-wg/tests/handshake.rs", additions: 0, deletions: 0 },
       ],
       labels: ["risk:normal"],
       baseRef: "feat-cmux-next",
@@ -126,10 +127,10 @@ function installHost({ cached, readMs }: { cached: boolean; readMs: number }) {
     const done = { pullRequest: full(link), fetchedAt: now(), reading: false };
     if (cached) return Promise.resolve(done);
     if (params.cached) return Promise.resolve({ pullRequest: null, reading: false });
-    // A first read: the host has the answer READ_MS after the card first asks.
+    // A first read, as the host does it: the card's ask starts it and is told "reading" at once;
+    // the card asks again every 1.5 s while it reads, and an ask READ_MS after the start gets it.
     if (!read.has(link)) read.set(link, performance.now());
-    const left = readMs - (performance.now() - read.get(link)!);
-    return left <= 0 ? Promise.resolve(done) : new Promise((resolve) => setTimeout(() => resolve(done), left));
+    return Promise.resolve(performance.now() - read.get(link)! < readMs ? { pullRequest: null, reading: true } : done);
   };
   // The dev host (dev-host/host.ts) installs the page host's bridge, cmuxPage, unless one is there;
   // this one answers `cmux.agent.pr.inspect` itself and hands every other envelope to the dev host's.
@@ -174,7 +175,7 @@ async function open(browser: Browser, arm: string, variant: string): Promise<Pag
   return page;
 }
 
-type CardRun = { appearMs: number; popIn: boolean; firstHeight: number; lastHeight: number; frames: number };
+type CardRun = { appearMs: number; popIn: boolean; firstHeight: number; lastHeight: number; growth: number; frames: number }; // prettier-ignore
 
 /// Watches for each card's mount and stamps its frames for `windowMs`.
 async function probe(page: Page, windowMs: number) {
@@ -187,7 +188,7 @@ async function probe(page: Page, windowMs: number) {
       seen.add(card);
       const start = performance.now();
       const index = w.benchCards.length;
-      const run = { appearMs: -1, popIn: false, firstHeight: -1, lastHeight: -1, frames: 0 };
+      const run = { appearMs: -1, popIn: false, firstHeight: -1, lastHeight: -1, growth: 0, frames: 0 };
       w.benchCards.push(run);
       console.timeStamp(`w${index}-begin`);
       const frame = (now: number) => {
@@ -201,6 +202,7 @@ async function probe(page: Page, windowMs: number) {
         const height = card.getBoundingClientRect().height;
         if (run.firstHeight < 0) run.firstHeight = height;
         else if (Math.abs(height - run.lastHeight) > 0.5) run.popIn = true;
+        run.growth = Math.max(run.growth, Math.abs(height - run.firstHeight));
         run.lastHeight = height;
         const rise = style.translate === "none" ? 0 : Math.abs(Number.parseFloat(style.translate.split(" ")[1] ?? "0") || 0); // prettier-ignore
         if (run.appearMs < 0 && Number.parseFloat(style.opacity) >= 1 && rise < 0.01) run.appearMs = now - start;
@@ -391,14 +393,19 @@ const fmt = (n: number) => n.toFixed(1).padStart(6);
 console.log(
   `turns=${TURNS} rounds=${ROUNDS} hovers=${HOVERS} window=${WINDOW_MS}ms cached=${CACHED}${CACHED ? "" : ` read=${READ_MS}ms`} (medians of rounds)`,
 );
-console.log("arm                 main p50 main p95 main max  viz p95 viz max rast p95 rast max  gap p95 gap max  >16ms dropped frames | appear p50 appear max popIns"); // prettier-ignore
+console.log("arm                 main p50 main p95 main max  viz p95 viz max rast p95 rast max  gap p95 gap max  >16ms dropped frames | appear p50 appear max popIns growth max px"); // prettier-ignore
 for (const [arm, runs] of Object.entries(results)) {
   const m = (pick: (r: ReturnType<typeof analyze>) => number) => median(runs.map((r) => pick(r.trace)));
   const cards = runs.flatMap((r) => r.cards);
   const appear = cards.map((c) => (c.appearMs < 0 ? WINDOW_MS : c.appearMs));
   const popIns = cards.filter((c) => c.popIn).length;
   console.log(
-    `${arm.padEnd(19)} ${fmt(m((r) => r.busyP50))}   ${fmt(m((r) => r.busyP95))}   ${fmt(m((r) => r.busyMax))}  ${fmt(m((r) => r.vizP95))} ${fmt(m((r) => r.vizMax))}  ${fmt(m((r) => r.rasterP95))}   ${fmt(m((r) => r.rasterMax))}  ${fmt(m((r) => r.gapP95))}  ${fmt(m((r) => r.gapMax))}  ${String(m((r) => r.over16)).padStart(5)} ${String(m((r) => r.dropped)).padStart(7)} ${String(m((r) => r.frames)).padStart(6)} | ${fmt(pct(appear, 50))}     ${fmt(Math.max(...appear))}    ${popIns}/${cards.length}`,
+    `${arm.padEnd(19)} ${fmt(m((r) => r.busyP50))}   ${fmt(m((r) => r.busyP95))}   ${fmt(m((r) => r.busyMax))}  ${fmt(m((r) => r.vizP95))} ${fmt(m((r) => r.vizMax))}  ${fmt(m((r) => r.rasterP95))}   ${fmt(m((r) => r.rasterMax))}  ${fmt(m((r) => r.gapP95))}  ${fmt(m((r) => r.gapMax))}  ${String(m((r) => r.over16)).padStart(5)} ${String(m((r) => r.dropped)).padStart(7)} ${String(m((r) => r.frames)).padStart(6)} | ${fmt(pct(appear, 50))}     ${fmt(Math.max(...appear))}    ${popIns}/${cards.length} ${Math.max(
+      0,
+      ...cards.map((c) => c.growth),
+    )
+      .toFixed(0)
+      .padStart(6)}`,
   );
   console.log(
     `${PERF_ROW_MARK}${JSON.stringify({ name: `link_card_appear.${arm.replace("/", ".")}.busy`, p50: m((r) => r.busyP50), p95: m((r) => r.busyP95), unit: "ms" })}`,
