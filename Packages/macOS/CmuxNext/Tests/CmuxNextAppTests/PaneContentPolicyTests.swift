@@ -237,13 +237,17 @@ struct PaneContentPolicyTests {
     }
 
     /// The surfaces of `panes` whose size is not the one their pane shows them at now (their host's area,
-    /// ``TerminalHostView/surfaceSize(forHostSize:)``), labeled with `label`.
+    /// ``TerminalHostView/surfaceSize(forHostSize:)``), labeled with `label`, with what the window's presenter holds for
+    /// each ("request": a size waits for its drawn frame) and the size asked of Ghostty and not shown yet.
     static func offTheirPanes(_ panes: [PaneID], in rig: Rig, _ label: String) throws -> [String] {
-        try panes.compactMap { pane in
+        let presenter = TerminalFramePresenter.forWindow(rig.window)
+        return try panes.compactMap { pane in
             let surface = try Self.surface(pane, in: rig)
             let host = try #require(rig.provider.sessions[pane]?.session.view)
             let shown = host.surfaceSize(forHostSize: host.bounds.size)
-            return surface.frame.size == shown ? nil : "\(label): \(pane)'s surface \(surface.frame.size) in a \(shown) area"
+            guard surface.frame.size != shown else { return nil }
+            let waits = surface.frameOwnership.inFlight.map { "\($0)" } ?? "none"
+            return "\(label): \(pane)'s surface \(surface.frame.size) in a \(shown) area (presenter \(presenter.debugState(of: surface)), in flight \(waits))"
         }
     }
 
@@ -480,6 +484,8 @@ struct PaneContentPolicyTests {
         _ = rig.frame()
         let atSecond = await marker()
         let frames = try Self.run(rig)
+        let presenter = TerminalFramePresenter.forWindow(rig.window)
+        let atLanding = "presenter \(presenter.debugState(of: parked.surfaceView)), in flight \(parked.surfaceView.frameOwnership.inFlight.map { "\($0)" } ?? "none"), grid at landing \(String(describing: parked.surfaceView.fittedGrid))"
         let afterLanding = await marker()
         let final = try #require(parked.surfaceView.fittedGrid)
         #expect(frames > 3, "the second press did not spring (\(frames) frames)")
@@ -487,7 +493,7 @@ struct PaneContentPolicyTests {
         let windows = TerminalKeyResizeFrameTests.coalescingWindows(since: pressed)
         #expect(sent.count <= windows,
                 "the PTY got \(sent.count) grids, more than one per 25 ms window (\(windows)): join \(atJoin), second press \(atSecond), landing \(afterLanding)")
-        #expect(sent.last == final, "the PTY got \(sent), not ending at the final grid \(final)")
+        #expect(sent.last == final, "the PTY got \(sent), not ending at the final grid \(final) (\(atLanding))")
         let afterFinal = sent.drop(while: { $0 != final }).dropFirst()
         #expect(afterFinal.isEmpty, "the PTY got \(Array(afterFinal)) after the final grid \(final): \(sent)")
     }
