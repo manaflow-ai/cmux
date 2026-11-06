@@ -2565,7 +2565,7 @@ mod tests {
         };
         let provider = RelayProvider::new(config.clone())
             .unwrap()
-            .with_allocation_deadline(tokio::time::Instant::now() + Duration::from_secs(5));
+            .with_allocation_deadline(Instant::now() + Duration::from_secs(5));
         let group = provider.connect(request(endpoint)).await.unwrap();
         let link = group
             .open(LinkRequest { lane: Lane::Interactive, generation: 1 })
@@ -2588,7 +2588,7 @@ mod tests {
             };
             while control.next().await.is_some() {}
         });
-        let started = tokio::time::Instant::now();
+        let started = Instant::now();
         let provider = RelayProvider::new(config)
             .unwrap()
             .with_allocation_deadline(started + Duration::from_millis(600));
