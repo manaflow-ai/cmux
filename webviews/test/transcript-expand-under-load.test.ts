@@ -98,6 +98,8 @@ await requireBrowserLane("transcript-expand-under-load.test.ts", async () => {
     jump: boolean;
     overlap: number;
     open: string | null;
+    /// The opened row's fold is mid-flight on this frame (its body clipped, `data-fold-clip`).
+    folding: boolean;
   };
 
   /// Clicks the group's line and reads every painted frame for `ms`; `cmuxGalleryArrive` runs in the
@@ -148,6 +150,7 @@ await requireBrowserLane("transcript-expand-under-load.test.ts", async () => {
                 jump: jump?.hasAttribute("data-shown") === true,
                 overlap,
                 open: line.getAttribute("aria-expanded"),
+                folding: opened.querySelector("[data-fold-clip]") !== null,
               });
               if (performance.now() - start < duration) return;
               resolve(frames);
@@ -166,7 +169,29 @@ await requireBrowserLane("transcript-expand-under-load.test.ts", async () => {
     return watching;
   };
 
-  for (const load of ["light", "stress"] as const)
+  /// Holds the main thread JANK_MS in every frame's callbacks, as a page under heavy load does: no
+  /// frame comes sooner than that after the one before.
+  const JANK_MS = 60;
+  const jank = (page: Page, on: boolean) =>
+    page.evaluate(
+      ({ on, ms }) => {
+        const scope = window as unknown as { stopJank?: () => void };
+        scope.stopJank?.();
+        if (!on) return;
+        let running = true;
+        const hold = () => {
+          if (!running) return;
+          const until = performance.now() + ms;
+          while (performance.now() < until) {}
+          requestAnimationFrame(hold);
+        };
+        requestAnimationFrame(hold);
+        scope.stopJank = () => (running = false);
+      },
+      { on, ms: JANK_MS },
+    );
+
+  for (const load of ["light", "stress", "jank"] as const)
     test(`at the very bottom (${load}), a group opened while a command joins it is one motion`, async () => {
       const page = await open();
       const cdp = await page.context().newCDPSession(page);
@@ -184,7 +209,9 @@ await requireBrowserLane("transcript-expand-under-load.test.ts", async () => {
         { selector: GROUP, row: ROW },
       );
       expect(before.fromEnd).toBeLessThanOrEqual(2);
-      const frames = await watchOpen(page, load === "stress" ? 1500 : 900);
+      if (load === "jank") await jank(page, true);
+      const frames = await watchOpen(page, load === "light" ? 900 : 1500);
+      await jank(page, false);
       await cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 });
       await settled(page);
       expect(frames.length).toBeGreaterThan(3);
@@ -218,6 +245,12 @@ await requireBrowserLane("transcript-expand-under-load.test.ts", async () => {
         load,
         settledAt: true,
       });
+      // Leo, 2026-11-06: "way too discontinuous". With frames dropping, the fold lands in one step: at
+      // most one painted frame shows it mid-flight, never a run of partial heights a frame apart.
+      if (load === "jank") {
+        const midFlight = frames.filter((frame) => frame.folding).length;
+        expect({ load, midFlight, oneStep: midFlight <= 1 }).toEqual({ load, midFlight, oneStep: true });
+      }
       await page.close();
     });
 });
