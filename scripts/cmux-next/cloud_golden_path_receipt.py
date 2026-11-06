@@ -128,38 +128,54 @@ def _gap(stage: str, code: object) -> str | None:
             return reason
     return None
 
+# The evidence an ok stage must carry: every path, and the value it must hold (PRESENT: any well-formed value, the
+# schema checks its type; SAME_MACHINE: the receipt's own machineId). A missing path proves nothing; a path with
+# any other value says the opposite and fails.
+PRESENT = object()
+SAME_MACHINE = object()
+REQUIRED_EVIDENCE: dict[str, dict[tuple[str, ...], object]] = {
+    "chat": {
+        ("session_id_chars",): PRESENT,
+        ("session_id_sha256",): PRESENT,
+        ("session_discovered",): True,
+    },
+    "reconnect": {
+        ("pause", "state"): "paused",
+        ("resume", "state"): "running",
+        ("link", "dropped_while_paused"): True,
+        ("link", "back"): True,
+        ("second_reply", "ok"): True,
+        ("reconnected",): True,
+    },
+    "lease": {("machineId",): SAME_MACHINE, ("connectionMachine",): PRESENT, ("generation",): PRESENT},
+    "auth": {("allowed",): True},
+}
+_MISSING = object()
+
+def _at(value: object, path: tuple[str, ...]) -> object:
+    for key in path:
+        if not isinstance(value, dict) or key not in value:
+            return _MISSING
+        value = value[key]
+    return value
+
 def _proof(stage: str, value: dict[str, object], machine: str) -> str | None:
-    """"ok" when an ok stage's value carries its positive evidence, "fail" when it says the opposite, else None."""
-    if stage == "chat":
-        if value.get("session_discovered") is False:
+    """"ok" when VALUE holds every REQUIRED_EVIDENCE path of STAGE as required, "fail" when any present path holds
+    another value, else None (a path is missing)."""
+    rules = REQUIRED_EVIDENCE.get(stage)
+    if rules is None:
+        return None
+    missing = False
+    for path, want in rules.items():
+        found = _at(value, path)
+        if found is _MISSING:
+            missing = True
+        elif want is SAME_MACHINE:
+            if found != machine:
+                return "fail"
+        elif want is not PRESENT and not (type(found) is type(want) and found == want):
             return "fail"
-        found = ("session_id_chars" in value and "session_id_sha256" in value
-                 and value.get("session_discovered") is True)
-        return "ok" if found else None
-    if stage == "reconnect":
-        pause, resume, link, second = (value.get(key) or {} for key in ("pause", "resume", "link", "second_reply"))
-        if (
-            pause.get("state", "paused") != "paused"
-            or resume.get("state", "running") != "running"
-            or value.get("reconnected") is False
-            or second.get("ok") is False
-            or link.get("back") is False
-            or link.get("dropped_while_paused") is False
-        ):
-            return "fail"
-        found = (pause.get("state") == "paused" and resume.get("state") == "running"
-                 and value.get("reconnected") is True and second.get("ok") is True and link.get("back") is True)
-        return "ok" if found else None
-    if stage == "lease":
-        if "machineId" in value and value["machineId"] != machine:
-            return "fail"
-        found = value.get("machineId") == machine and "connectionMachine" in value and "generation" in value
-        return "ok" if found else None
-    if stage == "auth":
-        if value.get("allowed") is False:
-            return "fail"
-        return "ok" if value.get("allowed") is True else None
-    return None
+    return None if missing else "ok"
 
 def _depth_ok(value: object) -> bool:
     stack = [(value, 1)]
