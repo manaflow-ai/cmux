@@ -159,7 +159,11 @@ JOURNEYS = {
 
 
 def journey(jid, films):
-    steps = [X.fixture_settings()] + G.first_pane(jid, False) + X.fixture_files()
+    check = [{"do": "type", "text": "echo cm-ready-${nonce}", "enter": True, "mark": "ready"},
+             {"do": "expect", "title": "set-up check: the app types (its result does not decide the films)", "since": "ready",
+              "timeout": 10, "all": [{"daemon_line": "cm-ready-${nonce}"}, {"app_text_line": "cm-ready-${nonce}"},
+                                     {"frame_text": "cm-ready-${nonce}"}]}]
+    steps = G.first_pane(jid, False) + check + [X.fixture_settings()] + X.fixture_files()
     names = []
     for setup, step in films:
         steps += setup + [G.settle(1.2)] + [step]

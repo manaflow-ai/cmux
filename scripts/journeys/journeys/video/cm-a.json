@@ -16,6 +16,70 @@
  },
  "steps": [
   {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "cm-a"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "name_pane",
+   "as": "home"
+  },
+  {
+   "do": "window_place",
+   "title": "set-up: the window at 90% x 90% of the screen",
+   "fraction": [
+    0.05,
+    0.05,
+    0.9,
+    0.9
+   ]
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace for the case"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "p0"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo cm-ready-${nonce}",
+   "enter": true,
+   "mark": "ready"
+  },
+  {
+   "do": "expect",
+   "title": "set-up check: the app types (its result does not decide the films)",
+   "since": "ready",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "cm-ready-${nonce}"
+    },
+    {
+     "app_text_line": "cm-ready-${nonce}"
+    },
+    {
+     "frame_text": "cm-ready-${nonce}"
+    }
+   ]
+  },
+  {
    "do": "settings_file",
    "title": "set-up: shell #FF00FF (app theme Nord), terminal ground #00FFFF, tab strips #000000, agent ground #0000FF, no close warning, new columns share the strip, no hover cards",
    "set": {
@@ -57,47 +121,6 @@
      "newColumnWidth": "fitScreen"
     }
    }
-  },
-  {
-   "do": "smoke_ready",
-   "timeout": 60
-  },
-  {
-   "do": "smoke_make_key"
-  },
-  {
-   "do": "new_terminal",
-   "via": "key",
-   "name": "cm-a"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "name_pane",
-   "as": "home"
-  },
-  {
-   "do": "window_place",
-   "title": "set-up: the window at 90% x 90% of the screen",
-   "fraction": [
-    0.05,
-    0.05,
-    0.9,
-    0.9
-   ]
-  },
-  {
-   "do": "action",
-   "action": "workspace.newAtBottom",
-   "title": "set-up: a new workspace for the case"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "p0"
-  },
-  {
-   "do": "neutral_prompt"
   },
   {
    "do": "file",
