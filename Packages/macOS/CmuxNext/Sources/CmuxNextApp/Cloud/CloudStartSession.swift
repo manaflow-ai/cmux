@@ -439,11 +439,11 @@ struct CloudStartSession {
         _ = await CloudStartChat(services: services).passHarnessLogin(harness: agent, machine: session, codexPrompt: false, ask: login) // a scripted run never waits on a device code
         try still()
     }
-    /// `--from-folder`, checked from its words before anything starts: only this Mac's CLI or the person's own run, never
-    /// an agent's (it would copy without a card), absolute, never with `--cwd`, never home, above it or a credential folder.
+    /// `--from-folder`, checked before anything starts: only a CLI run on this Mac (`cli`, or `script` when piped, as
+    /// `start-chat` runs it) or the person's own, never an agent's, another client's or a page's; absolute, no `--cwd`, no home or credentials.
     static func fromFolder(_ invocation: ActionInvocation, cwd: String?, home: String = NSHomeDirectory()) throws -> String? {
         guard let text = invocation["fromFolder"]?.stringValue?.trimmingCharacters(in: .whitespaces), !text.isEmpty else { return nil }
-        guard !isAgent(invocation), [.cli, .user].contains(CloudHandlers.origin(of: invocation)) else { throw ActionFailure(message: CloudStartSessionStrings.fromFolderAgent) }
+        guard !isAgent(invocation), [.cli, .script].contains(CloudHandlers.origin(of: invocation)) || isPersons(invocation) else { throw ActionFailure(message: CloudStartSessionStrings.fromFolderAgent) }
         guard cwd == nil else { throw ActionFailure(message: CloudStartSessionStrings.fromFolderWithCwd) }
         guard text.utf8.count <= 4096, !text.unicodeScalars.contains(where: { $0.properties.generalCategory == .control }), let folder = CloudMoveFolder.normalized(text) else { throw ActionFailure(message: CloudStartSessionStrings.fromFolderInvalid) }
         if let refusal = AgentPaneCloudFolderRefusal.written(folder, home: home) { throw ActionFailure(message: Self.message(refusal, folder: folder)) }
