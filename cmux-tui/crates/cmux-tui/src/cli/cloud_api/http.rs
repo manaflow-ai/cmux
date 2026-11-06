@@ -33,7 +33,11 @@ pub(in crate::cli) enum Failure {
         trace_id: Option<String>,
     },
     /// A refusal a paid plan lifts (`pro` or `max`).
-    PlanRequired { message: Option<String>, upgrade_url: Option<String>, plan: String },
+    PlanRequired {
+        message: Option<String>,
+        upgrade_url: Option<String>,
+        plan: String,
+    },
     Decoding(String),
 }
 
@@ -181,8 +185,11 @@ impl Http {
             Ok(Ok(response)) => response,
         };
         let status = response.status().as_u16();
-        let header_code =
-            response.headers().get("x-cmux-vm-error").and_then(|v| v.to_str().ok()).map(str::to_owned);
+        let header_code = response
+            .headers()
+            .get("x-cmux-vm-error")
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned);
         let body = match tokio::time::timeout(timeout, response.bytes()).await {
             Err(_) => return Err(Failure::TimedOut(path.to_owned())),
             Ok(Err(e)) if e.is_timeout() => return Err(Failure::TimedOut(path.to_owned())),
@@ -254,15 +261,10 @@ pub(super) fn base_url(raw: &str) -> Result<reqwest::Url, String> {
 /// message, action, traceId, ui: {message, traceId}}`, or the Worker's nested `{ok: false,
 /// error: {code, message}}`); a refusal a paid plan lifts is [`Failure::PlanRequired`].
 pub(super) fn vm_error(status: u16, body: &[u8], header_code: Option<&str>) -> Failure {
-    let object: Option<Map<String, Value>> = serde_json::from_slice::<Value>(body)
-        .ok()
-        .and_then(|v| v.as_object().cloned());
+    let object: Option<Map<String, Value>> =
+        serde_json::from_slice::<Value>(body).ok().and_then(|v| v.as_object().cloned());
     let field = |value: Option<&Value>| {
-        value
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(str::to_owned)
+        value.and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned)
     };
     let get = |name: &str| object.as_ref().and_then(|o| o.get(name));
     let ui = get("ui").and_then(Value::as_object);
@@ -312,6 +314,7 @@ fn upgrade_url(object: &Map<String, Value>) -> Option<String> {
 /// The Worker's refusal: `{error: {code, message}}`.
 pub(super) fn worker_error(status: u16, body: Option<&Value>) -> Failure {
     let error = body.and_then(|b| b.get("error"));
-    let text = |name: &str| error.and_then(|e| e.get(name)).and_then(Value::as_str).map(str::to_owned);
+    let text =
+        |name: &str| error.and_then(|e| e.get(name)).and_then(Value::as_str).map(str::to_owned);
     Failure::http(status, text("code"), text("message"))
 }

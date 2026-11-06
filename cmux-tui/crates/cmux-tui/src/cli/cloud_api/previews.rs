@@ -5,7 +5,11 @@ use serde_json::{Map, Value, json};
 
 use super::{Failure, Request, optional_int, text};
 
-pub(super) async fn run(request: &Request, call: &str, args: &Map<String, Value>) -> Result<Value, Failure> {
+pub(super) async fn run(
+    request: &Request,
+    call: &str,
+    args: &Map<String, Value>,
+) -> Result<Value, Failure> {
     super::http::base_url(&request.api).map_err(Failure::Transport)?;
     let _ = rustls::crypto::ring::default_provider().install_default();
     let client = cmux_cloud_client::client(
@@ -17,19 +21,27 @@ pub(super) async fn run(request: &Request, call: &str, args: &Map<String, Value>
     .map_err(|e| Failure::Transport(e.to_string()))?;
     let machine = text(args, "machine")?;
     let answer = match call {
-        "previews.refresh" => client.cloud_previews_refresh(machine).await.map(|r| json!(r.into_inner())),
+        "previews.refresh" => {
+            client.cloud_previews_refresh(machine).await.map(|r| json!(r.into_inner()))
+        }
         "previews.create_link" => {
             let port = port(args)?;
             let body = cmux_cloud_client::types::CloudPreviewsCreateLinkBody {
                 expires_at: optional_int(args, "expiresAt"),
                 max_uses: optional_int(args, "maxUses"),
             };
-            client.cloud_previews_create_link(machine, &port, &body).await.map(|r| json!(r.into_inner()))
+            client
+                .cloud_previews_create_link(machine, &port, &body)
+                .await
+                .map(|r| json!(r.into_inner()))
         }
         "previews.revoke_link" => {
             let port = port(args)?;
             let link = text(args, "linkId")?;
-            client.cloud_previews_revoke_link(machine, &port, link).await.map(|r| json!(r.into_inner()))
+            client
+                .cloud_previews_revoke_link(machine, &port, link)
+                .await
+                .map(|r| json!(r.into_inner()))
         }
         other => return Err(Failure::Transport(format!("no cloud api call {other:?}"))),
     };

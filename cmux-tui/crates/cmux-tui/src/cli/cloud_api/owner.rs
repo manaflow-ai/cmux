@@ -50,17 +50,27 @@ pub(super) fn is_session_id(id: &str) -> bool {
     all(id, 128, |b| id_byte(b) || b == b'.' || b == b':')
 }
 
-pub(super) async fn run(http: &Http, call: &str, args: &Map<String, Value>) -> Result<Value, Failure> {
+pub(super) async fn run(
+    http: &Http,
+    call: &str,
+    args: &Map<String, Value>,
+) -> Result<Value, Failure> {
     match call {
         "owner.acpmux_person_holds" => {
             let machine = machine(args)?;
             let body = json!({ "nonce": text(args, "nonce")? });
             let segments = ["v1", "cloud", "machines", machine, "acpmux", "person-holds"];
-            let value = post_value(http, &segments, Body::Json(body), Duration::from_secs(40)).await?;
+            let value =
+                post_value(http, &segments, Body::Json(body), Duration::from_secs(40)).await?;
             let read = |name: &str| value.get(name).and_then(Value::as_str).map(str::to_owned);
             match (read("instance"), read("proof")) {
-                (Some(instance), Some(proof)) => Ok(json!({ "instance": instance, "proof": proof })),
-                _ => Err(Failure::Decoding(format!("{}: no instance and proof", path_text(&segments)))),
+                (Some(instance), Some(proof)) => {
+                    Ok(json!({ "instance": instance, "proof": proof }))
+                }
+                _ => Err(Failure::Decoding(format!(
+                    "{}: no instance and proof",
+                    path_text(&segments)
+                ))),
             }
         }
         "owner.fork_run" => fork_run(http, args).await,
@@ -74,7 +84,8 @@ pub(super) async fn run(http: &Http, call: &str, args: &Map<String, Value>) -> R
                 .clamp(0, HANDOFF_WAIT_LIMIT_MS);
             let after = optional_int(args, "after").unwrap_or(0).max(0);
             let query = [("after", after.to_string()), ("timeoutMs", held.to_string())];
-            let timeout = Duration::from_millis(u64::try_from(held).unwrap_or(0)) + Duration::from_secs(15);
+            let timeout =
+                Duration::from_millis(u64::try_from(held).unwrap_or(0)) + Duration::from_secs(15);
             get(http, &["v1", "handoffs", id, "wait"], &query, timeout).await
         }
         "owner.handoffs" => handoffs(http, optional_int(args, "pages").unwrap_or(20)).await,
@@ -86,7 +97,12 @@ pub(super) async fn run(http: &Http, call: &str, args: &Map<String, Value>) -> R
             if !all(machine, 64, id_byte) {
                 return Err(Failure::Transport("not a Cloud machine id".into()));
             }
-            handoff_post(http, &["v1", "handoffs"], json!({ "sessionId": session, "machine": machine })).await
+            handoff_post(
+                http,
+                &["v1", "handoffs"],
+                json!({ "sessionId": session, "machine": machine }),
+            )
+            .await
         }
         "owner.handoff_begin_turn" => {
             let id = text(args, "id")?;
@@ -97,7 +113,9 @@ pub(super) async fn run(http: &Http, call: &str, args: &Map<String, Value>) -> R
             handoff_post(http, &["v1", "handoffs", id, "turns"], json!({ "after": after })).await
         }
         "owner.harness_login_copy" => {
-            let body = get(http, &["v1", "cloud", "harness-login-copy"], &[], Duration::from_secs(5)).await?;
+            let body =
+                get(http, &["v1", "cloud", "harness-login-copy"], &[], Duration::from_secs(5))
+                    .await?;
             harness_login_copy(&body)
         }
         "owner.github_app" => github_app(http, text(args, "team")?).await,
@@ -108,7 +126,11 @@ pub(super) async fn run(http: &Http, call: &str, args: &Map<String, Value>) -> R
 fn machine(args: &Map<String, Value>) -> Result<&str, Failure> {
     let machine = text(args, "machine")?;
     // The machine id is the only path part that varies; anything else is refused before a request.
-    if is_machine_id(machine) { Ok(machine) } else { Err(Failure::Transport("not a Cloud machine id".into())) }
+    if is_machine_id(machine) {
+        Ok(machine)
+    } else {
+        Err(Failure::Transport("not a Cloud machine id".into()))
+    }
 }
 
 /// `POST /v1/cloud/machines/{machine}/acpmux/keyed-start`: restarts the machine's acpmux with
@@ -135,9 +157,15 @@ pub(super) async fn keyed_start(
 }
 
 /// A POST answered `{ok: true, value}` (anything else is the route's refusal).
-async fn post_value(http: &Http, segments: &[&str], body: Body, timeout: Duration) -> Result<Value, Failure> {
+async fn post_value(
+    http: &Http,
+    segments: &[&str],
+    body: Body,
+    timeout: Duration,
+) -> Result<Value, Failure> {
     let path = path_text(segments);
-    let reply = http.send(Method::POST, http.url(segments, &[]), Some(body), None, timeout, &path).await?;
+    let reply =
+        http.send(Method::POST, http.url(segments, &[]), Some(body), None, timeout, &path).await?;
     let object = reply.json();
     match object.as_ref().filter(|_| reply.ok()) {
         Some(o) if o.get("ok") == Some(&Value::Bool(true)) && o.get("value").is_some() => {
@@ -148,9 +176,15 @@ async fn post_value(http: &Http, segments: &[&str], body: Body, timeout: Duratio
 }
 
 /// A GET whose 2xx body is answered as sent.
-async fn get(http: &Http, segments: &[&str], query: &[(&str, String)], timeout: Duration) -> Result<Value, Failure> {
+async fn get(
+    http: &Http,
+    segments: &[&str],
+    query: &[(&str, String)],
+    timeout: Duration,
+) -> Result<Value, Failure> {
     let path = path_text(segments);
-    let reply = http.send(Method::GET, http.url(segments, query), None, None, timeout, &path).await?;
+    let reply =
+        http.send(Method::GET, http.url(segments, query), None, None, timeout, &path).await?;
     if !reply.ok() {
         return Err(worker_error(reply.status, reply.json().as_ref()));
     }
@@ -170,7 +204,8 @@ async fn fork_run(http: &Http, args: &Map<String, Value>) -> Result<Value, Failu
     });
     let segments = ["v1", "workspaces", workspace, "fork-runs"];
     let value = post_value(http, &segments, Body::Json(body), Duration::from_secs(180)).await?;
-    fork_children(value).ok_or_else(|| Failure::Decoding(format!("{}: no children", path_text(&segments))))
+    fork_children(value)
+        .ok_or_else(|| Failure::Decoding(format!("{}: no children", path_text(&segments))))
 }
 
 /// The children of a fork run's value, each `{id, harness, state, machineId?, error?}`.
@@ -232,7 +267,14 @@ async fn handoffs(http: &Http, pages: i64) -> Result<Value, Failure> {
 async fn handoff_post(http: &Http, segments: &[&str], body: Value) -> Result<Value, Failure> {
     let path = path_text(segments);
     let reply = http
-        .send(Method::POST, http.url(segments, &[]), Some(Body::Json(body)), None, Duration::from_secs(20), &path)
+        .send(
+            Method::POST,
+            http.url(segments, &[]),
+            Some(Body::Json(body)),
+            None,
+            Duration::from_secs(20),
+            &path,
+        )
         .await?;
     let object = reply.json();
     let code = object
@@ -269,9 +311,10 @@ pub(super) fn handoff_turn(handoff: &Value) -> Option<Value> {
 /// clamped to 0..=300.
 pub(super) fn harness_login_copy(body: &Value) -> Result<Value, Failure> {
     let read = |v: &Value| Some((v.get("enabled")?.as_bool()?, v.get("ttlSeconds")?.as_i64()?));
-    let (enabled, ttl) = read(body)
-        .or_else(|| body.get("value").and_then(read))
-        .ok_or_else(|| Failure::Decoding("/v1/cloud/harness-login-copy: no enabled and ttlSeconds".into()))?;
+    let (enabled, ttl) =
+        read(body).or_else(|| body.get("value").and_then(read)).ok_or_else(|| {
+            Failure::Decoding("/v1/cloud/harness-login-copy: no enabled and ttlSeconds".into())
+        })?;
     Ok(json!({ "enabled": enabled, "ttlSeconds": ttl.clamp(0, HARNESS_LOGIN_COPY_MAX_TTL) }))
 }
 
@@ -287,7 +330,9 @@ async fn github_app(http: &Http, team: &str) -> Result<Value, Failure> {
     }
     let segments = ["v1", "integrations", "github", "status"];
     let url = http.url(&segments, &[("team", team.to_owned())]);
-    let reply = http.send(Method::GET, url, None, None, Duration::from_secs(15), &path_text(&segments)).await;
+    let reply = http
+        .send(Method::GET, url, None, None, Duration::from_secs(15), &path_text(&segments))
+        .await;
     let state = match reply {
         Ok(reply) => github_app_state(reply.status, reply.json().as_ref()),
         Err(_) => "unknown",
@@ -303,7 +348,9 @@ pub(super) fn github_app_state(status: u16, body: Option<&Value>) -> &'static st
         let code = object.get("error").and_then(|e| e.get("code")).and_then(Value::as_str);
         return if code == Some("integration.not_found") { "not_connected" } else { "unknown" };
     }
-    let Some(configured) = object.get("configured").and_then(Value::as_bool) else { return "unknown" };
+    let Some(configured) = object.get("configured").and_then(Value::as_bool) else {
+        return "unknown";
+    };
     if !configured {
         return "not_configured";
     }
@@ -317,6 +364,7 @@ pub(super) fn github_app_state(status: u16, body: Option<&Value>) -> &'static st
     if object.get("allowed") == Some(&Value::Bool(false)) {
         return "unknown";
     }
-    let active = object.get("connection").and_then(|c| c.get("status")).and_then(Value::as_str) == Some("active");
+    let active = object.get("connection").and_then(|c| c.get("status")).and_then(Value::as_str)
+        == Some("active");
     if active { "ready" } else { "not_connected" }
 }

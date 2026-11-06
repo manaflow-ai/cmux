@@ -57,7 +57,8 @@ fn route_path(machine: &str, op: &str) -> String {
 /// A machine-io line (`{route, status, code, body}`): the body of a 2xx, else what the route's
 /// refusal says. Status 0 is no answer at all (`code` says why: `timed_out` or `transport`).
 pub(super) fn read(line: &Value, path: &str) -> Result<Value, Failure> {
-    let status = line.get("status").and_then(Value::as_u64).and_then(|s| u16::try_from(s).ok()).unwrap_or(0);
+    let status =
+        line.get("status").and_then(Value::as_u64).and_then(|s| u16::try_from(s).ok()).unwrap_or(0);
     let code = line.get("code").and_then(Value::as_str);
     let body = line.get("body").cloned().unwrap_or(Value::Null);
     match status {
@@ -78,22 +79,80 @@ pub(super) async fn classic(http: &Http, args: &Map<String, Value>) -> Result<Va
             let ms = optional_int(args, "timeout_ms").unwrap_or(30_000);
             let body = json!({ "command": text(args, "command")?, "timeoutMs": ms });
             let timeout = Duration::from_millis(u64::try_from(ms.max(0)).unwrap_or(0)) + secs(5);
-            http.classic(Method::POST, &["api", "vm", id, "exec"], &[], Some(body), None, timeout).await
+            http.classic(Method::POST, &["api", "vm", id, "exec"], &[], Some(body), None, timeout)
+                .await
         }
-        "dir" => http.classic(Method::GET, &["api", "vm", id, "fs", "dir"], &path()?, None, None, secs(20)).await,
-        "read" => http.classic(Method::GET, &["api", "vm", id, "fs", "read"], &path()?, None, None, secs(120)).await,
-        "stat" => http.classic(Method::GET, &["api", "vm", id, "fs", "stat"], &path()?, None, None, secs(20)).await,
-        "remove" => http.classic(Method::DELETE, &["api", "vm", id, "fs", "remove"], &path()?, None, None, secs(120)).await,
+        "dir" => {
+            http.classic(
+                Method::GET,
+                &["api", "vm", id, "fs", "dir"],
+                &path()?,
+                None,
+                None,
+                secs(20),
+            )
+            .await
+        }
+        "read" => {
+            http.classic(
+                Method::GET,
+                &["api", "vm", id, "fs", "read"],
+                &path()?,
+                None,
+                None,
+                secs(120),
+            )
+            .await
+        }
+        "stat" => {
+            http.classic(
+                Method::GET,
+                &["api", "vm", id, "fs", "stat"],
+                &path()?,
+                None,
+                None,
+                secs(20),
+            )
+            .await
+        }
+        "remove" => {
+            http.classic(
+                Method::DELETE,
+                &["api", "vm", id, "fs", "remove"],
+                &path()?,
+                None,
+                None,
+                secs(120),
+            )
+            .await
+        }
         "mkdir" => {
             let body = json!({ "path": text(args, "path")? });
-            http.classic(Method::POST, &["api", "vm", id, "fs", "mkdir"], &[], Some(body), None, secs(20)).await
+            http.classic(
+                Method::POST,
+                &["api", "vm", id, "fs", "mkdir"],
+                &[],
+                Some(body),
+                None,
+                secs(20),
+            )
+            .await
         }
         "write" => {
-            let mut body = json!({ "path": text(args, "path")?, "dataBase64": text(args, "data_base64")? });
+            let mut body =
+                json!({ "path": text(args, "path")?, "dataBase64": text(args, "data_base64")? });
             if let Some(mode) = optional_int(args, "mode") {
                 body["mode"] = json!(mode);
             }
-            http.classic(Method::POST, &["api", "vm", id, "fs", "write"], &[], Some(body), None, secs(120)).await
+            http.classic(
+                Method::POST,
+                &["api", "vm", id, "fs", "write"],
+                &[],
+                Some(body),
+                None,
+                secs(120),
+            )
+            .await
         }
         other => Err(Failure::Transport(format!("no machine op {other:?}"))),
     }

@@ -35,8 +35,15 @@ pub(super) async fn create(http: &Http, args: &Map<String, Value>) -> Result<Val
         body["timeoutMs"] = json!(ms);
     }
     let key = text(args, "idempotencyKey")?;
-    http.classic(Method::POST, &["api", "runs"], &[], Some(body), Some(key), Duration::from_secs(20))
-        .await
+    http.classic(
+        Method::POST,
+        &["api", "runs"],
+        &[],
+        Some(body),
+        Some(key),
+        Duration::from_secs(20),
+    )
+    .await
 }
 
 /// [`create`], sent once more when its answer was lost. A create that failed that way may have
@@ -44,9 +51,9 @@ pub(super) async fn create(http: &Http, args: &Map<String, Value>) -> Result<Val
 /// refusal the caller could take as "nothing runs"). Answers the created Run, which has an id.
 pub(super) async fn start(http: &Http, args: &Map<String, Value>) -> Result<Value, Failure> {
     let created = match create(http, args).await {
-        Err(Failure::Transport(_) | Failure::TimedOut(_)) => create(http, args)
-            .await
-            .map_err(|_| Failure::TimedOut("/api/runs".into()))?,
+        Err(Failure::Transport(_) | Failure::TimedOut(_)) => {
+            create(http, args).await.map_err(|_| Failure::TimedOut("/api/runs".into()))?
+        }
         other => other?,
     };
     match created.get("id").and_then(Value::as_str) {
@@ -66,15 +73,29 @@ pub(super) async fn wait(http: &Http, args: &Map<String, Value>) -> Result<Value
 async fn wait_once(http: &Http, id: &str, ms: i64) -> Result<Value, Failure> {
     let held = ms.clamp(0, WAIT_LIMIT_MS);
     let query = [("timeoutMs", held.to_string())];
-    http.classic(Method::GET, &["api", "runs", id, "wait"], &query, None, None, millis(held + 10_000))
-        .await
+    http.classic(
+        Method::GET,
+        &["api", "runs", id, "wait"],
+        &query,
+        None,
+        None,
+        millis(held + 10_000),
+    )
+    .await
 }
 
 /// `POST /api/runs/:id/cancel`: a sandbox's VM is destroyed before it answers.
 pub(super) async fn cancel(http: &Http, args: &Map<String, Value>) -> Result<Value, Failure> {
     let id = text(args, "id")?;
-    http.classic(Method::POST, &["api", "runs", id, "cancel"], &[], None, None, Duration::from_secs(60))
-        .await
+    http.classic(
+        Method::POST,
+        &["api", "runs", id, "cancel"],
+        &[],
+        None,
+        None,
+        Duration::from_secs(60),
+    )
+    .await
 }
 
 /// One sandboxed Run to its end: [`start`], then waits of 10 s until the snapshot carries its
@@ -96,7 +117,11 @@ pub(super) async fn sandbox(http: &Http, args: &Map<String, Value>) -> Result<Va
         .unwrap_or_else(|_| Err(Failure::TimedOut("/api/runs".into())))
 }
 
-async fn follow(http: &Http, args: &Map<String, Value>, deadline: Instant) -> Result<Value, Failure> {
+async fn follow(
+    http: &Http,
+    args: &Map<String, Value>,
+    deadline: Instant,
+) -> Result<Value, Failure> {
     let created = start(http, args).await?;
     let id = created.get("id").and_then(Value::as_str).unwrap_or_default().to_owned();
     let lost = || Failure::TimedOut(format!("/api/runs/{id}"));

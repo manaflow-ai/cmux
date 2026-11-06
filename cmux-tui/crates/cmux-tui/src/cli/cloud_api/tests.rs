@@ -41,7 +41,9 @@ impl Seen {
 /// `(status, body)`, or `None` to drop the connection without an answer.
 type Reply = Option<(u16, String)>;
 
-fn fake(handler: impl Fn(&Seen) -> Reply + Send + Sync + 'static) -> (String, Arc<Mutex<Vec<Seen>>>) {
+fn fake(
+    handler: impl Fn(&Seen) -> Reply + Send + Sync + 'static,
+) -> (String, Arc<Mutex<Vec<Seen>>>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
     let seen = Arc::new(Mutex::new(Vec::new()));
@@ -71,9 +73,10 @@ fn fake(handler: impl Fn(&Seen) -> Reply + Send + Sync + 'static) -> (String, Ar
                     break (String::from_utf8_lossy(&buffer).to_string(), Vec::new());
                 }
             };
-            let (line, headers) = head
-                .split_once("\r\n")
-                .map_or((head.clone(), String::new()), |(l, h)| (l.to_owned(), h.to_ascii_lowercase()));
+            let (line, headers) =
+                head.split_once("\r\n").map_or((head.clone(), String::new()), |(l, h)| {
+                    (l.to_owned(), h.to_ascii_lowercase())
+                });
             let request = Seen { line, headers, body };
             let reply = handler(&request);
             log.lock().unwrap().push(request);
@@ -148,21 +151,37 @@ fn a_credits_top_up_and_a_paid_plans_limit_stay_http_refusals() {
     let top_up = br#"{"error":"vm_create_credits_insufficient","message":"You are out of Cloud credits.","upgradeRequired":true,"upgradePlanId":"max"}"#;
     assert_eq!(
         vm_error(402, top_up, None),
-        Failure::http(402, Some("vm_create_credits_insufficient".into()), Some("You are out of Cloud credits.".into()))
+        Failure::http(
+            402,
+            Some("vm_create_credits_insufficient".into()),
+            Some("You are out of Cloud credits.".into())
+        )
     );
     let limit = br#"{"error":"vm_active_limit_exceeded","message":"This plan allows 3 active Cloud VMs at a time.","limit":3}"#;
     assert_eq!(
         vm_error(402, limit, None),
-        Failure::http(402, Some("vm_active_limit_exceeded".into()), Some("This plan allows 3 active Cloud VMs at a time.".into()))
+        Failure::http(
+            402,
+            Some("vm_active_limit_exceeded".into()),
+            Some("This plan allows 3 active Cloud VMs at a time.".into())
+        )
     );
 }
 
 #[test]
 fn an_upgrade_url_off_cmux_com_or_a_plan_not_sold_here_is_not_kept() {
-    let elsewhere = br#"{"error":"x","upgradeRequired":true,"upgradeUrl":"https://evil.example/pricing"}"#;
-    assert!(matches!(vm_error(402, elsewhere, None), Failure::PlanRequired { upgrade_url: None, .. }));
-    let plain_http = br#"{"error":"x","upgradeRequired":true,"upgradeUrl":"http://cmux.com/pricing"}"#;
-    assert!(matches!(vm_error(402, plain_http, None), Failure::PlanRequired { upgrade_url: None, .. }));
+    let elsewhere =
+        br#"{"error":"x","upgradeRequired":true,"upgradeUrl":"https://evil.example/pricing"}"#;
+    assert!(matches!(
+        vm_error(402, elsewhere, None),
+        Failure::PlanRequired { upgrade_url: None, .. }
+    ));
+    let plain_http =
+        br#"{"error":"x","upgradeRequired":true,"upgradeUrl":"http://cmux.com/pricing"}"#;
+    assert!(matches!(
+        vm_error(402, plain_http, None),
+        Failure::PlanRequired { upgrade_url: None, .. }
+    ));
     let team = br#"{"error":"x","upgradeRequired":true,"upgradePlanId":"team"}"#;
     assert!(matches!(vm_error(402, team, None), Failure::Http { .. }));
 }
@@ -191,7 +210,8 @@ fn the_action_and_trace_id_follow_the_message() {
 
 #[test]
 fn a_worker_refusal_names_its_nested_code_and_the_header_code_wins() {
-    let body = br#"{"ok":false,"error":{"code":"machine.not_running","message":"Start it first."}}"#;
+    let body =
+        br#"{"ok":false,"error":{"code":"machine.not_running","message":"Start it first."}}"#;
     assert_eq!(
         vm_error(409, body, None),
         Failure::http(409, Some("machine.not_running".into()), Some("Start it first.".into()))
@@ -205,7 +225,8 @@ fn a_worker_refusal_names_its_nested_code_and_the_header_code_wins() {
 #[test]
 fn classic_calls_send_the_stack_session_and_the_team() {
     let (origin, seen) = fake(|_| ok(r#"{"snapshots":[{"id":"s-1"}]}"#));
-    let answer = go(&request(&origin, Auth::Stack, "vm.snapshots", json!({ "id": "vm-1" }))).unwrap();
+    let answer =
+        go(&request(&origin, Auth::Stack, "vm.snapshots", json!({ "id": "vm-1" }))).unwrap();
     assert_eq!(answer, json!([{ "id": "s-1" }]));
     let seen = seen.lock().unwrap();
     assert_eq!(seen[0].target(), "GET /api/vm/vm-1/snapshots");
@@ -259,11 +280,21 @@ fn provision_and_the_api_key_routes_address_the_publication_and_key() {
     let args = json!({ "vmId": "vm-1", "port": 3000, "keyName": "agent" });
     let provisioned = go(&request(&origin, Auth::Stack, "vm.provision_api", args)).unwrap();
     assert_eq!(provisioned["token"], "cmux_api_secret");
-    let keys = go(&request(&origin, Auth::Stack, "vm.publication_api_keys",
-        json!({ "publication": "hello--owner--3000.cmux.sh" }))).unwrap();
+    let keys = go(&request(
+        &origin,
+        Auth::Stack,
+        "vm.publication_api_keys",
+        json!({ "publication": "hello--owner--3000.cmux.sh" }),
+    ))
+    .unwrap();
     assert_eq!(keys, json!([{ "id": "key-1" }]));
-    let revoked = go(&request(&origin, Auth::Stack, "vm.revoke_publication_api_key",
-        json!({ "publication": "pub/1", "keyId": "key-1" }))).unwrap();
+    let revoked = go(&request(
+        &origin,
+        Auth::Stack,
+        "vm.revoke_publication_api_key",
+        json!({ "publication": "pub/1", "keyId": "key-1" }),
+    ))
+    .unwrap();
     assert_eq!(revoked["revokedAt"], "2026-10-26T12:05:00.000Z");
     let seen = seen.lock().unwrap();
     assert_eq!(seen[0].target(), "POST /api/vm/apis");
@@ -277,12 +308,20 @@ fn provision_and_the_api_key_routes_address_the_publication_and_key() {
 fn firewall_and_tunnel_queries_are_encoded_and_the_purpose_defaults_to_browser() {
     let (origin, seen) = fake(|_| ok(r#"{"rules":[]}"#));
     go(&request(&origin, Auth::Stack, "vm.firewall_list", json!({ "vmId": "vm 1&x=y" }))).unwrap();
-    go(&request(&origin, Auth::Stack, "vm.tunnel_attach",
-        json!({ "deviceFingerprint": "fp", "networkId": "net-1" }))).unwrap();
+    go(&request(
+        &origin,
+        Auth::Stack,
+        "vm.tunnel_attach",
+        json!({ "deviceFingerprint": "fp", "networkId": "net-1" }),
+    ))
+    .unwrap();
     let seen = seen.lock().unwrap();
     assert_eq!(seen[0].target(), "GET /api/vm/firewall?vmId=vm+1%26x%3Dy");
     assert_eq!(seen[1].target(), "POST /api/vm/tunnel/network/attach");
-    assert_eq!(seen[1].json(), json!({ "deviceFingerprint": "fp", "networkId": "net-1", "tunnelPurpose": "browser" }));
+    assert_eq!(
+        seen[1].json(),
+        json!({ "deviceFingerprint": "fp", "networkId": "net-1", "tunnelPurpose": "browser" })
+    );
 }
 
 #[test]
@@ -292,7 +331,11 @@ fn an_scp_endpoint_is_used_only_when_it_is_safe() {
     let snake = json!({ "port": 22, "username": "cmux", "host_public_key": "ssh-ed25519 AAA", "expires_at_unix": 2000 });
     assert!(classic::safe_scp_endpoint(&snake, 1000));
     assert!(!classic::safe_scp_endpoint(&good, 2000));
-    for (field, bad) in [("port", json!(2222)), ("username", json!("root")), ("hostPublicKey", json!("ssh-rsa AAA"))] {
+    for (field, bad) in [
+        ("port", json!(2222)),
+        ("username", json!("root")),
+        ("hostPublicKey", json!("ssh-rsa AAA")),
+    ] {
         let mut endpoint = good.clone();
         endpoint[field] = bad;
         assert!(!classic::safe_scp_endpoint(&endpoint, 1000), "{field}");
@@ -305,25 +348,45 @@ fn an_scp_endpoint_is_used_only_when_it_is_safe() {
 fn a_create_sends_the_key_and_a_wait_is_capped_at_the_server_bound() {
     let (origin, seen) = fake(|s| {
         if s.line.contains("/wait") {
-            ok(r#"{"run":{"id":"run-1","status":"succeeded"},"receipt":{"schema":"cmux.run.receipt/v1"}}"#)
+            ok(
+                r#"{"run":{"id":"run-1","status":"succeeded"},"receipt":{"schema":"cmux.run.receipt/v1"}}"#,
+            )
         } else {
             Some((202, r#"{"id":"run-1","status":"queued"}"#.into()))
         }
     });
-    let created = go(&request(&origin, Auth::Stack, "runs.create",
-        json!({ "task": "hi", "agent": "claude", "idempotencyKey": "key-1" }))).unwrap();
+    let created = go(&request(
+        &origin,
+        Auth::Stack,
+        "runs.create",
+        json!({ "task": "hi", "agent": "claude", "idempotencyKey": "key-1" }),
+    ))
+    .unwrap();
     assert_eq!(created["id"], "run-1");
-    let waited = go(&request(&origin, Auth::Stack, "runs.wait", json!({ "id": "run-1", "timeoutMs": 60000 }))).unwrap();
+    let waited = go(&request(
+        &origin,
+        Auth::Stack,
+        "runs.wait",
+        json!({ "id": "run-1", "timeoutMs": 60000 }),
+    ))
+    .unwrap();
     assert_eq!(waited["receipt"]["schema"], "cmux.run.receipt/v1");
     let seen = seen.lock().unwrap();
     assert_eq!(seen[0].target(), "POST /api/runs");
     assert_eq!(seen[0].header("idempotency-key").as_deref(), Some("key-1"));
-    assert_eq!(seen[0].json(), json!({ "environment": "sandboxed", "task": "hi", "agent": "claude" }));
+    assert_eq!(
+        seen[0].json(),
+        json!({ "environment": "sandboxed", "task": "hi", "agent": "claude" })
+    );
     assert_eq!(seen[1].target(), "GET /api/runs/run-1/wait?timeoutMs=10000");
 }
 
 /// A Run API that answers `running` `finish_after` times, then the receipt; drops `drop` creates.
-fn sandbox_api(finish_after: usize, drop: usize, malformed: bool) -> (String, Arc<Mutex<Vec<Seen>>>) {
+fn sandbox_api(
+    finish_after: usize,
+    drop: usize,
+    malformed: bool,
+) -> (String, Arc<Mutex<Vec<Seen>>>) {
     let waits = Arc::new(Mutex::new(0_usize));
     let drops = Arc::new(Mutex::new(drop));
     fake(move |s| {
@@ -340,7 +403,9 @@ fn sandbox_api(finish_after: usize, drop: usize, malformed: bool) -> (String, Ar
         if malformed {
             ok(r#"{"error":"internal"}"#)
         } else if *waits > finish_after {
-            ok(r#"{"run":{"id":"run-9","status":"succeeded"},"receipt":{"status":"succeeded","reply":"done"}}"#)
+            ok(
+                r#"{"run":{"id":"run-9","status":"succeeded"},"receipt":{"status":"succeeded","reply":"done"}}"#,
+            )
         } else {
             ok(r#"{"run":{"id":"run-9","status":"running"},"receipt":null}"#)
         }
@@ -348,7 +413,12 @@ fn sandbox_api(finish_after: usize, drop: usize, malformed: bool) -> (String, Ar
 }
 
 fn creates(seen: &Arc<Mutex<Vec<Seen>>>) -> Vec<Option<String>> {
-    seen.lock().unwrap().iter().filter(|s| s.target() == "POST /api/runs").map(|s| s.header("idempotency-key")).collect()
+    seen.lock()
+        .unwrap()
+        .iter()
+        .filter(|s| s.target() == "POST /api/runs")
+        .map(|s| s.header("idempotency-key"))
+        .collect()
 }
 
 fn waits(seen: &Arc<Mutex<Vec<Seen>>>) -> usize {
@@ -358,8 +428,13 @@ fn waits(seen: &Arc<Mutex<Vec<Seen>>>) -> usize {
 #[test]
 fn run_sandbox_waits_until_the_receipt_then_answers_the_snapshot() {
     let (origin, seen) = sandbox_api(2, 0, false);
-    let snapshot = go(&request(&origin, Auth::Stack, "runs.sandbox",
-        json!({ "task": "hi", "timeoutMs": 60000, "idempotencyKey": "k" }))).unwrap();
+    let snapshot = go(&request(
+        &origin,
+        Auth::Stack,
+        "runs.sandbox",
+        json!({ "task": "hi", "timeoutMs": 60000, "idempotencyKey": "k" }),
+    ))
+    .unwrap();
     assert_eq!(snapshot["receipt"]["reply"], "done");
     assert_eq!(waits(&seen), 3);
 }
@@ -367,8 +442,13 @@ fn run_sandbox_waits_until_the_receipt_then_answers_the_snapshot() {
 #[test]
 fn a_create_whose_answer_was_lost_is_sent_once_more_under_the_same_key() {
     let (origin, seen) = sandbox_api(0, 1, false);
-    let snapshot = go(&request(&origin, Auth::Stack, "runs.sandbox",
-        json!({ "task": "hi", "timeoutMs": 60000, "idempotencyKey": "send-1" }))).unwrap();
+    let snapshot = go(&request(
+        &origin,
+        Auth::Stack,
+        "runs.sandbox",
+        json!({ "task": "hi", "timeoutMs": 60000, "idempotencyKey": "send-1" }),
+    ))
+    .unwrap();
     assert_eq!(snapshot["receipt"]["reply"], "done");
     assert_eq!(creates(&seen), vec![Some("send-1".into()), Some("send-1".into())]);
     // One process, one credential: the retry goes with the first create's.
@@ -379,8 +459,13 @@ fn a_create_whose_answer_was_lost_is_sent_once_more_under_the_same_key() {
 #[test]
 fn a_retry_that_fails_after_an_uncertain_create_stays_uncertain() {
     let (origin, seen) = sandbox_api(0, 2, false);
-    let failure = go(&request(&origin, Auth::Stack, "runs.start",
-        json!({ "task": "hi", "timeoutMs": 60000, "idempotencyKey": "send-2" }))).unwrap_err();
+    let failure = go(&request(
+        &origin,
+        Auth::Stack,
+        "runs.start",
+        json!({ "task": "hi", "timeoutMs": 60000, "idempotencyKey": "send-2" }),
+    ))
+    .unwrap_err();
     assert_eq!(failure, Failure::TimedOut("/api/runs".into()));
     assert_eq!(creates(&seen), vec![Some("send-2".into()), Some("send-2".into())]);
 }
@@ -388,8 +473,13 @@ fn a_retry_that_fails_after_an_uncertain_create_stays_uncertain() {
 #[test]
 fn a_refused_create_is_not_sent_again() {
     let (origin, seen) = fake(|_| Some((403, r#"{"error":"run_sandbox_unavailable"}"#.into())));
-    let failure = go(&request(&origin, Auth::Stack, "runs.start",
-        json!({ "task": "hi", "idempotencyKey": "k" }))).unwrap_err();
+    let failure = go(&request(
+        &origin,
+        Auth::Stack,
+        "runs.start",
+        json!({ "task": "hi", "idempotencyKey": "k" }),
+    ))
+    .unwrap_err();
     assert_eq!(failure, Failure::http(403, Some("run_sandbox_unavailable".into()), None));
     assert_eq!(creates(&seen).len(), 1);
 }
@@ -397,8 +487,13 @@ fn a_refused_create_is_not_sent_again() {
 #[test]
 fn a_wait_answer_that_is_no_snapshot_ends_at_once() {
     let (origin, seen) = sandbox_api(usize::MAX, 0, true);
-    let failure = go(&request(&origin, Auth::Stack, "runs.sandbox",
-        json!({ "task": "hi", "timeoutMs": 60000, "idempotencyKey": "k" }))).unwrap_err();
+    let failure = go(&request(
+        &origin,
+        Auth::Stack,
+        "runs.sandbox",
+        json!({ "task": "hi", "timeoutMs": 60000, "idempotencyKey": "k" }),
+    ))
+    .unwrap_err();
     assert_eq!(failure, Failure::TimedOut("/api/runs/run-9".into()));
     assert_eq!(waits(&seen), 1);
 }
@@ -430,14 +525,25 @@ fn a_server_that_never_answers_still_ends_at_the_bound() {
 #[test]
 fn owner_calls_send_only_authorization_and_the_cmux_team() {
     let (origin, seen) = fake(|_| ok(r#"{"ok":true,"value":{"instance":"i-1","proof":"p-1"}}"#));
-    let answer = go(&request(&origin, Auth::Owner, "owner.acpmux_person_holds",
-        json!({ "machine": VM, "nonce": "n-1" }))).unwrap();
+    let answer = go(&request(
+        &origin,
+        Auth::Owner,
+        "owner.acpmux_person_holds",
+        json!({ "machine": VM, "nonce": "n-1" }),
+    ))
+    .unwrap();
     assert_eq!(answer, json!({ "instance": "i-1", "proof": "p-1" }));
     let seen = seen.lock().unwrap();
     assert_eq!(seen[0].target(), format!("POST /v1/cloud/machines/{VM}/acpmux/person-holds"));
     assert_eq!(seen[0].json(), json!({ "nonce": "n-1" }));
     assert_eq!(seen[0].header("x-cmux-team").as_deref(), Some("team-1"));
-    for absent in ["x-stack-refresh-token", "x-cmux-team-id", "x-cmux-client", "x-cmux-app-version", "idempotency-key"] {
+    for absent in [
+        "x-stack-refresh-token",
+        "x-cmux-team-id",
+        "x-cmux-client",
+        "x-cmux-app-version",
+        "idempotency-key",
+    ] {
         assert_eq!(seen[0].header(absent), None, "{absent}");
     }
 }
@@ -467,23 +573,57 @@ fn a_keyed_start_sends_the_key_bytes_as_the_body_only() {
 #[test]
 fn a_keyed_start_with_a_short_key_or_another_machine_id_sends_nothing() {
     let (origin, seen) = fake(|_| ok("{}"));
-    let short = request(&origin, Auth::Owner, "owner.acpmux_keyed_start", json!({ "machine": VM, "key_length": 10 }));
+    let short = request(
+        &origin,
+        Auth::Owner,
+        "owner.acpmux_keyed_start",
+        json!({ "machine": VM, "key_length": 10 }),
+    );
     assert!(matches!(go_with(&short, b"abc".to_vec()), Err(Failure::Transport(_))));
     for machine in ["vm_short", "../x", "vm_ABCDEFGHIJ0123456789"] {
-        let other = request(&origin, Auth::Owner, "owner.acpmux_keyed_start", json!({ "machine": machine, "key_length": 3 }));
-        assert_eq!(go_with(&other, b"abc".to_vec()), Err(Failure::Transport("not a Cloud machine id".into())));
+        let other = request(
+            &origin,
+            Auth::Owner,
+            "owner.acpmux_keyed_start",
+            json!({ "machine": machine, "key_length": 3 }),
+        );
+        assert_eq!(
+            go_with(&other, b"abc".to_vec()),
+            Err(Failure::Transport("not a Cloud machine id".into()))
+        );
     }
     assert!(seen.lock().unwrap().is_empty());
 }
 
 #[test]
 fn an_owner_refusal_reads_its_code_and_message() {
-    let (origin, _seen) = fake(|_| Some((409, r#"{"ok":false,"error":{"code":"cloud.acpmux.unsupported","message":"too old"}}"#.into())));
-    let failure = go(&request(&origin, Auth::Owner, "owner.acpmux_person_holds", json!({ "machine": VM, "nonce": "n" }))).unwrap_err();
-    assert_eq!(failure, Failure::http(409, Some("cloud.acpmux.unsupported".into()), Some("too old".into())));
+    let (origin, _seen) = fake(|_| {
+        Some((
+            409,
+            r#"{"ok":false,"error":{"code":"cloud.acpmux.unsupported","message":"too old"}}"#
+                .into(),
+        ))
+    });
+    let failure = go(&request(
+        &origin,
+        Auth::Owner,
+        "owner.acpmux_person_holds",
+        json!({ "machine": VM, "nonce": "n" }),
+    ))
+    .unwrap_err();
+    assert_eq!(
+        failure,
+        Failure::http(409, Some("cloud.acpmux.unsupported".into()), Some("too old".into()))
+    );
     // A 2xx without `ok: true` is no answer either.
     let (origin, _seen) = fake(|_| ok(r#"{"value":{"instance":"i","proof":"p"}}"#));
-    let failure = go(&request(&origin, Auth::Owner, "owner.acpmux_person_holds", json!({ "machine": VM, "nonce": "n" }))).unwrap_err();
+    let failure = go(&request(
+        &origin,
+        Auth::Owner,
+        "owner.acpmux_person_holds",
+        json!({ "machine": VM, "nonce": "n" }),
+    ))
+    .unwrap_err();
     assert_eq!(failure, Failure::http(200, None, None));
 }
 
@@ -502,17 +642,29 @@ fn a_fork_runs_children_read_from_a_list_an_object_or_one_child() {
 fn a_fork_run_refuses_a_workspace_that_is_no_id() {
     let (origin, seen) = fake(|_| ok("{}"));
     let args = json!({ "workspace": "ws/../x", "clientKey": "k", "sourceMachine": VM, "session": "s", "harnesses": ["claude"] });
-    assert_eq!(go(&request(&origin, Auth::Owner, "owner.fork_run", args)), Err(Failure::Transport("not a workspace id".into())));
+    assert_eq!(
+        go(&request(&origin, Auth::Owner, "owner.fork_run", args)),
+        Err(Failure::Transport("not a workspace id".into()))
+    );
     assert!(seen.lock().unwrap().is_empty());
 }
 
 #[test]
 fn a_handoff_wait_is_capped_and_its_body_answered_as_sent() {
-    let (origin, seen) = fake(|_| ok(r#"{"handoff":{"id":"ho_0123456789abcdef0123","version":3}}"#));
-    let answer = go(&request(&origin, Auth::Owner, "owner.handoff_wait",
-        json!({ "id": HANDOFF, "after": -4, "timeoutMs": 90000 }))).unwrap();
+    let (origin, seen) =
+        fake(|_| ok(r#"{"handoff":{"id":"ho_0123456789abcdef0123","version":3}}"#));
+    let answer = go(&request(
+        &origin,
+        Auth::Owner,
+        "owner.handoff_wait",
+        json!({ "id": HANDOFF, "after": -4, "timeoutMs": 90000 }),
+    ))
+    .unwrap();
     assert_eq!(answer["handoff"]["version"], 3);
-    assert_eq!(seen.lock().unwrap()[0].target(), format!("GET /v1/handoffs/{HANDOFF}/wait?after=0&timeoutMs=25000"));
+    assert_eq!(
+        seen.lock().unwrap()[0].target(),
+        format!("GET /v1/handoffs/{HANDOFF}/wait?after=0&timeoutMs=25000")
+    );
     let bad = go(&request(&origin, Auth::Owner, "owner.handoff_wait", json!({ "id": "ho_x" })));
     assert_eq!(bad, Err(Failure::Transport("not a hand-off id".into())));
 }
@@ -546,9 +698,17 @@ fn the_stores_handoff_is_read_and_its_machine_token_is_not() {
     let handoff = json!({ "id": HANDOFF, "sessionId": "s-1", "machine": VM, "turn": 2, "state": "open",
                           "status": "done", "machineToken": "cmm_secret" });
     let turn = handoff_turn(&handoff).unwrap();
-    assert_eq!(turn, json!({ "id": HANDOFF, "sessionId": "s-1", "machine": VM, "turn": 2, "state": "open", "status": "done" }));
+    assert_eq!(
+        turn,
+        json!({ "id": HANDOFF, "sessionId": "s-1", "machine": VM, "turn": 2, "state": "open", "status": "done" })
+    );
     assert!(!turn.to_string().contains("cmm_secret"));
-    for (field, bad) in [("id", json!("ho_1")), ("turn", json!(0)), ("state", json!("gone")), ("status", json!("weird"))] {
+    for (field, bad) in [
+        ("id", json!("ho_1")),
+        ("turn", json!(0)),
+        ("state", json!("gone")),
+        ("status", json!("weird")),
+    ] {
         let mut other = handoff.clone();
         other[field] = bad;
         assert_eq!(handoff_turn(&other), None, "{field}");
@@ -560,7 +720,13 @@ fn a_refusal_that_carries_the_handoff_answers_it_with_its_code() {
     let body = json!({ "error": { "code": "handoff.turn_running", "message": "busy" },
                        "handoff": { "id": HANDOFF, "sessionId": "s-1", "machine": VM, "turn": 3, "state": "open", "status": "running" } });
     let (origin, seen) = fake(move |_| Some((409, body.to_string())));
-    let answer = go(&request(&origin, Auth::Owner, "owner.handoff_begin_turn", json!({ "id": HANDOFF, "after": 2 }))).unwrap();
+    let answer = go(&request(
+        &origin,
+        Auth::Owner,
+        "owner.handoff_begin_turn",
+        json!({ "id": HANDOFF, "after": 2 }),
+    ))
+    .unwrap();
     assert_eq!(answer["turn"], 3);
     assert_eq!(answer["refusal"], "handoff.turn_running");
     assert_eq!(seen.lock().unwrap()[0].json(), json!({ "after": 2 }));
@@ -568,48 +734,107 @@ fn a_refusal_that_carries_the_handoff_answers_it_with_its_code() {
     let other = json!({ "error": { "code": "auth.unauthenticated", "message": "sign in" },
                         "handoff": { "id": HANDOFF, "sessionId": "s", "machine": VM, "turn": 1, "state": "open", "status": "done" } });
     let (origin, _seen) = fake(move |_| Some((401, other.to_string())));
-    let failure = go(&request(&origin, Auth::Owner, "owner.handoff_begin_turn", json!({ "id": HANDOFF, "after": 0 }))).unwrap_err();
-    assert_eq!(failure, Failure::http(401, Some("auth.unauthenticated".into()), Some("sign in".into())));
+    let failure = go(&request(
+        &origin,
+        Auth::Owner,
+        "owner.handoff_begin_turn",
+        json!({ "id": HANDOFF, "after": 0 }),
+    ))
+    .unwrap_err();
+    assert_eq!(
+        failure,
+        Failure::http(401, Some("auth.unauthenticated".into()), Some("sign in".into()))
+    );
 }
 
 #[test]
 fn a_handoff_opens_only_for_a_session_and_machine_id() {
     let (origin, seen) = fake(|_| ok("{}"));
-    let bad_session = request(&origin, Auth::Owner, "owner.handoff_open", json!({ "session": "a b", "machine": VM }));
+    let bad_session = request(
+        &origin,
+        Auth::Owner,
+        "owner.handoff_open",
+        json!({ "session": "a b", "machine": VM }),
+    );
     assert_eq!(go(&bad_session), Err(Failure::Transport("not a session id".into())));
-    let bad_machine = request(&origin, Auth::Owner, "owner.handoff_open", json!({ "session": "s-1", "machine": "a/b" }));
+    let bad_machine = request(
+        &origin,
+        Auth::Owner,
+        "owner.handoff_open",
+        json!({ "session": "s-1", "machine": "a/b" }),
+    );
     assert_eq!(go(&bad_machine), Err(Failure::Transport("not a Cloud machine id".into())));
     assert!(seen.lock().unwrap().is_empty());
 }
 
 #[test]
 fn the_harness_login_copy_switch_decodes_plain_or_wrapped_and_caps_its_ttl() {
-    assert_eq!(harness_login_copy(&json!({ "enabled": true, "ttlSeconds": 120 })).unwrap(),
-               json!({ "enabled": true, "ttlSeconds": 120 }));
-    assert_eq!(harness_login_copy(&json!({ "ok": true, "value": { "enabled": false, "ttlSeconds": 60 } })).unwrap(),
-               json!({ "enabled": false, "ttlSeconds": 60 }));
+    assert_eq!(
+        harness_login_copy(&json!({ "enabled": true, "ttlSeconds": 120 })).unwrap(),
+        json!({ "enabled": true, "ttlSeconds": 120 })
+    );
+    assert_eq!(
+        harness_login_copy(&json!({ "ok": true, "value": { "enabled": false, "ttlSeconds": 60 } }))
+            .unwrap(),
+        json!({ "enabled": false, "ttlSeconds": 60 })
+    );
     // A ttl longer than five minutes is cut to five: the switch always takes effect within that.
-    assert_eq!(harness_login_copy(&json!({ "enabled": true, "ttlSeconds": 86400 })).unwrap()["ttlSeconds"], 300);
+    assert_eq!(
+        harness_login_copy(&json!({ "enabled": true, "ttlSeconds": 86400 })).unwrap()["ttlSeconds"],
+        300
+    );
     assert!(harness_login_copy(&json!({ "enabled": "yes" })).is_err());
 }
 
 #[test]
 fn the_github_app_status_says_why() {
-    let state = |status: u16, text: &str| github_app_state(status, serde_json::from_str::<Value>(text).ok().as_ref());
-    assert_eq!(state(200, r#"{"configured":true,"app_slug":"cmux","connection":{"status":"active","account_login":"acme"}}"#), "ready");
+    let state = |status: u16, text: &str| {
+        github_app_state(status, serde_json::from_str::<Value>(text).ok().as_ref())
+    };
+    assert_eq!(
+        state(
+            200,
+            r#"{"configured":true,"app_slug":"cmux","connection":{"status":"active","account_login":"acme"}}"#
+        ),
+        "ready"
+    );
     for (status, text, want) in [
         (200, r#"{"configured":true,"app_slug":"cmux","connection":null}"#, "not_connected"),
-        (200, r#"{"configured":true,"app_slug":"cmux","allowed":false,"connection":{"status":"active"}}"#, "unknown"),
-        (200, r#"{"configured":true,"app_slug":"cmux","allowed":true,"connection":{"status":"active"}}"#, "ready"),
-        (200, r#"{"configured":true,"app_slug":"cmux","connection":{"status":"needs_reauth"}}"#, "not_connected"),
+        (
+            200,
+            r#"{"configured":true,"app_slug":"cmux","allowed":false,"connection":{"status":"active"}}"#,
+            "unknown",
+        ),
+        (
+            200,
+            r#"{"configured":true,"app_slug":"cmux","allowed":true,"connection":{"status":"active"}}"#,
+            "ready",
+        ),
+        (
+            200,
+            r#"{"configured":true,"app_slug":"cmux","connection":{"status":"needs_reauth"}}"#,
+            "not_connected",
+        ),
         (200, r#"{"configured":false,"app_slug":null,"connection":null}"#, "not_configured"),
-        (404, r#"{"error":{"code":"integration.not_found","message":"no GitHub connection"}}"#, "not_connected"),
-        (503, r#"{"error":{"code":"integration.unavailable","message":"GitHub App is not configured"}}"#, "unknown"),
+        (
+            404,
+            r#"{"error":{"code":"integration.not_found","message":"no GitHub connection"}}"#,
+            "not_connected",
+        ),
+        (
+            503,
+            r#"{"error":{"code":"integration.unavailable","message":"GitHub App is not configured"}}"#,
+            "unknown",
+        ),
         (401, r#"{"error":{"code":"auth.unauthenticated","message":"sign in"}}"#, "unknown"),
         (200, r#"{"connection":{"status":"active"}}"#, "unknown"),
         (200, r#"{"configured":true,"app_slug":"","connection":{"status":"active"}}"#, "unknown"),
         (200, r#"{"configured":true,"connection":{"status":"active"}}"#, "unknown"),
-        (200, r#"{"configured":true,"app_slug":" \n","connection":{"status":"active"}}"#, "unknown"),
+        (
+            200,
+            r#"{"configured":true,"app_slug":" \n","connection":{"status":"active"}}"#,
+            "unknown",
+        ),
         (200, "not json", "unknown"),
         (502, "", "unknown"),
     ] {
@@ -620,10 +845,16 @@ fn the_github_app_status_says_why() {
 #[test]
 fn only_a_team_id_reaches_the_github_status_url_and_no_team_header_is_sent() {
     let (origin, seen) = fake(|_| ok(r#"{"configured":false}"#));
-    let answer = go(&request(&origin, Auth::Owner, "owner.github_app", json!({ "team": "team_01HZX9" }))).unwrap();
+    let answer =
+        go(&request(&origin, Auth::Owner, "owner.github_app", json!({ "team": "team_01HZX9" })))
+            .unwrap();
     assert_eq!(answer, json!({ "state": "not_configured" }));
-    for other in ["", "team_", "01HZX9", "team_a&b=c", "team_a/../x", "team_a b", "TEAM_a", "team_a\n"] {
-        let answer = go(&request(&origin, Auth::Owner, "owner.github_app", json!({ "team": other }))).unwrap();
+    for other in
+        ["", "team_", "01HZX9", "team_a&b=c", "team_a/../x", "team_a b", "TEAM_a", "team_a\n"]
+    {
+        let answer =
+            go(&request(&origin, Auth::Owner, "owner.github_app", json!({ "team": other })))
+                .unwrap();
         assert_eq!(answer, json!({ "state": "unknown" }), "{other:?}");
     }
     let seen = seen.lock().unwrap();
@@ -640,7 +871,13 @@ fn a_base_url_is_https_or_loopback_http_with_no_user_query_or_fragment() {
     assert!(base_url("https://cmux.com/prefix/").is_ok());
     assert!(base_url("http://127.0.0.1:9").is_ok());
     assert!(base_url("http://localhost:3000").is_ok());
-    for bad in ["http://cmux.com", "https://u:p@cmux.com", "https://cmux.com?x=1", "ftp://cmux.com", "cmux.com"] {
+    for bad in [
+        "http://cmux.com",
+        "https://u:p@cmux.com",
+        "https://cmux.com?x=1",
+        "ftp://cmux.com",
+        "cmux.com",
+    ] {
         assert!(base_url(bad).is_err(), "{bad}");
     }
 }
@@ -655,7 +892,8 @@ fn a_base_path_is_kept() {
 #[test]
 fn a_local_backend_that_is_not_running_is_no_backend() {
     let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
-    let mut call = request(&format!("http://127.0.0.1:{port}"), Auth::Stack, "vm.domains", json!({}));
+    let mut call =
+        request(&format!("http://127.0.0.1:{port}"), Auth::Stack, "vm.domains", json!({}));
     call.local_only = true;
     assert_eq!(go(&call), Err(Failure::NoBackend));
     call.local_only = false;
@@ -667,7 +905,10 @@ fn a_refusal_never_carries_a_credential_back() {
     let mut call = request("https://x.invalid", Auth::Stack, "vm.domains", json!({}));
     call.credential = "secret-access".into();
     call.refresh = Some("secret-refresh".into());
-    let line = scrub(answer_line(&Err(Failure::Transport("echo secret-access secret-refresh".into()))), &call);
+    let line = scrub(
+        answer_line(&Err(Failure::Transport("echo secret-access secret-refresh".into()))),
+        &call,
+    );
     assert!(!line.contains("secret-access") && !line.contains("secret-refresh"), "{line}");
 }
 
@@ -675,18 +916,30 @@ fn a_refusal_never_carries_a_credential_back() {
 fn the_answer_line_is_the_apps_error_cases() {
     let line: Value = serde_json::from_str(&answer_line(&Ok(json!([1])))).unwrap();
     assert_eq!(line, json!({ "ok": true, "body": [1] }));
-    let line: Value = serde_json::from_str(&answer_line(&Err(Failure::TimedOut("/api/runs".into())))).unwrap();
+    let line: Value =
+        serde_json::from_str(&answer_line(&Err(Failure::TimedOut("/api/runs".into())))).unwrap();
     assert_eq!(line, json!({ "ok": false, "error": { "kind": "timed_out", "path": "/api/runs" } }));
-    let line: Value = serde_json::from_str(&answer_line(&Err(Failure::http(409, Some("c".into()), None)))).unwrap();
-    assert_eq!(line["error"], json!({ "kind": "http", "status": 409, "code": "c", "message": null, "action": null, "trace_id": null }));
+    let line: Value =
+        serde_json::from_str(&answer_line(&Err(Failure::http(409, Some("c".into()), None))))
+            .unwrap();
+    assert_eq!(
+        line["error"],
+        json!({ "kind": "http", "status": 409, "code": "c", "message": null, "action": null, "trace_id": null })
+    );
 }
 
 #[test]
 fn an_unknown_call_or_a_request_that_is_not_one_runs_nothing() {
     assert!(parse(b"{}").is_err());
-    assert!(parse(br#"{"call":"vm.domains","api":"x","auth":"stack","credential":"c","extra":1}"#).is_err());
+    assert!(
+        parse(br#"{"call":"vm.domains","api":"x","auth":"stack","credential":"c","extra":1}"#)
+            .is_err()
+    );
     let (origin, seen) = fake(|_| ok("{}"));
-    assert!(matches!(go(&request(&origin, Auth::Stack, "vm.nothing", json!({}))), Err(Failure::Transport(_))));
+    assert!(matches!(
+        go(&request(&origin, Auth::Stack, "vm.nothing", json!({}))),
+        Err(Failure::Transport(_))
+    ));
     assert!(seen.lock().unwrap().is_empty());
 }
 
@@ -694,13 +947,30 @@ fn an_unknown_call_or_a_request_that_is_not_one_runs_nothing() {
 
 #[test]
 fn a_classic_machine_execs_and_writes_on_its_api_vm_routes() {
-    let (origin, seen) = fake(|s| if s.line.contains("/exec") { ok(r#"{"exitCode":0,"stdout":"ok","stderr":""}"#) } else { ok("{}") });
-    let exec = go(&request(&origin, Auth::Stack, "machine.io",
-        json!({ "op": "exec", "machine": "m1", "command": "true", "timeout_ms": 8000 }))).unwrap();
+    let (origin, seen) = fake(|s| {
+        if s.line.contains("/exec") {
+            ok(r#"{"exitCode":0,"stdout":"ok","stderr":""}"#)
+        } else {
+            ok("{}")
+        }
+    });
+    let exec = go(&request(
+        &origin,
+        Auth::Stack,
+        "machine.io",
+        json!({ "op": "exec", "machine": "m1", "command": "true", "timeout_ms": 8000 }),
+    ))
+    .unwrap();
     assert_eq!(exec["stdout"], "ok");
     go(&request(&origin, Auth::Stack, "machine.io",
         json!({ "op": "write", "machine": "m1", "path": "/a b", "data_base64": "aGk=", "mode": 384 }))).unwrap();
-    go(&request(&origin, Auth::Stack, "machine.io", json!({ "op": "stat", "machine": "m1", "path": "/a b" }))).unwrap();
+    go(&request(
+        &origin,
+        Auth::Stack,
+        "machine.io",
+        json!({ "op": "stat", "machine": "m1", "path": "/a b" }),
+    ))
+    .unwrap();
     let seen = seen.lock().unwrap();
     assert_eq!(seen[0].target(), "POST /api/vm/m1/exec");
     assert_eq!(seen[0].json(), json!({ "command": "true", "timeoutMs": 8000 }));
@@ -714,8 +984,12 @@ fn a_classic_machine_execs_and_writes_on_its_api_vm_routes() {
 fn a_worker_machines_proxied_call_sends_the_persons_session_and_cmux_team() {
     // Not a Worker machine id, so machine-io takes the cmux API's own route (no client session).
     let (origin, seen) = fake(|_| ok(r#"{"exitCode":0,"stdout":"ok","stderr":""}"#));
-    let mut call = request(&origin, Auth::Worker, "machine.io",
-        json!({ "op": "exec", "machine": "m1", "command": "true", "timeout_ms": 8000 }));
+    let mut call = request(
+        &origin,
+        Auth::Worker,
+        "machine.io",
+        json!({ "op": "exec", "machine": "m1", "command": "true", "timeout_ms": 8000 }),
+    );
     call.team = Some("team_cmux".into());
     call.credential = "session-access".into();
     let exec = go(&call).unwrap();
@@ -724,18 +998,25 @@ fn a_worker_machines_proxied_call_sends_the_persons_session_and_cmux_team() {
     assert_eq!(seen[0].target(), "POST /v1/cloud/machines/m1/exec");
     assert_eq!(seen[0].header("authorization").as_deref(), Some("Bearer session-access"));
     assert_eq!(seen[0].header("x-cmux-team").as_deref(), Some("team_cmux"));
-    assert_eq!(seen[0].header("x-stack-refresh-token"), None, "the Stack refresh token never goes to the Worker");
+    assert_eq!(
+        seen[0].header("x-stack-refresh-token"),
+        None,
+        "the Stack refresh token never goes to the Worker"
+    );
 }
 
 #[test]
 fn a_machine_io_answer_reads_as_its_routes() {
     let path = "/v1/cloud/machines/vm_x/fs/stat";
-    let ok_line = json!({ "route": "direct", "status": 200, "code": null, "body": { "kind": "file" } });
+    let ok_line =
+        json!({ "route": "direct", "status": 200, "code": null, "body": { "kind": "file" } });
     assert_eq!(machine::read(&ok_line, path).unwrap(), json!({ "kind": "file" }));
     let refused = json!({ "route": "proxy", "status": 404, "code": "vm_file_not_found",
                           "body": { "ok": false, "error": { "code": "vm_file_not_found", "message": "no such file: /a" } } });
-    assert_eq!(machine::read(&refused, path).unwrap_err(),
-               Failure::http(404, Some("vm_file_not_found".into()), Some("no such file: /a".into())));
+    assert_eq!(
+        machine::read(&refused, path).unwrap_err(),
+        Failure::http(404, Some("vm_file_not_found".into()), Some("no such file: /a".into()))
+    );
     let late = json!({ "route": "proxy", "status": 0, "code": "timed_out", "body": null });
     assert_eq!(machine::read(&late, path).unwrap_err(), Failure::TimedOut(path.into()));
     let gone = json!({ "route": "proxy", "status": 0, "code": "transport", "body": null });
@@ -744,7 +1025,12 @@ fn a_machine_io_answer_reads_as_its_routes() {
 
 #[test]
 fn a_worker_machine_call_needs_a_bare_secure_origin() {
-    let call = request("http://cmux.example", Auth::Worker, "machine.io", json!({ "op": "stat", "machine": VM, "path": "/a" }));
+    let call = request(
+        "http://cmux.example",
+        Auth::Worker,
+        "machine.io",
+        json!({ "op": "stat", "machine": VM, "path": "/a" }),
+    );
     assert!(matches!(go(&call), Err(Failure::Transport(_))));
 }
 
@@ -754,14 +1040,23 @@ const LINK: &str = r#"{"link":{"linkId":"link_123","creator":"user_1","team":"te
 
 #[test]
 fn a_preview_link_is_created_and_revoked_on_the_platform_with_the_persons_session_and_team() {
-    let (origin, seen) = fake(|s| if s.line.starts_with("POST") { ok(LINK) } else { ok(r#"{"revoked":true}"#) });
-    let mut call = request(&origin, Auth::Worker, "previews.create_link", json!({ "machine": "vm_abc", "port": 3000 }));
+    let (origin, seen) =
+        fake(|s| if s.line.starts_with("POST") { ok(LINK) } else { ok(r#"{"revoked":true}"#) });
+    let mut call = request(
+        &origin,
+        Auth::Worker,
+        "previews.create_link",
+        json!({ "machine": "vm_abc", "port": 3000 }),
+    );
     call.team = Some("team_1".into());
     let created = go(&call).unwrap();
     assert_eq!(created["link"]["linkId"], "link_123");
     assert_eq!(created["url"], "https://preview.example/?cmux_share=secret");
     call.call = "previews.revoke_link".into();
-    call.args = json!({ "machine": "vm_abc", "port": 3000, "linkId": "link_123" }).as_object().cloned().unwrap();
+    call.args = json!({ "machine": "vm_abc", "port": 3000, "linkId": "link_123" })
+        .as_object()
+        .cloned()
+        .unwrap();
     assert_eq!(go(&call).unwrap(), json!({ "revoked": true }));
     let seen = seen.lock().unwrap();
     assert_eq!(seen[0].target(), "POST /v1/cloud/machines/vm_abc/previews/3000/links");
@@ -775,10 +1070,16 @@ fn a_preview_link_is_created_and_revoked_on_the_platform_with_the_persons_sessio
 fn a_preview_refresh_answers_the_catalog_and_a_refusal_its_code() {
     let catalog = r#"{"machine":"vm_abc","listening":[3000],"previews":[{"port":3000,"origin":"https://p.example","url":"https://p.example/?t=1","expiresAt":1}],"unavailable":[]}"#;
     let (origin, seen) = fake(move |_| ok(catalog));
-    let answer = go(&request(&origin, Auth::Worker, "previews.refresh", json!({ "machine": "vm_abc" }))).unwrap();
+    let answer =
+        go(&request(&origin, Auth::Worker, "previews.refresh", json!({ "machine": "vm_abc" })))
+            .unwrap();
     assert_eq!(answer["listening"], json!([3000]));
     assert_eq!(seen.lock().unwrap()[0].target(), "POST /v1/cloud/machines/vm_abc/previews/refresh");
-    let (origin, _seen) = fake(|_| Some((404, r#"{"_tag":"NotFound","code":"machine.not_found","message":"gone"}"#.into())));
-    let failure = go(&request(&origin, Auth::Worker, "previews.refresh", json!({ "machine": "vm_abc" }))).unwrap_err();
+    let (origin, _seen) = fake(|_| {
+        Some((404, r#"{"_tag":"NotFound","code":"machine.not_found","message":"gone"}"#.into()))
+    });
+    let failure =
+        go(&request(&origin, Auth::Worker, "previews.refresh", json!({ "machine": "vm_abc" })))
+            .unwrap_err();
     assert_eq!(failure, Failure::http(404, Some("machine.not_found".into()), Some("gone".into())));
 }
