@@ -584,6 +584,9 @@ mod tests {
         entered_rx
             .recv_timeout(std::time::Duration::from_secs(2))
             .expect("cache worker never reached the flush publication");
+        let projection = PeerNoticeProjectionHook::new();
+        *hub.peer_notice_projection_hook.lock().unwrap() = Some(projection.clone());
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
         let notice = {
             let hub = hub.clone();
             let generation = peer.generation;
@@ -593,9 +596,18 @@ mod tests {
                     generation,
                     PeerNotice::Sessions(vec![remote("new", "lane")]),
                 );
+                done_tx.send(()).unwrap();
             })
         };
+        assert!(
+            projection.wait_reached_timeout(std::time::Duration::from_secs(2)),
+            "session notice never reached its projection fence"
+        );
         release_tx.send(()).unwrap();
+        projection.release();
+        done_rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("interleaved session notice did not finish");
         notice.join().unwrap();
         for _ in 0..100_000 {
             if !peer.cache_write_pending.load(std::sync::atomic::Ordering::Acquire) {

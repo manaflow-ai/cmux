@@ -30,6 +30,16 @@ impl PeerNoticeProjectionHook {
         }
     }
 
+    pub(crate) fn wait_reached_timeout(&self, timeout: std::time::Duration) -> bool {
+        let reached = self.reached.0.lock().unwrap_or_else(|e| e.into_inner());
+        let (reached, _) = self
+            .reached
+            .1
+            .wait_timeout_while(reached, timeout, |reached| !*reached)
+            .unwrap_or_else(|e| e.into_inner());
+        *reached
+    }
+
     pub(crate) fn release(&self) {
         *self.released.0.lock().unwrap_or_else(|e| e.into_inner()) = true;
         self.released.1.notify_all();
