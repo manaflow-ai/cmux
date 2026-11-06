@@ -404,6 +404,9 @@
 .acpmux-host-line button:hover:not(:disabled){background:color-mix(in srgb,var(--agent-text) 13%,transparent)}
 .acpmux-host-line button:disabled{opacity:.6}
 .acpmux-host-line button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
+/* A Fork Conversation acpmux has not answered (ForkPendingLine.tsx): the host line's look, with its
+   spinner first and its time after the words, in the same muted tone; Cancel is its quiet button. */
+.acpmux-fork-pending .acpmux-fork-pending-time{margin-left:var(--ds-space-1);font-variant-numeric:tabular-nums}
 /* The line and its Details text, one group: it may shrink like the line it wraps did, so a long
    reason is cut to the line and its button stays on screen. */
 .acpmux-host-line-group{min-width:0}

@@ -8,8 +8,8 @@
 .acpmux-session-info-usage__value {
   color: var(--agent-text);
 }
-/* Own metrics use the same leading icon/text columns as peer-session rows. The empty slot keeps
-   the numbers quiet; the icon arm is gallery-only and is intentionally not the shipped default. */
+/* Own metrics start flush on the icon column, where the section's title starts (Lucas, 2026-11-05,
+   Session Info lab: "line that up with the headers"). The empty slot and the icon arm are gallery-only. */
 .acpmux-session-info-usage__lead-slot {
   flex: none;
   width: var(--grid-icon-box);

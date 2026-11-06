@@ -49,7 +49,7 @@ extension AgentTabStore {
         defer { firstChats[workspace] = nil; firstPageTokens[workspace] = nil }
         // One mutation id for every send: a tab the daemon made after the deadline replays.
         let response = try await DaemonConnection.retryingLateReplies(NewConversationTabRequest.command) { try await connection.request(request) }
-        let key = response.tabResourceID?.rawValue ?? "surface:\(response.surface.rawValue)"
+        let key = response.tabKey
         if chat != nil {
             // No view took the seed while the request ran: the tab's view takes it.
             if let seed = firstChats.removeValue(forKey: workspace) { seeds[key] = seed }
@@ -417,12 +417,12 @@ extension AgentTabStore {
             // it is sent, through any daemon (the app link's own answer).
             let links = services.machines.session(daemon.machineID).map { CloudMachineLinks(appLink: $0.appLink) }
             host.ownerLink = links?.ownerLink
-            // A start its older daemon refused updates the machine to this app's build and tries
-            // once more, only on the caller's own machine (the link's owner answer, read then).
-            if let cloudMachineID = host.cloudMachineID, let ownerLink = links?.ownerLink {
-                host.updateMachine = { [weak services] in
-                    guard await ownerLink() != nil, let services else { return false }
-                    return await CloudMachineUpdates.updateNow(cloudMachineID, services: services)
+            // A start its older daemon refused updates the machine and tries once more on the link it brought back (the owner's machine only).
+            if let cloudMachineID = host.cloudMachineID, let ownerLink = links?.ownerLink, let session = services.machines.session(daemon.machineID) {
+                host.updateMachine = { [weak services, weak session] in
+                    guard await ownerLink() != nil, let services, let session else { return false }
+                    let handshake: @MainActor @Sendable () -> String? = { [weak services] in services.flatMap { CloudMachineUpdates.handshake(session, machines: $0.machines) } }
+                    return await CloudWait.updatedThenRelinked(handshake: handshake) { await CloudMachineUpdates.updateNow(cloudMachineID, services: services) }
                 }
             }
             host.ownerCloud = RemoteAcpmuxWire.ownerCloud(links?.ownerLink, served: daemon.supports(RemoteAcpmuxWire.ownerCloudCapability))
@@ -472,8 +472,7 @@ extension AgentTabStore {
                                                     transaction: transaction)
             request.split = split
             let response = try await DaemonConnection.retryingLateReplies(NewConversationTabRequest.command, until: DaemonCommandScope.current.map { _ in ContinuousClock.now + AgentSessionWorkspace.firstTabBudget }) { try await connection.request(request) } // keyed: a late reply is asked again; a scripted open waits out a busy daemon, a person's tab (no scope) the 10 s budget
-            let created = AgentTabCreated(key: response.tabResourceID?.rawValue ?? "surface:\(response.surface.rawValue)",
-                                          surface: response.surface)
+            let created = AgentTabCreated(key: response.tabKey, surface: response.surface)
             // Every event the daemon sent before the reply: the provisional tab settles there.
             return (created, await connection.eventSequence())
         }
@@ -548,6 +547,14 @@ extension AgentTabStore {
     /// Keep the native recovery callback aligned with the current Cloud account. This runs at
     /// construction and on each observed sign-in/account transition, so sign-in restores it.
     func syncCloudCredentialTransferAvailability(services: AppServices) {
+        if services.cloud.auth.isSignedIn {
+            tryAnotherApproach = { [weak services] (chat: String, session: String, throughSeq: Int) async throws -> [String: Any] in
+                guard let services else { throw CancellationError() }
+                return try await cloudTryAnotherApproach(chat: chat, session: session, throughSeq: throughSeq, services: services)
+            }
+        } else {
+            tryAnotherApproach = nil
+        }
         guard Self.cloudCredentialTransferIsAvailable(isSignedIn: services.cloud.auth.isSignedIn) else {
             cloudCredentialTransfer = nil
             return

@@ -45,9 +45,19 @@ export function useRailPlacement(
       const style = node.ownerDocument.defaultView?.getComputedStyle(node);
       const token = (name: string, fallback: number) =>
         Number.parseFloat(style?.getPropertyValue(name) ?? "") || fallback;
-      // Session Info never moves the chat's column (session-info/SessionInfo.tsx), so its inset is the
-      // column's own.
-      const inset = transcriptColumn(columnWidth, chatColumnOf(chatWidth, display, scale)).inset;
+      // The column's own inset, unless Session Info pushes: the chat keeps its width and the column,
+      // pinned at its whole-pane width, centers in what the panel leaves (session-info/sessionInfo.css
+      // --acpmux-session-info-room and --acpmux-session-info-column, set on the shell before its
+      // CHAT_LAYOUT_EVENT), so the gutter on the rail's side is that centered column's.
+      const column = chatColumnOf(chatWidth, display, scale);
+      const own = transcriptColumn(columnWidth, column);
+      let inset = own.inset;
+      if (shell?.dataset.sessionInfoChatPlacement === "push") {
+        const room = Number.parseFloat(shell.style.getPropertyValue("--acpmux-session-info-room")) || 0;
+        const pinned = Number.parseFloat(shell.style.getPropertyValue("--acpmux-session-info-column")) || own.width;
+        const start = Math.max(transcriptColumn(0, column).inset, (columnWidth - room - pinned) / 2);
+        inset = side === "left" ? start : Math.max(0, columnWidth - start - pinned);
+      }
       const reserve = railEdgeReserve(side, chatMinimap, inset);
       const next = {
         ...railPlacement(paneWidth, inset - reserve, {

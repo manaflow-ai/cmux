@@ -95,6 +95,14 @@ export function formatDuration(ms: number): string {
   return [h && `${h}h`, m && `${m}m`, s && `${s}s`].filter(Boolean).join(" ");
 }
 
+/// A finished span's own time: "856ms" under a second, else as `formatDuration`; none for a span
+/// whose start and end were stamped at one moment, which measured nothing, so no row reads a
+/// floored "0s" (Leo, 2026-11-05: "it always only shows 0s?").
+export function spanDuration(t: Translate, ms: number): string | undefined {
+  if (!(ms > 0)) return undefined;
+  return ms < 1000 ? t("duration.ms", { n: Math.round(ms) }) : formatDuration(ms);
+}
+
 export const toolCalls = (t: Translate, count = 0) => t("turn.toolCalls", { n: count });
 
 /// The disclosure's label: "Worked for 1m 16s", "You stopped after 40s",
@@ -1497,6 +1505,38 @@ export function liveTurnPlan(rows: readonly AcpmuxRow[]): AcpmuxRow | undefined 
   return undefined;
 }
 
+/// The todo list from before the person's last message, while the turn that message started has
+/// none of its own yet: kept pinned, marked "from before your last
+/// message", until the agent writes a new one (Leo, 2026-11-05: "i like these plans too... i want us
+/// to be able to render it in ours"). Only a list with steps left carries over: a finished one is
+/// done work, folded in its own turn. A newer list, even an empty one that cleared it, ends it.
+export function earlierTurnPlan(rows: readonly AcpmuxRow[]): AcpmuxRow | undefined {
+  let prompted = false;
+  for (let at = rows.length - 1; at >= 0; at -= 1) {
+    const row = rows[at]!;
+    if (row.kind === "user") {
+      // The running turn is another session's message's, not the person's: nothing carries over.
+      if (row.incoming && !prompted) return undefined;
+      prompted = true;
+    }
+    if (row.kind !== "plan") continue;
+    if (!row.turnEnded || !prompted || !row.plan?.length || row.planCleared) return undefined;
+    return row.plan.some((entry) => entry.status !== "completed") ? row : undefined;
+  }
+  return undefined;
+}
+
+/// The id suffix of the earlier list's copy that pins under the running turn (App.tsx).
+export const EARLIER_PLAN = ":earlier";
+
+/// `rows` with the earlier list's copy pinned under the running turn's latest message: over the live
+/// line where one is drawn (it is the turn's last row, `below`), else last. Without one, `rows` as is.
+export function withEarlierPlan(rows: AcpmuxRow[], plan: AcpmuxRow | undefined): AcpmuxRow[] {
+  if (!plan) return rows;
+  const at = rows.length > 0 && rows.at(-1)!.below ? rows.length - 1 : rows.length;
+  return [...rows.slice(0, at), plan, ...rows.slice(at)];
+}
+
 /// Whether two todo lists read the same (each step's words and state).
 export function samePlanEntries(
   a: readonly AcpmuxPlanEntry[] | undefined,
@@ -1860,6 +1900,7 @@ function codexLiveTurn(
 /// as its short line ("Ran grep …"), any other call as its row names it. Only a plain step: a failed
 /// call keeps its mark in the run, a command sent to the background keeps its state there, and
 /// messages, sub-sessions, subagent calls, render cards and edits keep their own rows. Nil when the latest step is anything else.
+/// Its `ms` is its run from start to end; none when both were stamped at one moment, which measured nothing.
 function liftedStep(
   rows: AcpmuxRow[],
   last: AcpmuxRow,
@@ -1884,6 +1925,10 @@ function liftedStep(
     renderCall(call) ||
     subsessionCall(call) ||
     agentCall(call) ||
+    // A subagent's launch named only by its tool (Task, Agent), its input not read: its call ends
+    // when the subagent starts, so its time is the launch's, never the subagent's (Leo, 2026-11-05,
+    // on a line reading "Identify which wait belongs to the relay-login green step 0s · 32s").
+    canonicalCall(call)?.tool === "task" ||
     agentMessage(call) ||
     acpmuxSendCalls(call) ||
     acpmuxMcpSends(call)
@@ -1896,13 +1941,12 @@ function liftedStep(
   const next = rows.slice();
   if (kept.length) next[at] = { ...run, items: kept, version: run.version * LIFTED_STATES + 1 };
   else next.splice(at, 1);
-  const ms =
-    call.startedAt !== undefined && call.endedAt !== undefined ? Math.max(0, call.endedAt - call.startedAt) : undefined;
-  return { rows: next, doing, shell, ms };
+  const span = call.startedAt !== undefined && call.endedAt !== undefined ? call.endedAt - call.startedAt : undefined;
+  return { rows: next, doing, shell, ms: span !== undefined && span > 0 ? span : undefined };
 }
 
 /// The time a live turn's thoughts streamed, each from its first chunk to its latest, summed;
-/// undefined when none is dated.
+/// undefined when none is dated or the dated ones each came as one chunk, which measured nothing.
 function thoughtTime(rows: readonly AcpmuxRow[]): number | undefined {
   let total: number | undefined;
   for (const row of rows)
@@ -1911,7 +1955,7 @@ function thoughtTime(rows: readonly AcpmuxRow[]): number | undefined {
         const ms = isThought(item) ? thoughtDuration(item) : undefined;
         if (ms !== undefined) total = (total ?? 0) + ms;
       }
-  return total;
+  return total || undefined;
 }
 
 /// Foreground subagents still running in a live turn's rows (its subagent groups): the ones the

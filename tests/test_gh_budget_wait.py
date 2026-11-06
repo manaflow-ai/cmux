@@ -364,7 +364,7 @@ def mode_off_timeout(value: object) -> str:
 
 
 # A job timeout that differs on nightly-next: `${{ ... track == 'nightly-next' && NEXT || OTHER }}`.
-NEXT_TIMEOUT = re.compile(r"\$\{\{ needs\.decide\.outputs\.track == 'nightly-next' && (\d+) \|\| (\d+) \}\}")
+NEXT_TIMEOUT = re.compile(r"\$\{\{ needs\.(?:decide|published-build)\.outputs\.track == 'nightly-next' && (\d+) \|\| (\d+) \}\}")
 # Publish-path jobs whose nightly-next path makes no gh call (republish-nightly-deltas writes
 # deltas and feed to R2), so their nightly-next timeout needs no room for the hour's wait.
 NO_GH_ON_NIGHTLY_NEXT = ("republish-nightly-deltas",)
