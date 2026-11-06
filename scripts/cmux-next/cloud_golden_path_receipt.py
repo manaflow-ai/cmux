@@ -236,6 +236,8 @@ def normalize(records: list[object]) -> dict[str, object]:
         blockers.append("receipt_reports_failure")
     if provider_false:
         blockers.append("provider_proof_rejected")
+    if not machine_id:
+        blockers.append("missing_machine_id")
     for stage, passed in stages.items():
         if not passed:
             blockers.append(f"missing_{stage}")
