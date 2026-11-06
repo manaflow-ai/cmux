@@ -13,7 +13,7 @@ import Testing
 /// Ghostty config. Moving Opacity through the Settings page repaints the window at once (the
 /// slider's preview and its write) and turns Material into the explicit choice that matches
 /// Ghostty's blur; resetting Opacity returns both rows to Ghostty.
-@MainActor @Suite(.serialized, .closesItsWindows) struct WindowBackgroundOpacityTests {
+@MainActor @Suite(.serialized, .closesItsWindows, .ghosttyOverrides) struct WindowBackgroundOpacityTests {
     /// The page's own writes: the bundled Settings page with a real gesture.
     static let gesture = PageCallContext(page: "cmux.settings", userGesture: true)
     static let opacityKey = "appearance.backgroundOpacity"

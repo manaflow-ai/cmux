@@ -10,7 +10,7 @@ import Testing
 /// "The settings background opacity thing does not work very well" (a249): over a background
 /// picture the Opacity slider must move the window one way only, and a surface's own opacity must
 /// cover more than the tint the window really shows, not more than the theme's opaque 100%.
-@MainActor @Suite(.serialized) struct WindowOpacityOverArtTests {
+@MainActor @Suite(.serialized, .ghosttyOverrides) struct WindowOpacityOverArtTests {
     static let work = "van-gogh-starry-night"
 
     static func ghostty() -> GhosttyThemeColors {

@@ -11,7 +11,7 @@ import Testing
 /// workspace or pane picture, no glass), applied where the app applies `appearance.*`
 /// (`TerminalThemeSetting` on the scope windows inherit from). Off restores exactly what the
 /// person chose, because their `appearance.*` values never change.
-@MainActor @Suite(.serialized) struct ReducedBackgroundsTests {
+@MainActor @Suite(.serialized, .ghosttyOverrides) struct ReducedBackgroundsTests {
     static let work = "van-gogh-starry-night"
     static let pinned = BackdropSelection.art(.munchScream)
 
