@@ -308,8 +308,26 @@ import CmuxNextCompat
         dropTickets { _, ticket in ticket.intent.method != "session/prompt" }
     }
 
-    /// Drops the tickets of `connection` (it closed).
-    public func clearTickets(connection: Int) { dropTickets { $1.connection == connection } }
+    /// Drops the tickets of `connection` (it closed), but the person's own send tickets
+    /// (``isCarriedSend(_:)``): ``carrySendTickets(to:)`` gives them to the pane's next connection.
+    public func clearTickets(connection: Int) { dropTickets { $1.connection == connection && !Self.isCarriedSend($1) } }
+
+    /// The pane's connection `connection` opened: every ticket of an earlier one ends but the person's
+    /// own send tickets, which are its now. The page binds the person's Enter to its prompt at once and
+    /// sends the prompt after its waits; under load the connection is replaced in between (a stalled
+    /// stream reconnects, acpmux restarts), and the Enter's gesture is already in the ticket (Leo,
+    /// 2026-11-06: his typed message came back "Not sent" at load 150-330 after a relaunch). Each still
+    /// redeems once, for its own promptId, within its lifetime; a posted gesture's ticket, a pick and an
+    /// upload's hold still end with their connection.
+    public func carrySendTickets(to connection: Int) {
+        dropTickets { _, ticket in !Self.isCarriedSend(ticket) }
+        for key in tickets.keys { tickets[key]?.connection = connection }
+    }
+
+    /// A send ticket the person's own gesture paid for, with no upload holding it.
+    private static func isCarriedSend(_ ticket: Ticket) -> Bool {
+        ticket.intent.method == "session/prompt" && ticket.postedUnder == nil && ticket.uploads.isEmpty
+    }
 
     // MARK: A send ticket held by its uploads
 

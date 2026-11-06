@@ -250,12 +250,12 @@ import CmuxNextCompat
     public func open(_ connection: AcpmuxConnection) async throws(AgentPaneTransportError) -> Int {
         close(connection: current)
         pacer.reset()
-        // A reconnect drops every ticket of the old connection.
-        gestures.clearTickets()
         questionKeyCredit = nil
         questionKeyTickets.removeAll()
         current += 1
         let id = current
+        // A reconnect drops every ticket of the old connection but the person's own send tickets.
+        gestures.carrySendTickets(to: id)
         localAppToken = connection.localAppToken
         socketPath = connection.socketPath
         remoteApprovals = connection.remote?.approvals
