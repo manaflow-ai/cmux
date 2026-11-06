@@ -90,6 +90,12 @@ final class CEFLayerHosting {
     /// The page's pixels in this window's layer tree; nil while the page
     /// draws in its own window.
     private(set) var page: CEFHostedPageView?
+    /// Where the page window has a hole in the web contents (`CEFTab.applyOcclusion`): the New Tab page, a blank page.
+    /// The hosted page shows no pixels there either, as the page window does not (cmux-ad m37: with layer hosting the
+    /// New Tab page showed Chromium's opaque page color instead of the window backdrop).
+    var pageHole: CEFPageHole = .none {
+        didSet { if pageHole != oldValue { page?.hole = pageHole } }
+    }
     /// Requests the fork refused, or hosted contexts no `CALayerHost` could
     /// show (`CEFTrackerStats.hostingRefused` sums every view).
     private(set) var refusals = 0
@@ -432,6 +438,7 @@ final class CEFLayerHosting {
 
     private func addPage(to view: NSView) -> CEFHostedPageView {
         let page = makePage(view.bounds)
+        page.hole = pageHole
         // Below the tracker's probe and every other subview.
         view.addSubview(page, positioned: .below, relativeTo: nil)
         self.page = page
