@@ -1115,14 +1115,17 @@ export function RetryButton({
   );
 }
 
-/// How much of a file streaming to the chat's machine is there: a ring that fills, on its tile.
+/// How much of a file streaming to the chat's machine is there: a ring that fills, on its tile. The
+/// `<progress>` is for assistive technology only, hidden by the strip's own class: the agent pane
+/// does not load the pages' global `.visually-hidden`, so with it the native bar drew beside the
+/// ring, a lone progress bar at the composer's top left (Leo, 2026-11-06, a picture sent under load).
 export function UploadProgress({ value, name, size = 16 }: { value: number; name: string; size?: number }) {
   const percent = Math.round(value * 100);
   const radius = 6;
   const circumference = 2 * Math.PI * radius;
   return (
     <>
-      <progress className="visually-hidden" aria-label={name} max={100} value={percent} />
+      <progress className="acpmux-attachment-voiceover-only" aria-label={name} max={100} value={percent} />
       <svg className="acpmux-attachment-progress" width={size} height={size} viewBox="0 0 16 16" aria-hidden="true">
         <circle className="acpmux-attachment-progress-track" cx="8" cy="8" r={radius} />
         <circle
