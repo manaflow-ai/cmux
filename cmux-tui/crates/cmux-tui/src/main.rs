@@ -592,6 +592,9 @@ struct Args {
     remote_link_socket: Option<PathBuf>,
     remote_admin_socket: Option<PathBuf>,
     remote_resume_lease_seconds: u64,
+    /// `--remote-local-socket PATH`, repeatable: the remote daemon's
+    /// `local-socket` allowlist (absolute paths).
+    remote_local_sockets: Vec<PathBuf>,
     relay_endpoints: Vec<String>,
     relay_slots: Vec<String>,
     relay_credentials: Vec<RelayCredentialArg>,
@@ -704,6 +707,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         remote_link_socket: None,
         remote_admin_socket: None,
         remote_resume_lease_seconds: 120,
+        remote_local_sockets: Vec::new(),
         relay_endpoints: Vec::new(),
         relay_slots: Vec::new(),
         relay_credentials: Vec::new(),
@@ -894,6 +898,16 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                     usage_exit("--remote-resume-lease-seconds must be between 1 and 86400");
                 }
                 out.remote = true;
+            }
+            "--remote-local-socket" => {
+                let path = PathBuf::from(
+                    args.next()
+                        .unwrap_or_else(|| usage_exit("--remote-local-socket needs a value")),
+                );
+                if !path.is_absolute() {
+                    usage_exit("--remote-local-socket must be an absolute path");
+                }
+                out.remote_local_sockets.push(path);
             }
             "--relay" => {
                 out.relay_endpoints
@@ -1517,6 +1531,7 @@ pub(crate) const STARTUP_VALUE_OPTIONS: &[&str] = &[
     "--remote-link-socket",
     "--remote-admin-socket",
     "--remote-resume-lease-seconds",
+    "--remote-local-socket",
     "--terminal-reap-grace-seconds",
     "--relay",
     "--relay-slot",
@@ -2646,6 +2661,7 @@ fn run_server(
                 advertised_routes: args.advertised_routes,
                 resume_lease: std::time::Duration::from_secs(args.remote_resume_lease_seconds),
                 replaceable_sidecar: false,
+                local_sockets: args.remote_local_sockets,
             },
         ) {
             Ok(runtime) => runtime,
@@ -2980,6 +2996,7 @@ fn reject_unsupported_remote_options(args: &Args) -> anyhow::Result<()> {
         || args.remote_state_dir.is_some()
         || args.remote_link_socket.is_some()
         || args.remote_admin_socket.is_some()
+        || !args.remote_local_sockets.is_empty()
         || !args.relay_endpoints.is_empty()
         || !args.relay_slots.is_empty()
         || !args.relay_credentials.is_empty()
