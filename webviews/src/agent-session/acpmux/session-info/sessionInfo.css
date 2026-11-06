@@ -186,17 +186,18 @@
   margin-right: var(--acpmux-session-info-inset);
 }
 /* The composer's glass (composerStates.css, cmux #24566; Leo, 2026-10-24: "the composer itself also
-   being a little bit glassy and stuff, as well as the session rail"): on an opaque window the composer
-   surface at 70% under a 24px blur, over art or a see-through window 50% under the shared blur. Lens and
+   being a little bit glassy and stuff, as well as the session rail"): the popover glass level, on an
+   opaque window the composer surface at 70% under a 24px blur, over art or a see-through window at the
+   level's art tint (50%) under the same blur. Lens and
    Spectrum keep the liquid glass's own tint and Reduce Transparency the solid surface (glass.css). It
    blurs its own box only, the same cost as the composer's card over the scrolling transcript. */
 :root:not([data-cmux-see-through]) .acpmux-session-info.ui-glass {
-  --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid, var(--glass-surface)) 70%, transparent);
-  --glass-backdrop: blur(24px) saturate(1.25);
+  --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid, var(--glass-surface)) var(--ds-glass-popover-tint), transparent);
+  --glass-backdrop: var(--ds-glass-popover-blur);
 }
 :root[data-cmux-see-through]:not([data-glass="lens"], [data-glass="spectrum"]) .acpmux-session-info.ui-glass {
-  --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid, var(--glass-surface)) 50%, transparent);
-  --glass-backdrop: var(--surface-blur);
+  --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid, var(--glass-surface)) var(--ds-glass-popover-art-tint), transparent);
+  --glass-backdrop: var(--ds-glass-popover-blur);
 }
 .acpmux-session-info.ui-glass {
   /* glass-opaque-allow: the Reduce Transparency fill only, the composer's (glass.css applies it under that setting) */
