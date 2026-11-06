@@ -185,6 +185,10 @@ struct TitlebarHistoryMenuSectionsTests {
             #expect(closed.title.hasPrefix("Docs — https://"))
             #expect(closed.title.hasSuffix(".html"))
         }
+        for note in [TitlebarHistoryClosedSection.empty, .unavailable] {
+            let menu = TitlebarHistoryMenu.make([], closed: note, choose: { _ in }, showAll: nil)
+            #expect(menu.items.allSatisfy { TitlebarHistoryMenu.titleWidth($0.title) <= TitlebarHistoryMenu.closedMinWidth })
+        }
         let long = TitlebarHistoryClosedRow(id: "daemon:closed_2", kind: .terminalTab, title: String(repeating: "x", count: 200), detail: "~")
         #expect(TitlebarHistoryMenu.closedTitle(long, fitting: 10_000).count == TitlebarHistoryMenu.closedTitleLength)
     }
@@ -249,7 +253,7 @@ struct TitlebarHistoryMenuSectionsTests {
 /// answer offers Try Again, and an empty Recently Closed says nothing was closed.
 @MainActor struct HistoryPaletteStatusTests {
     @Test func anUnansweredReadOffersTryAgain() throws {
-        let status = try #require(HistoryRead(entries: [], unavailable: true).status(kinds: [.closed]))
+        let status = try #require(HistoryRead(entries: [], unavailable: true).status(HistoryQuery(kinds: [.closed])))
         let row = HistoryPalettePages.statusItem(status)
         #expect(row.id == "history.status.unavailable")
         #expect(row.isEnabled)
@@ -257,16 +261,26 @@ struct TitlebarHistoryMenuSectionsTests {
     }
 
     @Test func anEmptyRecentlyClosedSaysSo() throws {
-        let status = try #require(HistoryRead(entries: []).status(kinds: [.closed]))
+        let status = try #require(HistoryRead(entries: []).status(HistoryQuery(kinds: [.closed])))
         #expect(status.id == "history.status.empty")
         #expect(!HistoryPalettePages.statusItem(status).isEnabled)
-        #expect(HistoryRead(entries: []).status(kinds: [.page]) == nil)
+        #expect(HistoryRead(entries: []).status(HistoryQuery(kinds: [.page])) == nil)
     }
 
     @Test func rowsNeedNoStatus() {
         let entry = HistoryEntry(id: "closed:daemon:closed_1", kind: .closed, time: Date(), title: "build",
                                  payload: .closed(CmuxNextHistory.ClosedItem(id: "daemon:closed_1", kind: .terminalTab, title: "build", machine: "local")))
-        #expect(HistoryRead(entries: [entry], unavailable: true).status(kinds: [.closed]) == nil)
+        #expect(HistoryRead(entries: [entry]).status(HistoryQuery(kinds: [.closed])) == nil)
+    }
+
+    /// A failed read stays visible under the rows other owners gave, and a search with no match is the
+    /// palette's own "No Results", not "Nothing closed yet".
+    @Test func aPartialReadStillSaysItFailedAndASearchIsNotEmptyHistory() {
+        let entry = HistoryEntry(id: "closed:daemon:closed_1", kind: .closed, time: Date(), title: "build",
+                                 payload: .closed(CmuxNextHistory.ClosedItem(id: "daemon:closed_1", kind: .terminalTab, title: "build", machine: "local")))
+        #expect(HistoryRead(entries: [entry], unavailable: true).status(HistoryQuery())?.id == "history.status.unavailable")
+        #expect(HistoryRead(entries: []).status(HistoryQuery(text: "zzz", kinds: [.closed])) == nil)
+        #expect(HistoryRead(entries: []).status(HistoryQuery(kinds: [.closed], range: .hour)) == nil)
     }
 
     static let quick = Backoff(initial: .milliseconds(1), maximum: .milliseconds(1), jitter: 0)

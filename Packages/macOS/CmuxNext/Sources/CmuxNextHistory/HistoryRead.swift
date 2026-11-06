@@ -11,7 +11,7 @@ public nonisolated struct HistoryRead: Sendable {
         self.unavailable = unavailable
     }
 
-    /// What a list with no rows says, so an empty query never reads "No Results".
+    /// What a list says under its rows, so an empty query never reads "No Results" and a failed read is never hidden.
     public struct Status: Hashable, Sendable {
         public let id: String
         public let title: String
@@ -21,15 +21,14 @@ public nonisolated struct HistoryRead: Sendable {
         public let canRetry: Bool
     }
 
-    /// Unanswered: Try Again. An empty Recently Closed: nothing was closed. Else nil (the list's own
-    /// empty state, or rows).
-    public func status(kinds: Set<HistoryEntry.Kind>) -> Status? {
-        guard entries.isEmpty else { return nil }
+    /// Unanswered (with or without the rows other owners gave): Try Again. An unfiltered Recently Closed
+    /// with no rows: nothing was closed. Else nil (the rows, or the list's own "No Results" for a search).
+    public func status(_ query: HistoryQuery) -> Status? {
         if unavailable {
             return Status(id: "history.status.unavailable", title: HistoryStrings.readFailed, detail: HistoryStrings.readFailedHint,
                           symbol: "exclamationmark.triangle", canRetry: true)
         }
-        guard kinds == [.closed] else { return nil }
+        guard entries.isEmpty, query.kinds == [.closed], query.text.isEmpty, query.range == .all else { return nil }
         return Status(id: "history.status.empty", title: HistoryStrings.menuNothingClosed, detail: nil, symbol: "clock.arrow.circlepath",
                       canRetry: false)
     }

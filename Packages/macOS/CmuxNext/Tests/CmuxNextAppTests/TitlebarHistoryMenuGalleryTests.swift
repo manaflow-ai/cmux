@@ -27,8 +27,8 @@ import Testing
         .init(id: "daemon:1", kind: .browserTab, title: "Swift Testing docs", detail: "developer.apple.com"),
         .init(id: "daemon:2", kind: .terminalTab, title: "bun run dev", detail: "~/cmux/webviews"),
         .init(id: "daemon:3", kind: .screen, title: "Screen 2", detail: nil),
-        .init(id: "daemon:4", kind: .workspace, title: "release-notes", detail: "gcp-lane-2"),
-        .init(id: "daemon:5", kind: .terminalTab, title: "htop", detail: "gcp-lane-2"),
+        .init(id: "daemon:4", kind: .workspace, title: "release-notes", detail: "build-server"),
+        .init(id: "daemon:5", kind: .terminalTab, title: "htop", detail: "build-server"),
         .init(id: "daemon:6", kind: .browserTab, title: "GitHub — manaflow-ai/cmux", detail: "github.com"),
         .init(id: "daemon:7", kind: .terminalTab, title: "zsh", detail: "~"),
     ]
@@ -40,7 +40,7 @@ import Testing
             place("t1", title: "cargo test -p cmux-tui", workspace: "cmux", content: .terminal),
             place("t2", title: "Fix the history menu titles", workspace: "cmux", content: .other),
             place("t3", title: "GitHub — manaflow-ai/cmux", workspace: "cmux", content: .browser),
-            place("t4", title: "htop", workspace: "infra", content: .terminal, machine: "gcp-lane-2"),
+            place("t4", title: "htop", workspace: "infra", content: .terminal, machine: "build-server"),
             place("t5", title: "Release notes", workspace: "docs", content: .other),
             place("t6", title: "zsh", workspace: "cmux", content: .terminal),
         ]
@@ -56,7 +56,7 @@ import Testing
         var historyRows: Int
         var closedRows: Int
         var height: CGFloat
-        /// The widest title at the menu font, which sets the menu's width.
+        /// The widest title at the menu font, plus the image column NSMenu adds to every row when one has an image.
         var width: CGFloat
     }
 
@@ -64,7 +64,9 @@ import Testing
         let history = menu.items.filter { $0.action == #selector(TitlebarHistoryMenuTarget.pick(_:)) }.count
         let closed = menu.items.filter { $0.action == #selector(TitlebarHistoryMenuTarget.pickClosed(_:)) }.count
         let height = menu.items.reduce(CGFloat(10)) { $0 + ($1.isSeparatorItem ? separatorHeight : rowHeight) }
-        let width = (menu.items + menu.items.flatMap { $0.submenu?.items ?? [] }).map { TitlebarHistoryMenu.titleWidth($0.title) }.max() ?? 0
+        let items = menu.items + menu.items.flatMap { $0.submenu?.items ?? [] }
+        let imageColumn: CGFloat = menu.items.contains { $0.image != nil } ? 22 : 0
+        let width = (items.map { TitlebarHistoryMenu.titleWidth($0.title) }.max() ?? 0) + imageColumn
         return Measure(historyRows: history, closedRows: closed, height: height, width: width)
     }
 
@@ -172,7 +174,8 @@ import Testing
             #expect(shown.historyRows == today.historyRows)
             #expect(shown.closedRows <= TitlebarHistoryMenu.closedLimit)
             #expect(shown.height - today.height <= Self.separatorHeight + Self.rowHeight * CGFloat(1 + TitlebarHistoryMenu.closedLimit))
-            #expect(shown.width <= max(today.width, TitlebarHistoryMenu.closedMinWidth))
+            // inlineIcons is one image column wider by design (its doc says so); the others keep today's width.
+            #expect(shown.width <= max(today.width, TitlebarHistoryMenu.closedMinWidth) + (style == .inlineIcons ? 22 : 0))
         }
     }
 

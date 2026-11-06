@@ -52,7 +52,8 @@ public nonisolated enum TitlebarHistoryClosedSection: Hashable, Sendable {
 public nonisolated enum TitlebarHistoryMenuStyle: String, CaseIterable, Hashable, Sendable, TunableChoice {
     /// Recently Closed inline under its header, one line per row (the default).
     case inline
-    /// Inline, each row led by its kind's glyph at the menu's text size (the row height does not change).
+    /// Inline, each row led by its kind's glyph at the menu's text size. The row height does not change, but
+    /// NSMenu gives every row an image column, so the list is one glyph column wider than today's.
     case inlineIcons
     /// One "Recently Closed" row that opens the closed items as a submenu: the list grows by one row.
     case submenu
@@ -139,8 +140,8 @@ public struct TitlebarHistoryMenu {
     static func closedRows(_ closed: TitlebarHistoryClosedSection, icons: Bool, width: CGFloat,
                            target: TitlebarHistoryMenuTarget) -> [NSMenuItem] {
         switch closed {
-        case .empty: return [note(HistoryStrings.menuNothingClosed)]
-        case .unavailable: return [note(HistoryStrings.menuClosedUnavailable)]
+        case .empty: return [note(fitting(width) { clip(HistoryStrings.menuNothingClosed, to: $0, middle: false) })]
+        case .unavailable: return [note(fitting(width) { clip(HistoryStrings.menuClosedUnavailable, to: $0, middle: false) })]
         case .rows(let rows):
             return rows.prefix(closedLimit).map { closedRow in
                 let row = NSMenuItem(title: closedTitle(closedRow, fitting: width), action: #selector(TitlebarHistoryMenuTarget.pickClosed(_:)), keyEquivalent: "")
@@ -159,12 +160,17 @@ public struct TitlebarHistoryMenu {
     /// The longest ``closedTitle(_:length:)`` no wider than `width` at the menu font (a row
     /// image, when any, indents every row alike, so titles compare as they are).
     static func closedTitle(_ row: TitlebarHistoryClosedRow, fitting width: CGFloat) -> String {
+        fitting(width) { closedTitle(row, length: $0) }
+    }
+
+    /// The longest of `title(1...closedTitleLength)` no wider than `width`.
+    static func fitting(_ width: CGFloat, _ title: (Int) -> String) -> String {
         var low = 1, high = closedTitleLength
         while low < high {
             let length = (low + high + 1) / 2
-            if titleWidth(closedTitle(row, length: length)) <= width { low = length } else { high = length - 1 }
+            if titleWidth(title(length)) <= width { low = length } else { high = length - 1 }
         }
-        return closedTitle(row, length: low)
+        return title(low)
     }
 
     static func titleWidth(_ title: String) -> CGFloat {

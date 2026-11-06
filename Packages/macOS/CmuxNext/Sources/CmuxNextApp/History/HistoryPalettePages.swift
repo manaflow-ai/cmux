@@ -55,8 +55,9 @@ enum HistoryPalettePages {
                              kinds: Set<HistoryEntry.Kind>) -> PalettePageSpec {
         let provider = AsyncPaletteProvider(id: id) { [weak services] in
             guard let services else { return [] }
-            let read = await services.history.read(HistoryQuery(kinds: kinds, limit: 500))
-            return read.entries.map { item(for: $0, services: services) } + (read.status(kinds: kinds).map { [statusItem($0)] } ?? [])
+            let query = HistoryQuery(kinds: kinds, limit: 500)
+            let read = await services.history.read(query)
+            return read.entries.map { item(for: $0, services: services) } + (read.status(query).map { [statusItem($0)] } ?? [])
         }
         return PalettePageSpec(id: id, title: title, placeholder: placeholder, symbol: symbol, providers: [provider])
     }
