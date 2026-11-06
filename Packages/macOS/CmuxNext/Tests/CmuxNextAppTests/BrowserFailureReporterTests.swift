@@ -4,9 +4,9 @@ import CmuxNextCrashReporting
 import Foundation
 import Testing
 
-/// Renderer ends (the sad tab) and main-frame load failures reach crash
-/// reporting as one event each, deduplicated, with the site reduced to its
-/// scheme and host.
+/// Renderer ends (the sad tab), main-frame load failures and helper ends
+/// with no tab reach crash reporting as one event each, deduplicated, with
+/// the site reduced to its scheme and host.
 @Suite struct BrowserFailureReporterTests {
     private static let versions = BrowserEngineVersions(cef: "156.0.15", chromium: "156.0.8078.80", forkAPI: 24)
     /// A page address with a user, port, path, query and fragment: only scheme and host may leave.
@@ -85,6 +85,43 @@ import Testing
         #expect(certificate.tags?["interstitial"] == "yes")
         #expect(certificate.exceptions?.first?.value == "ERR_CERT_AUTHORITY_INVALID (-202) interstitial")
         #expect(certificate.tags?["site"] == "https://self-signed.test")
+    }
+
+    /// An extension renderer that dies with SIGTRAP (no allow-jit on the plain helper, NIGHTLY
+    /// 4178064067101: 96 extension ends in an hour, none in Sentry) is one error event per
+    /// helper kind, deduplicated like a renderer crash loop.
+    @Test func aHelperEndWithNoTabSendsAnErrorPerHelperKind() throws {
+        let sent = FailureRecorder()
+        let reporter = BrowserFailureReporter(isEnabled: { true }, sink: { sent.add($0) })
+        let extensionCrash = BrowserEngineFailure.helperEnded(processKind: "extension", subType: nil, reason: .crashed,
+                                                              status: 5, versions: Self.versions)
+        for _ in 0..<96 { reporter.note(extensionCrash) }
+        reporter.note(.helperEnded(processKind: "utility", subType: "network.mojom.NetworkService", reason: .crashed,
+                                   status: 5))
+        #expect(sent.events.map(\.count) == [1, 10, 1], "the extension loop is deduplicated; the utility end is its own key")
+        let event = try #require(sent.events.first).event()
+        #expect(event.level == .error)
+        #expect(event.exceptions?.first?.type == "HelperProcessEnded")
+        #expect(event.exceptions?.first?.value == "extension crashed SIGTRAP")
+        #expect(event.exceptions?.first?.mechanism?.type == "cef_helper_process_ended")
+        #expect(event.fingerprint == ["browser_failure", "helper_ended", "extension", "crashed", "SIGTRAP"])
+        #expect(event.tags == [
+            "browser_failure": "helper_ended",
+            "termination_status": "crashed",
+            "error_code": "5",
+            "error_name": "SIGTRAP",
+            "process_kind": "extension",
+            "cef_version": "156.0.15",
+            "chromium_version": "156.0.8078.80",
+            "cef_fork_api": "24",
+        ])
+        let utility = try #require(sent.events.last).event()
+        #expect(utility.fingerprint == ["browser_failure", "helper_ended", "utility", "crashed", "SIGTRAP"])
+        #expect(utility.extra?["reason"] as? String == "network.mojom.NetworkService")
+        // A non-zero exit, not a signal.
+        let gpu = BrowserFailureEvent(failure: .helperEnded(processKind: "gpu-process", subType: nil, reason: .abnormal,
+                                                            status: 8 << 8)).event()
+        #expect(gpu.exceptions?.first?.value == "gpu-process abnormal exit 8")
     }
 
     @Test func cancelledLoadsAreNeverSent() {

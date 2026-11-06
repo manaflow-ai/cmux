@@ -108,24 +108,24 @@ struct CloudMachineCreateFlow {
         let requestedMemory = request?.memoryMb ?? machine.memoryMB
         var args: [String: JSONValue] = ["size": .object(["cpu": .number(Double(machine.cpu)), "memory_mb": .number(Double(requestedMemory)), "disk_mb": .number(Double(machine.diskMB))])]
         if let name = machine.name { args["name"] = .string(name) }
-        // These are deliberately sent through the typed op boundary. Backends that do not
-        // advertise the option must reject it; the client never silently drops a request.
+        if let environment { args["environment"] = .string(environment) }
+        // This Mac applies these once the machine exists (bootstrap, machine config, idle pause; the size goes as
+        // `memory_mb`). A backend that does not advertise one refuses the create here. The op takes only its name and
+        // size, and its held approval keeps only those: checked, never sent, so the approval answered is what was sent.
+        var options = args
         if let request {
-            if let size = request.size { args["size_name"] = .string(size) }
-            if request.persistent { args["idle_seconds"] = .number(0) }
+            if let size = request.size { options["size_name"] = .string(size) }
+            if request.persistent { options["idle_seconds"] = .number(0) }
             if let script = request.script {
-                args["bootstrap"] = .object([
+                options["bootstrap"] = .object([
                     "kind": .string(script.kind.rawValue),
                     "contents_base64": .string(script.contents.base64EncodedString()),
                     "repo": script.repo.map { .string($0.spec) } ?? .null,
                 ])
             }
-            if let config = request.machineConfig {
-                args["machine_config_base64"] = .string(config.contents?.base64EncodedString() ?? "")
-            }
+            if let config = request.machineConfig { options["machine_config_base64"] = .string(config.contents?.base64EncodedString() ?? "") }
         }
-        if let environment { args["environment"] = .string(environment) }
-        try await validateOptions(.object(args))
+        try await validateOptions(.object(options))
         let op = environment == nil ? "cloud.machine.create" : "cloud.environment.boot"
         let answer = try await approvalLoop(op, args: .object(args), key: key ?? newKey(), confirmed: true,
                                             approved: key == nil ? nil : approved, onApproved: onApproved,

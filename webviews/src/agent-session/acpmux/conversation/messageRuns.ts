@@ -58,7 +58,8 @@ function member(row: AcpmuxRow): Member | undefined {
   // A folded run (codexRuns, shapeTurn): its lines as ToolRows draws them (`runStretches`).
   if (row.kind !== "activity" || row.foldRun !== true || !row.items?.length) return undefined;
   const groups = toolGroups(row.items);
-  // A card that stays in sight for its own sake (a sub-session started or waited on, a dispatch)
+  // A card that stays in sight for its own sake (a sub-session started or waited on, a dispatch,
+  // who else works on these files)
   // keeps the run open around it; only messages fold. So does a run whose edit still waits for its
   // permission: the change it asks about stays in sight (turns.ts codexRuns).
   if (row.items.some((item) => awaitsPermission(item.tool))) return undefined;
@@ -68,6 +69,7 @@ function member(row: AcpmuxRow): Member | undefined {
         group.type === "subsessionGroup" ||
         group.type === "agentCall" ||
         group.type === "dispatch" ||
+        group.type === "whoElse" ||
         (group.type === "subsession" && group.call.tool !== "send"),
     )
   )

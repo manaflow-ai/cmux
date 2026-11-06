@@ -3556,6 +3556,50 @@ button.cv-video-frames__frame:focus-visible {
 :is(.cv-command__title, .cv-bgtask__title) {
   color: var(--cv-text);
 }
+.cv-bgtask__text {
+  min-width: 0;
+  line-height: inherit;
+}
+.cv-bgtask__owner {
+  color: var(--cv-text-muted);
+}
+.cv-bgtask__owner[role="link"] {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+  text-underline-offset: 2px;
+}
+.cv-bgtask__command,
+.cv-bgtask__raw-command {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--cv-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: inherit;
+}
+.cv-bgtask__state {
+  color: var(--cv-text-muted);
+  font-size: inherit;
+  line-height: inherit;
+}
+.cv-bgtask__details {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+  min-height: var(--cv-tool-row-height);
+  padding: 0 var(--cv-tool-text-inset) var(--ds-space-2);
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+}
+.cv-bgtask__raw-command {
+  flex: 1 1 100%;
+  color: var(--cv-text);
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: pre-wrap;
+}
 /* An opened run's "1 background command completed, 1 failed, 1 running" (BackgroundStatusLine.tsx):
    a quiet line after the steps, its words on their text column and their pitch; not a step or a
    control, so it adds no row to the steps. */
@@ -5948,12 +5992,26 @@ a.cv-sha:focus-visible {
 }
 /* The step at work draws the shared Spinner inside the mark (PlanList.tsx), so the mark has no ring of
    its own while the turn runs. */
-.cv-plan:not([data-ended]) .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
+.cv-plan:not([data-ended], [data-earlier]) .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
   border-width: 0;
 }
 /* Left in progress when its turn ended: a plain ring, not a spinner frozen mid-turn. */
-.cv-plan[data-ended] .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
+.cv-plan[data-ended] .cv-plan__item[data-status="in_progress"] .cv-plan__mark,
+.cv-plan[data-earlier] .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
   border-color: var(--cv-text-muted);
+}
+
+/* An earlier turn's list under the running turn (PlanList.tsx `earlier`): its one muted line says it
+   is from before the person's last message, and its steps read muted. */
+.cv-plan__earlier {
+  min-height: 24px;
+  padding-block: 4px;
+  box-sizing: border-box;
+  color: var(--cv-text-muted);
+  line-height: 16px;
+}
+.cv-plan[data-earlier] .cv-plan__item {
+  color: var(--cv-text-muted);
 }
 
 /* A step's change fades in place (Leo, 2026-11-03: the pinned list "animates in place with no layout

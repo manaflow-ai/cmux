@@ -759,14 +759,51 @@ def swiftformat(binary: Path, config: Path, tree: Path, swift: list[str]) -> str
 RUST_SCOPE = "cmux-tui/"
 
 
+EDITION = re.compile(r'^\s*edition\s*=\s*"(\d{4})"', re.M)
+
+
 def rust_edition(repo: Path) -> str:
     """The cmux-tui workspace's Rust edition (`[workspace.package] edition`), else 2024."""
     try:
         text = (repo / RUST_SCOPE / "Cargo.toml").read_text()
     except OSError:
         return "2024"
-    found = re.search(r'^\s*edition\s*=\s*"(\d{4})"', text, re.M)
+    found = EDITION.search(text)
     return found.group(1) if found else "2024"
+
+
+def _manifest_text(repo: Path, tree: Path, rel: str) -> str | None:
+    """REL's text in the judged tree, else in the checkout, else None."""
+    for root in (tree, repo):
+        try:
+            return (root / rel).read_text()
+        except OSError:
+            continue
+    return None
+
+
+def rustfmt_edition(repo: Path, tree: Path, path: str) -> str | None:
+    """The edition `cargo fmt --all` in cmux-tui/ formats PATH with, or None when it does not format PATH at all.
+
+    The nearest Cargo.toml above PATH names its crate. A crate with its own `[workspace]`, or one the cmux-tui
+    workspace lists under `exclude`, is outside that check (cmux-rd-host: own workspace, edition 2021), so the
+    layer leaves its files alone rather than judge them by another crate's edition. A crate's literal `edition`
+    wins; `edition.workspace = true` (or none) is the workspace's."""
+    root_text = _manifest_text(repo, tree, RUST_SCOPE + "Cargo.toml") or ""
+    excluded = set()
+    found = re.search(r"^\s*exclude\s*=\s*\[(.*?)\]", root_text, re.M | re.S)
+    if found:
+        excluded = {RUST_SCOPE + e for e in re.findall(r'"([^"]+)"', found.group(1))}
+    crate = Path(path).parent
+    while str(crate).startswith(RUST_SCOPE.rstrip("/")) and str(crate) != RUST_SCOPE.rstrip("/"):
+        text = _manifest_text(repo, tree, f"{crate}/Cargo.toml")
+        if text is not None:
+            if str(crate) in excluded or re.search(r"^\s*\[workspace\]", text, re.M):
+                return None
+            own = EDITION.search(text)
+            return own.group(1) if own else rust_edition(repo)
+        crate = crate.parent
+    return rust_edition(repo)
 
 
 def rustfmt(repo: Path, config: Path, tree: Path, rust: list[str]) -> str:
@@ -780,9 +817,12 @@ def rustfmt(repo: Path, config: Path, tree: Path, rust: list[str]) -> str:
     if not present or not config.is_file():
         return ""
     env = {**os.environ, "RUSTUP_AUTO_INSTALL": "0"}
-    args = ["rustfmt", "--edition", rust_edition(repo), "--config-path", str(config), "--emit", "stdout"]
     findings = []
     for path in present:
+        edition = rustfmt_edition(repo, tree, path)
+        if edition is None:
+            continue  # outside the cmux-tui workspace's `cargo fmt --all`: not this layer's to judge
+        args = ["rustfmt", "--edition", edition, "--config-path", str(config), "--emit", "stdout"]
         source = (tree / path).read_bytes()
         try:
             done = subprocess.run(args, cwd=repo / RUST_SCOPE, input=source, env=env, capture_output=True, timeout=60)

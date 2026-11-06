@@ -40,11 +40,8 @@ enum SidebarDensityTokens {
     /// A one-line workspace row, group header or band row.
     static var rowHeight: CGFloat { SidebarRowTokens.current.rowHeight }
     /// A workspace row with one detail line: the one-line row plus that line's height, so a row's
-    /// text keeps the same room above and below with one line or more (Leo 2026-10-20). With
-    /// `SidebarTunables.evenRowText` off, the app's fixed step instead.
-    static var rowHeightWithSubtitle: CGFloat {
-        SidebarTunables.evenRowText.value ? rowHeight + SidebarStyle.detailLineHeight : Metrics.sidebarRowHeightWithSubtitle + extra
-    }
+    /// text keeps the same room above and below with one line or more (Leo 2026-10-20).
+    static var rowHeightWithSubtitle: CGFloat { rowHeight + SidebarStyle.detailLineHeight }
     /// A machine or section header in the list, and a band's header.
     static var headerHeight: CGFloat { Metrics.sidebarHeaderHeight + extra }
     /// Rows inset from the sidebar edge, and their content from the row edge.
@@ -54,10 +51,9 @@ enum SidebarDensityTokens {
     /// independent of the sidebar's group nesting grid and remains the original space4.
     static var depthIndent: CGFloat { Metrics.space4 }
     /// The corner radius of every row fill: pinned rows, group headers and workspace rows share it,
-    /// so their fills line up at each density. One `space1` rounder than the app's item corner (8 compact,
-    /// 9 comfortable), near ChatGPT's soft row corner for its height (about 9 to 10 pt on a 30 pt row).
-    /// Leo 2026-11-02: "SMOOTH OUT A BIT MORE OF OUR CORNERS ON THE SIDEBAR WORKSPACES".
-    static var rowCornerRadius: CGFloat { Metrics.surfaceCornerRadius }
+    /// so their fills line up at each density. It is the tab pill's radius (`Metrics.tabCornerRadius`),
+    /// one token for both (Lawrence 2026-11-05: "workspace roundness needs to be same as tabs roundness").
+    static var rowCornerRadius: CGFloat { Metrics.tabCornerRadius }
     static var sectionSpacing: CGFloat { isComfortable ? Metrics.space5 : Metrics.space4 }
     static var topPadding: CGFloat { isComfortable ? Metrics.space3 : Metrics.space2 }
 }

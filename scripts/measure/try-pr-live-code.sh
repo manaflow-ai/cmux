@@ -65,25 +65,50 @@ try="$fx/checkout/scripts/cmux-next/try-pr.sh"
 side="$fx/checkout/scripts/cmux-next/side-instance.sh"
 # The copy draws its own main window (debug.window_snapshot, as live-code-app.py does): a fleet Mac's step
 # has no Screen Recording grant, so screencapture fails there with "could not create image from display".
-# The copy's control socket is among the sockets its recorded pid has open.
-capture() {
-  python3 - "$CMUX_SIDE_ROOT/pr-1/pid" "$out/$1.png" <<'PY'
-import os, subprocess, sys
+# lsof does not show the copy's control socket, so every cmux control socket is asked system.identify, and
+# the one whose pid is the copy's recorded pid answers. copy_rpc METHOD PARAMS prints its reply as JSON,
+# and exits 2 when the reply is an error.
+copy_rpc() {
+  python3 - "$CMUX_SIDE_ROOT/pr-1/pid" "$1" "$2" <<'PY'
+import glob, json, os, sys, time
 sys.path.insert(0, os.path.join(os.getcwd(), "scripts", "cmux-next"))
-from bench_launch import rpc_at
-pid, png = open(sys.argv[1]).read().strip(), sys.argv[2]
-names = subprocess.run(["lsof", "-a", "-p", pid, "-U", "-Fn"], capture_output=True, text=True).stdout.split("\n")
-socks = [n[1:] for n in names if n.startswith("n") and n.endswith(".sock") and "cmux" in os.path.basename(n)]
-if not socks:
-    sys.exit(f"try-pr-live-code: the copy (pid {pid}) has no cmux socket open")
-# It also holds client sockets (its daemon's): the control socket is the one that answers.
-replies = {}
-for sock in dict.fromkeys(socks):
-    replies[sock] = rpc_at(sock, "debug.window_snapshot", {"kind": "main", "path": png}, timeout=60)
-    if os.path.exists(png):
-        sys.exit(0)
-sys.exit(f"try-pr-live-code: no snapshot from the copy's sockets: {replies}")
+from bench_launch import account_home, rpc_at
+pid, method, params = int(open(sys.argv[1]).read().strip()), sys.argv[2], json.loads(sys.argv[3])
+# A step has its own HOME; the copy, opened through Launch Services, keeps the account's.
+homes = dict.fromkeys([account_home(), os.path.expanduser("~")])
+seen = {}
+deadline = time.time() + 30
+while time.time() < deadline:
+    socks = sorted(set(glob.glob("/tmp/cmux-*.sock")).union(*(glob.glob(os.path.join(h, ".local/state/cmux/*.sock")) for h in homes)))
+    for sock in socks:
+        reply = rpc_at(sock, "system.identify", timeout=5)
+        seen[sock] = reply.get("pid") if isinstance(reply, dict) else None
+        if seen[sock] == pid:
+            reply = rpc_at(sock, method, params, timeout=60)
+            print(json.dumps(reply))
+            sys.exit(2 if isinstance(reply, dict) and "error" in reply else 0)
+    time.sleep(1)
+sys.exit(f"try-pr-live-code: no control socket answers as the copy (pid {pid}); sockets and their pids: {seen}")
 PY
+}
+# The copy starts with fresh settings, so it may open on something other than Home; Home is what the
+# patch paints. While the app still starts, home.show can be refused, so it is asked again for up to
+# 30 s; the last reply is kept, since a run with no red is read from it.
+show_home() {
+  for _ in $(seq 1 30); do
+    copy_rpc action.run '{"action": "home.show"}' >"$out/home-show.json" && return 0
+    sleep 1
+  done
+  echo "try-pr-live-code: the copy did not show Home: $(cat "$out/home-show.json")" >&2
+  exit 1
+}
+# A still: an old PNG is removed first, so only a new one counts; the window list beside it says what
+# the window showed.
+capture() {
+  rm -f "$out/$1.png"
+  copy_rpc debug.window_snapshot "{\"kind\": \"main\", \"path\": \"$out/$1.png\"}" >"$out/$1-snapshot.json" || true
+  copy_rpc debug.window_list '{}' >"$out/$1-windows.json" || true
+  [[ -f "$out/$1.png" ]] || { echo "try-pr-live-code: the copy wrote no $1 still: $(cat "$out/$1-snapshot.json")" >&2; exit 1; }
 }
 cleanup() { "$try" 1 --stop >"$out/stop.log" 2>&1 || true; }
 trap cleanup EXIT
@@ -93,6 +118,7 @@ trap cleanup EXIT
 live="$CMUX_SIDE_ROOT/pr-1/live-code"
 for _ in $(seq 1 300); do grep -q 'live code: watching' "$live/live-code.log" 2>/dev/null && break; sleep 0.2; done
 grep -q 'live code: watching' "$live/live-code.log" || { echo "try-pr-live-code: the copy never watched $live" >&2; exit 1; }
+show_home
 sleep 3
 capture before
 start="$(python3 -c 'import time; print(time.time())')"
@@ -134,6 +160,11 @@ result = {
 text2 = open(os.path.join(out, "try-pr-2.log")).read()
 result["pr2"] = {"exit": code2, "s": round(end2 - start2, 2), "applied": "live code: applied" in text2,
                  "fell_back": "so a dev build" in text2, "compile_refused": "did not compile against the build" in text2}
+# What the copy showed, so a run with no red says why (a failed step returns only one artifact, and
+# this line is in its log).
+read = lambda name: json.load(open(os.path.join(out, name))) if os.path.exists(os.path.join(out, name)) else None
+result["home_show"] = read("home-show.json")
+result["windows_after"] = str(read("after-windows.json"))[:600]
 result["pass"] = bool(code == 0 and applied and after[0] > before[0] + 1000
                       and code2 == 0 and not result["pr2"]["applied"] and result["pr2"]["compile_refused"])
 json.dump(result, open(os.path.join(out, "result.json"), "w"), indent=2)

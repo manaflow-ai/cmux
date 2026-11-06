@@ -6,7 +6,7 @@ import SwiftUI
 /// MCP or shell row, as the Mac draws it (`WhoElseCard.tsx`): a line saying how many other sessions
 /// touch the files, then one row per session with its name as a chip that opens its chat, its
 /// harness and branch, up to two pull requests, how long ago, and what it edited or read in common.
-/// The first five rows show; "N more" opens the rest.
+/// The first five rows show; "N more" opens the rest of the answer's rows.
 struct WhoElseCard: View {
     /// The tool call's id (the disclosure's key).
     let id: String
@@ -35,7 +35,8 @@ struct WhoElseCard: View {
             }
             if hidden > 0, !expanded {
                 Button {
-                    toggleDisclosure(holdFold) {
+                    // Keyed, so the transcript settles and resizes the row as other disclosures do.
+                    toggleDisclosure(holdFold, key: Self.disclosureKey(id), in: disclosures) {
                         if let disclosures { disclosures.set(Self.disclosureKey(id), true) } else { localOpen = true }
                     }
                 } label: {
@@ -52,6 +53,12 @@ struct WhoElseCard: View {
                 .padding(.leading, 26)
                 .padding(.vertical, -10)
                 .accessibilityIdentifier("agentChat.whoElse.more")
+            }
+            if let note = call.omittedNote, hidden == 0 || expanded {
+                Text(note)
+                    .font(type.meta)
+                    .foregroundStyle(.tertiary)
+                    .padding(.leading, 26)
             }
             if let note = call.unreachedNote {
                 Text(note)

@@ -5,8 +5,11 @@ gallery-health.yml starts on the paths a gallery render reads (its `pull_request
 those outside webviews/src/ are global to every page: a theme, a font, a string catalog the build
 reads, a schema the Tailwind theme is generated from, a lockfile, a config, the checker's tools.
 touched.ts places a changed file on the entries that import it; a routed file it places on none
-would otherwise render nothing and pass with no verdict. A webviews/src/ file no entry reaches
-renders nothing, as before: no gallery state shows it.
+would otherwise render nothing and pass with no verdict. A webviews/src/ source file (.ts, .tsx,
+.js, .mjs, .css) no entry reaches renders nothing, as before: no gallery state shows it. Any other
+webviews/src/ file an entry does not place renders every entry: an asset touched.ts did not trace
+(an image a page loads some other way) or a string catalog gen-strings.mjs compiles into the pages'
+strings.json (Localizable.xcstrings), which no import reaches.
 
     python3 scripts/gallery-matrix/unplaced.py WORKFLOW CHANGED_TXT TOUCHED_JSON   # prints true or false
 """
@@ -66,12 +69,17 @@ def pull_request_paths(workflow_text: str) -> list[str]:
     return paths
 
 
+SOURCE_SUFFIXES = (".ts", ".tsx", ".js", ".mjs", ".css")
+
+
 def unplaced(patterns: list[str], changed: list[str], touched: dict) -> list[str]:
-    """Routed changed files outside webviews/src/ that no touched entry names."""
+    """Routed changed files no touched entry names, except webviews/src/ source files."""
     placed = {file for files in touched.get("reasons", {}).values() for file in files}
     return [
         path for path in changed
-        if routed(path, patterns) and not path.startswith("webviews/src/") and path not in placed
+        if routed(path, patterns)
+        and not (path.startswith("webviews/src/") and path.endswith(SOURCE_SUFFIXES))
+        and path not in placed
     ]
 
 
