@@ -182,6 +182,7 @@ impl Hub {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::hub::{Control, NewRequest, TurnInfo};
 
     #[test]
     fn only_a_claude_retry_of_a_refused_sign_in_ends_its_turn() {
@@ -196,6 +197,51 @@ mod tests {
         let codex = codex_retry(&json!({"message": "Reconnecting... 3/5",
             "codexErrorInfo": {"responseStreamDisconnected": {"httpStatusCode": 401}}}));
         assert!(!sign_in_refused(&codex), "Codex's own retries are its to end");
+    }
+
+    /// A session of a test hub whose turn `turn-1` runs, and a refused retry at `attempt`.
+    async fn running_turn() -> (Arc<Hub>, Arc<Session>) {
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let mut cfg: crate::config::Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake"}))
+        .unwrap();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(cfg, store);
+        let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+        let session = hub.new_session(req).await.unwrap();
+        *session.turn.lock().unwrap() =
+            Some(TurnInfo::prompted("person", "hi", "turn-1", "p-1", Control::Local));
+        (hub, session)
+    }
+
+    fn refused(attempt: u64) -> Value {
+        claude_retry(&json!({"attempt": attempt, "max_retries": 10, "error_status": 401,
+            "error": "authentication_failed"}))
+    }
+
+    /// The end at the third retry, then the fourth: one end, the third's (review F2).
+    #[tokio::test]
+    async fn a_refused_sign_in_schedules_one_end_per_turn() {
+        let (hub, session) = running_turn().await;
+        hub.end_sign_in_refused(&session, &refused(3));
+        hub.end_sign_in_refused(&session, &refused(4));
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let ended = session.steer_end.borrow().clone();
+        let (turn, answer) = ended.expect("the turn ends");
+        assert_eq!(turn, "turn-1");
+        assert_eq!(answer.pointer("/_meta/acpmux/signInRefused/attempt"), Some(&json!(3)));
+    }
+
+    /// A new agent for the turn (a failover keeps the turn id) before the end runs: the end is
+    /// not carried out on it (review F1).
+    #[tokio::test]
+    async fn a_refused_sign_in_end_spares_the_turns_next_agent() {
+        let (hub, session) = running_turn().await;
+        hub.end_sign_in_refused(&session, &refused(3));
+        Hub::hold_stalled_count(&session);
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(session.steer_end.borrow().is_none(), "the next agent's turn is not ended");
     }
 
     #[test]
