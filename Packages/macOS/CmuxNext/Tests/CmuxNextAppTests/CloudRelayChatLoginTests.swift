@@ -12,11 +12,14 @@ import Testing
 @MainActor @Suite(.serialized)
 struct CloudRelayChatLoginTests {
     /// A fresh Cloud machine with nothing inherited: no start-session ran on it first.
-    static func fixture() -> (services: AppServices, machine: CloudMachineSession) {
+    /// `owns` and `teammate`: the link's connect answer once it is up.
+    static func fixture(owns: Bool = true, teammate: Bool = false) -> (services: AppServices, machine: CloudMachineSession) {
         let services = MachineIconTests.services()
         AppActions.bind(services)
         let id = "vm_" + UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "").prefix(20)
-        return (services, MachineIconTests.cloudMachine(services, id: id))
+        let machine = CloudTestLink.session(id: id, name: "Icon VM", owns: owns, teammate: teammate, mainWork: services.mainWork)
+        services.machines.add(machine)
+        return (services, machine)
     }
 
     static func invocation(_ machine: CloudMachineSession, origin: ActionOrigin = .cli) -> ActionInvocation {
@@ -84,9 +87,10 @@ struct CloudRelayChatLoginTests {
 
     /// Runs the relay chat bound with a login step that leaves `decision`, and answers its result and the steps' order.
     static func relayChat(_ decision: CloudHarnessLoginDecision, origin: ActionOrigin = .cli, loginTakes: Duration = .zero,
-                          loginWithin: Duration = CloudStartSession.loginWithin, accountChanges: Bool = false, linked: Bool = false) async throws
+                          loginWithin: Duration = CloudStartSession.loginWithin, accountChanges: Bool = false,
+                          link: CloudCallerOwnership? = nil) async throws
         -> (result: Result<[String: ActionResultValue], ActionWorkFailure>?, work: ActionWorkFailure??, steps: [String]) {
-        let f = fixture()
+        let f = fixture(owns: link == .owner, teammate: link == .team)
         _ = Steps.shared.take()
         CloudStartSession.bindRelayChat(into: f.services.registry, context: AppActionContext(services: f.services), reason: { nil },
                                         steps: .init(login: { machine, _, still in
@@ -96,7 +100,7 @@ struct CloudRelayChatLoginTests {
                                             if accountChanges { throw ActionFailure(message: "account changed") }
                                             try still()
                                         }, relay: { Self.relay }, loginWithin: loginWithin))
-        if linked { _ = try await f.machine.appLink.connect(origin: .script) }
+        if link != nil { _ = try await f.machine.appLink.connect(origin: .script) }
         let invoke = try #require(f.services.registry.action(for: "cloudRelayChat")?.invoke)
         var run: (work: [ActionWork], results: [ActionResultWork]) = ([], [])
         _ = f.services.registry.capturingRefusal { run = f.services.registry.capturingRun { invoke(Self.invocation(f.machine, origin: origin)) } }
@@ -218,12 +222,39 @@ struct CloudRelayChatLoginTests {
         #expect(fields["login_reason"] == .string("caller-not-owner"))
     }
 
-    /// A link whose answer says the caller doesn't own the machine: the same skip is final (start-session would skip too).
-    @Test func aSkippedLoginOnALinkedMachineIsFinal() async throws {
-        let run = try await Self.relayChat(Self.decision(outcome: nil, callerOwns: false), linked: true)
+    /// A known teammate's machine (its link answered `team`): the caller-not-owner skip is final. This Mac never copies the
+    /// caller's login onto a machine the caller doesn't own, and a chat start there is refused as a teammate's anyway.
+    @Test func aKnownTeamMachineIsFinal() async throws {
+        let run = try await Self.relayChat(Self.decision(outcome: nil, callerOwns: false), link: .team)
         #expect(run.steps == ["login"])
         let fields = try Self.fields(run.result)
         #expect(fields["delivered"] == .bool(false) && fields["error_code"] == .string("cloud.relay.login_skipped"))
+    }
+
+    /// A link up whose answer was neither owner nor team (the app server could not read it: `vm_kind: "unknown"`): not a
+    /// teammate's machine, and never sent. It is unverified, as with no link at all.
+    @Test func anUnreadOwnerAnswerIsUnverifiedNotTeam() async throws {
+        let run = try await Self.relayChat(Self.decision(outcome: nil, callerOwns: false), link: .unknown)
+        #expect(run.steps == ["login"])
+        let fields = try Self.fields(run.result)
+        #expect(fields["delivered"] == .bool(false) && fields["error_code"] == .string("cloud.relay.login_unverified"))
+    }
+
+    /// A known owner (its link answered `owner`) whose login was copied: sent.
+    @Test func aKnownOwnerWithALoginSends() async throws {
+        let run = try await Self.relayChat(Self.decision(outcome: "installed"), link: .owner)
+        #expect(run.steps == ["login", "send"])
+        #expect(try Self.fields(run.result)["delivered"] == .bool(true))
+    }
+
+    /// The link's three answers, as the relay reads them.
+    @Test func theLinkReadsThreeOwnershipStates() async throws {
+        for (owns, teammate, expected) in [(true, false, CloudCallerOwnership.owner), (false, true, .team), (false, false, .unknown)] {
+            let f = Self.fixture(owns: owns, teammate: teammate)
+            #expect(await f.machine.appLink.callerOwnership == .unknown, "no link up: unknown")
+            _ = try await f.machine.appLink.connect(origin: .script)
+            #expect(await f.machine.appLink.callerOwnership == expected)
+        }
     }
 
     /// A machine this app made for the signed-in caller passes the ownership check once its link is up; a teammate's or

@@ -1,6 +1,7 @@
 //! `cloud.machine.connect` answers the signed-in caller's `vm_kind` from the
 //! Worker's `connect_info` for that link (cmux-platform#89): `owner` only on
-//! the exact value, `team` otherwise, also from a Worker that predates it.
+//! the exact value, `team` for any other answer, also from a Worker that
+//! predates it, and `unknown` when no answer could be read (it grants nothing).
 //! The answer belongs to one link generation: a new link reads it fresh,
 //! never from an earlier link's cached read.
 
@@ -225,7 +226,7 @@ fn a_sign_out_fails_the_connect_of_an_up_link_and_ends_it() {
 }
 
 #[test]
-fn an_unavailable_identity_read_answers_team_without_caching() {
+fn an_unavailable_identity_read_answers_unknown_without_caching() {
     let spawner = FakeSpawner::default();
     let mut s = Server::with_attach(
         FakeControlPlane::with(&["vm-get", "connect-info-owner"]),
@@ -236,6 +237,19 @@ fn an_unavailable_identity_read_answers_team_without_caching() {
     let reads = s.control_plane().wire.count("cloud.machine.connect_info");
     s.control_plane_mut().fail_session_unavailable();
     let second = connect(&mut s, "c-2");
-    assert_eq!(second["vm_kind"], "team");
+    assert_eq!(second["vm_kind"], "unknown", "an unread answer is not a teammate's: {second}");
     assert_eq!(s.control_plane().wire.count("cloud.machine.connect_info"), reads);
+}
+
+#[test]
+fn a_transient_owner_read_answers_unknown() {
+    for code in ["cmux.cloud.relay_unavailable", "cmux.cloud.provider_unavailable"] {
+        let spawner = FakeSpawner::default();
+        let mut s = Server::with_attach(
+            FakeControlPlane::with(&["vm-get", "connect-info-owner"]),
+            attach(&spawner, &FakeTransport::default()),
+        );
+        s.control_plane_mut().fail_connect_info(code);
+        assert_eq!(connect(&mut s, "c-1")["vm_kind"], "unknown", "{code}");
+    }
 }
