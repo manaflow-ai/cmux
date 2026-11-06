@@ -6,11 +6,12 @@ import Testing
 /// late in it, for the app process and its daemon: `/usr/bin/sample` over the
 /// same window length at both points, plus each process's CPU share. A cost
 /// that grows with the workspaces already made shows as a stack that is heavier
-/// late than early. Prints a profile and checks nothing; opt-in with
-/// `CMUX_CLASSIC_UPGRADE_PERF=1`, as ``ClassicUpgradeSimulationPerfTests`` (``SelfSampler``).
+/// late than early. Prints a profile and checks nothing; runs only when a run names
+/// it by name: `CMUX_SWIFT_TEST_SUITES=ClassicUpgradeHugeProfileTests` on a fleet run (``SelfSampler``).
 @MainActor @Suite(.serialized, .timeLimit(.minutes(15)),
-                  .enabled(if: ProcessInfo.processInfo.environment["CMUX_CLASSIC_UPGRADE_PERF"] == "1" && SameTreeDaemonBinary.url != nil,
-                           "set CMUX_CLASSIC_UPGRADE_PERF=1 on a fleet run"))
+                  .enabled(if: ProcessInfo.processInfo.environment["CMUX_SWIFT_TEST_SUITES"]?.contains("ClassicUpgradeHugeProfileTests") == true
+                               && SameTreeDaemonBinary.url != nil,
+                           "name it in CMUX_SWIFT_TEST_SUITES on a fleet run"))
 struct ClassicUpgradeHugeProfileTests {
     static let window = 20
 
