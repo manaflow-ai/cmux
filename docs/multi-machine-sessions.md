@@ -449,6 +449,22 @@ with the link in place of the Cloud socket:
 - the source keeps a "Moved to MacBook" ledger row (as `CloudMovedChats`)
   so **Continue on Studio** brings it back.
 
+**A move never ends a running command silently** (lens review: a running
+build is work). A process can't move between machines, so a terminal whose
+foreground process is not its shell (a dev server, a build, a test watcher)
+can't simply reopen on the target. The move card names each one with its
+command ("Terminal 2 is running `npm run dev`"). By default each one stays
+running on the source: the target shows that tab as "Running on Studio" and,
+when it holds `control` on Studio, reaches it over the link with the lanes a
+phone already uses (a move grants nothing more), and the source keeps the process and its scrollback until the person closes the
+tab. **Stop and Reopen on MacBook** on the card ends that command on the
+source and opens a fresh shell in the same folder on the target. A move
+started by an agent always leaves running commands where they are. Agent
+turns are the one exception: a running turn already moves and continues
+on the target (#30567). Idle terminals move as above. The move PR tests a
+running command left on the source and reached from the target, and Stop and
+Reopen ending only the command named on the card.
+
 Neither pump may simply be pointed at a Mac. `fs-v1` is served only by a
 Cloud host today, and `agent-transfer-v1` refuses remote and stamped
 clients, both on purpose. A Mac serves them on the link only behind a new
