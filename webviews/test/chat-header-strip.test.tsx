@@ -146,6 +146,7 @@ test("the compact chat tools use host SF Symbols, with overflow last and no dupl
   // inherits that color instead of changing its inline style.
   expect(pack.style.color).toBe("");
   expect(toggle!.querySelector("[data-symbol]")).toBeNull();
+  const lit = "var(--agent-lit-glyph, var(--agent-accent))";
   for (const button of symbolTools) {
     const glyph = button.querySelector<HTMLElement>("[data-symbol]")!;
     expect(glyph).not.toBeNull();
