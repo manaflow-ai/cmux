@@ -200,7 +200,7 @@ impl Driver {
         loop {
             // No periodic wakeup. EOF ends an idle child too. Any unsolicited
             // byte is a protocol violation, never another call's reply.
-            let mut call = tokio::select! {
+            let call = tokio::select! {
                 biased;
                 incoming = self.stream.read_u8() => return match incoming {
                     Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => Ok(()),
