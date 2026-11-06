@@ -61,9 +61,13 @@ import UIKit
     /// the dock applied in one frame too.
     @Test func interruptedKeyboardTransitionsMoveTheDockOnlyInsideAnAnimation() throws {
         let center = NotificationCenter()
-        let tracker = MobileKeyboardFrameTracker(notificationCenter: center)
+        // Notifications are timed by this clock, not the simulator's speed.
+        var clock: CFTimeInterval = 100
+        let tracker = MobileKeyboardFrameTracker(notificationCenter: center, now: { clock })
         let controller = UIViewController()
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        // The simulator's own screen: a keyboard wider than it reads as an iPad's.
+        let screen = UIScreen.main.bounds
+        let window = UIWindow(frame: screen)
         window.rootViewController = controller
         window.makeKeyAndVisible()
         let view = controller.view!
@@ -78,9 +82,10 @@ import UIKit
             stack.bottomAnchor.constraint(equalTo: dock.guide.topAnchor),
         ])
         view.layoutIfNeeded()
-        let shown = CGRect(x: 0, y: 566, width: 402, height: 308)
-        let hidden = CGRect(x: 0, y: 874, width: 402, height: 308)
-        let gone = CGRect(x: 0, y: 874, width: 402, height: 0)
+        let bottom = screen.maxY, width = screen.width
+        let shown = CGRect(x: 0, y: bottom - 308, width: width, height: 308)
+        let hidden = CGRect(x: 0, y: bottom, width: width, height: 308)
+        let gone = CGRect(x: 0, y: bottom, width: width, height: 0)
         // A long animation keeps each transition running while the test posts the next.
         func post(_ name: Notification.Name, _ frame: CGRect, duration: Double = 2) {
             center.post(name: name, object: nil, userInfo: [
@@ -129,14 +134,16 @@ import UIKit
         hostLayout()
         #expect(dock.guide.layoutFrame.minY == shown.minY, "the did notice does not drop the dock")
         will(gone, duration: 0)
-        #expect(dock.guide.layoutFrame.minY == 874)
+        #expect(dock.guide.layoutFrame.minY == bottom)
         #expect(!(stack.layer.animationKeys() ?? []).isEmpty, "an unanimated reversal still carries the stack down from where it is")
         settle()
 
         // A did with another frame after its will's animation (UIKit retargeted) still counts.
-        let taller = CGRect(x: 0, y: 874 - 380, width: 402, height: 380)
-        will(shown, duration: 0)
-        post(UIResponder.keyboardDidChangeFrameNotification, taller, duration: 0)
+        let taller = CGRect(x: 0, y: bottom - 380, width: width, height: 380)
+        will(shown)
+        settle()
+        clock += 2.5
+        post(UIResponder.keyboardDidChangeFrameNotification, taller)
         hostLayout()
         #expect(dock.guide.layoutFrame.minY == taller.minY)
         withExtendedLifetime(dock) {}

@@ -113,7 +113,7 @@ public final class MobileKeyboardFrameTracker {
         abs(a.minX - b.minX) < 0.5 && abs(a.minY - b.minY) < 0.5 && abs(a.width - b.width) < 0.5 && abs(a.height - b.height) < 0.5
     }
 
-    private func record(change: Change, endFrame: CGRect?, duration: TimeInterval = 0, curve: Int = 0) {
+    private func record(change: Change, endFrame: CGRect?, duration: TimeInterval, curve: Int) {
         // An interruption's notice: the new transition's will comes next.
         if let endFrame, change == .didChangeFrame, isStale(didChangeTo: endFrame) { return }
         if let endFrame {
@@ -124,6 +124,7 @@ public final class MobileKeyboardFrameTracker {
                 // takes the cut transition's, so a dock riding it carries on
                 // from where it is.
                 if duration <= 0, let cut = latestWill, time < cut.time + cut.duration, !Self.same(cut.frame, endFrame) {
+                    // UIKit's keyboard curve (7) is private; the dock passes its raw value through.
                     interruptedAnimation = (cut.duration, UIView.AnimationCurve(rawValue: cut.curve) ?? .easeInOut)
                 } else {
                     interruptedAnimation = nil
