@@ -132,7 +132,7 @@ mod tests {
 
         let register_ms = NOW_MS + 4_000;
         assert!(parked_and_live(&woken, OPEN, "slot", register_ms));
-        let paired = pairing_order(vec![(0, woken.parked.clone().unwrap())]);
+        let paired = pairing_order(vec![(0, woken.parked.unwrap())]);
         assert_eq!(paired.len(), 1);
         assert_eq!(paired[0].1.lane, LaneToken("lane-a".into()));
         assert_eq!(paired[0].1.generation, 3);
