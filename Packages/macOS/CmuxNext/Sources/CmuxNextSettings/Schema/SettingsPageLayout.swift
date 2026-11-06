@@ -212,7 +212,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
             // without a group here they had no row on the page.
             group("settings.group.terminalFont"), group("settings.group.densityMotion"),
             card("settings.pageGroup.sizes", "Sizes", [
-                "app.uiScale", "appearance.metrics.chromeFontSize", "appearance.metrics.sidebarWidth",
+                // Text Size (appearance.metrics.chromeFontSize) is in the Density card.
+                "app.uiScale", "appearance.metrics.sidebarWidth",
                 "appearance.metrics.columnGap", "appearance.metrics.dividerThickness",
                 "appearance.metrics.dividerHitWidth", "appearance.metrics.titlebarHeight",
             ]),

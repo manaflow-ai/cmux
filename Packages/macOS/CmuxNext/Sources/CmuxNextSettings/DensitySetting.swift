@@ -6,8 +6,8 @@ import Foundation
 public nonisolated struct DensitySetting: Sendable {
     /// The key's path.
     public let configPath = ["appearance", "density"]
-    /// The density when the key is absent or names no density.
-    public let fallback = DensityPreset.compact.rawValue
+    /// The density when the key is absent or names no density: Default (`cozy`).
+    public let fallback = DensityPreset.cozy.rawValue
 
     public init() {}
 

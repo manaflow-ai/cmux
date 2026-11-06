@@ -1845,127 +1845,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "كثافة مريحة"
+            "value": "الكثافة الافتراضية"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Udobna gustina"
+            "value": "Zadana gustoća"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hyggelig tæthed"
+            "value": "Standardtæthed"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gemütliche Dichte"
+            "value": "Standarddichte"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cozy Density"
+            "value": "Default Density"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Densidad acogedora"
+            "value": "Densidad predeterminada"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Densité douillette"
+            "value": "Densité par défaut"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Densità accogliente"
+            "value": "Densità predefinita"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ゆったり密度"
+            "value": "デフォルトの密度"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ដង់ស៊ីតេកក់ក្ដៅ"
+            "value": "ដង់ស៊ីតេលំនាំដើម"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "아늑한 밀도"
+            "value": "기본 밀도"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lun tetthet"
+            "value": "Standardtetthet"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Przytulna gęstość"
+            "value": "Domyślna gęstość"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Densidade aconchegante"
+            "value": "Densidade padrão"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Уютная плотность"
+            "value": "Плотность по умолчанию"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ความหนาแน่นแบบอบอุ่น"
+            "value": "ความหนาแน่นเริ่มต้น"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rahat yoğunluk"
+            "value": "Varsayılan Yoğunluk"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Затишна щільність"
+            "value": "Типова щільність"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mật độ ấm cúng"
+            "value": "Mật độ mặc định"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "舒适密度"
+            "value": "默认密度"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "舒適密度"
+            "value": "預設密度"
           }
         }
       }
@@ -1977,127 +1977,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مساحة أكبر قليلًا حول الصفوف وعناصر التحكم من دون أن تملأ النافذة."
+            "value": "الحجم القياسي للنص والصفوف وعناصر التحكم."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Malo više prostora oko redova i kontrola bez zauzimanja cijelog prozora."
+            "value": "Standardna veličina teksta, redova i kontrola."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lidt mere plads omkring rækker og kontroller uden at fylde vinduet."
+            "value": "Standardstørrelsen for tekst, rækker og kontroller."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Etwas mehr Platz um Zeilen und Steuerelemente, ohne das Fenster zu füllen."
+            "value": "Die Standardgröße für Text, Zeilen und Bedienelemente."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A little more room around rows and controls without taking over the window."
+            "value": "The standard size for text, rows and controls."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un poco más de espacio alrededor de filas y controles sin ocupar la ventana."
+            "value": "El tamaño estándar para el texto, las filas y los controles."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un peu plus d’espace autour des lignes et contrôles sans remplir la fenêtre."
+            "value": "La taille standard du texte, des lignes et des commandes."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un po’ più di spazio intorno a righe e controlli senza occupare la finestra."
+            "value": "La dimensione standard di testo, righe e controlli."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ウィンドウを圧迫せず、行とコントロールの周りに少し余白を加えます。"
+            "value": "文字、行、コントロールの標準サイズです。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មានចន្លោះបន្ថែមបន្តិចជុំវិញជួរ និងវត្ថុបញ្ជា ដោយមិនកាន់កាប់បង្អួច។"
+            "value": "ទំហំស្តង់ដារសម្រាប់អក្សរ ជួរ និងការគ្រប់គ្រង។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "창을 가득 채우지 않으면서 행과 컨트롤 주위에 여유를 조금 더 둡니다."
+            "value": "텍스트, 행, 컨트롤의 표준 크기입니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Litt mer plass rundt rader og kontroller uten å fylle vinduet."
+            "value": "Standardstørrelsen for tekst, rader og kontroller."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Trochę więcej miejsca wokół wierszy i kontrolek bez zajmowania całego okna."
+            "value": "Standardowy rozmiar tekstu, wierszy i elementów sterujących."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Um pouco mais de espaço ao redor das linhas e controles sem ocupar a janela."
+            "value": "O tamanho padrão para texto, linhas e controles."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Немного больше места вокруг строк и элементов управления, не занимая всё окно."
+            "value": "Стандартный размер текста, строк и элементов управления."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เพิ่มพื้นที่รอบแถวและตัวควบคุมเล็กน้อยโดยไม่กินพื้นที่หน้าต่าง"
+            "value": "ขนาดมาตรฐานของข้อความ แถว และตัวควบคุม"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pencereyi doldurmadan satır ve denetimlerin çevresine biraz daha alan ekler."
+            "value": "Metin, satırlar ve denetimler için standart boyut."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Трохи більше місця навколо рядків і елементів керування без заповнення вікна."
+            "value": "Стандартний розмір тексту, рядків і елементів керування."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Thêm một chút khoảng trống quanh hàng và điều khiển mà không chiếm cả cửa sổ."
+            "value": "Kích thước tiêu chuẩn cho chữ, hàng và điều khiển."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "行和控件周围多一点空间，同时不会占满窗口。"
+            "value": "文字、行和控件的标准大小。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "列與控制項周圍多一點空間，同時不會佔滿視窗。"
+            "value": "文字、列和控制項的標準大小。"
           }
         }
       }
