@@ -122,6 +122,13 @@ await requireBrowserLane("folder-menu-scroll-steady.browser.test.ts", async () =
             await page.mouse.wheel(0, 12);
             await page.waitForTimeout(24);
           }
+          // And past the list's edge and back while still scrolling: the pointer leaves the rows
+          // (onto the list's padding and the field), which clears the highlight, then re-enters one.
+          for (let step = 0; step < 8; step += 1) {
+            await page.mouse.move(box.x + box.width / 2, step % 2 ? box.y + box.height / 2 : box.y - 6);
+            await page.mouse.wheel(0, 12);
+            await page.waitForTimeout(24);
+          }
           await page.waitForTimeout(200);
           const trace = await page.evaluate(() => (window as unknown as { scrollTrace: Trace }).scrollTrace);
           console.log(`${engine} ${variant}`, JSON.stringify({ ...trace, scrolls: trace.scrolls.length }));
