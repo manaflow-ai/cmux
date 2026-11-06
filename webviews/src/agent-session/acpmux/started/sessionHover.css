@@ -4,8 +4,9 @@
    under plain glass too), a hairline of clear border under the glass rim and a 12px
    corner. Inside, 12px by 16px of
    padding and three steps: the title in the body step at emphasis (two lines at most), the status
-   line (SessionStatusLine, styled in startedSessions.css), then the meta line, the folder and branch
-   in the caption step and the muted ink. It is as wide as its title, 240px to 420px. The whole card is
+   line (SessionStatusLine, styled in startedSessions.css), then what it is doing now (the caption
+   step in the body ink, two lines at most), then the meta line, the folder, branch and when it last
+   changed in the caption step and the muted ink. It is as wide as its title, 240px to 420px. The whole card is
    one button that opens the session. Sizes are the type scale's steps (desktop.css). */
 .acpmux-session-hover-card.ui-card {
   max-width: min(420px, calc(100vw - var(--ds-space-3)));
@@ -48,6 +49,20 @@
   -webkit-line-clamp: 2;
   font-weight: var(--weight-emphasis);
   overflow-wrap: anywhere;
+}
+.acpmux-session-hover-now {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: var(--agent-text);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+  overflow-wrap: anywhere;
+}
+.acpmux-session-hover-now[data-kind="reply"] {
+  color: var(--agent-muted);
 }
 .acpmux-session-hover-meta {
   min-width: 0;

@@ -26,7 +26,14 @@ from pathlib import Path
 state = Path(os.environ["FAKE_STATE"])
 words = sys.argv[1:]
 verb = " ".join(words[:2])
-if verb == "cloud list-machines":
+if words == ["app", "identify", "--json"]:
+    print(json.dumps({"result": {"pid": 1, "app_bundle_path": os.environ["FAKE_APP"]}}))
+elif words == ["app", "call", "auth.status", "--json"]:
+    print(json.dumps({"result": {"signed_in": True, "backend": "https://cloud-api-staging.cmux.dev",
+                                   "cloud_environment": "staging"}}))
+elif words == ["app", "quit", "--json"]:
+    print(json.dumps({"result": {"quitting": True}}))
+elif verb == "cloud list-machines":
     print(json.dumps({"account": {"signed_in": True}, "machines": []}))
 elif verb == "vm token":
     print(json.dumps({"ok": True}))
@@ -54,6 +61,8 @@ elif verb == "app call":
 elif verb == "cloud kill-machine":
     sys.stderr.write(json.dumps({"code": "cloud.machine.not_found", "message": "no machine m-1"}) + "\n")
     sys.exit(1)
+elif verb == "cloud exec":
+    print(json.dumps({"result": {"exit_code": 0, "stdout": ""}}))
 else:
     sys.exit(2)
 '''
@@ -72,6 +81,10 @@ print("2026-11-04 11:31:03.1 Df cmux[1:2] [com.cmuxterm.app.next:cloud.hub] sent
 print("2026-11-04 11:31:04.1 Df cmux[1:2] [com.cmuxterm.app.next:cloud.hub] token=abcdef123456")
 '''
 
+FAKE_OPEN = r'''#!/bin/sh
+exit 0
+'''
+
 
 class CloudChatProofFailureEvidenceTests(unittest.TestCase):
     def test_failed_start_keeps_error_and_link_log_without_prompt(self) -> None:
@@ -85,11 +98,16 @@ class CloudChatProofFailureEvidenceTests(unittest.TestCase):
             log_tool = tmp_path / "log"
             log_tool.write_text(FAKE_LOG)
             log_tool.chmod(0o755)
+            open_tool = tmp_path / "open"
+            open_tool.write_text(FAKE_OPEN)
+            open_tool.chmod(0o755)
             evidence = tmp_path / "evidence.json"
-            env = {**os.environ, "FAKE_STATE": str(tmp_path / "calls"), "CMUX_PROOF_LOG_TOOL": str(log_tool)}
+            env = {**os.environ, "FAKE_STATE": str(tmp_path / "calls"), "CMUX_PROOF_LOG_TOOL": str(log_tool),
+                   "CMUX_PROOF_OPEN_TOOL": str(open_tool), "FAKE_APP": str(app.resolve())}
             done = subprocess.run(
                 [sys.executable, "-I", str(PROOF), "--app", str(app), "--tag", "ccp-test", "--prompt", CONTEXT,
-                 "--agent", "claude", "--evidence", str(evidence)],
+                 "--agent", "claude", "--cloud-backend", "staging", "--expected-api-origin",
+                 "https://cloud-api-staging.cmux.dev", "--evidence", str(evidence)],
                 env=env, capture_output=True, text=True, timeout=120,
             )
             self.assertEqual(done.returncode, 1, done.stdout + done.stderr)

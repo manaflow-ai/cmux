@@ -105,7 +105,9 @@ const Chief = Schema.Struct({
   rev: Schema.Number,
   created_at: Timestamp,
   updated_at: Timestamp,
-  archived_at: Schema.NullOr(Timestamp)
+  archived_at: Schema.NullOr(Timestamp),
+  /** A channel Chief's channel (plans/cmux-next/chief-channels-DESIGN.md); absent on an ordinary Chief. */
+  channel: Schema.optionalKey(Schema.Struct({ conversation: ConversationId, title: Schema.String }))
 }).annotate({ identifier: "HomeChief" })
 
 export const ChiefCreate = def({
@@ -121,6 +123,21 @@ export const ChiefCreate = def({
   docs: "Create a chief (the user's first chief is the default; use the idempotency key chief-default for it). Binds its wake queue and gives it the user's text confirmation level. brain_place (session only) names the paired server that runs its brain.",
   cli: { path: "chief create", visible: true },
   mcp: { expose: "never", group: "home" }
+})
+
+export const ChannelCreate = def({
+  name: "channel.create",
+  owner: "cloud:UserDO",
+  class: "mutation",
+  risk: "mutate-own",
+  target: "chief",
+  principals: ["session", "install"],
+  params: Schema.Struct({ title: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200)), display_name: Schema.optionalKey(ChiefName) }),
+  result: Chief,
+  errors: mutationErrors,
+  docs: "Create a channel: a group conversation you own with its own Chief, scoped to it (it is woken only by that conversation and keeps its own memory, instructions, personality and avatar). Answers the channel Chief; its channel.conversation is the channel. display_name defaults to \"<title> Chief\". Invite people with participants.add or invite.create on the channel.",
+  cli: { path: "chat channel create", visible: true },
+  mcp: { expose: "default", group: "home" }
 })
 
 export const ChiefUpdate = def({
@@ -293,6 +310,7 @@ export const homeInboxOps = [
   InboxList,
   InboxDmPeer,
   ChiefCreate,
+  ChannelCreate,
   ChiefUpdate,
   ChiefArchive,
   ChiefDelete,

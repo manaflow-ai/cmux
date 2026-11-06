@@ -224,7 +224,7 @@ extension ActionDescriptor {
                           "browserProfile.new", "browserProfile.rename", "browserProfile.delete", "browserProfile.setColor",
                           "browserProfile.clearColor", "browserProfile.setIcon", "browserProfile.clearIcon",
                           "browserProfile.newTab", "browserProfile.newWindow", "browserProfile.newWorkspace",
-                          "browserProfile.openLink", "browserProfile.moveTab", "browserProfile.duplicateTab",
+                          "browserProfile.openLink", "browserProfile.openLinkInNew", "browserProfile.moveTab", "browserProfile.duplicateTab",
                           "browserProfile.setWorkspaceDefault", "browserProfile.clearWorkspaceDefault",
                           "browserProfile.setSpaceDefault", "browserProfile.clearSpaceDefault",
                           "browserProfile.clearBrowsingData", "browserProfile.manageExtensions",

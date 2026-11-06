@@ -163,7 +163,7 @@ fn parse(args: &[String]) -> Option<Request> {
 /// older, as `cmux_remote::update_need` counts a remote without facts. A
 /// client that does not know its own time orders nothing. The same time is
 /// the same source tree: not older.
-fn machine_is_older(remote: Option<u64>, local: u64) -> bool {
+pub(super) fn machine_is_older(remote: Option<u64>, local: u64) -> bool {
     local != 0 && remote.is_none_or(|remote| remote == 0 || remote < local)
 }
 

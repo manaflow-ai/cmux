@@ -7,8 +7,10 @@ import type { AcpmuxRow } from "../model";
 import { copyTextResult } from "./clipboard";
 import { MessageCard } from "./MessageCard";
 import { DispatchCard } from "./DispatchCard";
+import { WhoElseCard } from "./WhoElseCard";
 import { McpCallRows } from "./McpCallRows";
 import { SubsessionCallCard } from "./SubsessionCallCard";
+import { AgentCallCard } from "./AgentCallCard";
 import { AcpmuxSendLine, SentMessageGroup, sendKey } from "./SentMessageLine";
 import { mcpNames, McpNamesContext } from "./mcpCalls";
 import { ToolGroupRow } from "./ToolGroupRow";
@@ -18,12 +20,20 @@ import { ThoughtRow } from "./ThoughtRow";
 import { groupId, runStretches, toolGroups, type ToolGroup } from "./toolGroups";
 import type { RetryNote } from "../subagents/retryState";
 import { RowReplyButton } from "./SelectionReply";
-import { TurnActionsContext } from "./turnActions";
+import { RetryTargetContext, TurnActionsContext } from "./turnActions";
 import { errorRecovery, signInRetry, type ErrorRecovery } from "./errorRecovery";
-import { footerLabel, isEmptyFooter, isStopped, workedLabel } from "./turns";
+import {
+  footerLabel,
+  isEmptyFooter,
+  isStopped,
+  NO_RETRY_TARGET,
+  offersRetry,
+  retryPlacement,
+  workedLabel,
+} from "./turns";
 import { stoppedTurnLook } from "./stoppedTurn.experiment";
 import { turnCopyText } from "./turnCopy";
-import { hasTokens, TimedLabel, tokensText, TurnTokens } from "./TurnTokens";
+import { hasTokens, TimedLabel, tokensText } from "./TurnTokens";
 import { AlertCircle, ArrowRight, ChevronRight, Retry } from "./icons";
 import {
   ForkButton,
@@ -54,6 +64,8 @@ import { codeRouterOffer } from "./codeRouterOffer.experiment";
 import { CodeRouterAction, useCodeRouterChoice } from "./CodeRouterOffer";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 import { PresentationContext } from "./PresentationContext";
+import { useTranscriptReadOnly } from "./readOnly";
+import { useTurnWaterfall } from "./TurnWaterfall";
 
 /// Where a folded run splits (toolGroups.ts), which the row estimate (model.ts) reads too.
 export { runStretches, type RunStretch } from "./toolGroups";
@@ -66,7 +78,8 @@ function WorkedLabel({ row }: { row: AcpmuxRow }) {
   return <TimedLabel text={(time) => t(key, { time })} time={row.durationMs} />;
 }
 
-/// The "Worked for 15s" line; it opens the turn's commentary and tool calls.
+/// The "Worked for 15s" line; it opens the turn's commentary and tool calls. It says the time alone,
+/// as Codex does (Lucas, 2026-11-06): the turn's tokens stay on the running line (WorkingFor.tsx).
 export function WorkedFor({
   row,
   expanded,
@@ -89,14 +102,6 @@ export function WorkedFor({
       <span className="cv-worked__label">
         <WorkedLabel row={row} />
       </span>
-      {hasTokens(row.tokens) && (
-        <span className="cv-worked__count">
-          <span className="cv-worked__sep" aria-hidden="true">
-            ·
-          </span>
-          <TurnTokens split={row.tokens} />
-        </span>
-      )}
       <ChevronRight size={14} className={`cv-worked__chevron cv-rotor${expanded ? " is-open" : ""}`} />
     </button>
   );
@@ -147,6 +152,8 @@ function groupNode(
       );
     case "dispatch":
       return <DispatchCard key={group.item.tool!.id || index} item={group.item} call={group.call} />;
+    case "whoElse":
+      return <WhoElseCard key={group.item.tool!.id || index} item={group.item} call={group.call} />;
     case "send":
       return (
         <AcpmuxSendLine
@@ -183,6 +190,8 @@ function groupNode(
           group={group.calls.map((call, i) => ({ call, tool: group.items[i]!.tool! }))}
         />
       );
+    case "agentCall":
+      return <AgentCallCard key={group.item.tool!.id || index} call={group.call} tool={group.item.tool!} />;
     case "item":
       // A short interim note folded into the run (turns.ts mergeShortNotes).
       if (group.item.kind === "note")
@@ -280,16 +289,21 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
 /// Leo, 2026-11-02: "this should not be placed in front of the copy/whatever buttons. those buttons
 /// should always just be there left aligned". A turn without a "Worked for" line (a Claude turn,
 /// #30176; history paged in mid-turn) keeps its time and tokens in the time's tooltip, never in the
-/// row. Retry is the prompt's (UserBubble.tsx), and also here when the turn failed, whose row always
-/// shows; so does the footer that ends the chat (#31503), so a finished reply's Copy is in sight.
+/// row. Retry, with its model switch, is the last turn's: after Copy on the chat's last footer, failed
+/// or not, never under the prompt (Leo, 2026-11-04: "Today Retry is on your prompt bubble, and appears
+/// on the reply only after a failure. Put it, with the model switch, in the last turn's footer."). A
+/// failed turn's row always shows; so does the footer that ends the chat (#31503), so a finished
+/// reply's Copy and Retry are in sight.
 export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const t = useT();
   const language = usePaneLanguage();
   const messages = useContext(PresentationContext) === "messages";
+  const readOnly = useTranscriptReadOnly();
   const {
     fork,
     forkSeq,
     forkAny,
+    tryAnotherApproach,
     retry,
     retryFailed,
     retryWith,
@@ -303,6 +317,8 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
     switchModel,
   } = useContext(TurnActionsContext);
   const text = row.text;
+  // The turn's Timeline (TurnWaterfall.tsx): a clock button, closed until the reader opens it.
+  const timeline = useTurnWaterfall(row);
   // Copy copies the whole turn, its replies and tool lines (turnCopy.ts), as Claude Code desktop's;
   // a turn of tool calls alone draws no Copy and no Read aloud.
   const turnCopy = row.turnCopy;
@@ -379,6 +395,28 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
       : retry && prompt && row.retryRowId
         ? () => retry(row.retryRowId!, prompt)
         : undefined;
+  // The footer of the person's last prompt, when that turn ended well, sends it again as the
+  // prompt's Retry did, where turns.ts retryPlacement puts the chat's one Retry on this footer.
+  const retryTarget = useContext(RetryTargetContext);
+  const footerTarget = retryTarget
+    ? retryTarget.footerId === row.id
+      ? retryTarget
+      : NO_RETRY_TARGET
+    : offersRetry(row) && !isEmptyFooter(row)
+      ? { promptId: row.retryRowId, footerId: row.id }
+      : NO_RETRY_TARGET;
+  const lastRetry =
+    !failed &&
+    retryPlacement(footerTarget, { canRetry: Boolean(retry), readOnly, messages }) === "footer" &&
+    retry &&
+    prompt &&
+    row.retryRowId
+      ? () => retry(row.retryRowId!, prompt)
+      : undefined;
+  const footerRetry = failedRetry ?? lastRetry;
+  const retryTitle = row.changedFiles ? t("turn.retryChangedFiles") : t("turn.retryLabel");
+  const retryModels =
+    (failed || lastRetry) && retry && prompt && retryWith && retryWith.models.length > 1 ? retryWith : undefined;
   // The card's lead (errorRecovery.ts): Continue when the turn had done work, Retry when nothing
   // ran; it shares the footer Retry's one-at-a-time state and refusal note. A sign-in failure's comes
   // only after its Sign in again, so only the card offers it (signInRetry), never the native command.
@@ -434,28 +472,49 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
         <MessageFooterRow className="cv-turn-footer-row">
           <span className="cv-turn-action-group">
             {!messages && copy && <MessageCopy text={copy} />}
-            {failedRetry && (
-              <button
-                type="button"
-                className="cv-iconbtn cv-iconbtn--compact"
-                aria-label={t("turn.retry")}
-                title={t("turn.retryLabel")}
-                disabled={retrying}
-                onClick={failedRetry}
-              >
-                <Retry size={ROW_ICON} />
-              </button>
-            )}
-            {failed && retry && prompt && retryWith && retryWith.models.length > 1 && (
-              <RetryModelMenu
-                retryWith={retryWith}
-                onPick={(model) => retryWith.retry(row.retryRowId ?? "", prompt, model)}
-              />
+            {(footerRetry || retryModels) && (
+              // Retry and its model switch read as one split control: Retry's square, then a narrow
+              // chevron tight against it (conversation.css .cv-turn-retry).
+              <span className="cv-turn-retry">
+                {footerRetry && (
+                  <button
+                    type="button"
+                    className="cv-iconbtn cv-iconbtn--compact"
+                    aria-label={t("turn.retry")}
+                    title={retryTitle}
+                    disabled={retrying}
+                    onClick={footerRetry}
+                  >
+                    <Retry size={ROW_ICON} />
+                  </button>
+                )}
+                {retryModels && prompt && (
+                  <RetryModelMenu
+                    retryWith={retryModels}
+                    onPick={(model) => retryModels.retry(row.retryRowId ?? "", prompt, model)}
+                  />
+                )}
+              </span>
             )}
             {!messages && fork && seq !== undefined && (forkAny || seq === forkSeq) && (
               <ForkButton throughSeq={seq} onFork={() => forkWithFeedback(seq, () => fork(seq))} />
             )}
+            {tryAnotherApproach && seq !== undefined && seq === forkSeq && (
+              <button
+                type="button"
+                className="cv-iconbtn cv-iconbtn--compact cv-turn-try-another"
+                aria-label={t("turn.tryAnotherApproach")}
+                title={t("turn.tryAnotherApproach")}
+                onClick={() =>
+                  // A refused click or a Cloud error must not become an unhandled rejection.
+                  void tryAnotherApproach(seq).catch(() => undefined)
+                }
+              >
+                {t("turn.tryAnotherApproach")}
+              </button>
+            )}
             {!messages && <PinButton rowId={row.id} />}
+            {!messages && timeline.toggle}
             {!messages && text && <ReadAloudButton id={row.id} text={text} />}
             {!messages && text && <RowReplyButton text={text} />}
             {!messages && text && row.answerId && <MessageMore rowId={row.answerId} />}
@@ -493,6 +552,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           {!messages && <ReplyTime at={row.at} detail={detail} />}
         </MessageFooterRow>
       </div>
+      {!messages && timeline.panel}
     </>
   );
 }

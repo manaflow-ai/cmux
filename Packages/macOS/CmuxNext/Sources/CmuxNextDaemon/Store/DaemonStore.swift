@@ -262,10 +262,34 @@ public final class DaemonStore: StateResourceQueries {
         _ = tabListRevision
         return index.tabsByID[id] ?? index.tabsByResource[ResourceID(rawValue: id)]
     }
-    /// The pane with public id or pane resource id `id`.
+    /// The pane with public id or pane resource id `id`, in O(1) from the index. A miss reads
+    /// `tabListRevision`, so a tracked caller hears a pane come.
     public func pane(idOrResource id: String) -> PaneModel? {
-        index.panesByResource[ResourceID(rawValue: id)]
-            ?? workspaces.lazy.flatMap(\.screens).flatMap(\.panes).first { $0.id == id || $0.resourceID?.rawValue == id }
+        if let pane = index.panesByResource[ResourceID(rawValue: id)] ?? index.pane(id: id) { return pane }
+        _ = tabListRevision
+        return nil
+    }
+    /// The screen with `ScreenModel.id` `id`, in O(1) from the index. It reads `workspaces` first,
+    /// as ``workspace(id:)`` does.
+    public func screen(id: String) -> ScreenModel? {
+        _ = workspaces
+        return index.screensByID[id]
+    }
+    /// The screen with `ScreenModel.id` or screen resource id `id`.
+    public func screen(idOrResource id: String) -> ScreenModel? {
+        screen(id: id) ?? index.screensByResource[ResourceID(rawValue: id)]
+    }
+    /// The workspace whose tree holds this very `screen` (by identity), from the index's parents.
+    public func workspace(holding screen: ScreenModel) -> WorkspaceModel? {
+        _ = workspaces
+        return index.workspace(holding: screen)
+    }
+    /// The workspace and screen whose tree holds this very `pane` (by identity), from the index's
+    /// parents; nil when this store does not hold it.
+    public func location(of pane: PaneModel) -> (workspace: WorkspaceModel, screen: ScreenModel)? {
+        _ = workspaces
+        guard let screen = index.screen(holding: pane), let workspace = index.workspace(holding: screen) else { return nil }
+        return (workspace, screen)
     }
     public func tabGroup(_ id: TabGroupID) -> TabGroupModel? { index.tabGroupsByID[id] }
     public func group(_ id: WorkspaceGroupID) -> WorkspaceGroupModel? { groups.first { $0.id == id } }

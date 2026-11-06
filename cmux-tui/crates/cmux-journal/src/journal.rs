@@ -76,13 +76,14 @@ impl Shared {
 
 impl State {
     /// Whether a record of `size` bytes (header included) may join the queue now: refused when
-    /// the journal is closed, or when the queue holds records and would grow past
-    /// [`Config::max_pending_bytes`] (one record is always taken, however large).
-    fn admits(&self, config: &Config, size: usize) -> Result<(), AppendError> {
+    /// the journal is closed, or, for a `limited` record, when the queue holds records and would
+    /// grow past [`Config::max_pending_bytes`] (one record is always taken, however large).
+    fn admits(&self, config: &Config, size: usize, limited: bool) -> Result<(), AppendError> {
         if self.closed {
             return Err(AppendError::Closed);
         }
-        if !self.pending.is_empty()
+        if limited
+            && !self.pending.is_empty()
             && self.pending.len().saturating_add(size) > config.max_pending_bytes
         {
             return Err(AppendError::Backlog);
@@ -194,6 +195,9 @@ pub struct Journal {
     shared: Arc<Shared>,
     storage: Arc<dyn Storage>,
     dir: PathBuf,
+    /// This journal's id, in every segment's header: kept across opens and retirements while one
+    /// segment is left, new for a journal made from nothing ([`Journal::journal_id`]).
+    journal_id: u64,
     writer: Option<std::thread::JoinHandle<()>>,
     /// Held as long as the writer may write; released after the writer is joined.
     _lock: Box<dyn StorageLock>,
@@ -240,20 +244,50 @@ impl Journal {
         });
         let report = recovered.report;
         let lock = recovered.lock;
+        let journal_id = recovered.writer.journal_id;
         let writer =
             Writer::new(shared.clone(), Arc::clone(&storage), dir.to_path_buf(), recovered.writer);
         let handle = std::thread::Builder::new()
             .name("cmux-journal-writer".into())
             .spawn(move || writer.run())
             .map_err(|error| OpenError::Io { what: "writer thread".into(), error })?;
-        let journal =
-            Self { shared, storage, dir: dir.to_path_buf(), writer: Some(handle), _lock: lock };
+        let journal = Self {
+            shared,
+            storage,
+            dir: dir.to_path_buf(),
+            journal_id,
+            writer: Some(handle),
+            _lock: lock,
+        };
         Ok((journal, report))
     }
 
     /// Appends one record and returns its LSN. A memory copy: no I/O, no wait. The record is
     /// durable once [`Journal::durable_lsn`] reaches the LSN.
     pub fn append(&self, kind: u16, class: Class, payload: &[u8]) -> Result<Lsn, AppendError> {
+        self.append_admitted(kind, class, payload, true)
+    }
+
+    /// Appends one control record as [`Journal::append`] does, except that a full queue never
+    /// refuses it ([`AppendError::Backlog`]): for a record its caller must not lose to a slow or
+    /// failing disk, and appends a bounded number of times (acpmux's `frozen` record, once per
+    /// store). Still refused when the journal is closed or the payload is too large.
+    pub fn append_control(
+        &self,
+        kind: u16,
+        class: Class,
+        payload: &[u8],
+    ) -> Result<Lsn, AppendError> {
+        self.append_admitted(kind, class, payload, false)
+    }
+
+    fn append_admitted(
+        &self,
+        kind: u16,
+        class: Class,
+        payload: &[u8],
+        limited: bool,
+    ) -> Result<Lsn, AppendError> {
         if payload.len() > MAX_PAYLOAD_LEN {
             return Err(AppendError::TooLarge);
         }
@@ -261,7 +295,7 @@ impl Journal {
         let crc = format::payload_crc(payload);
         let mut state = self.shared.lock();
         let size = format::record_len(payload.len());
-        state.admits(&self.shared.config, size)?;
+        state.admits(&self.shared.config, size, limited)?;
         let lsn = state.stats.next_lsn;
         state.stats.next_lsn = lsn.saturating_add(1);
         let was_empty = state.pending.is_empty();
@@ -284,7 +318,14 @@ impl Journal {
         if payload_len > MAX_PAYLOAD_LEN {
             return Err(AppendError::TooLarge);
         }
-        self.shared.lock().admits(&self.shared.config, format::record_len(payload_len))
+        self.shared.lock().admits(&self.shared.config, format::record_len(payload_len), true)
+    }
+
+    /// This journal's id (never 0). LSNs are unique only within one id: a journal made again from
+    /// nothing (its folder removed) starts another id and may give out LSNs an older one gave. A
+    /// caller that keeps an LSN outside the journal keeps the id beside it.
+    pub fn journal_id(&self) -> u64 {
+        self.journal_id
     }
 
     /// Every record up to this LSN is synced (survives a crash of any process and a kernel

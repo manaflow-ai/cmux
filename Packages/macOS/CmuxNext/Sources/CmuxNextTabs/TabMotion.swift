@@ -23,11 +23,9 @@ struct TabPlace: Equatable {
 /// and end together (`TabStripView.moveEnded`).
 struct TabStripMove {
     let generation: Int
-    /// The move of every tab, chip and band but a closing one.
+    /// The move of every tab, chip and band.
     let motion: MotionMove
-    /// A closing tab's move (`tabClose`), when it differs from `motion`.
-    let closing: MotionMove?
-    /// A reveal's scroll spring: it moves every layer alike and carries no closing tab.
+    /// A reveal's scroll spring: it moves every layer alike and carries no closing chip.
     var isScroll = false
     /// The media time every animation of the change starts at (set on each, so `MotionPath` sums the
     /// moves in flight exactly; Core Animation would otherwise start them at the commit).
@@ -40,8 +38,8 @@ struct TabStripMove {
 
     private var key: String { "\(Self.keyPrefix)\(generation)." }
 
-    /// Seconds a layer of this move takes to rest (`closing`: a closing tab's).
-    func duration(closing: Bool) -> CFTimeInterval { (closing ? self.closing ?? motion : motion).duration }
+    /// Seconds a layer of this move takes to rest.
+    var duration: CFTimeInterval { motion.duration }
 
     /// The model geometry of `root`, its sublayers (`depth` levels: a chip's pill content) and their
     /// masks, read before a change.
@@ -71,8 +69,8 @@ struct TabStripMove {
     @discardableResult
     /// `pinsEnd` (a root anchored at its leading edge): only the leading edge moves; the trailing edge
     /// is at its model at once (a group band whose end the dragged tab sets).
-    func animate(from snapshot: Snapshot, closing isClosing: Bool = false, scroll: CGFloat = 0, pinsEnd: Bool = false) -> Bool {
-        let move = isClosing ? closing ?? motion : motion
+    func animate(from snapshot: Snapshot, scroll: CGFloat = 0, pinsEnd: Bool = false) -> Bool {
+        let move = motion
         var moved = false
         for (index, old) in snapshot.layers.enumerated() {
             let layer = old.layer

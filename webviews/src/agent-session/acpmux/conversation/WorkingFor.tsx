@@ -27,12 +27,14 @@ import type { AcpmuxRow, TurnTokenSplit } from "../model";
 import { usePageNow as useTicking } from "../../../ui/pageClock";
 export { usePageNow as useTicking } from "../../../ui/pageClock";
 import { TerminalSquare } from "./icons";
+import { useTextSwap } from "../../../ui/motion/useTextSwap";
 import { BackgroundHint } from "./BackgroundHint";
 import { TimedLabel, TurnTokens } from "./TurnTokens";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { formatDuration } from "./turns";
 import { useSubsessionInfo } from "../subagents/subsessions";
 import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
+import { StatusVerb } from "./StatusVerb";
 
 export const workingLabel = (t: Translate, at: number, now: number) =>
   t("turn.working", { time: formatDuration(Math.max(0, now - at)) });
@@ -93,6 +95,8 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
   const sending = shown !== undefined && sendName !== undefined;
   const doing = sending ? t("send.sending", { target: sendName }) : shown;
   const parts = counts ? workingParts(t, counts) : [];
+  // A new call changes the words as Claude desktop's line does (ui/motion/useTextSwap.ts).
+  const words = useTextSwap<HTMLSpanElement>(waiting ? undefined : (doing ?? ""));
   return (
     // Find counts and visits transcript rows only (chatFind.ts findMatches skips this row), so the
     // line is not painted either: the call it names is matched on its own tool row.
@@ -108,8 +112,9 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
         </output>
       ) : doing || row.thinkingNow ? (
         <>
-          <span className={doing ? "cv-worked__label cv-worked__doing" : "cv-worked__label"}>
-            {doing ?? t("thinking")}
+          <span ref={words} className={doing ? "cv-worked__label cv-worked__doing" : "cv-worked__label"}>
+            {doing ??
+              (held ? t("thinking") : <StatusVerb elapsedMs={Math.max(0, until - row.at)} verbKey={row.verbKey} />)}
           </span>
           <span className="cv-worked__time">{formatDuration(Math.max(0, until - row.at))}</span>
         </>
