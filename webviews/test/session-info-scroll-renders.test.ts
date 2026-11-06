@@ -45,17 +45,17 @@ await requireBrowserLane("session-info-scroll-renders.test.ts", async () => {
     const seeded = (await page.evaluate(() => (window as any).cmuxAcpmuxDebug.loadSeed(300))) as Record<string, any>;
     expect(seeded.error).toBeUndefined();
     // Session Info on (Debug Settings `agent.sessionInfo`), as the header state carries it.
-    await page.evaluate(() =>
-      (window as any).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 }),
-    );
+    await page.evaluate(() => (window as any).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 }));
     const toggle = page.locator("button.acpmux-session-info-toggle").first();
     await toggle.waitFor({ timeout: 10_000 });
     if ((await toggle.getAttribute("aria-pressed")) !== "true") await toggle.click({ force: true });
     await page.waitForFunction(
       () => document.querySelector("aside.acpmux-session-info")?.getAttribute("data-presence") === "shown",
     );
-    // The enter slide and the first reads (changes, usage) settle before the count starts.
-    await page.waitForTimeout(1_500);
+    // The enter slide ends before the count starts.
+    await page.waitForFunction(
+      () => document.querySelector("aside.acpmux-session-info")!.getAnimations({ subtree: true }).length === 0,
+    );
     return page;
   }
 
@@ -75,6 +75,7 @@ await requireBrowserLane("session-info-scroll-renders.test.ts", async () => {
 
   test("scrolling the transcript draws Session Info no more than once", async () => {
     const page = await openPane(820);
+    // fixed-wait: the run is a timed scroll; its length is what is measured over.
     const report = await run(page, { seconds: 4, tick_ms: 0 });
     await page.close();
     // The scroll went through the history.
@@ -86,6 +87,7 @@ await requireBrowserLane("session-info-scroll-renders.test.ts", async () => {
 
   test("scrolling the transcript while a command runs draws Session Info's sections once per change", async () => {
     const page = await openPane(820);
+    // fixed-wait: the run is a timed scroll under a command's timed output; its length is measured over.
     const report = await run(page, { seconds: 6, tick_ms: 100, sidebar_ms: 250 });
     await page.close();
     expect(report.ticks).toBeGreaterThan(30);
@@ -98,6 +100,7 @@ await requireBrowserLane("session-info-scroll-renders.test.ts", async () => {
 
   test("scrolling Session Info itself draws it no more than once", async () => {
     const page = await openPane(520);
+    // fixed-wait: the run is a timed scroll; its length is what is measured over.
     const report = await run(page, { seconds: 4, tick_ms: 0, scroll_target: "session-info", scroll_speed: 600 });
     await page.close();
     expect(report.scrolled_px).toBeGreaterThan(50);

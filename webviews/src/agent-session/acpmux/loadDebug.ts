@@ -322,7 +322,9 @@ export async function loadTick(
   watch.disconnect();
   const sessionInfo = panel
     ? {
-        ...Object.fromEntries(SESSION_INFO_PARTS.map((part) => [part, acpmuxPerf.renders.get(`session-info:${part}`) ?? 0])),
+        ...Object.fromEntries(
+          SESSION_INFO_PARTS.map((part) => [part, acpmuxPerf.renders.get(`session-info:${part}`) ?? 0]),
+        ),
         mutations,
         scroll_marks: scrollMarks,
       }
