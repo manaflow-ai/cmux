@@ -20,10 +20,11 @@ bool}. A record with any unknown key, alias, wrong type or missing field is
 receipt_shape_unsupported and supplies no evidence.
 
 A receipt with a non-"passed" outcome or any failure proves nothing positive,
-except that a receipt whose only failures are `<stage>.not_observable` (the CLI
-row cannot see lease or auth) still contributes its ok stages. A not_observable
-stage stays blocked unless another receipt for the same machine has it ok, so a
-lone receipt with one never passes. Failed stages always fail.
+except that a receipt whose only failures are gaps, `<stage>.not_observable` or
+`<stage>.no_route` (the CLI row cannot see lease or auth, and has no folder route
+on a Nightly without --from-folder), still contributes its ok stages. A gap stage
+stays blocked unless another receipt for the same machine has it ok, so a lone
+receipt with one never passes. Failed stages always fail.
 
 Every receipt for one machine merges. A pass needs all seven stages ok, ACP
 session discovery, pause/resume/reconnect, and provider_verified for that
@@ -46,7 +47,8 @@ MAX_LINE_BYTES = 64 * 1024
 MAX_FILE_BYTES = 1024 * 1024
 
 _MACHINE_ID = re.compile(r"vm_[0-9a-z]{1,64}")
-_PROBE_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+# A UUID (#915) or a writer-fixed slug such as the CLI row's start-matrix-golden-path.
+_PROBE_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[a-z0-9][a-z0-9-]{0,63}")
 _FAILURE_CODE = re.compile(r"[a-z_]+\.[a-z_]+")
 _RECEIPT_KEYS = {"version", "probeId", "startedAt", "endedAt", "outcome", "machineId", "stages"}
 _STAGE_KEYS = {"stage", "requestId", "startedAt", "endedAt", "ok"}
@@ -57,8 +59,12 @@ _VALUE_TYPES = {
 }
 _NESTED_TYPES = {"pause": {"state": str}, "resume": {"state": str}, "second_reply": {"ok": bool}}
 
-def _gap(code: object) -> bool:
-    return isinstance(code, str) and code.endswith(".not_observable")
+GAP_REASONS = ("not_observable", "no_route")
+
+def _gap(code: object) -> str | None:
+    """The gap reason of a `<stage>.<reason>` code that names what a route cannot see or run, else None."""
+    reason = code.rsplit(".", 1)[-1] if isinstance(code, str) and "." in code else None
+    return reason if reason in GAP_REASONS else None
 
 def _typed(value: dict[str, object], types: dict[str, type]) -> bool:
     return all(type(value[key]) is kind for key, kind in types.items() if key in value)
@@ -201,7 +207,7 @@ def normalize(records: list[object]) -> dict[str, object]:
     tried_ms: dict[str, int] = {}
     failures: list[dict[str, object]] = []
     ok_by: list[set[str]] = []                    # per receipt: the stages it proves
-    gaps: list[tuple[int, str]] = []              # (receipt, stage) failed `.not_observable`
+    gaps: list[tuple[int, str, str]] = []         # (receipt, stage, reason) failed as a gap
     failed: set[str] = set()
     values: dict[str, list[dict[str, object]]] = {"chat": [], "reconnect": []}
     negative = False
@@ -228,7 +234,7 @@ def normalize(records: list[object]) -> dict[str, object]:
             failed_here.add(name)
             failures.append(_failure_entry(name, stage_failure, record["probeId"]))
             if _gap(code):
-                gaps.append((index, name))
+                gaps.append((index, name, _gap(code)))
             else:
                 failed.add(name)
         receipt_failure = record.get("failure")
@@ -238,7 +244,7 @@ def normalize(records: list[object]) -> dict[str, object]:
             if name not in failed_here:
                 failures.append(_failure_entry(name, receipt_failure, record["probeId"]))
             if _gap(receipt_failure["code"]):
-                gaps.append((index, name))
+                gaps.append((index, name, _gap(receipt_failure["code"])))
             else:
                 failed.add(name)
         clean = record["outcome"] == "passed" and not codes
@@ -257,9 +263,9 @@ def normalize(records: list[object]) -> dict[str, object]:
         proven = any(name in proved for proved in ok_by)
         # A gap is cleared only by another receipt for the machine that has the stage ok.
         if all(any(name in proved for other, proved in enumerate(ok_by) if other != index)
-               for index, gap in gaps if gap == name) and proven:
+               for index, gap, _reason in gaps if gap == name) and proven:
             return "ok"
-        return "not_observable" if any(gap == name for _index, gap in gaps) else "missing"
+        return next((reason for _index, gap, reason in gaps if gap == name), "missing")
 
     stages = {name: state(name) for name in STAGES}
     # A stage's ms is its ok run's where one counted, else its slowest try.
@@ -284,7 +290,7 @@ def normalize(records: list[object]) -> dict[str, object]:
     if reported_failure or negative:
         blockers.append("receipt_reports_failure")
     blockers.extend(f"stage_failed_{name}" for name in STAGES if stages[name] == "failed")
-    blockers.extend(f"stage_not_observable_{name}" for name in STAGES if stages[name] == "not_observable")
+    blockers.extend(f"stage_{stages[name]}_{name}" for name in STAGES if stages[name] in GAP_REASONS)
     blockers.extend(f"missing_stage_{name}" for name in STAGES if stages[name] == "missing")
     if provider_false:
         blockers.append("provider_proof_rejected")
