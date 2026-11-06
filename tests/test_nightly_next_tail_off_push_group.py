@@ -141,7 +141,8 @@ if SCRIPT.exists():
                                                     "published_sha": "b" * 40, "variants": '["arm64"]',
                                                     "early_mini_jobs": " ignored "}},
         "publish-nightly": {"result": "success", "outputs": {"build": "123", "build_sha": sha, "source": "own",
-                                                             "tag_status": "updated"}},
+                                                             "tag_status": "updated",
+                                                             "downloads": "- arm64: a.dmg\n- x86_64: b.dmg"}},
         "build-nightly-app": {"result": "success", "outputs": {"daemon_build": "123", "daemon_version": "0.1.0"}},
         "resolve-nightly-cmux-tui-client": {"result": "success", "outputs": {"build_sha": sha}},
     }
@@ -150,12 +151,28 @@ if SCRIPT.exists():
     env = {**os.environ, "NEEDS": json.dumps(needs_ctx), "RUN_ID": "42", "RUN_ATTEMPT": "1", "SHA": sha,
            "GITHUB_REPOSITORY": "manaflow-ai/cmux"}
 
+    def parse_outputs(text: str) -> dict[str, str]:
+        """GITHUB_OUTPUT as the runner reads it: name=value lines and name<<DELIM blocks."""
+        outputs, lines = {}, iter(text.splitlines())
+        for line in lines:
+            if "<<" in line and ("=" not in line or line.index("<<") < line.index("=")):
+                name, delim = line.split("<<", 1)
+                body = []
+                for part in lines:
+                    if part == delim:
+                        break
+                    body.append(part)
+                outputs[name] = "\n".join(body)
+            elif "=" in line:
+                name, value = line.split("=", 1)
+                outputs[name] = value
+        return outputs
+
     def run(mode: str, extra: dict[str, str]) -> tuple[int, dict[str, str], str]:
         with tempfile.NamedTemporaryFile("r", suffix=".out") as out:
             proc = subprocess.run([sys.executable, str(SCRIPT), mode], env={**env, **extra, "GITHUB_OUTPUT": out.name},
                                   capture_output=True, text=True)
-            return proc.returncode, dict(line.split("=", 1) for line in out.read().splitlines() if "=" in line), \
-                proc.stdout
+            return proc.returncode, parse_outputs(out.read()), proc.stdout
 
     code, _, stdout = run("pack", {"RECORD_FILE": str(record_file)})
     packed = json.loads(stdout) if code == 0 else {}
@@ -172,7 +189,7 @@ if SCRIPT.exists():
     good_run = {"id": 42, "run_attempt": 1, "event": "push", "head_branch": "nightly-next",
                 "path": ".github/workflows/nightly.yml", "repository": {"full_name": "manaflow-ai/cmux"},
                 "head_repository": {"full_name": "manaflow-ai/cmux"}}
-    forged = {"event": "workflow_dispatch", "head_branch": "feature", "path": ".github/workflows/other.yml",
+    forged = {"event": "pull_request_target", "head_branch": "feature", "path": ".github/workflows/other.yml",
               "repository": {"full_name": "someone/cmux"}, "head_repository": {"full_name": "someone/cmux"},
               "id": 41, "run_attempt": 2}
     for field in (None, *forged):
@@ -182,11 +199,16 @@ if SCRIPT.exists():
         if (code == 0) != (field is None):
             failures.append(f"check-source must accept only a nightly.yml push run on nightly-next here "
                             f"({field or 'the real run'} gave {code})")
+    # Manual builds, unsigned resumes, continuations and republishes on nightly-next dispatch the tail too.
+    (work / "run.json").write_text(json.dumps({**good_run, "event": "workflow_dispatch"}))
+    code, _, _ = run("check-source", {**source_env, "SOURCE_RUN_FILE": str(work / "run.json")})
+    if code != 0:
+        failures.append(f"check-source must accept a manually dispatched nightly.yml run on nightly-next (gave {code})")
 
     code, outputs, _ = run("outputs", {**source_env, "RECORD_FILE": str(record_file)})
     want = {"track": "nightly-next", "publish_build": "123", "publish_build_sha": sha, "resolve_build_sha": sha,
             "variants": '["arm64"]', "publish_result": "success", "source_run": "42", "cross_run": "true",
-            "comment": "true", "daemon_version": "0.1.0"}
+            "comment": "true", "daemon_version": "0.1.0", "publish_downloads": "- arm64: a.dmg\n- x86_64: b.dmg"}
     if code != 0 or any(outputs.get(k) != v for k, v in want.items()):
         failures.append(f"the dispatched run must read the record back from the artifact, got {code} {outputs}")
     code, _, _ = run("outputs", {"SOURCE": json.dumps({"source_run": "43", "source_attempt": "1", "tail": "artifact"}),
@@ -201,6 +223,7 @@ if SCRIPT.exists():
         failures.append("a record carried in the input itself must fail published-build: nobody checked it")
     code, outputs, _ = run("outputs", {"SOURCE": ""})
     if code != 0 or outputs.get("track") != "nightly-next" or outputs.get("cross_run") != "" \
+            or outputs.get("publish_downloads") != "- arm64: a.dmg\n- x86_64: b.dmg" \
             or outputs.get("comment") != "false":
         failures.append(f"in the run that published, the record comes from its own jobs, got {code} {outputs}")
     old = json.dumps({"source_run": "42", "version": "0.1.0", "head_sha": sha, "published_sha": sha})
