@@ -28,11 +28,8 @@ final class BrowserCookieImportCard: NSView {
     private let titleLabel = ChromeLabel(labelWithString: "")
     private let detailLabel = ChromeLabel(wrappingLabelWithString: "")
     let neverButton = CookieCardLinkButton()
-    // No key hint: the card never takes focus, so Return and Escape stay the page's.
-    private(set) lazy var notNowButton = CmuxDialogButtonView(CmuxDialogButton(id: "notNow", title: offer.notNowTitle, role: .cancel),
-                                                              hint: nil, target: self, action: #selector(notNow))
-    private(set) lazy var importButton = CmuxDialogButtonView(CmuxDialogButton(id: "import", title: offer.importTitle, role: .default),
-                                                              hint: nil, target: self, action: #selector(importCookies))
+    private(set) lazy var notNowButton = ChromeTextButton(title: offer.notNowTitle, prominent: false, action: #selector(notNow), target: self)
+    private(set) lazy var importButton = ChromeTextButton(title: offer.importTitle, prominent: true, action: #selector(importCookies), target: self)
     private let density = DensityBinding()
     /// The card's material: glass, or opaque under Reduce Transparency.
     private(set) var glass: OverlaySurfaceView?
