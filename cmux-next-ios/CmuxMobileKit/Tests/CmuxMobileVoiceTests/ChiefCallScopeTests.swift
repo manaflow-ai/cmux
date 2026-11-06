@@ -49,4 +49,18 @@ import Testing
         #expect(toolbox.readChiefMessages(count: 5).output.contains("chief_closed"))
         #expect(toolbox.chiefName == "Atlas")
     }
+
+    /// Every Mac's Chief has the same id and the Mac Chief's session follows the Mac shown:
+    /// a call to one Mac's Chief never reaches another Mac's.
+    @Test func aCallToOneMacsChiefNeverReachesAnotherMacs() async {
+        let mac = Self.chief("agent_mux", "Chief")
+        mac.macID = "mac-studio"
+        let toolbox = Self.toolbox(mac)
+        #expect(toolbox.isScoped)
+        mac.macID = "mac-air"
+        #expect(!toolbox.isScoped)
+        let sent = await toolbox.sendToChief("Run the tests again.")
+        #expect(sent.output.contains("chief_closed"))
+        #expect(mac.outbox.isEmpty)
+    }
 }

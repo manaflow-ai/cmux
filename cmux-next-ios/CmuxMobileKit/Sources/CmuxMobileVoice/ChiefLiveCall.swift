@@ -77,22 +77,25 @@ public final class ChiefLiveCall {
         }
     }
 
-    /// Calls `chief` (nil: the default Chief, ``ChiefSources/primary``), or
-    /// brings back the call to it that runs. A call to another Chief ends first:
-    /// a call is never to one Chief while the user asked for another.
+    /// Calls `chief`, or brings back the call to it that runs. A call to another
+    /// Chief ends first: a call is never to one Chief while the user asked for
+    /// another. Nil (the Action Button, Siri, Settings) brings back the call that
+    /// runs, whichever Chief it is to, or calls the default Chief (``ChiefSources/primary``).
     /// - Returns: False when there is no OpenAI key for this account (the
     ///   caller opens Settings → Chief Calls).
     @discardableResult
     public func start(chief requested: ChiefSession? = nil) -> Bool {
-        let target = requested ?? sources.primary
         if let session, !session.hasEnded {
-            if isCalling(target) {
+            if requested.map(isCalling) ?? true {
                 isMinimized = false
                 return true
             }
             session.hangUp()
             self.session = nil
+            chief = nil
+            toolbox = nil
         }
+        let target = requested ?? sources.primary
         guard let store, let key = keys.key() else { return false }
         // One audio line at a time: a call ends voice mode.
         AgentVoiceMode.shared.stop()
@@ -146,9 +149,14 @@ public final class ChiefLiveCall {
         return toolbox.isScoped
     }
 
-    /// Tries an ended call again with the same settings, to the same Chief.
+    /// Tries an ended call again with the same settings, to the same Chief; when
+    /// its session shows another Chief now, the call screen closes instead.
     public func retry() {
         let again = chief
+        guard toolbox?.isScoped ?? true else {
+            close()
+            return
+        }
         session = nil
         start(chief: again)
     }

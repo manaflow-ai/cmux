@@ -19,6 +19,9 @@ public final class ChiefCallToolbox: VoiceCallToolbox {
     private let chief: ChiefSession
     /// The called Chief's id (``ChiefIdentity/chiefID``), fixed for the call.
     public let chiefID: String
+    /// The Mac a Mac Chief runs on, once known: every Mac's Chief has the same id, and the
+    /// Mac Chief's session follows the Mac the phone shows.
+    private var macID: String?
     public let chiefName: String
     private let store: AppStore
     private let userName: String?
@@ -26,14 +29,24 @@ public final class ChiefCallToolbox: VoiceCallToolbox {
     public init(chief: ChiefSession, store: AppStore, userName: String?) {
         self.chief = chief
         chiefID = chief.identity.chiefID
+        macID = chief.runsInCloud ? nil : chief.macID
         let name = chief.title ?? chief.identity.title
         chiefName = name.isEmpty ? "Chief" : name
         self.store = store
         self.userName = userName
     }
 
-    /// The called Chief is still the one its session holds.
-    public var isScoped: Bool { chief.identity.chiefID == chiefID }
+    /// The called Chief is still the one its session holds: the same Chief, and for a
+    /// Mac Chief the same Mac (the first Mac it shows, when the call began before one).
+    public var isScoped: Bool {
+        guard chief.identity.chiefID == chiefID else { return false }
+        guard !chief.runsInCloud, let now = chief.macID else { return true }
+        guard let macID else {
+            macID = now
+            return true
+        }
+        return now == macID
+    }
 
     /// What the call's tools say once the session shows another Chief.
     private var outOfScope: VoiceCallToolResult {
