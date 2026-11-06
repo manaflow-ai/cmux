@@ -70,7 +70,7 @@ final class BrowserCookieImportCard: NSView {
         stack.translatesAutoresizingMaskIntoConstraints = false
         let content = NSView()
         content.addSubview(stack)
-        let glass = Glass.makeOverlayPanel(content: content, cornerRadius: Self.style.cornerRadius)
+        let glass = Glass.makeOverlayPanel(content: content, cornerRadius: Self.style.cornerRadius, tone: .neutralGlass(Self.style))
         // It floats on the overlay host, a clear window over the page's own window: the blur
         // samples the page behind it; Liquid Glass there drew a dark 1 px outline.
         glass.samplesBehindWindow = true
