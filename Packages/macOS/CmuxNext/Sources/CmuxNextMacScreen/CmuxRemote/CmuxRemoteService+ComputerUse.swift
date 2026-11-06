@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import CmuxNextCompat
 public import CmuxNextDaemon
-import Foundation
+public import Foundation
 public import Observation
 import os
 

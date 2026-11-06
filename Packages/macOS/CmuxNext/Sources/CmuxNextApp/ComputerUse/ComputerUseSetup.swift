@@ -199,7 +199,7 @@ final class ComputerUseSetup {
     static func noHelperRestart() async {}
 
     /// No host to read (tests that never reach `.running`).
-    @concurrent nonisolated static func noRead() async -> Read { .noAnswer }
+    nonisolated static func noRead() async -> Read { .noAnswer }
 
     /// Turns Computer Use on (the person's own click in onboarding). cmux Remote then starts and
     /// its grants are read.
