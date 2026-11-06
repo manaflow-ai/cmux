@@ -83,7 +83,7 @@ impl Hub {
                 // Unit fixtures can construct a hub outside a Tokio runtime, where the
                 // self-weak is intentionally not installed. Keep their cache semantics without
                 // spawning a worker that cannot own the hub.
-                self.save_peer_cache_now(&peer, generation, false);
+                self.save_peer_cache_now(peer, generation, false);
                 return;
             };
             let peer = peer.to_owned();
