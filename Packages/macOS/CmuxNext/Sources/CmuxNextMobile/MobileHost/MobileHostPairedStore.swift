@@ -222,8 +222,7 @@ public final class MobileHostPairedStore: Sendable {
             // refuses (a same-account update) says nothing new about it.
             guard state.list == nil else { return nil }
             state.sealRetry?.cancel()
-            if state.refusedReads < Self.sealWaits.count {
-                let wait = Self.sealWaits[state.refusedReads]
+            if let wait = Self.sealWaits.dropFirst(state.refusedReads).first {
                 state.refusedReads += 1
                 let clock = clock
                 let token = UUID()
@@ -263,7 +262,7 @@ public final class MobileHostPairedStore: Sendable {
         // An Allow of a phone the stored list refuses must clear that refusal on disk.
         for device in next.devices where stored?.denied.contains(where: { $0.id == device.id }) == true { return false }
         for (id, device) in before where after[id]?.sameKeys(as: device) != true { return false }
-        for (id, device) in after where before[id] == nil {
+        for (id, device) in after where !before.keys.contains(id) {
             if let old = kept[id], !old.sameKeys(as: device) { return false }
         }
         return true

@@ -40,6 +40,51 @@ import Testing
         while !condition() { await Task.yield() }
     }
 
+    /// The user's own launches of 2026-11-03, replayed: allowed once, then a nightly launch whose
+    /// Keychain refuses the seal through every wait (the person allows the phone again), a second launch
+    /// whose Keychain refuses at first and then answers, a session that ends by itself, and a healthy
+    /// launch. Only the first refused launch may ask; every later launch trusts the phone with no Allow.
+    @Test func thePhoneAllowedOnceIsNotAskedAboutAgainAcrossSeveralLaunches() async throws {
+        let directory = Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let seal = MobileHostMemoryPairingSeal()
+        try await Self.allowed(directory, seal: seal)
+
+        // 23:18 UTC: the Keychain refuses through every wait; the person allows the phone again.
+        seal.refuseAll()
+        let firstClock = ManualClock()
+        let first = await Self.launch(directory, seal: seal, clock: firstClock)
+        for wait in MobileHostPairedStore.sealWaits {
+            try await firstClock.waitForSleeper()
+            firstClock.advance(by: wait)
+        }
+        await Self.until { first.current != nil }
+        #expect(!first.trusts(Self.phone))
+        try await first.change(for: "u") { $0.approve(Self.phone, at: Date(timeIntervalSince1970: 7)) }
+        #expect(first.trusts(Self.phone))
+
+        // 23:26 UTC: refused at launch, answers during the first wait.
+        let secondClock = ManualClock()
+        let second = await Self.launch(directory, seal: seal, clock: secondClock)
+        #expect(!second.trusts(Self.phone))
+        seal.answerAgain()
+        try await secondClock.waitForSleeper()
+        secondClock.advance(by: .seconds(1))
+        await Self.until { second.current != nil }
+        #expect(second.trusts(Self.phone), "the second launch asked about the phone again")
+
+        // The session ends by itself, then the same account signs in again.
+        second.select(userID: nil)
+        second.select(userID: "u")
+        await second.reload()
+        #expect(second.trusts(Self.phone), "a session that ended by itself asked about the phone again")
+
+        // A healthy launch later still trusts the phone from the sealed list.
+        let third = await Self.launch(directory, seal: seal)
+        #expect(third.trusts(Self.phone), "a healthy launch after the refusals asked about the phone again")
+        #expect(third.current?.devices.count == 1)
+    }
+
     /// The Keychain refuses the seal at launch, then answers: the phone is trusted again with no
     /// Allow, and while it refused no phone was trusted and none asked about (no list yet).
     @Test func aSealRefusedAtLaunchTrustsThePhoneOnceTheKeychainAnswers() async throws {
