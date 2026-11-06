@@ -591,8 +591,8 @@ jobs:
             }
             core.setOutput('continue_only', continueOnly ? 'true' : 'false');
             const alreadyPublished = !continueOnly && !buildOnly && !forceBuild && (isTrackRef || isRcRef) && publishedSha === headSha;
-            let shouldBuild = !seedOnly && !alreadyPublished && !resumeOutsideLoop &&
-              (buildOnly || !isTrackRef || forceBuild || nightlySha !== headSha);
+            let shouldBuild = !seedOnly && !alreadyPublished && (buildOnly || !isTrackRef || forceBuild || nightlySha !== headSha);
+            if (resumeOutsideLoop) shouldBuild = false;
             // The six-hour schedule only warms caches downstream, and keeps
             // its eligibility outputs as they are so that routing still works.
             // It is named here because the build-input check below leaves it

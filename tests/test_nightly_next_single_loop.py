@@ -50,7 +50,7 @@ else:
         failures.append("retry-nightly-next stays on the nightly mini")
 
 decide = "\n".join(str(step.get("with", {}).get("script", "")) for step in JOBS["decide"].get("steps", []))
-if "resumeOutsideLoop" not in decide or not re.search(r"shouldBuild = [^;]*!resumeOutsideLoop", decide):
+if "resumeOutsideLoop" not in decide or "if (resumeOutsideLoop) shouldBuild = false;" not in decide:
     failures.append("decide must build nothing for an unsigned resume the loop did not ask for")
 if "LOOP_RETRY" not in decide:
     failures.append("decide must validate nightly_next_loop_retry")
