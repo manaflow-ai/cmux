@@ -2017,32 +2017,6 @@ export function VirtualTranscript({
     landForReader(stack.row);
     return true;
   };
-  /// The scroller's offset as a held line (foldAnchor) last left it: the click, then each pass that
-  /// put the line back.
-  const holdTop = useRef<number | undefined>(undefined);
-  /// A scroll made from code (scrollIntoView, Find, a link to a row) while a clicked line is held
-  /// (foldAnchor; an open at the very end holds its line too, Codex parity): the view is where the
-  /// code put it, so the hold lets go, or its next pass puts the line back (#34780, as
-  /// `releaseBottomStackFold` does for a close at the end). Only the offset moving off where the
-  /// hold left it counts: a layout change moves the line, not the offset, and a closing body's clamp
-  /// lands at the end. A view still following the latest row moves its own offset to the end until
-  /// the hold's first pass lets go of it, so nothing counts until then.
-  const releaseFoldHold = (node: HTMLElement): boolean => {
-    const left = holdTop.current;
-    if (
-      !foldAnchor.current ||
-      followingRef.current ||
-      bottomStackFold.current ||
-      left === undefined ||
-      Math.abs(node.scrollTop - left) <= FOLLOW_BOTTOM_DEADBAND_PX ||
-      atFoldBottom(node.scrollTop, node.clientHeight, node.scrollHeight, FOLLOW_BOTTOM_DEADBAND_PX)
-    )
-      return false;
-    foldAnchor.current = undefined;
-    holdTop.current = undefined;
-    if (followingRef.current) follow(false);
-    return true;
-  };
   const trimFoldRoom = useCallback((node: HTMLElement) => {
     const kept = foldRoomRef.current;
     if (!kept) return;
@@ -2599,8 +2573,6 @@ export function VirtualTranscript({
     const old = switched ? null : previousLayout.current;
     const oldRows = previousRows.current;
     const node = ref.current;
-    // Code that scrolled the view since the last pass wins over a held line (releaseFoldHold).
-    if (old && node) releaseFoldHold(node);
     // The view stopped following with its rows drawn up by the composer's growth (`lift`): that
     // growth is room now (`heldRoom`), and the offset moves by it in this same frame, so nothing the
     // reader sees moves.
@@ -2623,7 +2595,6 @@ export function VirtualTranscript({
     const heldFrom = node?.scrollTop ?? 0;
     const folding = Boolean(!bottomStacking && old && node && foldAnchor.current && keepFold(foldAnchor.current, node));
     if (!folding && !bottomStacking) foldAnchor.current = undefined;
-    if (folding && node) holdTop.current = node.scrollTop;
     if (folding && node && Math.abs(node.scrollTop - heldFrom) >= 0.5) {
       // The rows mounted for this frame read the held offset too, before its scroll event comes.
       const moved = node.scrollTop;
@@ -3433,7 +3404,7 @@ export function VirtualTranscript({
     }
     const programmatic = !userScrollIntent(node).isHeld();
     // Its event can come before the stack's next pass does.
-    if (programmatic && !releaseBottomStackFold(node)) releaseFoldHold(node);
+    if (programmatic) releaseBottomStackFold(node);
     // The right-hand card holds what it shows until the reader's scroll settles
     // (summary/heldWhileScrolling.ts): older history paged in under the scroll lands there once.
     if (!programmatic) noteReaderScroll();
@@ -3636,10 +3607,6 @@ export function VirtualTranscript({
       foldRoomRef.current = end;
       setFoldRoom(end);
     };
-    // The control a click landed on, for the hold its row's collapsible asks for in the same click
-    // (holdAsked): a long prompt's Show more asks to hold its bubble, which has no open state of its
-    // own, so whether the click opens is the Show more's.
-    let clicked: HTMLElement | undefined;
     const beginBottomStackFold = (toggle: HTMLElement, line: HTMLElement): boolean => {
       // At the very bottom a close pins the bottom and pulls the text above it down, so no blank room
       // is left under the rows (Leo, 2026-11-03: "it's weird to collapse and get all that empty space
@@ -3690,14 +3657,9 @@ export function VirtualTranscript({
       if (!toggle) return;
       const line = foldHoldTarget(toggle, node ?? undefined);
       settleFold(line);
-      clicked = toggle;
-      setTimeout(() => {
-        if (clicked === toggle) clicked = undefined;
-      });
       const bottom = beginBottomStackFold(toggle, line);
       // A keyboard click (detail 0) had no press: an older, abandoned one is not its place.
       foldAnchor.current = clickFold(line, event.detail > 0 ? pressed : undefined);
-      holdTop.current = node?.scrollTop;
       pressed = undefined;
       if (!bottom) keepFoldRoom();
     };
@@ -3720,11 +3682,9 @@ export function VirtualTranscript({
         return;
       event.preventDefault();
       settleFold(header);
-      const toggle = clicked && clicked.closest(".acpmux-row") === header.closest(".acpmux-row") ? clicked : header;
-      const bottom = bottomStackFold.current?.toggle === header ? true : beginBottomStackFold(toggle, header);
+      const bottom = bottomStackFold.current?.toggle === header ? true : beginBottomStackFold(header, header);
       // The click that asked for it already holds this line at the place it was pressed at: keep it.
       foldAnchor.current = clickFold(header, foldAnchor.current);
-      holdTop.current = node.scrollTop;
       if (!bottom) keepFoldRoom();
     };
     // The reader scrolling lets go of it.
