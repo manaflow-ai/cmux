@@ -658,6 +658,7 @@
     "setting.palette.scopes.settings.prefix": ",",
     "setting.palette.scopes.tabs.prefix": "@",
     "setting.palette.scopes.workspaces.prefix": "#",
+    "setting.palette.searchHistory": true,
     "setting.phone.allowConnections": false,
     "setting.phone.cloudDesktop": false,
     "setting.phone.cloudReplica": false,
