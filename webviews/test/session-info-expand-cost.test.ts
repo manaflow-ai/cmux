@@ -83,7 +83,9 @@ await requireBrowserLane("session-info-expand-cost.test.ts", async () => {
       expect(await drawn()).toBeLessThanOrEqual(BOUND);
       // Context's order is the reverse of cost's: none of the rows drawn before stays mounted.
       await page.locator(".acpmux-session-info-usage__sort-option:not([disabled])").click();
-      await page.waitForFunction(() => document.querySelector("ul[data-sort]")?.getAttribute("data-sort") === "context");
+      await page.waitForFunction(
+        () => document.querySelector("ul[data-sort]")?.getAttribute("data-sort") === "context",
+      );
       expect(await drawn()).toBeLessThanOrEqual(BOUND);
       await page.evaluate(() => (document.querySelector(".acpmux-session-info__body")!.scrollTop = 1000));
       await page.waitForFunction(

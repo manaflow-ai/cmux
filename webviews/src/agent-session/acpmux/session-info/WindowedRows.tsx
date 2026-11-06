@@ -61,9 +61,13 @@ export function WindowedRows<T>({
     spacer.style.height = `${rest * pitch}px`;
     const scroller = scrollerOf(list);
     // The rows the window reaches now, and the overscan; drawn in the next commit when past what is.
+    // Read from the box, which stays while rows are held back: a row drawn above it may be replaced
+    // (a sort, a reorder of the same rows) without this effect running again, and a replaced row's
+    // rect is a detached node's, which never moves.
     const reach = () => {
       const bottom = Math.min(scroller?.getBoundingClientRect().bottom ?? Infinity, viewHeight());
-      const need = Math.ceil((bottom - lead.getBoundingClientRect().top) / pitch) + OVERSCAN_ROWS;
+      const top = spacer.getBoundingClientRect().top - count * pitch;
+      const need = Math.ceil((bottom - top) / pitch) + OVERSCAN_ROWS;
       if (need > count) setDrawn((now) => Math.max(now, need));
     };
     reach();
