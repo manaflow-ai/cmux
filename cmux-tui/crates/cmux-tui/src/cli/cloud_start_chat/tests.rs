@@ -1049,3 +1049,16 @@ fn a_new_machine_the_vm_apis_cap_failed_names_the_machines_and_how_to_delete_one
     assert_eq!(error["details"]["cap"], "held");
 }
 
+#[test]
+fn only_a_cap_refusal_reads_as_a_cap() {
+    use super::cap::{Cap, cap_of};
+    assert_eq!(cap_of("cmux.cloud.quota_exceeded", "x"), Some(Cap::Running));
+    assert_eq!(cap_of("cloud.quota.exceeded", "x"), Some(Cap::Running));
+    assert_eq!(cap_of("", "this plan allows 5 active machines"), Some(Cap::Running));
+    assert_eq!(
+        cap_of("cloud.provider.unavailable", "VM API: this team has its limit of 20 machines (paused ones count); delete one to make another"),
+        Some(Cap::Held)
+    );
+    assert_eq!(cap_of("cloud.provider.unavailable", "VM API: HTTP 429"), None);
+    assert_eq!(cap_of("app.unreachable", "no app"), None);
+}
