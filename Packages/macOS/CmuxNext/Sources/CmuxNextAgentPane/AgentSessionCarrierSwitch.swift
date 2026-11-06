@@ -50,6 +50,9 @@ public nonisolated final class AgentSessionCarrierSwitch: AgentSessionRemoteClie
         var replayed = false
         /// The live attachment's events that came before that replay, held until it is in.
         var early: [AgentSessionRemoteEvent] = []
+        /// The relay's attachment after a move, until its detach returns: a push still in flight
+        /// then reaches the page if it is not a record (the direct link carries those) or its end.
+        var retiring: UInt64?
         /// The newest record seq the page got (or its attach answer covered).
         var newest: UInt64 = 0
         /// Calls running on ``current``.
@@ -122,6 +125,7 @@ public nonisolated final class AgentSessionCarrierSwitch: AgentSessionRemoteClie
         guard cutover(to: preferred, generation: generation, preferred: true) else { return await abandon(preferred) }
         Self.logger.info("carrier move: moved")
         await fallback.detach()
+        state.withLock { $0.retiring = nil }
         return true
     }
 
@@ -229,6 +233,7 @@ public nonisolated final class AgentSessionCarrierSwitch: AgentSessionRemoteClie
             for event in state.buffer { Self.admit(event, into: &state) }
             state.buffer = []
             state.buffering = nil
+            if preferred { state.retiring = state.live }
             state.live = generation
             state.alsoLive = nil
             state.current = client
@@ -274,6 +279,14 @@ public nonisolated final class AgentSessionCarrierSwitch: AgentSessionRemoteClie
     private func received(_ event: AgentSessionRemoteEvent, from generation: UInt64) {
         enum Next { case none, deliver, fallBack(String) }
         let next = state.withLock { state -> Next in
+            if generation == state.retiring, !state.ended {
+                switch event {
+                case .record, .closed: return .none
+                case .permission, .changed, .presence:
+                    Self.admit(event, into: &state)
+                    return .deliver
+                }
+            }
             if state.buffering == generation {
                 if case .closed = event { state.bufferEnded = true } else { state.buffer.append(event) }
                 return .none
@@ -482,6 +495,7 @@ public nonisolated final class AgentSessionCarrierSwitch: AgentSessionRemoteClie
             state.buffering = nil
             state.buffer = []
             state.early = []
+            state.retiring = nil
             let clients: [any AgentSessionRemoteClient] = [fallback] + (state.preferred.map { [$0] } ?? [])
             return (clients, Self.release(&state))
         }
