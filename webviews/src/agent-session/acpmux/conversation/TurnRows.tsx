@@ -526,7 +526,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             <button
               type="button"
               className="cv-iconbtn cv-turn-continue"
-              title={t("turn.continueHelp")}
               disabled={resuming}
               onClick={() => {
                 setResuming(true);

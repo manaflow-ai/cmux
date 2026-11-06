@@ -646,9 +646,8 @@ extension CloudHandlers {
         if let address = session.machine.address?.ipv4 { fields["address"] = .string(address) }
         fields["desktop"] = .bool(session.machine.capabilities.desktop)
         fields.merge(costFields(session.machine, now: now)) { _, new in new }
-        if let idlePause = session.machine.idlePause {
-            fields["idle_pause"] = .object(idlePauseFields(idlePause))
-        }
+        if let idlePause = session.machine.idlePause { fields["idle_pause"] = .object(idlePauseFields(idlePause)) }
+        if let failure = session.machine.lastChangeFailure { fields["error"] = .object(["code": .string(failure.code), "message": .string(failure.message)]) }
         return fields
     }
 
@@ -693,6 +692,7 @@ extension CloudHandlers {
 
     static func describe(_ session: CloudMachineSession, _ stats: CloudMachineStats, now: Date = Date()) -> String {
         var lines = ["\(session.machine.title) (\(session.machineID))", "state: \(stats.state), status: \(session.effectiveStatus.rawValue)"]
+        if let failure = session.machine.lastChangeFailure { lines.append("error: \(failure.code): \(failure.message)") }
         if let cpus = stats.cpus { lines.append("cpus: \(cpus)" + (stats.cpuPercent.map { String(format: ", %.0f%%", $0) } ?? "")) }
         if let used = stats.memoryUsedMb, let total = stats.memoryTotalMb { lines.append(String(format: "memory: %.0f / %.0f MB", used, total)) }
         if let used = stats.diskUsedMb, let total = stats.diskTotalMb { lines.append(String(format: "disk: %.0f / %.0f MB", used, total)) }

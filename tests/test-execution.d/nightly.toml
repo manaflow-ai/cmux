@@ -162,7 +162,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_nightly_next_tail_off_push_group.py"
 lane = "manual"
-reason = "Lawrence 2026-10-23: no new CI tests. Checks that nightly-next's post-publication jobs run in a dispatched run that reads its record only from the checked source run's artifact; run python3 tests/test_nightly_next_tail_off_push_group.py yourself after changing published-build, dispatch-published-in or nightly_published_build.py (about 1 s, no Mac)."
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that nightly-next's post-publication jobs run in the run that published, from its own jobs' record (an older dispatch's only from the checked source run's artifact); run python3 tests/test_nightly_next_tail_off_push_group.py yourself after changing published-build or nightly_published_build.py (about 1 s, no Mac)."
 
 [[test]]
 path = "tests/test_nightly_next_promotion_queue.py"
@@ -309,3 +309,8 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_nightly_live_code_variant.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_single_loop.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks nightly-next's one latest-wins loop: the retry dispatch takes the push group, retry-nightly-next checks the head and caps at two, and decide builds nothing for a resume from outside the loop; run python3 tests/test_nightly_next_single_loop.py yourself after changing those (about 1 s, no Mac)."

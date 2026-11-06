@@ -344,6 +344,7 @@ fn a_new_chat_starts_on_a_new_machine_sends_waits_and_answers_the_reply() {
         assert_eq!(answer[key], value, "{key}");
     }
     assert_eq!(answer["sent"], true);
+    assert_eq!(answer["new_machine"], true, "its own new-machine made vm-1");
     assert!(answer["follow_up"]["send"].as_str().unwrap().contains("acp send --no-wait sess-1"));
     assert_eq!(fake.ran[1], strings(&["cloud", "new-machine", "--json"]));
     assert_eq!(&fake.ran[2][..4], &strings(&["cloud", "relay-chat", "--target", "machine:vm-1"]));
@@ -380,6 +381,7 @@ fn without_wait_it_answers_once_the_prompt_is_sent() {
     };
     assert_eq!(answer["delivery"], "delivery-1");
     assert!(answer.get("reply").is_none());
+    assert!(answer.get("new_machine").is_none(), "a named machine may be one that was there");
     assert_eq!(fake.ran[1][3], "dev");
     assert_eq!(fake.ran.len(), 3);
 }
@@ -1461,4 +1463,108 @@ fn a_relay_turn_error_keeps_the_machines_type() {
     );
     // An older app's answer has none: nothing is made up.
     assert_eq!(typed_error(&json!({"error_code": "chat.failed"})), json!({}));
+}
+
+/// The account's machines, as `cloud list-machines` lists them.
+fn listed_machines(rows: Value) -> Ran {
+    ok(json!({"account": {"signed_in": true}, "machines": rows}))
+}
+
+#[test]
+fn a_start_the_plans_running_cap_refuses_names_the_machines_and_how_to_make_room() {
+    let mut fake = Fake::new(vec![
+        listed_machines(json!([
+            {"machine_id": "vm-a", "title": "api", "status": "running"},
+            {"machine_id": "vm-b", "title": "web", "status": "paused"},
+            {"machine_id": "vm-x", "title": "broken", "status": "failed"},
+        ])),
+        Ran {
+            code: 1,
+            stderr: json!({"code": "cmux.cloud.quota_exceeded",
+                           "message": "this plan allows 5 active machines"})
+            .to_string(),
+            ..Ran::default()
+        },
+    ]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &request(&["--prompt", "hi"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["code"], "cloud.machine_cap");
+    let message = error["message"].as_str().unwrap();
+    assert!(message.starts_with("this plan allows 5 active machines: "), "{message}");
+    assert!(
+        message.contains("api (running): `cmux cloud start-chat --target machine:vm-a --prompt hi --json` or `cmux cloud pause-machine --target machine:vm-a`"),
+        "{message}"
+    );
+    assert!(message.contains("web (paused)"), "{message}");
+    // A failed machine is no room: never named.
+    assert!(!message.contains("broken"), "{message}");
+    assert_eq!(error["details"]["cap"], "running");
+    assert_eq!(
+        error["details"]["machines"][1]["delete"],
+        "cmux cloud kill-machine --target machine:vm-b --confirm"
+    );
+}
+
+#[test]
+fn a_new_machine_the_vm_apis_cap_failed_names_the_machines_and_how_to_delete_one() {
+    let cap = "VM API: this team has its limit of 20 machines (paused ones count); delete one to make another";
+    let mut fake = Fake::new(vec![
+        listed_machines(json!([{"machine_id": "vm-b", "title": "web", "status": "paused"}])),
+        ok(json!({"pending": true, "machine_id": "vm-new", "machine_name": "chat-fresh"})),
+        listed_machines(json!([
+            {"machine_id": "vm-b", "title": "web", "status": "paused"},
+            {"machine_id": "vm-new", "title": "chat-fresh", "status": "failed",
+             "error": {"code": "cloud.provider.unavailable", "message": cap}},
+        ])),
+    ]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &request(&["--prompt", "hi"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["code"], "cloud.machine_cap");
+    let message = error["message"].as_str().unwrap();
+    assert!(message.starts_with(cap), "{message}");
+    assert!(
+        message.contains("web (paused): `cmux cloud start-chat --target machine:vm-b --prompt hi --json` or `cmux cloud kill-machine --target machine:vm-b --confirm`"),
+        "{message}"
+    );
+    assert_eq!(error["details"]["cap"], "held");
+}
+
+#[test]
+fn only_a_cap_refusal_reads_as_a_cap() {
+    use super::cap::{Cap, cap_of};
+    assert_eq!(cap_of("cmux.cloud.quota_exceeded", "x"), Some(Cap::Running));
+    assert_eq!(cap_of("cloud.quota.exceeded", "x"), Some(Cap::Running));
+    assert_eq!(cap_of("", "this plan allows 5 active machines"), Some(Cap::Running));
+    assert_eq!(
+        cap_of(
+            "cloud.provider.unavailable",
+            "VM API: this team has its limit of 20 machines (paused ones count); delete one to make another"
+        ),
+        Some(Cap::Held)
+    );
+    assert_eq!(cap_of("cloud.provider.unavailable", "VM API: HTTP 429"), None);
+    assert_eq!(cap_of("app.unreachable", "no app"), None);
+}
+
+#[test]
+fn a_start_with_no_machine_named_says_the_machine_is_new_only_when_it_has_the_fresh_name() {
+    let sent = || exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n");
+    let mut fake = Fake::new(vec![signed_in(), started(), sent()]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x"])) else { panic!() };
+    assert_eq!(&fake.ran[1][..4], &strings(&["cloud", "start-session", "--name", "chat-fresh"]));
+    assert_eq!(answer["new_machine"], true);
+
+    // start-session answered another machine than the fresh name's: nothing says this run made it.
+    let other = ok(json!({"machine_id": "vm-2", "machine_name": "dev", "session_id": "sess-1"}));
+    let mut fake = Fake::new(vec![signed_in(), other, sent()]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x"])) else { panic!() };
+    assert!(answer.get("new_machine").is_none());
+
+    // Every fresh name was taken already: the machine of that name may be someone's.
+    let taken = ok(json!({"account": {"signed_in": true}, "machines": [{"title": "chat-fresh"}]}));
+    let mut fake = Fake::new(vec![taken, started(), sent()]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x"])) else { panic!() };
+    assert!(answer.get("new_machine").is_none());
 }

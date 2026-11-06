@@ -6,10 +6,13 @@
 //! person types goes to every client in the same turn, as agent output does (C4), so typing and
 //! renaming never wait for a disk sync. A kept change's records are `Stream` records, which the
 //! journal writes in its next batch: a line that shows the change waits for that write (a kill
-//! -9 of every process then keeps it), and the sync follows with the next acknowledged batch, or
-//! the journal's stream sync delay (1 s) later; so an OS crash or a power loss takes back at most
-//! that last second of drafts and names, always a suffix. Before (journal on, #37118) each
-//! `_acpmux/draft_set` waited for one barrier sync and each `_acpmux/rename` for two (job
+//! -9 of every process then keeps it). They are appended as kept records
+//! (`cmux_journal::Journal::append_kept`), which the journal syncs in its idle time (10 ms with no
+//! record), with the next acknowledged batch, or the stream sync delay (1 s) later, whichever
+//! comes first; so an OS crash or a power loss takes back at most that last second of drafts and
+//! names, always a suffix, and the next acknowledged change (a prompt) does not sync a burst of
+//! them in its turn (probe job 01189fd6: 316 records, 1.17 MB, 7.3 ms). Before (journal on,
+//! #37118) each `_acpmux/draft_set` waited for one barrier sync and each `_acpmux/rename` for two (job
 //! b566634d, aws-m4pro-8: p95 2.7 ms and 5.0 ms; with the journal off 6.7 ms and 20.3 ms).
 
 use super::EventRecord;

@@ -464,13 +464,12 @@ class FailureIssueTests(unittest.TestCase):
 
     OUTPUTS = {"decide": {"should_publish": "true", "track": "nightly-next"}, "publish-nightly": {"tag_status": "updated"}}
 
-    # The run that published builds, signs and publishes the feed; the jobs after the feed run in the dispatched
-    # post-publish run (dispatch-published-in), which reads the published build from published-build. Each run
-    # has its own report and close jobs: the issue opens if either reports and closes if either closes.
+    # One run builds, signs and publishes the feed, then runs the jobs after the feed (the nightly-next loop):
+    # published-build passes the run's own jobs' record to them, and the run reports or closes once.
     PUSH_JOBS = ("decide", "build-nightly-ghostty-cli-helper", "build-nightly-app", "build-nightly-remote-daemon",
                  "resolve-nightly-cmux-tui-client", "prepare-nightly-variant", "build-sign-notarize-nightly",
                  "verify-signed-nightly", "verify-final-dmg-nightly", "verify-recovered-nightly-next",
-                 "republish-nightly-next", "publish-nightly", "dispatch-published-in")
+                 "republish-nightly-next", "publish-nightly")
     TAIL_JOBS = ("published-build", "generate-nightly-deltas", "republish-nightly-deltas", "sign-release-notes",
                  "publish-release-notes")
 
@@ -484,23 +483,16 @@ class FailureIssueTests(unittest.TestCase):
         outcome.update(results)
         decide = self.OUTPUTS["decide"]
         published = dict(self.OUTPUTS["publish-nightly"], source=source)
-        push_outputs = {"decide": decide, "publish-nightly": published}
-        push = {name: outcome[name] for name in self.PUSH_JOBS}
-        push.update(dict.fromkeys(self.TAIL_JOBS, "skipped"))  # published-build skips in a nightly-next build run
-        if not job_runs("dispatch-published-in", push, push_outputs):
-            push["dispatch-published-in"] = "skipped"
-        reports = job_runs("report-nightly-failure", push, push_outputs)
-        closes = job_runs("close-nightly-failure-issue", push, push_outputs)
-        if push["dispatch-published-in"] == "success":
-            dispatch_needs = workflow()["jobs"]["dispatch-published-in"]["needs"]
-            record = dict(decide, cross_run="true", publish_result=push["publish-nightly"],
-                          push_clean="false" if any(push[n] in ("failure", "cancelled") for n in dispatch_needs) else "true",
-                          **{f"publish_{key}": value for key, value in published.items()})
-            tail = dict.fromkeys(self.PUSH_JOBS, "skipped")
-            tail.update({name: outcome[name] for name in self.TAIL_JOBS})
-            reports |= job_runs("report-nightly-failure", tail, {"published-build": record})
-            closes |= job_runs("close-nightly-failure-issue", tail, {"published-build": record})
-        return reports, closes
+        run = dict(outcome)
+        if not (decide.get("should_publish") == "true" and run["publish-nightly"] == "success"):
+            run.update(dict.fromkeys(self.TAIL_JOBS, "skipped"))  # published-build's if, in the run that published
+        clean = "false" if any(run[n] in ("failure", "cancelled")
+                               for n in workflow()["jobs"]["published-build"]["needs"]) else "true"
+        record = dict(decide, cross_run="", push_clean=clean, publish_result=run["publish-nightly"],
+                      **{f"publish_{key}": value for key, value in published.items()}) \
+            if run["published-build"] == "success" else {}
+        outputs = {"decide": decide, "publish-nightly": published, "published-build": record}
+        return (job_runs("report-nightly-failure", run, outputs), job_runs("close-nightly-failure-issue", run, outputs))
 
     def test_a_recovered_publication_closes_the_issue(self):
         self.assertEqual(self.publication("recovered"), (False, True))
