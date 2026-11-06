@@ -1,5 +1,5 @@
-//! The stdio contract of `cmux carrier dial` and its pure rules: the reply
-//! line, the exit codes, the step a failure names, the one deadline and its
+//! The stdio contract of `cmux carrier dial` and `serve` and its pure rules:
+//! the reply and ready lines, the exit codes, the step a failure names, the one deadline and its
 //! full-jitter backoff, and the route log line. No I/O here.
 
 use std::time::Duration;
@@ -53,6 +53,11 @@ impl Step {
     }
 }
 
+/// The `error_code` of a `serve` whose socket path could not be claimed.
+pub(super) const SOCKET: &str = "socket";
+/// Its exit code.
+pub(super) const SOCKET_EXIT: i32 = 6;
+
 /// Why one attempt failed: the step, a short reason, and whether another
 /// attempt inside the deadline may succeed.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -77,10 +82,45 @@ impl Failure {
     }
 }
 
+/// The person's role on the machine, as the carrier grant's `vmk` claim
+/// says it: `owner` for the machine's creator, `team` for a teammate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Vmk {
+    Owner,
+    Team,
+}
+
+impl Vmk {
+    pub(super) fn parse(text: &str) -> Option<Self> {
+        match text {
+            "owner" => Some(Self::Owner),
+            "team" => Some(Self::Team),
+            _ => None,
+        }
+    }
+
+    pub(super) fn name(self) -> &'static str {
+        match self {
+            Self::Owner => "owner",
+            Self::Team => "team",
+        }
+    }
+}
+
 /// The reply line of a connected dial: the daemon stream follows on stdin
 /// and stdout. `path_state` is `relay`, the only path a carrier takes.
-pub(super) fn connected_line() -> String {
-    cmux_link::dial::line(&json!({ "ok": true, "path_state": "relay", "route": "carrier" }))
+/// `vmk` is the grant's, left out when the grant has none.
+pub(super) fn connected_line(vmk: Option<Vmk>) -> String {
+    let mut value = json!({ "ok": true, "path_state": "relay", "route": "carrier" });
+    if let Some(vmk) = vmk {
+        value["vmk"] = json!(vmk.name());
+    }
+    cmux_link::dial::line(&value)
+}
+
+/// The ready line of `carrier serve`, once it listens at `socket`.
+pub(super) fn serving_line(socket: &str) -> String {
+    cmux_link::dial::line(&json!({ "ok": true, "socket": socket, "route": "carrier" }))
 }
 
 /// The reply line of a failed dial.

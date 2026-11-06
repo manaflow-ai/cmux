@@ -19,6 +19,7 @@ cmux machine-agent [OPTIONS]
 cmux wg hub --config <wg-quick file | -> --socket <unix socket> [--client-token-stdin]
 cmux wg dial --hub <unix socket> <host> <port>
 cmux carrier dial --machine <vm_id> [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…]
+cmux carrier serve --machine <vm_id> --socket <absolute path> [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…]
 cmux link dial --host <install or host id> [--service daemon|ssh|owner_session|desktop] [--socket <absolute path>]
 cmux link ensure --state-dir <dir> [--install ID] [--port PORT] [--session-socket PATH] [--server-config PATH] [--cloud-token-file PATH] [--handoff]
 cmux link stop --state-dir <dir>
@@ -73,6 +74,21 @@ deadline (`--deadline-ms`, default 180000) covers every step, with full-jitter
 retries inside it. Exit codes: 0, 2 ticket, 3 relay, 4 parked_timeout, 5 handshake,
 64 usage. On a Mac the Noise key is a login Keychain item (accessible after first
 unlock, this device only); elsewhere each dial makes its own.
+The ok line also has `"vmk":"owner"` or `"vmk":"team"`, the person's role on the
+machine from the carrier grant's `vmk` claim; a grant without one leaves it out.
+
+`carrier serve` serves the same stream on a Unix socket, for callers that hand a
+daemon socket path on: each accepted connection is its own dial (a fresh grant,
+the daemon key pin, its own deadline and session) and then carries
+`cmux.protocol/2` lines like a local daemon socket. A failed dial closes that
+connection having written nothing; the listener goes on, up to 64 connections at
+once. The socket is claimed like a daemon's (a live socket or another file at the
+path is refused, a stale socket is replaced, the directory must be the user's
+alone) and is 0600. Once listening, stderr gets one line,
+`{"ok":true,"socket":PATH,"route":"carrier"}`, and nothing more: route lines go
+only to `connect.log`. Before that a failure writes the dial's failure line: exit
+64 usage, 2 no API or credential, 5 no device key, 6 `socket` (the path could not
+be claimed). It exits 0 when stdin ends or on SIGTERM or SIGINT, removing the socket.
 
 `link dial` bridges standard I/O to a service of a paired install or a Cloud
 host (`host_…`) through this machine's running `cmux link` (the caller never
