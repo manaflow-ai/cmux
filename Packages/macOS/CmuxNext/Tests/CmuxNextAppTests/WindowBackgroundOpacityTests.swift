@@ -44,7 +44,6 @@ import Testing
         func tearDown() {
             window.close()
             GhosttyRuntime.backgroundOverride = WindowBackgroundOverride()
-            GhosttyConfigBackground.loaded = GhosttyConfigBackground()
             ThemeScope.app.store.apply(original)
             try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
         }
@@ -62,10 +61,11 @@ import Testing
 
         let original = ThemeScope.app.store.input
         GhosttyRuntime.backgroundOverride = WindowBackgroundOverride()
-        // The config files' own values, as `GhosttyRuntime.loadConfig` records them.
-        GhosttyConfigBackground.loaded = GhosttyConfigBackground(opacity: colors.backgroundOpacity, blur: colors.backgroundBlur)
         ThemeScope.app.store.apply(ThemeBridge.input(colors))
         let terminal = TerminalThemeSetting(backdropScope: ThemeScope(level: .room))
+        // The config files' own values, the harness's: a load of this Mac's config elsewhere in the process records
+        // its own in `GhosttyConfigBackground.loaded` (#36891).
+        terminal.ghostty = { GhosttyConfigBackground(opacity: colors.backgroundOpacity, blur: colors.backgroundBlur) }
         terminal.reload = { ThemeScope.app.store.apply(ThemeBridge.input(colors, background: GhosttyRuntime.backgroundOverride)) }
         terminal.follow(settings)
 
@@ -186,13 +186,14 @@ import Testing
         #expect(harness.surface.backdrop(in: harness.window).material == .frosted)
     }
 
-    /// #36891: suites run in parallel in one process, so another suite can write Ghostty's
-    /// process-wide values while this test runs (its teardown, or a config reload that records
-    /// this Mac's own config). A write in Ghostty mode still names the material of the harness's
-    /// Ghostty blur.
+    /// #36891: a load of this Mac's Ghostty config anywhere in the process (another suite's, or the
+    /// shared runtime's own reload) records this Mac's values while this test runs. A write in
+    /// Ghostty mode still names the material of the harness's Ghostty blur.
     @Test func ghosttyValuesWrittenElsewhereMidTestKeepTheHarnesssBlur() async throws {
         try await withHarness(ghostty: Self.ghostty(opacity: 0.9, blur: 20)) { harness in
-            // What WindowOpacityOverArtTests' teardown, or a reload of this Mac's config, writes meanwhile.
+            // What a load of this Mac's config (no blur) records meanwhile.
+            let recorded = GhosttyConfigBackground.loaded
+            defer { GhosttyConfigBackground.loaded = recorded }
             GhosttyConfigBackground.loaded = GhosttyConfigBackground()
             try await set(harness, Self.opacityKey, 0.5)
             #expect(harness.settings.snapshot.windowBackground.material == .frosted)

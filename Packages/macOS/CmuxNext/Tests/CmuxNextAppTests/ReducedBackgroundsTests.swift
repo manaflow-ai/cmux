@@ -40,6 +40,8 @@ import Testing
         let workspace = ThemeScope(level: .workspace, parent: room)
         workspace.pinBackdrop(.selection(Self.pinned))
         let terminal = TerminalThemeSetting(backdropScope: room)
+        // Ghostty's own values, this test's (#36891: never this Mac's, which every config load records).
+        terminal.ghostty = { GhosttyConfigBackground() }
         terminal.reload = {}
         terminal.repaint = {}
         terminal.follow(settings)
@@ -48,7 +50,6 @@ import Testing
 
     func tearDown(_ harness: Harness) {
         GhosttyRuntime.backgroundOverride = WindowBackgroundOverride()
-        GhosttyConfigBackground.loaded = GhosttyConfigBackground()
         try? FileManager.default.removeItem(at: harness.url.deletingLastPathComponent())
     }
 
