@@ -188,3 +188,51 @@ async fn a_fork_cancelled_while_it_is_made_leaves_nothing() {
     assert_eq!(c.request(method::SESSION_PROMPT, prompt).await.unwrap()["stopReason"], "end_turn");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A fork of a chat whose tool call runs settles that call and ends the turn in its copy, and a
+/// watcher hears none of it: its first note of the fork is the `forked` record (review of
+/// #36979, F1: the fork's cut-off records each reached every watcher before it).
+#[tokio::test]
+async fn a_watcher_hears_nothing_of_a_running_turn_s_fork_before_it_is_made() {
+    let root = std::env::temp_dir().join(format!("acpmux-fork-quiet-cut-{}", uuid::Uuid::now_v7()));
+    let claude = root.join("claude");
+    std::fs::create_dir_all(&claude).unwrap();
+    let (hub, mut c) = claude_setup(&claude, &[]).await;
+    let id = chat_with_turns(&mut c, 1).await;
+    let gate = root.join("gate");
+    let hold = json!({"sessionId": id, "prompt": [{"type": "text", "text": format!("tool-hold: {}", gate.display())}]});
+    c.send(method::SESSION_PROMPT, hold).await;
+    for _ in 0..500 {
+        if hub.events(&id, 0, 10_000).unwrap().iter().any(|e| e.kind == "tool_call") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let mut app = super::usage_stats::connect(&hub).await;
+    app.request(method::MUX_WATCH, json!({"enabled": true})).await.unwrap();
+
+    let f = c.request(FORK_OP, json!({"sessionId": id, "live": true})).await.unwrap();
+    let fid = f["sessionId"].as_str().unwrap().to_owned();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let mut heard = Vec::new();
+    while let Ok(line) = app.rx.try_recv() {
+        let note: Value = serde_json::from_str(&line).unwrap();
+        if note.pointer("/params/sessionId").and_then(Value::as_str) == Some(fid.as_str()) {
+            heard.push(note["params"]["recordKind"].as_str().unwrap_or_default().to_owned());
+        }
+    }
+    let fork = hub.events(&fid, 0, 10_000).unwrap();
+    assert!(
+        fork.iter().any(|e| e.kind == "turn_result" && e.msg["detail"] == "forked"),
+        "the fork's copy ends the running turn"
+    );
+    let first = heard.iter().position(|k| k == "forked");
+    let early: Vec<_> = heard[..first.unwrap_or(heard.len())]
+        .iter()
+        .filter(|k| matches!(k.as_str(), "tool_call_update" | "turn_result"))
+        .collect();
+    assert!(early.is_empty(), "the watcher heard the fork's copy before it was made: {heard:?}");
+    std::fs::write(&gate, "").unwrap();
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
