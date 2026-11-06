@@ -270,7 +270,9 @@ class LiveModeTests(unittest.TestCase):
         keep = Path(self.dir) / "before.app"
         old_inode = os.stat(installed / "Contents/MacOS/cmux").st_ino
         launched, written, calls = [], [], {"n": 0}
-        saved = (live_mode.sessions, live_mode.quit_keep_sessions, live_mode.launch, live_mode.wait_ready, live_mode.answers)
+        saved = (live_mode.sessions, live_mode.quit_keep_sessions, live_mode.launch, live_mode.wait_ready, live_mode.answers,
+                 live_mode.bundle_pids)
+        live_mode.bundle_pids = lambda app: []
 
         def wait_ready(path):
             calls["n"] += 1
@@ -287,12 +289,54 @@ class LiveModeTests(unittest.TestCase):
                                into=live, keep_as=keep, swapped=written.append)
         finally:
             (live_mode.sessions, live_mode.quit_keep_sessions, live_mode.launch, live_mode.wait_ready,
-             live_mode.answers) = saved
+             live_mode.answers, live_mode.bundle_pids) = saved
         self.assertIn("the build that ran before is back", str(refused.exception))
         self.assertEqual(os.stat(installed / "Contents/MacOS/cmux").st_ino, old_inode)
         self.assertTrue((live / "Contents/MacOS/cmux").exists() and not keep.exists())
         self.assertEqual(launched[-1], old_inode)  # the old build is what started last
         self.assertIsNone(written[-1])  # the state says the swap did not happen
+
+    def test_a_replacement_hung_before_its_socket_is_quit_before_the_old_build_starts(self):
+        installed, live = self.bundle("cmux DEV t.app"), self.bundle("live.app")
+        keep = Path(self.dir) / "before.app"
+        events = []
+        saved = (live_mode.quit_keep_sessions, live_mode.launch, live_mode.answers, live_mode.bundle_pids, live_mode.wait_ready)
+        live_mode.answers = lambda path: False  # hung before it opened its socket
+        live_mode.bundle_pids = lambda app: [4242] if Path(app) == installed else []
+        live_mode.quit_keep_sessions = lambda pid: events.append(("quit", pid))
+        live_mode.launch = lambda app, bundle: events.append(("launch", str(app))) or "open"
+        live_mode.wait_ready = lambda path: None
+        try:
+            # installed is the live build that hung; keep holds the build that ran before.
+            os.rename(installed, keep)
+            os.rename(live, installed)
+            live_mode.undo_failed_launch("sock", {"bundle_id": "b"}, installed, live, keep, None)
+        finally:
+            (live_mode.quit_keep_sessions, live_mode.launch, live_mode.answers, live_mode.bundle_pids,
+             live_mode.wait_ready) = saved
+        self.assertEqual(events, [("quit", 4242), ("launch", str(installed))])
+
+    def test_a_replacement_that_will_not_quit_leaves_the_old_build_unstarted(self):
+        installed, live = self.bundle("cmux DEV t.app"), self.bundle("live.app")
+        keep = Path(self.dir) / "before.app"
+        launched = []
+
+        def stuck(pid):
+            raise live_mode.Refused("did not quit")
+
+        saved = (live_mode.quit_keep_sessions, live_mode.launch, live_mode.answers, live_mode.bundle_pids)
+        live_mode.answers, live_mode.bundle_pids = (lambda path: False), (lambda app: [4242])
+        live_mode.quit_keep_sessions, live_mode.launch = stuck, (lambda app, bundle: launched.append(app))
+        try:
+            os.rename(installed, keep)
+            os.rename(live, installed)
+            with self.assertRaises(live_mode.Refused) as refused:
+                live_mode.undo_failed_launch("sock", {"bundle_id": "b"}, installed, live, keep, None)
+        finally:
+            live_mode.quit_keep_sessions, live_mode.launch, live_mode.answers, live_mode.bundle_pids = saved
+        self.assertIn("not started", str(refused.exception))
+        self.assertEqual(launched, [])
+        self.assertTrue((installed / "Contents/MacOS/cmux").exists() and (live / "Contents/MacOS/cmux").exists())
 
     def test_an_app_that_answers_but_never_loads_is_a_failed_start(self):
         saved = (live_mode.answers, live_mode.sessions, live_mode.time.sleep)

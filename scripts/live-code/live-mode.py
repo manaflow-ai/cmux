@@ -232,6 +232,18 @@ def quit_keep_sessions(pid):
         raise Refused(f"cmux (pid {pid}) did not quit; nothing was swapped")
 
 
+def bundle_pids(app):
+    """Pids of the processes running an executable inside `app` (the bundle this script launched)."""
+    inside = str(Path(app)) + "/Contents/MacOS/"
+    listing = subprocess.run(["/bin/ps", "-axo", "pid=,comm="], capture_output=True, text=True).stdout
+    pids = []
+    for line in listing.splitlines():
+        pid, _, command = line.strip().partition(" ")
+        if command.strip().startswith(inside) and pid.isdigit():
+            pids.append(int(pid))
+    return pids
+
+
 def move(source, target):
     """Rename `source` to `target` (one volume: instant), else copy it with ditto and remove it."""
     source, target = Path(source), Path(target)
@@ -310,16 +322,30 @@ def swap(path, ident, into, keep_as, swapped=None):
 
 def undo_failed_launch(path, ident, app, into, keep_as, swapped):
     """The swapped build did not come up: quit whatever of it runs, rename the bundles back and
-    start the old one, so the person is never left without their app."""
+    start the old one, so the person is never left without their app. One that hangs before its
+    socket opens is found by its executable in the bundle this script just started; while one still
+    runs, the old build is put back on disk but not started, so two apps never share the tag."""
+    pids = set(bundle_pids(app))
     if answers(path):
         try:
-            quit_keep_sessions(int((call(path, "system.identify") or {}).get("pid") or 0))
+            pids.add(int((call(path, "system.identify") or {}).get("pid") or 0))
         except (OSError, ValueError, Refused):
             pass
+    stuck = []
+    for pid in sorted(pids - {0}):
+        try:
+            quit_keep_sessions(pid)
+        except ProcessLookupError:
+            pass
+        except (OSError, Refused):
+            stuck.append(pid)
     move(app, into)
     move(keep_as, app)
     if swapped:
         swapped(None)
+    if stuck:
+        raise Refused(f"the replacement build (pid {', '.join(map(str, stuck))}) did not quit; the build that ran "
+                      "before is back on disk but not started")
     launch(app, ident["bundle_id"])
     try:
         wait_ready(path)
