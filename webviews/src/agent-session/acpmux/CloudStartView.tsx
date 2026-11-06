@@ -2,8 +2,10 @@ import React, { useEffect, useState } from "react";
 import { experimentArm } from "../../experiments/experiment";
 import { usePageNow } from "../../ui/pageClock";
 import { cloudStartLook } from "./cloudStart.experiment";
+import { CloudStartAsk } from "./CloudStartAsk";
 import {
   CLOUD_START_STEPS,
+  type CloudStartAsk as Ask,
   type CloudStartProgress,
   type CloudStartupOperation,
   type CloudStartupSetup,
@@ -273,11 +275,35 @@ function facts(start: CloudStartProgress, t: Translate): Fact[] {
   return list;
 }
 
+/// The start's question (CloudStartAsk) in a row that opens from no height to its own and closes back,
+/// moving what is under it with it (no pop-in, no jump). The last question stays drawn, inert, while
+/// the row closes; a newer one replaces it. Nothing is drawn before the first question.
+function AskRow({ ask, onAnswer }: { ask?: Ask; onAnswer?: (id: string, button: string) => Promise<boolean> | void }) {
+  const [last, setLast] = useState(ask);
+  if (ask && ask !== last) setLast(ask);
+  if (!last) return null;
+  const open = ask !== undefined;
+  return (
+    <div
+      className="acpmux-cloud-ask-row"
+      data-open={open ? "true" : "false"}
+      aria-hidden={open ? undefined : true}
+      inert={!open}
+    >
+      <div className="acpmux-cloud-ask-row__clip">
+        <CloudStartAsk key={last.id} ask={last} {...(open && onAnswer ? { onAnswer } : {})} />
+      </div>
+    </div>
+  );
+}
+
 export function CloudStartView({
   start,
   bubble = true,
   showSteps = false,
   onOpenEnvironment,
+  onAnswer,
+  onRetry,
 }: {
   start: CloudStartProgress;
   bubble?: boolean;
@@ -285,6 +311,10 @@ export function CloudStartView({
   /// local first turn and only a failure shows them.
   showSteps?: boolean;
   onOpenEnvironment?: (options: { environmentId?: string; repository?: string; section: "script" }) => void;
+  /// The person's click on the start's question: its id and the button's (`cloud.answerStart`).
+  onAnswer?: (id: string, button: string) => Promise<boolean> | void;
+  /// Sends the same prompt again, a retry of this start (its key is kept): offered on a retryable failure.
+  onRetry?: () => void;
 }) {
   const t = useT();
   const arm = experimentArm(cloudStartLook);
@@ -323,6 +353,7 @@ export function CloudStartView({
           </div>
         )}
         <Thinking />
+        <AskRow {...(start.ask ? { ask: start.ask } : {})} {...(onAnswer ? { onAnswer } : {})} />
       </section>
     );
   }
@@ -350,6 +381,7 @@ export function CloudStartView({
           <span>{t("cloudStartup.initialized")}</span>
         </output>
       )}
+      <AskRow {...(start.ask ? { ask: start.ask } : {})} {...(onAnswer ? { onAnswer } : {})} />
       <div className="acpmux-cloud-start__card">
         <button
           type="button"
@@ -435,6 +467,18 @@ export function CloudStartView({
         <output className="acpmux-cloud-start__status" role="alert">
           {start.message ?? t("sandbox.failed")}
         </output>
+      )}
+      {failed && start.retryable && onRetry && (
+        <span className="acpmux-cloud-ask__actions">
+          <button
+            type="button"
+            className="acpmux-cloud-ask__button acpmux-cloud-start__retry"
+            data-role="default"
+            onClick={onRetry}
+          >
+            {t("retry.action")}
+          </button>
+        </span>
       )}
     </section>
   );

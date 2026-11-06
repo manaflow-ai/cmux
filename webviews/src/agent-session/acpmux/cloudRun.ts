@@ -119,7 +119,8 @@ export function grantedCloudStart(
 }
 
 /// The host's answer: ok, or a code with the host's own words when it has them.
-export type CloudStartAnswer = { ok: true } | { ok: false; code: string; message?: string };
+/// `retryable`: another try of the same start can help (the machine didn't connect, a copy timed out), so the card offers Retry.
+export type CloudStartAnswer = { ok: true } | { ok: false; code: string; message?: string; retryable?: boolean };
 
 /// A page-side refusal before anything goes to the host: Cloud is picked but not offered now
 /// (a chat is starting here). Attachment contents go with the prompt; the native host checks them
@@ -148,16 +149,18 @@ export async function startCloudChat(
     await call("cloud.startChat", params);
     return { ok: true };
   } catch (error) {
-    const { code, message, userMessage } = (error ?? {}) as {
+    const { code, message, userMessage, retryable } = (error ?? {}) as {
       code?: unknown;
       message?: unknown;
       userMessage?: unknown;
+      retryable?: unknown;
     };
     const words = typeof userMessage === "string" ? userMessage : typeof message === "string" ? message : undefined;
     return {
       ok: false,
       code: typeof code === "string" && code ? code : "unavailable",
       ...(words ? { message: words } : {}),
+      ...(retryable === true ? { retryable: true } : {}),
     };
   }
 }
@@ -286,8 +289,9 @@ export function cloudStartKeys(
   };
 }
 
-/// A failure the host already said in a toast (it ran the start): the page says nothing more.
-export function cloudStartToasted(answer: CloudStartAnswer): boolean {
+/// A failure of a start the host ran: the card says it in the host's words (with Retry when another try can
+/// help), so the page says nothing more.
+export function cloudStartSaid(answer: CloudStartAnswer): boolean {
   return !answer.ok && answer.code === "cloud_start_failed";
 }
 

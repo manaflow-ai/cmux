@@ -11,6 +11,7 @@ import { toolErrorLook } from "../agent-session/acpmux/conversation/toolError.ex
 import { tableActionsPlace } from "../agent-session/acpmux/conversation/tableActions.experiment";
 import { backgroundReactionLook } from "../agent-session/acpmux/conversation/backgroundReaction.experiment";
 import { cloudStartLook } from "../agent-session/acpmux/cloudStart.experiment";
+import { cloudStartAskLook } from "../agent-session/acpmux/cloudStartAsk.experiment";
 import { agentStartLook } from "../agent-session/acpmux/conversation/agentStart.experiment";
 import { liveLineTokens } from "../agent-session/acpmux/conversation/liveLineTokens.experiment";
 import { threadMinimapLayout } from "../agent-session/acpmux/threadMinimap/layout.experiment";
@@ -82,6 +83,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   tableActionsPlace,
   backgroundReactionLook,
   cloudStartLook,
+  cloudStartAskLook,
   agentStartLook,
   liveLineTokens,
   trayPanelLook,

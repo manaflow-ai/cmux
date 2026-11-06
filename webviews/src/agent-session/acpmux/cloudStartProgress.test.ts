@@ -1,6 +1,13 @@
 // l10n-allow-file: test fixture prompts and host words, not shipped UI.
 import { expect, test } from "bun:test";
-import { cloudRefusalText, cloudStartBegun, cloudStartEnded, cloudStartPushed } from "./cloudStartProgress";
+import type { CloudStartAsk } from "./cloudStartProgress";
+import {
+  cloudRefusalText,
+  cloudStartAsk,
+  cloudStartBegun,
+  cloudStartEnded,
+  cloudStartPushed,
+} from "./cloudStartProgress";
 
 const begun = () => cloudStartBegun("k-1", "fix the build", "/Users/me/src/paint/");
 
@@ -194,4 +201,64 @@ test("the pane's other refusals before Cloud (attachments, a busy pane) mark no 
     expect(ended?.refusedHere).toBe(true);
     expect(ended?.message).not.toBe(code);
   }
+});
+
+const question: CloudStartAsk = {
+  id: "ask-1",
+  kind: "codexDevice",
+  title: "Sign in to Codex",
+  lines: ["Enter this one-time code: WXYZ-1234"],
+  buttons: [
+    { id: "cancel", title: "Cancel", role: "cancel" },
+    { id: "signedIn", title: "I signed in", role: "default" },
+  ],
+  code: "WXYZ-1234",
+  link: { url: "https://auth.openai.com/codex/device", title: "Open sign-in" },
+};
+
+test("the host's question shows in the card and leaves it when the host takes it away", () => {
+  const asked = cloudStartPushed(begun(), { key: "k-1", ask: question });
+  expect(asked?.ask).toEqual(question);
+  expect(cloudStartPushed(asked, { key: "k-1", step: "folder" })?.ask).toEqual(question);
+  expect(cloudStartPushed(asked, { key: "k-1", ask: null })).toEqual(begun());
+  // Another start's question, or one after the start failed, shows nothing.
+  expect(cloudStartPushed(begun(), { key: "k-2", ask: question })).toEqual(begun());
+  const failed = cloudStartEnded(begun(), "k-1", { ok: false, code: "cloud_start_failed", message: "x" });
+  expect(cloudStartPushed(failed, { key: "k-1", ask: question })?.ask).toBeUndefined();
+});
+
+test("a malformed question changes nothing, and a field it can't trust is left out", () => {
+  const asked = cloudStartPushed(begun(), { key: "k-1", ask: question });
+  for (const bad of [
+    { ...question, kind: "password" },
+    { ...question, id: "" },
+    { ...question, title: "" },
+    { ...question, buttons: [] },
+    { ...question, buttons: [{ id: "", title: "X", role: "default" }] },
+    "ask",
+  ]) {
+    expect(cloudStartAsk(bad)).toBeUndefined();
+    expect(cloudStartPushed(asked, { key: "k-1", ask: bad })?.ask).toEqual(question);
+  }
+  // A page that is not https is never linked; an unknown role draws as a plain button; at most four.
+  expect(cloudStartAsk({ ...question, link: { url: "javascript:alert(1)", title: "Open" } })?.link).toBeUndefined();
+  expect(cloudStartAsk({ ...question, buttons: [{ id: "x", title: "X", role: "danger" }] })?.buttons).toEqual([
+    { id: "x", title: "X", role: "normal" },
+  ]);
+  const many = Array.from({ length: 6 }, (_, i) => ({ id: `b${i}`, title: "B", role: "normal" }));
+  expect(cloudStartAsk({ ...question, buttons: many })?.buttons).toHaveLength(4);
+});
+
+test("a failed start drops its question and says whether Retry can help", () => {
+  const asked = cloudStartPushed(begun(), { key: "k-1", ask: question });
+  const retry = cloudStartEnded(asked, "k-1", {
+    ok: false,
+    code: "cloud_start_failed",
+    message: "Slow",
+    retryable: true,
+  });
+  expect(retry).toEqual({ ...begun(), state: "failed", message: "Slow", retryable: true });
+  const final = cloudStartEnded(asked, "k-1", { ok: false, code: "cloud_start_failed", message: "No" });
+  expect(final?.retryable).toBeUndefined();
+  expect(final?.ask).toBeUndefined();
 });

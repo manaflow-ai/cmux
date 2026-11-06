@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCloudUI
 import CmuxNextDesign
@@ -36,16 +37,21 @@ extension CloudStartChat {
 
     /// The broker's `askLocalSignIn`: true when the person's yes stands (asked once now when never asked,
     /// and only when `mayAsk` and the Mac holds a Codex sign-in to use) and the Mac has access to give.
+    /// As a dialog in `scope` (nil: the active window), for work with no start card (Sign In to Codex, a chat's recovery).
     @MainActor static func askCodexSignIn(_ services: AppServices, mayAsk: Bool, in scope: CmuxDialogScope?) async -> Bool {
+        await askCodexSignIn(services, mayAsk: mayAsk, asker: scope.map { scope in .dialog({ scope }) } ?? .window(services))
+    }
+
+    /// The same, asked by `asker` (a composer start's card).
+    @MainActor static func askCodexSignIn(_ services: AppServices, mayAsk: Bool, asker: AgentPaneCloudAsker) async -> Bool {
         switch codexSignInConsent(services) {
         case .some(let answer): return answer
         case .none:
             // Never ask about a sign-in the Mac does not have, or where no prompt may show.
-            guard mayAsk, let target = scope ?? services.windows.active?.window.map(CmuxDialogScope.window),
-                  await macCodexAccess() != nil else { return false }
-            let answer = await CmuxDialogCenter.shared.present(CloudCodexSignInConsent.spec, in: target)
-            if answer.isDismissal { return false } // no answer kept: asked again next time
-            let yes = answer.button == CloudCodexSignInConsent.accept
+            guard mayAsk, await macCodexAccess() != nil else { return false }
+            // No answer (dismissed, no window, the start ended): nothing kept, asked again next time.
+            guard let answer = await asker.ask(AgentPaneCloudAsk(kind: .codexConsent, spec: CloudCodexSignInConsent.spec)) else { return false }
+            let yes = answer == CloudCodexSignInConsent.accept
             try? await services.settings?.setSetting(at: CloudCodexSignInConsentSetting.path, to: .bool(yes), by: .user)
             return yes
         }
