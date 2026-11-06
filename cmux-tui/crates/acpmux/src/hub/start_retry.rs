@@ -231,9 +231,10 @@ impl Hub {
     /// unless the shutdown settles it: the shutdown took it (`settled_by_shutdown`), ended its
     /// waiting start ([`shutdown_owns`]), or began before this end. Such a turn writes no failed
     /// end, so the next daemon still finds its prompt unstarted and queues it again
-    /// (`unstarted_prompt.rs`). Decided and written under the shutdown's lock, which its sweep
-    /// takes each turn under (`shutdown_sessions`): the sweep finds the turn either ended here or
-    /// still to settle, never failed after the shutdown began. True when it failed the turn.
+    /// (`unstarted_prompt.rs`). Decided and written under the shutdown's lock, which the shutdown
+    /// begins under (`start_shutdown`) and its sweep takes each turn under (`shutdown_sessions`):
+    /// the end is written wholly before the shutdown began, or not at all. True when it failed
+    /// the turn.
     pub(super) fn fail_unless_shutdown_settles(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -248,6 +249,15 @@ impl Hub {
         let began = self.shutting_down() && field != Some("stopped");
         if field == Some(SHUTDOWN_OWNS) || ends.contains(turn_id) || began {
             return false;
+        }
+        // Tests only: hold here, between the check and the write.
+        #[cfg(test)]
+        {
+            let seam = self.settle_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
+            if let Some((arrived, release)) = seam {
+                let _ = arrived.send(());
+                let _ = release.blocking_recv();
+            }
         }
         self.fail_unstarted_turn(session, prompt_id, turn_id, e, joined);
         drop(ends);
@@ -391,6 +401,45 @@ mod tests {
         // A Stop's end is still the Stop's.
         let stopped = super::super::turns::stopped_before_prompt();
         assert!(hub.fail_unless_shutdown_settles(&s, "p2", "t2", &stopped, &joined));
+        let _ = std::fs::remove_file(&gate);
+    }
+
+    /// Review finding: the shutdown began under another lock than the one this end is decided
+    /// under, so it could begin between the check and the failed end's write. Held between
+    /// the two, the end keeps the shutdown from beginning until its write is done.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn the_shutdown_cannot_begin_between_the_check_and_the_failed_end() {
+        let (hub, s, gate) = gated(900).await;
+        let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+        let (release, release_rx) = tokio::sync::oneshot::channel();
+        *hub.settle_seam.lock().unwrap() = Some((arrived_tx, release_rx));
+        let ending = {
+            let (hub, s) = (hub.clone(), s.clone());
+            tokio::task::spawn_blocking(move || {
+                let late = RpcError::deadline_exceeded("agent_start", Duration::from_millis(900));
+                let joined = super::super::digest::DigestTurn::default();
+                hub.fail_unless_shutdown_settles(&s, "p", "t", &gave_up(late, 4), &joined)
+            })
+        };
+        tokio::time::timeout(WAIT, arrived).await.expect("the end never reached its write").ok();
+        // The shutdown begins now, from another thread, while the end holds before its write.
+        let (began_tx, began) = std::sync::mpsc::channel();
+        let shutting = {
+            let hub = hub.clone();
+            std::thread::spawn(move || {
+                hub.begin_shutdown();
+                let _ = began_tx.send(());
+            })
+        };
+        let began_first = began.recv_timeout(Duration::from_secs(1)).is_ok();
+        release.send(()).unwrap();
+        let failed = ending.await.unwrap();
+        shutting.join().unwrap();
+        assert!(!began_first, "the shutdown began between the check and the failed end's write");
+        // Checked before the shutdown began: the turn's failure is its own, written before it.
+        assert!(failed);
+        let ended = kinds(&hub, &s, "turn_result");
+        assert!(ended.iter().any(|m| m["turnId"] == "t" && m["status"] == "failed"), "{ended:?}");
         let _ = std::fs::remove_file(&gate);
     }
 
