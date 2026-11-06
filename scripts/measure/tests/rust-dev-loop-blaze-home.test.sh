@@ -13,19 +13,23 @@ tmp="$(mktemp -d /tmp/blaze-home-test.XXXXXX)"
 long="$tmp/$(printf 'x%.0s' {1..80})/cmux-rust-dev-loop-blaze-home-$$"
 short="$tmp/cmux-rust-dev-loop-blaze-home-$$-short"
 mkdir -p "$long" "$short"
-trap 'rm -f "/tmp/${long##*/}"; rm -rf "$tmp"' EXIT
+trap 'blaze_home_unlink "$long" 2>/dev/null || true; rm -rf "$tmp"' EXIT
 
 # shellcheck source=../blaze-home.sh
 source "$lib"
 home="$(blaze_home_path "$long")"
 socket="$home/v2.sock"
 check '(( ${#socket} < 104 ))' "the socket path fits macOS's 104 bytes (${#socket}: $socket)"
-check '[[ "${home##*/}" == "${long##*/}" ]]' "the home keeps its cmux-rust-dev-loop-blaze-home-* name ($home)"
+check '[[ "${home##*/}" == cmux-rust-dev-loop-blaze-home-* ]]' "the home keeps its cmux-rust-dev-loop-blaze-home-* name ($home)"
+other="$tmp/$(printf 'y%.0s' {1..80})/cmux-rust-dev-loop-blaze-home-$$"
+mkdir -p "$other"
+check '[[ "$(blaze_home_path "$other")" != "$home" && -d "$home" ]]' "another run with the same pid gets its own link"
+blaze_home_unlink "$other"
 check '[[ "$(cd "$home" && pwd -P)" == "$(cd "$long" && pwd -P)" ]]' "the home reaches the run's own directory"
 check '[[ "$(blaze_home_path "$long")" == "$home" ]]' "a second call gives the same home"
 check '[[ "$(blaze_home_path "$short")" == "$short" ]]' "a home whose socket fits is used as it is"
 blaze_home_unlink "$long"
-check '[[ ! -e "/tmp/${long##*/}" ]]' "the link is removed"
+check '[[ ! -e "$home" ]]' "the link is removed"
 check '[[ -d "$long" ]]' "removing the link keeps the home"
 
 [ "$fail" = 0 ] && echo "rust-dev-loop-blaze-home.test.sh: all checks passed"

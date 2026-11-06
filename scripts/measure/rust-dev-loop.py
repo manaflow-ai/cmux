@@ -435,7 +435,8 @@ def main() -> int:
             st = subprocess.run(["blaze", "status", "--json"], capture_output=True, text=True)
             log(f"DEVLOOP-BLAZE-STATUS {st.stdout.strip()[:2000]}")
             subprocess.run(["blaze", "stop"], capture_output=True, text=True)
-            home = os.environ.get("BLAZE_HOME", "")
+            # BLAZE_HOME can be a /tmp link to the run's home (blaze-home.sh): measure and remove the home.
+            home = str(Path(os.environ["BLAZE_HOME"]).resolve()) if os.environ.get("BLAZE_HOME") else ""
             if Path(home).name.startswith("cmux-rust-dev-loop-blaze-home-"):
                 size = subprocess.run(["du", "-sk", home], capture_output=True, text=True).stdout.split()[:1]
                 log(f"DEVLOOP-BLAZE-HOME {size[0] if size else '?'}KB")
