@@ -10867,7 +10867,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           summaryCard.column &&
           summaryPanel}
         {/* Beside the chat view only: New Tab, Harnesses and a replay have no session header. */}
-        {!harnessesOpen && !contextOpen && !showNewTab && !(replaying && replaying === snapshot.sessionId) && sessionInfo.panel}
+        {!harnessesOpen &&
+          !contextOpen &&
+          !showNewTab &&
+          !(replaying && replaying === snapshot.sessionId) &&
+          sessionInfo.panel}
         {artifact && liveArtifact && (
           <ArtifactPanel
             key={artifact.opened}
