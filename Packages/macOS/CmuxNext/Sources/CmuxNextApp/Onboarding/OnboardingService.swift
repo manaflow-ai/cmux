@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBrowser
@@ -68,6 +69,12 @@ final class OnboardingService {
     /// Computer Use Setup: the helper's grants for the palette action, Settings and the tool window.
     private(set) lazy var computerUseSetup = ComputerUseSetup.app(services: services)
 
+    /// The Agents step's sign-ins: Settings > Agents > Harnesses' reader over this Mac's acpmux.
+    private(set) lazy var signInHarnesses = SettingsHarnesses(environment: { [weak services] in services.flatMap(QuitAgents.environment) },
+                                                              openTerminal: { [weak self] line in await self?.openSignIn(line) ?? false })
+    /// The top page a Sign In left (Bring your history at first run); it shows again once the tool window closes.
+    private var pageLeftForSignIn: TopPageRoute?
+
     init(services: AppServices) {
         self.services = services
         presenter = OnboardingWindowPresenter(activeLook: services.activeLook)
@@ -107,6 +114,11 @@ final class OnboardingService {
         }
         presenter.makeModel = { [weak self] step in
             self.map { OnboardingModel(services: AppOnboardingServices(owner: $0), step: step) }
+        }
+        presenter.onWindowClose = { [weak self] in
+            guard let self, let page = pageLeftForSignIn else { return }
+            pageLeftForSignIn = nil
+            _ = TopPages.show(page, services: services)
         }
     }
 
@@ -151,11 +163,11 @@ final class OnboardingService {
         }
     }
 
-    /// First-run routing only: remember the presentation per app channel, including existing
-    /// installations, so an upgrade never turns an existing workspace into onboarding.
+    /// First-run routing only, once per app channel (an upgrade is no first run). Never under showcase: its
+    /// scene captures are fresh homes, and the page over Home parks the workspace their seed fills.
     func showHistoryAtFirstRun(isFirstRun: Bool, defaults: UserDefaults = .standard) {
         let key = "home.firstRun.historyImportShown"
-        guard !defaults.bool(forKey: key) else { return }
+        guard !services.environment.showcase, !defaults.bool(forKey: key) else { return }
         if isFirstRun {
             // On top: launch can replace its first Home pane. Consume only once shown. The
             // mark tells the fresh-home launch smoke this page covers Home on purpose.
@@ -163,6 +175,18 @@ final class OnboardingService {
             DebugTimings.markLaunch("first_run.history_import_shown")
         }
         defaults.set(true, forKey: key)
+    }
+
+    /// A Sign In's login in a local terminal tab (false: none opened). A top page covers it, so it shows once the page is left.
+    private func openSignIn(_ line: String) async -> Bool {
+        if let window = services.windows.active, let page = window.shownTopPage, window.leaveTopPage() { pageLeftForSignIn = pageLeftForSignIn ?? page }
+        return await services.openLocalProviderLogin(line)
+    }
+
+    /// The first-run Agents step over Bring your history (``OnboardingWindowPresenter/showAgentsAtFirstRun``); never under showcase.
+    func showAgentsAtFirstRun(isFirstRun: Bool) async {
+        guard !services.environment.showcase else { return }
+        await presenter.showAgentsAtFirstRun(isFirstRun: isFirstRun, source: signInHarnesses)
     }
 
     func historyImportFinished() {

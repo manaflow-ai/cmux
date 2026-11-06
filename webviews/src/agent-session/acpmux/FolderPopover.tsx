@@ -377,6 +377,8 @@ export function FolderPopover({
           renderItem={row}
           autoHighlight
           inline
+          // Thousands of projects (Leo 2026-11-04): only the rows in view mount.
+          virtualRows={{ estimate: 28 }}
         />
         {shown.size === 0 && !typedPath && (
           <div className="acpmux-location-empty">{t(typed ? "project.none" : "project.noneYet")}</div>

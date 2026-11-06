@@ -4,6 +4,7 @@ import { useT } from "../i18n";
 import { TranscriptActivityRow } from "./TranscriptActivityRow";
 import { groupSender, MessageGroupHead } from "./MessageGroupHead";
 import { Icon } from "../icons/Icon";
+import { rowIconSize } from "../icons/iconSize";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { FindReveal } from "./chatFind";
 import { messageOpened, setMessageOpened } from "./incomingOpened";
@@ -13,6 +14,8 @@ import { useFold } from "./fold";
 import { foldPlays } from "./transcriptView";
 import type { NoticeSeverity } from "./agentNotice";
 import "./LaneNoticeBatch.css";
+
+const ROW_ICON = rowIconSize(12);
 
 /// A received message waits for the agent (in the waiting group, PendingMessagesCard.tsx).
 const isWaiting = (row: AcpmuxRow) => row.kind === "queuedMessage" || row.steer === "waiting";
@@ -68,6 +71,10 @@ export function LaneNoticeBatch({ row, renderMessage }: { row: AcpmuxRow; render
   const received = batch.kind === "inbox" && !batch.rows.some(isWaiting);
   // Tools' notices alone read "Received N notices"; mixed with messages, they count as messages.
   const folded = foldSeverity(batch.rows);
+  // A report batch whose every report gave a verdict is a batch of reviews.
+  const reviews =
+    batch.kind === "report" &&
+    Object.values(batch.verdicts).reduce((n, count) => n + (count ?? 0), 0) === batch.rows.length;
   const count =
     received && folded.allNotices
       ? batch.rows.length === 1
@@ -76,12 +83,7 @@ export function LaneNoticeBatch({ row, renderMessage }: { row: AcpmuxRow; render
       : received
         ? messageRunSummary(t, { sent: 0, received: batch.rows.length, work: [], failed: 0, running: false, rows: [] })
         : batch.kind === "report"
-          ? t(
-              Object.values(batch.verdicts).reduce((n, count) => n + (count ?? 0), 0) === batch.rows.length
-                ? "message.reviewsEnded"
-                : "message.reportsEnded",
-              { n: batch.rows.length },
-            )
+          ? t(reviews ? "message.reviewsEnded" : "message.reportsEnded", { n: batch.rows.length })
           : t("message.inboxThreads", { n: batch.threads.length || batch.rows.length });
   const detail = batch.kind === "report" ? verdicts : names && t("message.inboxFrom", { names });
   const shortNames = received
@@ -106,8 +108,10 @@ export function LaneNoticeBatch({ row, renderMessage }: { row: AcpmuxRow; render
           mark={folded.severity && <NoticeMark severity={folded.severity} />}
         />
       ) : (
+        // Reports and reviews: their kind's glyph in the icon column, and the one trailing chevron
+        // (cmux#28749 drew a disclosure chevron there too, two chevrons on one line).
         <TranscriptActivityRow
-          icon={<Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={12} row />}
+          icon={<Icon name={reviews ? "action.review" : "agent.chat"} size={ROW_ICON} row />}
           before={count}
           after={batch.kind === "report" && detail ? ` · ${detail}` : undefined}
           className="cv-lane-batch__toggle"

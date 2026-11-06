@@ -424,6 +424,11 @@ pub struct SessionMeta {
     /// once each, oldest first. A fork starts with none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pull_requests: Vec<String>,
+    /// The files this session's tool calls read and edited, by repository and path there
+    /// (`touched_files.rs`, `hub/touched.rs`): at most `touched_files::MAX_FILES`, the least
+    /// recently touched dropped first. A fork starts with none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub touched_files: Vec<crate::touched_files::TouchedFile>,
     /// The session whose agent started this one with its `start_session`
     /// tool (`hub/subsessions.rs`), with its short name and depth. `None`
     /// for a session a person or client started. Never copied to a fork.
@@ -878,6 +883,11 @@ pub trait Store: Send + Sync {
         let _ = timeout;
         Ok(true)
     }
+    /// How durable its appends are (`server/durable_gate.rs`). None: appends are not journaled,
+    /// and no connection waits for them.
+    fn durability(&self) -> Option<Durability> {
+        None
+    }
     /// Why the store asks the daemon to stop with a restart, as it changes: `Some(reason)` once
     /// the store cannot go on safely (the journal store's frozen checkpoint, whose logs only a
     /// restart's replay writes again). None: a store that never asks.
@@ -913,6 +923,12 @@ pub trait Store: Send + Sync {
     fn delete(&self, id: &str) -> Result<()>;
     fn session_dir(&self, _id: &str) -> Option<PathBuf> {
         None
+    }
+    /// The chat's folder path only, for a caller that needs the path or its parent and reads or
+    /// moves none of the chat's own files: no lock, no wait, no write. `session_dir` is for code
+    /// that reads or moves them (the journal store writes the chat's metadata first).
+    fn session_path(&self, id: &str) -> Option<PathBuf> {
+        self.session_dir(id)
     }
     /// Where handoff records live: `handoffs/` beside `sessions/`, or none
     /// (in memory) for the memory store.
@@ -1039,20 +1055,26 @@ pub fn open(config: &StoreConfig, root: &Path) -> Result<Box<dyn Store>> {
     })
 }
 
-/// [`open`] with the journal on `storage` (a simulated file system in the crash tests) and its
-/// own limits, for `store.journal` (R-DURABILITY S2).
-#[cfg(test)]
-pub(crate) fn open_with_journal(
-    config: &StoreConfig,
-    root: &Path,
-    storage: std::sync::Arc<dyn cmux_journal::Storage>,
-    journal: cmux_journal::Config,
-) -> Result<Box<dyn Store>> {
-    Ok(Box::new(journal_store::JournalStore::open(config, root, storage, journal)?))
+/// Writes the event journal a run left in `home`, if any, into that home's logs and
+/// `session.json` files, checkpoints it and retires its records: afterwards the home's `sessions/`
+/// hold every acknowledged change on their own. For code that moves or merges a home's chat
+/// folders without a daemon (the build adoption, `cmux-tui`'s `build_adopt`): a daemon that
+/// stopped without a shutdown leaves changes only its journal holds (a new chat's `session.json`
+/// is written by a checkpoint). Nothing to do without a journal. No daemon may run in `home`: the
+/// caller holds its `daemon.lock`.
+pub fn catch_up_journal(config: &StoreConfig, home: &Path) -> Result<()> {
+    journal_store::catch_up(config, home)
 }
 
+mod durability;
+pub use durability::Durability;
+pub(crate) use durability::streamed;
 mod journal_store;
+#[cfg(test)]
+pub(crate) use journal_store::open_with_journal;
 mod log_sync;
+#[cfg(test)]
+pub(crate) use journal_store::pause_next_log_write_on_this_thread;
 pub(crate) use log_sync::SyncFailed;
 #[cfg(all(test, unix))]
 mod sync_model;
@@ -1102,6 +1124,8 @@ impl SegmentWriter {
     /// writes them back loses them, as it would any append since the last `flush`.
     fn close(self, id: &str, failed: &std::sync::atomic::AtomicBool) {
         if let Err(e) = log_sync::sync_segment(&self.file, false) {
+            #[cfg(test)]
+            log_sync::hold(&log_sync::HOLD_BEFORE_CLOSE_NOTE);
             failed.store(true, std::sync::atomic::Ordering::SeqCst);
             tracing::warn!(session = %id, "sync event log on close: {e}");
         }
@@ -1815,11 +1839,17 @@ impl Store for LocalStore {
 #[cfg(unix)]
 fn sync_directory(path: &Path) -> Result<()> {
     use std::os::unix::fs::OpenOptionsExt;
+    #[cfg(test)]
+    if log_sync::fail_dir_sync(path) {
+        return Err(SyncFailed(std::io::Error::other("a failed folder sync (a test)")).into());
+    }
     let dir = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
         .open(path)?;
-    dir.sync_all().map_err(SyncFailed)?;
+    log_sync::sync_full(&dir).map_err(SyncFailed)?;
+    #[cfg(test)]
+    sync_model::folder_synced(path);
     Ok(())
 }
 
@@ -2120,7 +2150,15 @@ fn is_zero(v: &u64) -> bool {
 mod head_tests;
 
 #[cfg(all(test, unix))]
+mod journal_meta_tests;
+#[cfg(all(test, unix))]
+mod journal_pause_tests;
+#[cfg(all(test, unix))]
 mod journal_store_tests;
+#[cfg(all(test, unix))]
+mod journal_sync_tests;
+#[cfg(all(test, unix))]
+mod journal_write_back_tests;
 
 impl LocalStore {
     /// `Store::scan`, and with `strict` `Store::scan_strict`.

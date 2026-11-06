@@ -1,0 +1,21 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/customize",
+  "name": "My views",
+  "version": "1.0.0",
+  "description": "Buttons in the sidebar that run my own cmux-next.json actions.",
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "main.js" },
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderCommands",
+      "title": "Commands",
+      "symbol": "play.circle",
+      "options": { "defaultRegion": "bottom" }
+    }
+  },
+  "scopes": {
+    "actions:run": "Run your own actions from cmux-next.json when you click a button."
+  }
+}

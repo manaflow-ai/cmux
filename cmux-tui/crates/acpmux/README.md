@@ -270,7 +270,13 @@ reaches `linux-b/review` when no other live session is called `review`. A sub-se
 `PARENT/SHORT`) also answers to its short name: `acpmux send lane-3` reaches
 `coord/lane-3` when no session on any host has that name or id and none here has a
 name starting with it; `HOST/SHORT` looks on that host only. A name nothing matches is
-refused with the close matches. Closed sessions count
+refused with the close matches. A name typed loosely still finds its one session
+(`src/name_match.rs`): failing an exact name, the same name in another case (`td2-a` for
+`td2-A`), then a unique prefix (here, or on the host `HOST/…` names), then the name without
+case or `-`, `_` and spaces (`td2_a`). `HOST` in `HOST/NAME`, `new --host` and
+`dispatch --host` read a machine the same way (`LANE-VM-2` for `lane-vm-2`, or a unique prefix of it).
+Only the first step that matches counts; several matches there are refused with each one,
+never guessed. Closed sessions count
 only when no live one matches. Several live matches are refused (exit 2,
 `session_ambiguous`), never picked; a session here does not win over a peer's. The refusal
 lists each choice and the exact command for it:
@@ -430,7 +436,11 @@ unattended, with `ACPMUX_EVENT`, `ACPMUX_SESSION_NAME` and `ACPMUX_TEXT` set.
 `agentStartTimeoutMs` (default 90000) bounds a cold agent start (spawn, `initialize`,
 session load or new, config replay): past it the request fails with code -32000 and
 `data.reason` `deadline_exceeded` (`data.wait` `agent_start`), the agent is ended, the
-session stays open, and the log gets `agent_start_timed_out`.
+session stays open, and the log gets `agent_start_timed_out`. A person's start has no such
+bound. Neither has a `session/new` with `_meta.acpmux.waitStart` from a local connection that is
+no agent's or lane's (the Chief's own sessions): its log gets `agent_start_waiting` as it starts,
+and it fails the same way only once its harness has used no CPU, with no thread ready, for 5
+minutes.
 
 `agentInbox` (default true): another agent's plain send (`acpmux send`, the MCP `send` tool) goes
 into the receiving chat's inbox, in a thread, and the agent hears of it as one notice at its next
@@ -1482,9 +1492,10 @@ When no config exists, harnesses are imported from `~/.acpx/config.json` (its `a
   could not write into a log that changed without the journal (a run with the switch off after a
   crash, or an older build) go to `journal-unapplied/`. Turning it off is safe: the next start
   writes the journal's lines into the logs first. A failed log sync stops the daemon for a restart,
-  which writes the logs again. With it on, an event line over 64 MiB (the journal's record limit)
-  is refused, and its log does not get it either; with it off, the log takes it. Read when the
-  daemon starts.
+  which writes the logs again: it exits with status 74, and its supervisor (or the next client)
+  starts it again. A reply and an acknowledged event wait until what they show is durable. With it
+  on, an event line over 64 MiB (the journal's record limit) is refused, and its log does not get
+  it either; with it off, the log takes it. Read when the daemon starts.
 - `websocket`: optional. The same protocol over WebSocket text frames, for remote clients such
   as a dashboard or a Durable Object. Put it behind a tunnel; the token is a bearer token.
 

@@ -44,6 +44,15 @@ struct DaemonDiagnosticKnobsTests {
         #expect(environment == ["HOME": "/h", "CMUX_TUI_OWNER_KEEPERS": "0"])
     }
 
+    /// R-DAEMON-STATE S1.7 (#35413 review): the input lane is on by default in every cmux-tui daemon, the Chief
+    /// owner's too, so its off switch for the fallback night (`CMUX_NEXT_TUI_RDS_INPUT=0`) must reach the Chief
+    /// owner's `ensure` as the keepers switch does; the Chief launch keeps only a short list of variables.
+    @Test func theInputLaneSwitchReachesTheChiefOwner() {
+        let environment = DaemonLauncher.chiefEnvironment(["HOME": "/h", "CMUX_NEXT_TUI_RDS_INPUT": "0",
+                                                           "CMUX_NEXT_TRACE_FLOWS": "/tmp/x"])
+        #expect(environment == ["HOME": "/h", "CMUX_TUI_RDS_INPUT": "0"])
+    }
+
     @Test func noKnobsPassNothing() {
         #expect(DaemonDiagnosticKnobs(processEnvironment: ["CMUX_TRACE_FLOWS": "/tmp/x"]).daemonEnvironment.isEmpty)
     }

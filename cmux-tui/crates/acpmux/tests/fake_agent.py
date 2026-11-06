@@ -172,7 +172,7 @@ def prompt_text(params):
 # The hidden guidance blocks (`context_inventory::override_block`), and only those: the
 # forum's rules, a side question's chat and a message's attachments are cmux-*-context
 # blocks too, and the agent must read them, so their tests read them in the echo.
-GUIDANCE_TAGS = ("<cmux-default-context>", "<cmux-user-context>", "<cmux-project-context>")
+GUIDANCE_TAGS = ("<cmux-default-context>", "<cmux-user-context>", "<cmux-project-context>", "<cmux-guidance-context>")
 
 
 def guidance_text(text):
@@ -185,7 +185,7 @@ def is_cmux_guidance(block):
     if not isinstance(block, dict):
         return False
     source = (block.get("_meta") or {}).get("acpmux", {}).get("contextSource")
-    if source in {"cmux-default", "cmux-user", "cmux-project"}:
+    if source in {"cmux-default", "cmux-user", "cmux-project", "cmux-guidance"}:
         return True
     return guidance_text(block.get("text", ""))
 
@@ -422,9 +422,12 @@ def handle_prompt(rid, params):
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "stream disconnected before completion: error sending request for url (https://relay.invalid/responses)"}})
         time.sleep(0.05)
         os._exit(0)
-    # "net-refused-later" waits a moment, then fails with a refused connection.
-    if text == "net-refused-later":
-        time.sleep(0.5)
+    # "net-refused-gate: PATH" blocks on the FIFO at PATH (as "gate:"), then fails with a refused
+    # connection: the test's open of the FIFO returns once the agent has the prompt, and the
+    # answer waits until the test closes it.
+    if text.startswith("net-refused-gate:"):
+        with open(text[len("net-refused-gate:"):].split("<", 1)[0].strip()) as gate:
+            gate.read()
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "connection refused: error sending request for url (https://relay.invalid/responses)"}})
         return
     # A harness-level RPC failure whose wording resembles a dead daemon must

@@ -55,6 +55,9 @@ pub(crate) struct ResourceMutationPlan {
     /// The reducer op this plan performs, which the daemon checks the
     /// plan's result against before the commit.
     pub(crate) layout_op: Option<cmux_layout_reducer::LayoutOpKind>,
+    /// The state step changes no column, dock flag, column membership or
+    /// pane tab list (see [`Self::keeping_dock_columns`]).
+    keeps_dock_columns: bool,
     state_step: StateStep,
 }
 
@@ -73,6 +76,7 @@ impl ResourceMutationPlan {
             workspace_ledger: None,
             state_write: None,
             layout_op: None,
+            keeps_dock_columns: false,
             state_step: StateStep::Apply(Box::new(apply)),
         }
     }
@@ -110,6 +114,17 @@ impl ResourceMutationPlan {
         }
     }
 
+    /// Declare that the state step changes only focus: the active
+    /// workspace, screen, pane and tab, a stack's expanded pane and focus
+    /// stamps. It adds, removes or reorders no column, dock flag, column pane
+    /// or pane tab, so no dock rule can refuse it and [`Self::stage_checked`]
+    /// skips scanning every workspace's columns and cloning the state (a
+    /// cost that grew with the session, ask-bdd706af47).
+    pub(crate) fn keeping_dock_columns(mut self) -> Self {
+        self.keeps_dock_columns = true;
+        self
+    }
+
     /// Declare the reducer op this plan performs.
     pub(crate) fn with_layout_op(mut self, op: cmux_layout_reducer::LayoutOpKind) -> Self {
         self.layout_op = Some(op);
@@ -132,6 +147,9 @@ impl ResourceMutationPlan {
         operation: &str,
     ) -> anyhow::Result<Option<State>> {
         use crate::mux::layout_invariants as layout;
+        if self.keeps_dock_columns && !layout::conserves_tabs(operation) {
+            return Ok(None);
+        }
         // `permanent-dock-v1`: with a permanent column anywhere, every plan is
         // staged before the commit and refused if it removed one. With an
         // agent chat dock anywhere, it is refused if it split that dock.

@@ -19,6 +19,7 @@ fn call(command: AppCommand) -> (&'static str, Value) {
         | AppCommand::Renderers { .. }
         | AppCommand::Settings(_)
         | AppCommand::Nightly(_)
+        | AppCommand::Live(_)
         | AppCommand::Version => {
             panic!("expected a call")
         }
@@ -1134,6 +1135,7 @@ fn only_a_confirmed_settings_write_waits_without_a_deadline() {
         | AppCommand::Renderers { .. }
         | AppCommand::Settings(_)
         | AppCommand::Nightly(_)
+        | AppCommand::Live(_)
         | AppCommand::Version => {
             panic!("expected a call")
         }
@@ -1972,4 +1974,27 @@ fn a_not_run_refusal_is_retried_inside_the_cli() {
     let connections = app.join().unwrap();
     assert_eq!(answer.unwrap().unwrap()["machines"], json!([]));
     assert_eq!(connections[0].len(), 3, "{connections:?}");
+}
+
+/// A person's `cmux machine new` / `cloud new-machine` opens the machine it made, so the window's
+/// new-terminal button opens there; a script's JSON or quiet run, a machine still starting, and
+/// every other action open nothing. The open is `cloud open-machine` on that machine.
+#[test]
+fn a_persons_new_machine_opens_the_machine_it_made() {
+    let params = json!({ "action": "cloud new-machine" });
+    let made = json!({ "result": { "machine_id": "vm_1", "target": "machine:vm_1", "status": "running" } });
+    assert_eq!(created_target(OutputMode::Human, &params, &made).as_deref(), Some("machine:vm_1"));
+    let bare = json!({ "result": { "machine_id": "vm_2" } });
+    assert_eq!(created_target(OutputMode::Human, &params, &bare).as_deref(), Some("machine:vm_2"));
+    assert_eq!(created_target(OutputMode::Json, &params, &made), None);
+    assert_eq!(created_target(OutputMode::Quiet, &params, &made), None);
+    let starting = json!({ "result": { "pending": true, "status": "creating" } });
+    assert_eq!(created_target(OutputMode::Human, &params, &starting), None);
+    assert_eq!(created_target(OutputMode::Human, &json!({ "action": "cloud exec" }), &made), None);
+
+    let (method, open) = call(open_created_command("machine:vm_1".to_owned()).unwrap());
+    assert_eq!(method, "action.run");
+    assert_eq!(open["action"], "cloud open-machine");
+    assert!(open.to_string().contains("machine:vm_1"), "{open}");
+    assert_eq!(open["focus"], true, "a CLI run shows the workspace only when it asks to: {open}");
 }

@@ -68,15 +68,25 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
     { name: "tab row", tabRow: 38 },
   ];
 
+  /// Where the default placement puts it in `page`'s pane: it pushes the chat wherever the column fits
+  /// beside the whole panel, the chat centered beside it, a wide pane too (Lucas, 2026-11-06); a short
+  /// pane (SessionInfo.tsx POPOVER_BELOW_HEIGHT, 520px) keeps it floating in the gutter.
+  const placementOf = (page: Page): "overlay" | "push" => {
+    const size = page.viewportSize();
+    return size && size.height >= 520 && size.width >= 1100 ? "push" : "overlay";
+  };
   /// The chat with Session Info on (Debug Settings `agent.sessionInfo`, pushed with the header
-  /// state) and the tab row offered, open in `placement` (floating by default; pushing with Settings
-  /// Push always, or by default where the gutter cannot hold it) and done entering.
+  /// state) and the tab row offered, open in `placement` (where the default setting puts it in this
+  /// pane when not given; with a placement and no setting, that placement's own setting, Push always
+  /// for "push") and done entering.
   const openSessionInfo = async (
     page: Page,
     tabRow: number,
-    placement: "overlay" | "push" = "overlay",
-    setting: "overlay" | "push" = placement,
+    given?: "overlay" | "push",
+    givenSetting?: "overlay" | "push",
   ) => {
+    const placement = given ?? placementOf(page);
+    const setting = givenSetting ?? given ?? "overlay";
     await page.evaluate((height) => {
       const bridge = (
         window as unknown as {
@@ -99,9 +109,9 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
 
   for (const name of browsers.keys())
     for (const { name: row, tabRow } of rows)
-      test(`${name}, ${row}: the toggle is above the open overlay and a click on it closes Session Info`, async () => {
+      test(`${name}, ${row}: the toggle is above the open panel and a click on it closes Session Info`, async () => {
         current = browsers.get(name)!;
-        // Wide enough that the panel floats in the gutter beside the transcript (SessionInfo.tsx pushes).
+        // A wide pane: the panel pushes the chat, centered beside it, and starts under the header.
         const page = await pane!.open({ width: 1600, height: 520 });
         try {
           const { panel, toggle } = await openSessionInfo(page, tabRow);
@@ -208,7 +218,9 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
         page.evaluate(() => {
           const panel = document.querySelector("aside.acpmux-session-info")!;
           const body = panel.querySelector(".acpmux-session-info__body")!;
-          const sections = [...panel.querySelectorAll("[data-section]")];
+          // The card's last drawn row: its last section, or the Show more line under the sections.
+          const slots = [...panel.querySelectorAll(".acpmux-session-info-sections > [data-slot]")];
+          const sections = slots.length > 0 ? slots : [...panel.querySelectorAll("[data-section]")];
           const last = sections[sections.length - 1]!.getBoundingClientRect();
           const box = panel.getBoundingClientRect();
           return {
@@ -251,8 +263,10 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
   for (const name of browsers.keys())
     test(`${name}: floating or pushing, a busy Session Info uses the full room under the header, then scrolls`, async () => {
       current = browsers.get(name)!;
+      // 1600px: where the default setting puts it (pushing, or floating in the short 420px pane);
+      // 1100px: Push always.
       for (const [width, placement] of [
-        [1600, "overlay"],
+        [1600, undefined],
         [1100, "push"],
       ] as const)
         for (const height of [1400, 800, 420]) {
@@ -308,7 +322,7 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
     test(`${name}: floating or pushing, a card with little to show ends right after its last section, in any pane`, async () => {
       current = browsers.get(name)!;
       for (const [width, placement] of [
-        [1600, "overlay"],
+        [1600, undefined],
         [1100, "push"],
       ] as const) {
         const cards: ({ height: number } & Awaited<ReturnType<typeof fit>>)[] = [];
@@ -320,14 +334,15 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
             const open = await fit(panel);
             cards.push({ height, ...open });
             if (height !== 520) continue;
-            // Context starts open (Leo, 2026-11-01); fold it: the card ends at its sections again,
-            // shorter by just its rows.
+            // Context starts folded to its line (Lucas, 2026-11-06); unfold it, then fold it again: the
+            // card ends at its sections again, shorter by just its rows.
             const context = panel.locator('section[data-section="context"]');
             const frame = () =>
               page.evaluate(
                 () => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))),
               );
             const rows = context.locator(".ui-disclosure-panel");
+            if ((await rows.count()) === 0) await context.locator(".ui-disclosure-trigger").click();
             await rows.waitFor({ timeout: 5_000 });
             await frame();
             const unfolded = await fit(panel);
