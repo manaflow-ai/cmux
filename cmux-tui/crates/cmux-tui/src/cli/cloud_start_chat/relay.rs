@@ -26,7 +26,12 @@ pub(super) enum Relayed {
 /// 256 KiB). A larger one goes the link path, which uploads it.
 pub(super) const RELAY_PROMPT_BYTES: usize = 96 * 1024;
 
-pub(super) fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Value) -> Relayed {
+pub(super) fn relay_chat(
+    runner: &mut dyn Runner,
+    request: &Request,
+    listed: &Value,
+    made: &mut Option<String>,
+) -> Relayed {
     // `--timeout` counts from here, a new machine included.
     let started_at = runner.now();
     if request.prompt.len() > RELAY_PROMPT_BYTES {
@@ -47,19 +52,22 @@ pub(super) fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Va
             }
         }
         Machine::New => {
-            let made = match step_result(&runner.cmux(&words(&["cloud", "new-machine", "--json"])))
-            {
-                Ok(made) => made,
-                Err(error) => return Relayed::Answered(start_refused(error, listed, request)),
-            };
-            match at(&made, "machine_id").as_str() {
-                Some(id) if at(&made, "pending").as_bool() != Some(true) => id.to_owned(),
+            let created =
+                match step_result(&runner.cmux(&words(&["cloud", "new-machine", "--json"]))) {
+                    Ok(created) => created,
+                    Err(error) => return Relayed::Answered(start_refused(error, listed, request)),
+                };
+            match at(&created, "machine_id").as_str() {
+                Some(id) if at(&created, "pending").as_bool() != Some(true) => {
+                    *made = Some(id.to_owned());
+                    id.to_owned()
+                }
                 _ => {
                     return Relayed::Answered(failed(
                         "cloud.start_pending",
                         "the new machine is still being made; find it with `cmux cloud list-machines`, \
                          then run this command again with --target machine:ID",
-                        json!({"app": made, "list": "cmux cloud list-machines --json"}),
+                        json!({"app": created, "list": "cmux cloud list-machines --json"}),
                         75,
                     ));
                 }

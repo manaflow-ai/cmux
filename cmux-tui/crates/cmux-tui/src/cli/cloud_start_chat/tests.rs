@@ -223,6 +223,7 @@ fn a_new_chat_starts_on_a_new_machine_sends_waits_and_answers_the_reply() {
         assert_eq!(answer[key], value, "{key}");
     }
     assert_eq!(answer["sent"], true);
+    assert_eq!(answer["new_machine"], true, "its own new-machine made vm-1");
     assert!(answer["follow_up"]["send"].as_str().unwrap().contains("acp send --no-wait sess-1"));
     assert_eq!(fake.ran[1], strings(&["cloud", "new-machine", "--json"]));
     assert_eq!(&fake.ran[2][..4], &strings(&["cloud", "relay-chat", "--target", "machine:vm-1"]));
@@ -259,6 +260,7 @@ fn without_wait_it_answers_once_the_prompt_is_sent() {
     };
     assert_eq!(answer["delivery"], "delivery-1");
     assert!(answer.get("reply").is_none());
+    assert!(answer.get("new_machine").is_none(), "a named machine may be one that was there");
     assert_eq!(fake.ran[1][3], "dev");
     assert_eq!(fake.ran.len(), 3);
 }
@@ -1170,4 +1172,25 @@ fn only_a_cap_refusal_reads_as_a_cap() {
     );
     assert_eq!(cap_of("cloud.provider.unavailable", "VM API: HTTP 429"), None);
     assert_eq!(cap_of("app.unreachable", "no app"), None);
+}
+
+#[test]
+fn a_start_with_no_machine_named_says_the_machine_is_new_only_when_it_has_the_fresh_name() {
+    let sent = || exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n");
+    let mut fake = Fake::new(vec![signed_in(), started(), sent()]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x"])) else { panic!() };
+    assert_eq!(&fake.ran[1][..4], &strings(&["cloud", "start-session", "--name", "chat-fresh"]));
+    assert_eq!(answer["new_machine"], true);
+
+    // start-session answered another machine than the fresh name's: nothing says this run made it.
+    let other = ok(json!({"machine_id": "vm-2", "machine_name": "dev", "session_id": "sess-1"}));
+    let mut fake = Fake::new(vec![signed_in(), other, sent()]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x"])) else { panic!() };
+    assert!(answer.get("new_machine").is_none());
+
+    // Every fresh name was taken already: the machine of that name may be someone's.
+    let taken = ok(json!({"account": {"signed_in": true}, "machines": [{"title": "chat-fresh"}]}));
+    let mut fake = Fake::new(vec![taken, started(), sent()]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x"])) else { panic!() };
+    assert!(answer.get("new_machine").is_none());
 }

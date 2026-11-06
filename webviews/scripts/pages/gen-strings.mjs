@@ -348,6 +348,12 @@ export const PAGES = {
     out: "webviews/src/viewer-empty/generated/strings.json",
     catalogs: [{ file: "webviews/src/viewer-empty/Localizable.xcstrings" }],
   },
+  // The Messages page's sheets and New Message (home-messages/sheets), keyed as the Swift
+  // CmuxNextHome catalog they replace; the page's own table takes this catalog when it lands.
+  "home-messages-sheets": {
+    out: "webviews/src/pages/home-messages/sheets/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/home-messages/sheets/Localizable.xcstrings" }],
+  },
 };
 
 /** The `{name}` placeholders of a value, as a comparable string. @param {string} value */

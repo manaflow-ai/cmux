@@ -64,8 +64,12 @@ public final class SettingsHarnesses {
     @ObservationIgnored private let unsupported: (@MainActor () -> String)?
 
     public init(environment: @escaping @MainActor () -> AcpmuxEnvironment?,
-         fetch: @escaping @Sendable (AcpmuxEnvironment) async throws -> [AcpmuxHarnessRow] = AcpmuxEnvironment.settingsHarnessRows,
-         fetchHealth: @escaping @Sendable (AcpmuxEnvironment, Bool) async throws -> Data = AcpmuxEnvironment.harnessHealth,
+         // nil, resolved below: an async function as a default argument is compiled again into every
+         // calling module under one symbol name with a different async context size (cx-bsue); the
+         // linker paired them and readHealth's free aborted the process ("freed pointer was not the
+         // last allocation", macOS 27 minis).
+         fetch: (@Sendable (AcpmuxEnvironment) async throws -> [AcpmuxHarnessRow])? = nil,
+         fetchHealth: (@Sendable (AcpmuxEnvironment, Bool) async throws -> Data)? = nil,
          openTerminal: @escaping @MainActor (String) async -> Bool,
          runUpdate: (@MainActor (JSONValue, PageCallContext) async throws -> JSONValue)? = nil,
          updateState: @escaping @MainActor () -> JSONValue = { .array([]) },
@@ -75,8 +79,8 @@ public final class SettingsHarnesses {
          userHome: URL = FileManager.default.homeDirectoryForCurrentUser,
          unsupported: (@MainActor () -> String)? = nil) {
         self.environment = environment
-        self.fetch = fetch
-        self.fetchHealth = fetchHealth
+        self.fetch = fetch ?? { try await AcpmuxEnvironment.settingsHarnessRows($0) }
+        self.fetchHealth = fetchHealth ?? { try await AcpmuxEnvironment.harnessHealth($0, refresh: $1) }
         self.openTerminal = openTerminal
         self.runUpdate = runUpdate
         self.updateState = updateState
