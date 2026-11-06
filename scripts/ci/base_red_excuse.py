@@ -1001,6 +1001,9 @@ def base_status(repo: str, base: str, name: str, state: str, description: str, g
 def last_real_jobs(repo: str, run: int, github) -> list[dict]:
     jobs = [job for page in github.json(f"repos/{repo}/actions/runs/{run}/jobs?filter=all&per_page=100", paginate=True)
             for job in page.get("jobs") or []]
+    for job in jobs:
+        # glaeda's slim job list names no run_id; the run read is the job's run (superseding_check reads it)
+        job.setdefault("run_id", run)
     newest: dict[str, int] = {}
     for job in jobs:
         newest[job.get("name", "")] = max(newest.get(job.get("name", ""), 0), job.get("run_attempt") or 1)
@@ -1153,10 +1156,31 @@ def linked_checks(repo: str, sha: str, name: str, github, seen: dict) -> list[tu
     return sorted(linked, key=lambda found: found[0], reverse=True)
 
 
+def rest_run(repo: str, run: int, github, seen: dict | None = None) -> dict:
+    """RUN's REST record. A lane VM's gh chain can answer `actions/runs/ID` with glaeda's 12-field run summary, which
+    has the run's head_sha but no workflow_id or path: base_red_excuse then asked `actions/workflows/None/runs` (a 404
+    that refused cmux#37033), and a cancelled run superseded by newer greens of its workflow was read as having none
+    (cmux#36971 at b265fe8c, risk-tier's 42191711726). Such a record is completed from `actions/runs?head_sha=SHA`,
+    one read per head kept in SEEN, which names every run at it. The workflow is only GitHub's workflow_id, never a
+    name two workflows can share; a list that does not name the run leaves the summary, whose workflow_id is None."""
+    found = github.json(f"repos/{repo}/actions/runs/{run}")
+    sha = found.get("head_sha") if isinstance(found, dict) else None
+    if not isinstance(found, dict) or "workflow_id" in found or not re.fullmatch(r"[0-9a-f]{40}", str(sha or "")):
+        return found
+    seen = {} if seen is None else seen
+    key = ("runs-at", sha)
+    if key not in seen:
+        listed = github.json(f"repos/{repo}/actions/runs?head_sha={sha}&per_page=100", paginate=True)
+        seen[key] = {listed_run.get("id"): listed_run for page in listed
+                     for listed_run in page.get("workflow_runs") or [] if isinstance(listed_run, dict)}
+    full = seen[key].get(run)
+    return full if isinstance(full, dict) and isinstance(full.get("workflow_id"), int) else found
+
+
 def run_workflow(repo: str, run: int, github, seen: dict):
-    """RUN's workflow id, read once per judge call (SEEN)."""
+    """RUN's workflow id, read once per judge call (SEEN); None when GitHub's answer names none (rest_run)."""
     if run not in seen:
-        seen[run] = github.json(f"repos/{repo}/actions/runs/{run}").get("workflow_id")
+        seen[run] = rest_run(repo, run, github, seen).get("workflow_id")
     return seen[run]
 
 
@@ -2048,6 +2072,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
     job_reads: dict[int, int] = {}
     suites = SuiteChecks(github)
     merge_bases: dict[str, str] = {}
+    run_reads: dict = {}  # head_jobs' SEEN: the head's check runs, each run's workflow, each head's run list
     load_rollups(repo, base, github)
     checks = list(checks)
     if repo in WS_CHECK_REPOS and (WS_CHECK in checks or not (runs or checks)):
@@ -2061,7 +2086,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         # here as "no failed job found", and a merge check that asks about every head refused every green PR). A red
         # run or check that was named and shows no failed job is still refused below.
         return audit or [f"no red run or check named on {sha}: no failure to excuse"]
-    jobs = head_jobs(repo, sha, runs, checks, github, base=base, excused=audit, suites=suites, ignored=audit)
+    jobs = head_jobs(repo, sha, runs, checks, github, base=base, excused=audit, suites=suites, ignored=audit,
+                     seen=run_reads)
     if not jobs and not audit:
         # A red run or check with no failed job to show has nothing the base can excuse.
         raise Refused("no failed job found on the head to compare with the base")
@@ -2092,8 +2118,12 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         if own.crashes or (own.truncated and not chromium_without_diagnostics):
             raise Refused(f"'{name}': " + "; ".join(own.crashes + own.truncated[:1])[:800]
                           + " (a crash or a cut-short run is never a base red)")
-        workflow_info = github.json(f"repos/{repo}/actions/runs/{job['run_id']}")
+        workflow_info = rest_run(repo, job["run_id"], github, run_reads)
         workflow = workflow_info.get("workflow_id")
+        if not isinstance(workflow, int):
+            # never `actions/workflows/None/runs` (cmux#37033's 404): a run whose workflow is unread has no base
+            raise Refused(f"'{name}': run {job['run_id']} came back without its workflow_id; nothing to compare "
+                          "with the base")
         # This supplement uses only measured base observations with an active public quarantine issue. It can
         # bridge a green base run; it never changes the deterministic comparison when state is absent or invalid.
         known = test_reds.flaky_failures(head_log, name, workflow_info.get("name", ""), flake_state)
