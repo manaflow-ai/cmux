@@ -206,7 +206,9 @@ fn parse_button(args: &Value) -> Result<Button, ToolOutput> {
         None | Some("left") => Ok(Button::Left),
         Some("right") => Ok(Button::Right),
         Some("middle") => Ok(Button::Middle),
-        Some(other) => Err(ToolOutput::error("invalid_arguments", format!("unknown button {other:?}"))),
+        Some(other) => {
+            Err(ToolOutput::error("invalid_arguments", format!("unknown button {other:?}")))
+        }
     }
 }
 
@@ -277,7 +279,8 @@ impl Engine {
         };
         if let Some(call_id) = &ctx.call_id
             && let Some(done) = self.sessions.finished(&ctx.session, call_id)
-            && let Some(out) = serde_json::from_str::<Value>(&done).ok().as_ref().and_then(ToolOutput::from_json)
+            && let Some(out) =
+                serde_json::from_str::<Value>(&done).ok().as_ref().and_then(ToolOutput::from_json)
         {
             return out;
         }
@@ -305,7 +308,9 @@ impl Engine {
         match tool.name {
             "status" => Ok((self.status(&config), None)),
             "list_machines" => Ok((
-                ToolOutput::ok(json!({"machines": [], "note": "Only this machine is reachable from here."})),
+                ToolOutput::ok(
+                    json!({"machines": [], "note": "Only this machine is reachable from here."}),
+                ),
                 None,
             )),
             "list_apps" => {
@@ -391,9 +396,10 @@ impl Engine {
             "click" => self.click(&config, ctx, args),
             "type_text" => {
                 let window = self.window(need(args, "window_id")?)?;
-                let text = args.get("text").and_then(Value::as_str).ok_or_else(|| {
-                    ToolOutput::error("invalid_arguments", "text is required")
-                })?;
+                let text = args
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| ToolOutput::error("invalid_arguments", "text is required"))?;
                 let delivery = parse_delivery(args)?;
                 let app = self.act_on(&config, ctx, &window, delivery)?;
                 self.cursor.show(CursorEvent::Typing {
@@ -478,7 +484,10 @@ impl Engine {
                 let app = TargetApp { id: id.to_string(), name: id.to_string() };
                 self.authorize(&config, ctx, Access::Act, Some(&app), false)?;
                 let started = self.desktop.launch_app(id).map_err(|e| ToolOutput::desktop(&e))?;
-                Ok((ToolOutput::ok(serde_json::to_value(started).unwrap_or(Value::Null)), Some(app)))
+                Ok((
+                    ToolOutput::ok(serde_json::to_value(started).unwrap_or(Value::Null)),
+                    Some(app),
+                ))
             }
             other => Err(ToolOutput::error("unknown_tool", format!("unknown tool {other:?}"))),
         }
@@ -555,10 +564,9 @@ impl Engine {
             }
             Decision::Refuse(r) => Err(ToolOutput::refused(&r, app)),
             Decision::Ask { remember } => {
-                let target = app.cloned().unwrap_or(TargetApp {
-                    id: "display".into(),
-                    name: "the whole screen".into(),
-                });
+                let target = app
+                    .cloned()
+                    .unwrap_or(TargetApp { id: "display".into(), name: "the whole screen".into() });
                 let answer = self.approver.ask(&Question {
                     session: ctx.session.clone(),
                     agent: ctx.label.clone(),
@@ -695,7 +703,10 @@ impl Engine {
                 if args_str(args, "element_id").is_none()
                     && (args_f64(args, "x").is_none() || args_f64(args, "y").is_none())
                 {
-                    return Err(ToolOutput::error("invalid_arguments", "click needs element_id or x and y"));
+                    return Err(ToolOutput::error(
+                        "invalid_arguments",
+                        "click needs element_id or x and y",
+                    ));
                 }
                 let target = self.pointer_target(ctx, &window, args)?;
                 (window, target)
@@ -711,7 +722,9 @@ impl Engine {
                 let geometry = lock(&self.seen)
                     .get(&(ctx.session.clone(), key))
                     .map(|(g, _)| *g)
-                    .ok_or_else(|| ToolOutput::error("invalid_arguments", "take a display screenshot first"))?;
+                    .ok_or_else(|| {
+                    ToolOutput::error("invalid_arguments", "take a display screenshot first")
+                })?;
                 let point = geometry.to_global(x, y);
                 let window = self
                     .windows()?
@@ -763,7 +776,12 @@ impl Engine {
                 })?;
                 let app = self.target_of(window, &names);
                 self.authorize(config, ctx, Access::Observe, Some(&app), false)?;
-                (CaptureTarget::Window(id.to_string()), format!("w:{id}"), Some(app), Some(center(&window.frame)))
+                (
+                    CaptureTarget::Window(id.to_string()),
+                    format!("w:{id}"),
+                    Some(app),
+                    Some(center(&window.frame)),
+                )
             }
             None => {
                 self.authorize(config, ctx, Access::Observe, None, false)?;
@@ -772,7 +790,11 @@ impl Engine {
                 (CaptureTarget::Display(display), key, None, None)
             }
         };
-        self.cursor.show(CursorEvent::Look { session: ctx.session.clone(), label: ctx.label.clone(), at: focus });
+        self.cursor.show(CursorEvent::Look {
+            session: ctx.session.clone(),
+            label: ctx.label.clone(),
+            at: focus,
+        });
         let raw = self.desktop.capture(&target).map_err(|e| ToolOutput::desktop(&e))?;
         // Every on-screen window of a blocked app is painted out of a display
         // shot, and out of a window shot where it overlaps (a covering denied
@@ -790,7 +812,8 @@ impl Engine {
         let previous = lock(&self.seen).get(&(ctx.session.clone(), key.clone())).map(|(_, d)| *d);
         let encoded = frame::process(raw, &redact, frame::DEFAULT_MAX_EDGE, previous, force)
             .map_err(|e| ToolOutput::error("failed", e))?;
-        lock(&self.seen).insert((ctx.session.clone(), key.clone()), (encoded.geometry, encoded.digest));
+        lock(&self.seen)
+            .insert((ctx.session.clone(), key.clone()), (encoded.geometry, encoded.digest));
         if key.starts_with("d:") {
             lock(&self.last_display).insert(ctx.session.clone(), key.clone());
         }
@@ -806,7 +829,13 @@ impl Engine {
         Ok((out, app))
     }
 
-    fn write_audit(&self, ctx: &CallContext, tool: &str, app: Option<&TargetApp>, out: &ToolOutput) {
+    fn write_audit(
+        &self,
+        ctx: &CallContext,
+        tool: &str,
+        app: Option<&TargetApp>,
+        out: &ToolOutput,
+    ) {
         let Some(path) = &self.audit else { return };
         if std::fs::metadata(path).map(|m| m.len() > 5 << 20).unwrap_or(false) {
             let _ = std::fs::rename(path, path.with_extension("jsonl.1"));

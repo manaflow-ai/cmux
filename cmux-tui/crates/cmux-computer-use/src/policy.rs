@@ -332,7 +332,9 @@ impl Refusal {
 pub enum Decision {
     Allow,
     /// Ask the person. `remember` says whether "Always allow" is offered.
-    Ask { remember: bool },
+    Ask {
+        remember: bool,
+    },
     Refuse(Refusal),
 }
 
@@ -354,12 +356,7 @@ pub fn decide(config: &PolicyConfig, saved: &SavedApprovals, request: &Request<'
         if protected(&app.id) {
             return Decision::Refuse(Refusal::Protected);
         }
-        if config
-            .denied_apps
-            .iter()
-            .filter_map(|m| AppMatcher::parse(m))
-            .any(|m| m.matches(app))
-        {
+        if config.denied_apps.iter().filter_map(|m| AppMatcher::parse(m)).any(|m| m.matches(app)) {
             return Decision::Refuse(Refusal::Denied);
         }
     }
@@ -425,7 +422,11 @@ mod tests {
         TargetApp { id: id.into(), name: id.into() }
     }
 
-    fn req<'a>(access: Access, target: Option<&'a TargetApp>, origin: &'a OriginKind) -> Request<'a> {
+    fn req<'a>(
+        access: Access,
+        target: Option<&'a TargetApp>,
+        origin: &'a OriginKind,
+    ) -> Request<'a> {
         Request { access, target, origin, foreground: false, session_granted: false }
     }
 
@@ -434,7 +435,11 @@ mod tests {
         let config = PolicyConfig::default();
         assert_eq!(config.mode, Mode::FullAccess);
         let safari = app("com.apple.Safari");
-        let d = decide(&config, &SavedApprovals::default(), &req(Access::Act, Some(&safari), &OriginKind::Local));
+        let d = decide(
+            &config,
+            &SavedApprovals::default(),
+            &req(Access::Act, Some(&safari), &OriginKind::Local),
+        );
         assert_eq!(d, Decision::Allow);
     }
 
@@ -452,7 +457,11 @@ mod tests {
     fn protected_apps_are_refused_even_with_an_empty_deny_list() {
         let config = PolicyConfig::cloud_vm();
         let agent = app("com.apple.SecurityAgent");
-        let d = decide(&config, &SavedApprovals::default(), &req(Access::Act, Some(&agent), &OriginKind::Local));
+        let d = decide(
+            &config,
+            &SavedApprovals::default(),
+            &req(Access::Act, Some(&agent), &OriginKind::Local),
+        );
         assert_eq!(d, Decision::Refuse(Refusal::Protected));
     }
 
@@ -461,7 +470,10 @@ mod tests {
         let config = PolicyConfig { mode: Mode::LookOnly, ..PolicyConfig::default() };
         let s = app("com.apple.Safari");
         let saved = SavedApprovals::default();
-        assert_eq!(decide(&config, &saved, &req(Access::Observe, Some(&s), &OriginKind::Local)), Decision::Allow);
+        assert_eq!(
+            decide(&config, &saved, &req(Access::Observe, Some(&s), &OriginKind::Local)),
+            Decision::Allow
+        );
         assert_eq!(
             decide(&config, &saved, &req(Access::Act, Some(&s), &OriginKind::Local)),
             Decision::Refuse(Refusal::LookOnly)
@@ -478,7 +490,10 @@ mod tests {
             Decision::Ask { remember: true }
         );
         saved.set_always(&s.id);
-        assert_eq!(decide(&config, &saved, &req(Access::Act, Some(&s), &OriginKind::Local)), Decision::Allow);
+        assert_eq!(
+            decide(&config, &saved, &req(Access::Act, Some(&s), &OriginKind::Local)),
+            Decision::Allow
+        );
         saved.set_never(&s.id);
         assert_eq!(
             decide(&config, &saved, &req(Access::Act, Some(&s), &OriginKind::Local)),
@@ -516,8 +531,14 @@ mod tests {
             foreground: true,
             session_granted: false,
         };
-        assert_eq!(decide(&config, &SavedApprovals::default(), &r), Decision::Refuse(Refusal::ForegroundNotAllowed));
-        assert_eq!(decide(&PolicyConfig::cloud_vm(), &SavedApprovals::default(), &r), Decision::Allow);
+        assert_eq!(
+            decide(&config, &SavedApprovals::default(), &r),
+            Decision::Refuse(Refusal::ForegroundNotAllowed)
+        );
+        assert_eq!(
+            decide(&PolicyConfig::cloud_vm(), &SavedApprovals::default(), &r),
+            Decision::Allow
+        );
     }
 
     #[test]
