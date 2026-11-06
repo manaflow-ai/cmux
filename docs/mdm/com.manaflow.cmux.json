@@ -5491,9 +5491,15 @@
       "title" : "Name Workspaces from Tabs",
       "type" : "boolean"
     },
+    "workspaces.freeing.agents" : {
+      "default" : true,
+      "description" : "Also ends Claude Code and Codex sessions that wait for your next message. Opening the tab resumes the same session.",
+      "title" : "Free Idle Agents",
+      "type" : "boolean"
+    },
     "workspaces.freeing.enabled" : {
       "default" : false,
-      "description" : "Ends the shells of workspaces you have not used for a long time when they sit at an empty prompt. Opening the workspace starts each shell again in the same folder, with its saved screen above it. Running commands, agents, pinned workspaces and workspaces kept awake are never freed.",
+      "description" : "Ends the shells of workspaces you have not used for a long time when they sit at an empty prompt. Opening the workspace starts each shell again in the same folder, with its saved screen above it. Pinned workspaces and workspaces kept awake are never freed.",
       "title" : "Free Idle Terminals",
       "type" : "boolean"
     },
@@ -5504,6 +5510,16 @@
       "minimum" : 60,
       "title" : "Free Terminals After",
       "type" : "number"
+    },
+    "workspaces.freeing.runningCommands" : {
+      "default" : "never",
+      "description" : "What happens to a command that still runs in a workspace that frees its terminals.",
+      "enum" : [
+        "never",
+        "relaunch"
+      ],
+      "title" : "Running Commands",
+      "type" : "string"
     },
     "workspaces.hibernation.enabled" : {
       "default" : true,
