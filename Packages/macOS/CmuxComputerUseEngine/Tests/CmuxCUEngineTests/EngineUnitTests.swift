@@ -10,7 +10,11 @@ import Testing
         #expect(try KeySpec(parsing: "super+c") == KeySpec(keyCode: 8, flags: .maskCommand))
         #expect(try KeySpec(parsing: "ctrl+shift+Tab") == KeySpec(keyCode: 48, flags: [.maskControl, .maskShift]))
         #expect(try KeySpec(parsing: "KP_0") == KeySpec(keyCode: 82))
-        #expect(try KeySpec(parsing: "cmd++") == KeySpec(keyCode: 24, flags: .maskCommand))
+        #expect(try KeySpec(parsing: "cmd++") == KeySpec(keyCode: 24, flags: [.maskCommand, .maskShift]))
+        #expect(try KeySpec(parsing: "+") == KeySpec(keyCode: 24, flags: .maskShift))
+        #expect(try KeySpec(parsing: "page_up") == KeySpec(keyCode: 116))
+        #expect(try KeySpec(parsing: "kp_enter") == KeySpec(keyCode: 76))
+        #expect(try KeySpec(parsing: "f5") == KeySpec(keyCode: 96))
     }
 
     @Test func charactersCarryTheirShift() throws {

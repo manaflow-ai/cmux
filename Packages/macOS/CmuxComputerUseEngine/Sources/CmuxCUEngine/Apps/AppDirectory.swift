@@ -65,8 +65,11 @@ struct AppDirectory: Sendable {
     /// One window by id, without listing every window on the system
     /// (`CGWindowListCreateDescriptionFromArray` asks only for this id).
     func window(id: CGWindowID, pid: pid_t) -> WindowInfo? {
-        let ids = [UnsafeRawPointer(bitPattern: UInt(id))] as CFArray
-        guard let list = CGWindowListCreateDescriptionFromArray(ids) as? [[String: Any]],
+        // A CFArray of raw window ids (not boxed Swift values): the call reads
+        // each element as a CGWindowID.
+        var values: [UnsafeRawPointer?] = [UnsafeRawPointer(bitPattern: UInt(id))]
+        guard let ids = values.withUnsafeMutableBufferPointer({ CFArrayCreate(nil, $0.baseAddress, 1, nil) }),
+              let list = CGWindowListCreateDescriptionFromArray(ids) as? [[String: Any]],
               let entry = list.first else { return nil }
         return Self.info(entry, pid: pid)
     }

@@ -73,12 +73,12 @@ case "stdio":
     done.wait()
     exit(0)
 case "serve":
-    let engine = Engine()
+    let services = EngineServices()
     // No Dock icon and no menu bar: the engine never takes focus.
     NSApplication.shared.setActivationPolicy(.prohibited)
-    Thread.detachNewThread { [socket, engine] in
+    Thread.detachNewThread { [socket, services] in
         do {
-            try socket.serve(engine: engine)
+            try socket.serve(services: services)
         } catch {
             fail("\(error)")
         }

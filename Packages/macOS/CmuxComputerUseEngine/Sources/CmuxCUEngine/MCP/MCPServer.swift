@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import Darwin
 import Foundation
 
 /// MCP over newline-delimited JSON-RPC on any byte stream (stdio or one
@@ -6,16 +7,23 @@ import Foundation
 /// reply is written as soon as it is ready.
 public final class MCPConnection: @unchecked Sendable {
     let engine: Engine
-    let input: FileHandle
-    let output: FileHandle
+    let input: Int32
+    let output: Int32
     private let writeLock = NSLock()
     /// Per-call timings go in `_meta` so a bench can split the work.
     public var reportTimings = true
 
-    public init(engine: Engine, input: FileHandle, output: FileHandle) {
+    /// Reads and writes the descriptors directly: a peer that went away is
+    /// an error return here, never an Objective-C exception (FileHandle's
+    /// legacy read/write raise on ECONNRESET and EPIPE, which ends the process).
+    public init(engine: Engine, input: Int32, output: Int32) {
         self.engine = engine
         self.input = input
         self.output = output
+    }
+
+    public convenience init(engine: Engine, input: FileHandle, output: FileHandle) {
+        self.init(engine: engine, input: input.fileDescriptor, output: output.fileDescriptor)
     }
 
     /// Serves until the input closes. Lines are handled one at a time, in
@@ -26,10 +34,12 @@ public final class MCPConnection: @unchecked Sendable {
         let input = self.input
         let reader = Thread {
             var buffer = Data()
+            var chunk = [UInt8](repeating: 0, count: 1 << 16)
             while true {
-                let chunk = input.availableData
-                if chunk.isEmpty { break }
-                buffer.append(chunk)
+                let count = read(input, &chunk, chunk.count)
+                if count < 0, errno == EINTR { continue }
+                if count <= 0 { break }
+                buffer.append(contentsOf: chunk[0..<count])
                 while let newline = buffer.firstIndex(of: 0x0A) {
                     let line = Data(buffer[buffer.startIndex..<newline])
                     buffer.removeSubrange(buffer.startIndex...newline)
@@ -100,6 +110,19 @@ public final class MCPConnection: @unchecked Sendable {
     private func send(_ message: [String: Any]) {
         guard var data = try? JSONSerialization.data(withJSONObject: message, options: [.withoutEscapingSlashes]) else { return }
         data.append(0x0A)
-        writeLock.withLock { output.write(data) }
+        let output = self.output
+        writeLock.withLock {
+            data.withUnsafeBytes { raw in
+                guard let base = raw.baseAddress else { return }
+                var written = 0
+                while written < raw.count {
+                    let n = write(output, base + written, raw.count - written)
+                    if n < 0, errno == EINTR { continue }
+                    // The peer is gone: drop the reply; its reader ends the session.
+                    if n <= 0 { return }
+                    written += n
+                }
+            }
+        }
     }
 }

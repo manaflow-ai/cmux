@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 @preconcurrency import ApplicationServices
+import AppKit
 import Foundation
 
 /// What a tool call returns: MCP content blocks.
@@ -24,14 +25,41 @@ struct EngineError: Error, CustomStringConvertible {
 /// The Computer Use engine. Every acting tool ends with the app's settled
 /// state (tree + screenshot) in the same reply, so an agent turn is one
 /// round trip: act, then read what happened, without a second call.
-public final class Engine: @unchecked Sendable {
-    let directory = AppDirectory()
-    let sessions = AppSessions()
+/// What every connection shares: the window streams, the app observers and
+/// the screenshot cache are per window or per app, not per agent.
+public final class EngineServices: @unchecked Sendable {
     let capture = WindowCapture()
     let streams = WindowStreams()
+    let monitor = AppActivityMonitor()
+    private var terminated: NSObjectProtocol?
+
+    public init() {
+        // One process-wide AX messaging timeout (set on the system-wide
+        // element it applies to every element this process asks), so a
+        // stalled app fails a read in 0.5 s instead of about 6 s.
+        AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), AppSessions.messagingTimeout)
+        let monitor = self.monitor
+        let streams = self.streams
+        terminated = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: nil
+        ) { note in
+            guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+            monitor.forget(pid: app.processIdentifier)
+            streams.stop(pid: app.processIdentifier)
+        }
+    }
+}
+
+public final class Engine: @unchecked Sendable {
+    let directory = AppDirectory()
+    /// Per connection: element indexes refer to this agent's own last state.
+    let sessions = AppSessions()
+    let services: EngineServices
+    var capture: WindowCapture { services.capture }
+    var streams: WindowStreams { services.streams }
+    var monitor: AppActivityMonitor { services.monitor }
     var visualSettle = VisualSettlePolicy()
     let encoder = JPEGEncoder()
-    let monitor = AppActivityMonitor()
     let input = InputSynth()
     let renderer = TreeRenderer()
     var walker = AXTreeWalker()
@@ -39,7 +67,9 @@ public final class Engine: @unchecked Sendable {
     /// Long edge of the screenshot, in pixels (Codex caps near this too).
     var maxImageEdge = 1568
 
-    public init() {}
+    public init(services: EngineServices = EngineServices()) {
+        self.services = services
+    }
 
     /// The app's focused (else main, else first) AX window, and its window
     /// server entry: by id (one lookup) when the AX window says its id, else
@@ -71,7 +101,7 @@ public final class Engine: @unchecked Sendable {
             monitor.watch(pid: app.pid)
             let clock = ContinuousClock()
             let start = clock.now
-            guard let stream = await streams.stream(windowID: id, pixelWidth: geometry.pixelWidth,
+            guard let stream = await streams.stream(windowID: id, pid: app.pid, pixelWidth: geometry.pixelWidth,
                                                     pixelHeight: geometry.pixelHeight, firstFrameTimeout: .seconds(2)) else {
                 return (lines + ["stream: none after \(ms(clock.now - start)) ms: \(streams.lastFailure ?? "?")"]).joined(separator: "\n")
             }
@@ -134,7 +164,16 @@ public final class Engine: @unchecked Sendable {
         let walkStart = clock.now
         let walked = walker.walk(window: focused, menuBar: menuBar)
         let walkMs = ms(clock.now - walkStart)
-        let image = try await shot
+        // A window that cannot be captured (minimized, closed mid-call) still
+        // has a tree: the state says so instead of failing the whole call,
+        // which after an action would make an agent repeat it.
+        var image: (Data, Double, Double)?
+        var captureNote: String?
+        do {
+            image = try await shot
+        } catch {
+            captureNote = "No screenshot: \(error)."
+        }
 
         let snapshot = AppSnapshot(app: app, window: window, windowElement: focused, elements: walked.elements,
                                    geometry: geometry, taken: clock.now)
@@ -154,6 +193,7 @@ public final class Engine: @unchecked Sendable {
         text += "</app_state>"
         var result = ToolResult(blocks: [.text(text)])
         if let image { result.blocks.append(.jpeg(image.0)) }
+        if let captureNote { result.blocks.append(.text(captureNote)) }
         result.timings = ["resolve_ms": ms(resolved - started), "walk_ms": walkMs, "nodes": Double(walked.elements.count),
                           "capture_ms": image?.1 ?? 0, "encode_ms": image?.2 ?? 0, "state_ms": ms(clock.now - started)]
         return result
@@ -166,7 +206,7 @@ public final class Engine: @unchecked Sendable {
         let clock = ContinuousClock()
         let start = clock.now
         var image: CGImage?
-        if let stream = await streams.stream(windowID: window.id, pixelWidth: geometry.pixelWidth,
+        if let stream = await streams.stream(windowID: window.id, pid: window.pid, pixelWidth: geometry.pixelWidth,
                                              pixelHeight: geometry.pixelHeight) {
             image = stream.image()
         }
@@ -213,7 +253,7 @@ public final class Engine: @unchecked Sendable {
         // new frame is the action's effect.
         var stream: WindowStream?
         if let window, let geometry {
-            stream = await streams.stream(windowID: window.id, pixelWidth: geometry.pixelWidth, pixelHeight: geometry.pixelHeight)
+            stream = await streams.stream(windowID: window.id, pid: window.pid, pixelWidth: geometry.pixelWidth, pixelHeight: geometry.pixelHeight)
         }
         let start = clock.now
         try act()
@@ -267,7 +307,8 @@ public final class Engine: @unchecked Sendable {
             }
             if button == .right, info.actions.contains(kAXShowMenuAction) {
                 return try await acting(app: app, pid: pid, window: target.snapshot.window, geometry: target.snapshot.geometry, "Opened the menu of element \(index ?? -1).") {
-                    element.element.perform(kAXShowMenuAction)
+                    let error = element.element.perform(kAXShowMenuAction)
+                    if error != .success { throw EngineError("element \(index ?? -1) refused its menu (\(error.rawValue))") }
                 }
             }
             guard let frame = info.frame, frame.width > 0, frame.height > 0 else {
@@ -341,10 +382,13 @@ public final class Engine: @unchecked Sendable {
         let whole = element.element.string(kAXValueAttribute) ?? ""
         guard let range = whole.range(of: text) else { throw EngineError("\"\(text)\" is not in element \(index)'s text") }
         let location = whole.utf16.distance(from: whole.utf16.startIndex, to: range.lowerBound)
-        var cfRange = CFRange(location: location, length: text.utf16.count)
+        // The matched span's own UTF-16 length: a canonically equivalent match
+        // (precomposed vs decomposed) can differ in length from `text`.
+        var cfRange = CFRange(location: location, length: whole.utf16.distance(from: range.lowerBound, to: range.upperBound))
         guard let value = AXValueCreate(.cfRange, &cfRange) else { throw EngineError("could not make the range") }
         return try await acting(app: app, pid: target.snapshot.app.pid, window: target.snapshot.window, geometry: target.snapshot.geometry, "Selected \"\(text)\" in element \(index).") {
-            element.element.set(kAXSelectedTextRangeAttribute, value)
+            let error = element.element.set(kAXSelectedTextRangeAttribute, value)
+            if error != .success { throw EngineError("element \(index) refused the selection (\(error.rawValue))") }
         }
     }
 
@@ -361,7 +405,8 @@ public final class Engine: @unchecked Sendable {
             throw EngineError("element \(index) has no action \"\(action)\" (it offers: \(offered.joined(separator: ", ")))")
         }
         return try await acting(app: app, pid: target.snapshot.app.pid, window: target.snapshot.window, geometry: target.snapshot.geometry, "Performed \(action) on element \(index).") {
-            element.element.perform(ax)
+            let error = element.element.perform(ax)
+            if error != .success { throw EngineError("element \(index) refused \(action) (\(error.rawValue))") }
         }
     }
 

@@ -13,9 +13,12 @@ import Foundation
 /// last new frame), which is how the engine knows an action has settled.
 final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     let windowID: CGWindowID
+    let pid: pid_t
     let pixelWidth: Int
     let pixelHeight: Int
-    private let stream: SCStream
+    /// Made after `super.init` so the stream can name this object as its
+    /// delegate (a stop by ScreenCaptureKit must mark the stream dead).
+    private var stream: SCStream?
     private let queue = DispatchQueue(label: "cmux.cu.window-stream", qos: .userInteractive)
     private let lock = NSLock()
     private var latest: CVPixelBuffer?
@@ -23,12 +26,14 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked
     private var frames = 0
     private var stopped = false
     /// Every sample's SCFrameStatus raw value, counted (diagnostics).
-    private(set) var statusCounts: [Int: Int] = [:]
-    private(set) var stopError: String?
-    private(set) var lastUsed = ContinuousClock.now
+    private var statusCounts: [Int: Int] = [:]
+    private var stopError: String?
+    private var usedAt = ContinuousClock.now
+    var lastUsed: ContinuousClock.Instant { lock.withLock { usedAt } }
 
-    init(window: SCWindow, pixelWidth: Int, pixelHeight: Int) throws {
+    init(window: SCWindow, pid: pid_t, pixelWidth: Int, pixelHeight: Int) throws {
         windowID = window.windowID
+        self.pid = pid
         self.pixelWidth = pixelWidth
         self.pixelHeight = pixelHeight
         let config = SCStreamConfiguration()
@@ -44,12 +49,13 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked
         // Up to 60 frames a second while the window changes; none while it is still.
         config.minimumFrameInterval = CMTime(value: 1, timescale: 60)
         let filter = SCContentFilter(desktopIndependentWindow: window)
-        stream = SCStream(filter: filter, configuration: config, delegate: nil)
         super.init()
+        let stream = SCStream(filter: filter, configuration: config, delegate: self)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
+        self.stream = stream
     }
 
-    func start() async throws { try await stream.startCapture() }
+    func start() async throws { try await stream?.startCapture() }
 
     func stop() {
         let alreadyStopped = lock.withLock { () -> Bool in
@@ -57,7 +63,7 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked
             return stopped
         }
         guard !alreadyStopped else { return }
-        stream.stopCapture { _ in }
+        stream?.stopCapture { _ in }
     }
 
     var isStopped: Bool { lock.withLock { stopped } }
@@ -99,7 +105,7 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked
     /// The newest frame as a CGImage (no capture round trip).
     func image() -> CGImage? {
         let pixels: CVPixelBuffer? = lock.withLock {
-            lastUsed = .now
+            usedAt = .now
             return latest
         }
         guard let pixels else { return nil }
@@ -152,13 +158,14 @@ final class WindowStreams: @unchecked Sendable {
     /// The window's stream at this pixel size, started (and given its first
     /// frame) when needed. Nil when the window cannot be streamed (off
     /// screen, minimized, no grant): the caller falls back to a screenshot.
-    private(set) var lastFailure: String?
+    private var failure: String?
+    var lastFailure: String? { lock.withLock { failure } }
     /// Windows whose stream gave no frame: a screenshot is taken instead,
     /// without paying the first-frame wait again for `failureBackoff`.
     private var failedAt: [CGWindowID: ContinuousClock.Instant] = [:]
     let failureBackoff: Duration = .seconds(30)
 
-    func stream(windowID: CGWindowID, pixelWidth: Int, pixelHeight: Int,
+    func stream(windowID: CGWindowID, pid: pid_t, pixelWidth: Int, pixelHeight: Int,
                 firstFrameTimeout: Duration = .milliseconds(250)) async -> WindowStream? {
         if let failed = lock.withLock({ failedAt[windowID] }), ContinuousClock.now - failed < failureBackoff {
             return nil
@@ -172,7 +179,7 @@ final class WindowStreams: @unchecked Sendable {
         guard let window = await scWindow(windowID) else { return fail(windowID, "window not shareable") }
         let stream: WindowStream
         do {
-            stream = try WindowStream(window: window, pixelWidth: pixelWidth, pixelHeight: pixelHeight)
+            stream = try WindowStream(window: window, pid: pid, pixelWidth: pixelWidth, pixelHeight: pixelHeight)
             try await stream.start()
         } catch {
             return fail(windowID, "start: \(error)")
@@ -182,16 +189,32 @@ final class WindowStreams: @unchecked Sendable {
             stream.stop()
             return fail(windowID, "no frame: \(why)")
         }
-        lock.withLock { streams[windowID] = stream }
+        // Two callers may have raced to start this window's stream: the one
+        // stored last wins, and the one it displaces is stopped, never leaked.
+        let displaced = lock.withLock { () -> WindowStream? in
+            defer { streams[windowID] = stream }
+            return streams[windowID]
+        }
+        if let displaced, displaced !== stream { displaced.stop() }
         return stream
     }
 
     private func fail(_ id: CGWindowID, _ why: String) -> WindowStream? {
         lock.withLock {
             failedAt[id] = .now
-            lastFailure = why
+            failure = why
         }
         return nil
+    }
+
+    /// Stops every stream of an app that exited.
+    func stop(pid: pid_t) {
+        let gone = lock.withLock { () -> [WindowStream] in
+            let matching = streams.filter { $0.value.pid == pid }
+            for id in matching.keys { streams[id] = nil }
+            return Array(matching.values)
+        }
+        for stream in gone { stream.stop() }
     }
 
     func existing(windowID: CGWindowID) -> WindowStream? {

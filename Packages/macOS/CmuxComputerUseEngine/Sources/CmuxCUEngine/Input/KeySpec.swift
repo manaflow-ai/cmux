@@ -34,7 +34,7 @@ struct KeySpec: Sendable, Equatable {
         }
         // "ctrl++" means ctrl and the plus key.
         var names = parts
-        if text.hasSuffix("++") { names = Array(parts.dropLast(2)) + ["plus"] }
+        if text == "+" { names = ["plus"] } else if text.hasSuffix("++") { names = Array(parts.dropLast(2)) + ["plus"] }
         guard let keyName = names.last, !keyName.isEmpty else { throw ParseError.empty }
         var flags: CGEventFlags = []
         for modifier in names.dropLast() {
@@ -54,7 +54,8 @@ struct KeySpec: Sendable, Equatable {
     ]
 
     static func code(for name: String) -> (code: CGKeyCode, flags: CGEventFlags)? {
-        if let code = named[name] ?? named[name.lowercased()] { return (code, []) }
+        if name == "plus" { return (24, .maskShift) } // "+" is shift+=
+        if let code = named[name] ?? namedLowercased[name.lowercased()] { return (code, []) }
         if name.count == 1, let character = name.first {
             if let code = characters[character] { return (code, []) }
             let lower = Character(character.lowercased())
@@ -78,6 +79,9 @@ struct KeySpec: Sendable, Equatable {
         "{": (33, true), "}": (30, true), "|": (42, true), ":": (41, true), "\"": (39, true), "<": (43, true),
         ">": (47, true), "?": (44, true), "~": (50, true),
     ]
+
+    static let namedLowercased: [String: CGKeyCode] = Dictionary(
+        named.map { ($0.key.lowercased(), $0.value) }, uniquingKeysWith: { first, _ in first })
 
     static let named: [String: CGKeyCode] = [
         "Return": 36, "return": 36, "Enter": 36, "enter": 36, "Tab": 48, "tab": 48, "space": 49, "Space": 49,

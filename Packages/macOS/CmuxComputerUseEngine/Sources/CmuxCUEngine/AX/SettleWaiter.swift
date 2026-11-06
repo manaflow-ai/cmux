@@ -48,7 +48,10 @@ final class AppActivityMonitor: @unchecked Sendable {
     /// Starts watching `pid` (idempotent). Returns false when the app refuses.
     @discardableResult
     func watch(pid: pid_t) -> Bool {
-        if lock.withLock({ observers[pid] != nil }) { return true }
+        // Checked and inserted under one lock: two callers never make two observers.
+        lock.lock()
+        defer { lock.unlock() }
+        if observers[pid] != nil { return true }
         var observer: AXObserver?
         let callback: AXObserverCallback = { _, element, _, refcon in
             guard let refcon else { return }
@@ -62,16 +65,22 @@ final class AppActivityMonitor: @unchecked Sendable {
         for name in Self.notifications {
             _ = AXObserverAddNotification(observer, app, name as CFString, refcon)
         }
-        lock.withLock { observers[pid] = observer }
+        observers[pid] = observer
         let source = RunLoopSource(AXObserverGetRunLoopSource(observer))
         thread.perform { CFRunLoopAddSource(CFRunLoopGetCurrent(), source.raw, .defaultMode) }
         return true
     }
 
     func forget(pid: pid_t) {
-        guard let observer = lock.withLock({ observers.removeValue(forKey: pid) }) else { return }
-        let source = RunLoopSource(AXObserverGetRunLoopSource(observer))
-        thread.perform { CFRunLoopRemoveSource(CFRunLoopGetCurrent(), source.raw, .defaultMode) }
+        let observer = lock.withLock { () -> AXObserver? in
+            lastEvent[pid] = nil
+            return observers.removeValue(forKey: pid)
+        }
+        guard let observer else { return }
+        // The block holds the observer until its source is off the run loop,
+        // so no callback runs on a freed observer.
+        let held = RunLoopSource(AXObserverGetRunLoopSource(observer), owner: observer)
+        thread.perform { CFRunLoopRemoveSource(CFRunLoopGetCurrent(), held.raw, .defaultMode) }
     }
 
     private func record(pid: pid_t) {
@@ -101,7 +110,12 @@ final class AppActivityMonitor: @unchecked Sendable {
 /// A run loop source handed to the observer thread (CF sources are thread-safe to add).
 struct RunLoopSource: @unchecked Sendable {
     let raw: CFRunLoopSource
-    init(_ raw: CFRunLoopSource) { self.raw = raw }
+    /// Kept alive as long as this value (the observer that owns the source).
+    let owner: AnyObject?
+    init(_ raw: CFRunLoopSource, owner: AnyObject? = nil) {
+        self.raw = raw
+        self.owner = owner
+    }
 }
 
 /// A thread that runs a CFRunLoop forever, for observer sources.
