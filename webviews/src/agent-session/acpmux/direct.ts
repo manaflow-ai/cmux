@@ -4575,8 +4575,8 @@ export class AcpmuxDirectClient {
     if (this.daemonLivenessTimer !== undefined || this.closed) return;
     const probe = this.daemonProbe;
     const due = probe
-        ? probe.at + AcpmuxDirectClient.DAEMON_PROBE_ANSWER_MS
-        : this.daemonLastFrameAt + AcpmuxDirectClient.DAEMON_PROBE_AFTER_MS;
+      ? probe.at + AcpmuxDirectClient.DAEMON_PROBE_ANSWER_MS
+      : this.daemonLastFrameAt + AcpmuxDirectClient.DAEMON_PROBE_AFTER_MS;
     this.daemonLivenessTimer = setTimeout(
       () => {
         this.daemonLivenessTimer = undefined;
