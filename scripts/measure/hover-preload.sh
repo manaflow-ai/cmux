@@ -5,20 +5,22 @@
 #       missed refreshes and main-thread busy ms per frame, each pointer move's main-thread ms;
 #   (b) time to content after a select, cold and after a 150 ms rest on the row (--trials each);
 #   (c) the woken pages hibernate again after the 30 s grace, and the footprint before, woken and after.
-# Hover preload is the setting browser.wakeTabsOnHover (off by default). With no base given, OFF is this checkout's
-# app with the setting off and ON the same app with it on (one build, the setting is the only difference). With a
-# base, OFF is the base build, built first in this checkout so the head build after it reuses the warm DerivedData,
-# and ON is this checkout with the setting on. The base is either
+# Hover preload is the setting browser.wakeTabsOnHover (off by default, #37124). Every OFF arm launches with the
+# setting off and every ON arm with it on. With no base given, OFF and ON are this checkout's app (one build, the
+# setting is the only difference): the A/B for hover preload itself. With a base, OFF is the base build with the
+# setting off, built first in this checkout so the head build after it reuses the warm DerivedData, and ON is this
+# checkout with the setting on: the A/B for a change to the hover path. The base is either
 #   --base-revert=<sha>: this checkout with commit <sha> reverted (uncommitted), so OFF and ON differ only in that
-#                        change (hover preload landed as a8442a2b089bca34318c6e47b3767cba09f24cb6, #36637); or
-#   --base-ref=<sha>:    that commit (it must carry this bench's debug socket methods).
+#                        change and the setting; or
+#   --base-ref=<sha>:    that commit (it must carry this bench's debug socket methods). A base before 1ff2637da6f
+#                        (#37124) has no setting: there preload is on whenever browser.keepNeighborTabsAwake > 0.
 # Runs alone on the worker because it launches an app:
 #   cmux-ci run --class exclusive --label measure --measurement --script scripts/measure/hover-preload.sh --ref <sha> \
 #     [--arg=--arms=OFF,ON,OFF,ON] [--arg=--base-ref=<sha>] [--arg=--engine=chromium]
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 # --arms=OFF,ON,OFF,ON (the default) runs the bench once per arm, in that order, on
-# this mini: OFF launches the base build (or this one with the setting off), ON this checkout's with it on.
+# this mini: OFF launches the base build (or this one) with the setting off, ON this checkout's with it on.
 tag="hoverpre"
 out="$(mktemp -d)"
 head_sha="$(git rev-parse HEAD)"
@@ -91,7 +93,10 @@ for arm in "${arm_list[@]}"; do
   label="$(tr '[:upper:]' '[:lower:]' <<<"$arm")"
   arm_app="$app" wake=1 desc="head $head_sha, browser.wakeTabsOnHover on"
   if [[ "$label" == off ]]; then
-    if [[ -n "$base_app" ]]; then arm_app="$base_app" desc="$base_desc"; else wake=0 desc="head $head_sha, browser.wakeTabsOnHover off"; fi
+    # OFF is preload off on whichever build it runs: a base build launched with the setting on would make
+    # "base vs ON" an ON vs ON comparison.
+    wake=0 desc="head $head_sha, browser.wakeTabsOnHover off"
+    if [[ -n "$base_app" ]]; then arm_app="$base_app" desc="$base_desc, browser.wakeTabsOnHover off"; fi
   fi
   echo "hover-preload: arm $index/${#arm_list[@]} $label ($desc)"
   # One arm that fails does not stop the others (each launches its own app); the step fails at the end.
