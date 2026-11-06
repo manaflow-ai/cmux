@@ -50,7 +50,6 @@ use cmux_remote::service::{EndpointRole, ServiceMultiplexer};
 use cmux_remote::services::DaemonServices;
 use cmux_remote::session::SessionLimits;
 use cmux_remote::ssh_bootstrap::{BootstrapError, SshBootstrapConfig, SshBootstrapper};
-use cmux_remote::workspace::WorkspaceService;
 use cmux_remote_protocol::{LanePolicy, SessionId};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -2166,7 +2165,7 @@ async fn run_daemon(
             SessionLimits::default(),
             DaemonSessionPolicy { resume_lease: options.resume_lease },
         )?;
-        let workspace = WorkspaceService::new();
+        let workspace = crate::machine_secrets::daemon_workspace_service(&auth);
         // The admin proof and service forwarding must use the same resolved
         // destination, including when the configured path is a symlink.
         let mux_binding = MuxBinding::new(&mux_socket, &link_socket)?;
