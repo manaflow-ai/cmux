@@ -32,6 +32,20 @@ public nonisolated struct CloudEnvironmentStrings: Sendable {
                table: "Cloud", bundle: .module)
     }
 
+    /// `cloud new-machine --name N --environment E` when the machine list is not current: N may exist already.
+    public func nameUnread(_ name: String) -> String {
+        String(format: String(localized: "cloud.environments.nameUnread",
+                              defaultValue: "Couldn't read your Cloud machines, so no machine was made in the environment: one named %@ may already exist. Check `cmux cloud list-machines`, then run the command again.",
+                              table: "Cloud", bundle: .module), name)
+    }
+
+    /// `cloud new-machine --name N --environment E` when a machine named N exists or is being made.
+    public func nameTaken(_ name: String) -> String {
+        String(format: String(localized: "cloud.environments.nameTaken",
+                              defaultValue: "A Cloud machine named %@ already exists or is being made, so no second one was made. Use it with --target machine:ID from `cmux cloud list-machines`, or give a new --name.",
+                              table: "Cloud", bundle: .module), name)
+    }
+
     /// The Build confirmation's title for the environment named `name`.
     public func buildTitle(_ name: String) -> String {
         String(format: String(localized: "cloud.environments.buildTitle", defaultValue: "Build %@?", table: "Cloud", bundle: .module), name)

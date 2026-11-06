@@ -90,7 +90,19 @@ public struct CloudMachineRequest: Equatable, Sendable {
     /// ``NamedCreate`` for `name`: `listCurrent` is whether the list is current, `machines` its titles and
     /// `creating` the names of the creates on their way.
     public static func namedCreate(_ name: String, listCurrent: Bool, machines: [String], creating: [String]) -> NamedCreate {
-        .free
+        guard listCurrent else { return .unread }
+        return machines.contains(name) || creating.contains(name) ? .taken : .free
+    }
+
+    /// ``NamedCreate`` of this request when it is named and boots in an ``environment`` (else ``free``): the
+    /// list is read again (`refresh`) when it is not current, then judged with no wait between the judging and
+    /// the caller's create, so a second ask for the name sees this one's create. `creating(name)` is the
+    /// names of the creates on their way, with `name` when a `cloud start-session --name` is making it.
+    public func namedCreate(listCurrent: () -> Bool, refresh: () async -> Void, machines: () -> [String],
+                            creating: (String) -> [String]) async -> NamedCreate {
+        guard environment != nil, let name else { return .free }
+        if !listCurrent() { await refresh() }
+        return Self.namedCreate(name, listCurrent: listCurrent(), machines: machines(), creating: creating(name))
     }
 
     /// A quoted `~/boot.sh` reaches the app unexpanded (`--bootstrap-script`, `--machine-config`).

@@ -68,7 +68,7 @@ public final class CloudStartRuns<Answer: Sendable, Machine: Sendable> {
     /// Whether a creation of a machine named `name` for `account` is going on now (`cloud start-session
     /// --name`): `cloud new-machine --name --environment` makes no second one beside it.
     public func isCreating(_ name: String, account: [String?]) -> Bool {
-        false
+        creations[Creation(name: name, account: account)] != nil
     }
 
     public func creating(_ name: String, account: [String?], _ create: @escaping @MainActor () async throws -> Machine) async throws -> Machine {

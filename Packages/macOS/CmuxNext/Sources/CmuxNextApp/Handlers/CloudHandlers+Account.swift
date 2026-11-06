@@ -83,7 +83,7 @@ extension CloudHandlers {
             }
             let wizard = CloudWorkspaceSetupWizard(), pick = await CloudChatPick(services: services).read(folder: await chatFolder(chat, services), tab: chat)
             // Environments live in the cmux-next backend's CloudDO.
-            let environments = await cloud.appServerEnvironmentOptions()
+            let environments = (try? await cloud.appServerEnvironmentOptions()) ?? []
             guard let plan = try await wizard.choosePlan(availability: availability,
                 scopeIsCurrent: { cloud.auth.user?.id == userID && cloud.auth.teamID == teamID },
                 // The app server's create takes no repository and no size for now.
@@ -290,7 +290,7 @@ extension CloudHandlers {
     /// `pending`, and the create and the bootstrap go on (`cloud list-machines` shows the
     /// machine; its bootstrap status file says how far it got).
     static func createRequested(_ request: CloudMachineRequest, flow: CloudCreationFlow, window: WindowState?, _ context: AppActionContext) {
-        let creations = context.services.cloud.creations, work = context.services.work
+        let cloud = context.services.cloud, creations = cloud.creations, work = context.services.work
         result("new Cloud machine", context, pendingAfter: createdMachineWait, pending: newMachineFields(request, nil).merging(["status": .string("creating")]) { _, new in new }) {
             var request = request
             do { request.script = try await request.loadScript(work: work) } catch let unreadable as CloudMachineRequest.ScriptUnreadable {
@@ -299,7 +299,8 @@ extension CloudHandlers {
             do { request.machineConfig = try await request.loadMachineConfig(work: work) } catch let unreadable as CloudMachineRequest.ScriptUnreadable {
                 throw ActionFailure(message: CloudStrings.machineConfigUnreadable(unreadable.path))
             }
-            if let wanted = request.environment, !wanted.hasPrefix("env_") { request.environment = try await CloudWorkspaceSetupWizard.EnvironmentOption.id(for: wanted, in: context.services.cloud.appServerEnvironmentOptions()) }
+            if let wanted = request.environment { request.environment = try await CloudWorkspaceSetupWizard.EnvironmentOption.id(for: wanted, loading: { try await cloud.appServerEnvironmentOptions() }) }
+            try CloudWorkspaceSetupWizard.EnvironmentOption.NameRefused.check(request.name, await request.namedCreate(listCurrent: { cloud.hasCurrentList(within: CloudStartSession.listFresh) }, refresh: { await cloud.refresh() }, machines: { context.services.machines.cloud.map(\.machine.title) }, creating: { name in cloud.creations.all.filter { $0.session == nil }.compactMap(\.request.name) + (cloud.startSessionRuns.isCreating(name, account: cloud.account) ? [name] : []) }))
             let creation = flow.start(in: window, existing: nil, request: request)
             if case .failed(let reason)? = await settledCreation(creation, in: creations) { throw ActionFailure(message: "new Cloud machine: \(reason)") }
             guard let session = creation.session else { throw ActionFailure(message: CloudStrings.createDeclined) }

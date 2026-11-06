@@ -1016,7 +1016,10 @@ fn relay_chat(
 }
 
 /// `--environment`: the chat's machine, made first in that environment (`--name`'s name when no machine
-/// has it yet); its id. A machine that exists already has its environment, so that is a usage error.
+/// has it yet); its id. A machine that exists already has its environment, so that is a usage error. The
+/// name is made only on a list the app loaded (`loaded: false` lists no machines, which says nothing) with no
+/// create of it on its way: one in flight answers pending, one that failed (it waits in cmux for Retry) is
+/// refused, so a rerun or a second start never makes a second machine of that name.
 fn in_environment(
     runner: &mut dyn Runner,
     machine: &Machine,
@@ -1025,6 +1028,47 @@ fn in_environment(
 ) -> Result<String, Outcome> {
     let mut extra = Vec::new();
     if let Machine::Named(name) = machine {
+        if at(listed, "loaded").as_bool() == Some(false) {
+            return Err(failed(
+                "cloud.list_unread",
+                format!(
+                    "the app has not loaded its Cloud machines yet, so no machine was made in the environment: \
+                     one named {name} may exist already. Run this command again in a moment"
+                ),
+                json!({"machine_name": name, "list": "cmux cloud list-machines --json"}),
+                75,
+            ));
+        }
+        let creation = at(listed, "creating")
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|row| at(row, "name").as_str() == Some(name.as_str()));
+        if let Some(creation) = creation {
+            let details = json!({"machine_name": name, "creation": creation,
+                                 "list": "cmux cloud list-machines --json"});
+            if at(creation, "status").as_str() == Some("failed") {
+                let reason = at(creation, "reason").as_str().unwrap_or("no reason given");
+                return Err(failed(
+                    "cloud.start_failed",
+                    format!(
+                        "the create of {name} failed ({reason}) and waits in cmux for Retry, so no second one \
+                         was made: retry or dismiss it there, or give a new --name"
+                    ),
+                    details,
+                    1,
+                ));
+            }
+            return Err(failed(
+                "cloud.start_pending",
+                format!(
+                    "a machine named {name} is still being made, so no second one was made; find it with \
+                     `cmux cloud list-machines`, then run this command again with --target machine:ID"
+                ),
+                details,
+                75,
+            ));
+        }
         let mut rows = at(listed, "machines").as_array().into_iter().flatten();
         if rows.any(|row| at(row, "title").as_str() == Some(name.as_str())) {
             return Err(failed(
