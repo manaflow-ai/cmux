@@ -291,6 +291,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if let pane, pane.workspace?.isParked == false { pane.workspace?.focus.send(.contentPresented(pane: pane.paneKey)) }
             return pane != nil
         }
+        // Toasts draw as the overlay page's React stack, on each window's overlay.
+        CmuxToastCenter.shared.host = CmuxToastWebHost()
         DebugTimings.markLaunch("dfl.home_history")
         services.windows.restoreWhenLoaded()
         DebugTimings.markLaunch("dfl.windows")
