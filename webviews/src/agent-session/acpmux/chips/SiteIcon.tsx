@@ -35,7 +35,7 @@ export function SiteIcon({ href, known, size = "inline" }: { href: string; known
         // the composer would attach (Lucas 2026-10-29).
         <span className="cv-site-icon__img" style={{ backgroundImage: `url("${icon}")` }} />
       ) : (
-        <Globe size={px} strokeWidth={1.1} />
+        <Globe size={px} />
       )}
     </span>
   );
