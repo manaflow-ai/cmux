@@ -34,7 +34,8 @@ nonisolated extension SidebarLayout {
                   Self.isOwnTopRow(rows[previous], in: section) {
             (at, y, sibling) = (previous + 1, rows[previous].maxY + rowSpacing, rows[previous].siblingIndex + 1)
         }
-        guard let at else { return false }
+        // An anchor under "Archive (N)" is an archived group's row there (`appendArchive`), not its node's place.
+        guard let at, position(of: .doneFold(.archive)).map({ at <= $0 }) ?? true else { return false }
         let m = base.resolved(for: o)
         guard m.rowSpacing == rowSpacing else { return false }
         let content = o.rowContent(ws, machine: Self.machineLabel(section, options: o))
@@ -48,13 +49,14 @@ nonisolated extension SidebarLayout {
         // The section's later rows: a top-level row's node index, and a member's group index, count the new node.
         var i = at + 1
         while i < rows.count, rows[i].section == section.id {
-            var later = rows[i]
+            var later = rows[i], moved = false
             switch later.key {
             case .doneFold, .showMore: break // a fold row's index is no node's
-            default: if later.parentIndex == nil, later.siblingIndex >= sibling { later.siblingIndex += 1 }
+            default:
+                if later.parentIndex == nil, later.siblingIndex >= sibling { (later.siblingIndex, moved) = (later.siblingIndex + 1, true) }
             }
-            if let parent = later.parentIndex, parent >= sibling { later.parentIndex = parent + 1 }
-            if later != rows[i] { setRow(later, at: i) }
+            if let parent = later.parentIndex, parent >= sibling { (later.parentIndex, moved) = (parent + 1, true) }
+            if moved { setRow(later, at: i) }
             i += 1
         }
         // The section's header counts its nodes.
