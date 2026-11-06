@@ -372,6 +372,8 @@ impl Hub {
             }
             // First: a prompt about to be written sees it (`turns.rs`).
             session.cancels.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            // A start that waits to be tried again ends its wait (`start_retry.rs`).
+            session.start_retry_wake.notify_waiters();
             turn.clone()
         };
         // Stop also stops an automatic continuation that has not fired yet, and the running
