@@ -40,6 +40,12 @@
           "command": "cmux automation show-page"
         },
         {
+          "id": "home.compareTablePlayground",
+          "title": "Before/After Table Playground",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "home.chatColors",
           "title": "Chat Colors…",
           "shortcut": null,
@@ -6932,12 +6938,6 @@
           "title": "Share Machine Preview…",
           "shortcut": null,
           "command": "cmux cloud preview-share"
-        },
-        {
-          "id": "cloudShareMachine",
-          "title": "Share Machine…",
-          "shortcut": null,
-          "command": "cmux cloud share-machine"
         },
         {
           "id": "palette.auth.signIn",

@@ -13907,7 +13907,7 @@
       "args" : [
         {
           "kind" : "int",
-          "max" : 7,
+          "max" : 9,
           "min" : 0,
           "name" : "state",
           "required" : false
