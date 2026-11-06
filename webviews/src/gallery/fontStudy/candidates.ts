@@ -88,7 +88,7 @@ export type FaceKey = keyof typeof FACES;
 
 /// One candidate. `ui` draws the chrome and the composer; `prose`, when set, the transcript's text
 /// (else the chrome face); `mono`, when set, code (else the pane's code font). A serif prose face
-/// draws a step larger, as Claude's does (its replies read at 16 px beside 14 px chrome).
+/// draws a step larger (replies read at 16 px beside 14 px chrome).
 export interface Pairing {
   id: string;
   label: string;
@@ -111,7 +111,7 @@ export const PAIRINGS: readonly Pairing[] = [
   {
     id: "inter-newsreader",
     label: "Inter + Newsreader",
-    why: "Today's chrome, a serif for replies as Claude pairs them.",
+    why: "Today's chrome with a text serif for replies.",
     ui: "inter-tuned",
     prose: "newsreader",
     proseSize: 15,
@@ -119,7 +119,7 @@ export const PAIRINGS: readonly Pairing[] = [
   {
     id: "hanken-newsreader",
     label: "Hanken Grotesk + Newsreader",
-    why: "A warm grotesque beside a text serif: the closest open pairing to Claude's sans and serif.",
+    why: "A warm grotesque beside a newspaper-genre text serif.",
     ui: "hanken",
     prose: "newsreader",
     proseSize: 15,
@@ -172,7 +172,12 @@ export const PAIRINGS: readonly Pairing[] = [
     why: "Sturdy grotesque with ink traps for small sizes.",
     ui: "schibsted",
   },
-  { id: "public-sans", label: "Public Sans", why: "Neutral grotesque, near Söhne's Akzidenz roots.", ui: "publicSans" },
+  {
+    id: "public-sans",
+    label: "Public Sans",
+    why: "Neutral grotesque on an Akzidenz-style skeleton.",
+    ui: "publicSans",
+  },
   {
     id: "atkinson",
     label: "Atkinson Hyperlegible Next",
