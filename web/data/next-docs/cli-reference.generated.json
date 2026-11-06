@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 807,
-    "mcp": 722
+    "verbs": 808,
+    "mcp": 723
   },
   "nouns": [
     {
@@ -3208,6 +3208,13 @@
           "id": "palette.checkForUpdates",
           "mcp": true,
           "mcpTool": "app_settings_check_for_updates"
+        },
+        {
+          "command": "cmux settings clear-palette-history",
+          "title": "Clear Palette Search History",
+          "id": "palette.clearSearchHistory",
+          "mcp": true,
+          "mcpTool": "app_settings_clear_palette_history"
         },
         {
           "command": "cmux settings hide-announcements",
