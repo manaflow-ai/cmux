@@ -334,17 +334,13 @@ def main():
     parser.add_argument("--sleep-wait-s", type=float, default=150)
     parser.add_argument("--grace-slack-s", type=float, default=30)
     parser.add_argument("--phases", default="sweep,click,grace")
-    # off: browser.keepNeighborTabsAwake 0, the setting that turns hover wakes off, on the same build. It still
-    # records the pointer's row per row change (one lock write), so it is the base without the wakes, not without
-    # that write.
-    parser.add_argument("--hover", default="on", choices=["on", "off"])
+    # The arm's name in the report (the fleet entry runs the base build as "off" and the head as "on").
+    parser.add_argument("--label", default="on")
     parser.add_argument("--out")
     args = parser.parse_args()
     phases = set(args.phases.split(","))
     # Hidden pages discard after 0.5 min (a timeout written, so the hover may restore them) and freeze after 5 s.
     config = {"browser": {"hibernation": 0.5, "freezeHiddenTabs": 5}}
-    if args.hover == "off":
-        config["browser"]["keepNeighborTabsAwake"] = 0
     bundle = os.path.realpath(args.app)
     signal.signal(signal.SIGTERM, bm.interrupted)
     bp.wipe_state(bundle)
@@ -352,8 +348,8 @@ def main():
     app = bm.App(bundle, sock)
     bench = Bench(sock, app)
     sites = Sites(args.engine)
-    report = {"app": bundle, "engine": args.engine, "hover": args.hover, "config": config}
-    print(f"PERF-HOVER-ARM hover={args.hover}", flush=True)
+    report = {"app": bundle, "engine": args.engine, "label": args.label, "config": config}
+    print(f"PERF-HOVER-ARM label={args.label}", flush=True)
     try:
         # The workspace the bench shows while the others are hidden, then the target right after it, so the
         # target's row is near the top of the sidebar (a select of the first scrolls to the top).
