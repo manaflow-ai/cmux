@@ -2537,10 +2537,13 @@ fn install_grant_verifier(auth: &AuthDatabase, path: &Path) {
     });
     match installed {
         Ok(machine) => {
-            crate::client_log::stderr_log!("remote", "{BIN}: carrier grants admitted for {machine}")
+            crate::client_log::stderr_log!(
+                "remote",
+                "{BIN}: carrier grants admitted for {machine}"
+            );
         }
         Err(error) => {
-            crate::client_log::stderr_log!("remote", "{BIN}: carrier grants refused ({error})")
+            crate::client_log::stderr_log!("remote", "{BIN}: carrier grants refused ({error})");
         }
     }
 }
