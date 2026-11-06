@@ -26,7 +26,7 @@ import { holdHeader } from "./useAnchoredCollapse";
 import { Markdown } from "./Markdown";
 import { SoftBroken, softBreaks } from "./softBreaks";
 import { isPromptMarkdown } from "./promptMarkdown";
-import { githubRefLabel, UrlChip } from "../chips/LinkChips";
+import { githubRefLabel, UrlChip, withForeignFiles } from "../chips/LinkChips";
 import { textLinks } from "../chips/paths";
 import { deeplinks } from "../composer/deeplinks";
 import { SkillWordsContext } from "./skillWords";
@@ -293,11 +293,11 @@ export function PromptTyped({
 /// reply's app link draws (Markdown.tsx); the rest keeps its break points (softBreaks.tsx).
 function LiteralText({ text }: { text: string }) {
   const links = text.includes("://") ? promptLinks(text) : [];
-  if (!links.length) return <SoftBroken text={text} />;
+  if (!links.length) return <>{withForeignFiles(text, "f", softBreaks)}</>;
   const out: ReactNode[] = [];
   let at = 0;
   links.forEach((link, index) => {
-    if (link.start > at) out.push(...softBreaks(text.slice(at, link.start), `t${index}`));
+    if (link.start > at) out.push(...withForeignFiles(text.slice(at, link.start), `t${index}`, softBreaks));
     out.push(
       link.app ? (
         // A plain anchor, so the click takes the host's link path (opened in the app).
@@ -312,7 +312,7 @@ function LiteralText({ text }: { text: string }) {
     );
     at = link.end;
   });
-  if (at < text.length) out.push(...softBreaks(text.slice(at), "tail"));
+  if (at < text.length) out.push(...withForeignFiles(text.slice(at), "tail", softBreaks));
   return <>{out}</>;
 }
 

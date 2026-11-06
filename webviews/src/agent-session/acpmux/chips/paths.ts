@@ -95,6 +95,16 @@ export function textLinks(text: string): TextLink[] {
   return out;
 }
 
+/// A file id only its provider opens: ChatGPT's library files (`libfile_…`) and its own file
+/// addresses (`sediment://…`, `file-service://…`). An agent that hands one over hands over nothing
+/// anyone here can open, so the chat names it as that, never as a file or an image.
+const FOREIGN_FILE = /(?<![\w/])(?:libfile_[A-Za-z0-9]{8,}|(?:sediment|file-service):\/\/[\w.-]*[\w-])/g;
+
+export function foreignFileIds(text: string): { start: number; end: number; value: string }[] {
+  if (!text.includes("libfile_") && !text.includes("://")) return [];
+  return [...text.matchAll(FOREIGN_FILE)].map((m) => ({ start: m.index!, end: m.index! + m[0].length, value: m[0] }));
+}
+
 /// The line of a `:12` or `:12:4` suffix.
 function lineOf(value: string): number | undefined {
   const match = /:(\d+)(?::\d+)?$/.exec(value);
