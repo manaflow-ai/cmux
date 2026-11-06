@@ -10,6 +10,11 @@
 //! copy again (`Store::restored`). A peer that refuses them (its journal ran past that end, or a
 //! turn runs there) has another history: the copy goes, as before.
 //!
+//! A restore counts only once the peer answers that its journal ends at or past the copy's
+//! last record: a peer that took part of it (a write that failed midway answers `append_failed`)
+//! is sent the same records again, and while any copy is not taken back whole no delivery goes
+//! again ([`RETRY_WAITS`], then the peer's next link).
+//!
 //! While a link's restores run, prompts to that peer wait for them (`Gate`, at most
 //! [`GATE_WITHIN`]): a prompt the fresh machine ran first would take the seqs the restore
 //! needs. Then the deliveries the peer accepted and may have lost with its disk are delivered
@@ -24,6 +29,15 @@ pub(crate) type Row = (String, u64, u64);
 /// A copy ahead of its peer: the session id, its generation, the peer's `lastSeq`, and the
 /// records past it.
 pub(crate) type Ahead = (String, u64, u64, Vec<Value>);
+
+/// The waits after each try of one copy's restore that did not take it whole; past them it waits
+/// for the peer's next link.
+const RETRY_WAITS: [Duration; 4] = [
+    Duration::from_millis(500),
+    Duration::from_secs(1),
+    Duration::from_secs(2),
+    Duration::from_secs(4),
+];
 
 /// The longest a prompt to a peer waits for that peer's restores.
 const GATE_WITHIN: Duration = Duration::from_secs(30);
@@ -176,30 +190,57 @@ impl Hub {
                     .await
                     .unwrap_or_default()
             };
+            // Whether a copy is still ahead of the peer's journal: then nothing is delivered again,
+            // since a resend could take the seqs its records need.
+            let mut unfinished = false;
             for (mux, created_at, after, records) in ahead {
-                let Some(link) = hub.peer(&peer).filter(|p| p.generation == generation) else {
-                    break;
-                };
+                let Some(through) = records.iter().filter_map(seq_of).max() else { continue };
                 let params = json!({"sessionId": mux, "createdAt": created_at,
                                     "afterSeq": after, "records": records});
-                match link.request("_acpmux/journal_restore", params).await {
-                    Ok(answer) => {
-                        let last = answer.get("lastSeq").and_then(Value::as_u64);
-                        tracing::info!(peer, session = %mux, after, ?last, "journal restored");
-                        hub.peer_snapshots.restored((&peer, &mux), last);
+                let mut done = false;
+                for wait in RETRY_WAITS {
+                    let Some(link) = hub.peer(&peer).filter(|p| p.generation == generation) else {
+                        break;
+                    };
+                    match link.request("_acpmux/journal_restore", params.clone()).await {
+                        // Taken back whole: the peer's journal ends at or past the copy's last.
+                        Ok(answer)
+                            if answer
+                                .get("lastSeq")
+                                .and_then(Value::as_u64)
+                                .is_some_and(|last| last >= through) =>
+                        {
+                            let last = answer.get("lastSeq").and_then(Value::as_u64);
+                            tracing::info!(peer, session = %mux, after, ?last, "journal restored");
+                            hub.peer_snapshots.restored((&peer, &mux), last);
+                            done = true;
+                            break;
+                        }
+                        Err(e) if refused(&e) => {
+                            tracing::info!(peer, session = %mux, "journal restore refused: {}", e.message);
+                            hub.peer_snapshots.restored((&peer, &mux), None);
+                            done = true;
+                            break;
+                        }
+                        // Partly taken, the link, or an older peer: the copy stays, and the same
+                        // records go again (the peer appends only what it lacks).
+                        Ok(answer) => {
+                            tracing::warn!(peer, session = %mux, "journal restore short: {answer}");
+                        }
+                        Err(e) => {
+                            tracing::warn!(peer, session = %mux, "journal restore failed: {}", e.message);
+                        }
                     }
-                    Err(e) if refused(&e) => {
-                        tracing::info!(peer, session = %mux, "journal restore refused: {}", e.message);
-                        hub.peer_snapshots.restored((&peer, &mux), None);
-                    }
-                    // The link or an older peer: the copy stays, and the next list tries again.
-                    Err(e) => {
-                        tracing::warn!(peer, session = %mux, "journal restore failed: {}", e.message);
-                    }
+                    tokio::time::sleep(wait).await;
                 }
+                unfinished |= !done;
             }
             drop(close);
-            crate::server::outbox::redeliver_open(&hub, &peer);
+            // A copy not taken back whole waits for the peer's next link, and so does every
+            // delivery to it.
+            if !unfinished {
+                crate::server::outbox::redeliver_open(&hub, &peer);
+            }
         });
     }
 }

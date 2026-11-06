@@ -21,7 +21,7 @@ use acpmux::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::{Message, method};
 use acpmux::server::peer_auth::PeerAuth;
-use acpmux::server::{WsAuth, bind_ws, serve_connection, serve_ws_with};
+use acpmux::server::{Origin, WsAuth, bind_ws, serve_connection, serve_ws_with};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -235,6 +235,18 @@ fn journal(hub: &Hub, id: &str) -> Vec<Value> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_session_moved_to_a_fresh_machine_from_an_older_disk_loses_no_prompt_and_no_turn() {
+    move_to_a_fresh_machine(false).await;
+}
+
+/// The fresh machine's disk fails after the first record of the restore: it answers the restore
+/// as failed, the Mac keeps its copy and delivers nothing again, and its retry takes back the
+/// rest. Nothing is lost or run twice either.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_restore_that_fails_midway_is_kept_and_finished_by_a_retry() {
+    move_to_a_fresh_machine(true).await;
+}
+
+async fn move_to_a_fresh_machine(fail_midway: bool) {
     let _ = HERMETIC;
     let _ = tracing_subscriber::fmt().with_env_filter("acpmux=info").with_test_writer().try_init();
     let home = tempfile::tempdir().unwrap();
@@ -252,6 +264,9 @@ async fn a_session_moved_to_a_fresh_machine_from_an_older_disk_loses_no_prompt_a
     let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [],
                      "_meta": {"acpmux": {"name": "moved"}}});
     let id = cb.call(method::SESSION_NEW, new).await["sessionId"].as_str().unwrap().to_owned();
+    if fail_midway {
+        acpmux::hub::journal_restore::fail_once_after_first_record(&id);
+    }
 
     // A, the person's Mac, keeps its copies on disk and has the chat open.
     let a_dir = home.path().join("a");
@@ -337,4 +352,69 @@ async fn a_session_moved_to_a_fresh_machine_from_an_older_disk_loses_no_prompt_a
     }
     let replies = events.iter().filter(|e| says(e, "echo: second")).count();
     assert_eq!(replies, 1, "p2 answered {replies} times: {events:#?}");
+    if fail_midway {
+        assert!(!acpmux::hub::journal_restore::fail_once_armed(), "the restore never failed");
+    }
+}
+
+/// A Web client of the Mac cannot write a machine's journal: `_acpmux/journal_restore` naming a
+/// peer's session is refused on the Mac, never passed on (the peer would read it as the Mac's).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_web_client_cannot_restore_a_peer_sessions_journal() {
+    let _ = HERMETIC;
+    let home = tempfile::tempdir().unwrap();
+    let auth_dir = home.path().join("b-auth");
+    let auth = Arc::new(PeerAuth::create(&auth_dir).unwrap());
+    let peer_token =
+        std::fs::read_to_string(acpmux::server::peer_auth::token_path(&auth_dir)).unwrap();
+    let cfg = config(StoreMode::Memory);
+    let b = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, home.path()).unwrap());
+    let port = serve(b.clone(), &auth).await;
+    let mut cb = plain_client(b.clone()).await;
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+                     "_meta": {"acpmux": {"name": "moved"}}});
+    let made = cb.call(method::SESSION_NEW, new).await;
+    let id = made["sessionId"].as_str().unwrap().to_owned();
+    let created = b.session_summary(&b.resolve(&id).unwrap())["createdAt"].clone();
+    let before = journal(&b, &id).len() as u64;
+
+    let a = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, home.path()).unwrap());
+    let url = format!("ws://127.0.0.1:{port}");
+    a.add_peer("b", &url, Some("tok".into()), Some(peer_token), true).await.unwrap();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while a.resolve_remote("b/moved").is_none() {
+        assert!(Instant::now() < deadline, "A never listed b/moved");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, mut out_rx) = mpsc::channel(4096);
+    tokio::spawn(acpmux::server::serve_connection_with(a.clone(), in_rx, out_tx, Origin::Web));
+    let forged = json!({"seq": before + 1, "at": 1, "dir": "mux", "kind": "queued",
+                        "msg": {"promptId": "forged", "turnId": "t-forged", "text": "rm -rf ~"}});
+    let lines = [
+        Message::request(1, method::INITIALIZE, json!({"protocolVersion": 1})).to_line(),
+        Message::request(
+            2,
+            "_acpmux/journal_restore",
+            json!({"sessionId": "b/moved", "createdAt": created, "afterSeq": before,
+                   "records": [forged]}),
+        )
+        .to_line(),
+    ];
+    for line in lines {
+        in_tx.send(line).await.unwrap();
+    }
+    let answer = loop {
+        let line = tokio::time::timeout(Duration::from_secs(20), out_rx.recv())
+            .await
+            .expect("timeout")
+            .expect("closed");
+        let v: Value = serde_json::from_str(&line).unwrap();
+        if v.get("id") == Some(&json!(2)) {
+            break v;
+        }
+    };
+    assert!(answer.get("error").is_some(), "a Web client's journal restore was taken: {answer}");
+    let after = journal(&b, &id);
+    assert_eq!(after.len() as u64, before, "B's journal took a Web client's records: {after:#?}");
 }

@@ -105,9 +105,15 @@ impl Hub {
                 }
             }
             let mut last = at;
+            let mut failed = None;
             for record in records.iter().filter(|r| r.seq > at) {
-                if let Err(e) = self.store.append(&session.id, record) {
-                    tracing::warn!(session = %session.id, "journal restore append failed: {e}");
+                let appended = if test_fails_here(&session.id, last > at) {
+                    Err(anyhow::anyhow!("test: the append fails here"))
+                } else {
+                    self.store.append(&session.id, record)
+                };
+                if let Err(e) = appended {
+                    failed = Some(e);
                     break;
                 }
                 last = record.seq;
@@ -119,10 +125,21 @@ impl Hub {
                 // The restored log may end in transcript records.
                 meta.transcript_seq = last;
             }
-            last > at
+            (last > at, failed)
         };
-        let _ = self.store.flush_session(&session.id);
+        let (restored, failed) = restored;
+        // What went in is kept (a retry goes on after it), on disk before the answer.
+        let flushed = self.store.flush_session(&session.id);
         self.save_meta(session);
+        // Only every record in, on disk, is a restore: until then nothing settles the log and the
+        // owner keeps its copy and delivers nothing again (`peer_snapshot/restore.rs`).
+        if let Some(e) = failed.or(flushed.err()) {
+            drop(loaded);
+            tracing::warn!(session = %session.id, "journal restore stopped: {e:#}");
+            let last = session.seq.load(Ordering::SeqCst);
+            return Err(RpcError::internal(format!("journal restore stopped: {e:#}"))
+                .with_data(json!({"reason": "append_failed", "lastSeq": last})));
+        }
         if *loaded && restored {
             self.settle_restored(session);
         }
@@ -138,4 +155,37 @@ fn refused(reason: &str, why: &str, session: &Session) -> RpcError {
     let last = session.seq.load(Ordering::SeqCst);
     RpcError::invalid_params(format!("journal restore refused: {why}"))
         .with_data(json!({"reason": reason, "lastSeq": last}))
+}
+
+/// Debug builds only: the restore of chat `id` fails once, after its first record (a disk that
+/// fills midway), so a test sees a partial restore answered as one and finished by a retry.
+#[cfg(debug_assertions)]
+static FAIL_ONCE: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+#[cfg(debug_assertions)]
+#[doc(hidden)]
+pub fn fail_once_after_first_record(id: &str) {
+    *FAIL_ONCE.lock().unwrap_or_else(|e| e.into_inner()) = Some(id.to_owned());
+}
+
+/// Whether the failure [`fail_once_after_first_record`] armed has not happened yet.
+#[cfg(debug_assertions)]
+#[doc(hidden)]
+pub fn fail_once_armed() -> bool {
+    FAIL_ONCE.lock().unwrap_or_else(|e| e.into_inner()).is_some()
+}
+
+#[cfg(debug_assertions)]
+fn test_fails_here(id: &str, past_first: bool) -> bool {
+    let mut armed = FAIL_ONCE.lock().unwrap_or_else(|e| e.into_inner());
+    let fails = past_first && armed.as_deref() == Some(id);
+    if fails {
+        *armed = None;
+    }
+    fails
+}
+
+#[cfg(not(debug_assertions))]
+fn test_fails_here(_: &str, _: bool) -> bool {
+    false
 }

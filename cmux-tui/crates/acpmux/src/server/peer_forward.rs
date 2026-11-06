@@ -105,6 +105,10 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // answered here while the peer is down too.
     "_acpmux/peer_snapshot",
     "_acpmux/peer_snapshots_clear",
+    // The machine's own journal takes records only from its owner's link or its own socket
+    // (`hub/journal_restore.rs`): never one this daemon passes on for a client, whose origin the
+    // peer would read as this daemon's.
+    "_acpmux/journal_restore",
 ];
 
 /// Whether `m` names a session that a peer's session forwards for: not one this daemon answers
