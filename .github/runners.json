@@ -328,7 +328,6 @@
     "cmux-next-dev-daily.yml#verify": "apple-signing-release",
     "cmux-next-fast-tier-seed.yml#seed": "apple-app-build",
     "cmux-next-frame-pacing.yml#bench": "apple-gui",
-    "cmux-next-guards.yml#ci-guard-group": "portable-checks",
     "cmux-next-guards.yml#tooling-tests": "portable-checks",
     "cmux-next-ios-kit.yml#kit-tests": "apple-swift-tests",
     "cmux-next-media.yml#tour": "apple-gui",

@@ -30,6 +30,10 @@ Steps (`do`):
                                        AS) is the key-up moment
   hammer_key    {key, modifiers?, presses?, within?, as, mark?}
                                        PRESSES (default 20) physical presses spread over WITHIN seconds (default 1)
+  hammer_keys   {keys: [{key, modifiers?}...], times?, within?, as, mark?}
+                                       the KEYS pattern played TIMES (default 1) as physical presses spread over
+                                       WITHIN seconds (default 1), in order: mixed shortcuts, such as Cmd-T then
+                                       Cmd-W (p2097: "spam Command-T and then Command-W")
 
 Conditions (inside `expect.all`; evidence kind app):
   spam_counts   {from: NAME, field, delta | equals | delta_runs: HOLD | delta_presses: HAMMER, sign?}
@@ -118,12 +122,18 @@ def _send(j, key, modifiers, at, is_repeat, window):
 
 def _play(j, key, modifiers, schedule, window):
     """Sends each (time, is_repeat) of `schedule` on its own thread, so a slow reply never delays the next key."""
+    return _play_keys(j, [(key, modifiers, at, rep) for at, rep in schedule], window)
+
+
+def _play_keys(j, schedule, window):
+    """Sends each (key, modifiers, time, is_repeat) of `schedule` on its own thread at its time."""
     replies = [None] * len(schedule)
 
-    def run(index, at, is_repeat):
+    def run(index, key, modifiers, at, is_repeat):
         replies[index] = _send(j, key, modifiers, at, is_repeat, window)
 
-    threads = [threading.Thread(target=run, args=(i, at, rep), daemon=True) for i, (at, rep) in enumerate(schedule)]
+    threads = [threading.Thread(target=run, args=(i, key, mods, at, rep), daemon=True)
+               for i, (key, mods, at, rep) in enumerate(schedule)]
     for t in threads:
         t.start()
     return threads, replies
@@ -223,10 +233,34 @@ def step_hammer_key(j, step):
     return summary
 
 
+def step_hammer_keys(j, step):
+    _init(j)
+    j.before_keys()
+    window = j.window_for(step.get("window"))
+    pattern = [(k["key"], k.get("modifiers", [])) for k in step["keys"]]
+    if not pattern:
+        raise D.StepError("hammer_keys needs at least one key")
+    presses = pattern * int(step.get("times", 1))
+    within = float(step.get("within", 1))
+    start = uptime() + 0.05
+    schedule = [(key, mods, start + i * within / len(presses), False) for i, (key, mods) in enumerate(presses)]
+    mark = _budget_mark(j)
+    threads, replies = _play_keys(j, schedule, window)
+    for thread in threads:
+        thread.join(30)
+    name = step["as"]
+    j.marks[step.get("mark", name)] = D.now()
+    summary = _summary(replies)
+    summary["bench"] = _bench(j, mark, within, summary["ran"])
+    j.spam[name] = summary
+    j.last_key_at = D.now()
+    return summary
+
+
 def _remembered(j, name):
     _init(j)
     if name not in j.spam:
-        raise D.StepError(f"no spam_remember / hold_key / hammer_key named {name!r}")
+        raise D.StepError(f"no spam_remember / hold_key / hammer_key / hammer_keys named {name!r}")
     return j.spam[name]
 
 
@@ -291,7 +325,8 @@ def cond_spam_runs(j, want, cache):
     return ok, {"ran": ran, "sent": sent, "refused": got.get("refused"), "dropped": got.get("repeats_dropped")}
 
 
-STEPS = {"spam_remember": step_spam_remember, "hold_key": step_hold_key, "hammer_key": step_hammer_key}
+STEPS = {"spam_remember": step_spam_remember, "hold_key": step_hold_key, "hammer_key": step_hammer_key,
+         "hammer_keys": step_hammer_keys}
 CONDITIONS = {"spam_counts": ("app", cond_spam_counts), "spam_unchanged": ("app", cond_spam_unchanged),
               "spam_runs": ("app", cond_spam_runs), "spam_selected": ("app", cond_spam_selected)}
 NEGATIVE = {"spam_unchanged"}
