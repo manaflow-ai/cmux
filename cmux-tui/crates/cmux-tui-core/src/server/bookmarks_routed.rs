@@ -8,7 +8,8 @@
 //! - `bookmarks.list {browser_profile_id}`: `{bookmarks_revision, bookmarks}`
 //!   in listing order (as `list-bookmarks`).
 //! - `bookmarks.search {browser_profile_id, text, limit?}`: `{bookmarks}`,
-//!   nodes whose title or URL holds every term, tree order.
+//!   nodes whose title or URL holds every term, tree order. `text` is at
+//!   most 1 KiB and 32 terms (also for `rank`).
 //! - `bookmarks.rank {browser_profile_id, text, limit?}`: `{matches: [{bookmark,
 //!   score}]}`, URL bookmarks the omnibar way, best first, one per page.
 //! - `bookmarks.export {browser_profile_id, bar_title}`: `{html, count}`, the
@@ -22,7 +23,8 @@
 //!   (mutation): the file into one new folder at the end of the bar.
 //! - `bookmarks.import_source {browser_profile_id, title, source_key, items}`
 //!   (mutation): one browser source's folder, replaced in place; no items
-//!   removes it. `{root_ids, count, added, duplicates}`.
+//!   removes it. `{root_ids, count, added, duplicates, skipped}` (`skipped`:
+//!   items whose URL the store would refuse).
 
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -43,6 +45,10 @@ pub(super) const OWNER: &str = "bookmarks.tree";
 const MAX_LIMIT: usize = 1000;
 /// Most ops in one `bookmarks.apply`.
 const MAX_OPS: usize = 256;
+/// The ledger's bound on a replay key (`validate_identifier`).
+const MAX_KEY_BYTES: usize = 128;
+/// Most bytes of a search or rank query.
+const MAX_QUERY_BYTES: usize = 1024;
 /// The replay origin of routed bookmark ops.
 const REPLAY_ORIGIN: &str = "bookmarks.routed";
 
@@ -59,6 +65,26 @@ struct Query {
     text: String,
     #[serde(default)]
     limit: Option<usize>,
+}
+
+impl Query {
+    /// A query is at most [`MAX_QUERY_BYTES`] and
+    /// [`search::MAX_TERMS`] terms: each one is matched against every node.
+    fn check(&self) -> Result<(), ResourceError> {
+        if self.text.len() > MAX_QUERY_BYTES {
+            return Err(ResourceError::validation_invalid(
+                Some("text"),
+                format!("at most {MAX_QUERY_BYTES} bytes"),
+            ));
+        }
+        if self.text.split_whitespace().count() > search::MAX_TERMS {
+            return Err(ResourceError::validation_invalid(
+                Some("text"),
+                format!("at most {} terms", search::MAX_TERMS),
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Deserialize)]
@@ -111,6 +137,7 @@ pub(super) fn routed(
         }
         "bookmarks.search" => {
             let query: Query = parse(params)?;
+            query.check()?;
             let (_, tree) = read(mux, operation, &query.browser_profile_id)?;
             let mut found = search::search(&tree, &query.text);
             found.truncate(limit(query.limit));
@@ -118,6 +145,7 @@ pub(super) fn routed(
         }
         "bookmarks.rank" => {
             let query: Query = parse(params)?;
+            query.check()?;
             let (_, tree) = read(mux, operation, &query.browser_profile_id)?;
             let listing = tree.listing();
             let matches = search::rank(&listing, &query.text, now_ms(), limit(query.limit));
@@ -139,7 +167,7 @@ pub(super) fn routed(
             let actor = super::origin_gate::connection_actor(mux, client);
             let mut results = Vec::with_capacity(apply.ops.len());
             for (index, op) in apply.ops.into_iter().enumerate() {
-                let key = format!("{}.{index}", apply.idempotency_key);
+                let key = op_key(&apply.idempotency_key, index);
                 match one(mux, &actor, &key, op) {
                     Ok(result) => results.push(result),
                     Err(error) => return Err(failure(operation, &error, Some(index))),
@@ -170,16 +198,17 @@ pub(super) fn routed(
             let actor = super::origin_gate::connection_actor(mux, client);
             let key = import.idempotency_key.as_str();
             if import.items.is_empty() {
-                // No items: the source's folder goes (a re-import of an emptied source).
-                let (_, tree) = read(mux, operation, &import.browser_profile_id)?;
-                let folder = tree.listing().into_iter().find(|node| {
-                    node.kind == "folder" && node.source_key.as_deref() == Some(&import.source_key)
-                });
-                let Some(folder) = folder else {
-                    return Ok(json!({"root_ids": [], "count": 0, "added": 0, "duplicates": 0}));
-                };
-                let op = BookmarkOp::Delete { bookmark: folder.id };
-                one(mux, &actor, key, op).map_err(|error| failure(operation, &error, None))?;
+                // No items: the source's folder goes (a re-import of an emptied source). The
+                // lookup, the delete and the replay record are one transaction.
+                let mutation = WorkspaceMutation::new(key, REPLAY_ORIGIN, actor.clone())
+                    .map_err(|error| failure(operation, &error, None))?;
+                let (profile, source_key) = (&import.browser_profile_id, &import.source_key);
+                mux.bookmarks_mutation(|registry| {
+                    let outcome =
+                        registry.remove_bookmark_source(&mutation, profile, source_key)?;
+                    Ok(((), outcome.changed))
+                })
+                .map_err(|error| failure(operation, &error, None))?;
                 return Ok(json!({"root_ids": [], "count": 0, "added": 0, "duplicates": 0}));
             }
             let plan = import_plan::source(
@@ -193,6 +222,7 @@ pub(super) fn routed(
             if let Some(object) = result.as_object_mut() {
                 object.insert("added".into(), json!(plan.added));
                 object.insert("duplicates".into(), json!(plan.duplicates));
+                object.insert("skipped".into(), json!(plan.skipped));
             }
             Ok(result)
         }
@@ -202,6 +232,21 @@ pub(super) fn routed(
             json!({"code": "bookmarks.unknown_operation"}),
         )),
     }
+}
+
+/// The replay key of op `index` of a batch keyed `key`: `<key>.<index>`, or,
+/// when that would pass the ledger's identifier bound, the key's SHA-256
+/// (hex) in its place, so every valid envelope key works and a retry gets
+/// the same keys.
+fn op_key(key: &str, index: usize) -> String {
+    let plain = format!("{key}.{index}");
+    if plain.len() <= MAX_KEY_BYTES {
+        return plain;
+    }
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(key.as_bytes());
+    let hex = digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+    format!("sha256:{hex}.{index}")
 }
 
 fn parse<T: DeserializeOwned>(params: Value) -> Result<T, ResourceError> {

@@ -149,3 +149,25 @@ fn a_source_import_keeps_different_first_folders() {
         ["Bar", "Other"]
     );
 }
+
+/// A link the store would refuse is skipped, so one bad entry never refuses the whole file
+/// (review F3: `http://[bad` has a scheme but does not parse).
+#[test]
+fn a_link_the_store_would_refuse_is_skipped() {
+    let html =
+        "<DL><DT><A HREF=\"http://[bad\">Bad</A><DT><A HREF=\"https://ok.test/\">Good</A></DL>";
+    let document = netscape::read(html);
+    assert_eq!(titles(&document.other), ["Good"]);
+    let import =
+        import_plan::html("default", html, "Imported", "Bar").expect("the good link imports");
+    assert_eq!(titles(import.nodes[0].children.as_deref().unwrap_or_default()), ["Good"]);
+}
+
+/// A browser item with an unusable URL is counted as skipped; the rest import.
+#[test]
+fn a_source_item_the_store_would_refuse_is_skipped() {
+    let items = [item("Bad", "http://[bad", &["Bar"]), item("Good", "https://ok.test", &["Bar"])];
+    let plan = import_plan::source("default", "T", "k", &items);
+    assert_eq!((plan.added, plan.duplicates, plan.skipped), (1, 0, 1));
+    assert_eq!(titles(plan.import.nodes[0].children.as_deref().unwrap_or_default()), ["Good"]);
+}

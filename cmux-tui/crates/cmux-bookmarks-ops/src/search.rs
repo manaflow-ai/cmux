@@ -29,9 +29,14 @@ pub fn fold(text: &str) -> String {
         .collect()
 }
 
-/// The folded terms of `text`, split at white space.
+/// Most terms a query uses; the rest are ignored (each term is matched
+/// against every node).
+pub const MAX_TERMS: usize = 32;
+
+/// The folded terms of `text`, split at white space, at most
+/// [`MAX_TERMS`].
 pub fn tokens(text: &str) -> Vec<String> {
-    fold(text).split_whitespace().map(str::to_string).collect()
+    fold(text).split_whitespace().take(MAX_TERMS).map(str::to_string).collect()
 }
 
 /// Nodes whose title or URL holds every term of `text`, in tree order
@@ -64,8 +69,12 @@ pub struct Ranked {
 /// The score of URL bookmark `node` for `text`, or `None` when a term
 /// matches nothing (or `node` is a folder).
 pub fn score(node: &Bookmark, text: &str, now_ms: u64) -> Option<f64> {
+    score_terms(node, &tokens(text), now_ms)
+}
+
+/// [`score`] with `text` already split into [`tokens`].
+fn score_terms(node: &Bookmark, terms: &[String], now_ms: u64) -> Option<f64> {
     let url = node.url.as_deref()?;
-    let terms = tokens(text);
     if terms.is_empty() {
         return None;
     }
@@ -107,9 +116,11 @@ pub fn rank<'a>(
     now_ms: u64,
     limit: usize,
 ) -> Vec<Ranked> {
+    let terms = tokens(text);
     let mut best = HashMap::<String, Ranked>::new();
     for node in bookmarks {
-        let (Some(url), Some(score)) = (node.url.as_deref(), score(node, text, now_ms)) else {
+        let (Some(url), Some(score)) = (node.url.as_deref(), score_terms(node, &terms, now_ms))
+        else {
             continue;
         };
         let key = url_key(url);

@@ -223,3 +223,64 @@ fn a_mutation_needs_a_key_and_a_page_relay_without_a_page_gets_nothing() {
     assert_eq!(listing["bookmarks"], json!([]));
     mux.shutdown();
 }
+
+/// Review F1: removing an emptied source records its key even when no folder was there, so a
+/// retry after another import made the folder replays instead of deleting it.
+#[test]
+fn a_retried_source_removal_never_deletes_a_folder_made_since() {
+    let (mux, conn) = app();
+    let params = |items: Value| {
+        json!({"browser_profile_id": "default", "title": "Imported from Chrome",
+               "source_key": "chrome:Default", "items": items})
+    };
+    // Nothing to remove yet: the key is still recorded.
+    ok(send(&mux, &conn, "bookmarks.import_source", params(json!([])), Some("r1")));
+    let items = json!([{"title": "A", "url": "https://a.test", "folder_path": []}]);
+    ok(send(&mux, &conn, "bookmarks.import_source", params(items), Some("r2")));
+    // The first request's retry replays: the new folder stays.
+    ok(send(&mux, &conn, "bookmarks.import_source", params(json!([])), Some("r1")));
+    let listing =
+        ok(send(&mux, &conn, "bookmarks.list", json!({"browser_profile_id": "default"}), None));
+    assert_eq!(titles(&listing), ["Imported from Chrome", "A"]);
+    // A new removal takes it, and its retry is a replay too.
+    ok(send(&mux, &conn, "bookmarks.import_source", params(json!([])), Some("r3")));
+    ok(send(&mux, &conn, "bookmarks.import_source", params(json!([])), Some("r3")));
+    let listing =
+        ok(send(&mux, &conn, "bookmarks.list", json!({"browser_profile_id": "default"}), None));
+    assert_eq!(listing["bookmarks"], json!([]));
+    mux.shutdown();
+}
+
+/// Review F2: a batch keyed with the longest valid envelope key runs, and its retry replays.
+#[test]
+fn a_batch_with_a_maximum_length_key_runs_and_replays() {
+    let (mux, conn) = app();
+    let key = "k".repeat(128);
+    let applied =
+        ok(send(&mux, &conn, "bookmarks.apply", json!({"ops": create_ops()}), Some(&key)));
+    assert_eq!(applied["results"].as_array().unwrap().len(), 3);
+    let again = ok(send(&mux, &conn, "bookmarks.apply", json!({"ops": create_ops()}), Some(&key)));
+    assert!(again["results"].as_array().unwrap().iter().all(|result| result["replayed"] == true));
+    assert_eq!(super::op_key(&key, 0).len(), "sha256:".len() + 64 + 2);
+    assert_eq!(super::op_key("short", 3), "short.3");
+    mux.shutdown();
+}
+
+/// Review F4: a search or rank query is bounded in bytes and terms.
+#[test]
+fn an_oversized_query_is_refused() {
+    let (mux, conn) = app();
+    for operation in ["bookmarks.search", "bookmarks.rank"] {
+        for text in ["x".repeat(2048), "a ".repeat(40)] {
+            let reply = send(
+                &mux,
+                &conn,
+                operation,
+                json!({"browser_profile_id": "default", "text": text}),
+                None,
+            );
+            assert_eq!(reply["error"]["code"], "validation.invalid", "{operation}: {reply}");
+        }
+    }
+    mux.shutdown();
+}

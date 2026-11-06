@@ -97,3 +97,17 @@ fn url_rules() {
     assert_eq!(parse_typed("two words"), None);
     assert_eq!(parse_typed("plain"), None);
 }
+
+/// A query uses at most `MAX_TERMS` terms (review F4): a huge repeated query costs no more per
+/// node than a short one, and it still matches.
+#[test]
+fn a_query_uses_at_most_max_terms_terms() {
+    let long = "git ".repeat(10_000);
+    assert_eq!(
+        cmux_bookmarks_ops::search::tokens(&long).len(),
+        cmux_bookmarks_ops::search::MAX_TERMS
+    );
+    let github = node(1, "bar", "url", "GitHub", Some("https://github.com/"));
+    let ranked = rank([&github], &long, 0, 5);
+    assert_eq!(ranked.len(), 1);
+}

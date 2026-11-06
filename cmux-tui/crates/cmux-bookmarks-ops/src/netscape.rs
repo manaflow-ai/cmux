@@ -5,9 +5,7 @@
 //! Bar as the folder marked `PERSONAL_TOOLBAR_FOLDER="true"`, then Other
 //! Bookmarks' children at the top level, and [`read`] returns the same tree.
 
-use cmux_bookmarks_core::{
-    BOOKMARKS_BAR, BookmarkImportNode, OTHER_BOOKMARKS, Tree, has_url_scheme,
-};
+use cmux_bookmarks_core::{BOOKMARKS_BAR, BookmarkImportNode, OTHER_BOOKMARKS, Tree, validate_url};
 
 /// A parsed file: the toolbar folder's children (`None` when the file has
 /// none) and every other top-level node, in file order.
@@ -94,7 +92,9 @@ pub fn read(html: &str) -> Document {
                 let title = decode(&scanner.text_until("a"));
                 let Some(href) = tag.attribute("href").map(decode) else { continue };
                 let href = href.trim();
-                if !has_url_scheme(href) {
+                // A link the store would refuse (no scheme, unparsable, too long) is
+                // skipped, so one bad entry never refuses the whole file.
+                if validate_url(href).is_err() {
                     continue;
                 }
                 let created = date_ms(tag.attribute("add_date"));

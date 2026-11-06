@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 
 use crate::netscape::{self, Document, folder, link};
-use cmux_bookmarks_core::{BOOKMARKS_BAR, BookmarkImport, BookmarkImportNode};
+use cmux_bookmarks_core::{BOOKMARKS_BAR, BookmarkImport, BookmarkImportNode, validate_url};
 
 /// A flat imported bookmark, with its folder path from the source's root
 /// (the shape the app's browser import reads from every browser).
@@ -32,6 +32,9 @@ pub struct SourcePlan {
     /// Bookmarks left out: the same URL is already in the same folder
     /// (decision BOOKMARKS-IMPORT-EVERY-BROWSER I4); in another folder it stays.
     pub duplicates: usize,
+    /// Items left out because the store would refuse their URL (no
+    /// scheme, unparsable, too long): one bad item never refuses the rest.
+    pub skipped: usize,
 }
 
 /// The replace-or-create import of one browser source into `profile`: one
@@ -43,7 +46,12 @@ pub fn source(profile: &str, title: &str, source_key: &str, items: &[SourceItem]
     let strip = shared.is_some() && items.iter().all(|item| item.folder_path.first() == shared);
     let mut root = Builder::default();
     let mut added = 0;
+    let mut skipped = 0;
     for item in items {
+        if validate_url(&item.url).is_err() {
+            skipped += 1;
+            continue;
+        }
         let path =
             if strip { item.folder_path.get(1..).unwrap_or_default() } else { &item.folder_path };
         if root.add(link(&item.title, &item.url, item.created_ms), path) {
@@ -58,7 +66,7 @@ pub fn source(profile: &str, title: &str, source_key: &str, items: &[SourceItem]
         replace: true,
         nodes: vec![folder(title, None, root.nodes())],
     };
-    SourcePlan { import, added, duplicates: items.len() - added }
+    SourcePlan { import, added, duplicates: items.len() - added - skipped, skipped }
 }
 
 /// An HTML file into a new folder named `title` at the end of the bar (the
