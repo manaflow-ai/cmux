@@ -39,3 +39,35 @@ public struct RemoteHostConfigRequest: DaemonRequest {
         self.headless = headless
     }
 }
+
+/// `computer-use-config {config}`: the person's Computer Use policy (`PolicyConfig` JSON), from this
+/// verified app. On macOS the daemon hands it to cmux Remote's Computer Use worker.
+public struct ComputerUseConfigRequest: DaemonRequest {
+    public typealias Response = JSONValue
+    public static let command = "computer-use-config"
+    public static var requiredCapability: String? { DaemonCapability.computerUse.rawValue }
+    public var config: JSONValue
+
+    public init(config: JSONValue) {
+        self.config = config
+    }
+}
+
+/// `computer-use-approvals {action, app_id?}`: list, forget, always, never or revoke_sessions.
+public struct ComputerUseApprovalsRequest: DaemonRequest {
+    public typealias Response = JSONValue
+    public static let command = "computer-use-approvals"
+    public static var requiredCapability: String? { DaemonCapability.computerUse.rawValue }
+    public var action: String
+    public var appID: String?
+
+    enum CodingKeys: String, CodingKey {
+        case action
+        case appID = "app_id"
+    }
+
+    public init(action: String, appID: String? = nil) {
+        self.action = action
+        self.appID = appID
+    }
+}

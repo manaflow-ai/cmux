@@ -245,8 +245,7 @@ extension AppServices {
             let speed = snapshot.animationSpeed
             let animates = snapshot.motionCategories.enabled && !snapshot.motionCategories.disabled.contains(.cursor) && speed != .off
             return CmuxRemoteComputerUsePolicy(policy: snapshot.computerUse.policyConfigJSON(), cursorAnimates: animates,
-                                               cursorSpeed: speed.timeScale > 0 ? 1 / speed.timeScale : 1,
-                                               machine: MacScreenShareHost.computerName)
+                                               cursorSpeed: speed.timeScale > 0 ? 1 / speed.timeScale : 1)
         }
     }
 

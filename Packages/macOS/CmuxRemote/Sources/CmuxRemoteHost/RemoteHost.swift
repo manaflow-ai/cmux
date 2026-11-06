@@ -342,7 +342,8 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
             // The daemon's `computer-use-endpoint`: acpmux never reads files. A starting worker gets a few
             // seconds (this request's own task waits, never the main thread).
             let supervisor = host.computerUse
-            let endpoint = await Task.detached { WorkerReply(supervisor.endpoint(wait: 5)) }.value
+            let wait = min(Double((params["wait_ms"] as? Int) ?? 5000), 30000) / 1000
+            let endpoint = await Task.detached { WorkerReply(supervisor.endpoint(wait: wait)) }.value
             return RemoteWire.answer(id: id, result: endpoint.value)
         case "computer_use.config":
             // The verified app's policy (the daemon forwards only its requests).
@@ -350,7 +351,7 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
                   let data = try? JSONSerialization.data(withJSONObject: policy, options: [.sortedKeys]) else {
                 return RemoteWire.failure(id: id, code: "bad_request", message: "computer_use.config needs config (a PolicyConfig object)")
             }
-            host.computerUse.configure(policy: data, motion: params["motion"] as? [String: Any],
+            host.computerUse.configure(policy: data, motion: (params["motion"] ?? policy["cursorMotion"]) as? [String: Any],
                                        machine: params["machine"] as? String, computerUse: config.computerUse)
             statusChanged()
             return RemoteWire.answer(id: id, result: status())
@@ -364,6 +365,10 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
             var line: [String: Any] = ["type": "approvals", "action": action]
             if let app = params["app_id"] as? String { line["app_id"] = app }
             var reply = await host.computerUse.request(line)
+            // `list`: the saved approvals and the questions waiting (the panel asks on this Mac, so none wait here).
+            if action == "list", reply["ok"] as? Bool == true {
+                reply["result"] = ["saved": reply["result"] ?? [String: Any](), "pending": [Any]()]
+            }
             reply["id"] = id ?? NSNull()
             return RemoteWire.line(reply)
         case "drain":

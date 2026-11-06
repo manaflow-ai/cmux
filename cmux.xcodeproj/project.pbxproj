@@ -63,8 +63,6 @@
 		CE7A00000000000000000024 /* Exceptions for "Resources" folder in "cmux-next" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				ComputerUseHelper.icon,
-				ComputerUseHelperIcon.icns,
 				Info.plist,
 				InfoPlist.xcstrings,
 				bin,

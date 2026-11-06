@@ -100,6 +100,12 @@ public final class CmuxRemoteService {
         return try await connection.request(RemoteHostCallRequest(method: method, params: params), timeout: .seconds(25))
     }
 
+    /// One daemon request on this app's own (verified) connection.
+    func daemonRequest<Request: DaemonRequest>(_ request: Request) async throws -> Request.Response {
+        guard let connection else { throw CmuxRemoteError.unavailable }
+        return try await connection.request(request, timeout: .seconds(25))
+    }
+
     public func status() async throws -> CmuxNextDaemon.JSONValue {
         guard let connection else { throw CmuxRemoteError.unavailable }
         return try await connection.request(RemoteHostStatusRequest())

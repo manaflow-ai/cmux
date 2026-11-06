@@ -35,37 +35,37 @@ public final class CmuxRemoteComputerUseState {
 }
 
 /// The policy the app sends cmux Remote's Computer Use worker: the person's `computerUse.*`
-/// (`ComputerUseSettings.policyConfigJSON()`), the agent cursor's animation switches and this
-/// Mac's name.
+/// (`ComputerUseSettings.policyConfigJSON()`) and the agent cursor's animation switches.
 public struct CmuxRemoteComputerUsePolicy: Equatable, Sendable {
     public var policy: Data
     /// `ui.animations.enabled`, `ui.animations.cursor` and `ui.animationSpeed` not "off".
     public var cursorAnimates: Bool
     /// `ui.animationSpeed`'s pace (2: twice as fast).
     public var cursorSpeed: Double
-    public var machine: String
 
-    public init(policy: Data, cursorAnimates: Bool, cursorSpeed: Double, machine: String) {
+    public init(policy: Data, cursorAnimates: Bool, cursorSpeed: Double) {
         self.policy = policy
         self.cursorAnimates = cursorAnimates
         self.cursorSpeed = cursorSpeed
-        self.machine = machine
     }
 
-    /// `computer_use.config`'s params (the daemon forwards only the verified app's).
-    var params: CmuxNextDaemon.JSONValue? {
-        guard let object = try? JSONDecoder().decode(CmuxNextDaemon.JSONValue.self, from: policy), case .object = object else { return nil }
-        return .object(["config": object, "machine": .string(machine),
-                        "motion": .object(["enabled": .bool(cursorAnimates), "speed": .number(cursorSpeed)])])
+    /// The `computer-use-config` object: the PolicyConfig plus `cursorMotion` (the engine ignores
+    /// keys it does not know; cmux Remote's worker reads it for the cursor).
+    var config: CmuxNextDaemon.JSONValue? {
+        guard let object = try? JSONDecoder().decode(CmuxNextDaemon.JSONValue.self, from: policy),
+              case .object(var fields) = object else { return nil }
+        fields["cursorMotion"] = .object(["enabled": .bool(cursorAnimates), "speed": .number(cursorSpeed)])
+        return .object(fields)
     }
 }
 
 extension CmuxRemoteService {
     /// Sends the policy to cmux Remote (it starts, restarts or stops its Computer Use worker from it).
     public func applyComputerUse(_ policy: CmuxRemoteComputerUsePolicy) async {
-        guard let params = policy.params else { return }
+        guard let config = policy.config else { return }
         do {
-            let answer = try await call("computer_use.config", params)
+            // The daemon checks the policy and hands it to cmux Remote (the verified app's only).
+            let answer = try await daemonRequest(ComputerUseConfigRequest(config: config))
             computerUse.take(host: Self.object(answer))
         } catch {
             computerUseLogger.notice("cmux Remote Computer Use config refused: \(String(describing: error), privacy: .public)")
@@ -102,7 +102,7 @@ extension CmuxRemoteService {
 
     /// Ends every agent session of the Computer Use worker (`revoke_sessions`): their grants end.
     public func stopComputerUseSessions() async throws {
-        _ = try await call("computer_use.approvals", .object(["action": .string("revoke_sessions")]))
+        _ = try await daemonRequest(ComputerUseApprovalsRequest(action: "revoke_sessions"))
     }
 
     /// Asks macOS for `permission` ("accessibility" or "screen-recording") in cmux Remote, so the
