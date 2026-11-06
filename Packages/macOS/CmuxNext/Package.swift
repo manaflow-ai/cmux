@@ -1328,6 +1328,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CCmuxAppFFI",
                 "CmuxNextCompat",
                 "CmuxNextDaemon", "CmuxNextLayout", "CmuxNextRemote", "CmuxNextSidebar", "CmuxNextTabs", "CmuxNextIcons",
+                // NewWorkspaceDefaultSlot reads `workspaces.newPlacement` (NewWorkspacePlacement).
+                "CmuxNextSettings",
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
             ],
             swiftSettings: uiSwiftSettings
@@ -1637,7 +1639,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // (plans/cmux-next/tab-lifecycle.md). Pure values; no engine, no I/O.
         .target(
             name: "CmuxNextHibernation",
-            dependencies: ["CmuxNextBridge", "CmuxNextCompat", "CmuxNextSettings"],
+            dependencies: ["CmuxNextBridge", "CmuxNextBrowserCore", "CmuxNextCompat", "CmuxNextSettings", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // The browser's engine-neutral half: tab and engine values, intents, capability protocols, omnibox

@@ -126,8 +126,10 @@ test("a host notice is a muted notice row where acpmux logged it", async () => {
   }
 });
 
-// A notice that comes mid-reply sits between the text before it and the text after it.
-test("a host notice in the middle of a reply splits the reply around it", async () => {
+// A notice that comes mid-reply never cuts it: the reply streams on whole in its row, the notice
+// under it (Leo, 2026-11-05: "If your text is streaming, I shouldn't be able to interrupt it or,
+// like, break it in between").
+test("a host notice in the middle of a reply draws under the whole reply", async () => {
   const say = (text: string) => ({
     method: "session/update",
     params: { sessionId: "agent-1", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } } },
@@ -159,7 +161,7 @@ test("a host notice in the middle of a reply splits the reply around it", async 
     const order = (snapshot.rows as AcpmuxRow[])
       .filter((row) => row.kind === "assistant" || row.id.startsWith("host-notice-"))
       .map((row) => (row.kind === "assistant" ? row.text : `notice: ${row.text}`));
-    expect(order).toEqual(["Building now.", `notice: ${GREW}`, " Done."]);
+    expect(order).toEqual(["Building now. Done.", `notice: ${GREW}`]);
   } finally {
     client.close();
   }

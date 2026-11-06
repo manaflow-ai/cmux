@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { agentStepPlan, parseRecordedLaunch, probeOptionsFromArgv, rdActivateCommand, rdConnectCommand, rdOtherUserCommand, rdReadCommand, rdStaticCheckCommand, recorderScript, staticCheckCommand, toolListProblems } from "../scripts/cmux-vm-image/agent-tools-probe";
+import { agentStepPlan, parseRecordedLaunch, probeOptionsFromArgv, rdActivateCommand, rdConnectCommand, rdOtherUserCommand, rdReadCommand, rdStaticCheckCommand, recorderScript, requiredTools, staticCheckCommand, toolListProblems } from "../scripts/cmux-vm-image/agent-tools-probe";
 import { readFileSync as readSource } from "node:fs";
 import {
   A11Y_SCRIPT,
@@ -230,6 +230,13 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  test("probe: in code mode the cmux server must list cmux_exec; with --all-tools its browser tools; cmux-cua always its own", () => {
+    // Bake run 42112724172: the code-mode cmux server listed ["cmux_exec", "cmux_workflow"] and answered browser_repl_eval.
+    expect(requiredTools("cmux", ["mcp", "serve"])).toEqual(["cmux_exec"]);
+    expect(requiredTools("cmux", ["mcp", "serve", "--all-tools"])).toEqual(["browser_repl_eval", "browser_repl_open"]);
+    expect(requiredTools("cmux-cua", ["mcp"])).toEqual(["get_desktop_state", "click"]);
   });
 
   test("probe: acpmux's --mcp-config is a 0600 file it removes later: the recorder keeps its JSON, and code mode's upstreams count as servers", async () => {

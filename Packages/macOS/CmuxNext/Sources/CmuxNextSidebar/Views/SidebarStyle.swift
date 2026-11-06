@@ -99,7 +99,7 @@ enum SidebarStyle {
     /// A workspace row's status mark (the shared indicator, or the agent mark in its place): as
     /// tall as the unread badge beside it (Leo 2026-10-13); both read `Metrics.statusMarkSize`.
     static var statusGlyphSize: CGFloat { badgeHeight }
-    /// Every status mark that is not a dot or a spinner (the red warning, the orange needs-you marks) draws in this
+    /// Every status mark that is not a dot or a spinner (the red warning, the yellow needs-you marks) draws in this
     /// box, in every row kind: a workspace row's badge (`RowBadgeView`) and a group header's roll-up alike. Leo
     /// 2026-11-01: "a bigger red warn symbol", like ChatGPT; Leo 2026-11-03: "symbol size discrepancy groups vs
     /// workspaces" (a header drew its warning in the 10 pt indicator box while the rows under it drew 14 pt).
@@ -114,7 +114,7 @@ enum SidebarStyle {
     }
     /// A color swatch or machine dot (not a status): 6 pt at compact.
     static var dotSize: CGFloat { Metrics.space3 }
-    /// Every status dot's diameter: blue unread, orange needs attention and any other status dot, in every
+    /// Every status dot's diameter: blue unread, yellow needs attention and any other status dot, in every
     /// row kind (Home and band items, pinned, workspace and nested rows, group header roll-ups, icon and
     /// tile corners, Priority rows). 8 pt at compact, as Claude's and ChatGPT's unread dot (Leo 2026-10-31:
     /// "INCREASE THE SIZE OF THESE BLUE DOTS ON THE SIDEBAR"). Lawrence msg 19696 ("dots are different
