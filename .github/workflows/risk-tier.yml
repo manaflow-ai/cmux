@@ -42,9 +42,7 @@ jobs:
         with:
           ref: ${{ github.workflow_sha }}
           persist-credentials: false
-          sparse-checkout: |
-            scripts/ci/risk_tier.py
-            scripts/ci/receipt_grammar.py
+          sparse-checkout: scripts/ci/risk_tier.py
           sparse-checkout-cone-mode: false
       # The base's last 9 days of history, for the check that flags taking back a change another
       # pull request merged recently (a stale base). A fresh repository with full blobs, not the
