@@ -111,16 +111,29 @@ def checkout_root(files, module):
 
 
 def from_tree(files, tree, root):
-    """The build's file list with every file of the checkout read from TREE at the same path."""
+    """The build's file list with every file of the checkout read from TREE at the same path.
+
+    A file under the checkout that TREE lacks and ignores is a build product (Xcode's DerivedSources, when
+    DerivedData sits inside the checkout, as on a fleet step) and is read from the build; one it lacks and
+    does not ignore was deleted, which needs a rebuild."""
+    rels = {path: path[len(root) + 1:] for path in files if path.startswith(root + "/")}
+    missing = [rel for rel in rels.values() if not os.path.exists(os.path.join(tree, rel))]
+    ignored = set()
+    if missing:
+        # Only the repository's own rules: a person's global or system excludes could name a deleted source.
+        env = dict(os.environ, GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+        listed = subprocess.run(["git", "-C", tree, "-c", "core.excludesFile=" + os.devnull, "check-ignore", "--no-index",
+                                 "--stdin"], input="\n".join(missing), capture_output=True, text=True, env=env)
+        ignored = set(listed.stdout.splitlines())
     moved = []
     for path in files:
-        if path.startswith(root + "/"):
-            rel = path[len(root) + 1:]
-            if not os.path.exists(os.path.join(tree, rel)):
-                sys.exit(f"patch.py: {rel} is in the build but not in {tree} (a deleted file needs a rebuild)")
-            moved.append(os.path.join(tree, rel))
-        else:
+        rel = rels.get(path)
+        if rel is None or rel in ignored:
             moved.append(path)
+        elif not os.path.exists(os.path.join(tree, rel)):
+            sys.exit(f"patch.py: {rel} is in the build but not in {tree} (a deleted file needs a rebuild)")
+        else:
+            moved.append(os.path.join(tree, rel))
     return moved
 
 

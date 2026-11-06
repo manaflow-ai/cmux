@@ -265,6 +265,11 @@ pub struct Session {
     /// How many times its turn was stopped (`cancel.rs`): a prompt whose model-sized copies were
     /// made meanwhile is not written (`turns.rs`).
     pub(super) cancels: AtomicU64,
+    /// Woken by a Stop of its turn and a stop of the chat: a prompt whose agent start waits to be
+    /// tried again (`start_retry.rs`) ends that wait at once.
+    pub(super) start_retry_wake: Notify,
+    /// A prompt's agent start waits to be tried again (`start_retry.rs`): the row reads `starting`.
+    pub(super) start_retry_waits: AtomicBool,
     /// The turn id whose forced cancellation was already published. A second
     /// Stop for the same turn must not publish another forced answer.
     pub(super) cancel_forced_turn: StdMutex<Option<String>>,
@@ -898,5 +903,30 @@ impl SessionStderr {
             self.open.insert(source, stream);
         }
         clean
+    }
+}
+
+/// A held `spawn_lock` that a list sees: taking it and letting it go each count as a change
+/// (`list_guard::Events::changed`), so a cached session list never shows a start that began or
+/// ended since it was built. A row's `starting` reads the lease; an update waits on it.
+pub(super) struct SpawnLease<'a> {
+    guard: Option<tokio::sync::MutexGuard<'a, ()>>,
+    events: &'a super::list_guard::Events,
+}
+
+impl Drop for SpawnLease<'_> {
+    fn drop(&mut self) {
+        // Released first, then counted: a list built after the count reads it free.
+        drop(self.guard.take());
+        self.events.changed();
+    }
+}
+
+impl Hub {
+    /// `session.spawn_lock`, held as a [`SpawnLease`].
+    pub(super) async fn spawn_lease<'a>(&'a self, session: &'a Session) -> SpawnLease<'a> {
+        let guard = session.spawn_lock.lock().await;
+        self.events.changed();
+        SpawnLease { guard: Some(guard), events: &self.events }
     }
 }

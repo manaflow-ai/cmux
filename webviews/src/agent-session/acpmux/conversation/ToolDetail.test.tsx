@@ -8,7 +8,7 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
-import { inputFields, rawMembers } from "./toolInputFields";
+import { exactPretty, inputFields, rawMembers } from "./toolInputFields";
 import { ToolRow } from "./ToolRow";
 import { ToolRows } from "./TurnRows";
 import { resetTranscriptDisclosure } from "./transcriptDisclosure";
@@ -270,7 +270,7 @@ test("an argument holding a number a double would round reads as the agent spell
   expect(inputFields(exact)).toEqual([
     { key: "issue", text: "9007199254740993", look: "value" },
     { key: "team", text: "WEB", look: "prose" },
-    { key: "ids", text: "[1, 18446744073709551617]", look: "tree" },
+    { key: "ids", text: "[\n  1,\n  18446744073709551617\n]", look: "tree" },
   ]);
   expect(rawMembers('{"a": "x,}", "b": {"c": [1, 2]}}')).toEqual(
     new Map([
@@ -335,4 +335,57 @@ test("Find reads what a message or dispatch card draws, never its call's hidden 
   const text = activityText(dispatch);
   expect(text).toContain("Hydration fix");
   expect(text).not.toContain("zzz-hidden");
+});
+
+test("an exactly spelled argument still leaves out the context a host injected into it", () => {
+  const injected = JSON.stringify("<system-reminder>\nambient UI state\n</system-reminder>\nClose it");
+  const fields = inputFields(`{"issue": {"id": 9007199254740993, "note": ${injected}}}`);
+  expect(fields?.[0]?.text).toBe('{\n  "id": 9007199254740993,\n  "note": "Close it"\n}');
+  expect(exactPretty('{"a": [], "b": {}, "c": [true, null, -1.5e3]}')).toBe(
+    JSON.stringify({ a: [], b: {}, c: [true, null, -1.5e3] }, null, 2).replace("-1500", "-1.5e3"),
+  );
+});
+
+test("a list or single value with a 64-bit number keeps its digits in the request and Find", async () => {
+  const { activityText } = await import("./chatFind");
+  for (const inputSummary of ["[9007199254740993, 2]", "9007199254740993"]) {
+    const item: AcpmuxActivity = {
+      kind: "tool",
+      text: "mcp__linear__close_issues",
+      tool: {
+        id: inputSummary,
+        title: "mcp__linear__close_issues",
+        kind: "other",
+        status: "completed",
+        inputSummary,
+        output: "Closed.",
+      },
+    };
+    expect(activityText(item)).toContain("9007199254740993");
+    expect(activityText(item)).not.toContain("9007199254740992");
+  }
+});
+
+test("Find reads a message card's Markdown as its words, not its marks", async () => {
+  const { activityText } = await import("./chatFind");
+  const item: AcpmuxActivity = {
+    kind: "tool",
+    text: "tell",
+    tool: {
+      id: "t9",
+      title: "tell",
+      kind: "other",
+      status: "completed",
+      inputSummary: JSON.stringify({
+        id: "web-lane",
+        message: "Ship **WEB-412**, see [the PR](https://example.test/pr/1)",
+      }),
+      output: "Sent.",
+    },
+  };
+  const text = activityText(item);
+  expect(text).toContain("WEB-412");
+  expect(text).toContain("the PR");
+  expect(text).not.toContain("**");
+  expect(text).not.toContain("https://example.test/pr/1");
 });

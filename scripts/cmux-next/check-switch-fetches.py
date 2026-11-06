@@ -50,6 +50,8 @@ ALLOWED_LISTENERS = {
     "focus lane); reads no data",
     (f"{ACPMUX}/newtab/NewTabScreen.tsx", "focus"): "the field takes the keyboard back when the "
     "page is focused with nothing in it focused (#22456), as composerFocus.ts does; reads no data",
+    (f"{ACPMUX}/session-info/stepAside.ts", "visibilitychange"): "Session Info comes back when "
+    "the tab an Outputs row opened over the chat closes (the page shows again); reads no data",
     (f"{ACPMUX}/threadMinimap/scrollMotion.ts", "visibilitychange"): "cancels the wheel's own "
     "motion when the page hides; reads no data",
     (f"{ACPMUX}/threadMinimap/ThreadMinimap.tsx", "visibilitychange"): "clears the occluded "
