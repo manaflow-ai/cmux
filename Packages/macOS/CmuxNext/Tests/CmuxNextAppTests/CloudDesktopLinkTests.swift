@@ -9,8 +9,8 @@ import CmuxNextSettings
 import Foundation
 import Testing
 
-/// Open Desktop on a Cloud machine that reports a desktop: the `cmux-rd` stream over the owner's
-/// Native link (`link.dial`, service `desktop`, no token), opened watching, with Take over.
+/// Open Desktop on a Cloud machine that reports a desktop: the `cmux-rd` stream over the carrier
+/// (`cmux carrier dial --service desktop`, no token in the hello), opened watching, with Take over.
 @MainActor
 @Suite struct CloudDesktopLinkTests {
     private static let host = "host_0123456789abcdefghij"
@@ -34,16 +34,43 @@ import Testing
         }
     }
 
-    @Test func theDialIsServiceDesktopThroughTheLinkSocket() throws {
-        let dial = try #require(CloudDesktopLinkDial(host: Self.host, linkSocket: "/tmp/cmux-link-abc.sock"))
-        #expect(dial.arguments == ["link", "dial", "--host", Self.host, "--service", "desktop", "--socket", "/tmp/cmux-link-abc.sock"])
-        #expect(CloudDesktopLinkDial.service == "desktop")
-        #expect(CloudDesktopLinkDial(host: "vm-1", linkSocket: "/tmp/s") == nil, "a link host id, never a machine id")
-        #expect(CloudDesktopLinkDial(host: Self.host, linkSocket: "relative.sock") == nil)
-        #expect(CloudDesktopLinkDial(host: "host_../../etc/passwd0000", linkSocket: "/tmp/s") == nil)
-        let info = Data(#"{"machine":"vm-1","host":"host_0123456789abcdefghij","epoch":1,"state":"running"}"#.utf8)
-        #expect(CloudDesktopLinkDial(connectInfo: info, linkSocket: "/tmp/cmux-link-abc.sock") == dial)
-        #expect(CloudDesktopLinkDial(connectInfo: info, linkSocket: nil) == nil, "no running link, no dial")
+    @Test func theDialIsServiceDesktopOverTheCarrier() throws {
+        let dial = try #require(CloudDesktopLinkDial(machine: "vm_abc123"))
+        #expect(dial.arguments == ["carrier", "dial", "--machine", "vm_abc123", "--service", "desktop", "--deadline-ms", "9000"])
+        #expect(CloudDesktopLinkDial(machine: "") == nil)
+        #expect(CloudDesktopLinkDial(machine: "vm 1; rm -rf /") == nil)
+        let environment = CloudDesktopLinkDial.environment(platform: try #require(URL(string: "https://platform.example")), accessToken: "t-1")
+        #expect(environment == ["CMUX_CLOUD_API_URL": "https://platform.example", "CMUX_CLOUD_ACCESS_TOKEN": "t-1"])
+    }
+
+    /// The dial runs the bundled CLI's `carrier dial` with the credential in its environment: here a
+    /// stand-in that answers the dial line on stderr and echoes its argv and the two variables as the stream.
+    @Test func theDialRunsCarrierDialWithTheCredential() async throws {
+        let cli = try Self.standIn("printf '{\"ok\":true,\"path_state\":\"relay\",\"route\":\"carrier\"}\\n' >&2\nprintf '%s ' \"$@\" \"$CMUX_CLOUD_API_URL\" \"$CMUX_CLOUD_ACCESS_TOKEN\"\n")
+        defer { try? FileManager.default.removeItem(at: cli.deletingLastPathComponent()) }
+        let dial = try #require(CloudDesktopLinkDial(machine: "vm_abc123"))
+        let stream = try await dial.open(cli: cli, environment: ["CMUX_CLOUD_API_URL": "https://p", "CMUX_CLOUD_ACCESS_TOKEN": "t-1"])
+        var bytes = Data()
+        while let chunk = await stream.read() { bytes.append(chunk) }
+        stream.close()
+        #expect(String(decoding: bytes, as: UTF8.self) == "carrier dial --machine vm_abc123 --service desktop --deadline-ms 9000 https://p t-1 ")
+    }
+
+    /// Someone other than the owner: the machine refuses the desktop (`service_refused`, exit 6).
+    @Test func aRefusedDialThrows() async throws {
+        let cli = try Self.standIn("printf '{\"ok\":false,\"error_code\":\"service_refused\"}\\n' >&2\nexit 6\n")
+        defer { try? FileManager.default.removeItem(at: cli.deletingLastPathComponent()) }
+        let dial = try #require(CloudDesktopLinkDial(machine: "vm_abc123"))
+        await #expect(throws: DaemonError.self) { _ = try await dial.open(cli: cli, environment: [:]) }
+    }
+
+    private static func standIn(_ body: String) throws -> URL {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("cdl-\(UUID().uuidString.prefix(8))")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let cli = folder.appendingPathComponent("cmux-tui")
+        try ("#!/bin/sh\n" + body).write(to: cli, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: cli.path)
+        return cli
     }
 
     @Test func theHelloCarriesNoToken() throws {
@@ -70,35 +97,6 @@ import Testing
         #expect(start["t"] as? String == "start")
         #expect(start["mode"] as? String == (control ? "control" : "view"))
         transport.stop()
-    }
-
-    /// The dial runs the bundled CLI's `link dial`: here a stand-in that answers the dial line on
-    /// stderr and echoes its argv as the stream.
-    @Test func theDialRunsLinkDialWithServiceDesktop() async throws {
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("cdl-\(UUID().uuidString.prefix(8))")
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let cli = folder.appendingPathComponent("cmux-tui")
-        try "#!/bin/sh\nprintf '{\"ok\":true,\"path_state\":\"tunnel\",\"relay_available\":false}\\n' >&2\nprintf '%s ' \"$@\"\n"
-            .write(to: cli, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: cli.path)
-        let dial = try #require(CloudDesktopLinkDial(host: Self.host, linkSocket: "/tmp/cmux-link-abc.sock"))
-        let stream = try await dial.open(cli: cli)
-        var bytes = Data()
-        while let chunk = await stream.read() { bytes.append(chunk) }
-        stream.close()
-        #expect(String(decoding: bytes, as: UTF8.self) == "link dial --host \(Self.host) --service desktop --socket /tmp/cmux-link-abc.sock ")
-    }
-
-    @Test func aRefusedDialThrows() async throws {
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("cdl-\(UUID().uuidString.prefix(8))")
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let cli = folder.appendingPathComponent("cmux-tui")
-        try "#!/bin/sh\nprintf '{\"ok\":false,\"error_code\":\"not_authorized\"}\\n' >&2\n".write(to: cli, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: cli.path)
-        let dial = try #require(CloudDesktopLinkDial(host: Self.host, linkSocket: "/tmp/cmux-link-abc.sock"))
-        await #expect(throws: DaemonError.self) { _ = try await dial.open(cli: cli) }
     }
 
     @Test func openDesktopDefaultsAndGateFollowTheDesktopCapability() {

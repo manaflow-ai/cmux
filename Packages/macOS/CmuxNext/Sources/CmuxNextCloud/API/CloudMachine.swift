@@ -383,3 +383,19 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
 extension String {
     var nonEmpty: String? { isEmpty ? nil : self }
 }
+
+public extension CloudMachine {
+    /// Open Desktop's viewer when none is named: `rd` for a machine whose capabilities declare
+    /// `desktop` (its image carries the `cmux-rd` host on the agent display), `web` (noVNC) for
+    /// one that declares none (classic, which keeps its own desktop).
+    var defaultDesktopViewer: String { capabilities.desktop ? "rd" : "web" }
+
+    /// ``defaultDesktopViewer`` for the signed-in `user`. A cmux-next machine that serves its
+    /// desktop (``servesDesktop``) gives the `rd` stream to its creator alone (the link token's
+    /// mint refuses a teammate), so anyone else keeps the noVNC page, as before it served one.
+    func defaultDesktopViewer(for user: String?) -> String {
+        guard servesDesktop, declaredCapabilities?.desktop != true else { return defaultDesktopViewer }
+        guard let user, !user.isEmpty, createdBy == user else { return "web" }
+        return "rd"
+    }
+}

@@ -239,28 +239,6 @@ struct CloudMachineUpdateTargetTests {
         #expect(clock.now - began < .seconds(5))
     }
 
-    /// The start's wait on a just-resumed machine (prod 19:10Z, 2026-11-05: "no handshake within 5 s", then "no route
-    /// to this host", and the start failed at 59 s): a link that does not hold after the wait is dialed and waited on
-    /// once more when its last end is redialable; otherwise, and after the second wait, the answer stands.
-    @Test func aStartsLinkThatDoesNotHoldIsDialedAndWaitedOnOnceMore() async {
-        var waits = 0, agains = 0, holds = false
-        #expect(await CloudWait.linkedAgain({ waits += 1; return true }, held: { holds }, redialable: { true },
-                                            again: { agains += 1; holds = true }))
-        #expect((waits, agains) == (2, 1))
-
-        waits = 0; agains = 0; holds = false
-        #expect(!(await CloudWait.linkedAgain({ waits += 1; return true }, held: { holds }, redialable: { true }, again: { agains += 1 })))
-        #expect((waits, agains) == (2, 1), "a second wait that does not hold is the answer")
-
-        waits = 0; agains = 0
-        #expect(!(await CloudWait.linkedAgain({ waits += 1; return false }, held: { true }, redialable: { false }, again: { agains += 1 })))
-        #expect((waits, agains) == (1, 0), "an end no dial can help is not dialed again")
-
-        waits = 0; agains = 0
-        #expect(await CloudWait.linkedAgain({ waits += 1; return true }, held: { true }, redialable: { true }, again: { agains += 1 }))
-        #expect((waits, agains) == (1, 0), "a link that holds is not dialed again")
-    }
-
     @Test func theStartGateCountsEachStartOfAMachine() {
         let gate = CloudStartGate()
         gate.enter("vm-1")

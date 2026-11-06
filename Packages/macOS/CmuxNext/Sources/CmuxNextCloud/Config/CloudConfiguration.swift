@@ -197,7 +197,7 @@ public struct CloudConfiguration: Sendable, Equatable {
         runtimeSelection?.apiOrigin ?? apiBaseURL
     }
 
-    /// The selected backend's platform origin for relay-first chat. Runtime
+    /// The selected backend's platform origin (machine state pushes, the carrier dial). Runtime
     /// client configuration is authoritative; the API origin is the safe
     /// fallback for legacy fixtures without a runtime selection.
     public func relayAPIBaseURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
