@@ -261,6 +261,25 @@ pub(super) fn heavy(dir: &Path, name: &str) -> bool {
 mod tests {
     use super::{LISTED, Skips, Why, heavy, secret};
 
+    /// The credential folders a copy leaves out at any depth are exactly the
+    /// ones the App refuses as a selected folder
+    /// (`AgentPaneCloudFolderRefusal.secretFolders`), read from its source.
+    #[test]
+    fn credential_folders_are_the_apps_secret_folders() {
+        let swift = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "../../../Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneCloudFolder.swift",
+        );
+        let source = std::fs::read_to_string(&swift).unwrap();
+        let list = source
+            .split("public static let secretFolders = [")
+            .nth(1)
+            .and_then(|rest| rest.split(']').next())
+            .expect("secretFolders in AgentPaneCloudFolder.swift");
+        let apps: Vec<&str> = list.split('"').skip(1).step_by(2).collect();
+        assert!(!apps.is_empty());
+        assert_eq!(super::CREDENTIAL_FOLDERS, apps.as_slice());
+    }
+
     #[test]
     fn secrets_are_env_files_and_keys() {
         for name in [".env", ".env.local", "id_rsa", "id_ed25519.pub", "cert.PEM", "a.p12", "x.key"]

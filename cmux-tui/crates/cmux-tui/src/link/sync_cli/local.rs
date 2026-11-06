@@ -744,8 +744,9 @@ mod tests {
 
     /// A chat's copy of a plain folder never takes a credential folder's or
     /// file's contents at any depth (gh's `hosts.yml` OAuth tokens, Cargo's
-    /// `credentials.toml`, cloud and cluster logins, `.netrc`-style files);
-    /// the project's own files beside them go, `.cargo/config.toml` too.
+    /// `credentials.toml`, cloud and cluster logins, `.netrc`-style files),
+    /// by the same folder list the App refuses a selected folder by; the
+    /// project's own files beside them go.
     #[test]
     fn a_plain_copy_leaves_credential_folders_and_files_here() {
         let top = tempfile::tempdir().unwrap();
@@ -769,11 +770,17 @@ mod tests {
             ".git-credentials",
             ".gem/credentials",
             ".terraform.d/credentials.tfrc.json",
+            ".secrets/token",
+            "deep/.docker/daemon.json",
+            ".docker/buildx/instances/x",
+            "app/Library/Keychains/login.keychain-db",
+            "deep/.config/gcloud/application_default_credentials.json",
+            ".cargo/config.toml",
         ];
         for relative in secrets {
             write(&top, relative);
         }
-        let kept = ["src/main.rs", ".cargo/config.toml", ".config/app.toml", "gh/notes.md"];
+        let kept = ["src/main.rs", ".config/app.toml", "gh/notes.md", "Library/notes.md"];
         for relative in kept {
             write(&top, relative);
         }
