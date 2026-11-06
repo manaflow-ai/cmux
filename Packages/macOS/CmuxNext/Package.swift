@@ -1328,6 +1328,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CCmuxAppFFI",
                 "CmuxNextCompat",
                 "CmuxNextDaemon", "CmuxNextLayout", "CmuxNextRemote", "CmuxNextSidebar", "CmuxNextTabs", "CmuxNextIcons",
+                // NewWorkspaceDefaultSlot reads `workspaces.newPlacement` (NewWorkspacePlacement).
+                "CmuxNextSettings",
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
             ],
             swiftSettings: uiSwiftSettings
