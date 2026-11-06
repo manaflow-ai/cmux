@@ -42,8 +42,6 @@ extension SidebarViewComponents {
         var workspacesAsTabs: Bool
         /// Group by Status (`SidebarTunables.groupByStatus`, Debug, off by default).
         var groupsByStatus: Bool
-        /// The "Done (N)" fold (`SidebarTunables.doneFold`): turning it on or off lays the list out again.
-        var foldsDone: Bool
         /// The row limit (`SidebarTunables.groupRowLimit`): changing it lays the list out again.
         var rowLimit: Int
         /// Where group lines sit (`sidebar.groupLineLayout`): headers reach and lines move, so the list lays out again.
@@ -82,7 +80,6 @@ extension SidebarViewComponents {
             history = SidebarChatHistory.shared.state
             workspacesAsTabs = SidebarTunables.workspacesAsTabsOn
             groupsByStatus = SidebarTunables.groupByStatus.value
-            foldsDone = SidebarTunables.doneFold.value
             rowLimit = SidebarTunables.rowLimit
             groupLineLayout = SidebarGroupLineLayout.tunable.value
             groupChromeShape = SidebarStyle.groupChromeShape
@@ -122,7 +119,7 @@ extension SidebarViewComponents {
         let rowsChanged = lastState?.sectionsRevision != state.sectionsRevision || lastState?.filter != state.filter || chromeChanged || profileChanged
             || state.preferences.changesList(from: lastState?.preferences) || lastState?.tree != state.tree
             || lastState?.history != state.history
-            || lastState?.workspacesAsTabs != state.workspacesAsTabs || lastState?.foldsDone != state.foldsDone
+            || lastState?.workspacesAsTabs != state.workspacesAsTabs
             || lastState?.groupsByStatus != state.groupsByStatus
             || lastState?.rowLimit != state.rowLimit || lastState?.groupLineLayout != state.groupLineLayout
             || lastState?.groupChromeShape != state.groupChromeShape

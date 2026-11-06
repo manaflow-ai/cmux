@@ -115,6 +115,8 @@ public final class FrameScheduler: NSObject {
     private var closeObserver: MainActorObservation?
     /// The app's one window-occlusion observer (only ``app`` holds it; FrameScheduler+Sight).
     var sightObserver: MainActorObservation?
+    /// Who follows each window's occlusion reports through that observer (only ``app``'s; FrameScheduler+Sight).
+    var sightFollowers: [ObjectIdentifier: [ObjectIdentifier: SightFollower]] = [:]
     /// Frames delivered since creation (debug).
     public private(set) var frames: UInt64 = 0
     /// Display links made since creation (debug: a link that stays up through a backlog makes one per burst).

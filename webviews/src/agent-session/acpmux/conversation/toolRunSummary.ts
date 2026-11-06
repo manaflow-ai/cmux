@@ -2,6 +2,7 @@
 // "Edited a file, read 6 files, ran 4 commands", opened to list the calls.
 import type { Translate } from "../i18n";
 import { pathKey, toolCanonical, type AcpmuxActivity } from "../model";
+import { toolKind } from "../toolNames";
 import { editedPaths } from "../toolPaths";
 import { mcpCall } from "./mcpCalls";
 
@@ -29,10 +30,10 @@ export function toolRunCategory(kind?: string): ToolRunCategory {
   }
 }
 
-/// What one call did. An MCP call used a tool whatever kind its harness gives it (Codex says
-/// "execute" for every one).
+/// What one call did, by its canonical tool (toolNames.ts `toolKind`). An MCP call used a tool
+/// whatever kind its harness gives it (Codex says "execute" for every one).
 function callCategory(tool: NonNullable<AcpmuxActivity["tool"]>): ToolRunCategory {
-  return mcpCall(tool) ? "used" : toolRunCategory(tool.kind);
+  return mcpCall(tool) ? "used" : toolRunCategory(toolKind(tool));
 }
 
 /// A run the Codex-style runs (Debug toggle) settle folds under one summary line once it holds two
@@ -142,7 +143,7 @@ function editedFiles(tools: readonly AcpmuxActivity[]): number {
   const paths = new Set<string>();
   let unnamed = 0;
   for (const { tool } of tools) {
-    if (toolRunCategory(tool!.kind) !== "edited") continue;
+    if (toolRunCategory(toolKind(tool!)) !== "edited") continue;
     const named = tool!.diffs?.length
       ? [...tool!.diffs, ...(tool!.locations ?? [])].map(pathKey)
       : editedPaths(tool!).map((path) => toolCanonical(tool!, path) ?? path);

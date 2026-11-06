@@ -355,11 +355,13 @@ the kit branches' copies are older (REWRITE R-HARNESS, handoff/rewrites/R-HARNES
 `video-cases/judge_pixel.py` judges the pixel fixture films (the FRAME OWNER's kit, `cp/pixel-perfect-kit`
 `ext_pixel.py` `px_record_start`: terminals that run `pixel/tui_border.py` and pages that show `pixel/page.html`):
 each pane side's content edge on each scan line against the pane edge that cmux's own layer shows in the same film
-frame (the tab strip), on the film's own clock. Its JSON has the m6 rows (`m6`) and the cmux-ad m14 rows (`m14`);
-`video-cases/judge_m14.py BASE ...` gives the m14 verdict per film (exit 0 every film passes, 1 a film fails, 2 a film
-is not judged and none fails; a usage error also exits 2). Each rule in `video-cases/test_judge_pixel.py` came as a
-red-then-green pair with an independent review (the FRAME OWNER's; m14's by R-HARNESS); a change to a rule does the
-same. Its unit tests run with the goldens' TRUTH tier below (as every `video-cases/test_judge_*.py`); its film results
+frame (the tab strip), on the film's own clock, and from the film's trace each terminal's surface (held, stale) and a
+primary-screen terminal's text wrap. Its JSON has the m6 rows (`m6`) and the cmux-ad m14, m18 and m20 rows (`m14`,
+`m18`, `m20`); `video-cases/judge_m14.py BASE ...` gives the m20 verdict per film (`--contract m18` or `m14` for the
+older ones; m20 also judges the film's missed refreshes from its kept `debug.frames` read, and a film with none cannot
+pass) (exit 0 every film passes, 1 a film fails, 2 a film is not judged and none fails; a usage error also exits 2).
+Each rule in `video-cases/test_judge_pixel.py` came as a red-then-green pair with an independent review (the FRAME
+OWNER's and pixel-perfect's; m14's by R-HARNESS); a change to a rule does the same. Its unit tests run with the goldens' TRUTH tier below (as every `video-cases/test_judge_*.py`); its film results
 are not in the goldens yet. `video-cases/m14_known_films.py` holds the m14 known-film checks, which read films outside
 the store: run them yourself after an m14 change.
 

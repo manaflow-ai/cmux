@@ -42,6 +42,15 @@ usage() { awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0";
 die() { echo "side-instance: $*" >&2; exit 1; }
 
 root="${CMUX_SIDE_ROOT:-$HOME/Library/Application Support/cmux-side}"
+# Not under a folder macOS guards with a privacy prompt (Documents, Desktop, Downloads): the copy reads
+# its config from the root at launch, macOS holds that read until someone answers a Documents-folder
+# prompt (TCC kTCCServiceSystemPolicyDocumentsFolder) nobody sees for a copy, and the app hangs before
+# its socket exists. Checked on the path as given, before anything touches it.
+for guarded in Documents Desktop Downloads; do
+  case "$root/" in
+    "$HOME/$guarded/"*) die "CMUX_SIDE_ROOT $root is under ~/$guarded, which macOS guards with a privacy prompt: the copy's launch would wait on that prompt (TCC kTCCServiceSystemPolicyDocumentsFolder) and hang. Use a root outside ~/Documents, ~/Desktop and ~/Downloads (the default is ~/Library/Application Support/cmux-side)" ;;
+  esac
+done
 # The physical path (/tmp and /var are links to /private/...): a process started through
 # Launch Services reports its executable by its physical path, and the pid checks compare paths.
 mkdir -p "$root"; root="$(cd "$root" && pwd -P)"
@@ -222,25 +231,26 @@ PY
     open_args=(-n); [[ -z "$front" ]] && open_args+=(-g)
     open "${open_args[@]}" "$app" ${args[@]+--args "${args[@]}"}
     exe="$app/Contents/MacOS/$("$buddy" -c "Print :CFBundleExecutable" "$app/Contents/Info.plist")"
-    pid=""
+    launched=""
     # The newest process whose executable is exactly the copy's (a plain comparison: the path holds
-    # spaces and #). Up to 30 s: a first launch waits on the system's scan of the new bundle.
+    # spaces and #). Up to 30 s: a first launch waits on the system's scan of the new bundle. It is
+    # only recorded here; stop signals the pid recorded in $dir/pid, never a fresh lookup.
     for _ in $(seq 1 300); do
-      pid="$(ps -axo pid=,comm= | awk -v e="$exe" '{ p = $1; sub(/^ *[0-9]+ /, ""); if ($0 == e) last = p } END { if (last) print last }')"
-      [[ -n "$pid" ]] && break
+      launched="$(ps -axo pid=,comm= | awk -v e="$exe" '{ p = $1; sub(/^ *[0-9]+ /, ""); if ($0 == e) last = p } END { if (last) print last }')"
+      [[ -n "$launched" ]] && break
       /bin/sleep 0.1
     done
-    [[ -n "$pid" ]] || die "$name did not start"
-    echo "$pid" >"$dir/pid"
-    echo "$name: pid $pid"
+    [[ -n "$launched" ]] || die "$name did not start"
+    echo "$launched" >"$dir/pid"
+    echo "$name: pid $launched"
     ;;
   stop)
     [[ -f "$marker" ]] || { echo "$name is not running"; exit 0; }
     if running; then
-      pid="$(pid_of)"
-      kill -TERM "$pid" 2>/dev/null || true
-      for _ in $(seq 1 150); do kill -0 "$pid" 2>/dev/null || break; /bin/sleep 0.2; done
-      kill -0 "$pid" 2>/dev/null && die "$name (pid $pid) is still running after 30 s"
+      recorded="$(pid_of)"
+      kill -TERM "$recorded" 2>/dev/null || true
+      for _ in $(seq 1 150); do kill -0 "$recorded" 2>/dev/null || break; /bin/sleep 0.2; done
+      kill -0 "$recorded" 2>/dev/null && die "$name (pid $recorded) is still running after 30 s"
     fi
     rm -f "$dir/pid"
     # The daemon and helpers the copy started run from its bundle and outlive it.

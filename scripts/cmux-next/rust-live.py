@@ -22,9 +22,17 @@ The loop (`start`; `cmux live start --rust` runs it):
 4. Swap the running daemon for the new build the way
    scripts/cmux-next/daemon-swap-check.py measures it (1-1.3 s): the old
    owner stops and leaves its terminal hosts running, the new one adopts
-   them. `server restart` does both when the build has it (cmux#36313);
-   otherwise `server stop` then `server ensure`. acpmux: `daemon restart`,
-   which hands the agent hosts over the same way.
+   them. A daemon a cmux app runs (its executable is the app's
+   Contents/Resources/bin/cmux) swaps the way the app hands off its own daemon:
+   the new build is renamed over that file (the cmux-tui link to it stays), the
+   owner gets SIGTERM, and the app's reconnect runs its own `server ensure`
+   from the file, with its own install key, so the app's launch identity is
+   kept. Measured on a side copy of a DEV app (cmux#36389): 1.38 s to the PR's
+   daemon, 1.34 s back, 1.16 s forward again; same app pid and shells. `stop`
+   puts the app's own file back and hands the daemon back to it. Any other
+   daemon: `server restart` when the build has it (cmux#36313); otherwise
+   `server stop` then `server ensure`. acpmux: `daemon restart`, which hands
+   the agent hosts over the same way.
 
 Every swap goes to the state folder's last.json and history.jsonl, which
 `status` (and `cmux live status`) prints: when, from which save, and how long
@@ -41,6 +49,7 @@ swapped and every terminal survived.
 from __future__ import annotations
 
 import argparse
+import fcntl
 import hashlib
 import json
 import os
@@ -65,6 +74,10 @@ POLL_SECS = 0.05
 SETTLE_SECS = 0.08
 KEEP_BUILDS = 3
 START_TIMEOUT_SECS = 300  # the first sync of a whole tree to a build host
+# A cmux app runs its daemon from here; the app's reconnect re-runs `server ensure` from this file.
+APP_BIN = "/Contents/Resources/bin/"
+# How long a new owner may take after the SIGTERM: the app's reconnect backs off up to 30 s.
+APP_OWNER_SECS = 35
 # package -> (binary cargo builds, the name the app bundles it under)
 DAEMONS = {"cmux-tui": ("cmux-tui", "cmux-tui"), "acpmux": ("acpmux", "cmux-tui-acpmux")}
 # The measurement's one-line edit: a field in the daemon's `identify` answer,
@@ -254,6 +267,26 @@ class Builder:
         self.incoming = state / "incoming"
         self.incoming.mkdir(parents=True, exist_ok=True)
         self.synced = False
+        self.current: subprocess.Popen | None = None  # the build running now, if any
+
+    def cancel(self) -> None:
+        """End the running build (its own process group: cargo or the ssh that runs it)."""
+        proc = self.current
+        if proc and proc.poll() is None:
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+            except (ProcessLookupError, PermissionError):
+                pass
+
+    def run_build(self, argv: list[str], **kwargs) -> subprocess.CompletedProcess:
+        proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                start_new_session=True, **kwargs)
+        self.current = proc
+        try:
+            out, err = proc.communicate()
+        finally:
+            self.current = None
+        return subprocess.CompletedProcess(argv, proc.returncode, out, err)
 
     def sync(self, changed: list[str], removed: list[str]) -> None:
         """Bring the build host's tree up to the checkout (nothing to do here)."""
@@ -297,12 +330,12 @@ class Builder:
             script = (f"cd {self.remote}/cmux-tui && export CARGO_TARGET_DIR=$HOME/{self.remote}/target; "
                       "[ -z \"$RUSTC_WRAPPER\" ] && command -v sccache >/dev/null && export RUSTC_WRAPPER=sccache; "
                       f"exec {cargo}")
-            result = run(["ssh", *ssh_options(self.state), self.host, f"bash -lc {shlex.quote(script)}"])
+            result = self.run_build(["ssh", *ssh_options(self.state), self.host, f"bash -lc {shlex.quote(script)}"])
         else:
             env = dict(os.environ)
             if not env.get("RUSTC_WRAPPER") and shutil.which("sccache"):
                 env["RUSTC_WRAPPER"] = "sccache"
-            result = run(cargo_args(daemons, self.target), cwd=self.tree / "cmux-tui", env=env)
+            result = self.run_build(cargo_args(daemons, self.target), cwd=self.tree / "cmux-tui", env=env)
         output = (result.stderr or "") + (result.stdout or "")
         return result.returncode == 0, output
 
@@ -351,11 +384,30 @@ class Builder:
 class Swapper:
     """Swaps a session's running daemons for new builds, keeping their work."""
 
-    def __init__(self, session: str | None, sock: str | None, env: dict | None = None):
+    def __init__(self, session: str | None, sock: str | None, env: dict | None = None, state: Path | None = None):
         self.selector = (["--socket", sock] if sock else []) + (["--session", session] if session else [])
         self.sock = sock
         self.env = env
         self.previous: Path | None = None  # the last cmux-tui this loop swapped in
+        # An app's daemon file and the copy of what it held before the first swap. Kept in the state
+        # folder, one marker per session/socket, so a watcher that died never takes a swapped file for
+        # the app's, and a watcher on another session never restores this one's.
+        self.state = state
+        self.app_original: tuple[Path, Path] | None = None
+        marker = self.marker()
+        if marker and marker.is_file():
+            try:
+                saved = json.loads(marker.read_text())
+                if saved.get("selector") == self.selector:
+                    self.app_original = (Path(saved["file"]), Path(saved["copy"]))
+            except (OSError, ValueError, KeyError):
+                pass
+
+    def marker(self) -> Path | None:
+        if not self.state:
+            return None
+        key = hashlib.sha256(json.dumps(self.selector).encode()).hexdigest()[:12]
+        return self.state / f"app-original-{key}.json"
 
     def cli(self, binary: Path, *words: str, timeout: float = 60) -> subprocess.CompletedProcess:
         return run([str(binary), *self.selector, *words], env=self.env, timeout=timeout)
@@ -363,7 +415,16 @@ class Swapper:
     def running_binary(self, cli: Path) -> Path | None:
         """The executable of the daemon running before the first swap, so a failed swap can
         put it back (`server status` names its pid)."""
-        status = self.cli(cli, "server", "status")
+        owner = self.owner(cli)
+        return owner[1] if owner else None
+
+    def owner(self, cli: Path, timeout: float = 60) -> tuple[int, Path] | None:
+        """The running owner's pid and executable, from `server status`; None when none answers in
+        `timeout` seconds."""
+        try:
+            status = self.cli(cli, "server", "status", timeout=max(timeout, 0.1))
+        except subprocess.TimeoutExpired:
+            return None
         match = re.search(r'"pid"\s*:\s*(\d+)', status.stdout) or re.search(r"pid\D{0,3}(\d+)", status.stdout)
         if not match:
             return None
@@ -375,15 +436,105 @@ class Swapper:
             out = run(["lsof", "-a", "-p", pid, "-d", "txt", "-Fn"])
             names = [line[1:] for line in out.stdout.splitlines() if line.startswith("n/")]
             exe = Path(names[0]) if names else Path("")
-        return exe if exe.is_absolute() and exe.is_file() else None
+        return (int(pid), exe) if exe.is_absolute() and exe.is_file() else None
+
+    @staticmethod
+    def app_file(exe: Path) -> Path | None:
+        """The file a cmux app runs its daemon from, when `exe` is in an app's bin folder (the real
+        file: `cmux-tui` there is a link to `cmux`, and both must stay one build)."""
+        return exe.resolve() if APP_BIN in str(exe) else None
+
+    def app_handoff(self, new: Path, pid: int, target: Path) -> None:
+        """Swaps an app's daemon the way the app hands off its own: `new` renamed over `target`, then
+        SIGTERM to the owner (`pid`), whose terminal hosts stay for the next owner; the app's
+        reconnect runs `server ensure` from `target`, with its own install key. A new owner that
+        does not answer in APP_OWNER_SECS puts the file that was there back."""
+        if self.app_original is None or self.app_original[0] != target:
+            marker = self.marker()
+            keep = (marker.with_suffix("") if marker else Path(tempfile.mkdtemp(prefix="rust-live-app-"))) / target.name
+            keep.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(target, keep)
+            self.app_original = (target, keep)
+            if marker:
+                marker.write_text(json.dumps({"selector": self.selector, "file": str(target), "copy": str(keep)}) + "\n")
+        before = target.with_name(f".{target.name}.rust-live-before")
+        staged = target.with_name(f".{target.name}.rust-live")
+        shutil.copy2(target, before)
+        shutil.copy2(new, staged)
+        staged.chmod(0o755)
+        os.replace(staged, target)  # the running owner keeps the file it mapped
+        self.terminate_owner(new, pid)
+        if self.wait_for_new_owner(new, pid) is None:
+            os.replace(before, target)  # the app's next ensure runs the build that ran before
+            late = self.owner(target, timeout=10)
+            if late and late[0] != pid:
+                # An owner that came up after the last poll runs the new build, and while it answers the
+                # app's ensure starts nothing: hand off once more, to the file that is back.
+                self.handoff_to_file(late[0], target)
+            raise RuntimeError(f"no new daemon answered {APP_OWNER_SECS} s after the handoff; {target} is back as it was")
+        before.unlink(missing_ok=True)
+
+    def handoff_to_file(self, pid: int, target: Path) -> None:
+        """SIGTERM to the owner `pid`; the app's reconnect starts the next one from `target`."""
+        self.terminate_owner(target, pid)
+        self.wait_for_new_owner(target, pid)
+
+    def terminate_owner(self, cli: Path, pid: int) -> None:
+        """SIGTERM to `pid` only while it is still the session's owner: the copies before this can take
+        seconds, and a pid that exited in that time can belong to another process (or the app's next
+        owner) by now."""
+        current = self.owner(cli, timeout=10)
+        if not current or current[0] != pid:
+            return
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+
+    def wait_for_new_owner(self, cli: Path, old: int) -> int | None:
+        deadline = time.monotonic() + APP_OWNER_SECS
+        while time.monotonic() < deadline:
+            owner = self.owner(cli, timeout=deadline - time.monotonic())
+            if owner and owner[0] != old:
+                return owner[0]
+            time.sleep(0.05)
+        return None
+
+    def restore_app(self) -> str | None:
+        """Puts the app's own daemon file back and hands the daemon back to it (`stop`)."""
+        if self.app_original is None:
+            return None
+        target, keep = self.app_original
+        if not keep.is_file():
+            return None
+        owner = self.owner(target)
+        staged = target.with_name(f".{target.name}.rust-live")
+        shutil.copy2(keep, staged)
+        os.replace(staged, target)
+        # Only this app's owner hands off: one running from somewhere else is not the swapped build.
+        if owner and self.app_file(owner[1]) == target:
+            self.handoff_to_file(owner[0], target)
+        marker = self.marker()
+        if marker:
+            marker.unlink(missing_ok=True)
+        self.app_original = None
+        return str(target)
 
     def swap(self, built: dict[str, Path]) -> dict:
         steps: dict = {}
         if "cmux-tui" in built:
             new = built["cmux-tui"]
             t0 = time.monotonic()
+            owner = self.owner(new)
+            target = self.app_file(owner[1]) if owner else None
             if self.previous is None:
-                self.previous = self.running_binary(new)
+                self.previous = owner[1] if owner else None
+            if owner and target:
+                self.app_handoff(new, owner[0], target)
+                steps["cmux-tui"] = "app handoff"
+                steps["cmux-tui_secs"] = round(time.monotonic() - t0, 3)
+                self.previous = new
+                return self.swap_acpmux(built, steps)
             restart = self.cli(new, "server", "restart")
             if restart.returncode == 0:
                 steps["cmux-tui"] = "server restart"
@@ -401,6 +552,9 @@ class Swapper:
                 steps["cmux-tui"] = "server stop + ensure"
             steps["cmux-tui_secs"] = round(time.monotonic() - t0, 3)
             self.previous = new
+        return self.swap_acpmux(built, steps)
+
+    def swap_acpmux(self, built: dict[str, Path], steps: dict) -> dict:
         if "acpmux" in built:
             t0 = time.monotonic()
             result = run([str(built["acpmux"]), "daemon", "restart"], env=self.env, timeout=60)
@@ -555,6 +709,15 @@ def command_start(args) -> int:
     tree = checkout(args.worktree)
     state = state_dir()
     state.mkdir(parents=True, exist_ok=True)
+    if args.foreground:
+        return run_watcher(args, tree, state)
+    # One `start` at a time: the check, the spawn and the wait for the watcher are one step.
+    with open(state / "start.lock", "w") as start_lock:
+        fcntl.flock(start_lock, fcntl.LOCK_EX)
+        return spawn_watcher(args, tree, state)
+
+
+def spawn_watcher(args, tree: Path, state: Path) -> int:
     if (pid := running_pid(state)) and not args.foreground:
         watched = pid_file(state).read_text().split(maxsplit=1)[1].strip()
         print(f"rust-live: already watching {watched} (pid {pid}); `cmux live stop --rust` stops it")
@@ -570,7 +733,6 @@ def command_start(args) -> int:
             log_start = out.tell()
             proc = subprocess.Popen(argv, stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                                     start_new_session=True)
-        pid_file(state).write_text(f"{proc.pid} {tree}\n")
         # Say "watching" only once it is: the crate graph read and the first sync to a build host done.
         deadline = time.monotonic() + START_TIMEOUT_SECS
         while proc.poll() is None and time.monotonic() < deadline:
@@ -578,7 +740,6 @@ def command_start(args) -> int:
                 break
             time.sleep(0.1)
         if proc.poll() is not None:
-            pid_file(state).unlink(missing_ok=True)
             with open(state / "watch.log", "rb") as log_file:
                 log_file.seek(log_start)
                 tail = log_file.read().decode(errors="replace").strip().splitlines()[-10:]
@@ -592,9 +753,21 @@ def command_start(args) -> int:
         print(f"rust-live: watching {tree}/cmux-tui; a saved .rs swaps the running daemon "
               f"(builds on {where}; log {state / 'watch.log'}). `cmux live status` shows the last swap.")
         return 0
+    return run_watcher(args, tree, state)
+
+
+def run_watcher(args, tree: Path, state: Path) -> int:
+    # The watcher holds watch.lock while it lives, so a second one (a racing `start`, or a
+    # `--foreground` run by hand) exits instead of building and swapping on the same saves.
+    lock = open(state / "watch.lock", "w")  # noqa: SIM115 - held until the process ends
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        print("rust-live: another watcher already runs for this state folder; `cmux live stop --rust` stops it")
+        return 1
     pid_file(state).write_text(f"{os.getpid()} {tree}\n")
     builder = Builder(tree, state, args.build_host, args.target)
-    loop = Loop(tree, state, builder, Swapper(args.session, args.socket))
+    loop = Loop(tree, state, builder, Swapper(args.session, args.socket, state=state))
     signal.signal(signal.SIGTERM, lambda *_: loop.stop_event.set())
     try:
         loop.run()
@@ -607,6 +780,11 @@ def command_start(args) -> int:
     except RuntimeError as error:
         print(f"rust-live: {error}")
         return 1
+    finally:
+        # An app's daemon file goes back to the app's own build, and so does its daemon (hosts kept).
+        restored = loop.swapper.restore_app()
+        if restored:
+            print(f"rust-live: {restored} is the app's own build again, and its daemon too")
     return 0
 
 
@@ -626,7 +804,8 @@ def command_stop(_args) -> int:
         print(f"rust-live: pid {pid} is finishing its build and then ends; it will swap nothing more")
         return 0
     pid_file(state).unlink(missing_ok=True)
-    print(f"rust-live: stopped watching (pid {pid}); the daemon keeps the last build it swapped in")
+    print(f"rust-live: stopped watching (pid {pid}); the daemon keeps the last build it swapped in, "
+          "except an app's daemon, which is the app's own build again")
     return 0
 
 
@@ -747,6 +926,7 @@ def command_measure(args) -> int:
     signal.signal(signal.SIGTERM, interrupted)
     started_hosts: dict[str, int] = {}
     first = None
+    watcher: threading.Thread | None = None
     try:
         # Warm build (the first build of a fresh checkout is a full one), then the old daemon.
         t = time.time()
@@ -775,7 +955,7 @@ def command_measure(args) -> int:
             t_["shell_pid"] = shell_pid(screen, "PID0")
         started_hosts.update(host_pids(work))
 
-        watcher = threading.Thread(target=loop.run, daemon=True)
+        watcher = threading.Thread(target=loop.run, daemon=True, name="rust-live-watcher")
         watcher.start()
         loop.watching.wait(timeout=60)  # the loop's first scan, before the first edit
         for run_index in range(args.runs):
@@ -835,6 +1015,9 @@ def command_measure(args) -> int:
         report["error"] = str(error)
     finally:
         loop.stop_event.set()
+        loop.builder.cancel()
+        if watcher is not None:
+            watcher.join(timeout=60)  # never restore the file or remove state under a live watcher
         edit_path.write_text(original)
         try:
             ident = request(sock, {"cmd": "identify"})

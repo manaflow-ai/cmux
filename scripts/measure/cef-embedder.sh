@@ -79,7 +79,7 @@ fi
 survivors="$(pgrep -f "$WORK/" | grep -vx "$$" || true)"
 if [[ -n "$survivors" ]]; then
   # The kernel's exit events decide, not kill(pid, 0): an exited process stays a zombie until launchd reaps
-  # it, and kill(0) succeeds on a zombie. If python itself fails, the pgrep list stands.
+  # it, and kill(0) succeeds on a zombie. If python itself fails, the first list stands.
   # shellcheck disable=SC2086
   survivors="$(/usr/bin/env python3 -I - "${CMUX_EMBEDDER_SURVIVOR_WAIT_S:-10}" $survivors <<'PY' || echo "$survivors"
 import errno, os, select, sys, time

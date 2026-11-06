@@ -405,7 +405,7 @@ class SidebarItemRowView: NSView {
 
     /// The shared sidebar columns in this row's coordinates. A band row's bounds include the outer inset on
     /// both sides (its pill runs from `horizontalInset` to `width - horizontalInset`), so the columns are the list
-    /// rows' measured from the pill: lead `horizontalInset` inside it, the trailing line 22.5 before its end.
+    /// rows' measured from the pill: lead `horizontalInset` inside it, the trailing line `trailingCenterInset` before its end.
     /// `after` moves lead and text right (a pinned row's icon and title, one icon column after the pin).
     func bandColumns(in b: NSRect, after: CGFloat = 0) -> SidebarColumns {
         let inset = SidebarStyle.horizontalInset

@@ -64,7 +64,8 @@ struct ImportSuggestionsCenterClassicTests {
         let center = ImportSuggestionsCenter(defaults: defaults, ledgerURL: ledger, now: { Self.now })
         center.scanThisMac = { _ in [Self.classic] }
         center.host = ImportCardsHost(runImport: { _, _, _ in throw CancellationError() }, importedProfiles: { [] },
-                                      openSettings: { _ in }, importClassic: { progress in try await runs.run(progress) })
+                                      openSettings: { _ in }, importClassic: { progress in try await runs.run(progress) },
+                                      importConductor: { _ in nil })
         await withCheckedContinuation { done in center.scan { done.resume() } }
         return center
     }

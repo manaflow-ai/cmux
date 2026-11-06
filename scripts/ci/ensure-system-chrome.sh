@@ -122,14 +122,14 @@ ensure_chrome() {
     echo "system Chrome ${have:-missing}; installing Chrome stable (need $min or later)"
     # CI=1: reinstall over an older system Chrome instead of stopping at Playwright's prompt.
     # The install runs apt-get update, which fails on a hash mismatch when Google republishes its
-    # apt repository mid-fetch (job 127181004735: "Some index files failed to download"); one
+    # apt repository mid-fetch (job 127181004735: "Hashes of received file ... do not match"); one
     # more try a little later reads the new index.
     local log attempt
     log="$(mktemp)"
     for attempt in 1 2; do
       # shellcheck disable=SC2046
       if CI=1 $(playwright_cli) install --with-deps chrome 2>&1 | tee "$log"; then break; fi
-      if [ "$attempt" = 1 ] && grep -qE 'Hash Sum mismatch|Hashes of received file|index files failed to download' "$log"; then
+      if [ "$attempt" = 1 ] && grep -qE 'Hash Sum mismatch|Hashes of received file' "$log"; then
         echo "warning: apt index changed during the fetch; trying once more in 15 s" >&2
         sleep 15
         continue
