@@ -512,7 +512,10 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
                 className="cv-iconbtn cv-iconbtn--compact cv-turn-try-another"
                 aria-label={t("turn.tryAnotherApproach")}
                 title={t("turn.tryAnotherApproach")}
-                onClick={() => void tryAnotherApproach(seq)}
+                onClick={() =>
+                  // A refused click or a Cloud error must not become an unhandled rejection.
+                  void tryAnotherApproach(seq).catch(() => undefined)
+                }
               >
                 {t("turn.tryAnotherApproach")}
               </button>

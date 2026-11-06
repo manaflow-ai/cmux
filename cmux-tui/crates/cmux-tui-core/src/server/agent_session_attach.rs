@@ -1364,8 +1364,10 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
                 "sessionId": session,
                 "throughSeq": through_seq,
             });
-            if let Some(name) = name.filter(|name| !name.trim().is_empty()) {
-                params["name"] = Value::String(name);
+            if let (Some(name), Some(fields)) =
+                (name.filter(|name| !name.trim().is_empty()), params.as_object_mut())
+            {
+                fields.insert("name".to_owned(), Value::String(name));
             }
             let forked = attachment
                 .link

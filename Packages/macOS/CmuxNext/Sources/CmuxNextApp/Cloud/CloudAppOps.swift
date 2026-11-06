@@ -38,8 +38,7 @@ private func cloudTryAnotherApproachFailure(_ message: String) -> NSError {
 
 /// App adapters for the latest-turn Cloud fork. The sequence itself lives in CmuxNextCloud.
 @MainActor
-func cloudTryAnotherApproach(chat key: String, session expected: String, throughSeq: Int,
-                             services: AppServices) async throws -> [String: Any] {
+func cloudTryAnotherApproach(chat key: String, session expected: String, throughSeq: Int, services: AppServices) async throws -> [String: Any] {
     let opener = CloudTryAnotherApproachChildOpener()
     let fork = CloudTryAnotherApproach(
         prepare: { chat, seq in
@@ -61,10 +60,9 @@ func cloudTryAnotherApproach(chat key: String, session expected: String, through
                          parentLabel: "Try another approach · \(workspace.displayName)")
         },
         forkMachine: { plan in
-            let auth = services.cloud.auth, identity = services.cloud.installIdentity
             let owner = CloudOwnerAPIClient(
-                baseURL: FeedService.apiBaseURL(auth: auth), accessToken: { try await auth.tokens().access },
-                teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) })
+                baseURL: FeedService.apiBaseURL(auth: services.cloud.auth), accessToken: { try await services.cloud.auth.tokens().access },
+                teamID: { [identity = services.cloud.installIdentity] in (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) })
             let children = try await owner.forkRun(workspace: plan.workspace, clientKey: plan.clientKey,
                                                    sourceMachine: plan.sourceMachine, session: plan.session,
                                                    harnesses: [plan.harness])
