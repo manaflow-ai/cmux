@@ -153,7 +153,9 @@ def app_commit(app: Path, repo: Path = ROOT) -> str:
         full = resolve()
         if not SHA.fullmatch(full):
             # A short sha cannot be fetched by itself: the branch the nightly was cut from can.
-            subprocess.run(["git", "-C", str(repo), "fetch", "-q", "origin", "feat-cmux-next"], capture_output=True)
+            shallow = git(repo, "rev-parse", "--is-shallow-repository", check=False) == "true"
+            subprocess.run(["git", "-C", str(repo), "fetch", "-q", *(["--unshallow"] if shallow else []),
+                            "origin", "feat-cmux-next"], capture_output=True)
             full = resolve()
         if not SHA.fullmatch(full):
             raise RuntimeError(f"{app}'s CMUXCommit {commit} is not one commit in {repo} (fetch feat-cmux-next)")
@@ -273,17 +275,26 @@ def keep(state: Path, path: Path) -> tuple[Path, str]:
     return copy, digest
 
 
+def app_pids(app: Path) -> list[str]:
+    """The processes running an executable from APP's bin folder: by the executable's path (`comm`,
+    as side-instance.sh finds a copy's), or by argv[0] for a process whose comm is cut short."""
+    prefixes = {str(app / BIN) + "/", str((app / BIN).resolve()) + "/"}
+    found = []
+    for field in ("comm", "command"):
+        ps = subprocess.run(["ps", "-axww", "-o", f"pid=,{field}="], capture_output=True, text=True).stdout
+        for line in ps.splitlines():
+            pid, _, rest = line.strip().partition(" ")
+            if pid not in found and any(rest.strip().startswith(prefix) for prefix in prefixes):
+                found.append(pid)
+    return found
+
+
 def find_socket(app: Path, cli: Path) -> str | None:
     """The socket of the daemon running from APP's bin folder: a process there whose unix socket
     answers `server status` with that process's pid. None when no daemon runs from it; a socket
     that never answered means one may, and raises rather than pass for none."""
     hung = []
-    prefix = str(app / BIN) + "/"
-    ps = subprocess.run(["ps", "-axww", "-o", "pid=,command="], capture_output=True, text=True).stdout
-    for line in ps.splitlines():
-        pid, _, command = line.strip().partition(" ")
-        if not command.startswith(prefix):
-            continue
+    for pid in app_pids(app):
         lsof = subprocess.run(["lsof", "-a", "-p", pid, "-U", "-Fn"], capture_output=True, text=True).stdout
         for name in {entry[1:] for entry in lsof.splitlines() if entry.startswith("n/")}:
             try:
