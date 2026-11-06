@@ -8,6 +8,7 @@
 // `stopped-turn-look` experiment's three footers.
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, row, summary, user } from "../../../gallery/fixtures/acpmux";
+import type { PlayContext } from "../../../gallery/play";
 import { stoppedTurnLook } from "./stoppedTurn.experiment";
 
 const prompt = "Migrate the parser to the new token stream";
@@ -33,6 +34,18 @@ const stoppedTurn = (fields: Parameters<typeof summary>[1] = {}) => [
   summary(5.3, { status: "cancelled", durationMs: 41_000, ...fields }),
 ];
 
+const footerLook = (kind: "before" | "chosen" | "roomy") => async (ctx: PlayContext) => {
+  const style = ctx.document.createElement("style");
+  const before =
+    ".cv-turn-actions .cv-iconbtn.cv-turn-continue { height: var(--cv-footer-row); gap: 4px; padding-inline: 6px; font-size: var(--cv-font-size); }";
+  const roomy =
+    ".cv-turn-actions .cv-iconbtn.cv-turn-continue { height: var(--cv-footer-row); gap: 6px; padding-inline: 8px; font-size: var(--cv-font-size); }";
+  style.textContent =
+    kind === "before" ? before : kind === "roomy" ? roomy : ":root { --gallery-footer-look: chosen; }";
+  ctx.document.head.append(style);
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-continue"), { capMs: 10_000 });
+};
+
 export default agentPaneEntry({
   id: "agent-pane.stopped-turn",
   title: "Stopped turn",
@@ -56,8 +69,29 @@ export default agentPaneEntry({
     "forced-stop-queued-next": {
       note: "acpmux queued that message to run next: its waiting card, and no Continue beside it.",
       snapshot: chat(stoppedTurn({ stopForced: true }), {
-        queue: [{ id: "p-late", prompt: "Status check: are you still on the parser migration?", next: true }],
+        queue: [
+          {
+            id: "p-late",
+            prompt: "Status check: are you still on the parser migration?",
+            next: true,
+          },
+        ],
       }),
+    },
+    "footer-before": {
+      note: "Before: the Continue label uses the body type and roomy 6px padding, making it taller and wider than the footer's 24px controls.",
+      snapshot: chat(stoppedTurn()),
+      play: footerLook("before"),
+    },
+    "footer-chosen": {
+      note: "Chosen: Continue uses the footer's 24px control height, caption type and 2px padding; the visible label needs no tooltip.",
+      snapshot: chat(stoppedTurn()),
+      play: footerLook("chosen"),
+    },
+    "footer-roomy": {
+      note: "Alternative: a 14px label with 8px padding; readable, but still too prominent beside the icon controls.",
+      snapshot: chat(stoppedTurn()),
+      play: footerLook("roomy"),
     },
     before: {
       note: "Before (for comparison): the old notice line under Continue. Not drawn any more.",

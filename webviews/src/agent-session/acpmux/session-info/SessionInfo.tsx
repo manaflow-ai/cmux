@@ -53,6 +53,7 @@ import { useChatCut } from "./chatCut";
 import { chatGlass, chatUnderGlass } from "../chatUnderGlass";
 import { usePresence, type Presence } from "../../../ui/presence";
 import { useChatDisplay } from "../chatDisplay";
+import { useCountedRender } from "../perfRender";
 import { CHAT_LAYOUT_EVENT, chatColumnOf, useChatSizing, type ChatColumn } from "../chatWidth";
 import { FIND_HIDE_EVENT, FIND_OPEN_EVENT } from "../conversation/chatFind";
 import { PanelToggle } from "../header/PanelToggle";
@@ -121,6 +122,7 @@ import { tryChipHost } from "../chips/host";
 import { useMissingPaths } from "../chips/linkStore";
 import { TasksSection } from "./TasksSection";
 import { currentPlan, planDone, ProgressSection, type SessionInfoPlan } from "./ProgressSection";
+import { attributeCommands } from "../summary/workflowView";
 import { WorkflowTasks, type WorkflowAgentRowVariant } from "./WorkflowTasks";
 import { UsageSection, usageMeta, type UsageOwnRowLayout } from "./UsageSection";
 import { AppPanelSection, useAppPanelSections } from "../../../apps/scene/panels";
@@ -131,6 +133,9 @@ import { subagentProgress } from "../subagents/subagentProgress";
 import { useUnderSessionInfo } from "./underSessionInfo";
 import { useNativeSessionInfoHost } from "./native/host";
 import { useSameValue } from "./sameValue";
+import { usageEntries, type UsageEntry } from "./usageEntries";
+import { samePanelProps } from "./samePanelProps";
+import type { AlsoHere } from "./alsoHere";
 import { NativeSessionInfo } from "./native/NativeSessionInfo";
 import "./sessionInfo.css";
 
@@ -1007,6 +1012,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   scope?: SubagentScope;
 }) {
   onRender?.();
+  useCountedRender("session-info:presence");
   const { width, sections } = useSessionInfoState(chat);
   const native = useNativeSessionInfoHost();
   const t = useT();
@@ -1288,7 +1294,13 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     useMemo(() => (drawn && asks ? waitingSubagents(asks, views) : new Set<string>()), [drawn, asks, views]),
   );
   // The rest of what the sections take from the snapshot and the App, kept the same way.
-  const allSessions = useSameValue(scope ? undefined : snapshot.sessions);
+  // What the sections draw of the other chats acpmux lists, not the list itself: the list is new each
+  // time any chat anywhere changes (its status, its indicator, its time), which drew every section
+  // again, while a scroll ran too, though they show none of it. Usage's rows (usageEntries.ts) and Also
+  // working here's (useAlsoHere) keep their identity until what they draw changes.
+  const everyChat = drawn && !scope ? snapshot.sessions : undefined;
+  const usageSessions = useSameValue(useMemo(() => usageEntries(everyChat), [everyChat]));
+  const alsoHereRows = useSameValue(useAlsoHere(summary?.sessionId, everyChat));
   const peerKinds = useSameValue(snapshot.peerKinds);
   const startedList = useSameValue(scope ? undefined : sessions?.list);
   const workflowList = useSameValue(scope ? undefined : workflows?.list);
@@ -1329,9 +1341,10 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   const onStopWorkflow = useStableCallback(workflows?.onStop);
   const setRunningLimit = useStableCallback(onSetRunningLimit);
   // The tool calls the loaded transcript holds, for a task row's Show call in a chat whose terminal
-  // cannot open here: read here, so a call added to an existing row reaches the sections, and kept while
-  // it is the same set. A chat on this Mac opens the terminal instead and reads none.
-  const readsCalls = !!onShowCall && !opensProcessTerminal(summary);
+  // cannot open here, and for a wakeup or cron job, which shows the call that made it on any chat:
+  // read here, so a call added to an existing row reaches the sections, and kept while it is the same
+  // set. A chat on this Mac with nothing scheduled opens its terminals instead and reads none.
+  const readsCalls = !!onShowCall && (!opensProcessTerminal(summary) || (made?.scheduled?.length ?? 0) > 0);
   const toolCalls = useSameValue(
     useMemo(() => (drawn && readsCalls ? toolCallIds(rows) : undefined), [drawn, readsCalls, rows]),
   );
@@ -1493,7 +1506,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     );
   if (!drawn) return null;
   return (
-    <SessionInfoPanel
+    <MemoSessionInfoPanel
       title={scope && SUBAGENT_HEADER === "title" ? <SubagentTitle scope={scope} /> : undefined}
       width={panelWidth}
       placement={push ? "push" : "overlay"}
@@ -1537,7 +1550,8 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         onOpenWorkflowAgent={onOpenWorkflowAgent}
         onOpenSession={onOpenSession}
         // Usage lists every chat acpmux lists; a subagent's own panel has no Usage.
-        allSessions={allSessions}
+        usageSessions={usageSessions}
+        alsoHere={alsoHereRows}
         onOpenChat={onOpenChat}
         onShowUsage={scope ? undefined : onShowUsage}
         onSetRunningLimit={setRunningLimit}
@@ -1563,7 +1577,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         onOpenDocument={onOpenDocument}
         onShowCall={onShowCall}
       />
-    </SessionInfoPanel>
+    </MemoSessionInfoPanel>
   );
 });
 
@@ -1613,6 +1627,7 @@ export function SessionInfoPanel({
   chrome?: "title" | "close" | "compact-close";
   children: ReactNode;
 }) {
+  useCountedRender("session-info:panel");
   const t = useT();
   const frame = useRef<HTMLElement | null>(null);
   const drag = useRef<{ right: number } | undefined>(undefined);
@@ -1764,10 +1779,17 @@ export const RAIL_LAYOUT: RailLayout = "glance";
 const toolCallIds = (rows: readonly AcpmuxRow[]): ReadonlySet<string> =>
   new Set(rows.flatMap((row) => (row.items ?? []).flatMap((item) => (item.tool?.id ? [item.tool.id] : []))));
 
+/// The panel frame for SessionInfoPresence, drawn again only when what it is handed changes
+/// (samePanelProps.ts): a snapshot that changes nothing it draws leaves the frame and its sections be.
+const MemoSessionInfoPanel = memo(function MemoSessionInfoPanel(props: Parameters<typeof SessionInfoPanel>[0]) {
+  return <SessionInfoPanel {...props} />;
+}, samePanelProps);
+
 /// The sections for one chat, drawn again only when a prop changes: SessionInfoPresence hands it the
 /// same lists while they hold the same things, so a streamed token, a tool call that makes nothing or a
 /// usage tick draws nothing here.
 const SessionInfoSections = memo(function SessionInfoSections(props: Parameters<typeof SessionInfo>[0]) {
+  useCountedRender("session-info:sections");
   return <SessionInfo {...props} />;
 });
 
@@ -1818,6 +1840,8 @@ export function SessionInfo({
   onOpenOutputFile,
   onShowCall,
   allSessions,
+  usageSessions = allSessions,
+  alsoHere: shownAlsoHere,
   onOpenChat,
   onShowUsage,
   usageOwnRowLayout,
@@ -1899,6 +1923,10 @@ export function SessionInfo({
   /// Every chat acpmux lists, this Mac's and its peers', for Usage (UsageSection.tsx); unset in a
   /// subagent's own panel.
   allSessions?: readonly AcpmuxSessionEntry[];
+  /// In place of `allSessions`, what the sections draw of it (SessionInfoPresence): Usage's chats
+  /// (usageEntries.ts) and the chats working here (alsoHere.ts).
+  usageSessions?: readonly UsageEntry[];
+  alsoHere?: readonly AlsoHere[];
   /// Opens one of them.
   onOpenChat?: (sessionId: string) => void;
   /// Asks acpmux for every listed chat's usage now (`_acpmux/sessions` `usage: true`), once each
@@ -1963,9 +1991,12 @@ export function SessionInfo({
   const percent = known ? Math.round(Math.min(1, Math.max(0, usage.used / usage.size)) * 100) : 0;
   const { servers, tasks: commands } = sessionInfoLists(processes, transcriptTasks, listed);
   // A chat on this Mac opens a task's terminal; elsewhere a row shows the call that started it,
-  // when the loaded transcript holds it. Read only then, so a local chat adds no pass over its rows.
+  // when the loaded transcript holds it. A wakeup or cron job shows the call that made it on any
+  // chat (TasksSection `scheduledRow`). Read only then, so a local chat with nothing scheduled adds
+  // no pass over its rows.
   const local = opensProcessTerminal(summary);
-  const showsCalls = !local && !!onShowCall && commands.some((command) => command.toolCallId);
+  const showsCalls =
+    !!onShowCall && ((!local && commands.some((command) => command.toolCallId)) || (made?.scheduled?.length ?? 0) > 0);
   const calls = useMemo(
     () => (showsCalls ? (toolCalls ?? toolCallIds(rows)) : undefined),
     [showsCalls, toolCalls, rows],
@@ -2022,7 +2053,7 @@ export function SessionInfo({
   }, [onSection, light]);
   // The panel shows: Usage's numbers are read now, not left at whatever the list last carried.
   useEffect(() => onShowUsage?.(), [onShowUsage]);
-  const anyUsage = useMemo(() => !!allSessions?.some((entry) => entry.usageStats), [allSessions]);
+  const anyUsage = useMemo(() => !!usageSessions?.some((entry) => entry.usageStats), [usageSessions]);
   const scheduled = made?.scheduled ?? [];
   const pullRequests = visibleChanges(made?.pullRequests ?? [], statuses);
   const sources = made?.sources ?? [];
@@ -2265,9 +2296,12 @@ export function SessionInfo({
   // The dev servers are background commands too: their rows head the one Background tasks section
   // (they were a card of their own, most often one row). Every server runs.
   const running = runningTasks + servers.length + workflows.filter((workflow) => workflow.state === "running").length;
+  // A command a workflow's agent started is listed under that agent, not as the chat's own.
+  const { own: ownCommands, workflows: workflowCommands } = attributeCommands(commands, workflows);
   // The other chats in this chat's worktree or on its branch (alsoHere.ts), shown only when there are.
   // A chat that goes a day idle leaves the list while Session Info stays open (useAlsoHere).
-  const alsoHereRows = useAlsoHere(chatId, allSessions);
+  const ownAlsoHere = useAlsoHere(chatId, shownAlsoHere ? undefined : allSessions);
+  const alsoHereRows = shownAlsoHere ?? ownAlsoHere;
   const alsoHereSection = alsoHereRows.length > 0 && (
     <SessionInfoSection
       id="alsoHere"
@@ -2290,15 +2324,17 @@ export function SessionInfo({
       {workflows.length > 0 && (
         <WorkflowTasks
           workflows={workflows}
+          commands={workflowCommands}
+          onStopCommand={onStopProcess}
           onStop={onStopWorkflow}
           onOpenWorkflowAgent={onOpenWorkflowAgent}
           agentRowVariant={workflowAgentRowVariant}
         />
       )}
       {servers.length > 0 && <ServersSection servers={servers} onStop={onStopProcess} onOpenUrl={onOpenUrl} />}
-      {commands.length + scheduled.length > 0 && (
+      {ownCommands.length + scheduled.length > 0 && (
         <TasksSection
-          commands={commands}
+          commands={ownCommands}
           scheduled={scheduled}
           onStop={onStopProcess}
           local={local}
@@ -2326,7 +2362,7 @@ export function SessionInfo({
       <UsageSection
         own={ownUsage}
         planLimits={planLimits}
-        sessions={allSessions ?? []}
+        sessions={usageSessions ?? []}
         chatId={chatId}
         onOpen={onOpenChat}
         onCompact={onCompact}
