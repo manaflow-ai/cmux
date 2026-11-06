@@ -354,6 +354,25 @@ fn a_no_op_after_a_failed_commit_commits_again() {
     assert_eq!(disk.written(), vec![1]);
 }
 
+/// A kept change (a draft) is saved as a kept copy; a barrier after it (`_acpmux/markUnread` on a
+/// chat that is unread already) saves a durable copy, as the kept copy may hold a change the
+/// barrier answers for. Review of #37137, finding 2.
+#[test]
+fn a_barrier_after_a_kept_copy_saves_a_durable_copy() {
+    use crate::store::Keep;
+    let writer = MetaWriter::default();
+    let saved = Mutex::new(Vec::new());
+    let write = |keep: Keep| {
+        saved.lock().unwrap().push(keep);
+        Ok(())
+    };
+    writer.commit_as(Wait::Durable, Keep::Written, &write).expect("the kept change commits");
+    writer.barrier_as(&write).expect("the barrier commits");
+    // Nothing kept since the durable copy: the next barrier saves nothing.
+    writer.barrier_as(&write).expect("the second barrier");
+    assert_eq!(*saved.lock().unwrap(), vec![Keep::Written, Keep::Durable]);
+}
+
 /// A writer whose write panics still commits the changes nobody waits for that came during it,
 /// and the panic still reaches its own caller. Review follow-up of #29311.
 #[test]

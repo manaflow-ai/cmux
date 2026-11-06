@@ -77,6 +77,10 @@ struct WriterState {
     /// The newest version of a change that must be durable ([`Keep::Durable`]): a copy whose
     /// versions after `durable` reach it is saved durable, else kept (module text).
     strong: u64,
+    /// The target of the newest copy chosen to be saved kept, set when it is chosen.
+    kept: u64,
+    /// The target of the newest copy saved durable.
+    synced: u64,
 }
 
 /// Whether a commit waits for its version to be durable.
@@ -128,8 +132,14 @@ impl MetaWriter {
         // again, as a new version, instead of failing until some other change comes. Durable:
         // the request may answer for any change of the failed copy.
         let failed = state.failed.as_ref().is_some_and(|(upto, _)| *upto >= state.requested);
-        if failed && state.durable < state.requested {
+        // A barrier answers that every change made so far is durable. A kept copy (saved or
+        // under way) newer than the last durable one holds changes it may answer for (an unread
+        // mark another request made, saved in a draft's copy): a durable copy follows it, as a
+        // new version. Else the copy not yet chosen is saved durable.
+        if (failed && state.durable < state.requested) || state.kept > state.synced {
             state.requested += 1;
+            state.strong = state.requested;
+        } else if state.durable < state.requested {
             state.strong = state.requested;
         }
         let version = state.requested;
@@ -219,6 +229,9 @@ impl MetaWriter {
                     return panicked;
                 }
                 let keep = if state.strong > state.durable { Keep::Durable } else { Keep::Written };
+                if keep == Keep::Written {
+                    state.kept = state.requested;
+                }
                 (state.requested, keep)
             };
             let (target, keep) = target;
@@ -235,6 +248,9 @@ impl MetaWriter {
             match written {
                 Ok(()) => {
                     state.durable = state.durable.max(target);
+                    if keep == Keep::Durable {
+                        state.synced = state.synced.max(target);
+                    }
                     if state.failed.as_ref().is_some_and(|(upto, _)| *upto <= target) {
                         state.failed = None;
                     }

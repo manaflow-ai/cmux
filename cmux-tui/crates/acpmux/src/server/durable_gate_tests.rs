@@ -169,9 +169,9 @@ async fn agent_output_is_not_held_behind_another_chats_acked_change() {
     assert!(reply.get("error").is_none(), "attach: {reply}");
     let (other, mut other_out) = connect(&hub).await;
     journal.set_sync_delay(SYNC);
-    let rename = json!({"sessionId": OTHER, "newName": "renamed"});
-    send(&other, Message::request(2, method::MUX_RENAME, rename)).await;
-    // The rename's record is appended; its reply waits for its sync.
+    let unread = json!({"sessionId": OTHER});
+    send(&other, Message::request(2, method::MUX_MARK_UNREAD, unread)).await;
+    // The unread mark's record is appended; its reply waits for its sync.
     tokio::time::sleep(Duration::from_millis(100)).await;
     let session = hub.resolve(CHAT).unwrap_or_else(|e| panic!("{e:?}"));
     let started = Instant::now();
@@ -187,9 +187,9 @@ async fn agent_output_is_not_held_behind_another_chats_acked_change() {
     );
     let update = until(&mut viewer_out, |line| line["method"] == method::SESSION_UPDATE).await;
     let took = started.elapsed();
-    let renamed = until(&mut other_out, |line| line["id"] == 2).await;
+    let marked = until(&mut other_out, |line| line["id"] == 2).await;
     journal.set_sync_delay(Duration::ZERO);
-    assert!(renamed.get("error").is_none(), "rename: {renamed}");
+    assert!(marked.get("error").is_none(), "markUnread: {marked}");
     assert_eq!(update["params"]["update"]["content"]["text"], "hi", "{update}");
     assert!(took < SYNC / 2, "agent output waited {took:?} behind another chat's change");
 }
