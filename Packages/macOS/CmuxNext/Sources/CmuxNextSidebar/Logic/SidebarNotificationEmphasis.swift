@@ -42,10 +42,11 @@ nonisolated struct WorkspaceRowAttention: Equatable {
     /// Unread items; 0 for a row that only needs you or failed.
     var count: Int
 
-    /// The one state the row's badge says without detailed icons (`WorkspaceRowBadges.simple`),
-    /// when it is something for the person.
-    init?(_ badges: WorkspaceRowBadges) {
-        switch WorkspaceRowBadges.simple(badges.pending) {
+    /// What the row's badge leads with (`leading`, its first glyph; nil reads the one state it says
+    /// without detailed icons, `WorkspaceRowBadges.simple`), when it is something for the person. A
+    /// row whose badge leads with work in progress has no emphasis, so the spinner stays as it is.
+    init?(_ badges: WorkspaceRowBadges, leading: StatusIndicatorState? = nil) {
+        switch leading ?? WorkspaceRowBadges.simple(badges.pending) {
         case .error?: kind = .failed
         case .waiting?: kind = .needsYou
         case .success? where badges.unreadCount > 0: kind = .unread

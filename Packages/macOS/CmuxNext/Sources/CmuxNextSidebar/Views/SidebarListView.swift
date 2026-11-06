@@ -312,6 +312,7 @@ final class SidebarListView: NSView {
         // then on capturing ones in Release).
         var pending: [NSView] = subviews.reversed()
         while let view = pending.popLast() {
+            if let row = view as? WorkspaceRowView { row.emphasis.isWindowVisible = visible } // its halo's pulse
             if let indicator = view as? StatusIndicatorView { indicator.isWindowVisible = visible } else { pending.append(contentsOf: view.subviews.reversed()) }
         }
     }

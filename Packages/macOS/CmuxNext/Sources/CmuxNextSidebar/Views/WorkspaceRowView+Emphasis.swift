@@ -5,14 +5,26 @@ import QuartzCore
 /// The parts a row's notification emphasis draws with (`SidebarNotificationEmphasis`): the leading
 /// edge bar, the halo behind the trailing dot and the count pill. Each is made once per row and
 /// hidden while the row has nothing for the person or the look is `standard`.
+///
+/// The halo's pulse follows what the status dots follow: the indicator config's loops switch
+/// (animations, the indicators category, Reduce Motion; `StatusIndicatorAppearance`) and the
+/// window's visibility (`SidebarListView.setWindowVisible`), and it keeps the shared phase
+/// (`SpinnerClock`), so it never pulses on a hidden window or after motion was turned off.
 @MainActor
-final class WorkspaceRowEmphasis {
+final class WorkspaceRowEmphasis: StatusIndicatorConfigClient {
     private(set) var style = SidebarNotificationEmphasis.standard
     private(set) var attention: WorkspaceRowAttention?
     let bar = NSView()
     let halo = CALayer()
     let pill = NotificationPillView()
     static let haloKey = "notification-halo"
+    /// The row's window shows (the list's occlusion walk sets it).
+    var isWindowVisible = true {
+        didSet { if isWindowVisible != oldValue { updateHaloMotion() } }
+    }
+    private var registered = false
+    /// The badge shows one glyph (a stack of several keeps every chip; the pill never hides them).
+    private(set) var singleGlyph = true
 
     /// The look in force: nil when the row has nothing for the person or the look adds nothing.
     var active: SidebarNotificationEmphasis? {
@@ -21,10 +33,32 @@ final class WorkspaceRowEmphasis {
     }
 
     /// The pill stands in for the trailing dot: the bold-pill look with an unread count.
-    var showsPill: Bool { active == .boldPill && (attention?.count ?? 0) > 0 }
+    var showsPill: Bool { active == .boldPill && singleGlyph && (attention?.count ?? 0) > 0 }
 
-    func update(style: SidebarNotificationEmphasis, attention: WorkspaceRowAttention?) {
-        (self.style, self.attention) = (style, attention)
+    func update(style: SidebarNotificationEmphasis, attention: WorkspaceRowAttention?, singleGlyph: Bool) {
+        (self.style, self.attention, self.singleGlyph) = (style, attention, singleGlyph)
+    }
+
+    /// Starts or stops the halo's pulse for what the person allows now; a hidden halo never pulses.
+    func updateHaloMotion() {
+        let animates = !halo.isHidden && halo.superlayer != nil && isWindowVisible
+            && StatusIndicatorAppearance.shared.config.animatesLoops
+        guard animates else {
+            halo.removeAnimation(forKey: Self.haloKey)
+            return
+        }
+        if !registered {
+            registered = true
+            StatusIndicatorAppearance.shared.register(self)
+        }
+        guard halo.animation(forKey: Self.haloKey) == nil,
+              let pulse = Motion.indicators.pulseAnimation(low: 0.15), let period = Motion.indicators.period(.pulse) else { return }
+        pulse.beginTime = SpinnerClock().beginTime(cycle: period)
+        halo.add(pulse, forKey: Self.haloKey)
+    }
+
+    func statusIndicatorConfigDidChange(_ config: StatusIndicatorConfig) {
+        updateHaloMotion()
     }
 }
 
@@ -38,7 +72,6 @@ final class NotificationPillView: NSView {
         super.init(frame: frame)
         wantsLayer = true
         isHidden = true
-        label.font = .monospacedDigitSystemFont(ofSize: SidebarStyle.subtitleFont.pointSize, weight: TypeScale.emphasis)
         label.textColor = .white
         label.alignment = .center
         addSubview(label)
@@ -47,9 +80,11 @@ final class NotificationPillView: NSView {
 
     required init?(coder: NSCoder) { nil }
 
-    func configure(text: String, color: NSColor) {
+    func configure(text: String) {
+        // The font follows the sidebar's text size and density, read on every configure.
+        let font = NSFont.monospacedDigitSystemFont(ofSize: SidebarStyle.subtitleFont.pointSize, weight: TypeScale.emphasis)
+        if label.font != font { label.font = font }
         if label.stringValue != text { label.stringValue = text }
-        layer?.backgroundColor = color.cgColor
         needsLayout = true
     }
 
@@ -67,10 +102,12 @@ final class NotificationPillView: NSView {
 
 extension WorkspaceRowView {
     /// Sets the row's emphasis after its badges (`configureBadges`); nil `badges` clears it (a
-    /// placeholder, or the `trailing` badge style that keeps the count).
-    func configureEmphasis(_ badges: WorkspaceRowBadges?, style: SidebarNotificationEmphasis) {
-        let attention = badges.flatMap(WorkspaceRowAttention.init)
-        emphasis.update(style: style, attention: attention)
+    /// placeholder, or the `trailing` badge style that keeps the count). `leading` is the badge's
+    /// first glyph: the emphasis says what that glyph says, so a working spinner the badge leads
+    /// with is never covered by a blue halo or hidden behind a pill.
+    func configureEmphasis(_ badges: WorkspaceRowBadges?, leading: StatusIndicatorState? = nil, style: SidebarNotificationEmphasis) {
+        let attention = badges.flatMap { WorkspaceRowAttention($0, leading: leading) }
+        emphasis.update(style: style, attention: attention, singleGlyph: rowBadge.states.count <= 1)
         let active = emphasis.active
         if active == .edgeBar, emphasis.bar.superview == nil {
             emphasis.bar.wantsLayer = true
@@ -81,42 +118,40 @@ extension WorkspaceRowView {
         if active == .boldPill || emphasis.pill.superview != nil {
             if emphasis.pill.superview == nil { addSubview(emphasis.pill) }
             emphasis.pill.isHidden = !emphasis.showsPill
-            if let attention, emphasis.showsPill { emphasis.pill.configure(text: attention.pillText, color: attention.color) }
+            if let attention, emphasis.showsPill { emphasis.pill.configure(text: attention.pillText) }
+            // The badge's summary ("3 unread, Needs you") stays under the pointer when the pill stands in for it.
+            emphasis.pill.themedToolTip = emphasis.showsPill ? rowBadge.themedToolTip : nil
         }
         // The pill stands in for the badge's dot; every other look keeps it.
         rowBadge.isHidden = rowBadge.states.isEmpty || emphasis.showsPill
         if active == .boldPill {
             title.font = NSFont.systemFont(ofSize: SidebarStyle.titleFont.pointSize, weight: TypeScale.emphasis)
         }
-        configureHalo(active == .halo ? attention : nil)
+        configureHalo(active == .halo)
         (needsDisplay, needsLayout) = (true, true)
     }
 
-    /// The halo: a soft disc of the dot's color behind it, in the badge's own coordinates, breathing
-    /// through the indicators' motion gate (still while loops are off or Reduce Motion is on).
-    private func configureHalo(_ attention: WorkspaceRowAttention?) {
+    /// The halo: a soft disc behind the badge's first glyph (the dot), in the badge's own
+    /// coordinates; its color is set in `updateLayer` (`paintEmphasis`) under the row's theme.
+    private func configureHalo(_ shows: Bool) {
         let halo = emphasis.halo
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
-        guard let attention, !rowBadge.isHidden, let host = rowBadge.layer else {
-            halo.removeAnimation(forKey: WorkspaceRowEmphasis.haloKey)
+        if shows, !rowBadge.isHidden, let host = rowBadge.layer {
+            if halo.superlayer !== host {
+                halo.zPosition = -10
+                host.insertSublayer(halo, at: 0)
+            }
+            let side = (SidebarStyle.statusDotSize * 2.5).rounded()
+            let center = rowBadge.cellSide / 2
+            halo.frame = CGRect(x: center - side / 2, y: center - side / 2, width: side, height: side)
+            halo.cornerRadius = side / 2
+            halo.isHidden = false
+        } else {
             halo.isHidden = true
-            return
         }
-        if halo.superlayer !== host {
-            halo.zPosition = -10
-            host.insertSublayer(halo, at: 0)
-        }
-        let side = (SidebarStyle.statusDotSize * 2.5).rounded()
-        let center = rowBadge.cellSide / 2
-        halo.frame = CGRect(x: center - side / 2, y: center - side / 2, width: side, height: side)
-        halo.cornerRadius = side / 2
-        halo.backgroundColor = attention.color.withAlphaComponent(0.45).cgColor
-        halo.isHidden = false
-        if halo.animation(forKey: WorkspaceRowEmphasis.haloKey) == nil, let pulse = Motion.indicators.pulseAnimation(low: 0.15) {
-            halo.add(pulse, forKey: WorkspaceRowEmphasis.haloKey)
-        }
+        emphasis.updateHaloMotion()
     }
 
     /// The edge bar's place: where a `leftRail` color's bar goes, over it.
@@ -137,13 +172,26 @@ extension WorkspaceRowView {
         return pill
     }
 
-    /// Inside `updateLayer`'s theme scope: the bar's color, and the edge-bar look's wash, the fill
-    /// a row at rest or hovered paints (selection and drop target keep their own fills).
-    func emphasisFill(over fill: NSColor?) -> NSColor? {
-        guard emphasis.active == .edgeBar, let attention = emphasis.attention else { return fill }
+    /// Inside `updateLayer`'s theme scope, so every part takes the theme's status color as the badge's
+    /// dot does: the bar, the pill and the halo; returns the fill the row paints. The edge-bar look's
+    /// wash replaces only the plain fills (rest and hover): selection, on screen, drop target and a
+    /// workspace color's fill keep their own.
+    func paintEmphasis(over fill: NSColor?, colorFilled: Bool) -> NSColor? {
+        guard let active = emphasis.active, let attention = emphasis.attention else { return fill }
         let color = attention.color
-        emphasis.bar.layer?.backgroundColor = color.cgColor
-        guard !(isDropTarget || isSelected || isSecondarySelected) else { return fill }
-        return color.withAlphaComponent(isHovered ? 0.2 : 0.13)
+        switch active {
+        case .standard: return fill
+        case .boldPill:
+            emphasis.pill.layer?.backgroundColor = color.cgColor
+            return fill
+        case .halo:
+            emphasis.halo.backgroundColor = color.withAlphaComponent(0.45).cgColor
+            return fill
+        case .edgeBar:
+            emphasis.bar.layer?.backgroundColor = color.cgColor
+            guard !colorFilled, !(isDropTarget || isSelected || isSecondarySelected || isOnScreen) else { return fill }
+            let hovered = isHovered && !isPlaceholderRow && DesignSettings.shared.showsHoverFills
+            return color.withAlphaComponent(hovered ? 0.2 : 0.13)
+        }
     }
 }

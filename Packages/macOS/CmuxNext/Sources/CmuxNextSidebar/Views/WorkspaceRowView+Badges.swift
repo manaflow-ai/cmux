@@ -32,7 +32,7 @@ extension WorkspaceRowView {
         let states = corner ? badges.first.map { [$0] } ?? [] : badges.stacked
         rowBadge.configure(states, look: states.count > 1 ? .stack : .plain)
         rowBadge.themedToolTip = Self.badgeSummary(badges, stacked: !corner)
-        configureEmphasis(badges, style: emphasis)
+        configureEmphasis(badges, leading: states.first, style: emphasis)
     }
 
     /// What the badges say, for the tooltip: the count, then each state, then what the stack left out
