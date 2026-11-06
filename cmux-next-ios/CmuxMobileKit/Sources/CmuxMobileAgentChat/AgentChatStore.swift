@@ -1,12 +1,13 @@
 import CmuxAgentQuestion
 import CmuxMobileDiff
 import CmuxMobileMarkdown
+import CmuxMobileModel
 import Foundation
 import Observation
 
 /// One prompt and everything the agent did for it.
-public struct AgentTurn: Identifiable, Hashable, Sendable {
-    public enum Status: String, Hashable, Sendable { case running, completed, cancelled, failed }
+public struct AgentTurn: Identifiable, Hashable, Sendable, Codable {
+    public enum Status: String, Hashable, Sendable, Codable { case running, completed, cancelled, failed }
 
     public var id: String
     public var prompt: String
@@ -31,7 +32,7 @@ public struct AgentTurn: Identifiable, Hashable, Sendable {
         self.promptAt = promptAt
     }
 
-    public struct Retry: Hashable, Sendable {
+    public struct Retry: Hashable, Sendable, Codable {
         public var attempt: Int
         public var maxAttempts: Int
         public var status: Int?
@@ -112,7 +113,7 @@ public struct AgentTurn: Identifiable, Hashable, Sendable {
     }
 }
 
-public enum TurnItem: Hashable, Sendable, Identifiable {
+public enum TurnItem: Hashable, Sendable, Codable, Identifiable {
     case message(id: String, markdown: String)
     case thought(id: String, text: String)
     case tool(ACPToolCall)
@@ -135,12 +136,12 @@ public enum TurnItem: Hashable, Sendable, Identifiable {
     }
 }
 
-public struct PermissionRecord: Hashable, Sendable {
+public struct PermissionRecord: Hashable, Sendable, Codable {
     public var request: ACPPermissionRequest
     /// The chosen option once resolved (nil option = cancelled).
     public var resolution: Resolution?
 
-    public enum Resolution: Hashable, Sendable {
+    public enum Resolution: Hashable, Sendable, Codable {
         case chose(ACPPermissionOption)
         case cancelled
     }
@@ -178,6 +179,8 @@ public final class AgentChatStore {
     /// The chat opened on its newest history only: older records stay on the Mac, so the
     /// first turn shown is not where the session started (``AgentSessionEvent/earlierHistory(_:)``).
     public private(set) var hasEarlierHistory = false
+    /// The Mac holds older records than the oldest it sent (``AgentSessionEvent/earlierHistory(_:)``).
+    @ObservationIgnored private var sourceHasEarlier = false
     /// An older page is being read (``loadEarlier()``).
     public private(set) var isLoadingEarlier = false
     /// The title the agent gave the session (`session_info_update`).
@@ -296,6 +299,7 @@ public final class AgentChatStore {
     isolated deinit {
         task?.cancel()
         chunkFlush?.cancel()
+        spill?.discard()
     }
 
     // MARK: Derived state
@@ -326,7 +330,7 @@ public final class AgentChatStore {
         let last = turns.last
         assign(\.hasTurns, !turns.isEmpty)
         assign(\.isRunning, last?.status == .running)
-        assign(\.firstPrompt, turns.first?.prompt)
+        assign(\.firstPrompt, spilledFirstPrompt ?? turns.first?.prompt)
         assign(\.pendingPermission, last.flatMap(Self.openPermission))
         assign(\.pendingQuestion, last.flatMap(Self.openQuestion))
         assign(\.runningPlanEntries, last?.status == .running ? last.flatMap(Self.latestPlan) : nil)
@@ -334,7 +338,7 @@ public final class AgentChatStore {
         if editsBeforeLast.count != earlier || (!lastTurnOnly && !editsBeforeLast.any) {
             editsBeforeLast = (earlier, turns.dropLast().contains(where: \.hasEdits))
         }
-        assign(\.hasAgentEdits, editsBeforeLast.any || last?.hasEdits == true)
+        assign(\.hasAgentEdits, spilledHadEdits || editsBeforeLast.any || last?.hasEdits == true)
     }
 
     private func assign<Value: Equatable>(_ keyPath: ReferenceWritableKeyPath<AgentChatStore, Value>, _ value: Value) {
@@ -894,10 +898,12 @@ public final class AgentChatStore {
             self.modes = ACPMode.phoneChoices(modes, current: current, fullAccess: fullAccess)
             currentModeID = current
         case .earlierHistory(let earlier):
-            hasEarlierHistory = earlier
+            sourceHasEarlier = earlier
+            refreshEarlierHistory()
         case .earlierPage(let events, let hasEarlier):
             isLoadingEarlier = false
-            hasEarlierHistory = hasEarlier
+            sourceHasEarlier = hasEarlier
+            refreshEarlierHistory()
             prependEarlier(events)
         case .fullAccess(let on):
             fullAccess = on
@@ -945,7 +951,104 @@ public final class AgentChatStore {
     public func loadEarlier() {
         guard hasEarlierHistory, !isLoadingEarlier else { return }
         isLoadingEarlier = true
+        // Turns this phone spilled are newer than anything the Mac has not sent yet: they come
+        // back first, from disk, and only then does the Mac read further back.
+        if let spill, turnsOnDisk > 0 {
+            Task { @MainActor [weak self] in
+                let page = await spill.pop()
+                self?.restoreSpilled(page)
+            }
+            return
+        }
         source.loadEarlierHistory()
+    }
+
+    /// `loadEarlier` for a page on disk, returning once it is shown (tests).
+    func loadEarlierFromDisk() async {
+        guard let spill, turnsOnDisk > 0, !isLoadingEarlier else { return }
+        isLoadingEarlier = true
+        restoreSpilled(await spill.pop())
+    }
+
+    // MARK: Spill
+
+    /// Turns the chat keeps in memory once the reader is back at the newest (`spillOlder`).
+    public static let windowKeep = 80
+    /// The chat spills only past this many turns, so a reader at the bottom does not spill a
+    /// turn per new turn.
+    public static let windowTrigger = 120
+    /// Turns kept on a memory warning (with the reader's own and those after it).
+    public static let pressureKeep = 20
+
+    /// Older turns that left memory, on disk while the app runs (`RowSpill`), made on the first
+    /// spill. Each store has its own folder, deleted with it.
+    @ObservationIgnored private(set) var spill: RowSpill<AgentTurn>?
+    /// Turns in the spill.
+    public private(set) var turnsOnDisk = 0
+    /// What the derived state keeps from the spilled turns: the untitled chat's title and
+    /// "Agent Edits".
+    @ObservationIgnored private var spilledFirstPrompt: String?
+    @ObservationIgnored private var spilledHadEdits = false
+    /// Makes the spill (tests put it in their own folder).
+    @ObservationIgnored public var makeSpill: @MainActor () -> RowSpill<AgentTurn> = {
+        // Turns are heavy (tool output, diffs): small pages. The cap is far above any chat, so
+        // the spill never leaves a gap between what it holds and what the Mac still has.
+        .forThisRun("agent-chat", scope: UUID().uuidString, pageSize: 20, maxRows: 100_000)
+    }
+
+    private func refreshEarlierHistory() {
+        assign(\.hasEarlierHistory, sourceHasEarlier || turnsOnDisk > 0)
+    }
+
+    /// Moves the oldest turns to disk, keeping the newest `keeping` and every turn from
+    /// `protecting` (the reader's first visible turn) on. A running turn and one with an open
+    /// ask, and every turn after it, stay. Scrolling up brings them back (`loadEarlier`).
+    @discardableResult
+    public func spillOlder(keeping: Int, protecting: String? = nil) -> Int {
+        var end = turns.count - keeping
+        if let protecting, let index = turns.firstIndex(where: { $0.id == protecting }) { end = min(end, index) }
+        if let live = turns.prefix(max(end, 0)).firstIndex(where: { turn in
+            turn.status == .running || Self.openPermission(turn) != nil || Self.openQuestion(turn) != nil
+        }) {
+            end = min(end, live)
+        }
+        guard end > 0 else { return 0 }
+        let spill = spill ?? makeSpill()
+        self.spill = spill
+        let older = Array(turns.prefix(end))
+        if turnsOnDisk == 0, !sourceHasEarlier { spilledFirstPrompt = older.first?.prompt }
+        spilledHadEdits = spilledHadEdits || older.contains(where: \.hasEdits)
+        spill.push(older.reversed())
+        diffs.forget(older)
+        turnsOnDisk += older.count
+        turns.removeFirst(end)
+        revision &+= 1
+        refreshEarlierHistory()
+        refreshDerived()
+        return end
+    }
+
+    /// A page of spilled turns (newest first) goes back in front of the shown ones.
+    private func restoreSpilled(_ page: [AgentTurn]) {
+        isLoadingEarlier = false
+        turnsOnDisk = page.isEmpty ? 0 : max(0, turnsOnDisk - page.count)
+        if turnsOnDisk == 0 {
+            spilledFirstPrompt = nil
+            spilledHadEdits = false
+        }
+        let shown = Set(turns.map(\.id))
+        let back = page.reversed().filter { !shown.contains($0.id) }
+        if !back.isEmpty {
+            turns.insert(contentsOf: back, at: 0)
+            for turn in back {
+                replayedIDs.insert(turn.id)
+                for row in turn.rows { replayedIDs.insert(row.id) }
+            }
+            lastChangeWasReplay = true
+            revision &+= 1
+        }
+        refreshEarlierHistory()
+        refreshDerived()
     }
 
     /// Older turns go in front of the shown ones. They are built on their own: the queue, the

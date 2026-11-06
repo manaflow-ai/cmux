@@ -10,8 +10,8 @@ private let feedChurnLog = Logger(subsystem: "dev.cmux.mobile", category: "feed-
 #endif
 
 /// One Feed event: something an agent did or needs, from any workspace and tab.
-public struct FeedItem: Identifiable, Hashable, Sendable {
-    public enum Kind: Hashable, Sendable {
+public struct FeedItem: Identifiable, Hashable, Sendable, Codable {
+    public enum Kind: Hashable, Sendable, Codable {
         /// A normal agent reply; Reply sends a new prompt into that tab.
         case response
         case question(AgentQuestion)
@@ -25,8 +25,8 @@ public struct FeedItem: Identifiable, Hashable, Sendable {
     }
 
     /// The message this event answers, shown as an iMessage-style quote bubble.
-    public struct Quote: Hashable, Sendable {
-        public enum Author: Hashable, Sendable { case you, agent }
+    public struct Quote: Hashable, Sendable, Codable {
+        public enum Author: Hashable, Sendable, Codable { case you, agent }
         public var text: String
         public var author: Author
 
@@ -223,6 +223,22 @@ public final class FeedStore {
     }
     @ObservationIgnored private var evictedDoneSet: Set<String> = []
 
+    /// The window now: `memoryLimit`, raised while the person reads rows brought back from the
+    /// spill (`loadOlder`), back to `memoryLimit` when they return to the top (`restoreWindow`).
+    @ObservationIgnored private var windowLimit = FeedStore.memoryLimit
+    /// What a memory warning trims the Feed to (`relieveMemoryPressure`).
+    public static let pressureLimit = 100
+    /// Where events that leave the window go, while the app runs: scrolling to the end brings
+    /// them back a page at a time (`loadOlder`). Nil keeps the old behavior: they are dropped.
+    @ObservationIgnored private var spill: RowSpill<FeedItem>?
+    /// Events in the spill (an estimate once the spill's own cap dropped pages): a Feed with
+    /// some has more below its last row.
+    public private(set) var olderOnDisk = 0
+    /// Ids in the spill: the Mac re-reports its ledger on every tree change, and an event the
+    /// window already spilled is not written again.
+    @ObservationIgnored private var spilledIDs: Set<String> = []
+    public private(set) var isLoadingOlder = false
+
     /// An older event the window keeps: an open ask, one with an answer on its way or a refusal
     /// to show, and the one Undo can still bring back.
     private func keepsOutsideWindow(_ item: FeedItem) -> Bool {
@@ -232,16 +248,25 @@ public final class FeedStore {
     /// The newest `memoryLimit` events in Feed order, and every older event `keepsOutsideWindow`.
     /// Applied only where events arrive (`insert`, `mergeHistory`, `replaceAll`), never in the
     /// write of something the person did to one (an answer, a read, Done).
-    private func windowed(_ all: [FeedItem]) -> [FeedItem] {
+    private func windowed(_ all: [FeedItem], limit: Int? = nil) -> [FeedItem] {
+        let limit = limit ?? windowLimit
         var kept: [FeedItem] = []
-        kept.reserveCapacity(Self.memoryLimit)
+        kept.reserveCapacity(min(all.count, limit))
         var evictedDone: [String] = []
+        var spilled: [FeedItem] = []
         for (offset, item) in all.enumerated() {
-            if offset < Self.memoryLimit || keepsOutsideWindow(item) {
+            if offset < limit || keepsOutsideWindow(item) {
                 kept.append(item)
             } else if item.isDone {
                 evictedDone.append(item.id)
+            } else if spill != nil, !spilledIDs.contains(item.id) {
+                spilled.append(item)
             }
+        }
+        if let spill, !spilled.isEmpty {
+            spilledIDs.formUnion(spilled.map(\.id))
+            spill.push(spilled)
+            olderOnDisk += spilled.count
         }
         if !evictedDone.isEmpty {
             let known = evictedDoneSet
@@ -268,7 +293,68 @@ public final class FeedStore {
                 next[index].isDone = true
             }
         }
-        if next.count > Self.memoryLimit { next = windowed(next) }
+        if next.count > windowLimit { next = windowed(next) }
+        if next != items { items = next }
+    }
+
+    // MARK: Spill
+
+    /// Spills events that leave the window to `spill` (the account's, in Caches), starting
+    /// empty: the spill only lives as long as this run of the Feed. Nil stops spilling.
+    public func useSpill(_ spill: RowSpill<FeedItem>?) {
+        self.spill?.reset()
+        spill?.reset()
+        self.spill = spill
+        olderOnDisk = 0
+        spilledIDs = []
+    }
+
+    /// The person reached the end of the Feed: the newest page of spilled events comes back
+    /// from disk, read off the main thread, and the window grows to hold it.
+    public func loadOlder() {
+        guard spill != nil, olderOnDisk > 0, !isLoadingOlder else { return }
+        Task { @MainActor in await loadOlderPage() }
+    }
+
+    /// `loadOlder`, returning once the page is in the Feed (tests).
+    func loadOlderPage() async {
+        guard let spill, olderOnDisk > 0, !isLoadingOlder else { return }
+        isLoadingOlder = true
+        defer { isLoadingOlder = false }
+        while olderOnDisk > 0 {
+            let page = await spill.pop()
+            guard self.spill != nil else { return }
+            guard !page.isEmpty else {
+                olderOnDisk = 0
+                spilledIDs = []
+                return
+            }
+            olderOnDisk = max(0, olderOnDisk - page.count)
+            spilledIDs.subtract(page.map(\.id))
+            // A newer copy already in memory (the Mac re-reported it) wins.
+            let back = page.filter { itemIndex[$0.id] == nil }
+            guard !back.isEmpty else { continue }
+            windowLimit = max(windowLimit, items.count + back.count)
+            var next = items
+            next.append(contentsOf: back)
+            setItems(next.sorted { $0.createdAt > $1.createdAt })
+            return
+        }
+    }
+
+    /// The person is back at the top: the rows brought back for scrolling go back to disk.
+    public func restoreWindow() {
+        guard windowLimit != Self.memoryLimit else { return }
+        windowLimit = Self.memoryLimit
+        setItems(items)
+    }
+
+    /// A memory warning: the Feed keeps its newest `pressureLimit` events (and every open ask);
+    /// the rest go to the spill when there is one, or are dropped as the window drops them.
+    public func relieveMemoryPressure() {
+        windowLimit = Self.memoryLimit
+        guard items.count > Self.pressureLimit else { return }
+        let next = windowed(items, limit: Self.pressureLimit)
         if next != items { items = next }
     }
 
@@ -373,6 +459,7 @@ public final class FeedStore {
         self.answersLocally = answersLocally
         reindex()
         refreshDerived()
+        MemoryPressure.shared.register(self) { [weak self] in self?.relieveMemoryPressure() }
     }
 
     /// Pull to refresh: re-reads the Mac's sessions and open asks through
@@ -498,6 +585,7 @@ public final class FeedStore {
         onItemsChange = nil
         actions = nil
         replaceAll([])
+        useSpill(nil)
         evictedDoneIDs = []
         useReadMarks(nil)
     }
