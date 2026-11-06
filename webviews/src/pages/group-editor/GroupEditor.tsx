@@ -229,6 +229,7 @@ export function GroupEditorCard({
               <span
                 key={color.id}
                 className="group-editor-swatch"
+                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the ARIA radio pattern on a color dot; an <input type="radio"> would take focus from the name field on press and change the dots' keys.
                 role="radio"
                 aria-checked={on}
                 aria-label={color.label}
@@ -246,6 +247,7 @@ export function GroupEditorCard({
           })}
           <span
             className="group-editor-swatch group-editor-custom"
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the same radio pattern as the palette dots.
             role="radio"
             aria-checked={customChosen}
             aria-label={strings.customColor}
