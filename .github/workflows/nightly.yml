@@ -73,7 +73,7 @@ on:
         default: false
         type: boolean
       notary_test_without_browser_data_import:
-        description: nightly-next only. Like notary_test_without_password_import, and also compiles out every read of another browser's files or Keychain items (CMUX_NO_BROWSER_DATA_IMPORT) and ships an empty browser-sources.json. One app notary submission (plus the Computer Use helper's), nothing published.
+        description: nightly-next only. Like notary_test_without_password_import, and also compiles out every read of another browser's files or Keychain items (CMUX_NO_BROWSER_DATA_IMPORT) and ships an empty browser-sources.json. One app notary submission, nothing published.
         required: false
         default: false
         type: boolean
@@ -94,7 +94,7 @@ on:
         default: false
         type: boolean
       notary_probe_production_identity:
-        description: nightly-next only. One app notary submission (plus the Computer Use helper's) of this build as the production identity (com.cmuxterm.app, cmux.release.entitlements, release profile) with the browser-data import compiled out. There is no Sparkle key or feed, no DMG or app artifact, and no recovery artifact. Only text receipts are uploaded and nothing is published.
+        description: nightly-next only. One app notary submission of this build as the production identity (com.cmuxterm.app, cmux.release.entitlements, release profile) with the browser-data import compiled out. There is no Sparkle key or feed, no DMG or app artifact, and no recovery artifact. Only text receipts are uploaded and nothing is published.
         required: false
         default: false
         type: boolean
@@ -799,7 +799,7 @@ jobs:
             core.setOutput('notary_test_browser_data', browserDataOut ? 'true' : 'false');
             core.setOutput('no_publish', notaryPaused || notaryTest ? 'true' : 'false');
             if (notaryTest) {
-              core.notice(`cx-f58x notary test (${notaryProbe ? 'production-identity probe, ' : ''}import ${importVariant}): one app notary submission plus the Computer Use helper's, nothing published.`);
+              core.notice(`cx-f58x notary test (${notaryProbe ? 'production-identity probe, ' : ''}import ${importVariant}): one app notary submission, nothing published.`);
             } else if (browserDataOut) {
               core.notice('nightly-next ships with the browser-data import compiled out (NIGHTLY_NEXT_BROWSER_DATA_IMPORT=compiled-out).');
             }
@@ -2465,12 +2465,6 @@ jobs:
         if: inputs.nightly_next_unsigned_run == '' && (env.NIGHTLY_FAST_BUILD == 'true')
         run: bash scripts/ci/nightly-steps/app-bundle-fast-cmux-tui-client.sh
 
-      - name: Assemble the Computer Use helper
-        if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true'
-        env:
-          HELPER_ARCHS: ${{ contains(needs.decide.outputs.variants, 'x86_64') && 'arm64 x86_64' || 'arm64' }}
-        run: bash scripts/ci/nightly-steps/app-assemble-computer-use-helper.sh
-
       - name: Resolve immutable SSH daemon metadata
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.build_only != 'true')
         id: remote_daemon
@@ -3125,8 +3119,7 @@ jobs:
       # restores; it runs here only when that job did not prove this app (an unsigned
       # resume, or a build_sha without the step). It scans file contents, so the strip
       # before transfer does not hide anything from it, and it covers what
-      # build-nightly-app adds after the compile (the Computer Use helper,
-      # cmux-symbols.bin). The password-reader proof reads symbols with nm, which the
+      # build-nightly-app adds after the compile (cmux-symbols.bin). The password-reader proof reads symbols with nm, which the
       # strip removes, so it stays right after the compile in build-nightly-app.
       - &prove-the-browser-data-import
         name: Prove the browser-data import is compiled out (cx-f58x notary test)
@@ -3504,9 +3497,6 @@ jobs:
     # The pick comes first on every event: it names only runners that carry exactly that label (signing_runner.py
     # signer_only), and the literal is the fallback when it picked none.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned && fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned) || 'glaeda-trusted-next-signing' }}
-    # Start the standalone Computer Use helper submission before Codesign apps
-    # so Apple's first wait overlaps useful work; finish it before the final
-    # DMG. The job budget covers both waits (see the notarize step).
     # Sparkle delta generation runs after the full publication in a separate
     # best-effort lane, so it cannot delay the first update users can install.
     # A cx-f58x notary test waits up to 160 minutes for Apple (52c6c12d took
@@ -3844,25 +3834,6 @@ jobs:
         run: bash -e scripts/ci/nightly-steps/embed-provisioning-profile.sh
 
 
-      # The Computer Use helper has its own notarization ticket (a copy outside
-      # the app stays Gatekeeper-valid). Its submission starts here, signed
-      # with its final Developer ID signature, so Apple's wait overlaps the
-      # smoke steps; the notarize step below finishes it before the DMG.
-      - name: Start the Computer Use helper notarization
-        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true'
-        env:
-          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
-          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
-          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-        run: |
-          ./scripts/ci/notarize-computer-use-helper.sh --start \
-            "$RUNNER_TEMP/cmux-computer-use-notarization.state" \
-            "$CHANNEL_APP_PATH" \
-            "$CHANNEL_ENTITLEMENTS" \
-            "$APPLE_SIGNING_IDENTITY"
-
-
       - name: Codesign apps
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -3876,13 +3847,7 @@ jobs:
             echo "Missing APPLE_SIGNING_IDENTITY secret" >&2
             exit 1
           fi
-          # A submitted helper keeps the exact signature Apple is notarizing;
-          # otherwise (fast or paused builds) sign it in the inside-out pass.
-          sign_mode=all
-          if [ -f "$RUNNER_TEMP/cmux-computer-use-notarization.state" ]; then
-            sign_mode=all-except-computer-use
-          fi
-          CMUX_SIGN_MODE="$sign_mode" ./scripts/sign-cmux-bundle.sh \
+          CMUX_SIGN_MODE=all ./scripts/sign-cmux-bundle.sh \
             "$CHANNEL_APP_PATH" \
             "$CHANNEL_ENTITLEMENTS" \
             "$APPLE_SIGNING_IDENTITY"
@@ -3899,12 +3864,6 @@ jobs:
           path: ${{ runner.temp }}/cef-runtime
           if-no-files-found: error
           retention-days: 7
-
-      # Onboarding grants Accessibility and Screen Recording only to a helper
-      # that passes the Developer ID requirement (cx-urd.6).
-      - name: Verify the Computer Use helper signature
-        run: ./scripts/ci/verify-computer-use-helper.sh signed "$CHANNEL_APP_PATH"
-
 
       - name: Delete signing keychain before runtime checks
         if: always()
@@ -3927,8 +3886,7 @@ jobs:
           echo "### nightly-next notarization paused (NIGHTLY_NEXT_NOTARY_PAUSED=1): no notary submission, nothing published" >> "$GITHUB_STEP_SUMMARY"
 
 
-      # The helper re-seal and the DMG need the identity again. Both run no
-      # bundle code; notarize-nightly-dmg.sh deletes the keychain right after
+      # The DMG needs the identity again. It runs no bundle code; notarize-nightly-dmg.sh deletes the keychain right after
       # the DMG signature, before static artifact verification.
       - name: Import signing cert for the DMG signature
         env:
@@ -3947,12 +3905,8 @@ jobs:
         # the newest Accepted build. Nightly-next runs one at a time, so a
         # longer wait held every newer build behind one stalled submission
         # (submission 5912557e stayed In Progress for over 90m on 2026-10-14).
-        # The helper submitted before Codesign apps finishes first: at most
-        # 15m more in Apple's queue plus 20m of Gatekeeper propagation polling
-        # (notarize-computer-use-helper.sh), so the step budget covers both
-        # waits and the DMG's pending state is always written before a timeout.
-        # A helper Apple still holds after 15m is not a failure: the DMG ticket
-        # covers it, and that is checked (cx-urd.68), and a slow DMG is handed off.
+        # The step budget is far above the wait, so the DMG's pending state is
+        # always written before a timeout, and a slow DMG is handed off.
         # Outside notary tests, the DMG that ships is a second DMG built around
         # the app stapled from the first ticket, with its own submission and
         # the same wait (CMUX_STAPLE_APP_IN_DMG); a slow second DMG is handed
@@ -3960,8 +3914,6 @@ jobs:
         timeout-minutes: ${{ needs.decide.outputs.notary_test == 'true' && 205 || 130 }}
         env:
           CMUX_NOTARY_WAIT_TIMEOUT: ${{ needs.decide.outputs.notary_test == 'true' && '160m' || needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && '20m' || '40m' }}
-          CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE: ${{ runner.temp }}/cmux-computer-use-notarization.state
-          CMUX_COMPUTER_USE_NOTARY_WAIT_TIMEOUT: 15m
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
@@ -4359,10 +4311,9 @@ jobs:
         run: bash scripts/ci/nightly-steps/verify-signed-diff-sidecar-contract.sh
 
       # The post-sign checks of sign-cmux-bundle.sh (entitlements, helpers,
-      # browser host) on this signed app whichever signer made it, and the
-      # Computer Use helper's own ticket on a copy taken out of the app.
+      # browser host) on this signed app whichever signer made it.
       # A build commit older than these checks has none to run.
-      - name: Verify signed app entitlements and the Computer Use helper ticket
+      - name: Verify signed app entitlements
         if: hashFiles('scripts/ci/nightly-steps/verify-signed-app-checks.sh') != ''
         run: bash scripts/ci/nightly-steps/verify-signed-app-checks.sh
 

@@ -471,12 +471,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p stable-out
-          : > "$RUNNER_TEMP/unused-helper-state"
           # Overnight there is time to wait for Apple; a run still waiting fails and the next tick retries.
           CMUX_CHANNEL=next-stable \
           CMUX_NOTARY_WAIT_TIMEOUT=90m \
-          CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL="$PWD/scripts/ci/keep-stapled-computer-use-helper.sh" \
-          CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE="$RUNNER_TEMP/unused-helper-state" \
           CMUX_NOTARY_SUBMISSION_FILE="$RUNNER_TEMP/stable.notarization.state" \
           CMUX_NOTARY_OUTPUT_FILE="$RUNNER_TEMP/stable.notarization.log" \
             ./scripts/ci/notarize-nightly-dmg.sh "stable-app/cmux NEXT Stable.app" \

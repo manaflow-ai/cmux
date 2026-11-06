@@ -326,7 +326,6 @@ class ThisTree(unittest.TestCase):
         in_area_jobs = (
             "tests/test_cmux_bug_triage.py",
             "tests/test_cmux_code_mode_mcp.py",
-            "tests/test_cmux_cua_dev_helper_identity.py",
             "tests/test_remote_daemon_notices.py",
             "tests/test_remote_daemon_release_assets.py",
             "tests/test_remote_daemon_release_verification.py",

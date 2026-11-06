@@ -54,8 +54,18 @@ impl FakeDesktop {
                 app("com.1password.1password", "1Password", 20),
             ],
             windows: vec![
-                window("2", "com.1password.1password", 20, Rect { x: 200.0, y: 200.0, width: 300.0, height: 200.0 }),
-                window("1", "com.apple.Safari", 10, Rect { x: 100.0, y: 100.0, width: 800.0, height: 600.0 }),
+                window(
+                    "2",
+                    "com.1password.1password",
+                    20,
+                    Rect { x: 200.0, y: 200.0, width: 300.0, height: 200.0 },
+                ),
+                window(
+                    "1",
+                    "com.apple.Safari",
+                    10,
+                    Rect { x: 100.0, y: 100.0, width: 800.0, height: 600.0 },
+                ),
             ],
             scale: 2.0,
             events: Mutex::new(vec![]),
@@ -64,11 +74,11 @@ impl FakeDesktop {
     }
 
     pub fn events(&self) -> Vec<Event> {
-        self.events.lock().unwrap().clone()
+        self.events.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
     fn push(&self, e: Event) {
-        self.events.lock().unwrap().push(e);
+        self.events.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(e);
     }
 
     fn known(&self, window: &str) -> DResult<()> {
@@ -85,7 +95,11 @@ impl Desktop for FakeDesktop {
         PlatformInfo { os: "fake".into(), display_server: "fake".into(), detail: String::new() }
     }
     fn permissions(&self) -> Permissions {
-        Permissions { accessibility: Grant::Granted, screen_capture: Grant::Granted, input: Grant::Granted }
+        Permissions {
+            accessibility: Grant::Granted,
+            screen_capture: Grant::Granted,
+            input: Grant::Granted,
+        }
     }
     fn list_apps(&self) -> DResult<Vec<App>> {
         Ok(self.apps.clone())
@@ -108,12 +122,21 @@ impl Desktop for FakeDesktop {
             }
         };
         let (w, h) = ((frame.width * self.scale) as u32, (frame.height * self.scale) as u32);
-        let paint = *self.paint.lock().unwrap();
-        Ok(RawFrame { width: w, height: h, rgba: vec![paint; (w * h * 4) as usize], scale: self.scale, origin })
+        let paint = *self.paint.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        Ok(RawFrame {
+            width: w,
+            height: h,
+            rgba: vec![paint; (w * h * 4) as usize],
+            scale: self.scale,
+            origin,
+        })
     }
     fn ui_tree(&self, window_id: &str, _options: TreeOptions) -> DResult<UiTree> {
-        self.known(window_id)?;
-        let w = self.windows.iter().find(|w| w.id == window_id).unwrap();
+        let w = self
+            .windows
+            .iter()
+            .find(|w| w.id == window_id)
+            .ok_or_else(|| DesktopError::TargetNotFound(format!("window {window_id}")))?;
         Ok(UiTree {
             window_id: window_id.into(),
             truncated: false,
@@ -131,7 +154,12 @@ impl Desktop for FakeDesktop {
                     role: "button".into(),
                     name: "OK".into(),
                     value: String::new(),
-                    frame: Some(Rect { x: w.frame.x + 10.0, y: w.frame.y + 20.0, width: 40.0, height: 20.0 }),
+                    frame: Some(Rect {
+                        x: w.frame.x + 10.0,
+                        y: w.frame.y + 20.0,
+                        width: 40.0,
+                        height: 20.0,
+                    }),
                     actions: vec!["press".into()],
                     focused: false,
                     disabled: false,
@@ -146,15 +174,31 @@ impl Desktop for FakeDesktop {
             PointerTarget::Point { point, .. } => (Some(*point), None),
             PointerTarget::Element { element_id, .. } => (None, Some(element_id.clone())),
         };
-        self.push(Event::Click { window: target.window_id().into(), point, element, count: spec.count });
+        self.push(Event::Click {
+            window: target.window_id().into(),
+            point,
+            element,
+            count: spec.count,
+        });
         Ok(ActionOutcome::delivered("fake"))
     }
-    fn type_text(&self, window_id: &str, _e: Option<&str>, text: &str, _d: Delivery) -> DResult<ActionOutcome> {
+    fn type_text(
+        &self,
+        window_id: &str,
+        _e: Option<&str>,
+        text: &str,
+        _d: Delivery,
+    ) -> DResult<ActionOutcome> {
         self.known(window_id)?;
         self.push(Event::Type { window: window_id.into(), text: text.into() });
         Ok(ActionOutcome::delivered("fake"))
     }
-    fn press_keys(&self, window_id: &str, combo: &KeyCombo, _d: Delivery) -> DResult<ActionOutcome> {
+    fn press_keys(
+        &self,
+        window_id: &str,
+        combo: &KeyCombo,
+        _d: Delivery,
+    ) -> DResult<ActionOutcome> {
         self.known(window_id)?;
         self.push(Event::Keys { window: window_id.into(), combo: combo.clone() });
         Ok(ActionOutcome::delivered("fake"))
@@ -164,19 +208,39 @@ impl Desktop for FakeDesktop {
         self.push(Event::Scroll { window: target.window_id().into(), dx, dy });
         Ok(ActionOutcome::delivered("fake"))
     }
-    fn drag(&self, window_id: &str, from: Point, to: Point, _b: Button, _d: Delivery) -> DResult<ActionOutcome> {
+    fn drag(
+        &self,
+        window_id: &str,
+        from: Point,
+        to: Point,
+        _b: Button,
+        _d: Delivery,
+    ) -> DResult<ActionOutcome> {
         self.known(window_id)?;
         self.push(Event::Drag { window: window_id.into(), from, to });
         Ok(ActionOutcome::delivered("fake"))
     }
     fn set_value(&self, window_id: &str, element_id: &str, value: &str) -> DResult<ActionOutcome> {
         self.known(window_id)?;
-        self.push(Event::SetValue { window: window_id.into(), element: element_id.into(), value: value.into() });
+        self.push(Event::SetValue {
+            window: window_id.into(),
+            element: element_id.into(),
+            value: value.into(),
+        });
         Ok(ActionOutcome::confirmed("fake"))
     }
-    fn perform_action(&self, window_id: &str, element_id: &str, action: &str) -> DResult<ActionOutcome> {
+    fn perform_action(
+        &self,
+        window_id: &str,
+        element_id: &str,
+        action: &str,
+    ) -> DResult<ActionOutcome> {
         self.known(window_id)?;
-        self.push(Event::Action { window: window_id.into(), element: element_id.into(), action: action.into() });
+        self.push(Event::Action {
+            window: window_id.into(),
+            element: element_id.into(),
+            action: action.into(),
+        });
         Ok(ActionOutcome::confirmed("fake"))
     }
     fn launch_app(&self, app_id: &str) -> DResult<App> {

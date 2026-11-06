@@ -18,40 +18,6 @@ path = "tests/test_cmux_code_mode_mcp.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_cmux_cua_build_cache_safety.py"
-lane = "macos-cli-no-socket"
-
-[[test]]
-path = "tests/test_cmux_cua_compat_contract.py"
-lane = "macos-cli-no-socket"
-
-[[test]]
-path = "tests/test_cmux_cua_dev_helper_identity.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_cmux_cua_divider_drags.py"
-lane = "manual"
-reason = "Requires an isolated tagged cmux app and helper, two prepared split workspaces, and a plan with observed divider coordinates for native drags."
-
-[[test]]
-path = "tests/test_cmux_cua_drag_cursor.py"
-lane = "manual"
-reason = "Requires an isolated macOS GUI session, a running cmux-cua helper with capture/input permissions, and observed window/divider coordinates."
-
-[[test]]
-path = "tests/test_cmux_cua_drag_cursor_harness.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_cmux_cua_helper_identity.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_cmux_cua_mcp_smoke.py"
-lane = "macos-cli-no-socket"
-
-[[test]]
 path = "tests/test_cmux_next_app_ffi_pin_scope.py"
 lane = "linux-guard"
 

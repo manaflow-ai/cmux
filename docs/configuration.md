@@ -923,8 +923,9 @@ cmux also posts a notification when a workspace's status first reaches done, and
 
 ## `mcp.enabled` and agent sessions
 
-Agent sessions that cmux starts through acpmux get the `cmux-cua` Computer Use MCP server
-and, for Claude Code, the skills `cmux:cmux-browser` and `cmux:cmux-cua`. With
+Agent sessions that cmux starts through acpmux get the cmux Computer Use MCP server
+(`cmux-computer-use`, [docs/computer-use/README.md](computer-use/README.md)) and, for Claude
+Code, the skills `cmux:cmux-browser` and `cmux:cmux-cua`. With
 `"mcp": {"enabled": true}` they also get the `cmux` MCP server with the browser REPL tools.
 To turn all of these off, set the environment variable `ACPMUX_AGENT_TOOLS=0` for the acpmux
 daemon (or in one acpmux profile's `env`). A Claude profile that passes

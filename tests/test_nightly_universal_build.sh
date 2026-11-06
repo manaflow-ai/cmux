@@ -484,8 +484,7 @@ fi
 # cmux-next ships no legacy Cloud tunnel system extension. The opt-in Cloud
 # Tunnel (plans/cmux-next/cloud-tunnel-DESIGN.md) is handled only by its own
 # "Prepare the Cloud Tunnel extension" step, which signs or removes it, so that
-# step is left out of this check. It does ship the Computer Use helper (D19;
-# tests/test_nightly_next_computer_use_helper.py). The Chromium engine artifact
+# step is left out of this check. The Chromium engine artifact
 # is arm64 only, so an x86_64 variant drops it before thinning.
 if awk '
   /^      - name: Prepare the Cloud Tunnel extension$/ { skip=1; next }

@@ -88,7 +88,7 @@ fn denied_apps_are_refused_and_redacted() {
 fn approved_apps_asks_and_saves_always() {
     let d = Arc::new(FakeDesktop::standard());
     let approver = Arc::new(Scripted(Mutex::new(vec![Answer::AlwaysAllow]), Mutex::new(vec![])));
-    let mut parts = EngineParts::new(d.clone());
+    let mut parts = EngineParts::new(d);
     parts.config = PolicyConfig { mode: Mode::ApprovedApps, ..PolicyConfig::default() };
     parts.approver = approver.clone();
     let e = Engine::new(parts);
@@ -114,7 +114,7 @@ fn nobody_to_ask_fails_closed() {
 #[test]
 fn takeover_pauses_acting_but_not_looking() {
     let d = Arc::new(FakeDesktop::standard());
-    let mut parts = EngineParts::new(d.clone());
+    let mut parts = EngineParts::new(d);
     parts.takeover = Arc::new(Busy);
     let e = Engine::new(parts);
     let out = e.call(&ctx(None), "type_text", &json!({"window_id": "1", "text": "hi"}));
@@ -140,7 +140,7 @@ fn unchanged_screenshot_has_no_image() {
 fn cursor_glides_then_clicks() {
     let d = Arc::new(FakeDesktop::standard());
     let rec = Arc::new(Recorder(Mutex::new(vec![])));
-    let mut parts = EngineParts::new(d.clone());
+    let mut parts = EngineParts::new(d);
     parts.cursor = rec.clone();
     let e = Engine::new(parts);
     e.call(&ctx(None), "click", &json!({"window_id": "1", "x": 10, "y": 10}));
@@ -175,8 +175,8 @@ fn ui_tree_frames_come_back_in_screenshot_pixels() {
     e.call(&ctx(None), "screenshot", &json!({"window_id": "1"}));
     let t = e.call(&ctx(None), "get_ui_tree", &json!({"window_id": "1"}));
     let f = &t.body["root"]["children"][0]["frame"];
-    let k = 1456.0 / 800.0;
-    assert_eq!(f["x"].as_f64().unwrap(), (10.0 * k as f64).round());
+    let k: f64 = 1456.0 / 800.0;
+    assert_eq!(f["x"].as_f64().unwrap(), (10.0 * k).round());
 }
 
 #[test]
@@ -184,7 +184,10 @@ fn off_refuses_everything_but_status() {
     let d = Arc::new(FakeDesktop::standard());
     let e = engine(d, PolicyConfig { mode: Mode::Off, ..PolicyConfig::default() });
     assert!(!e.call(&ctx(None), "status", &json!({})).is_error);
-    assert_eq!(e.call(&ctx(None), "list_apps", &json!({})).code.as_deref(), Some("computer_use_off"));
+    assert_eq!(
+        e.call(&ctx(None), "list_apps", &json!({})).code.as_deref(),
+        Some("computer_use_off")
+    );
 }
 
 #[test]

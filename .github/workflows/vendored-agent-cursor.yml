@@ -1,14 +1,13 @@
 name: Vendored agent cursor
 
 # Packages/Shared/CmuxAgentCursor is vendored verbatim from manaflow-ai/cmux-cua
-# at CMUX_CUA_PINNED_SHA. This fails when the copy was edited by hand or the pin
-# moved without a re-sync (scripts/bump-cmux-cua-pin.sh does both).
+# at CMUX_CUA_PINNED_SHA (scripts/cmux_agent_cursor_vendor.py). This fails when
+# the copy was edited by hand or the pin moved without a re-sync.
 
 on:
   pull_request:
     paths:
       - Packages/Shared/CmuxAgentCursor/**
-      - scripts/build-cmux-cua.sh
       - scripts/cmux_agent_cursor_vendor.py
       - tests/test_vendored_cmux_agent_cursor.py
       - .github/workflows/vendored-agent-cursor.yml

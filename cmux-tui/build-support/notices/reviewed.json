@@ -92,36 +92,6 @@
         }
       ]
     },
-    "cmux-cua 0.8.12": {
-      "reason": "a path crate of manaflow-ai/cmux-cua's Rust workspace (libs/cmux-cua/rust, the commit scripts/build-cmux-cua.sh pins); it ships no license file and its manifest names none, the workspace declares MIT, and the repository's root LICENSE.md (MIT, Cua AI, Inc.) is the text that covers it",
-      "files": [
-        {
-          "file": "texts/manaflow-ai-cmux-cua-e8a8dbfd45a5/LICENSE.md",
-          "source": "https://raw.githubusercontent.com/manaflow-ai/cmux-cua/e8a8dbfd45a5d050058e7340f97ffe6f157c3128/LICENSE.md",
-          "sha256": "c0779290c1d4783169aa3dbfb55feb505e563ef8a004bbf55298ceffcfbda8d9"
-        }
-      ]
-    },
-    "cmux-cua-core 0.8.12": {
-      "reason": "a path crate of manaflow-ai/cmux-cua's Rust workspace (libs/cmux-cua/rust, the commit scripts/build-cmux-cua.sh pins); it ships no license file and its manifest names none, the workspace declares MIT, and the repository's root LICENSE.md (MIT, Cua AI, Inc.) is the text that covers it",
-      "files": [
-        {
-          "file": "texts/manaflow-ai-cmux-cua-e8a8dbfd45a5/LICENSE.md",
-          "source": "https://raw.githubusercontent.com/manaflow-ai/cmux-cua/e8a8dbfd45a5d050058e7340f97ffe6f157c3128/LICENSE.md",
-          "sha256": "c0779290c1d4783169aa3dbfb55feb505e563ef8a004bbf55298ceffcfbda8d9"
-        }
-      ]
-    },
-    "cursor-overlay 0.8.12": {
-      "reason": "a path crate of manaflow-ai/cmux-cua's Rust workspace (libs/cmux-cua/rust, the commit scripts/build-cmux-cua.sh pins); it ships no license file and its manifest names none, the workspace declares MIT, and the repository's root LICENSE.md (MIT, Cua AI, Inc.) is the text that covers it",
-      "files": [
-        {
-          "file": "texts/manaflow-ai-cmux-cua-e8a8dbfd45a5/LICENSE.md",
-          "source": "https://raw.githubusercontent.com/manaflow-ai/cmux-cua/e8a8dbfd45a5d050058e7340f97ffe6f157c3128/LICENSE.md",
-          "sha256": "c0779290c1d4783169aa3dbfb55feb505e563ef8a004bbf55298ceffcfbda8d9"
-        }
-      ]
-    },
     "dispatch2 0.3.1": {
       "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release The upstream LICENSE.md only points to opensource.org (no permission notice, no copyright line), so a reviewer-supplied text ships too: SPDX license-list-data v3.29.0 (31ba1a50) text/MIT.txt with line 3 set to \"Copyright (c) Mads Marquart, Mary and the objc2 contributors\", plus the unmodified SPDX v3.29.0 Zlib and Apache-2.0 texts for the other two alternatives. Evidence: Cargo.toml authors is \"Mads Marquart <mads@marquart.dk>\", \"Mary <mary@mary.zone>\"; dispatch2 started as marysaka/dispatch2 (its LICENSE-MIT has no copyright line); the objc2 crates started as Steven Sheldon's rust-objc, whose https://github.com/SSheldon/rust-objc/blob/master/LICENSE.txt says \"Copyright (c) Steven Sheldon\"; decided in https://github.com/manaflow-ai/cmux-browser/pull/609 release-compliance/SIGNOFF-2026-10.md (Q5). This text replaces the interim \"Copyright (c) Mads Marquart\" text (sha256 340585b8).",
       "files": [
@@ -544,26 +514,6 @@
           "file": "texts/reviewer-supplied/Apache-2.0.txt",
           "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/Apache-2.0.txt",
           "sha256": "074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff"
-        }
-      ]
-    },
-    "pip-preview 0.8.12": {
-      "reason": "a path crate of manaflow-ai/cmux-cua's Rust workspace (libs/cmux-cua/rust, the commit scripts/build-cmux-cua.sh pins); it ships no license file and its manifest names none, the workspace declares MIT, and the repository's root LICENSE.md (MIT, Cua AI, Inc.) is the text that covers it",
-      "files": [
-        {
-          "file": "texts/manaflow-ai-cmux-cua-e8a8dbfd45a5/LICENSE.md",
-          "source": "https://raw.githubusercontent.com/manaflow-ai/cmux-cua/e8a8dbfd45a5d050058e7340f97ffe6f157c3128/LICENSE.md",
-          "sha256": "c0779290c1d4783169aa3dbfb55feb505e563ef8a004bbf55298ceffcfbda8d9"
-        }
-      ]
-    },
-    "platform-macos 0.8.12": {
-      "reason": "a path crate of manaflow-ai/cmux-cua's Rust workspace (libs/cmux-cua/rust, the commit scripts/build-cmux-cua.sh pins); it ships no license file and its manifest names none, the workspace declares MIT, and the repository's root LICENSE.md (MIT, Cua AI, Inc.) is the text that covers it",
-      "files": [
-        {
-          "file": "texts/manaflow-ai-cmux-cua-e8a8dbfd45a5/LICENSE.md",
-          "source": "https://raw.githubusercontent.com/manaflow-ai/cmux-cua/e8a8dbfd45a5d050058e7340f97ffe6f157c3128/LICENSE.md",
-          "sha256": "c0779290c1d4783169aa3dbfb55feb505e563ef8a004bbf55298ceffcfbda8d9"
         }
       ]
     },
