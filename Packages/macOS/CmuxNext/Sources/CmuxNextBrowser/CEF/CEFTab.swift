@@ -394,7 +394,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // it back on screen over the pane's current tab.
         let shown = isShown
         host.lifecycleTrace.record(id, "attach pendingFocus=\(pendingFocus) shown=\(shown)")
-        if pendingFocus, shown {
+        // A page shown in this turn keeps the ask: `pageDidAppear` grants it after the turn's frame commit.
+        if pendingFocus, shown, !appearedThisTurn {
             pendingFocus = false
             grantFocus(browser)
         }
