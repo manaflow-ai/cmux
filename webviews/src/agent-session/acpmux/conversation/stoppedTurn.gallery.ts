@@ -30,10 +30,7 @@ const coordinator = (minutes: number, fields: Parameters<typeof user>[2] = {}) =
 
 const stoppedTurn = (fields: Parameters<typeof summary>[1] = {}) => [
   user(prompt, 6),
-  assistant(
-    "The lexer already emits the new tokens. I'm moving the parser's lookahead over next.",
-    5.5,
-  ),
+  assistant("The lexer already emits the new tokens. I'm moving the parser's lookahead over next.", 5.5),
   summary(5.3, { status: "cancelled", durationMs: 41_000, ...fields }),
 ];
 
@@ -44,11 +41,7 @@ const footerLook = (kind: "before" | "chosen" | "roomy") => async (ctx: PlayCont
   const roomy =
     ".cv-turn-actions .cv-iconbtn.cv-turn-continue { height: var(--cv-footer-row); gap: 6px; padding-inline: 8px; font-size: var(--cv-font-size); }";
   style.textContent =
-    kind === "before"
-      ? before
-      : kind === "roomy"
-        ? roomy
-        : ":root { --gallery-footer-look: chosen; }";
+    kind === "before" ? before : kind === "roomy" ? roomy : ":root { --gallery-footer-look: chosen; }";
   ctx.document.head.append(style);
   await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-continue"), { capMs: 10_000 });
 };
@@ -104,10 +97,7 @@ export default agentPaneEntry({
       note: "Before (for comparison): the old notice line under Continue. Not drawn any more.",
       snapshot: chat([
         user(prompt, 6),
-        assistant(
-          "The lexer already emits the new tokens. I'm moving the parser's lookahead over next.",
-          5.5,
-        ),
+        assistant("The lexer already emits the new tokens. I'm moving the parser's lookahead over next.", 5.5),
         coordinator(5.4),
         summary(5.3, { status: "cancelled", durationMs: 41_000 }),
         row("notice", 5.3, { text: "The agent didn't answer Stop, so cmux ended its turn." }),
