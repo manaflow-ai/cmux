@@ -29,7 +29,7 @@ struct ClassicUpgradeHugeProfileTests {
         case 0:
             let mac = try ClassicUpgradeSimulator.Mac()
             try mac.save(ClassicUpgradeProfile.huge)
-            let sim = try ClassicUpgradeSimulator(mac: mac)
+            let sim = try ClassicUpgradeSimulator(mac: mac, tap: try DaemonCommandTap())
             Self.sim = sim
             let launch = await sim.launch(deadline: .seconds(25))
             guard sim.services.onboarding.classicMigrationRun != nil else {
@@ -58,6 +58,7 @@ struct ClassicUpgradeHugeProfileTests {
     /// rate of workspaces made, each process's CPU share and their heaviest stacks.
     private static func profile(_ label: String, sim: ClassicUpgradeSimulator, daemon: pid_t?) async {
         let madeBefore = sim.made().count
+        let tapBefore = sim.tap?.timings()
         let appCPU = cpuSeconds(getpid()), daemonCPU = daemon.map(cpuSeconds)
         let daemonSample = daemon.map { ExternalSample(pid: $0, seconds: window) }
         let (report, _) = (try? await SelfSampler.run(name: "classic-\(label)", seconds: window) { _ in
@@ -72,6 +73,20 @@ struct ClassicUpgradeHugeProfileTests {
             let list = controller.sidebar.container.sidebarView.list
             print("CLASSIC-PROFILE \(label) sidebar realized=\(list.rowViews.count) rows=\(list.displayed.rows.count) " +
                   "rect=\(list.realizationRect()) bounds=\(list.bounds) scroll=\(list.enclosingScrollView != nil)")
+        }
+        if let before = tapBefore, let after = sim.tap?.timings() {
+            let perWorkspace = Double(max(made, 1))
+            print(String(format: "CLASSIC-PROFILE %@ events=%.1f/ws bytes=%.0f/ws", label,
+                         Double(after.events.count - before.events.count) / perWorkspace,
+                         Double(after.events.bytes - before.events.bytes) / perWorkspace))
+            for (command, now) in after.replies.sorted(by: { $0.value.total - (before.replies[$0.key]?.total ?? 0) > $1.value.total - (before.replies[$1.key]?.total ?? 0) }) {
+                let was = before.replies[command] ?? (0, 0, 0)
+                let count = now.count - was.count
+                guard count > 0 else { continue }
+                print(String(format: "CLASSIC-PROFILE %@ reply %@ n=%.2f/ws mean=%.1fms total=%.0fms/ws longest=%.0fms", label, command,
+                             Double(count) / perWorkspace, (now.total - was.total) * 1000 / Double(count),
+                             (now.total - was.total) * 1000 / perWorkspace, now.longest * 1000))
+            }
         }
         printHeavy("APP-\(label)", report ?? "")
         printHeavy("DAEMON-\(label)", await daemonSample?.finish() ?? "")
