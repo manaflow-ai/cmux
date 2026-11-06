@@ -506,6 +506,8 @@ pub(super) fn start_stage(runner: &mut dyn Runner, started: &Value) -> StartStag
             machine_id: at(row, "machine_id").as_str().map(str::to_owned).or(id),
             status: at(row, "status").as_str().map(str::to_owned),
             listed: true,
+            // A failed machine's own error (`list-machines`' `error`), e.g. the VM API's machine cap.
+            reason: at(row, "error").get("message").and_then(Value::as_str).map(str::to_owned),
             ..StartStage::default()
         };
     }
@@ -594,10 +596,10 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     start.push("--json".to_owned());
     let started = match step_result(&runner.cmux(&start)) {
         Ok(started) => started,
-        Err(error) => return app_failure(error),
+        Err(error) => return start_refused(error, &listed, request),
     };
     if at(&started, "pending").as_bool() == Some(true) {
-        return start_pending(runner, request, &machine, &started);
+        return start_pending(runner, request, &machine, &started, &listed);
     }
     let (Some(machine_id), Some(session)) =
         (at(&started, "machine_id").as_str(), at(&started, "session_id").as_str())
@@ -788,9 +790,20 @@ fn start_pending(
     request: &Request,
     machine: &Machine,
     started: &Value,
+    listed: &Value,
 ) -> Outcome {
     let again = again_command(request, machine);
     let stage = start_stage(runner, started);
+    // A machine a cap failed names the account's machines and how to make room ([`cap`]).
+    let capped =
+        stage.reason.as_deref().filter(|_| stage.is_final()).and_then(|why| cap::cap_of("", why));
+    if let Some(found) = capped {
+        let why = stage.reason.as_deref().unwrap_or_default();
+        let (message, details) = cap::at_cap(found, why, listed, |id| {
+            again_command(request, &Machine::Target(id.to_owned()))
+        });
+        return failed("cloud.machine_cap", message, details, 1);
+    }
     if stage.is_final() {
         return failed(
             "cloud.start_failed",
@@ -956,6 +969,25 @@ fn app_failure(error: Value) -> Outcome {
     failed(&code, message, details, 1)
 }
 
+/// A start the app refused: a machine cap names the account's machines and the commands that
+/// make room ([`cap`]); any other refusal is [`app_failure`].
+fn start_refused(error: Value, listed: &Value, request: &Request) -> Outcome {
+    let code = at(&error, "code").as_str().unwrap_or_default();
+    let message = at(&error, "message").as_str().unwrap_or_default();
+    match cap::cap_of(code, message) {
+        Some(found) if !signed_out(&error) => {
+            let (text, mut details) = cap::at_cap(found, message, listed, |id| {
+                again_command(request, &Machine::Target(id.to_owned()))
+            });
+            if let Some(fields) = details.as_object_mut() {
+                fields.insert("app".to_owned(), error);
+            }
+            failed("cloud.machine_cap", text, details, 1)
+        }
+        _ => app_failure(error),
+    }
+}
+
 /// A failure after the chat started: the answer so far goes with it.
 fn sent_failure(error: Value, answer: Value) -> Outcome {
     let message = at(&error, "message").as_str().unwrap_or("cloud exec failed");
@@ -1056,6 +1088,8 @@ fn at<'a>(value: &'a Value, key: &str) -> &'a Value {
     value.get(key).unwrap_or(NULL)
 }
 
+mod cap;
 mod relay;
+
 #[cfg(test)]
 pub(in crate::cli) mod tests;

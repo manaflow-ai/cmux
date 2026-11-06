@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 
 use super::{
     GUEST_CMUX, Machine, Outcome, Request, Runner, app_failure, at, failed, follow_ups, signed_out,
-    start_pending, step_result, wait_turn, words,
+    start_pending, start_refused, step_result, wait_turn, words,
 };
 
 /// The longest the app's `cloud relay-chat` may take to answer: `action.run`'s result deadline.
@@ -48,11 +48,12 @@ pub(super) fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Va
                         request,
                         &request.machine,
                         &pending,
+                        listed,
                     ));
                 }
                 // A name no machine has yet: made here under that name, so its first chat still goes the relay way.
                 None if plain_name(name) && name_is_free(listed) => {
-                    match new_machine(runner, request, Some(name)) {
+                    match new_machine(runner, request, listed, Some(name)) {
                         Ok(id) => id,
                         Err(outcome) => return Relayed::Answered(outcome),
                     }
@@ -62,7 +63,7 @@ pub(super) fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Va
                 None => return Relayed::Fallback(None),
             }
         }
-        Machine::New => match new_machine(runner, request, None) {
+        Machine::New => match new_machine(runner, request, listed, None) {
             Ok(id) => id,
             Err(outcome) => return Relayed::Answered(outcome),
         },
@@ -258,6 +259,7 @@ fn name_is_free(listed: &Value) -> bool {
 fn new_machine(
     runner: &mut dyn Runner,
     request: &Request,
+    listed: &Value,
     name: Option<&str>,
 ) -> Result<String, Outcome> {
     let mut args = Vec::new();
@@ -266,7 +268,9 @@ fn new_machine(
         args.extend(["--name".to_owned(), name.to_owned()]);
     }
     args.push("--json".to_owned());
-    let made = step_result(&runner.cmux(&args)).map_err(app_failure)?;
+    // A cap's refusal names the account's machines and how to make room (`start_refused`).
+    let made =
+        step_result(&runner.cmux(&args)).map_err(|error| start_refused(error, listed, request))?;
     if let Some(id) = at(&made, "machine_id").as_str()
         && at(&made, "pending").as_bool() != Some(true)
     {
@@ -279,6 +283,7 @@ fn new_machine(
             request,
             &Machine::Named(name.to_owned()),
             &json!({"machine_name": name, "machine_id": at(&made, "machine_id"), "text": at(&made, "text")}),
+            listed,
         ),
         None => failed(
             "cloud.start_pending",

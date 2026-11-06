@@ -106,6 +106,46 @@ class HotApplyRust(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(json.loads(done.stdout)["base"], self.base)
 
+    def test_a_hung_daemon_status_changes_nothing(self):
+        stub = self.tmp / "stub"
+        stub.mkdir()
+        (stub / "ps").write_text(f"#!/bin/sh\necho '4242 {self.app}/Contents/Resources/bin/cmux-tui server'\n")
+        (stub / "lsof").write_text("#!/bin/sh\nprintf 'p4242\\nn/tmp/hung.sock\\n'\n")
+        # The app's own bin/cmux answers `server status` by hanging past find_socket's 10 s.
+        self.cmux.write_bytes(b"#!/bin/sh\nexec sleep 30\n")
+        self.old = self.sha()
+        for name in ("ps", "lsof"):
+            (stub / name).chmod(0o755)
+        self.env["PATH"] = f"{stub}:{self.env['PATH']}"
+        code, receipt, _ = self.hot("apply", FIX, "--app", str(self.app))
+        self.assertEqual(code, 1)
+        self.assertIn("never answered", receipt["error"])
+        self.assertEqual(self.sha(), self.old)
+
+    def test_a_short_stamp_missing_here_fetches_the_branch(self):
+        clone = self.tmp / "clone"
+        subprocess.run(["git", "init", "-q", str(clone)], check=True)
+        objects = run_git("rev-parse", "--path-format=absolute", "--git-common-dir").stdout.strip() + "/objects"
+        with open(self.app / "Contents/Info.plist", "wb") as handle:
+            plistlib.dump({"CMUXCommit": self.base[:11]}, handle)
+        spec = __import__("importlib.util").util.spec_from_file_location("hot_apply_fetch", SCRIPT)
+        hot = __import__("importlib.util").util.module_from_spec(spec)
+        sys.modules["hot_apply_fetch"] = hot
+        spec.loader.exec_module(hot)
+        fetched = []
+        real = hot.subprocess.run
+
+        def run(argv, **kwargs):
+            if argv[:4] == ["git", "-C", str(clone), "fetch"]:
+                fetched.append(argv)
+                # The fetch brings the nightly's commit: here, this checkout's objects.
+                (clone / ".git/objects/info/alternates").write_text(objects + "\n")
+                return subprocess.CompletedProcess(argv, 0, "", "")
+            return real(argv, **kwargs)
+        hot.subprocess.run = run
+        self.assertEqual(hot.app_commit(self.app, clone), self.base)
+        self.assertEqual(fetched[0][-2:], ["origin", "feat-cmux-next"])
+
     def test_a_rollback_that_fails_can_be_tried_again(self):
         code, receipt, err = self.hot("apply", FIX, "--app", str(self.app))
         self.assertEqual(code, 0, err)
@@ -158,6 +198,44 @@ class HotApplyRust(unittest.TestCase):
         self.assertEqual(receipt["applied"], [])
         self.assertIn("the app already contains SHA", receipt["notes"])
         self.assertEqual(self.sha(), self.old)
+
+
+class FindSocket(unittest.TestCase):
+    """find_socket with ps, lsof and the daemon's `server status` stubbed."""
+
+    def setUp(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("hot_apply_under_test", SCRIPT)
+        self.hot = importlib.util.module_from_spec(spec)
+        sys.modules["hot_apply_under_test"] = self.hot
+        spec.loader.exec_module(self.hot)
+        self.app = Path("/Apps/cmux NIGHTLY.app")
+        self.real_run = self.hot.subprocess.run
+
+    def tearDown(self):
+        self.hot.subprocess.run = self.real_run
+
+    def stub(self, status):
+        prefix = str(self.app / self.hot.BIN)
+
+        def run(argv, **kwargs):
+            if argv[0] == "ps":
+                return subprocess.CompletedProcess(argv, 0, f"4242 {prefix}/cmux-tui --session s server\n", "")
+            if argv[0] == "lsof":
+                return subprocess.CompletedProcess(argv, 0, "p4242\nn/tmp/s.sock\n", "")
+            return status(argv)
+        self.hot.subprocess.run = run
+
+    def test_a_daemon_that_answers_is_found(self):
+        self.stub(lambda argv: subprocess.CompletedProcess(argv, 0, '{"pid": 4242}', ""))
+        self.assertEqual(self.hot.find_socket(self.app, Path("cmux")), "/tmp/s.sock")
+
+    def test_a_status_that_never_answers_is_not_taken_for_no_daemon(self):
+        def hang(argv):
+            raise subprocess.TimeoutExpired(argv, 10)
+        self.stub(hang)
+        with self.assertRaisesRegex(RuntimeError, "never answered on /tmp/s.sock"):
+            self.hot.find_socket(self.app, Path("cmux"))
 
 
 if __name__ == "__main__":

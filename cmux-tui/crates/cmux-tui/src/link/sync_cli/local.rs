@@ -184,8 +184,8 @@ pub(super) fn collect(folder: &Path, rules: Rules) -> anyhow::Result<LocalSet> {
         // Untracked secrets and credential files never go (tracked ones were
         // committed on purpose).
         if untracked
-            && let Some(why) = skips::secret_at(folder, &path)
-                .or_else(|| skips::credential(&path, false))
+            && let Some(why) =
+                skips::secret_at(folder, &path).or_else(|| skips::credential(&path, false))
         {
             set.skips.note(&path, why);
             continue;

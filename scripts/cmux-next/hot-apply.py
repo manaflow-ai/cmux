@@ -148,7 +148,13 @@ def app_commit(app: Path, repo: Path = ROOT) -> str:
     if not re.fullmatch(r"[0-9a-f]{7,40}", commit):
         raise RuntimeError(f"{app} has no CMUXCommit (a DEV build): nothing to compare SHA with")
     if not SHA.fullmatch(commit):
-        full = git(repo, "rev-parse", "--verify", "--quiet", f"{commit}^{{commit}}", check=False)
+        def resolve() -> str:
+            return git(repo, "rev-parse", "--verify", "--quiet", f"{commit}^{{commit}}", check=False)
+        full = resolve()
+        if not SHA.fullmatch(full):
+            # A short sha cannot be fetched by itself: the branch the nightly was cut from can.
+            subprocess.run(["git", "-C", str(repo), "fetch", "-q", "origin", "feat-cmux-next"], capture_output=True)
+            full = resolve()
         if not SHA.fullmatch(full):
             raise RuntimeError(f"{app}'s CMUXCommit {commit} is not one commit in {repo} (fetch feat-cmux-next)")
         commit = full
@@ -269,7 +275,9 @@ def keep(state: Path, path: Path) -> tuple[Path, str]:
 
 def find_socket(app: Path, cli: Path) -> str | None:
     """The socket of the daemon running from APP's bin folder: a process there whose unix socket
-    answers `server status` with that process's pid."""
+    answers `server status` with that process's pid. None when no daemon runs from it; a socket
+    that never answered means one may, and raises rather than pass for none."""
+    hung = []
     prefix = str(app / BIN) + "/"
     ps = subprocess.run(["ps", "-axww", "-o", "pid=,command="], capture_output=True, text=True).stdout
     for line in ps.splitlines():
@@ -282,9 +290,13 @@ def find_socket(app: Path, cli: Path) -> str | None:
                 status = subprocess.run([str(cli), "--socket", name, "--json", "server", "status"],
                                         capture_output=True, text=True, timeout=10)
             except subprocess.TimeoutExpired:
+                hung.append(name)
                 continue
             if re.search(rf'"pid"\s*:\s*{pid}\b', status.stdout):
                 return name
+    if hung:
+        raise RuntimeError(f"`server status` never answered on {', '.join(sorted(hung))}: the daemon running "
+                           f"from {app} is not known; nothing changed (--socket names it)")
     return None
 
 

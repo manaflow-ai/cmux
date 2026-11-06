@@ -227,7 +227,9 @@ const CREDENTIAL_FILES: &[&str] = &[".config/hub"];
 /// Whether the names of `names` that end at `end` (exclusive) are `path`.
 fn ends_with(names: &[String], end: usize, path: &str) -> bool {
     let parts: Vec<String> = path.split('/').map(str::to_ascii_lowercase).collect();
-    end >= parts.len() && names[end - parts.len()..end] == parts[..]
+    end.checked_sub(parts.len())
+        .and_then(|start| names.get(start..end))
+        .is_some_and(|tail| tail == parts.as_slice())
 }
 
 /// Whether `relative` (a folder when `folder`) is, or is in, a folder of
