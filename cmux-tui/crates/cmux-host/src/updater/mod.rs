@@ -258,6 +258,20 @@ pub fn daemon_running(status: &str) -> Option<bool> {
 
 /// `host update --if-idle`); None when that is not a session list.
 pub fn busy_sessions_in(ls: &str) -> Option<Vec<String>> {
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64);
+    busy_sessions_at(ls, now_ms)
+}
+
+/// How recently a session of an acpmux too old to report `starting` was created or changed for
+/// an update to wait on it: an agent start takes well under this, and the update only waits.
+pub const UNREPORTED_START_MS: u64 = 120_000;
+
+/// [`busy_sessions_in`] at `now_ms` (Unix ms). A row without `starting` comes from an acpmux older
+/// than that field (the one a stale image runs, which the first update replaces): a session it
+/// created or changed in the last [`UNREPORTED_START_MS`] counts as busy, as it may be starting.
+pub fn busy_sessions_at(ls: &str, now_ms: u64) -> Option<Vec<String>> {
     use serde_json::Value;
     let v: Value = serde_json::from_str(ls.trim()).ok()?;
     let busy = v
@@ -269,6 +283,16 @@ pub fn busy_sessions_in(ls: &str) -> Option<Vec<String>> {
             s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) > 0
                 || !s.get("turn").unwrap_or(&Value::Null).is_null()
                 || matches!(s.get("status").and_then(Value::as_str), Some("running" | "waiting"))
+                // An agent start under way: restarting acpmux now ends it (a Cloud chat's first
+                // session/new answered daemon_closed when an update restarted the daemon mid-start).
+                || match s.get("starting") {
+                    Some(starting) => starting.as_bool() == Some(true),
+                    None => ["updatedAt", "createdAt"].iter().any(|k| {
+                        s.get(*k).and_then(Value::as_u64).is_some_and(|at| {
+                            now_ms.saturating_sub(at) < UNREPORTED_START_MS
+                        })
+                    }),
+                }
         })
         .map(|s| s.get("name").and_then(Value::as_str).unwrap_or("?").to_owned())
         .collect();
