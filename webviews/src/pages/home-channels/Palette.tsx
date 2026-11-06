@@ -67,9 +67,15 @@ export function Palette({
     [items],
   );
   // Ranked within each group, groups in a fixed order. Until the first answer: the rows in order.
-  const [results, setResults] = useState<readonly PaletteItem[]>(() =>
-    grouped(items, fixtureRank({ entries, query: "", keepsSectionOrder: true })),
+  // Kept as ids and read from the current rows, so a row that changed while an answer was on its
+  // way runs its current action, and a row that left is not shown.
+  const [rankedIds, setRankedIds] = useState<readonly string[]>(() =>
+    grouped(items, fixtureRank({ entries, query: "", keepsSectionOrder: true })).map((item) => item.id),
   );
+  const results = useMemo(() => {
+    const rows = new Map(items.map((item) => [item.id, item]));
+    return rankedIds.flatMap((id) => rows.get(id) ?? []);
+  }, [items, rankedIds]);
   useEffect(() => {
     // Each query or set of rows asks once; the effect's cleanup drops an answer that comes after
     // the next ask (an older query's) or after the palette closed.
@@ -79,7 +85,7 @@ export function Palette({
     void rank(request)
       .catch(() => fixtureRank(request))
       .then((reply) => {
-        if (current) setResults(grouped(items, reply));
+        if (current) setRankedIds(grouped(items, reply).map((item) => item.id));
       });
     return () => {
       current = false;

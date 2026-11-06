@@ -62,7 +62,7 @@ afterAll(() => {
 });
 
 const { Palette } = await import("../src/pages/home-channels/Palette");
-const { fixtureRank } = await import("../src/pages/home-channels/paletteRank");
+const { clipUtf8, fixtureRank } = await import("../src/pages/home-channels/paletteRank");
 const { MockHomeProvider } = await import("../src/pages/home-channels/mockProvider");
 const { HomeOps } = await import("../src/pages/home-channels/types");
 const { createStrings } = await import("../src/pages/shared/i18n");
@@ -172,4 +172,31 @@ test("the fixture ranker keeps the rows in order, filtered by a case-insensitive
   expect(mocked).toEqual({
     sections: [{ sectionIndex: 0, rows: [{ index: 2, score: 0, highlights: [] }] }],
   });
+});
+
+test("a row that changes while an answer is on its way runs its current action", async () => {
+  const ranker = heldRanker();
+  const ran: string[] = [];
+  const rows = (label: string) =>
+    items.map((item) => ({ ...item, run: () => void ran.push(`${label}:${item.id}`) }));
+  root = createRoot(host);
+  const render = (list: ReturnType<typeof rows>) =>
+    act(async () => root!.render(createElement(Palette, { items: list, rank: ranker.rank, strings, onClose() {} })));
+  await render(rows("old"));
+  await act(async () => ranker.asked[0]!.answer(reply(0, 1, 2)));
+  // The rows change (one leaves) before their new answer arrives.
+  await render(rows("new").filter((item) => item.id !== "c2"));
+  expect(shown()).toEqual(["general", "Release train"]);
+  const field = host.ownerDocument.querySelector<HTMLInputElement>(".lg-palette input")!;
+  await act(async () => {
+    field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+  });
+  expect(ran).toEqual(["new:c0"]);
+});
+
+test("the request is clipped to the daemon's byte caps on a character boundary", () => {
+  expect(clipUtf8("short", 512)).toBe("short");
+  const long = "é".repeat(300); // 600 bytes
+  expect(new TextEncoder().encode(clipUtf8(long, 512)).length).toBe(512);
+  expect(clipUtf8("a😀", 4)).toBe("a");
 });

@@ -38,7 +38,10 @@ pub(super) fn dispatch(
 }
 
 /// The answer to one catalog-validated request's fields.
-pub(crate) fn rank(fields: Map<String, Value>) -> Result<Value, ResourceError> {
+pub(crate) fn rank(mut fields: Map<String, Value>) -> Result<Value, ResourceError> {
+    // The catalog allows null for every optional field; null means absent (the ranker's
+    // default), as `operation: null` must rank rather than fail.
+    fields.retain(|_, value| !value.is_null());
     cap_map(&fields, "frecency", Some("entries"), MAX_HISTORY_ENTRIES)?;
     cap_map(&fields, "aliases", None, MAX_ALIASED_ACTIONS)?;
     let request: RankRequest = serde_json::from_value(Value::Object(fields))

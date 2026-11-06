@@ -86,6 +86,13 @@ fn the_channels_page_gets_the_shared_rankers_sections() {
         .map(|section| section["rows"].as_array().unwrap().len())
         .sum::<usize>();
     assert!(rows >= 2, "{matched}");
+
+    // The catalog allows null for every optional field: null is the default, never a refusal.
+    let mut with_nulls = channels_request("rel");
+    with_nulls["operation"] = Value::Null;
+    with_nulls["frecency"] = Value::Null;
+    let reply = rank(&mux, &page, &with_nulls);
+    assert_eq!(reply["result"]["sections"], matched["result"]["sections"], "{reply}");
 }
 
 #[test]
