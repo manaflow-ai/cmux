@@ -4,6 +4,7 @@
 
 use std::io::{self, BufRead, BufReader, Write};
 
+use cmux_tasks_core::Origin;
 use cmux_tasks_core::ids::Principal;
 use serde_json::Value;
 
@@ -120,9 +121,22 @@ impl Conn {
         params: Value,
         key: Option<String>,
     ) -> Result<(Value, u64), ErrorBody> {
+        self.call_with_origin(op, params, key, None)
+    }
+
+    /// One request with an `origin` (a relay that knows the person acted,
+    /// such as the daemon's Tasks page link); returns the reply and the
+    /// settled sequence.
+    pub fn call_with_origin(
+        &mut self,
+        op: &str,
+        params: Value,
+        key: Option<String>,
+        origin: Option<Origin>,
+    ) -> Result<(Value, u64), ErrorBody> {
         match self {
             Conn::InProcess { engine, actor } => {
-                let request = Request { id: 1, op: op.to_owned(), params, key, origin: None };
+                let request = Request { id: 1, op: op.to_owned(), params, key, origin };
                 let outcome = engine.handle(actor, request).map_err(|e| {
                     ErrorBody::new(ErrorCode::Internal, format!("log write failed: {e}"))
                 })?;
@@ -133,7 +147,7 @@ impl Conn {
                 *next_id += 1;
                 let id = *next_id;
                 self.set_deadline(CALL_DEADLINE);
-                let request = Request { id, op: op.to_owned(), params, key, origin: None };
+                let request = Request { id, op: op.to_owned(), params, key, origin };
                 let value = serde_json::to_value(&request)
                     .map_err(|e| ErrorBody::new(ErrorCode::Internal, e.to_string()))?;
                 self.send_line(&value).map_err(|e| unreachable(e.to_string()))?;

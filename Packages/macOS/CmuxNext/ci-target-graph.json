@@ -276,6 +276,7 @@
         "CmuxNextBrowserImport",
         "CmuxNextBrowserTabs",
         "CmuxNextCLIInstall",
+        "CmuxNextChecklist",
         "CmuxNextChiefMemory",
         "CmuxNextChiefPetWiring",
         "CmuxNextChiefViews",
@@ -353,7 +354,6 @@
         "CmuxNextSignposts",
         "CmuxNextStash",
         "CmuxNextTabs",
-        "CmuxNextTasks",
         "CmuxNextTerminal",
         "CmuxNextTerminalFind",
         "CmuxNextTerminalGeometry",
@@ -416,6 +416,7 @@
         "CmuxNextBrowserHistory",
         "CmuxNextBrowserImport",
         "CmuxNextBrowserTabs",
+        "CmuxNextChecklist",
         "CmuxNextChiefMemory",
         "CmuxNextChiefPetWiring",
         "CmuxNextChromiumRuntime",
@@ -468,7 +469,6 @@
         "CmuxNextSignposts",
         "CmuxNextStash",
         "CmuxNextTabs",
-        "CmuxNextTasks",
         "CmuxNextTerminalGeometry",
         "CmuxNextTestExitTrace",
         "CmuxNextTestSupport",
@@ -685,6 +685,12 @@
     "CmuxNextCLIInstall": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCLIInstall",
+      "targets": [],
+      "packages": []
+    },
+    "CmuxNextChecklist": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextChecklist",
       "targets": [],
       "packages": []
     },
@@ -2012,19 +2018,6 @@
         "CmuxNextDesign",
         "CmuxNextIcons",
         "CmuxNextResources",
-        "CmuxNextWakeups"
-      ],
-      "packages": [
-        "CmuxAgentBrands"
-      ]
-    },
-    "CmuxNextTasks": {
-      "kind": "regular",
-      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextTasks",
-      "targets": [
-        "CCmuxAppFFI",
-        "CmuxNextDesign",
-        "CmuxNextIcons",
         "CmuxNextWakeups"
       ],
       "packages": [

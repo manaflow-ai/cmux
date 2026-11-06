@@ -172,6 +172,7 @@ fn run(
     }
     match route.owner {
         "apps.store" => apps_store(mux, client, operation, Value::Object(params), origin),
+        "tasks.local" => crate::tasks_link::call(mux, operation, params),
         #[cfg(unix)]
         "agent_session.trust" => {
             super::agent_session_attach::routed_trust(mux, client, operation, params)

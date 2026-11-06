@@ -197,6 +197,10 @@ pub enum MuxEvent {
     /// (page-router.json `events`); other connections hear it as apps
     /// clients after their first `apps-*` command.
     AppsChanged(Arc<Value>),
+    /// The local Tasks owner committed a change, or the daemon's link to it
+    /// ended: the `tasks-changed` payload (tasks_link.rs). `subscribe` sends
+    /// it only to a page relay whose page hears it (page-router.json `events`).
+    TasksChanged(Arc<Value>),
     /// Every workspace is gone.
     Empty,
 }

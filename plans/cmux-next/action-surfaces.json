@@ -59125,10 +59125,6 @@
     {
       "name" : "historyRow",
       "source" : "CmuxNextHistory\/HistoryPageRow.swift"
-    },
-    {
-      "name" : "taskAssignee",
-      "source" : "CmuxNextTasks\/Views\/AssigneeMenu.swift"
     }
   ],
   "version" : 1
