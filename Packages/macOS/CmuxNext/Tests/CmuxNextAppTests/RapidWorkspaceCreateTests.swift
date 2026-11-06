@@ -137,6 +137,9 @@ struct RapidWorkspaceCreateTests {
     @Test func twentyCmdNWithClosesInBetweenKeepEveryWorkspaceInPressOrder() async throws {
         let launched = try await Self.launch()
         let services = launched.services
+        // Press order is one end's order (`top`): under the default `afterCurrent` each new row goes below the row a
+        // close selected, which is not press order.
+        try await CmdNTopInGroupFramesTests.placeAtTop(launched)
         let store = services.daemon.store
         let window = try #require(services.windows.active?.state.id)
         let before = Set(store.workspaces.map(\.id))
@@ -193,7 +196,7 @@ struct RapidWorkspaceCreateTests {
         #expect(store.workspaces.count == expected)
         #expect(created.allSatisfy { members.contains($0.id) }, "not in the sidebar: \(created.filter { !members.contains($0.id) }.map(\.name))")
         #expect(presses.count == created.count, "unnamed or duplicate workspaces: \(created.map(\.name))")
-        // Press order: each new workspace lands at the same end (top or bottom, by the setting).
+        // Press order: each new workspace lands at the same end (top).
         #expect(presses == presses.sorted() || presses == presses.sorted(by: >), "sidebar order by press: \(presses)")
         #expect(failures.isEmpty, "failed: \(failures)")
         #expect(refusals.isEmpty, "notices: \(refusals)")
