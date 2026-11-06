@@ -776,6 +776,9 @@ jobs:
     concurrency:
       group: cmux-vm-smoke-production
       cancel-in-progress: false
+    # The product create's own outcome (before the job-level continue-on-error), which image-roll-settle reads.
+    outputs:
+      product: ${{ steps.product.outcome }}
     defaults:
       run:
         working-directory: workers/cmux-vm
@@ -843,13 +846,129 @@ jobs:
       # a red shows on the job; the job itself stays non-blocking.
       # No key: the job's GitHub OIDC token (audience: the Worker's origin) maps to the Worker's CMUX_VM_CI_TRUST row
       # ci-product-smoke, its own team and VMs only, at most 2, each paused after 15 minutes and deleted once stopped.
+      # On an image roll commit (cloud-vm-image-roll.yml) it boots the first image, the one the roll put there,
+      # whatever CMUX_VM_SMOKE_IMAGE names: that boot is the roll's production check.
       - name: Smoke the product create path (CI OIDC principal, product team, approved boot image)
+        id: product
         if: steps.gate.outputs.enabled == 'true'
         env:
           CMUX_VM_SMOKE_URL: ${{ vars.CMUX_VM_PRODUCTION_URL }}
-          CMUX_VM_SMOKE_IMAGE: ${{ vars.CMUX_VM_SMOKE_IMAGE }}
-          CMUX_VM_SMOKE_IMAGE_REVISION: ${{ vars.CMUX_VM_SMOKE_IMAGE_REVISION }}
+          CMUX_VM_SMOKE_IMAGE: "${{ !startsWith(github.event.head_commit.message, 'cmux-vm: image roll ') && vars.CMUX_VM_SMOKE_IMAGE || '' }}"
+          CMUX_VM_SMOKE_IMAGE_REVISION: "${{ !startsWith(github.event.head_commit.message, 'cmux-vm: image roll ') && vars.CMUX_VM_SMOKE_IMAGE_REVISION || '' }}"
         run: bun scripts/smoke-product.ts
+
+  # An image roll commit (cloud-vm-image-roll.yml, subject "cmux-vm: image roll "): record when its production
+  # smoke finished, and when the deploy or the product create on its first image is anything but green, land a
+  # rollback commit that takes the image out of both lists (scripts/cmux-next/image-roll-push.sh rollback), so the
+  # entry before it boots again after that commit's own deploy. Once per roll commit: a rollback commit's subject
+  # ("cmux-vm: image rollback ") never matches, and a newer roll already first makes the rollback a no-op.
+  image-roll-settle:
+    needs: [deploy-production, smoke-production]
+    if: >-
+      always() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' &&
+      startsWith(github.event.head_commit.message, 'cmux-vm: image roll ')
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: feat-cmux-next
+          fetch-depth: 50
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+      - name: Read the roll
+        id: roll
+        env:
+          MESSAGE: ${{ github.event.head_commit.message }}
+          DEPLOY: ${{ needs.deploy-production.result }}
+          PRODUCT: ${{ needs.smoke-production.outputs.product }}
+        run: |
+          set -euo pipefail
+          run="$(sed -n 's/^Image-Roll-Run: \([0-9]\{1,20\}\)$/\1/p' <<< "$MESSAGE" | tail -1)"
+          image="$(sed -n 's/^Image-Roll-Image: \(cloud-native-auto-[a-z0-9-]\{1,40\}\)$/\1/p' <<< "$MESSAGE" | tail -1)"
+          [ -n "$run" ] && [ -n "$image" ] || { echo "::error title=Image roll::the roll commit has no Image-Roll-Run or Image-Roll-Image trailer"; exit 1; }
+          green=false
+          if [ "$DEPLOY" = success ] && [ "$PRODUCT" = success ]; then green=true; fi
+          # A newer push's deploy replaced this one while it waited (concurrency cmux-vm-deploy-production): that
+          # deploy ships this image too, and its smoke boots it. Nothing here proves the image red, so no rollback.
+          if [ "$DEPLOY" = cancelled ]; then
+            green=superseded
+            echo "::warning title=Image roll::a newer deploy replaced this commit's deploy; not rolling back"
+          fi
+          { echo "run=$run"; echo "image=$image"; echo "green=$green"; } >> "$GITHUB_OUTPUT"
+          echo "Image roll ${run} (${image}): deploy ${DEPLOY:-none}, product smoke ${PRODUCT:-not run}." | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Mint the push token
+        id: push-token
+        if: steps.roll.outputs.green == 'false'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_PR_AUTOFIX_APP_ID }}
+          private-key: ${{ secrets.CMUX_PR_AUTOFIX_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+      - name: Roll the image back
+        id: rollback
+        if: steps.roll.outputs.green == 'false'
+        env:
+          TOKEN: ${{ steps.push-token.outputs.token }}
+          IMAGE: ${{ steps.roll.outputs.image }}
+          ROLL: ${{ steps.roll.outputs.run }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          {
+            echo "cmux-vm: image rollback ${IMAGE} (production deploy or smoke red on ${GITHUB_SHA:0:12})"
+            echo
+            echo "The production deploy or the product create on ${IMAGE} was not green in ${RUN_URL}; the image leaves"
+            echo "VM_BOOT_IMAGES and the entry before it boots again."
+            echo
+            echo "Image-Roll-Run: ${ROLL}"
+            echo "Image-Roll-Image: ${IMAGE}"
+            echo "Image-Roll-Rollback-Of: ${GITHUB_SHA}"
+          } > "$RUNNER_TEMP/message.txt"
+          scripts/cmux-next/image-roll-push.sh rollback --image "$IMAGE" --message-file "$RUNNER_TEMP/message.txt" | tee "$RUNNER_TEMP/rollback.out"
+          tail -1 "$RUNNER_TEMP/rollback.out" | sed 's/^/Rollback: /' >> "$GITHUB_STEP_SUMMARY"
+      - name: Record the production smoke and any rollback
+        if: always() && steps.roll.outputs.run != ''
+        env:
+          TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+          ROLL: ${{ steps.roll.outputs.run }}
+          IMAGE: ${{ steps.roll.outputs.image }}
+          GREEN: ${{ steps.roll.outputs.green }}
+          DEPLOY: ${{ needs.deploy-production.result }}
+          PRODUCT: ${{ needs.smoke-production.outputs.product }}
+          ROLLBACK: ${{ steps.rollback.outputs.result }}
+          ROLLBACK_SHA: ${{ steps.rollback.outputs.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          jq -n --arg now "$now" --arg run "$RUN_URL" --arg commit "$GITHUB_SHA" --arg deploy "$DEPLOY" --arg product "${PRODUCT:-}" \
+            --arg green "$GREEN" --arg rollback "${ROLLBACK:-}" --arg rollback_sha "${ROLLBACK_SHA:-}" \
+            '{production: {commit: $commit, run: $run, deploy: $deploy, product_smoke: (if $product == "" then "not-run" else $product end), smoke_done_at: $now, green: ($green == "true"), superseded: ($green == "superseded")},
+              rolled_back: ($rollback == "pushed"),
+              rollback: (if $green != "false" then null else {result: (if $rollback == "" then "failed" else $rollback end), commit: $rollback_sha, at: $now} end)}' \
+            | bash scripts/cmux-next/image-roll-record.sh "$ROLL" || echo "::warning title=Image roll record::the record was not written"
+          if [ "$GREEN" != false ]; then exit 0; fi
+          what="${IMAGE} was not green in production (deploy ${DEPLOY}, product smoke ${PRODUCT:-not run}); rollback: ${ROLLBACK:-failed}"
+          echo "::error title=Cloud VM image roll::${what}"
+          body="Cloud VM image roll ${ROLL}: ${what}. ${RUN_URL}"
+          issue="$(gh issue list --repo "$GITHUB_REPOSITORY" --label cloud-image-roll --state open --limit 1 --json number --jq '.[0].number // empty' || true)"
+          if [ -n "$issue" ]; then
+            gh issue comment "$issue" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh label create cloud-image-roll --repo "$GITHUB_REPOSITORY" --color B60205 --description "Cloud VM image roll gate, promotion or rollback" --force > /dev/null || true
+            gh issue create --repo "$GITHUB_REPOSITORY" --label cloud-image-roll --title "Cloud VM image roll is red" --body "$body" \
+              || gh issue create --repo "$GITHUB_REPOSITORY" --title "Cloud VM image roll is red" --body "$body"
+          fi
+          exit 1
 
   tail-production:
     # Action tail-production: streams the production Worker's live events (`wrangler tail`) for tail_minutes,

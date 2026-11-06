@@ -376,6 +376,45 @@ retaining the retry key and a validated public VM ID when available. Creation
 may have succeeded; inspect that VM or retry the same intent with the same key.
 The CLI never automatically deletes a VM after an unconfirmed receipt.
 
+### Rolling a new image (no hand PR)
+
+`.github/workflows/cloud-vm-image-roll.yml` replaces the hand pin PR
+(`images/cmux-vm/pin-cmux-tui.ts`) and the hand approval PR (an entry put first in
+production's `VM_BOOT_IMAGES`):
+
+1. Every feat-cmux-next cmux-tui build that `cmux-tui-artifacts.yml` publishes
+   dispatches it, and so does a push that changes the image inputs
+   (`images/cmux-vm/**`, `web/scripts/cmux-vm-image/**`).
+   `images/cmux-vm/auto-roll.ts plan` rolls only a build of the branch whose
+   binaries differ from the pinned ones, never an older one.
+2. `cloud-vm-image-bake.yml` (called with `roll: true`) pins that build and bakes
+   the Native receiver image with the agent tools. Its 5-clone smoke and agent
+   tools probe on the candidate snapshot are the gate: a red keeps nothing and
+   production stays on its image.
+3. A bot commit (`cmux-vm: image roll cloud-native-auto-<cmux-tui>-<run> ...`)
+   lands the pinned lock and the image, first in production and last in
+   staging. Only the newest 6 `cloud-native-auto-*` entries stay in each list;
+   hand-approved entries are never removed. Its push deploys production and
+   runs `smoke-production`, whose product create boots that first image.
+4. `image-roll-settle` in `cmux-vm.yml`: a deploy or product smoke that isn't
+   green lands `cmux-vm: image rollback <id> ...`, which takes the image out of
+   both lists, so the entry before it boots again.
+
+`images/cmux-vm/auto-roll.json` switches it: `off`, `dry-run` (bake and gate,
+then upload the commit's diff without pushing) or `live`. One roll runs at a
+time and one waits; a newer request replaces the waiting one.
+
+Each roll's record (fix commits with merge times, gate, promotion commit and
+time, production smoke time, rollback) is `rolls/<run id>.json` on the
+`cloud-image-rolls` branch: `git fetch origin cloud-image-rolls` reads it with
+no API call. The roll and rollback commits carry `Image-Roll-Run` and
+`Image-Roll-Image` trailers. A red gate, promotion or rollback comments on the
+open `cloud-image-roll` issue.
+
+cmux-platform boots the image its `CLOUD_VM_API_IMAGE` and
+`CLOUD_VM_API_IMAGE_REVISION` name, so a rolled image reaches people's
+machines only when the platform names it too (or follows the first entry).
+
 ## Creation-time networking
 
 `POST /v1/vms` accepts optional `initialNetwork`. Omit it to retain the
