@@ -22258,7 +22258,7 @@
         true,
         false
       ],
-      "agent_refusal" : null,
+      "agent_refusal" : "destructive",
       "agent_settable" : false,
       "consumers" : [
         "cmux-next"
@@ -22396,7 +22396,7 @@
         43200,
         21630
       ],
-      "agent_refusal" : null,
+      "agent_refusal" : "destructive",
       "agent_settable" : false,
       "consumers" : [
         "cmux-next"
