@@ -5,14 +5,17 @@
 // private address is never asked about: it keeps the globe. Requests from one render are batched
 // into one call, one call at a time; a site without an icon is remembered for the page's life, so
 // it is asked once.
-import { useSyncExternalStore } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 import { callChipHost } from "./host";
 import { isPrivateUrl } from "./linkDisplay";
 
 /// Most sites in one `link.favicons` (the host's bound per request, AgentPaneReplyRequest.swift).
 const MAX_BATCH = 32;
-/// Most sites kept; past it the store starts again and the drawn links ask again.
+/// Most sites kept that no drawn link shows; past it the oldest of those are forgotten.
 const MAX_KEPT = 512;
+/// A host name as the host takes it (AgentPaneReplyRequest.swift `isHostName`): one it refuses
+/// would fail the whole batch it rides in.
+const HOST_NAME = /^[a-z0-9.-]{1,253}$/;
 
 /// The only icon the host sends: a base64 PNG data URL. Anything else is no icon, so no answer
 /// can carry other text into the `url("...")` the mark draws it with (SiteIcon.tsx).
@@ -27,6 +30,9 @@ export function pngIcon(icon: string | undefined): string | undefined {
 const icons = new Map<string, string | null>();
 /// Sites queued or in flight: kept through a reset of the store, so each still gets its answer.
 const pending = new Set<string>();
+/// How many drawn links show each site: their icons are never forgotten, so a full store does not
+/// make them ask again.
+const shown = new Map<string, number>();
 let queued: string[] = [];
 let scheduled = false;
 let inFlight = false;
@@ -73,12 +79,12 @@ function flush() {
 function ask(host: string) {
   if (icons.has(host)) return;
   if (icons.size >= MAX_KEPT) {
-    // The oldest answered sites are forgotten, an eighth at a time; links that drew one re-render
-    // and ask for it again. Sites still asked stay, so their answers land.
+    // The oldest answered sites no link shows are forgotten, an eighth at a time. Sites still
+    // asked stay, so their answers land; sites a link shows stay, so it never asks again.
     let drop = MAX_KEPT / 8;
     for (const kept of icons.keys()) {
       if (drop === 0) break;
-      if (pending.has(kept)) continue;
+      if (pending.has(kept) || shown.has(kept)) continue;
       icons.delete(kept);
       drop -= 1;
     }
@@ -91,9 +97,16 @@ function ask(host: string) {
   scheduleFlush();
 }
 
-function subscribe(listener: () => void) {
+function subscribe(listener: () => void, host: string | undefined) {
   listeners.add(listener);
-  return () => listeners.delete(listener);
+  if (host) shown.set(host, (shown.get(host) ?? 0) + 1);
+  return () => {
+    listeners.delete(listener);
+    if (!host) return;
+    const left = (shown.get(host) ?? 1) - 1;
+    if (left > 0) shown.set(host, left);
+    else shown.delete(host);
+  };
 }
 
 /// The site of `href` whose icon the host may look up: the lowercased host name of an http(s)
@@ -108,7 +121,7 @@ export function siteIconHost(href: string): string | undefined {
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
   const host = url.hostname.toLowerCase().replace(/\.$/, "");
-  if (!host || host.startsWith("[") || isPrivateUrl(href)) return undefined;
+  if (!HOST_NAME.test(host) || isPrivateUrl(href)) return undefined;
   return host;
 }
 
@@ -116,8 +129,9 @@ export function siteIconHost(href: string): string | undefined {
 /// caller draws the globe). No host asks nothing.
 export function useSiteIcon(host: string | undefined): string | undefined {
   if (host) ask(host);
+  const watch = useCallback((listener: () => void) => subscribe(listener, host), [host]);
   return useSyncExternalStore(
-    subscribe,
+    watch,
     () => (host ? (icons.get(host) ?? undefined) : undefined),
     () => undefined,
   );

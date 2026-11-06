@@ -11,7 +11,17 @@
 // shared link card (LinkHoverCard.tsx) that hovering opens: Open and Open in, and a pull request's
 // title, state, author and checks. A web link starts with its site's mark (SiteIcon.tsx, as T3 Code
 // draws links): a fixed square, the globe until the site's favicon arrives in its place.
-import { Children, useContext, useLayoutEffect, useState, type FocusEvent, type PointerEvent, type ReactNode } from "react";
+import {
+  Children,
+  cloneElement,
+  isValidElement,
+  useContext,
+  useLayoutEffect,
+  useState,
+  type FocusEvent,
+  type PointerEvent,
+  type ReactNode,
+} from "react";
 import { useT } from "../i18n";
 import { callChipHost } from "./host";
 import { useMessageScope } from "./messageScope";
@@ -20,7 +30,7 @@ import { FileKindIcon } from "./FileKindIcon";
 import { usePathInfo, useSiteInfo } from "./linkStore";
 import { isPrivateUrl, redactUrlText } from "./linkDisplay";
 import { isDeniedPath, pathName, textLinks } from "./paths";
-import { bareFileNames, useReplyFolders } from "./replyFolders";
+import { bareFileNames, ReplyFoldersContext, useReplyFolders } from "./replyFolders";
 import { LinkHoverCard } from "./LinkHoverCard";
 import { pullRequestRef } from "./PullRequestCard";
 import { usePullRequestState } from "./pullRequestStore";
@@ -257,6 +267,11 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
 function withLead(mark: ReactNode, label: ReactNode): ReactNode {
   const parts = Children.toArray(label);
   const first = parts[0];
+  // A Markdown link's label comes in one folders provider (Markdown.tsx `linkLabel`): the lead
+  // is cut from the text inside it, else the whole label would sit in the lead and never wrap.
+  if (parts.length === 1 && isValidElement<{ children?: ReactNode }>(first) && first.type === ReplyFoldersContext) {
+    return cloneElement(first, undefined, withLead(mark, first.props.children));
+  }
   let lead: ReactNode = first;
   let rest: ReactNode[] = parts.slice(1);
   if (typeof first === "string") {

@@ -151,7 +151,7 @@
   vertical-align: baseline;
 }
 .cv-site-icon--row .cv-site-icon__img {
-  border-radius: 3.5px;
+  border-radius: 4px;
   opacity: 0.85;
 }
 /* A web image before it loads (chips/ReplyImage.tsx, decision D5). */
