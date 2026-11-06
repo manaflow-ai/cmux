@@ -9,6 +9,8 @@ public struct CloudOutdatedMachine {
     public init() {}
     /// The CLIs' error code for a daemon too old for the verb.
     public static let code = "machine_outdated"
+    /// The CLIs' error code for a machine whose daemon did not answer `identify` before the copy began (its link was coming back).
+    public static let notAnswering = "machine_not_answering"
 
     /// Whether an answer (`ok`, `error_code`, `side`) is the machine's older daemon refusing it:
     /// ``code`` about the machine, never this Mac's own daemon (`side` `source`).
@@ -36,6 +38,11 @@ public struct CloudOutdatedMachine {
     /// Runs `copy` on the machine's link socket (`socket`, nil when not connected: `notConnected` is thrown); when
     /// its answer (read by `answer`) is the machine's older daemon refusing it (``updatesBeforeCopyingAgain(ok:errorCode:side:)``)
     /// and `update` updated the machine (true), runs it once more. Otherwise the first answer stands: nothing else updates it.
+    /// A machine that did not answer `identify` (``notAnswering``: no copy began) is copied once more after its link's handshake
+    /// changes, up to `reconnect`: in the capture of run 42157718918 the link was refused at 03:49:10 and 03:49:16, came back at
+    /// 03:49:22, and `identify` got no answer at 03:49:27. Only the copy runs again; the chat's prompt is never sent again here.
+    /// A link that does not change in time leaves the first answer; a cancelled wait throws, and `stillOurs` (the start's account
+    /// check) throws when the account changed meanwhile: neither copies again.
     ///
     /// The update restarts the machine's daemon and its link comes back on a new socket: copying again on the
     /// first one failed with "cannot connect to …/cmux-link-….sock: No such file or directory" (capture at
@@ -43,12 +50,22 @@ public struct CloudOutdatedMachine {
     /// key) to change from what it was before the update, and reads the socket again.
     @MainActor
     public static func copy<Answer>(socket: () async -> String?, link: @escaping @MainActor @Sendable () -> String?, notConnected: any Error,
-                                    relink: Duration = .seconds(90), _ copy: (String) async throws -> Answer,
+                                    relink: Duration = .seconds(90), reconnect: Duration = .seconds(20), stillOurs: () throws -> Void = {}, _ copy: (String) async throws -> Answer,
                                     answer: (Answer) -> (ok: Bool, errorCode: String?, side: String?), update: () async -> Bool) async throws -> Answer {
         guard let path = await socket() else { throw notConnected }
         let before = link()
         let first = try await copy(path)
         let read = answer(first)
+        if !read.ok, read.errorCode == notAnswering {
+            let relinked = await CloudWait.holds(within: reconnect) { link().map { $0 != before } ?? false }
+            try Task.checkCancellation()
+            try stillOurs()
+            guard relinked else { return first }
+            guard let again = await socket() else { throw notConnected }
+            try Task.checkCancellation()
+            try stillOurs()
+            return try await copy(again)
+        }
         guard updatesBeforeCopyingAgain(ok: read.ok, errorCode: read.errorCode, side: read.side), await update() else { return first }
         _ = await CloudWait.holds(within: relink) { link().map { $0 != before } ?? false }
         guard let again = await socket() else { throw notConnected }

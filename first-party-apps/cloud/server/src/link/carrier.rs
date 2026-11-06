@@ -43,6 +43,27 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// The stages a stream reached, for a test's failure message: kinds and byte
+/// counts only, never a payload. Compiled out of the server.
+#[cfg(test)]
+static STAGES: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+macro_rules! stage {
+    ($($arg:tt)*) => {
+        #[cfg(test)]
+        lock(&STAGES).push(format!($($arg)*));
+    };
+}
+
+/// A copy's result as a stage says it: its byte count or its error's kind.
+#[cfg(test)]
+fn copied(result: &std::io::Result<u64>) -> String {
+    match result {
+        Ok(bytes) => format!("{bytes} bytes"),
+        Err(e) => format!("error {:?}", e.kind()),
+    }
+}
+
 /// A dial child after its `ok` reply line: stdin and stdout carry the
 /// daemon stream. The child stays in its `Children` list until
 /// [`end_child`].
@@ -96,6 +117,7 @@ pub(crate) fn open_dial(
     let _ = std::thread::Builder::new().name("cmux-link-dial-stderr".into()).spawn(move || {
         let _ = std::io::copy(&mut stderr, &mut std::io::stderr());
     });
+    stage!("dial reply parsed: {}", if matches!(reply, DialReply::Connected { .. }) { "connected" } else { "refused" });
     match reply {
         DialReply::Connected { .. } => Ok(Dialed { child, stdin, stdout }),
         DialReply::Refused(refusal) => {
@@ -133,11 +155,14 @@ fn splice(connection: UnixStream, dialed: Dialed, children: &Children) {
         return;
     };
     let upload = std::thread::Builder::new().name("cmux-link-up".into()).spawn(move || {
-        let _ = std::io::copy(&mut upload_from, &mut stdin);
+        let _up = std::io::copy(&mut upload_from, &mut stdin);
+        stage!("upload ended: {}", copied(&_up));
         // Dropping stdin tells the dial the client is done writing.
     });
+    stage!("upload worker {}", if upload.is_ok() { "spawned" } else { "did not spawn" });
     let mut download_to = connection;
-    let _ = std::io::copy(&mut stdout, &mut download_to);
+    let _down = std::io::copy(&mut stdout, &mut download_to);
+    stage!("download ended: {}", copied(&_down));
     let _ = download_to.flush();
     let _ = download_to.shutdown(std::net::Shutdown::Both);
     end_child(&child, children);
@@ -361,6 +386,140 @@ mod tests {
         let retry = supervisor.spawn_and_wait("vm-test", &command).expect("retry is allowed");
         assert_ne!(retry.generation, carrier.generation);
         supervisor.disconnect("vm-test");
+        std::fs::remove_dir_all(root).expect("remove this test's private files");
+    }
+
+    /// A second stream whose dial child is slow (an overlay dial plus a token mint, each within its own limit) leaves a
+    /// caller that budgets its first answer (cmux-tui's `identify`: 5 s) with nothing within that budget, while the stream
+    /// already open keeps answering. Each accepted connection is its own `cmux link dial`, so the caller's budget runs from
+    /// before the carrier even starts that dial. Budgets here are a tenth: 400 ms for the caller, 1 s for the dial child.
+    /// The child is the carrier's to end: a terminate ends the one still dialing.
+    #[test]
+    fn a_slow_dial_of_a_second_stream_runs_past_its_callers_budget_while_the_first_stays_up() {
+        let root = std::env::temp_dir().join(format!("cc-slow-dial-{}", std::process::id()));
+        std::fs::create_dir_all(&root).expect("this test's folder");
+        // The first dial answers at once; each later one takes 1 s. Every dial then echoes its stream (a daemon that answers).
+        // Right after its reply it writes "up N" (its stdout reaches the client), and it marks "inN" once its first stdin line
+        // came (the client's bytes reached it), so a stream that does not answer says which way it stopped.
+        let script = r#"n=0; [ -f "$1/n" ] && read n < "$1/n"; echo $((n + 1)) > "$1/n"; echo $$ > "$1/pid$n"
+[ "$n" -gt 0 ] && /bin/sleep 1
+printf '%s\n' '{"ok":true,"path_state":"direct"}' >&2
+printf 'up %s\n' "$n"
+IFS= read -r line; : > "$1/in$n"; printf '%s\n' "$line"
+exec /bin/cat"#;
+        let command = LinkCommand {
+            binary: PathBuf::from("/bin/sh"),
+            args: vec![
+                "-c".into(),
+                script.into(),
+                "sh".into(),
+                root.to_string_lossy().into_owned(),
+            ],
+            env: vec![],
+            state_dir: root.join("state"),
+            local_socket: root.join("carrier.sock"),
+        };
+        // The dial child alone, with no carrier (its own folder, so the carrier's count starts at 0): it replies
+        // on stderr and echoes stdin. If this holds and the carrier's stream below does not answer, the carrier is why.
+        let alone = root.join("alone");
+        std::fs::create_dir_all(&alone).expect("the self-check's folder");
+        let mut child = Command::new("/bin/sh")
+            .args(["-c", script, "sh", &alone.to_string_lossy()])
+            .env_clear()
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("the dial child starts");
+        let mut reply = String::new();
+        BufReader::new(child.stderr.take().expect("stderr"))
+            .read_line(&mut reply)
+            .expect("its reply line");
+        assert_eq!(reply, "{\"ok\":true,\"path_state\":\"direct\"}\n", "the dial child's reply");
+        let mut stdout = BufReader::new(child.stdout.take().expect("stdout"));
+        let mut marker = String::new();
+        stdout.read_line(&mut marker).expect("its marker");
+        assert_eq!(marker, "up 0\n", "the dial child writes its marker");
+        child.stdin.take().expect("stdin").write_all(b"ping 0\n").expect("write to the dial child");
+        let mut echoed = String::new();
+        stdout.read_line(&mut echoed).expect("its echo");
+        assert_eq!(echoed, "ping 0\n", "the dial child echoes");
+        let _ = child.wait();
+
+        let mut supervisor = LinkSupervisor::new(Box::new(CarrierSpawner));
+        let carrier = supervisor.spawn_and_wait("vm-test", &command).expect("carrier listens");
+        // One line, a byte at a time: nothing past it is read, so the next read starts at the next line.
+        let line = |stream: &mut UnixStream| -> std::io::Result<String> {
+            let mut answer = Vec::new();
+            let mut byte = [0u8; 1];
+            while answer.last() != Some(&b'\n') {
+                if stream.read(&mut byte)? == 0 {
+                    break;
+                }
+                answer.push(byte[0]);
+            }
+            Ok(String::from_utf8_lossy(&answer).into_owned())
+        };
+        let ask = |stream: &mut UnixStream, text: &str| -> std::io::Result<String> {
+            stream.write_all(text.as_bytes())?;
+            line(stream)
+        };
+        let mut app = UnixStream::connect(&carrier.socket).expect("the app's stream");
+        app.set_read_timeout(Some(Duration::from_secs(5))).expect("bounded read");
+        // What the dial children left (each writes its count and pid first), for a failure's message.
+        let left = || {
+            let mut names: Vec<String> = std::fs::read_dir(&root)
+                .map(|dir| {
+                    dir.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect()
+                })
+                .unwrap_or_default();
+            names.sort();
+            format!(
+                "{names:?}, n = {:?}; stages {:?}",
+                std::fs::read_to_string(root.join("n")).ok(),
+                lock(&STAGES).clone()
+            )
+        };
+        let marker = line(&mut app);
+        assert_eq!(marker.as_deref().ok(), Some("up 0\n"), "the app's dial reaches it: {marker:?}; {}", left());
+        let first = ask(&mut app, "ping 1\n");
+        assert_eq!(
+            first.as_deref().ok(),
+            Some("ping 1\n"),
+            "the app's stream answers: {first:?}; dial children left {}",
+            left()
+        );
+
+        let mut copy = UnixStream::connect(&carrier.socket).expect("the copy's stream");
+        let budget = Duration::from_millis(400);
+        copy.set_read_timeout(Some(budget)).expect("the caller's budget");
+        let started = std::time::Instant::now();
+        let silent = ask(&mut copy, "{\"cmd\":\"identify\",\"id\":1}\n")
+            .expect_err("no answer within the caller's budget");
+        assert!(
+            matches!(silent.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut),
+            "{silent}"
+        );
+        assert!(
+            started.elapsed() < Duration::from_millis(900),
+            "the budget, not the dial, ended the wait"
+        );
+        eprintln!("carrier stages: {}", left());
+        // Meanwhile the open stream never stopped answering.
+        assert_eq!(ask(&mut app, "ping 2\n").expect("the app's stream still answers"), "ping 2\n");
+
+        let first = std::fs::read_to_string(root.join("pid0")).expect("the first dial ran");
+        let slow = std::fs::read_to_string(root.join("pid1")).expect("the slow dial is running");
+        supervisor.disconnect("vm-test");
+        // A terminate ended and reaped both dials, the slow one included: no child outlives the carrier.
+        for pid in [first.trim(), slow.trim()] {
+            let alive = Command::new("/bin/kill")
+                .args(["-0", pid])
+                .stderr(Stdio::null())
+                .status()
+                .expect("kill -0");
+            assert!(!alive.success(), "dial child {pid} outlived the carrier");
+        }
         std::fs::remove_dir_all(root).expect("remove this test's private files");
     }
 }

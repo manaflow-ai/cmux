@@ -85,11 +85,18 @@ pub(super) struct SeedError {
     code: String,
     message: String,
     install_url: Option<String>,
+    /// Why the machine's `identify` got no answer ([`machine_gate::IdentifyFailure`]).
+    identify_failure: Option<&'static str>,
 }
 
 impl SeedError {
     fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
-        Self { code: code.into(), message: message.into(), install_url: None }
+        Self {
+            code: code.into(),
+            message: message.into(),
+            install_url: None,
+            identify_failure: None,
+        }
     }
 
     /// A machine call or upload that failed, coded as the copy codes it.
@@ -97,6 +104,7 @@ impl SeedError {
         if let Some(seed) = error.downcast_ref::<Self>() {
             return Self {
                 install_url: seed.install_url.clone(),
+                identify_failure: seed.identify_failure,
                 ..Self::new(&seed.code, &seed.message)
             };
         }
@@ -108,6 +116,9 @@ impl SeedError {
         let mut line = json!({"ok": false, "error": self.message, "error_code": self.code});
         if let Some(url) = &self.install_url {
             line.set("install_url", json!(url));
+        }
+        if let Some(failure) = self.identify_failure {
+            line.set("identify_failure", json!(failure));
         }
         line
     }
@@ -130,6 +141,11 @@ pub(super) fn failure_code(error: &anyhow::Error) -> String {
 pub(super) fn failure(error: &anyhow::Error) -> (String, String) {
     let error = SeedError::of(error);
     (error.code, error.message)
+}
+
+/// Why a failed [`push`]'s machine did not answer `identify`, when that is why it failed.
+pub(super) fn identify_failure(error: &anyhow::Error) -> Option<&'static str> {
+    SeedError::of(error).identify_failure
 }
 
 /// What a push did.
@@ -292,13 +308,26 @@ struct Machine<'a> {
 impl<'a> Machine<'a> {
     /// Refuses a machine too old for `fs-v1` (`machine_outdated`).
     fn read(socket: &'a Path) -> Result<Self, SeedError> {
-        let identity = machine_gate::identify(socket);
-        if identity.is_none() {
-            return Err(SeedError::new(
-                "sync_failed",
-                format!("the machine at {} did not answer", socket.display()),
-            ));
-        }
+        let identity = match machine_gate::identify_checked(socket) {
+            Ok(identity) => Some(identity),
+            Err(failure) => {
+                // Only a machine that may answer once its link is back is "not answering", which
+                // the app copies once more on; a refusal stays a refusal. The category, never
+                // the daemon's words or the socket's path.
+                let (code, words) = if failure.transient() {
+                    (machine_gate::NOT_ANSWERING, "did not answer")
+                } else {
+                    ("sync_failed", "refused")
+                };
+                return Err(SeedError {
+                    identify_failure: Some(failure.code()),
+                    ..SeedError::new(
+                        code,
+                        format!("the machine {words} identify ({})", failure.code()),
+                    )
+                });
+            }
+        };
         let lacks = |capability: &str| {
             identity
                 .as_ref()
@@ -674,7 +703,53 @@ impl Drop for LocalBundle {
 
 #[cfg(test)]
 mod tests {
-    use super::{Command, LocalBundle, parse, pull};
+    use super::{Command, LocalBundle, Machine, SeedError, parse, pull};
+
+    /// The copy's answer for a machine socket nobody answers says why, as a category.
+    #[test]
+    fn a_machine_that_does_not_answer_identify_says_why_on_the_answer_line() {
+        let folder = tempfile::tempdir().expect("socket folder");
+        let socket = folder.path().join("d.sock");
+        drop(std::os::unix::net::UnixListener::bind(&socket).expect("bind"));
+        let Err(error) = Machine::read(&socket) else { panic!("no daemon answers") };
+        let line = SeedError::of(&error.into()).line();
+        assert_eq!(line["error_code"], "machine_not_answering");
+        assert_eq!(line["identify_failure"], "connect");
+        let message = line["error"].as_str().unwrap_or_default();
+        assert!(
+            message.contains("connect") && !message.contains(&*socket.to_string_lossy()),
+            "{message}"
+        );
+    }
+
+    /// A daemon that refuses `identify` is a refusal, never "not answering" (which the app copies
+    /// once more on): its line carries the category only, never the refusal's own words.
+    #[test]
+    fn a_machine_that_refuses_identify_says_refused_and_none_of_its_words() {
+        use std::io::{BufRead as _, Write as _};
+        let folder = tempfile::tempdir().expect("socket folder");
+        let socket = folder.path().join("d.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&socket).expect("bind");
+        let secret = "ghp_0123456789abcdefSECRET /home/work/.ssh/id_ed25519";
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut request = String::new();
+            std::io::BufReader::new(stream.try_clone().expect("clone"))
+                .read_line(&mut request)
+                .expect("read");
+            let answer =
+                serde_json::json!({"id": 1, "ok": false, "error_code": "denied", "error": secret});
+            writeln!(stream, "{answer}").expect("answer");
+        });
+        let Err(error) = Machine::read(&socket) else { panic!("identify was refused") };
+        let line = SeedError::of(&error.into()).line();
+        assert_eq!(line["error_code"], "sync_failed");
+        assert_eq!(line["identify_failure"], "refused");
+        let text = line.to_string();
+        for raw in ["ghp_", "SECRET", ".ssh", "denied", &*socket.to_string_lossy()] {
+            assert!(!text.contains(raw), "{raw} in {text}");
+        }
+    }
 
     #[test]
     fn the_bundle_lives_in_a_folder_only_this_user_opens_and_goes_with_it() {

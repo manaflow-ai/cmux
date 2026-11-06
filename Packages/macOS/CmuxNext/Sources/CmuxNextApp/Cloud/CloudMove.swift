@@ -273,7 +273,7 @@ struct CloudMove {
     /// A failed copy's failure: an outdated machine's Retry updates it first.
     static func failure(syncing answer: CloudMoveCLI.Answer, machine: String, retry: CloudMoveRetries.Retry) -> Failure {
         if answer.errorCode == CloudMoveStrings.outdatedCode { return Failure(message: CloudMoveStrings.outdatedMachine(machine), retry: retry.updating) }
-        return Failure(message: CloudMoveStrings.syncFailed(machine, answer.error ?? answer.errorCode ?? ""), retry: retry)
+        return Failure(message: answer.errorCode == CloudOutdatedMachine.notAnswering ? CloudMoveStrings.notConnected(machine) : CloudMoveStrings.syncFailed(machine, answer.error ?? answer.errorCode ?? ""), retry: retry)
     }
 
     /// The chat's folder on this Mac: the `path` argument (the CLI makes a

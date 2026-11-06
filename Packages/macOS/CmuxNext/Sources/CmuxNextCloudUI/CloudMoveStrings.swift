@@ -58,6 +58,13 @@ public struct CloudMoveStrings {
         String(format: String(localized: "cloud.move.syncFailed", defaultValue: "Couldn't copy the folder to %1$@: %2$@", table: "Cloud", bundle: .module),
                machine, detail)
     }
+    /// A Cloud start's folder that left this Mac after the start checked it (a worktree removed while the machine came up).
+    nonisolated public static func folderGone(_ folder: String) -> String {
+        String(format: String(localized: "cloud.move.folderGone", defaultValue: "“%@” is no longer on this Mac. Pick another folder, or start without one.", table: "Cloud", bundle: .module), folder)
+    }
+    nonisolated public static var startWithoutFolder: String {
+        String(localized: "cloud.move.startWithoutFolder", defaultValue: "Start Without a Folder", table: "Cloud", bundle: .module)
+    }
     public static var unresolved: String {
         String(localized: "cloud.move.unresolved", defaultValue: "The move didn't finish, so the chat is paused. Retry to finish it.", table: "Cloud", bundle: .module)
     }

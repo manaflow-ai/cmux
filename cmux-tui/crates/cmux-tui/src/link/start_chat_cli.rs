@@ -967,16 +967,46 @@ pub(super) fn import(ledger: &Path, entries: &str) -> Value {
 /// One push of a folder to a machine: `(socket, local, remote)` to what the
 /// answer adds about it ([`pushed_fields`]), or the push's error code and
 /// message.
-pub(super) type Push<'a> = dyn Fn(&Path, &Path, &str) -> Result<Value, (String, String)> + 'a;
+pub(super) type Push<'a> = dyn Fn(&Path, &Path, &str) -> Result<Value, PushFailure> + 'a;
+
+/// Why a [`Push`] failed: its code and words, and, when the machine did not answer `identify`
+/// before the copy, why (`identify_failure`: a category, never the daemon's words), so the
+/// copy's answer carries it to the app.
+#[derive(Debug)]
+pub(super) struct PushFailure {
+    pub(super) code: String,
+    pub(super) message: String,
+    pub(super) identify_failure: Option<&'static str>,
+}
+
+impl PushFailure {
+    pub(super) fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self { code: code.into(), message: message.into(), identify_failure: None }
+    }
+
+    fn line(&self) -> Value {
+        let mut line = refused(&self.code, &self.message);
+        if let Some(failure) = self.identify_failure {
+            line.set("identify_failure", json!(failure));
+        }
+        line
+    }
+}
 
 /// `cmux link seed push` (design/cloud.md, "Getting the project onto the
 /// machine"): a git folder with a GitHub remote is seeded from it, anything
 /// else copied (`cmux link sync push`), which refuses a machine without
 /// `fs-v1` (`machine_outdated`) itself.
-fn push(socket: &Path, local: &Path, remote: &str) -> Result<Value, (String, String)> {
+pub(super) fn push(socket: &Path, local: &Path, remote: &str) -> Result<Value, PushFailure> {
     super::seed_cli::push(socket, local, remote)
         .map(|pushed| pushed_fields(&pushed.json()))
-        .map_err(|error| super::seed_cli::failure(&error))
+        .map_err(|error| {
+            let (code, message) = super::seed_cli::failure(&error);
+            PushFailure {
+                identify_failure: super::seed_cli::identify_failure(&error),
+                ..PushFailure::new(code, message)
+            }
+        })
 }
 
 /// What the copy's answer carries of the push's own line: how it went
@@ -1179,7 +1209,7 @@ impl StartCopy {
             Ok(None) => {}
             Err(error) => return refused("ledger_failed", format!("{error:#}")),
         }
-        let mut last = ("sync_failed".to_string(), "no work root to copy to".to_string());
+        let mut last = PushFailure::new("sync_failed", "no work root to copy to");
         for root in &self.work_roots {
             let (folder, chat) = self.remote(root, &place);
             match push(&self.socket, Path::new(&self.local), &folder) {
@@ -1203,7 +1233,7 @@ impl StartCopy {
                     };
                 }
                 Err(failure) => {
-                    let next = failure.0 == PERMISSION_DENIED;
+                    let next = failure.code == PERMISSION_DENIED;
                     last = failure;
                     // Not this machine's home (an image without the work user): the next root.
                     if !next {
@@ -1212,7 +1242,7 @@ impl StartCopy {
                 }
             }
         }
-        refused(&last.0, last.1)
+        last.line()
     }
 
     fn cached_copy(&self, pins: &Ledger, send: &Send, chat: &str) -> Value {

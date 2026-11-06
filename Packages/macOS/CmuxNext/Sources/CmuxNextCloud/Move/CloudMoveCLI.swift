@@ -19,6 +19,8 @@ public nonisolated struct CloudMoveCLI: Sendable {
         public var conflicts: [String] = []
         /// `link agent move`'s `machine_outdated`: the daemon it is about, `source` or `target`.
         public var side: String?
+        /// Why the machine did not answer `identify` before a copy (`identify_failure`): `eof`, `connect`, `timeout`, `refused` or `parse`.
+        public var identifyFailure: String?
         /// `link machine update`: whether the machine's cmux-tui changed.
         public var updated = false
         /// `link machine update`: the build the machine runs after it; with
@@ -262,7 +264,7 @@ public nonisolated struct CloudMoveCLI: Sendable {
             let detail = String(decoding: result.stderr, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
             return (Answer(ok: false, errorCode: Self.badAnswer, error: detail.isEmpty ? "exit \(result.status)" : detail), nil, result.status)
         }
-        let answer = Answer(ok: ok, errorCode: object["error_code"] as? String, error: object["error"] as? String,
+        var answer = Answer(ok: ok, errorCode: object["error_code"] as? String, error: object["error"] as? String,
                             sessionID: object["session_id"] as? String, transferID: object["transfer_id"] as? String,
                             conflicts: object["conflicts"] as? [String] ?? [], side: object["side"] as? String,
                             updated: object["updated"] as? Bool ?? false, build: object["build"] as? String,
@@ -271,6 +273,7 @@ public nonisolated struct CloudMoveCLI: Sendable {
                             seedPhase: object["seed_phase"] as? String,
                             seedStartedAt: object["seed_started_at"] as? Double,
                             seedFinishedAt: object["seed_finished_at"] as? Double)
+        answer.identifyFailure = object["identify_failure"] as? String
         return (answer, object, result.status)
     }
 }

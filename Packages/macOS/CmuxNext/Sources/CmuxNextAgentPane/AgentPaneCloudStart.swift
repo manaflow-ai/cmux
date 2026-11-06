@@ -304,6 +304,20 @@ struct AgentPaneHandOff {
     }
 }
 
+public extension AgentPaneCloudStart {
+    /// This send with no folder (``home``): it copies nothing and starts in the machine's own folder for chats,
+    /// under the same ``key``, so the machine its first try took is the one it starts on.
+    var withoutFolder: AgentPaneCloudStart {
+        var start = self
+        (start.home, start.cwd, start.uploadRoot) = (true, nil, nil)
+        return start
+    }
+
+    /// The pane's own refusal of a folder that is gone from this Mac (`cloud_folder_missing`): the page words it
+    /// ("This folder no longer exists; pick another one") and marks no step failed.
+    static var folderGoneReply: [String: Any] { AgentPaneCloudFolderRefusal.missing.reply }
+}
+
 /// Why a Cloud start refused its folder on this Mac, before anything was copied: each has its own
 /// code, and the page its own words (webviews `cloudStartProgress.ts` `cloudRefusalText`).
 nonisolated enum AgentPaneCloudFolderRefusal: Error, Equatable {
