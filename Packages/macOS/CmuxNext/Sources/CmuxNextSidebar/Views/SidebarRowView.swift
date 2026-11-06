@@ -63,6 +63,11 @@ class SidebarRowView: NSView {
         }
     }
 
+    /// Posts an accessibility notification for the row: AppKit's `NSAccessibility.post`; a test records the posts.
+    var postAccessibility: @MainActor (Any, NSAccessibility.Notification, [NSAccessibility.NotificationUserInfoKey: Any]?) -> Void = {
+        NSAccessibility.post(element: $0, notification: $1, userInfo: $2)
+    }
+
     /// Fingerprint of the last configured content. Reloads happen on every
     /// drag step, so rows skip work (symbol images, attributed strings,
     /// accessibility) when nothing they show has changed.
