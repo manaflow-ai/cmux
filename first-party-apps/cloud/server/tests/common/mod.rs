@@ -240,6 +240,7 @@ impl ControlPlane for FakeControlPlane {
             action();
         }
         if call.op == "cloud.machine.connect_info" && self.connect_info_unreachable {
+            self.wire.calls.push(call.clone());
             return Err(RelayError::Unavailable("the relay to cmux Cloud did not answer".into()));
         }
         // The link-test names answer first: `vm-list` replaces the vectors'

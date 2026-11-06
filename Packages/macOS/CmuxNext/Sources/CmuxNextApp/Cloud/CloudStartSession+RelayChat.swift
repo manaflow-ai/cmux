@@ -102,13 +102,9 @@ extension CloudStartSession {
         }
     }
 
-    /// Why the relay sends nothing after the machine's login step (`decision`, nil when none ran): the rules refused
-    /// it (a run that may not ask, as start-session refuses), or Claude there still has no login (this Mac holds none
-    /// of the person's to give it), or the copy failed. Nil sends. Every field is fixed text: no token or provider output.
-    /// A Claude step that skipped sends nothing either: only a login copied now or the machine's own counts. Not the owner by an
-    /// answer nobody read (no link up, or the app server could not read it: `ownership` unknown) is `login_unverified`, never a
-    /// teammate's machine; start-session connects first and asks. Any other skip is `login_skipped`. A known teammate's machine
-    /// (`team`) is `login_team_machine` for every agent: its owner starts chats there, as the app refuses a start there (cmux#29214).
+    /// Why the relay sends nothing after the login step (`decision`, nil when none ran), in fixed text; nil sends. A teammate's
+    /// machine (`team`) never takes a chat from here (cmux#29214); then a refusal, a login this Mac lacks, declined or failed. A
+    /// Claude skip sends only on the machine's own login: an owner nobody read (`unknown`) is `login_unverified`, never team.
     static func relayLoginRefusal(_ decision: CloudHarnessLoginDecision?, _ started: Request, machine: String,
                                   ownership: CloudCallerOwnership) -> (code: String, message: String)? {
         guard let decision else { return nil }

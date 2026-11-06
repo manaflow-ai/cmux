@@ -114,10 +114,12 @@ pub(crate) fn run<C: ControlPlane>(
     }
 }
 
-/// The owner answer of a connect (cmux-platform#89): `Some(true)` owner,
-/// `Some(false)` the Worker's not-owner answer, `None` when no answer could be
-/// read (an unavailable identity or a transient Cloud error), which is never
-/// cached. A cached answer is usable only for the same link generation and
+/// The owner answer of a connect (cmux-platform#89): `Some(true)` the
+/// Worker's `owner`, `Some(false)` its `team`, `None` when no such answer
+/// could be read (an unavailable identity, a transient Cloud error, or a
+/// `vm_kind` absent or not one of the two), which is never cached. A machine
+/// that is gone or out of reach is the connect's typed refusal instead. A
+/// cached answer is usable only for the same link generation and
 /// authentication epoch, so a connect over an up carrier does not
 /// synchronously call Cloud. A sign-out, access loss, or identity change
 /// clears the cache and links as needed.
@@ -154,7 +156,14 @@ fn owner_answer<C: ControlPlane>(
     match super::info::connect_info(server, machine) {
         Ok(info) => {
             recheck_carrier(server, machine, carrier)?;
-            let owns = info.caller_owns_vm();
+            // The Worker's own word: only an exact `owner` or `team` is known.
+            // An absent (a Worker that predates it) or other value is unknown
+            // and not cached, as a failed read.
+            let owns = match info.vm_kind.as_deref() {
+                Some("owner") => true,
+                Some("team") => false,
+                _ => return Ok(None),
+            };
             server
                 .attach_mut()
                 .owner_answers
