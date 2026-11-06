@@ -55,7 +55,7 @@ fn mark(what: std::fmt::Arguments<'_>) {
     let us = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_micros());
-    eprintln!("JPROBE {us} BENCH {what}");
+    eprintln!("ACPMUX-PERF-PROBE {us} BENCH {what}");
 }
 
 fn now_ns() -> u64 {
