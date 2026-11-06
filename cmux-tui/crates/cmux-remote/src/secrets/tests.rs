@@ -359,7 +359,9 @@ fn a_login_is_refused_off_an_owner_guest_or_next_to_a_custom_endpoint() {
     };
     let error = fixture.secrets.install_harness_login(&item).unwrap_err();
     assert!(error.message.starts_with("not-owner-guest"), "{error}");
+    assert!(!fixture.home.join(".claude").exists());
     std::fs::write(fixture.etc.join("vm-kind"), "owner\n").unwrap();
+    std::fs::create_dir_all(fixture.home.join(".claude")).unwrap();
     std::fs::write(
         fixture.home.join(".claude/settings.json"),
         r#"{"env":{"ANTHROPIC_BASE_URL":"https://example.invalid"}}"#,
