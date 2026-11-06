@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { DialogButton } from "../../../ui/DialogButton";
 import { cx } from "../../../ui/cx";
 import type { Strings } from "../../shared/i18n";
+import { PERSON_CLICK_ATTRIBUTE } from "../host";
 import {
   buttonsOf,
   clock,
@@ -103,6 +104,7 @@ export function PairInviteCard({
             dialogKey={isClickOnly(button.action) ? null : button.key}
             className={cx("server-card-button", button.key === "return" && "is-default")}
             data-action={button.action}
+            {...(isClickOnly(button.action) ? { [PERSON_CLICK_ATTRIBUTE]: "" } : {})}
             disabled={!isEnabled(button.action, step, status.approver)}
             onClick={() => press(button.action)}
           >

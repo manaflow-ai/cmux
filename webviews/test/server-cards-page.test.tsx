@@ -124,6 +124,8 @@ test("a change event reads the status again: the arrived machine shows its words
   await key("Enter");
   await flush();
   expect(ops(fake.calls, "cmux.pairInvite.confirm")).toEqual([]);
+  // The panel takes a click for Confirm only inside the frame the page marks.
+  expect(host.querySelector("[data-person-click]")?.getAttribute("data-action")).toBe("confirm");
   await press("[data-action='confirm']");
   await flush();
   expect(ops(fake.calls, "cmux.pairInvite.confirm").map((call) => call.params)).toEqual([{ name: "build-box" }]);

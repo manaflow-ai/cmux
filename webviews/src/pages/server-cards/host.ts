@@ -19,26 +19,40 @@ export function cardOfHash(hash: string): string | null {
   return match ? match[1]! : null;
 }
 
-/** Reports `ref`'s size to the panel whenever it changes (the first layout included). */
+/** The attribute that marks a card's click-only control (Confirm): the panel takes a click for it
+ * only inside that control's frame (WebCardPanel.isPersonClick). */
+export const PERSON_CLICK_ATTRIBUTE = "data-person-click";
+
+/** Reports `ref`'s size, and its click-only control's frame, to the panel whenever either changes
+ * (the first layout included). */
 export function useCardSize(client: PageClient | null, card: string, ref: RefObject<HTMLElement | null>): void {
-  useLayoutEffect(() => {
+  const last = useRef("");
+  const report = () => {
     const element = ref.current;
     if (!client || !element) return;
-    let last = "";
-    const report = () => {
-      const width = Math.ceil(element.offsetWidth);
-      const height = Math.ceil(element.offsetHeight);
-      const key = `${width}x${height}`;
-      if (key === last || height === 0) return;
-      last = key;
-      void client.call(CardOps.resize, { card, width, height }).catch(() => {});
-    };
-    report();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(report);
+    const width = Math.ceil(element.offsetWidth);
+    const height = Math.ceil(element.offsetHeight);
+    const control = element.querySelector(`[${PERSON_CLICK_ATTRIBUTE}]`)?.getBoundingClientRect();
+    const guard =
+      control && control.width > 0
+        ? { x: control.x, y: control.y, width: control.width, height: control.height }
+        : null;
+    const key = JSON.stringify([width, height, guard]);
+    if (key === last.current || height === 0) return;
+    last.current = key;
+    void client.call(CardOps.resize, { card, width, height, ...(guard ? { guard } : {}) }).catch(() => {});
+  };
+  const latest = useRef(report);
+  latest.current = report;
+  // Every render may move the control without changing the card's size (a step's footer).
+  useLayoutEffect(() => latest.current());
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => latest.current());
     observer.observe(element);
     return () => observer.disconnect();
-  }, [client, card, ref]);
+  }, [ref]);
 }
 
 /** Runs `cancel` on Escape in the page and on the panel's own Escape. */

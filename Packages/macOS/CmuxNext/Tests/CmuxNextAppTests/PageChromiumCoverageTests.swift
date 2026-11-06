@@ -2,6 +2,7 @@ import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextBrowser
 import CmuxNextPages
+import CmuxNextServer
 import Foundation
 import Testing
 

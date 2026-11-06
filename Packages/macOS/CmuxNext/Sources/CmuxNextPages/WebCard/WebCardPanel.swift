@@ -11,8 +11,9 @@ import Foundation
 /// the route, never loads a page.
 ///
 /// The page drives its own size and close (`cmux.card.*`, ``WebCardHostProvider``):
-/// - `cmux.card.resize {card, height, width?}` (CSS px): the page measured its content; the panel
-///   grows or shrinks downward, keeping its top edge where the person saw it;
+/// - `cmux.card.resize {card, height, width?, guard?}` (CSS px): the page measured its content; the
+///   panel grows or shrinks downward, keeping its top edge where the person saw it. `guard` is the
+///   frame of the card's click-only control (Confirm), the only place ``isPersonClick(_:)`` takes a click;
 /// - `cmux.card.close {card}`: the card's Cancel or Done ran; the panel hides;
 /// - stream `cmux.card.commands`: `{command: "cancel"}` when Escape reaches the panel outside the
 ///   page (the card runs its own Cancel).
@@ -47,7 +48,9 @@ public final class WebCardPanel: NSPanel {
     private var pending: (card: String, parent: NSRect?, visible: NSRect, intent: WindowActivation.Intent)?
     private let pendingTimeout = DemandTimer(owner: "web-card-first-size")
     /// The person's last left click on the panel: its down and up event times.
-    private var personClick: (down: TimeInterval, up: TimeInterval?)?
+    private var personClick: PersonClick?
+    /// Each card's click-only control (Confirm), in CSS px from the card's top left, as the page last laid it out.
+    private var guards: [String: CGRect] = [:]
     /// When the card last drew anew (a click begun sooner is not aimed at what shows now).
     private var armedAt: TimeInterval = 0
     /// The click a person-only action already spent.
@@ -142,13 +145,16 @@ public final class WebCardPanel: NSPanel {
         armedAt = uptime
     }
 
-    /// SECURITY: whether a page call comes from the person's own left click on this card: the
-    /// call's gesture is a click the panel saw from the HID system (no key, script, Accessibility
-    /// press or posted event), begun at least a double-click interval after the card last drew,
-    /// and not spent by an earlier call.
+    /// SECURITY: whether a page call comes from the person's own left click on this card's
+    /// click-only control: the call's gesture is a click the panel saw from the HID system (no key,
+    /// script, Accessibility press or posted event) that went down and up inside the control's
+    /// frame (`cmux.card.resize`'s `guard`, so a click elsewhere on the card lends a script
+    /// nothing), begun at least a double-click interval after the card last drew, and not spent by
+    /// an earlier call.
     public func isPersonClick(_ context: PageCallContext) -> Bool {
         guard context.userGesture, let gesture = context.gestureEvent, let click = personClick, let up = click.up,
               gesture == up || gesture == click.down,
+              let card, let target = guards[card], target.contains(click.downPoint), target.contains(click.upPoint),
               click.down - armedAt >= NSEvent.doubleClickInterval, spentClick != up else { return false }
         spentClick = up
         return true
@@ -157,15 +163,27 @@ public final class WebCardPanel: NSPanel {
     override public func sendEvent(_ event: NSEvent) {
         switch event.type {
         case .leftMouseDown:
-            personClick = isPersonEvent(event) ? (event.timestamp, nil) : nil
+            personClick = isPersonEvent(event) ? PersonClick(down: event.timestamp, downPoint: cssPoint(event)) : nil
         case .leftMouseUp:
-            if let down = personClick?.down, isPersonEvent(event) { personClick = (down, event.timestamp) } else { personClick = nil }
+            if var click = personClick, isPersonEvent(event) {
+                (click.up, click.upPoint) = (event.timestamp, cssPoint(event))
+                personClick = click
+            } else {
+                personClick = nil
+            }
         case .keyDown:
             personClick = nil
         default:
             break
         }
         super.sendEvent(event)
+    }
+
+    /// The event's point in the page's CSS px from its top left (the page fills the panel).
+    private func cssPoint(_ event: NSEvent) -> CGPoint {
+        let zoom = max(page.webKitView.pageZoom * page.webKitView.magnification, 0.01)
+        let height = contentView?.bounds.height ?? frame.height
+        return CGPoint(x: event.locationInWindow.x / zoom, y: (height - event.locationInWindow.y) / zoom)
     }
 
     // MARK: - The page's requests
@@ -186,7 +204,8 @@ public final class WebCardPanel: NSPanel {
 
     /// `cmux.card.resize`: `width` and `height` are in CSS px; the page is zoomed (the interface
     /// scale), so one CSS px is `pageZoom * magnification` points.
-    func pageResized(card: String, width: CGFloat?, height: CGFloat) {
+    func pageResized(card: String, width: CGFloat?, height: CGFloat, control target: CGRect?) {
+        guards[card] = target
         let zoom = page.webKitView.pageZoom * page.webKitView.magnification
         let size = NSSize(width: ceil((width ?? frame.width / zoom) * zoom), height: ceil(height * zoom))
         guard size.height > 0 else { return }
@@ -227,6 +246,14 @@ public final class WebCardPanel: NSPanel {
     }
 }
 
+/// The person's last left click on the panel: when and where (CSS px) it went down and up.
+private struct PersonClick {
+    var down: TimeInterval
+    var downPoint: CGPoint
+    var up: TimeInterval?
+    var upPoint = CGPoint(x: -1, y: -1)
+}
+
 /// One card of the shared card page: a page provider for the card's own ops (`cmux.<card>.status`,
 /// the stream `cmux.<card>.changes`, its actions) that hears when its panel opens and closes it.
 @MainActor
@@ -261,7 +288,7 @@ final class WebCardHostProvider: PageProvider {
         case Self.resizeOp:
             guard let height = params["height"]?.doubleValue, height.isFinite else { throw PageError.invalidParams("height is required") }
             let width = params["width"]?.doubleValue.flatMap { $0.isFinite && $0 > 0 ? CGFloat($0) : nil }
-            panel?.pageResized(card: card, width: width, height: CGFloat(height))
+            panel?.pageResized(card: card, width: width, height: CGFloat(height), control: Self.rect(params["guard"]))
         case Self.closeOp:
             panel?.pageClosed(card: card)
         default:
@@ -277,6 +304,13 @@ final class WebCardHostProvider: PageProvider {
         nextListener += 1
         listeners[id] = onEvent
         return PageSubscription { [weak self] in _ = self?.listeners.removeValue(forKey: id) }
+    }
+
+    /// `{x, y, width, height}` in CSS px, nil when absent or malformed.
+    static func rect(_ value: JSONValue?) -> CGRect? {
+        guard let x = value?["x"]?.doubleValue, let y = value?["y"]?.doubleValue, let width = value?["width"]?.doubleValue,
+              let height = value?["height"]?.doubleValue, [x, y, width, height].allSatisfy(\.isFinite), width > 0, height > 0 else { return nil }
+        return CGRect(x: x, y: y, width: width, height: height)
     }
 
     /// Sends one command to the page; false when no page listens.

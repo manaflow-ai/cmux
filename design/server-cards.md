@@ -39,8 +39,10 @@ calls, the invite socket, the clipboard); every card's look and every step it wa
 
 An action that pairs a machine or lets one in (Confirm, Try Again, an approver's Approve) answers
 only the person's own click on the card: the panel reads the click from its own events (a left
-click from the HID system, not a key, an Accessibility press, a posted event or a script), begun at
-least a double-click interval after the card last drew (a machine arrived and Confirm appeared
+click from the HID system, not a key, an Accessibility press, a posted event or a script) that went
+down and up inside the control's own frame (the page marks it `data-person-click` and reports its
+frame with each size, so a click elsewhere on the card lends a script nothing), begun at least a
+double-click interval after the card last drew (a machine arrived and Confirm appeared
 under a pointer aimed at what was there before), and spent once (`WebCardPanel.isPersonClick`).
 Copy, New Code and options need the person's own click or key (`userGesture`). A copied code is
 written concealed and transient so clipboard managers do not keep it.
