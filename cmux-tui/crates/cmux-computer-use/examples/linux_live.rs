@@ -16,6 +16,7 @@
 //!   scroll TITLE X Y DY            scroll at a global point
 //!   cursor X Y                     show the agent cursor there (then wait 0.5 s)
 //!   launch APP_ID
+//!   a11y                           list AT-SPI top-level frames
 //!   perm input|screen_capture      ask the OS for a grant (portal dialogs)
 //!   wait MS
 //! ```
@@ -109,26 +110,48 @@ mod live {
         enc.set_depth(png::BitDepth::Eight);
         let mut w = enc.write_header().map_err(|e| DesktopError::Failed(e.to_string()))?;
         w.write_image_data(&f.rgba).map_err(|e| DesktopError::Failed(e.to_string()))?;
-        Ok(format!("{} ({}x{}, origin {:?}, scale {})", path.display(), f.width, f.height, f.origin, f.scale))
+        Ok(format!(
+            "{} ({}x{}, origin {:?}, scale {})",
+            path.display(),
+            f.width,
+            f.height,
+            f.origin,
+            f.scale
+        ))
     }
 
     fn arg(cmd: &[String], i: usize) -> DResult<&str> {
-        cmd.get(i).map(String::as_str).ok_or_else(|| DesktopError::Failed(format!("{}: missing argument {i}", cmd[0])))
+        cmd.get(i)
+            .map(String::as_str)
+            .ok_or_else(|| DesktopError::Failed(format!("{}: missing argument {i}", cmd[0])))
     }
 
     fn num(cmd: &[String], i: usize) -> DResult<f64> {
-        arg(cmd, i)?.parse().map_err(|_| DesktopError::Failed(format!("argument {i} is not a number")))
+        arg(cmd, i)?
+            .parse()
+            .map_err(|_| DesktopError::Failed(format!("argument {i} is not a number")))
     }
 
-    fn run(d: &dyn Desktop, cursor: &Arc<dyn CursorSink>, out: &Path, cmd: &[String]) -> DResult<String> {
+    fn run(
+        d: &dyn Desktop,
+        cursor: &Arc<dyn CursorSink>,
+        out: &Path,
+        cmd: &[String],
+    ) -> DResult<String> {
         match cmd[0].as_str() {
             "info" => Ok(format!("{}\n{}", json(&d.info()), json(&d.permissions()))),
             "windows" => Ok(json(&d.list_windows()?)),
             "apps" => Ok(json(&d.list_apps()?)),
-            "shot" => save(&out.join(format!("{}.png", arg(cmd, 1)?)), &d.capture(&CaptureTarget::Display(None))?),
+            "shot" => save(
+                &out.join(format!("{}.png", arg(cmd, 1)?)),
+                &d.capture(&CaptureTarget::Display(None))?,
+            ),
             "wshot" => {
                 let w = window(d, arg(cmd, 1)?)?;
-                save(&out.join(format!("{}.png", arg(cmd, 2)?)), &d.capture(&CaptureTarget::Window(w.id))?)
+                save(
+                    &out.join(format!("{}.png", arg(cmd, 2)?)),
+                    &d.capture(&CaptureTarget::Window(w.id))?,
+                )
             }
             "tree" => {
                 let w = window(d, arg(cmd, 1)?)?;
@@ -140,13 +163,25 @@ mod live {
             "press" => {
                 let w = window(d, arg(cmd, 1)?)?;
                 let id = element(d, &w, arg(cmd, 2)?)?;
-                let spec = ClickSpec { button: Button::Left, count: 1, modifiers: vec![], delivery: Delivery::Background };
-                Ok(json(&d.click(&PointerTarget::Element { window_id: w.id, element_id: id }, &spec)?))
+                let spec = ClickSpec {
+                    button: Button::Left,
+                    count: 1,
+                    modifiers: vec![],
+                    delivery: Delivery::Background,
+                };
+                Ok(json(
+                    &d.click(&PointerTarget::Element { window_id: w.id, element_id: id }, &spec)?,
+                ))
             }
             "click" => {
                 let w = window(d, arg(cmd, 1)?)?;
                 let point = Point { x: num(cmd, 2)?, y: num(cmd, 3)? };
-                let spec = ClickSpec { button: Button::Left, count: 1, modifiers: vec![], delivery: delivery(cmd.get(4)) };
+                let spec = ClickSpec {
+                    button: Button::Left,
+                    count: 1,
+                    modifiers: vec![],
+                    delivery: delivery(cmd.get(4)),
+                };
                 Ok(json(&d.click(&PointerTarget::Point { window_id: w.id, point }, &spec)?))
             }
             "type" => {
@@ -171,15 +206,37 @@ mod live {
             "scroll" => {
                 let w = window(d, arg(cmd, 1)?)?;
                 let point = Point { x: num(cmd, 2)?, y: num(cmd, 3)? };
-                Ok(json(&d.scroll(&PointerTarget::Point { window_id: w.id, point }, 0.0, num(cmd, 4)?)?))
+                Ok(json(&d.scroll(
+                    &PointerTarget::Point { window_id: w.id, point },
+                    0.0,
+                    num(cmd, 4)?,
+                )?))
             }
             "cursor" => {
                 let at = Point { x: num(cmd, 1)?, y: num(cmd, 2)? };
-                cursor.show(CursorEvent::Move { session: "live".into(), label: "linux_live".into(), at });
+                cursor.show(CursorEvent::Move {
+                    session: "live".into(),
+                    label: "linux_live".into(),
+                    at,
+                });
                 std::thread::park_timeout(std::time::Duration::from_millis(500));
                 Ok(format!("cursor at {at:?}"))
             }
             "launch" => Ok(json(&d.launch_app(arg(cmd, 1)?)?)),
+            "a11y" => {
+                let a = linux::atspi::Atspi::connect().map_err(DesktopError::Failed)?;
+                let frames = a.frames(|_| linux::atspi::Coords::Screen)?;
+                Ok(frames
+                    .iter()
+                    .map(|f| {
+                        format!(
+                            "pid {} {:?} {} {:?} active={}",
+                            f.pid, f.name, f.role, f.extents, f.active
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n"))
+            }
             "perm" => {
                 d.request_permission(arg(cmd, 1)?)?;
                 Ok(format!("granted; {}", json(&d.permissions())))

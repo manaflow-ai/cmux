@@ -10,8 +10,8 @@
 //!   second of the person stopping.
 //! - Headless sessions and nothing available: [`NoTakeover`].
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::engine::{NoTakeover, PersonActivity};
@@ -56,7 +56,9 @@ pub fn person_idle(idle_ms: u64, now: u64, last_injection: u64) -> bool {
         return true;
     }
     let last_input = now.saturating_sub(idle_ms);
-    last_injection != 0 && last_input <= last_injection + OWN_INPUT_GRACE.as_millis() as u64 && last_input + 50 >= last_injection
+    last_injection != 0
+        && last_input <= last_injection + OWN_INPUT_GRACE.as_millis() as u64
+        && last_input + 50 >= last_injection
 }
 
 pub fn open() -> Arc<dyn PersonActivity> {
@@ -139,7 +141,9 @@ mod ext {
     use wayland_client::globals::{GlobalListContents, registry_queue_init};
     use wayland_client::protocol::{wl_registry, wl_seat};
     use wayland_client::{Connection, Dispatch, QueueHandle, delegate_noop};
-    use wayland_protocols::ext::idle_notify::v1::client::{ext_idle_notification_v1 as note, ext_idle_notifier_v1 as notifier};
+    use wayland_protocols::ext::idle_notify::v1::client::{
+        ext_idle_notification_v1 as note, ext_idle_notifier_v1 as notifier,
+    };
 
     pub struct IdleNotify {
         idle: Arc<AtomicBool>,
@@ -177,12 +181,23 @@ mod ext {
                 let since = self.since.load(Ordering::Relaxed);
                 return Some(IDLE_AFTER.as_millis() as u64 + now_ms().saturating_sub(since));
             }
-            Some(now_ms().saturating_sub(self.since.load(Ordering::Relaxed)).min(IDLE_AFTER.as_millis() as u64 - 1))
+            Some(
+                now_ms()
+                    .saturating_sub(self.since.load(Ordering::Relaxed))
+                    .min(IDLE_AFTER.as_millis() as u64 - 1),
+            )
         }
     }
 
     impl Dispatch<note::ExtIdleNotificationV1, ()> for St {
-        fn event(st: &mut Self, _: &note::ExtIdleNotificationV1, e: note::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        fn event(
+            st: &mut Self,
+            _: &note::ExtIdleNotificationV1,
+            e: note::Event,
+            _: &(),
+            _: &Connection,
+            _: &QueueHandle<Self>,
+        ) {
             match e {
                 note::Event::Idled => {
                     st.idle.store(true, Ordering::Relaxed);
@@ -198,7 +213,15 @@ mod ext {
     }
 
     impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for St {
-        fn event(_: &mut Self, _: &wl_registry::WlRegistry, _: wl_registry::Event, _: &GlobalListContents, _: &Connection, _: &QueueHandle<Self>) {}
+        fn event(
+            _: &mut Self,
+            _: &wl_registry::WlRegistry,
+            _: wl_registry::Event,
+            _: &GlobalListContents,
+            _: &Connection,
+            _: &QueueHandle<Self>,
+        ) {
+        }
     }
 
     delegate_noop!(St: ignore wl_seat::WlSeat);

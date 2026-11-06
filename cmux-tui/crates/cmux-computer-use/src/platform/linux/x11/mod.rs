@@ -115,6 +115,7 @@ pub struct X11Desktop {
     clients: Memo<Vec<Client>>,
     pub(crate) has_xtest: bool,
     pub(crate) has_composite: bool,
+    pub(crate) has_damage: bool,
 }
 
 pub(crate) fn xerr(e: impl std::fmt::Display) -> DesktopError {
@@ -125,13 +126,16 @@ impl X11Desktop {
     /// Connects to `$DISPLAY`. `xwayland_only` marks a Wayland session where
     /// only X11 apps are reachable.
     pub fn connect(xwayland_only: bool) -> Result<Self, String> {
-        let (conn, screen) = x11rb::connect(None).map_err(|e| format!("cannot open X display: {e}"))?;
-        let root = conn.setup().roots.get(screen).map(|s| s.root).ok_or("X server has no screen")?;
+        let (conn, screen) =
+            x11rb::connect(None).map_err(|e| format!("cannot open X display: {e}"))?;
+        let root =
+            conn.setup().roots.get(screen).map(|s| s.root).ok_or("X server has no screen")?;
         let vendor = String::from_utf8_lossy(&conn.setup().vendor).into_owned();
         let atoms = Atoms::intern(&conn)?;
         let has = |name: &'static str| conn.extension_information(name).ok().flatten().is_some();
         let has_xtest = has(x11rb::protocol::xtest::X11_EXTENSION_NAME);
         let has_composite = has(x11rb::protocol::composite::X11_EXTENSION_NAME);
+        let has_damage = has(x11rb::protocol::damage::X11_EXTENSION_NAME);
         let mut me = Self {
             conn,
             root,
@@ -144,6 +148,7 @@ impl X11Desktop {
             clients: Memo::new(Duration::from_millis(150)),
             has_xtest,
             has_composite,
+            has_damage,
         };
         me.headless = std::env::var("CMUX_CU_HEADLESS").is_ok_and(|v| v == "1")
             || me.monitors().iter().any(|m| m.name == "screen");
@@ -164,7 +169,8 @@ impl X11Desktop {
     }
 
     pub(crate) fn prop32(&self, win: XWindow, atom: Atom, ty: impl Into<Atom>) -> Vec<u32> {
-        let Ok(Ok(r)) = self.conn.get_property(false, win, atom, ty, 0, 1 << 16).map(|c| c.reply()) else {
+        let Ok(Ok(r)) = self.conn.get_property(false, win, atom, ty, 0, 1 << 16).map(|c| c.reply())
+        else {
             return Vec::new();
         };
         r.value32().map(|v| v.collect()).unwrap_or_default()
@@ -239,12 +245,15 @@ impl X11Desktop {
 
     fn is_skipped_type(&self, win: XWindow) -> bool {
         let types = self.prop32(win, self.atoms.net_wm_window_type, AtomEnum::ATOM);
-        types.iter().any(|t| *t == self.atoms.net_wm_window_type_desktop || *t == self.atoms.net_wm_window_type_dock)
+        types.iter().any(|t| {
+            *t == self.atoms.net_wm_window_type_desktop || *t == self.atoms.net_wm_window_type_dock
+        })
     }
 
     /// Client windows, bottom to top where the WM tells the stacking order.
     fn client_ids(&self) -> Vec<XWindow> {
-        let stacking = self.prop32(self.root, self.atoms.net_client_list_stacking, AtomEnum::WINDOW);
+        let stacking =
+            self.prop32(self.root, self.atoms.net_client_list_stacking, AtomEnum::WINDOW);
         if !stacking.is_empty() {
             return stacking;
         }
@@ -252,16 +261,24 @@ impl X11Desktop {
         if !list.is_empty() {
             return list;
         }
-        let Ok(Ok(tree)) = self.conn.query_tree(self.root).map(|c| c.reply()) else { return Vec::new() };
+        let Ok(Ok(tree)) = self.conn.query_tree(self.root).map(|c| c.reply()) else {
+            return Vec::new();
+        };
         let mut out = Vec::new();
         for child in tree.children {
-            if self.prop(child, self.atoms.wm_state, AtomEnum::ANY).is_some() || self.wm_class(child).is_some() {
+            if self.prop(child, self.atoms.wm_state, AtomEnum::ANY).is_some()
+                || self.wm_class(child).is_some()
+            {
                 out.push(child);
                 continue;
             }
             // A reparenting WM without EWMH: the client is one level down.
             if let Ok(Ok(sub)) = self.conn.query_tree(child).map(|c| c.reply()) {
-                out.extend(sub.children.into_iter().filter(|c| self.prop(*c, self.atoms.wm_state, AtomEnum::ANY).is_some()));
+                out.extend(
+                    sub.children
+                        .into_iter()
+                        .filter(|c| self.prop(*c, self.atoms.wm_state, AtomEnum::ANY).is_some()),
+                );
             }
         }
         out
@@ -269,17 +286,23 @@ impl X11Desktop {
 
     fn describe(&self, win: XWindow, current_desktop: Option<u32>) -> Option<Client> {
         let attrs = self.conn.get_window_attributes(win).ok()?.reply().ok()?;
-        if attrs.override_redirect || attrs.class == WindowClass::INPUT_ONLY || self.is_skipped_type(win) {
+        if attrs.override_redirect
+            || attrs.class == WindowClass::INPUT_ONLY
+            || self.is_skipped_type(win)
+        {
             return None;
         }
         let (class, instance) = self.wm_class(win).unwrap_or_default();
         let rect = self.rect_of(win)?;
         let frame_win = self.top_of(win);
         let frame_viewable = frame_win == win
-            || self.conn.get_window_attributes(frame_win).ok()?.reply().ok()?.map_state == MapState::VIEWABLE;
+            || self.conn.get_window_attributes(frame_win).ok()?.reply().ok()?.map_state
+                == MapState::VIEWABLE;
         let states = self.prop32(win, self.atoms.net_wm_state, AtomEnum::ATOM);
-        let desktop = self.prop32(win, self.atoms.net_wm_desktop, AtomEnum::CARDINAL).first().copied();
-        let other_desktop = matches!((desktop, current_desktop), (Some(d), Some(c)) if d != c && d != u32::MAX);
+        let desktop =
+            self.prop32(win, self.atoms.net_wm_desktop, AtomEnum::CARDINAL).first().copied();
+        let other_desktop =
+            matches!((desktop, current_desktop), (Some(d), Some(c)) if d != c && d != u32::MAX);
         Some(Client {
             win,
             frame_win,
@@ -296,7 +319,10 @@ impl X11Desktop {
 
     pub(crate) fn clients(&self) -> DResult<Vec<Client>> {
         self.clients.get_or(|| {
-            let current = self.prop32(self.root, self.atoms.net_current_desktop, AtomEnum::CARDINAL).first().copied();
+            let current = self
+                .prop32(self.root, self.atoms.net_current_desktop, AtomEnum::CARDINAL)
+                .first()
+                .copied();
             let ids = self.client_ids();
             Ok(ids.into_iter().filter_map(|w| self.describe(w, current)).collect())
         })
@@ -305,14 +331,14 @@ impl X11Desktop {
     pub(crate) fn client(&self, window_id: &str) -> DResult<Client> {
         let win = parse_window_id(window_id)
             .ok_or_else(|| DesktopError::TargetNotFound(format!("window {window_id:?}")))?;
-        self.clients()?
-            .into_iter()
-            .find(|c| c.win == win)
-            .ok_or_else(|| DesktopError::TargetNotFound(format!("window {window_id} is gone; call list_windows")))
+        self.clients()?.into_iter().find(|c| c.win == win).ok_or_else(|| {
+            DesktopError::TargetNotFound(format!("window {window_id} is gone; call list_windows"))
+        })
     }
 
     pub(crate) fn active_window(&self) -> Option<XWindow> {
-        if let Some(w) = self.prop32(self.root, self.atoms.net_active_window, AtomEnum::WINDOW).first()
+        if let Some(w) =
+            self.prop32(self.root, self.atoms.net_active_window, AtomEnum::WINDOW).first()
             && *w != 0
         {
             return Some(*w);
@@ -340,7 +366,12 @@ impl X11Desktop {
                     .map(|n| String::from_utf8_lossy(&n.name).into_owned())
                     .unwrap_or_default(),
                 primary: m.primary,
-                rect: Rect { x: f64::from(m.x), y: f64::from(m.y), width: f64::from(m.width), height: f64::from(m.height) },
+                rect: Rect {
+                    x: f64::from(m.x),
+                    y: f64::from(m.y),
+                    width: f64::from(m.width),
+                    height: f64::from(m.height),
+                },
             })
             .collect()
     }
@@ -351,7 +382,9 @@ impl X11Desktop {
 
     pub(crate) fn frame_obj(&self, c: &Client) -> DResult<(Arc<Atspi>, super::atspi::Frame)> {
         let a = self.atspi().ok_or_else(|| {
-            DesktopError::Unsupported("the accessibility bus (AT-SPI) is not running in this session".into())
+            DesktopError::Unsupported(
+                "the accessibility bus (AT-SPI) is not running in this session".into(),
+            )
         })?;
         let f = a.frame_for(c.pid, &c.title, Some(c.rect), Coords::Screen)?;
         Ok((a, f))
@@ -359,7 +392,11 @@ impl X11Desktop {
 
     fn wm_name(&self) -> String {
         let check = self.prop32(self.root, self.atoms.net_supporting_wm_check, AtomEnum::WINDOW);
-        check.first().map(|w| self.title(*w)).filter(|t| !t.is_empty()).unwrap_or_else(|| "no window manager".into())
+        check
+            .first()
+            .map(|w| self.title(*w))
+            .filter(|t| !t.is_empty())
+            .unwrap_or_else(|| "no window manager".into())
     }
 }
 
@@ -414,7 +451,13 @@ impl Desktop for X11Desktop {
                 a.hidden &= c.hidden || !c.viewable;
                 continue;
             }
-            apps.push(App { id, name, pid: c.pid, frontmost: front, hidden: c.hidden || !c.viewable });
+            apps.push(App {
+                id,
+                name,
+                pid: c.pid,
+                frontmost: front,
+                hidden: c.hidden || !c.viewable,
+            });
         }
         Ok(apps)
     }
@@ -457,11 +500,22 @@ impl Desktop for X11Desktop {
         self.click_impl(target, spec)
     }
 
-    fn type_text(&self, window_id: &str, element_id: Option<&str>, text: &str, delivery: Delivery) -> DResult<ActionOutcome> {
+    fn type_text(
+        &self,
+        window_id: &str,
+        element_id: Option<&str>,
+        text: &str,
+        delivery: Delivery,
+    ) -> DResult<ActionOutcome> {
         self.type_impl(window_id, element_id, text, delivery)
     }
 
-    fn press_keys(&self, window_id: &str, combo: &KeyCombo, delivery: Delivery) -> DResult<ActionOutcome> {
+    fn press_keys(
+        &self,
+        window_id: &str,
+        combo: &KeyCombo,
+        delivery: Delivery,
+    ) -> DResult<ActionOutcome> {
         self.keys_impl(window_id, combo, delivery)
     }
 
@@ -469,7 +523,14 @@ impl Desktop for X11Desktop {
         self.scroll_impl(target, dx, dy)
     }
 
-    fn drag(&self, window_id: &str, from: Point, to: Point, button: Button, delivery: Delivery) -> DResult<ActionOutcome> {
+    fn drag(
+        &self,
+        window_id: &str,
+        from: Point,
+        to: Point,
+        button: Button,
+        delivery: Delivery,
+    ) -> DResult<ActionOutcome> {
         self.drag_impl(window_id, from, to, button, delivery)
     }
 
@@ -479,18 +540,33 @@ impl Desktop for X11Desktop {
         let obj = a.element(window_id, element_id)?;
         let at = a.center(&obj, Coords::Screen);
         let confirmed = a.set_value(&obj, value)?;
-        let out = if confirmed { ActionOutcome::confirmed("atspi_set_value") } else { ActionOutcome::delivered("atspi_set_value") };
-        Ok(match at { Some(p) => out.at(p), None => out })
+        let out = if confirmed {
+            ActionOutcome::confirmed("atspi_set_value")
+        } else {
+            ActionOutcome::delivered("atspi_set_value")
+        };
+        Ok(match at {
+            Some(p) => out.at(p),
+            None => out,
+        })
     }
 
-    fn perform_action(&self, window_id: &str, element_id: &str, action: &str) -> DResult<ActionOutcome> {
+    fn perform_action(
+        &self,
+        window_id: &str,
+        element_id: &str,
+        action: &str,
+    ) -> DResult<ActionOutcome> {
         let c = self.client(window_id)?;
         let (a, _) = self.frame_obj(&c)?;
         let obj = a.element(window_id, element_id)?;
         let at = a.center(&obj, Coords::Screen);
         a.perform(&obj, action)?;
         let out = ActionOutcome::delivered("atspi_action");
-        Ok(match at { Some(p) => out.at(p), None => out })
+        Ok(match at {
+            Some(p) => out.at(p),
+            None => out,
+        })
     }
 
     fn launch_app(&self, app_id: &str) -> DResult<App> {

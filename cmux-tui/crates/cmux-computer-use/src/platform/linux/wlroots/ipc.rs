@@ -79,7 +79,11 @@ impl Ipc {
             Ipc::Sway(p) => {
                 let con = id.strip_prefix("sway:").ok_or("not a sway window")?;
                 let r = sway_request(p, 0, &format!("[con_id={con}] focus"))?;
-                let ok = r.as_array().and_then(|a| a.first()).and_then(|v| v["success"].as_bool()).unwrap_or(false);
+                let ok = r
+                    .as_array()
+                    .and_then(|a| a.first())
+                    .and_then(|v| v["success"].as_bool())
+                    .unwrap_or(false);
                 if ok { Ok(()) } else { Err(format!("sway refused focus: {r}")) }
             }
             Ipc::Hyprland(p) => {
@@ -135,14 +139,30 @@ fn rect_of(v: &Value) -> Rect {
 }
 
 /// Walks a sway tree: views are nodes with a pid (or a `window` for X11).
-pub fn sway_walk(node: &Value, workspace: &str, layer: u32, parent_visible: bool, out: &mut Vec<IpcWindow>) {
-    let ws = if node["type"] == "workspace" { node["name"].as_str().unwrap_or(workspace) } else { workspace };
-    let is_view = node["pid"].as_u64().is_some() && (node["type"] == "con" || node["type"] == "floating_con");
+pub fn sway_walk(
+    node: &Value,
+    workspace: &str,
+    layer: u32,
+    parent_visible: bool,
+    out: &mut Vec<IpcWindow>,
+) {
+    let ws = if node["type"] == "workspace" {
+        node["name"].as_str().unwrap_or(workspace)
+    } else {
+        workspace
+    };
+    let is_view =
+        node["pid"].as_u64().is_some() && (node["type"] == "con" || node["type"] == "floating_con");
     if is_view {
         let outer = rect_of(&node["rect"]);
         let inner = rect_of(&node["window_rect"]);
         let rect = if inner.width > 0.0 {
-            Rect { x: outer.x + inner.x, y: outer.y + inner.y, width: inner.width, height: inner.height }
+            Rect {
+                x: outer.x + inner.x,
+                y: outer.y + inner.y,
+                width: inner.width,
+                height: inner.height,
+            }
         } else {
             outer
         };
@@ -205,7 +225,12 @@ pub fn hypr_windows(clients: &Value, monitors: &Value, active: &Value) -> Vec<Ip
                 app_id: c["class"].as_str().unwrap_or("").to_string(),
                 pid: c["pid"].as_i64().unwrap_or(0).max(0) as u32,
                 title: c["title"].as_str().unwrap_or("").to_string(),
-                rect: Rect { x: at(0, "at"), y: at(1, "at"), width: at(0, "size"), height: at(1, "size") },
+                rect: Rect {
+                    x: at(0, "at"),
+                    y: at(1, "at"),
+                    width: at(0, "size"),
+                    height: at(1, "size"),
+                },
                 visible: !c["hidden"].as_bool().unwrap_or(false) && active_ws.contains(&ws),
                 focused: !addr.is_empty() && addr == active_addr,
                 workspace: ws.to_string(),
@@ -218,6 +243,10 @@ pub fn hypr_windows(clients: &Value, monitors: &Value, active: &Value) -> Vec<Ip
 /// True when a visible window above `w` on its workspace overlaps it.
 pub fn covered(w: &IpcWindow, all: &[IpcWindow]) -> bool {
     all.iter().any(|o| {
-        o.id != w.id && o.visible && o.workspace == w.workspace && o.layer > w.layer && o.rect.intersects(&w.rect)
+        o.id != w.id
+            && o.visible
+            && o.workspace == w.workspace
+            && o.layer > w.layer
+            && o.rect.intersects(&w.rect)
     })
 }

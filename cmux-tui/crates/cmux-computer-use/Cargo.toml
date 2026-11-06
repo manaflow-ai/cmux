@@ -28,7 +28,7 @@ libc = { workspace = true }
 [target.'cfg(target_os = "linux")'.dependencies]
 # Pure-Rust protocol crates only, so one binary runs on every distribution
 # (glibc or musl) with no libX11, libwayland, libdbus or libei at build time.
-x11rb = { version = "0.14", optional = true, features = ["xtest", "randr", "composite", "res", "shape", "screensaver"] }
+x11rb = { version = "0.14", optional = true, features = ["xtest", "randr", "composite", "res", "shape", "screensaver", "damage"] }
 # AT-SPI2 accessibility, xdg-desktop-portal and the GNOME idle monitor.
 zbus = { version = "5", default-features = false, features = ["blocking-api", "async-io"] }
 # wlroots compositors: screencopy, virtual pointer and keyboard, foreign

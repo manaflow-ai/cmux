@@ -9,8 +9,8 @@
 //! - Portal desktops (GNOME, KDE): no overlay protocol for outside
 //!   processes; [`NoCursor`], logged once.
 
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::Arc;
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::time::{Duration, Instant};
 
 use crate::cursor::{CMUX_BLUE, CursorEvent, CursorSink, IDLE_HIDE, NoCursor, OUTLINE};
@@ -30,7 +30,9 @@ pub fn open() -> Arc<dyn CursorSink> {
             return s;
         }
         if env.display.is_none() {
-            eprintln!("cmux computer use: this Wayland compositor has no layer-shell; the agent cursor is not drawn");
+            eprintln!(
+                "cmux computer use: this Wayland compositor has no layer-shell; the agent cursor is not drawn"
+            );
             return Arc::new(NoCursor);
         }
     }
@@ -46,7 +48,15 @@ pub fn open() -> Arc<dyn CursorSink> {
 /// wl_shm ARGB8888), plus a 1-bit mask of its opaque pixels.
 pub fn arrow() -> (Vec<u8>, Vec<bool>) {
     // The classic pointer outline, tip at (1,1), in a 24x24 box.
-    const POLY: [(f64, f64); 7] = [(1.0, 1.0), (1.0, 19.0), (6.0, 14.5), (9.5, 22.0), (13.0, 20.5), (9.5, 13.5), (16.0, 13.5)];
+    const POLY: [(f64, f64); 7] = [
+        (1.0, 1.0),
+        (1.0, 19.0),
+        (6.0, 14.5),
+        (9.5, 22.0),
+        (13.0, 20.5),
+        (9.5, 13.5),
+        (16.0, 13.5),
+    ];
     let n = SIZE as usize;
     let mut px = vec![0u8; n * n * 4];
     let mut mask = vec![false; n * n];
@@ -54,7 +64,11 @@ pub fn arrow() -> (Vec<u8>, Vec<bool>) {
         for x in 0..n {
             let (cx, cy) = (x as f64 + 0.5, y as f64 + 0.5);
             let inside = point_in_poly(cx, cy, &POLY);
-            let near = POLY.iter().zip(POLY.iter().cycle().skip(1)).map(|(a, b)| seg_dist(cx, cy, *a, *b)).fold(f64::MAX, f64::min);
+            let near = POLY
+                .iter()
+                .zip(POLY.iter().cycle().skip(1))
+                .map(|(a, b)| seg_dist(cx, cy, *a, *b))
+                .fold(f64::MAX, f64::min);
             let color = if inside && near > 1.4 {
                 Some(CMUX_BLUE)
             } else if inside || near <= 1.0 {
@@ -114,7 +128,11 @@ pub(crate) fn run(mut overlay: impl Overlay, rx: Receiver<CursorEvent>) {
     let mut last_event = Instant::now();
     let mut owner = String::new();
     loop {
-        let wait = if glide.is_some() { FRAME } else { IDLE_HIDE.saturating_sub(last_event.elapsed()).max(FRAME) };
+        let wait = if glide.is_some() {
+            FRAME
+        } else {
+            IDLE_HIDE.saturating_sub(last_event.elapsed()).max(FRAME)
+        };
         match rx.recv_timeout(wait) {
             Ok(ev) => {
                 last_event = Instant::now();
@@ -129,7 +147,9 @@ pub(crate) fn run(mut overlay: impl Overlay, rx: Receiver<CursorEvent>) {
                 owner = ev.session().to_string();
                 if let Some(to) = target_of(&ev) {
                     match at {
-                        Some(from) if distance(from, to) > 1.0 => glide = Some((from, to, Instant::now())),
+                        Some(from) if distance(from, to) > 1.0 => {
+                            glide = Some((from, to, Instant::now()))
+                        }
                         _ => {
                             at = Some(to);
                             overlay.show_at(to);

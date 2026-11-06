@@ -41,18 +41,35 @@ const TOKEN_FILE: &str = "portal-remote-desktop.token";
 /// True when the session bus has a RemoteDesktop portal.
 pub fn available() -> bool {
     let Ok(conn) = Connection::session() else { return false };
-    conn.call_method(Some(DEST), PATH, Some("org.freedesktop.DBus.Properties"), "Get", &(RD, "version"))
-        .is_ok()
+    conn.call_method(
+        Some(DEST),
+        PATH,
+        Some("org.freedesktop.DBus.Properties"),
+        "Get",
+        &(RD, "version"),
+    )
+    .is_ok()
 }
 
 type Results = HashMap<String, OwnedValue>;
 
 /// The portal request pattern: call with a handle_token, wait for the
 /// Response signal on the predicted request path.
-fn request(conn: &Connection, iface: &str, method: &str, build: impl FnOnce(String) -> Result<zbus::Message, zbus::Error>, wait: Duration) -> DResult<Results> {
+fn request(
+    conn: &Connection,
+    iface: &str,
+    method: &str,
+    build: impl FnOnce(String) -> Result<zbus::Message, zbus::Error>,
+    wait: Duration,
+) -> DResult<Results> {
     static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
-    let token = format!("cmux{}_{}", std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
-    let sender = conn.unique_name().map(|n| n.trim_start_matches(':').replace('.', "_")).unwrap_or_default();
+    let token = format!(
+        "cmux{}_{}",
+        std::process::id(),
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    );
+    let sender =
+        conn.unique_name().map(|n| n.trim_start_matches(':').replace('.', "_")).unwrap_or_default();
     let path = format!("{PATH}/request/{sender}/{token}");
     let rule = zbus::MatchRule::builder()
         .msg_type(zbus::message::Type::Signal)
@@ -61,7 +78,8 @@ fn request(conn: &Connection, iface: &str, method: &str, build: impl FnOnce(Stri
         .and_then(|b| b.path(path.clone()))
         .map_err(|e| perr(iface, method, e))?
         .build();
-    let iter = zbus::blocking::MessageIterator::for_match_rule(rule, conn, Some(4)).map_err(|e| perr(iface, method, e))?;
+    let iter = zbus::blocking::MessageIterator::for_match_rule(rule, conn, Some(4))
+        .map_err(|e| perr(iface, method, e))?;
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
         for msg in iter {
@@ -106,7 +124,13 @@ impl PortalDesktop {
     pub fn connect(env: &Env) -> Result<Self, String> {
         let conn = Connection::session().map_err(|e| format!("D-Bus session bus: {e}"))?;
         let desktop = env.desktop_names().join(":");
-        Ok(Self { conn, desktop, apps: AppResolver::default(), atspi: Mutex::new(None), session: Mutex::new(None) })
+        Ok(Self {
+            conn,
+            desktop,
+            apps: AppResolver::default(),
+            atspi: Mutex::new(None),
+            session: Mutex::new(None),
+        })
     }
 
     fn atspi(&self) -> DResult<Arc<Atspi>> {
@@ -114,26 +138,38 @@ impl PortalDesktop {
         if g.is_none() {
             *g = Atspi::connect().ok().map(Arc::new);
         }
-        g.clone().ok_or_else(|| DesktopError::Unsupported("the accessibility bus (AT-SPI) is not running".into()))
+        g.clone().ok_or_else(|| {
+            DesktopError::Unsupported("the accessibility bus (AT-SPI) is not running".into())
+        })
     }
 
     fn frames(&self) -> DResult<Vec<Frame>> {
-        self.atspi()?.frames(|_| Coords::Screen)
+        let all = self.atspi()?.frames(|_| Coords::Screen)?;
+        Ok(all.into_iter().filter(|f| !super::is_shell_process(f.pid)).collect())
     }
 
     fn frame(&self, window_id: &str) -> DResult<(Arc<Atspi>, Frame)> {
         let id = window_id.strip_prefix("a11y:").unwrap_or(window_id);
         let a = self.atspi()?;
-        let f = a
-            .frames(|_| Coords::Screen)?
-            .into_iter()
-            .find(|f| f.obj.id() == id)
-            .ok_or_else(|| DesktopError::TargetNotFound(format!("window {window_id} is gone; call list_windows")))?;
+        let f = a.frames(|_| Coords::Screen)?.into_iter().find(|f| f.obj.id() == id).ok_or_else(
+            || {
+                DesktopError::TargetNotFound(format!(
+                    "window {window_id} is gone; call list_windows"
+                ))
+            },
+        )?;
         Ok((a, f))
     }
 
-    fn call(&self, iface: &str, method: &str, body: &(impl serde::Serialize + zbus::zvariant::DynamicType)) -> DResult<()> {
-        self.conn.call_method(Some(DEST), PATH, Some(iface), method, body).map_err(|e| perr(iface, method, e))?;
+    fn call(
+        &self,
+        iface: &str,
+        method: &str,
+        body: &(impl serde::Serialize + zbus::zvariant::DynamicType),
+    ) -> DResult<()> {
+        self.conn
+            .call_method(Some(DEST), PATH, Some(iface), method, body)
+            .map_err(|e| perr(iface, method, e))?;
         Ok(())
     }
 
@@ -152,37 +188,72 @@ impl PortalDesktop {
 
     fn start_session(&self) -> DResult<Session> {
         let short = Duration::from_secs(10);
-        let created = request(&self.conn, RD, "CreateSession", |t| {
-            let opts = opts(&[("handle_token", Value::from(t)), ("session_handle_token", Value::from("cmuxcu"))]);
-            msg(RD, "CreateSession", &(opts,))
-        }, short)?;
+        let created = request(
+            &self.conn,
+            RD,
+            "CreateSession",
+            |t| {
+                let opts = opts(&[
+                    ("handle_token", Value::from(t)),
+                    ("session_handle_token", Value::from("cmuxcu")),
+                ]);
+                msg(RD, "CreateSession", &(opts,))
+            },
+            short,
+        )?;
         let handle: String = created
             .get("session_handle")
             .and_then(|v| String::try_from(v.clone()).ok())
             .ok_or_else(|| DesktopError::Failed("the portal gave no session".into()))?;
-        let handle = OwnedObjectPath::try_from(handle).map_err(|e| DesktopError::Failed(e.to_string()))?;
-        let restore = Self::token_path().and_then(|p| std::fs::read_to_string(p).ok()).map(|s| s.trim().to_string());
-        request(&self.conn, RD, "SelectDevices", |t| {
-            let mut o = vec![
-                ("handle_token", Value::from(t)),
-                ("types", Value::from(3u32)),
-                ("persist_mode", Value::from(2u32)),
-            ];
-            if let Some(r) = restore.clone().filter(|r| !r.is_empty()) {
-                o.push(("restore_token", Value::from(r)));
-            }
-            msg(RD, "SelectDevices", &(handle.as_ref(), opts(&o)))
-        }, short)?;
+        let handle =
+            OwnedObjectPath::try_from(handle).map_err(|e| DesktopError::Failed(e.to_string()))?;
+        let restore = Self::token_path()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .map(|s| s.trim().to_string());
+        request(
+            &self.conn,
+            RD,
+            "SelectDevices",
+            |t| {
+                let mut o = vec![
+                    ("handle_token", Value::from(t)),
+                    ("types", Value::from(3u32)),
+                    ("persist_mode", Value::from(2u32)),
+                ];
+                if let Some(r) = restore.clone().filter(|r| !r.is_empty()) {
+                    o.push(("restore_token", Value::from(r)));
+                }
+                msg(RD, "SelectDevices", &(handle.as_ref(), opts(&o)))
+            },
+            short,
+        )?;
         // A monitor stream gives absolute pointer positions; optional.
-        let _ = request(&self.conn, SC, "SelectSources", |t| {
-            let o = opts(&[("handle_token", Value::from(t)), ("types", Value::from(1u32)), ("multiple", Value::from(true))]);
-            msg(SC, "SelectSources", &(handle.as_ref(), o))
-        }, short);
+        let _ = request(
+            &self.conn,
+            SC,
+            "SelectSources",
+            |t| {
+                let o = opts(&[
+                    ("handle_token", Value::from(t)),
+                    ("types", Value::from(1u32)),
+                    ("multiple", Value::from(true)),
+                ]);
+                msg(SC, "SelectSources", &(handle.as_ref(), o))
+            },
+            short,
+        );
         // The person may be asked here (first time only): wait for them.
-        let started = request(&self.conn, RD, "Start", |t| {
-            msg(RD, "Start", &(handle.as_ref(), "", opts(&[("handle_token", Value::from(t))])))
-        }, Duration::from_secs(120))?;
-        if let (Some(tok), Some(path)) = (started.get("restore_token").and_then(|v| String::try_from(v.clone()).ok()), Self::token_path()) {
+        let started = request(
+            &self.conn,
+            RD,
+            "Start",
+            |t| msg(RD, "Start", &(handle.as_ref(), "", opts(&[("handle_token", Value::from(t))]))),
+            Duration::from_secs(120),
+        )?;
+        if let (Some(tok), Some(path)) = (
+            started.get("restore_token").and_then(|v| String::try_from(v.clone()).ok()),
+            Self::token_path(),
+        ) {
             if let Some(dir) = path.parent() {
                 let _ = std::fs::create_dir_all(dir);
             }
@@ -197,7 +268,11 @@ impl PortalDesktop {
         let s = g.as_ref().ok_or_else(|| DesktopError::Failed("no portal session".into()))?;
         super::mark_injection();
         let empty: HashMap<&str, Value> = HashMap::new();
-        let r = self.call(RD, "NotifyKeyboardKeysym", &(s.handle.as_ref(), empty, sym as i32, u32::from(press)));
+        let r = self.call(
+            RD,
+            "NotifyKeyboardKeysym",
+            &(s.handle.as_ref(), empty, sym as i32, u32::from(press)),
+        );
         drop(g);
         if r.is_err() {
             // The session may have been closed by the person; start anew next time.
@@ -207,7 +282,12 @@ impl PortalDesktop {
     }
 
     /// Keys only into the active window, and only when asked for.
-    fn keys(&self, window_id: &str, delivery: Delivery, plan: &[(u32, bool)]) -> DResult<ActionOutcome> {
+    fn keys(
+        &self,
+        window_id: &str,
+        delivery: Delivery,
+        plan: &[(u32, bool)],
+    ) -> DResult<ActionOutcome> {
         if delivery != Delivery::Foreground {
             return Err(DesktopError::Unsupported(
                 "on this Wayland desktop keys go to whatever has focus; use type_text into an editable element, set_value, or delivery foreground".into(),
@@ -226,21 +306,67 @@ impl PortalDesktop {
     }
 
     fn screenshot(&self) -> DResult<RawFrame> {
-        let results = request(&self.conn, SHOT, "Screenshot", |t| {
-            let o = opts(&[("handle_token", Value::from(t)), ("interactive", Value::from(false))]);
-            msg(SHOT, "Screenshot", &("", o))
-        }, Duration::from_secs(60))?;
+        match self.portal_screenshot() {
+            Ok(f) => Ok(f),
+            Err(portal) => self.shell_screenshot().map_err(|_| portal),
+        }
+    }
+
+    /// GNOME Shell's own screenshot API: allowed only to the session's
+    /// trusted callers (or with --unsafe-mode), so it is the fallback when
+    /// the portal has no screenshot backend (a headless GNOME session).
+    fn shell_screenshot(&self) -> DResult<RawFrame> {
+        let dir = super::state_dir().unwrap_or_else(std::env::temp_dir);
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join(format!("shot-{}.png", std::process::id()));
+        let reply = self
+            .conn
+            .call_method(
+                Some("org.gnome.Shell.Screenshot"),
+                "/org/gnome/Shell/Screenshot",
+                Some("org.gnome.Shell.Screenshot"),
+                "Screenshot",
+                &(false, false, path.display().to_string()),
+            )
+            .map_err(|e| perr("org.gnome.Shell.Screenshot", "Screenshot", e))?;
+        let (ok, used): (bool, String) =
+            reply.body().deserialize().map_err(|e| DesktopError::Failed(e.to_string()))?;
+        if !ok {
+            return Err(DesktopError::Failed("GNOME Shell refused the screenshot".into()));
+        }
+        let bytes =
+            std::fs::read(&used).map_err(|e| DesktopError::Failed(format!("{used}: {e}")))?;
+        let _ = std::fs::remove_file(&used);
+        let (rgba, w, h) = decode_png(&bytes)?;
+        Ok(RawFrame { width: w, height: h, rgba, scale: 1.0, origin: Point::default() })
+    }
+
+    fn portal_screenshot(&self) -> DResult<RawFrame> {
+        let results = request(
+            &self.conn,
+            SHOT,
+            "Screenshot",
+            |t| {
+                let o =
+                    opts(&[("handle_token", Value::from(t)), ("interactive", Value::from(false))]);
+                msg(SHOT, "Screenshot", &("", o))
+            },
+            Duration::from_secs(60),
+        )?;
         let uri: String = results
             .get("uri")
             .and_then(|v| String::try_from(v.clone()).ok())
             .ok_or_else(|| DesktopError::Failed("the Screenshot portal returned no file".into()))?;
-        let path = uri_path(&uri).ok_or_else(|| DesktopError::Failed(format!("unexpected screenshot uri {uri}")))?;
-        let bytes = std::fs::read(&path).map_err(|e| DesktopError::Failed(format!("{path}: {e}")))?;
+        let path = uri_path(&uri)
+            .ok_or_else(|| DesktopError::Failed(format!("unexpected screenshot uri {uri}")))?;
+        let bytes =
+            std::fs::read(&path).map_err(|e| DesktopError::Failed(format!("{path}: {e}")))?;
         // The portal saves into the person's Pictures; this copy is ours.
         let _ = std::fs::remove_file(&path);
         let (rgba, w, h) = decode_png(&bytes)?;
         let layout = self.session.lock().ok().and_then(|g| {
-            g.as_ref().and_then(|s| super::union(&s.streams.iter().map(|(_, r)| *r).collect::<Vec<_>>()))
+            g.as_ref()
+                .and_then(|s| super::union(&s.streams.iter().map(|(_, r)| *r).collect::<Vec<_>>()))
         });
         let scale = layout.filter(|l| l.width > 0.0).map(|l| f64::from(w) / l.width).unwrap_or(1.0);
         Ok(RawFrame { width: w, height: h, rgba, scale, origin: Point::default() })
@@ -251,18 +377,34 @@ fn opts<'a>(pairs: &[(&'a str, Value<'a>)]) -> HashMap<&'a str, Value<'a>> {
     pairs.iter().map(|(k, v)| (*k, v.try_clone().unwrap_or(Value::from(0u32)))).collect()
 }
 
-fn msg(iface: &str, method: &str, body: &(impl serde::Serialize + zbus::zvariant::DynamicType)) -> Result<zbus::Message, zbus::Error> {
+fn msg(
+    iface: &str,
+    method: &str,
+    body: &(impl serde::Serialize + zbus::zvariant::DynamicType),
+) -> Result<zbus::Message, zbus::Error> {
     zbus::Message::method_call(PATH, method)?.destination(DEST)?.interface(iface)?.build(body)
 }
 
 fn parse_streams(v: &OwnedValue) -> Vec<(u32, Rect)> {
-    let Ok(list) = <Vec<(u32, HashMap<String, OwnedValue>)>>::try_from(v.clone()) else { return Vec::new() };
+    let Ok(list) = <Vec<(u32, HashMap<String, OwnedValue>)>>::try_from(v.clone()) else {
+        return Vec::new();
+    };
     list.into_iter()
         .map(|(node, props)| {
-            let pair = |k: &str| props.get(k).and_then(|v| <(i32, i32)>::try_from(v.clone()).ok()).unwrap_or((0, 0));
+            let pair = |k: &str| {
+                props.get(k).and_then(|v| <(i32, i32)>::try_from(v.clone()).ok()).unwrap_or((0, 0))
+            };
             let (x, y) = pair("position");
             let (w, h) = pair("size");
-            (node, Rect { x: f64::from(x), y: f64::from(y), width: f64::from(w), height: f64::from(h) })
+            (
+                node,
+                Rect {
+                    x: f64::from(x),
+                    y: f64::from(y),
+                    width: f64::from(w),
+                    height: f64::from(h),
+                },
+            )
         })
         .collect()
 }
@@ -288,24 +430,36 @@ pub(crate) fn uri_path(uri: &str) -> Option<String> {
 fn decode_png(bytes: &[u8]) -> DResult<(Vec<u8>, u32, u32)> {
     let mut dec = png::Decoder::new(std::io::Cursor::new(bytes));
     dec.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
-    let mut reader = dec.read_info().map_err(|e| DesktopError::Failed(format!("screenshot png: {e}")))?;
+    let mut reader =
+        dec.read_info().map_err(|e| DesktopError::Failed(format!("screenshot png: {e}")))?;
     let mut buf = vec![0; reader.output_buffer_size()];
-    let info = reader.next_frame(&mut buf).map_err(|e| DesktopError::Failed(format!("screenshot png: {e}")))?;
+    let info = reader
+        .next_frame(&mut buf)
+        .map_err(|e| DesktopError::Failed(format!("screenshot png: {e}")))?;
     let (w, h) = (info.width, info.height);
     let px = (w * h) as usize;
     let rgba = match info.color_type {
         png::ColorType::Rgba => buf[..px * 4].to_vec(),
-        png::ColorType::Rgb => buf[..px * 3].chunks_exact(3).flat_map(|c| [c[0], c[1], c[2], 255]).collect(),
-        png::ColorType::GrayscaleAlpha => buf[..px * 2].chunks_exact(2).flat_map(|c| [c[0], c[0], c[0], 255]).collect(),
+        png::ColorType::Rgb => {
+            buf[..px * 3].chunks_exact(3).flat_map(|c| [c[0], c[1], c[2], 255]).collect()
+        }
+        png::ColorType::GrayscaleAlpha => {
+            buf[..px * 2].chunks_exact(2).flat_map(|c| [c[0], c[0], c[0], 255]).collect()
+        }
         png::ColorType::Grayscale => buf[..px].iter().flat_map(|g| [*g, *g, *g, 255]).collect(),
-        png::ColorType::Indexed => return Err(DesktopError::Failed("indexed screenshot png".into())),
+        png::ColorType::Indexed => {
+            return Err(DesktopError::Failed("indexed screenshot png".into()));
+        }
     };
     Ok((rgba, w, h))
 }
 
 impl Desktop for PortalDesktop {
     fn info(&self) -> PlatformInfo {
-        let detail = format!("{}; xdg-desktop-portal RemoteDesktop + Screenshot; windows from AT-SPI", if self.desktop.is_empty() { "wayland" } else { &self.desktop });
+        let detail = format!(
+            "{}; xdg-desktop-portal RemoteDesktop + Screenshot; windows from AT-SPI",
+            if self.desktop.is_empty() { "wayland" } else { &self.desktop }
+        );
         PlatformInfo { os: "linux".into(), display_server: "wayland-portal".into(), detail }
     }
 
@@ -314,7 +468,11 @@ impl Desktop for PortalDesktop {
         Permissions {
             accessibility: if self.atspi().is_ok() { Grant::Granted } else { Grant::Unknown },
             screen_capture: Grant::Unknown,
-            input: if saved || self.session.lock().map(|g| g.is_some()).unwrap_or(false) { Grant::Granted } else { Grant::Unknown },
+            input: if saved || self.session.lock().map(|g| g.is_some()).unwrap_or(false) {
+                Grant::Granted
+            } else {
+                Grant::Unknown
+            },
         }
     }
 
@@ -322,7 +480,9 @@ impl Desktop for PortalDesktop {
         match which {
             "input" => self.session().map(|_| ()),
             "screen_capture" => self.screenshot().map(|_| ()),
-            other => Err(DesktopError::Unsupported(format!("no prompt for {other} on this desktop"))),
+            other => {
+                Err(DesktopError::Unsupported(format!("no prompt for {other} on this desktop")))
+            }
         }
     }
 
@@ -379,7 +539,9 @@ impl Desktop for PortalDesktop {
             ));
         };
         if spec.button != Button::Left || spec.count != 1 || !spec.modifiers.is_empty() {
-            return Err(DesktopError::Unsupported("only a plain left click (an element action) works here".into()));
+            return Err(DesktopError::Unsupported(
+                "only a plain left click (an element action) works here".into(),
+            ));
         }
         let (a, _) = self.frame(window_id)?;
         let obj = a.element(window_id, element_id)?;
@@ -389,7 +551,13 @@ impl Desktop for PortalDesktop {
         Ok(out)
     }
 
-    fn type_text(&self, window_id: &str, element_id: Option<&str>, text: &str, delivery: Delivery) -> DResult<ActionOutcome> {
+    fn type_text(
+        &self,
+        window_id: &str,
+        element_id: Option<&str>,
+        text: &str,
+        delivery: Delivery,
+    ) -> DResult<ActionOutcome> {
         let (a, f) = self.frame(window_id)?;
         let obj = match element_id {
             Some(id) => Some(a.element(window_id, id)?),
@@ -403,12 +571,25 @@ impl Desktop for PortalDesktop {
                 Err(e) => return Err(e),
             }
         }
-        let plan: Vec<(u32, bool)> = text.chars().flat_map(|c| [(keysym::of_char(c), true), (keysym::of_char(c), false)]).collect();
+        let plan: Vec<(u32, bool)> = text
+            .chars()
+            .flat_map(|c| [(keysym::of_char(c), true), (keysym::of_char(c), false)])
+            .collect();
         self.keys(window_id, delivery, &plan)
     }
 
-    fn press_keys(&self, window_id: &str, combo: &KeyCombo, delivery: Delivery) -> DResult<ActionOutcome> {
-        let mut syms: Vec<u32> = combo.modifiers.iter().filter(|m| **m != Modifier::Fn).filter_map(|m| keysym::of_modifier(*m)).collect();
+    fn press_keys(
+        &self,
+        window_id: &str,
+        combo: &KeyCombo,
+        delivery: Delivery,
+    ) -> DResult<ActionOutcome> {
+        let mut syms: Vec<u32> = combo
+            .modifiers
+            .iter()
+            .filter(|m| **m != Modifier::Fn)
+            .filter_map(|m| keysym::of_modifier(*m))
+            .collect();
         syms.push(keysym::of_key(&combo.key));
         let mut plan: Vec<(u32, bool)> = syms.iter().map(|s| (*s, true)).collect();
         plan.extend(syms.iter().rev().map(|s| (*s, false)));
@@ -419,17 +600,35 @@ impl Desktop for PortalDesktop {
         Err(DesktopError::Unsupported("scrolling by point needs window positions, which this Wayland desktop does not give; use keys (Page_Down) with delivery foreground".into()))
     }
 
-    fn drag(&self, _w: &str, _from: Point, _to: Point, _b: Button, _d: Delivery) -> DResult<ActionOutcome> {
-        Err(DesktopError::Unsupported("dragging needs window positions, which this Wayland desktop does not give".into()))
+    fn drag(
+        &self,
+        _w: &str,
+        _from: Point,
+        _to: Point,
+        _b: Button,
+        _d: Delivery,
+    ) -> DResult<ActionOutcome> {
+        Err(DesktopError::Unsupported(
+            "dragging needs window positions, which this Wayland desktop does not give".into(),
+        ))
     }
 
     fn set_value(&self, window_id: &str, element_id: &str, value: &str) -> DResult<ActionOutcome> {
         let (a, _) = self.frame(window_id)?;
         let obj = a.element(window_id, element_id)?;
-        Ok(if a.set_value(&obj, value)? { ActionOutcome::confirmed("atspi_set_value") } else { ActionOutcome::delivered("atspi_set_value") })
+        Ok(if a.set_value(&obj, value)? {
+            ActionOutcome::confirmed("atspi_set_value")
+        } else {
+            ActionOutcome::delivered("atspi_set_value")
+        })
     }
 
-    fn perform_action(&self, window_id: &str, element_id: &str, action: &str) -> DResult<ActionOutcome> {
+    fn perform_action(
+        &self,
+        window_id: &str,
+        element_id: &str,
+        action: &str,
+    ) -> DResult<ActionOutcome> {
         let (a, _) = self.frame(window_id)?;
         let obj = a.element(window_id, element_id)?;
         a.perform(&obj, action)?;

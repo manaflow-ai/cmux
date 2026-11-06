@@ -11,8 +11,12 @@
 use std::collections::HashSet;
 use std::sync::Mutex;
 
+use std::time::Duration;
 use x11rb::connection::{Connection as _, RequestConnection as _};
+
+use x11rb::protocol::Event;
 use x11rb::protocol::composite::{ConnectionExt as _, Redirect};
+use x11rb::protocol::damage::{ConnectionExt as _, ReportLevel};
 use x11rb::protocol::xproto::{ConnectionExt as _, Drawable, ImageFormat, ImageOrder};
 
 use super::{Client, X11Desktop, xerr};
@@ -26,14 +30,10 @@ impl X11Desktop {
     pub(crate) fn capture_display(&self, name: Option<&str>) -> DResult<RawFrame> {
         let monitors = self.monitors();
         let rect = match name {
-            Some(n) => monitors
-                .iter()
-                .find(|m| m.name == n)
-                .map(|m| m.rect)
-                .ok_or_else(|| {
-                    let names: Vec<&str> = monitors.iter().map(|m| m.name.as_str()).collect();
-                    DesktopError::TargetNotFound(format!("display {n:?}; displays: {names:?}"))
-                })?,
+            Some(n) => monitors.iter().find(|m| m.name == n).map(|m| m.rect).ok_or_else(|| {
+                let names: Vec<&str> = monitors.iter().map(|m| m.name.as_str()).collect();
+                DesktopError::TargetNotFound(format!("display {n:?}; displays: {names:?}"))
+            })?,
             None => monitors
                 .iter()
                 .find(|m| m.primary)
@@ -41,13 +41,30 @@ impl X11Desktop {
                 .map(|m| m.rect)
                 .unwrap_or_else(|| self.root_rect()),
         };
-        let (rgba, w, h) = self.read(self.root, rect.x as i16, rect.y as i16, rect.width as u16, rect.height as u16)?;
-        Ok(RawFrame { width: w, height: h, rgba, scale: 1.0, origin: Point { x: rect.x, y: rect.y } })
+        let (rgba, w, h) = self.read(
+            self.root,
+            rect.x as i16,
+            rect.y as i16,
+            rect.width as u16,
+            rect.height as u16,
+        )?;
+        Ok(RawFrame {
+            width: w,
+            height: h,
+            rgba,
+            scale: 1.0,
+            origin: Point { x: rect.x, y: rect.y },
+        })
     }
 
     fn root_rect(&self) -> Rect {
         let s = &self.conn.setup().roots[0];
-        Rect { x: 0.0, y: 0.0, width: f64::from(s.width_in_pixels), height: f64::from(s.height_in_pixels) }
+        Rect {
+            x: 0.0,
+            y: 0.0,
+            width: f64::from(s.width_in_pixels),
+            height: f64::from(s.height_in_pixels),
+        }
     }
 
     pub(crate) fn capture_window(&self, c: &Client) -> DResult<RawFrame> {
@@ -65,8 +82,10 @@ impl X11Desktop {
             ));
         }
         let root = self.root_rect();
-        let r = clip(&c.rect, &root).ok_or_else(|| DesktopError::Unsupported("the window is off screen".into()))?;
-        let (rgba, w, h) = self.read(self.root, r.x as i16, r.y as i16, r.width as u16, r.height as u16)?;
+        let r = clip(&c.rect, &root)
+            .ok_or_else(|| DesktopError::Unsupported("the window is off screen".into()))?;
+        let (rgba, w, h) =
+            self.read(self.root, r.x as i16, r.y as i16, r.width as u16, r.height as u16)?;
         Ok(RawFrame { width: w, height: h, rgba, scale: 1.0, origin: Point { x: r.x, y: r.y } })
     }
 
@@ -93,15 +112,14 @@ impl X11Desktop {
             let mut g = REDIRECTED.lock().unwrap_or_else(|e| e.into_inner());
             let set = g.get_or_insert_with(HashSet::new);
             if set.insert(c.frame_win) {
-                self.conn.composite_redirect_window(c.frame_win, Redirect::AUTOMATIC).map_err(xerr)?;
-                // A round trip so the server allocated the pixmap and
-                // exposed the covered parts before we read it.
-                self.conn.get_input_focus().map_err(xerr)?.reply().map_err(xerr)?;
+                self.redirect_and_wait(c)?;
             }
         }
         let pixmap = self.conn.generate_id().map_err(xerr)?;
         self.conn.composite_name_window_pixmap(c.frame_win, pixmap).map_err(xerr)?;
-        let frame = self.rect_of(c.frame_win).ok_or_else(|| DesktopError::TargetNotFound("the window is gone".into()))?;
+        let frame = self
+            .rect_of(c.frame_win)
+            .ok_or_else(|| DesktopError::TargetNotFound("the window is gone".into()))?;
         // The frame's border is outside its geometry; the pixmap includes it.
         let border = self
             .conn
@@ -111,10 +129,49 @@ impl X11Desktop {
             .map(|g| f64::from(g.border_width))
             .unwrap_or(0.0);
         let (ox, oy) = (c.rect.x - frame.x + border, c.rect.y - frame.y + border);
-        let read = self.read(pixmap, ox as i16, oy as i16, c.rect.width as u16, c.rect.height as u16);
+        let read =
+            self.read(pixmap, ox as i16, oy as i16, c.rect.width as u16, c.rect.height as u16);
         let _ = self.conn.free_pixmap(pixmap);
         let (rgba, w, h) = read?;
-        Ok(RawFrame { width: w, height: h, rgba, scale: 1.0, origin: Point { x: c.rect.x, y: c.rect.y } })
+        Ok(RawFrame {
+            width: w,
+            height: h,
+            rgba,
+            scale: 1.0,
+            origin: Point { x: c.rect.x, y: c.rect.y },
+        })
+    }
+
+    /// Redirects the frame off screen and waits for the app to repaint it:
+    /// the new pixmap starts as a copy of what was below the window, and
+    /// only the app's repaint (a Damage event) fills in its own pixels.
+    fn redirect_and_wait(&self, c: &Client) -> DResult<()> {
+        let damage = if self.has_damage {
+            let id = self.conn.generate_id().map_err(xerr)?;
+            self.conn.damage_query_version(1, 1).map_err(xerr)?.reply().map_err(xerr)?;
+            self.conn.damage_create(id, c.win, ReportLevel::NON_EMPTY).map_err(xerr)?;
+            Some(id)
+        } else {
+            None
+        };
+        self.conn.composite_redirect_window(c.frame_win, Redirect::AUTOMATIC).map_err(xerr)?;
+        self.conn.get_input_focus().map_err(xerr)?.reply().map_err(xerr)?;
+        if let Some(id) = damage {
+            let painted = self.wait_event(
+                Duration::from_millis(600),
+                |e| matches!(e, Event::DamageNotify(d) if d.damage == id),
+            );
+            let _ = self.conn.damage_destroy(id);
+            if !painted {
+                return Err(DesktopError::Failed(
+                    "the app did not repaint its window after it was moved off screen; try the screenshot again".into(),
+                ));
+            }
+            // The first repaint may be partial; one more round trip lets the
+            // rest of that frame land.
+            self.conn.get_input_focus().map_err(xerr)?.reply().map_err(xerr)?;
+        }
+        Ok(())
     }
 
     /// Reads a rectangle of a drawable as RGBA, in bands so one request
@@ -146,11 +203,23 @@ impl X11Desktop {
     }
 
     fn bits_per_pixel(&self, depth: u8) -> u8 {
-        self.conn.setup().pixmap_formats.iter().find(|f| f.depth == depth).map(|f| f.bits_per_pixel).unwrap_or(32)
+        self.conn
+            .setup()
+            .pixmap_formats
+            .iter()
+            .find(|f| f.depth == depth)
+            .map(|f| f.bits_per_pixel)
+            .unwrap_or(32)
     }
 
     fn scanline_pad(&self, depth: u8) -> u8 {
-        self.conn.setup().pixmap_formats.iter().find(|f| f.depth == depth).map(|f| f.scanline_pad).unwrap_or(32)
+        self.conn
+            .setup()
+            .pixmap_formats
+            .iter()
+            .find(|f| f.depth == depth)
+            .map(|f| f.scanline_pad)
+            .unwrap_or(32)
     }
 }
 
@@ -159,11 +228,23 @@ fn clip(r: &Rect, bounds: &Rect) -> Option<Rect> {
     let y0 = r.y.max(bounds.y);
     let x1 = (r.x + r.width).min(bounds.x + bounds.width);
     let y1 = (r.y + r.height).min(bounds.y + bounds.height);
-    if x1 <= x0 || y1 <= y0 { None } else { Some(Rect { x: x0, y: y0, width: x1 - x0, height: y1 - y0 }) }
+    if x1 <= x0 || y1 <= y0 {
+        None
+    } else {
+        Some(Rect { x: x0, y: y0, width: x1 - x0, height: y1 - y0 })
+    }
 }
 
 /// ZPixmap (LSB first) to RGBA8, opaque.
-pub(crate) fn convert(data: &[u8], depth: u8, bpp: u8, w: u16, h: u16, pad: u8, out: &mut Vec<u8>) -> DResult<()> {
+pub(crate) fn convert(
+    data: &[u8],
+    depth: u8,
+    bpp: u8,
+    w: u16,
+    h: u16,
+    pad: u8,
+    out: &mut Vec<u8>,
+) -> DResult<()> {
     let pad_bytes = usize::from(pad.max(8) / 8);
     let row_bytes = (usize::from(w) * usize::from(bpp)).div_ceil(8).div_ceil(pad_bytes) * pad_bytes;
     if data.len() < row_bytes * usize::from(h) {
@@ -182,10 +263,17 @@ pub(crate) fn convert(data: &[u8], depth: u8, bpp: u8, w: u16, h: u16, pad: u8, 
                     let r = ((v >> 11) & 0x1f) as u8;
                     let g = ((v >> 5) & 0x3f) as u8;
                     let b = (v & 0x1f) as u8;
-                    out.extend_from_slice(&[(r << 3) | (r >> 2), (g << 2) | (g >> 4), (b << 3) | (b >> 2), 255]);
+                    out.extend_from_slice(&[
+                        (r << 3) | (r >> 2),
+                        (g << 2) | (g >> 4),
+                        (b << 3) | (b >> 2),
+                        255,
+                    ]);
                 }
                 _ => {
-                    return Err(DesktopError::Unsupported(format!("X11 depth {depth} at {bpp} bits per pixel")));
+                    return Err(DesktopError::Unsupported(format!(
+                        "X11 depth {depth} at {bpp} bits per pixel"
+                    )));
                 }
             }
         }

@@ -13,11 +13,15 @@ fn env(wayland: Option<&str>, display: Option<&str>) -> Env {
     }
 }
 
-const WLR: WaylandCaps = WaylandCaps { screencopy: true, virtual_pointer: true, virtual_keyboard: true };
+const WLR: WaylandCaps =
+    WaylandCaps { screencopy: true, virtual_pointer: true, virtual_keyboard: true };
 
 #[test]
 fn chooses_x11_without_wayland() {
-    assert_eq!(choose(&env(None, Some(":0")), None, false), Ok(SessionKind::X11 { display: ":0".into() }));
+    assert_eq!(
+        choose(&env(None, Some(":0")), None, false),
+        Ok(SessionKind::X11 { display: ":0".into() })
+    );
     assert!(choose(&env(None, None), None, false).is_err());
 }
 
@@ -46,7 +50,11 @@ fn forced_backend_wins() {
 fn wayland_socket_from_session_type() {
     let dir = std::env::temp_dir().join(format!("cmux-cu-linux-test-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    let mut e = Env { session_type: Some("wayland".into()), runtime_dir: Some(dir.display().to_string()), ..Env::default() };
+    let mut e = Env {
+        session_type: Some("wayland".into()),
+        runtime_dir: Some(dir.display().to_string()),
+        ..Env::default()
+    };
     assert_eq!(e.wayland_socket(), None);
     std::fs::write(dir.join("wayland-0"), b"").unwrap();
     assert_eq!(e.wayland_socket().as_deref(), Some("wayland-0"));
@@ -64,9 +72,20 @@ fn desktop_entries_parse() {
     assert!(parse_desktop_entry("x", "[Desktop Entry]\nType=Link\n").is_none());
     assert!(parse_desktop_entry("x", "[Desktop Entry]\nType=Application\nHidden=true\n").is_none());
     let index = DesktopIndex { entries: vec![e] };
-    assert_eq!(index.for_class("gnome-text-editor", "").map(|e| e.id.as_str()), Some("org.gnome.TextEditor"));
-    assert_eq!(index.for_class("TextEditor", "").map(|e| e.id.as_str()), Some("org.gnome.TextEditor"));
+    assert_eq!(
+        index.for_class("gnome-text-editor", "").map(|e| e.id.as_str()),
+        Some("org.gnome.TextEditor")
+    );
+    assert_eq!(
+        index.for_class("TextEditor", "").map(|e| e.id.as_str()),
+        Some("org.gnome.TextEditor")
+    );
     assert!(index.for_class("xterm", "xterm").is_none());
+    assert_eq!(
+        index.for_exe("gnome-text-editor").map(|e| e.id.as_str()),
+        Some("org.gnome.TextEditor")
+    );
+    assert!(index.for_exe("gedit").is_none());
 }
 
 #[test]
@@ -80,7 +99,8 @@ fn exec_lines_split() {
 fn desktop_ids_from_cgroups() {
     let gnome = "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-gnome-org.gnome.TextEditor-4211.scope\n";
     assert_eq!(desktop_id_from_cgroup(gnome).as_deref(), Some("org.gnome.TextEditor"));
-    let flatpak = "0::/user.slice/user@1000.service/app.slice/app-flatpak-org.mozilla.firefox-1234.scope";
+    let flatpak =
+        "0::/user.slice/user@1000.service/app.slice/app-flatpak-org.mozilla.firefox-1234.scope";
     assert_eq!(desktop_id_from_cgroup(flatpak).as_deref(), Some("org.mozilla.firefox"));
     let kde = "0::/user.slice/user@1000.service/app.slice/app-org.kde.konsole-5fa1b2.scope";
     assert_eq!(desktop_id_from_cgroup(kde).as_deref(), Some("org.kde.konsole"));
@@ -196,7 +216,8 @@ fn hyprland_clients_parse() {
              "floating":true,"class":"x","title":"u","pid":43}]"#,
     )
     .unwrap();
-    let monitors: serde_json::Value = serde_json::from_str(r#"[{"activeWorkspace":{"id":1}}]"#).unwrap();
+    let monitors: serde_json::Value =
+        serde_json::from_str(r#"[{"activeWorkspace":{"id":1}}]"#).unwrap();
     let active: serde_json::Value = serde_json::from_str(r#"{"address":"0xabc"}"#).unwrap();
     let w = wlroots::ipc::hypr_windows(&clients, &monitors, &active);
     assert_eq!(w[0].rect, Rect { x: 10.0, y: 20.0, width: 300.0, height: 200.0 });
@@ -230,7 +251,10 @@ fn atspi_ids_parse_and_frames_pick() {
 
 #[test]
 fn portal_uris_decode() {
-    assert_eq!(portal::uri_path("file:///home/a/Pictures/Screenshot%20from%202026.png").as_deref(), Some("/home/a/Pictures/Screenshot from 2026.png"));
+    assert_eq!(
+        portal::uri_path("file:///home/a/Pictures/Screenshot%20from%202026.png").as_deref(),
+        Some("/home/a/Pictures/Screenshot from 2026.png")
+    );
     assert_eq!(portal::uri_path("https://x"), None);
 }
 

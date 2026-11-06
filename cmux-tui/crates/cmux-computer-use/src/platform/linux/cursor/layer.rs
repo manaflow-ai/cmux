@@ -6,9 +6,13 @@ use std::os::fd::AsFd;
 use std::sync::Arc;
 
 use wayland_client::globals::{GlobalListContents, registry_queue_init};
-use wayland_client::protocol::{wl_buffer, wl_compositor, wl_region, wl_registry, wl_shm, wl_shm_pool, wl_surface};
+use wayland_client::protocol::{
+    wl_buffer, wl_compositor, wl_region, wl_registry, wl_shm, wl_shm_pool, wl_surface,
+};
 use wayland_client::{Connection, Dispatch, EventQueue, QueueHandle, delegate_noop};
-use wayland_protocols_wlr::layer_shell::v1::client::{zwlr_layer_shell_v1 as shell, zwlr_layer_surface_v1 as surf};
+use wayland_protocols_wlr::layer_shell::v1::client::{
+    zwlr_layer_shell_v1 as shell, zwlr_layer_surface_v1 as surf,
+};
 
 use super::super::wlroots::wl::ShmBuffer;
 use super::{Channel, Overlay, SIZE, arrow, channel, run};
@@ -60,7 +64,14 @@ impl LayerOverlay {
         let shm: wl_shm::WlShm = globals.bind(&qh, 1..=1, ()).ok()?;
         let layer_shell: shell::ZwlrLayerShellV1 = globals.bind(&qh, 1..=4, ()).ok()?;
         let surface = compositor.create_surface(&qh, ());
-        let layer = layer_shell.get_layer_surface(&surface, None, shell::Layer::Overlay, "cmux-agent-cursor".into(), &qh, ());
+        let layer = layer_shell.get_layer_surface(
+            &surface,
+            None,
+            shell::Layer::Overlay,
+            "cmux-agent-cursor".into(),
+            &qh,
+            (),
+        );
         layer.set_size(SIZE, SIZE);
         layer.set_anchor(surf::Anchor::Top | surf::Anchor::Left);
         layer.set_exclusive_zone(-1);
@@ -78,7 +89,15 @@ impl LayerOverlay {
         let mem = ShmBuffer::new(len).ok()?;
         mem.write(&pixels);
         let pool = shm.create_pool(mem.fd.as_fd(), len as i32, &qh, ());
-        let buffer = pool.create_buffer(0, SIZE as i32, SIZE as i32, (SIZE * 4) as i32, wl_shm::Format::Argb8888, &qh, ());
+        let buffer = pool.create_buffer(
+            0,
+            SIZE as i32,
+            SIZE as i32,
+            (SIZE * 4) as i32,
+            wl_shm::Format::Argb8888,
+            &qh,
+            (),
+        );
         pool.destroy();
         Some(Self { queue, st, surface, layer, buffer, _shm: mem, _conn: conn, shown: false })
     }
@@ -121,7 +140,14 @@ impl Overlay for LayerOverlay {
 }
 
 impl Dispatch<surf::ZwlrLayerSurfaceV1, ()> for St {
-    fn event(st: &mut Self, s: &surf::ZwlrLayerSurfaceV1, e: surf::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+    fn event(
+        st: &mut Self,
+        s: &surf::ZwlrLayerSurfaceV1,
+        e: surf::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
         match e {
             surf::Event::Configure { serial, .. } => {
                 s.ack_configure(serial);
@@ -134,7 +160,15 @@ impl Dispatch<surf::ZwlrLayerSurfaceV1, ()> for St {
 }
 
 impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for St {
-    fn event(_: &mut Self, _: &wl_registry::WlRegistry, _: wl_registry::Event, _: &GlobalListContents, _: &Connection, _: &QueueHandle<Self>) {}
+    fn event(
+        _: &mut Self,
+        _: &wl_registry::WlRegistry,
+        _: wl_registry::Event,
+        _: &GlobalListContents,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
 }
 
 delegate_noop!(St: wl_compositor::WlCompositor);

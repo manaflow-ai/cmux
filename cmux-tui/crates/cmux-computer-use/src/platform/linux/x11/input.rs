@@ -16,6 +16,7 @@
 use std::os::fd::AsRawFd;
 use std::time::{Duration, Instant};
 
+use x11rb::CURRENT_TIME;
 use x11rb::connection::Connection as _;
 use x11rb::protocol::xproto::{
     self, ButtonPressEvent, ChangeWindowAttributesAux, ClientMessageEvent, ConfigureWindowAux,
@@ -23,7 +24,6 @@ use x11rb::protocol::xproto::{
     StackMode, Window as XWindow,
 };
 use x11rb::protocol::xtest::ConnectionExt as _;
-use x11rb::CURRENT_TIME;
 
 use super::super::{contains, keysym, mark_injection};
 use super::{Client, X11Desktop, xerr};
@@ -40,7 +40,11 @@ struct Stroke {
 impl X11Desktop {
     // ----- pointer ------------------------------------------------------
 
-    pub(crate) fn click_impl(&self, target: &PointerTarget, spec: &ClickSpec) -> DResult<ActionOutcome> {
+    pub(crate) fn click_impl(
+        &self,
+        target: &PointerTarget,
+        spec: &ClickSpec,
+    ) -> DResult<ActionOutcome> {
         let c = self.client(target.window_id())?;
         let simple = spec.button == Button::Left && spec.count == 1 && spec.modifiers.is_empty();
         let point = match target {
@@ -50,13 +54,22 @@ impl X11Desktop {
                 let center = a.center(&obj, super::Coords::Screen);
                 if simple && spec.delivery == Delivery::Background {
                     match a.press(&obj) {
-                        Ok(name) => return Ok(with_at(ActionOutcome::delivered("atspi_action"), center, &name)),
+                        Ok(name) => {
+                            return Ok(with_at(
+                                ActionOutcome::delivered("atspi_action"),
+                                center,
+                                &name,
+                            ));
+                        }
                         Err(DesktopError::Unsupported(_)) => {}
                         Err(e) => return Err(e),
                     }
                 }
                 center.ok_or_else(|| {
-                    DesktopError::Unsupported("the element has no action and no position; use its window and a point".into())
+                    DesktopError::Unsupported(
+                        "the element has no action and no position; use its window and a point"
+                            .into(),
+                    )
                 })?
             }
             PointerTarget::Point { point, .. } => *point,
@@ -117,7 +130,12 @@ impl X11Desktop {
         Ok(synthetic_note(ActionOutcome::delivered("xsendevent").at(p)))
     }
 
-    pub(crate) fn scroll_impl(&self, target: &PointerTarget, dx: f64, dy: f64) -> DResult<ActionOutcome> {
+    pub(crate) fn scroll_impl(
+        &self,
+        target: &PointerTarget,
+        dx: f64,
+        dy: f64,
+    ) -> DResult<ActionOutcome> {
         let c = self.client(target.window_id())?;
         let p = self.point_of(&c, target)?;
         let mut steps: Vec<(u8, u32)> = Vec::new();
@@ -150,7 +168,14 @@ impl X11Desktop {
         Ok(synthetic_note(ActionOutcome::delivered("xsendevent").at(p)))
     }
 
-    pub(crate) fn drag_impl(&self, window_id: &str, from: Point, to: Point, button: Button, delivery: Delivery) -> DResult<ActionOutcome> {
+    pub(crate) fn drag_impl(
+        &self,
+        window_id: &str,
+        from: Point,
+        to: Point,
+        button: Button,
+        delivery: Delivery,
+    ) -> DResult<ActionOutcome> {
         let c = self.client(window_id)?;
         if !contains(&c.rect, from.x, from.y) || !contains(&c.rect, to.x, to.y) {
             return Err(DesktopError::TargetNotFound("the drag leaves the window".into()));
@@ -179,7 +204,14 @@ impl X11Desktop {
             let p = lerp(i);
             self.send_motion(win, p, ((p.x - off.x) as i16, (p.y - off.y) as i16), button_mask(b))?;
         }
-        self.send_button(win, to, ((to.x - off.x) as i16, (to.y - off.y) as i16), b, false, button_mask(b))?;
+        self.send_button(
+            win,
+            to,
+            ((to.x - off.x) as i16, (to.y - off.y) as i16),
+            b,
+            false,
+            button_mask(b),
+        )?;
         self.flush()?;
         Ok(synthetic_note(ActionOutcome::delivered("xsendevent").at(to)))
     }
@@ -190,8 +222,9 @@ impl X11Desktop {
             PointerTarget::Element { window_id, element_id } => {
                 let (a, _) = self.frame_obj(c)?;
                 let obj = a.element(window_id, element_id)?;
-                a.center(&obj, super::Coords::Screen)
-                    .ok_or_else(|| DesktopError::Unsupported("the element has no position".into()))?
+                a.center(&obj, super::Coords::Screen).ok_or_else(|| {
+                    DesktopError::Unsupported("the element has no position".into())
+                })?
             }
         };
         if !contains(&c.rect, p.x, p.y) {
@@ -202,7 +235,13 @@ impl X11Desktop {
 
     // ----- keyboard -----------------------------------------------------
 
-    pub(crate) fn type_impl(&self, window_id: &str, element_id: Option<&str>, text: &str, delivery: Delivery) -> DResult<ActionOutcome> {
+    pub(crate) fn type_impl(
+        &self,
+        window_id: &str,
+        element_id: Option<&str>,
+        text: &str,
+        delivery: Delivery,
+    ) -> DResult<ActionOutcome> {
         let c = self.client(window_id)?;
         if delivery == Delivery::Background
             && let Some(out) = self.atspi_type(&c, window_id, element_id, text)?
@@ -220,10 +259,19 @@ impl X11Desktop {
 
     /// AT-SPI text insert; `None` when the window has no editable target
     /// (then keys are sent).
-    fn atspi_type(&self, c: &Client, window_id: &str, element_id: Option<&str>, text: &str) -> DResult<Option<ActionOutcome>> {
+    fn atspi_type(
+        &self,
+        c: &Client,
+        window_id: &str,
+        element_id: Option<&str>,
+        text: &str,
+    ) -> DResult<Option<ActionOutcome>> {
         let Ok((a, f)) = self.frame_obj(c) else {
             return if element_id.is_some() {
-                Err(DesktopError::Unsupported("element_id needs the accessibility tree, which this app does not expose".into()))
+                Err(DesktopError::Unsupported(
+                    "element_id needs the accessibility tree, which this app does not expose"
+                        .into(),
+                ))
             } else {
                 Ok(None)
             };
@@ -236,7 +284,11 @@ impl X11Desktop {
         match a.insert_text(&obj, text) {
             Ok(confirmed) => {
                 let route = "atspi_insert_text";
-                let out = if confirmed { ActionOutcome::confirmed(route) } else { ActionOutcome::delivered(route) };
+                let out = if confirmed {
+                    ActionOutcome::confirmed(route)
+                } else {
+                    ActionOutcome::delivered(route)
+                };
                 Ok(Some(with_at(out, a.center(&obj, super::Coords::Screen), "")))
             }
             Err(DesktopError::Unsupported(_)) if element_id.is_none() => Ok(None),
@@ -250,10 +302,16 @@ impl X11Desktop {
         }
     }
 
-    pub(crate) fn keys_impl(&self, window_id: &str, combo: &KeyCombo, delivery: Delivery) -> DResult<ActionOutcome> {
+    pub(crate) fn keys_impl(
+        &self,
+        window_id: &str,
+        combo: &KeyCombo,
+        delivery: Delivery,
+    ) -> DResult<ActionOutcome> {
         let c = self.client(window_id)?;
         let sym = keysym::of_key(&combo.key);
-        let mods: Vec<Modifier> = combo.modifiers.iter().copied().filter(|m| *m != Modifier::Fn).collect();
+        let mods: Vec<Modifier> =
+            combo.modifiers.iter().copied().filter(|m| *m != Modifier::Fn).collect();
         self.key_route(&c, delivery, |me, route| {
             if matches!(route, Route::Send(_)) {
                 return me.stroke(route, sym, modifier_mask(&mods));
@@ -270,7 +328,12 @@ impl X11Desktop {
         })
     }
 
-    fn key_route(&self, c: &Client, delivery: Delivery, f: impl FnOnce(&Self, Route) -> DResult<()>) -> DResult<ActionOutcome> {
+    fn key_route(
+        &self,
+        c: &Client,
+        delivery: Delivery,
+        f: impl FnOnce(&Self, Route) -> DResult<()>,
+    ) -> DResult<ActionOutcome> {
         let (route, name) = match self.xtest_route(c, delivery, None)? {
             Some(name) => (Route::XTest, name),
             None => (Route::Send(self.focus_in(c).unwrap_or(c.win)), "xsendevent"),
@@ -296,12 +359,16 @@ impl X11Desktop {
         match route {
             Route::XTest => {
                 let shift = self.lookup(keysym::SHIFT_L).map(|s| s.code);
-                if s.shift && let Some(sh) = shift {
+                if s.shift
+                    && let Some(sh) = shift
+                {
                     self.fake(xproto::KEY_PRESS_EVENT, sh)?;
                 }
                 self.fake(xproto::KEY_PRESS_EVENT, s.code)?;
                 self.fake(xproto::KEY_RELEASE_EVENT, s.code)?;
-                if s.shift && let Some(sh) = shift {
+                if s.shift
+                    && let Some(sh) = shift
+                {
                     self.fake(xproto::KEY_RELEASE_EVENT, sh)?;
                 }
                 Ok(())
@@ -316,10 +383,17 @@ impl X11Desktop {
 
     /// The XTest route name when XTest may be used for this target now,
     /// `None` for window-scoped events, or a refusal.
-    fn xtest_route(&self, c: &Client, delivery: Delivery, at: Option<Point>) -> DResult<Option<&'static str>> {
+    fn xtest_route(
+        &self,
+        c: &Client,
+        delivery: Delivery,
+        at: Option<Point>,
+    ) -> DResult<Option<&'static str>> {
         if delivery == Delivery::Foreground {
             if !self.has_xtest {
-                return Err(DesktopError::Unsupported("this X server has no XTest extension".into()));
+                return Err(DesktopError::Unsupported(
+                    "this X server has no XTest extension".into(),
+                ));
             }
             self.activate(c)?;
             return Ok(Some("xtest"));
@@ -367,7 +441,9 @@ impl X11Desktop {
         if self.active_window() == Some(c.win) {
             return Ok(());
         }
-        let wm = !self.prop32(self.root, self.atoms.net_supporting_wm_check, xproto::AtomEnum::WINDOW).is_empty();
+        let wm = !self
+            .prop32(self.root, self.atoms.net_supporting_wm_check, xproto::AtomEnum::WINDOW)
+            .is_empty();
         if !wm {
             let aux = ConfigureWindowAux::new().stack_mode(StackMode::ABOVE);
             self.conn.configure_window(c.frame_win, &aux).map_err(xerr)?;
@@ -378,30 +454,65 @@ impl X11Desktop {
         }
         let mask = ChangeWindowAttributesAux::new().event_mask(EventMask::PROPERTY_CHANGE);
         self.conn.change_window_attributes(self.root, &mask).map_err(xerr)?;
-        let ev = ClientMessageEvent::new(32, c.win, self.atoms.net_active_window, [2, CURRENT_TIME, 0, 0, 0]);
+        let ev = ClientMessageEvent::new(
+            32,
+            c.win,
+            self.atoms.net_active_window,
+            [2, CURRENT_TIME, 0, 0, 0],
+        );
         let redirect = EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY;
         self.conn.send_event(false, self.root, redirect, ev).map_err(xerr)?;
         self.flush()?;
-        let ok = self.wait_until(Duration::from_millis(800), || self.active_window() == Some(c.win));
+        let ok =
+            self.wait_until(Duration::from_millis(800), || self.active_window() == Some(c.win));
         let none = ChangeWindowAttributesAux::new().event_mask(EventMask::NO_EVENT);
         let _ = self.conn.change_window_attributes(self.root, &none);
         self.invalidate();
-        if ok { Ok(()) } else { Err(DesktopError::Failed("the window manager did not activate the window".into())) }
+        if ok {
+            Ok(())
+        } else {
+            Err(DesktopError::Failed("the window manager did not activate the window".into()))
+        }
     }
 
     /// Waits for X events until `done` holds or the deadline passes.
     fn wait_until(&self, limit: Duration, done: impl Fn() -> bool) -> bool {
+        self.wait_loop(limit, |_| false, done)
+    }
+
+    /// Waits until an X event matches, up to `limit`.
+    pub(crate) fn wait_event(
+        &self,
+        limit: Duration,
+        matches: impl Fn(&x11rb::protocol::Event) -> bool,
+    ) -> bool {
+        self.wait_loop(limit, matches, || false)
+    }
+
+    fn wait_loop(
+        &self,
+        limit: Duration,
+        matches: impl Fn(&x11rb::protocol::Event) -> bool,
+        done: impl Fn() -> bool,
+    ) -> bool {
         let deadline = Instant::now() + limit;
         loop {
-            while let Ok(Some(_)) = self.conn.poll_for_event() {}
-            if done() {
+            let mut hit = false;
+            while let Ok(Some(e)) = self.conn.poll_for_event() {
+                hit |= matches(&e);
+            }
+            if hit || done() {
                 return true;
             }
             let left = deadline.saturating_duration_since(Instant::now());
             if left.is_zero() {
                 return false;
             }
-            let mut fds = libc::pollfd { fd: self.conn.stream().as_raw_fd(), events: libc::POLLIN, revents: 0 };
+            let mut fds = libc::pollfd {
+                fd: self.conn.stream().as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            };
             // SAFETY: one valid pollfd for the duration of the call.
             unsafe { libc::poll(&mut fds, 1, left.as_millis().min(1000) as i32) };
         }
@@ -418,7 +529,15 @@ impl X11Desktop {
     fn xtest_motion(&self, p: Point) -> DResult<()> {
         mark_injection();
         self.conn
-            .xtest_fake_input(xproto::MOTION_NOTIFY_EVENT, 0, CURRENT_TIME, self.root, p.x as i16, p.y as i16, 0)
+            .xtest_fake_input(
+                xproto::MOTION_NOTIFY_EVENT,
+                0,
+                CURRENT_TIME,
+                self.root,
+                p.x as i16,
+                p.y as i16,
+                0,
+            )
             .map_err(xerr)?;
         Ok(())
     }
@@ -436,7 +555,12 @@ impl X11Desktop {
         let (mut win, mut x, mut y) = (c.win, p.x as i16, p.y as i16);
         let mut src = self.root;
         for _ in 0..32 {
-            let t = self.conn.translate_coordinates(src, win, x, y).map_err(xerr)?.reply().map_err(xerr)?;
+            let t = self
+                .conn
+                .translate_coordinates(src, win, x, y)
+                .map_err(xerr)?
+                .reply()
+                .map_err(xerr)?;
             (x, y, src) = (t.dst_x, t.dst_y, win);
             if t.child == 0 {
                 break;
@@ -446,9 +570,21 @@ impl X11Desktop {
         Ok((win, (x, y)))
     }
 
-    fn send_button(&self, win: XWindow, p: Point, local: (i16, i16), button: u8, press: bool, state: u32) -> DResult<()> {
+    fn send_button(
+        &self,
+        win: XWindow,
+        p: Point,
+        local: (i16, i16),
+        button: u8,
+        press: bool,
+        state: u32,
+    ) -> DResult<()> {
         let ev = ButtonPressEvent {
-            response_type: if press { xproto::BUTTON_PRESS_EVENT } else { xproto::BUTTON_RELEASE_EVENT },
+            response_type: if press {
+                xproto::BUTTON_PRESS_EVENT
+            } else {
+                xproto::BUTTON_RELEASE_EVENT
+            },
             detail: button,
             sequence: 0,
             time: CURRENT_TIME,
@@ -514,7 +650,12 @@ impl X11Desktop {
     fn mapping(&self) -> DResult<(u8, u8, Vec<u32>)> {
         let setup = self.conn.setup();
         let (min, max) = (setup.min_keycode, setup.max_keycode);
-        let r = self.conn.get_keyboard_mapping(min, max - min + 1).map_err(xerr)?.reply().map_err(xerr)?;
+        let r = self
+            .conn
+            .get_keyboard_mapping(min, max - min + 1)
+            .map_err(xerr)?
+            .reply()
+            .map_err(xerr)?;
         Ok((min, r.keysyms_per_keycode, r.keysyms))
     }
 
@@ -552,7 +693,9 @@ impl X11Desktop {
             .rev()
             .find(|(_, k)| k.iter().all(|s| *s == 0))
             .map(|(i, _)| min + i as u8)
-            .ok_or_else(|| DesktopError::Unsupported("no free keycode to type this character".into()))?;
+            .ok_or_else(|| {
+                DesktopError::Unsupported("no free keycode to type this character".into())
+            })?;
         let mut row = vec![sym; per_u];
         row.truncate(per_u);
         self.conn.change_keyboard_mapping(1, spare, per, &row).map_err(xerr)?;
@@ -569,7 +712,12 @@ impl X11Desktop {
         let _ = self.conn.flush();
         let _ = self.conn.get_input_focus().map(|c| c.reply());
         for (code, per) in codes {
-            let _ = self.conn.change_keyboard_mapping(1, code, per, &vec![0u32; usize::from(per.max(1))]);
+            let _ = self.conn.change_keyboard_mapping(
+                1,
+                code,
+                per,
+                &vec![0u32; usize::from(per.max(1))],
+            );
         }
         let _ = self.conn.flush();
     }
@@ -578,9 +726,11 @@ impl X11Desktop {
         mods.iter()
             .filter_map(|m| keysym::of_modifier(*m))
             .map(|s| {
-                self.lookup(s)
-                    .map(|k| k.code)
-                    .ok_or_else(|| DesktopError::Unsupported(format!("modifier keysym 0x{s:x} is not on the keyboard map")))
+                self.lookup(s).map(|k| k.code).ok_or_else(|| {
+                    DesktopError::Unsupported(format!(
+                        "modifier keysym 0x{s:x} is not on the keyboard map"
+                    ))
+                })
             })
             .collect()
     }
@@ -627,6 +777,8 @@ fn with_at(out: ActionOutcome, at: Option<Point>, note: &str) -> ActionOutcome {
 }
 
 fn synthetic_note(mut out: ActionOutcome) -> ActionOutcome {
-    out.note = "sent to the window as synthetic X events; some apps ignore them (check with a screenshot)".into();
+    out.note =
+        "sent to the window as synthetic X events; some apps ignore them (check with a screenshot)"
+            .into();
     out
 }

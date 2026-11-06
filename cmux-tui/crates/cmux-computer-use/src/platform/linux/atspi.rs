@@ -96,7 +96,11 @@ pub struct Atspi {
 fn dbus_err(e: zbus::Error) -> DesktopError {
     if let zbus::Error::MethodError(name, msg, _) = &e {
         let n = name.as_str();
-        if n.ends_with("UnknownObject") || n.ends_with("ServiceUnknown") || n.ends_with("NoReply") || n.ends_with("UnknownMethod") {
+        if n.ends_with("UnknownObject")
+            || n.ends_with("ServiceUnknown")
+            || n.ends_with("NoReply")
+            || n.ends_with("UnknownMethod")
+        {
             return DesktopError::StaleElement(msg.clone().unwrap_or_else(|| n.to_string()));
         }
     }
@@ -117,7 +121,13 @@ impl Atspi {
             &("org.a11y.Status", "IsEnabled", Value::from(true)),
         );
         let reply = session
-            .call_method(Some("org.a11y.Bus"), "/org/a11y/bus", Some("org.a11y.Bus"), "GetAddress", &())
+            .call_method(
+                Some("org.a11y.Bus"),
+                "/org/a11y/bus",
+                Some("org.a11y.Bus"),
+                "GetAddress",
+                &(),
+            )
             .map_err(|e| format!("no accessibility bus (install at-spi2-core): {e}"))?;
         let address: String = reply.body().deserialize().map_err(|e| e.to_string())?;
         let conn = zbus::blocking::connection::Builder::address(address.as_str())
@@ -137,7 +147,9 @@ impl Atspi {
             .conn
             .call_method(Some(obj.bus.as_str()), obj.path.as_str(), Some(iface), method, body)
             .map_err(dbus_err)?;
-        msg.body().deserialize::<R>().map_err(|e| DesktopError::Failed(format!("AT-SPI {method}: {e}")))
+        msg.body()
+            .deserialize::<R>()
+            .map_err(|e| DesktopError::Failed(format!("AT-SPI {method}: {e}")))
     }
 
     fn prop(&self, obj: &Obj, iface: &str, name: &str) -> DResult<OwnedValue> {
@@ -183,11 +195,17 @@ impl Atspi {
             Coords::Window(o) => (1u32, o),
             Coords::None => return None,
         };
-        let (x, y, w, h): (i32, i32, i32, i32) = self.call(obj, COMPONENT, "GetExtents", &(kind,)).ok()?;
+        let (x, y, w, h): (i32, i32, i32, i32) =
+            self.call(obj, COMPONENT, "GetExtents", &(kind,)).ok()?;
         if w <= 0 || h <= 0 || (x == i32::MIN) {
             return None;
         }
-        Some(Rect { x: f64::from(x) + off.x, y: f64::from(y) + off.y, width: f64::from(w), height: f64::from(h) })
+        Some(Rect {
+            x: f64::from(x) + off.x,
+            y: f64::from(y) + off.y,
+            width: f64::from(w),
+            height: f64::from(h),
+        })
     }
 
     fn pid_of(&self, bus: &str) -> u32 {
@@ -212,14 +230,20 @@ impl Atspi {
 
     /// Every app's top-level frames (windows, dialogs).
     pub fn frames(&self, coords_of: impl Fn(u32) -> Coords) -> DResult<Vec<Frame>> {
-        let root = Obj { bus: "org.a11y.atspi.Registry".into(), path: "/org/a11y/atspi/accessible/root".into() };
+        let root = Obj {
+            bus: "org.a11y.atspi.Registry".into(),
+            path: "/org/a11y/atspi/accessible/root".into(),
+        };
         let mut out = Vec::new();
         for app in self.children(&root)? {
             let pid = self.pid_of(&app.bus);
             let Ok(kids) = self.children(&app) else { continue };
             for obj in kids {
                 let role = self.role(&obj);
-                if !matches!(role.as_str(), "frame" | "window" | "dialog" | "alert" | "file_chooser") {
+                if !matches!(
+                    role.as_str(),
+                    "frame" | "window" | "dialog" | "alert" | "file_chooser"
+                ) {
                     continue;
                 }
                 let st = self.states(&obj);
@@ -240,7 +264,13 @@ impl Atspi {
 
     /// The frame of an app's window: same pid, then same title, then same
     /// extents, then the only frame. Anything else is refused.
-    pub fn frame_for(&self, pid: u32, title: &str, frame: Option<Rect>, coords: Coords) -> DResult<Frame> {
+    pub fn frame_for(
+        &self,
+        pid: u32,
+        title: &str,
+        frame: Option<Rect>,
+        coords: Coords,
+    ) -> DResult<Frame> {
         let all = self.frames(|_| coords)?;
         let mine: Vec<Frame> = all.into_iter().filter(|f| pid != 0 && f.pid == pid).collect();
         pick_frame(mine, title, frame).ok_or_else(|| {
@@ -251,10 +281,19 @@ impl Atspi {
     }
 
     /// The window's tree, remembering which ids it issued.
-    pub fn tree(&self, window_id: &str, frame: &Obj, coords: Coords, options: TreeOptions) -> DResult<UiTree> {
+    pub fn tree(
+        &self,
+        window_id: &str,
+        frame: &Obj,
+        coords: Coords,
+        options: TreeOptions,
+    ) -> DResult<UiTree> {
         let mut walk = Walk { issued: HashSet::new(), count: 0, truncated: false, options, coords };
         let root = self.node(frame, 0, &mut walk)?;
-        self.issued.lock().unwrap_or_else(|e| e.into_inner()).insert(window_id.to_string(), walk.issued);
+        self.issued
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(window_id.to_string(), walk.issued);
         Ok(UiTree { window_id: window_id.to_string(), root, truncated: walk.truncated })
     }
 
@@ -267,8 +306,11 @@ impl Atspi {
         let role = self.role(obj);
         let mut actions: Vec<String> = Vec::new();
         if has(ACTION) {
-            let list: Vec<(String, String, String)> = self.call(obj, ACTION, "GetActions", &()).unwrap_or_default();
-            actions.extend(list.into_iter().map(|(n, _, _)| n.to_ascii_lowercase()).filter(|n| !n.is_empty()));
+            let list: Vec<(String, String, String)> =
+                self.call(obj, ACTION, "GetActions", &()).unwrap_or_default();
+            actions.extend(
+                list.into_iter().map(|(n, _, _)| n.to_ascii_lowercase()).filter(|n| !n.is_empty()),
+            );
         }
         if has(EDITABLE) || has(VALUE) {
             actions.push("set_value".into());
@@ -315,7 +357,9 @@ impl Atspi {
         if text && !matches!(role, "label" | "push_button" | "menu_item" | "page_tab") {
             let n = self.prop_i32(obj, TEXT, "CharacterCount").unwrap_or(0).clamp(0, 2000);
             if n > 0 {
-                return self.call::<_, String>(obj, TEXT, "GetText", &(0i32, n)).unwrap_or_default();
+                return self
+                    .call::<_, String>(obj, TEXT, "GetText", &(0i32, n))
+                    .unwrap_or_default();
             }
         }
         String::new()
@@ -338,22 +382,31 @@ impl Atspi {
 
     /// Presses the element through its own action (click, press, activate).
     pub fn press(&self, obj: &Obj) -> DResult<String> {
-        let list: Vec<(String, String, String)> = self.call(obj, ACTION, "GetActions", &()).map_err(|_| {
-            DesktopError::Unsupported("this element has no accessibility action; click it by point".into())
-        })?;
+        let list: Vec<(String, String, String)> =
+            self.call(obj, ACTION, "GetActions", &()).map_err(|_| {
+                DesktopError::Unsupported(
+                    "this element has no accessibility action; click it by point".into(),
+                )
+            })?;
         let names: Vec<String> = list.iter().map(|(n, _, _)| n.to_ascii_lowercase()).collect();
         let index = ["click", "press", "activate", "jump", "toggle", "open", "select"]
             .iter()
             .find_map(|want| names.iter().position(|n| n == want))
             .or(if names.is_empty() { None } else { Some(0) })
-            .ok_or_else(|| DesktopError::Unsupported("this element has no accessibility action".into()))?;
+            .ok_or_else(|| {
+                DesktopError::Unsupported("this element has no accessibility action".into())
+            })?;
         self.do_action(obj, index)?;
         Ok(names[index].clone())
     }
 
     fn do_action(&self, obj: &Obj, index: usize) -> DResult<()> {
         let ok: bool = self.call(obj, ACTION, "DoAction", &(index as i32,))?;
-        if ok { Ok(()) } else { Err(DesktopError::Failed("the app refused the accessibility action".into())) }
+        if ok {
+            Ok(())
+        } else {
+            Err(DesktopError::Failed("the app refused the accessibility action".into()))
+        }
     }
 
     /// Runs a named action (`focus` grabs keyboard focus inside the app).
@@ -361,15 +414,20 @@ impl Atspi {
         let want = action.to_ascii_lowercase();
         if want == "focus" {
             let ok: bool = self.call(obj, COMPONENT, "GrabFocus", &())?;
-            return if ok { Ok(()) } else { Err(DesktopError::Failed("the app refused focus".into())) };
+            return if ok {
+                Ok(())
+            } else {
+                Err(DesktopError::Failed("the app refused focus".into()))
+            };
         }
-        let list: Vec<(String, String, String)> = self.call(obj, ACTION, "GetActions", &()).unwrap_or_default();
-        let index = list
-            .iter()
-            .position(|(n, _, _)| n.eq_ignore_ascii_case(&want))
-            .ok_or_else(|| {
+        let list: Vec<(String, String, String)> =
+            self.call(obj, ACTION, "GetActions", &()).unwrap_or_default();
+        let index =
+            list.iter().position(|(n, _, _)| n.eq_ignore_ascii_case(&want)).ok_or_else(|| {
                 let names: Vec<&str> = list.iter().map(|(n, _, _)| n.as_str()).collect();
-                DesktopError::Unsupported(format!("no action {action:?}; this element has {names:?}"))
+                DesktopError::Unsupported(format!(
+                    "no action {action:?}; this element has {names:?}"
+                ))
             })?;
         self.do_action(obj, index)
     }
@@ -385,14 +443,17 @@ impl Atspi {
             return Ok(self.text(obj).is_some_and(|t| t == value));
         }
         if ifaces.iter().any(|i| i == VALUE) {
-            let n: f64 = value
-                .trim()
-                .parse()
-                .map_err(|_| DesktopError::Unsupported(format!("this element takes a number, not {value:?}")))?;
+            let n: f64 = value.trim().parse().map_err(|_| {
+                DesktopError::Unsupported(format!("this element takes a number, not {value:?}"))
+            })?;
             let _: () = self.call(obj, PROPS, "Set", &(VALUE, "CurrentValue", Value::from(n)))?;
-            return Ok(self.prop_f64(obj, VALUE, "CurrentValue").is_some_and(|v| (v - n).abs() < 1e-9));
+            return Ok(self
+                .prop_f64(obj, VALUE, "CurrentValue")
+                .is_some_and(|v| (v - n).abs() < 1e-9));
         }
-        Err(DesktopError::Unsupported("this element takes no value (no EditableText or Value)".into()))
+        Err(DesktopError::Unsupported(
+            "this element takes no value (no EditableText or Value)".into(),
+        ))
     }
 
     pub fn text(&self, obj: &Obj) -> Option<String> {
@@ -407,7 +468,8 @@ impl Atspi {
             return Err(DesktopError::Unsupported("the element is not editable text".into()));
         }
         let caret = self.prop_i32(obj, TEXT, "CaretOffset").unwrap_or(-1);
-        let pos = if caret < 0 { self.prop_i32(obj, TEXT, "CharacterCount").unwrap_or(0) } else { caret };
+        let pos =
+            if caret < 0 { self.prop_i32(obj, TEXT, "CharacterCount").unwrap_or(0) } else { caret };
         let len = text.chars().count() as i32;
         let ok: bool = self.call(obj, EDITABLE, "InsertText", &(pos, text, len))?;
         if !ok {
@@ -465,8 +527,9 @@ impl Atspi {
         };
         let mut cur = frame.clone();
         for _ in 0..64 {
-            let next: (String, OwnedObjectPath) =
-                self.call(&cur, COMPONENT, "GetAccessibleAtPoint", &(x as i32, y as i32, kind)).ok()?;
+            let next: (String, OwnedObjectPath) = self
+                .call(&cur, COMPONENT, "GetAccessibleAtPoint", &(x as i32, y as i32, kind))
+                .ok()?;
             let next = Obj::from_pair(next);
             if next.is_null() || next == cur {
                 break;
@@ -522,15 +585,20 @@ pub fn pick_frame(mut mine: Vec<Frame>, title: &str, frame: Option<Rect>) -> Opt
     if mine.len() <= 1 {
         return mine.pop();
     }
-    let by_title: Vec<&Frame> = mine.iter().filter(|f| !title.is_empty() && f.name == title).collect();
+    let by_title: Vec<&Frame> =
+        mine.iter().filter(|f| !title.is_empty() && f.name == title).collect();
     if by_title.len() == 1 {
         return Some(by_title[0].clone());
     }
     let near = |a: &Rect, b: &Rect| {
-        (a.x - b.x).abs() <= 2.0 && (a.y - b.y).abs() <= 2.0 && (a.width - b.width).abs() <= 2.0 && (a.height - b.height).abs() <= 2.0
+        (a.x - b.x).abs() <= 2.0
+            && (a.y - b.y).abs() <= 2.0
+            && (a.width - b.width).abs() <= 2.0
+            && (a.height - b.height).abs() <= 2.0
     };
     if let Some(want) = frame {
-        let by_rect: Vec<&Frame> = mine.iter().filter(|f| f.extents.is_some_and(|e| near(&e, &want))).collect();
+        let by_rect: Vec<&Frame> =
+            mine.iter().filter(|f| f.extents.is_some_and(|e| near(&e, &want))).collect();
         if by_rect.len() == 1 {
             return Some(by_rect[0].clone());
         }

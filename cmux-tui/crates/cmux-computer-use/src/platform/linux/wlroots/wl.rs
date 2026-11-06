@@ -6,14 +6,22 @@ use std::os::fd::{AsFd, FromRawFd, OwnedFd};
 
 use wayland_client::globals::{GlobalListContents, registry_queue_init};
 use wayland_client::protocol::{wl_buffer, wl_output, wl_registry, wl_seat, wl_shm, wl_shm_pool};
-use wayland_client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle, WEnum, delegate_noop, event_created_child};
+use wayland_client::{
+    Connection, Dispatch, EventQueue, Proxy, QueueHandle, WEnum, delegate_noop, event_created_child,
+};
 use wayland_protocols::xdg::xdg_output::zv1::client::{zxdg_output_manager_v1, zxdg_output_v1};
-use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{zwp_virtual_keyboard_manager_v1, zwp_virtual_keyboard_v1};
+use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{
+    zwp_virtual_keyboard_manager_v1, zwp_virtual_keyboard_v1,
+};
 use wayland_protocols_wlr::foreign_toplevel::v1::client::{
     zwlr_foreign_toplevel_handle_v1 as tl_handle, zwlr_foreign_toplevel_manager_v1 as tl_manager,
 };
-use wayland_protocols_wlr::screencopy::v1::client::{zwlr_screencopy_frame_v1 as sc_frame, zwlr_screencopy_manager_v1 as sc_manager};
-use wayland_protocols_wlr::virtual_pointer::v1::client::{zwlr_virtual_pointer_manager_v1 as vp_manager, zwlr_virtual_pointer_v1 as vp};
+use wayland_protocols_wlr::screencopy::v1::client::{
+    zwlr_screencopy_frame_v1 as sc_frame, zwlr_screencopy_manager_v1 as sc_manager,
+};
+use wayland_protocols_wlr::virtual_pointer::v1::client::{
+    zwlr_virtual_pointer_manager_v1 as vp_manager, zwlr_virtual_pointer_v1 as vp,
+};
 
 use super::super::WaylandCaps;
 use crate::desktop::{DResult, DesktopError, Point, RawFrame, Rect};
@@ -77,16 +85,20 @@ fn werr(e: impl std::fmt::Display) -> DesktopError {
 impl Wl {
     pub fn connect() -> Result<Self, String> {
         let conn = Connection::connect_to_env().map_err(|e| format!("Wayland: {e}"))?;
-        let (globals, mut queue) = registry_queue_init::<State>(&conn).map_err(|e| format!("Wayland registry: {e}"))?;
+        let (globals, mut queue) =
+            registry_queue_init::<State>(&conn).map_err(|e| format!("Wayland registry: {e}"))?;
         let qh = queue.handle();
         let mut state = State::default();
-        let shm: wl_shm::WlShm = globals.bind(&qh, 1..=1, ()).map_err(|e| format!("wl_shm: {e}"))?;
+        let shm: wl_shm::WlShm =
+            globals.bind(&qh, 1..=1, ()).map_err(|e| format!("wl_shm: {e}"))?;
         let seat: Option<wl_seat::WlSeat> = globals.bind(&qh, 1..=1, ()).ok();
-        let xdg: Option<zxdg_output_manager_v1::ZxdgOutputManagerV1> = globals.bind(&qh, 2..=3, ()).ok();
+        let xdg: Option<zxdg_output_manager_v1::ZxdgOutputManagerV1> =
+            globals.bind(&qh, 2..=3, ()).ok();
         let list = globals.contents().clone_list();
         for g in list.iter().filter(|g| g.interface == wl_output::WlOutput::interface().name) {
             let idx = state.outputs.len();
-            let out: wl_output::WlOutput = globals.registry().bind(g.name, g.version.min(4), &qh, idx);
+            let out: wl_output::WlOutput =
+                globals.registry().bind(g.name, g.version.min(4), &qh, idx);
             if let Some(m) = &xdg {
                 m.get_xdg_output(&out, &qh, idx);
             }
@@ -97,11 +109,22 @@ impl Wl {
             .find(|g| g.interface == sc_manager::ZwlrScreencopyManagerV1::interface().name)
             .map(|g| {
                 let v = g.version.min(3);
-                (globals.registry().bind::<sc_manager::ZwlrScreencopyManagerV1, _, _>(g.name, v, &qh, ()), v)
+                (
+                    globals.registry().bind::<sc_manager::ZwlrScreencopyManagerV1, _, _>(
+                        g.name,
+                        v,
+                        &qh,
+                        (),
+                    ),
+                    v,
+                )
             });
-        let vpm: Option<vp_manager::ZwlrVirtualPointerManagerV1> = globals.bind(&qh, 1..=2, ()).ok();
-        let vkm: Option<zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1> = globals.bind(&qh, 1..=1, ()).ok();
-        let tlm: Option<tl_manager::ZwlrForeignToplevelManagerV1> = globals.bind(&qh, 1..=3, ()).ok();
+        let vpm: Option<vp_manager::ZwlrVirtualPointerManagerV1> =
+            globals.bind(&qh, 1..=2, ()).ok();
+        let vkm: Option<zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1> =
+            globals.bind(&qh, 1..=1, ()).ok();
+        let tlm: Option<tl_manager::ZwlrForeignToplevelManagerV1> =
+            globals.bind(&qh, 1..=3, ()).ok();
         let pointer = vpm.as_ref().map(|m| m.create_virtual_pointer(seat.as_ref(), &qh, ()));
         let keyboard = match (&vkm, &seat) {
             (Some(m), Some(s)) => Some(m.create_virtual_keyboard(s, &qh, ())),
@@ -114,14 +137,30 @@ impl Wl {
             virtual_pointer: pointer.is_some(),
             virtual_keyboard: keyboard.is_some(),
         };
-        Ok(Self { _conn: conn, queue, state, qh, shm, screencopy, pointer, keyboard, seat, keymap: Vec::new(), caps, toplevel_list: tlm.is_some() })
+        Ok(Self {
+            _conn: conn,
+            queue,
+            state,
+            qh,
+            shm,
+            screencopy,
+            pointer,
+            keyboard,
+            seat,
+            keymap: Vec::new(),
+            caps,
+            toplevel_list: tlm.is_some(),
+        })
     }
 
     /// Activates a foreign toplevel (Foreground, or a headless session).
     pub fn activate(&mut self, serial: u64) -> DResult<()> {
-        let seat = self.seat.clone().ok_or_else(|| DesktopError::Unsupported("no Wayland seat".into()))?;
+        let seat =
+            self.seat.clone().ok_or_else(|| DesktopError::Unsupported("no Wayland seat".into()))?;
         let t = self.state.toplevels.iter().find(|t| t.serial == serial && !t.closed);
-        let h = t.and_then(|t| t.handle.clone()).ok_or_else(|| DesktopError::TargetNotFound("the window is gone".into()))?;
+        let h = t
+            .and_then(|t| t.handle.clone())
+            .ok_or_else(|| DesktopError::TargetNotFound("the window is gone".into()))?;
         h.activate(&seat);
         self.sync()?;
         self.sync()
@@ -143,7 +182,12 @@ impl Wl {
         let (mgr, version) = self.screencopy.clone().ok_or_else(|| {
             DesktopError::Unsupported("this compositor does not offer wlr-screencopy".into())
         })?;
-        let out = self.state.outputs.get(idx).cloned().ok_or_else(|| DesktopError::TargetNotFound("output".into()))?;
+        let out = self
+            .state
+            .outputs
+            .get(idx)
+            .cloned()
+            .ok_or_else(|| DesktopError::TargetNotFound("output".into()))?;
         let wl = out.wl.clone().ok_or_else(|| DesktopError::TargetNotFound("output".into()))?;
         self.state.capture = Capture::default();
         let frame = mgr.capture_output(0, &wl, &self.qh, ());
@@ -151,26 +195,38 @@ impl Wl {
         frame.destroy();
         let (rgba, w, h) = result?;
         let scale = if out.logical.width > 0.0 { f64::from(w) / out.logical.width } else { 1.0 };
-        Ok(RawFrame { width: w, height: h, rgba, scale, origin: Point { x: out.logical.x, y: out.logical.y } })
+        Ok(RawFrame {
+            width: w,
+            height: h,
+            rgba,
+            scale,
+            origin: Point { x: out.logical.x, y: out.logical.y },
+        })
     }
 
-    fn copy_frame(&mut self, frame: &sc_frame::ZwlrScreencopyFrameV1, version: u32) -> DResult<(Vec<u8>, u32, u32)> {
+    fn copy_frame(
+        &mut self,
+        frame: &sc_frame::ZwlrScreencopyFrameV1,
+        version: u32,
+    ) -> DResult<(Vec<u8>, u32, u32)> {
         while !(self.state.capture.failed
-            || (self.state.capture.buffer.is_some() && (version < 3 || self.state.capture.buffer_done)))
+            || (self.state.capture.buffer.is_some()
+                && (version < 3 || self.state.capture.buffer_done)))
         {
             self.queue.blocking_dispatch(&mut self.state).map_err(werr)?;
         }
-        let (format, w, h, stride) = self
-            .state
-            .capture
-            .buffer
-            .ok_or_else(|| DesktopError::Failed("the compositor refused the screen copy".into()))?;
+        let (format, w, h, stride) =
+            self.state.capture.buffer.ok_or_else(|| {
+                DesktopError::Failed("the compositor refused the screen copy".into())
+            })?;
         let size = (stride * h) as usize;
         let shm = ShmBuffer::new(size)?;
         let pool = self.shm.create_pool(shm.fd.as_fd(), size as i32, &self.qh, ());
         let fmt = match format {
             WEnum::Value(f) => f,
-            WEnum::Unknown(_) => return Err(DesktopError::Unsupported("unknown screencopy pixel format".into())),
+            WEnum::Unknown(_) => {
+                return Err(DesktopError::Unsupported("unknown screencopy pixel format".into()));
+            }
         };
         let buffer = pool.create_buffer(0, w as i32, h as i32, stride as i32, fmt, &self.qh, ());
         frame.copy(&buffer);
@@ -182,7 +238,11 @@ impl Wl {
             }
         }
         let failed = self.state.capture.failed;
-        let rgba = if failed { None } else { Some(to_rgba(shm.bytes(), fmt, w, h, stride, self.state.capture.y_invert)) };
+        let rgba = if failed {
+            None
+        } else {
+            Some(to_rgba(shm.bytes(), fmt, w, h, stride, self.state.capture.y_invert))
+        };
         buffer.destroy();
         pool.destroy();
         match rgba {
@@ -193,9 +253,9 @@ impl Wl {
     }
 
     fn pointer(&self) -> DResult<&vp::ZwlrVirtualPointerV1> {
-        self.pointer
-            .as_ref()
-            .ok_or_else(|| DesktopError::Unsupported("this compositor does not offer wlr-virtual-pointer".into()))
+        self.pointer.as_ref().ok_or_else(|| {
+            DesktopError::Unsupported("this compositor does not offer wlr-virtual-pointer".into())
+        })
     }
 
     pub fn motion(&mut self, p: Point) -> DResult<()> {
@@ -212,7 +272,11 @@ impl Wl {
     pub fn button(&mut self, code: u32, press: bool) -> DResult<()> {
         let ptr = self.pointer()?;
         super::super::mark_injection();
-        let state = if press { wayland_client::protocol::wl_pointer::ButtonState::Pressed } else { wayland_client::protocol::wl_pointer::ButtonState::Released };
+        let state = if press {
+            wayland_client::protocol::wl_pointer::ButtonState::Pressed
+        } else {
+            wayland_client::protocol::wl_pointer::ButtonState::Released
+        };
         ptr.button(ms(), code, state);
         ptr.frame();
         Ok(())
@@ -232,10 +296,28 @@ impl Wl {
     /// Uploads a keymap holding exactly `syms`, then presses and releases
     /// them per `plan` (index into `syms`, press or release).
     pub fn keys(&mut self, syms: &[u32], plan: &[(usize, bool)]) -> DResult<()> {
-        let kb = self
-            .keyboard
-            .clone()
-            .ok_or_else(|| DesktopError::Unsupported("this compositor does not offer a virtual keyboard".into()))?;
+        let kb = self.ensure_keymap(syms)?;
+        for (i, press) in plan {
+            let Some(at) = syms.get(*i).and_then(|s| self.keymap.iter().position(|k| k == s))
+            else {
+                continue;
+            };
+            super::super::mark_injection();
+            kb.key(ms(), super::super::keysym::evdev_code(at), u32::from(*press));
+        }
+        self.sync()
+    }
+
+    /// Makes the virtual keyboard's keymap hold `syms`. Call it before
+    /// moving focus: a client that gets keyboard focus and a new keymap in
+    /// the same burst drops the first keys (seen with foot on Sway).
+    pub fn ensure_keymap(
+        &mut self,
+        syms: &[u32],
+    ) -> DResult<zwp_virtual_keyboard_v1::ZwpVirtualKeyboardV1> {
+        let kb = self.keyboard.clone().ok_or_else(|| {
+            DesktopError::Unsupported("this compositor does not offer a virtual keyboard".into())
+        })?;
         // A new keymap resets the compositor's key state, so modifiers held
         // across calls (click with modifiers) keep the map they went down with.
         if !syms.iter().all(|s| self.keymap.contains(s)) {
@@ -250,13 +332,9 @@ impl Wl {
             shm.write(&bytes);
             kb.keymap(1, shm.fd.as_fd(), bytes.len() as u32);
             self.keymap = all;
+            self.sync()?;
         }
-        for (i, press) in plan {
-            let Some(at) = syms.get(*i).and_then(|s| self.keymap.iter().position(|k| k == s)) else { continue };
-            super::super::mark_injection();
-            kb.key(ms(), super::super::keysym::evdev_code(at), u32::from(*press));
-        }
-        self.sync()
+        Ok(kb)
     }
 }
 
@@ -265,7 +343,14 @@ fn ms() -> u32 {
 }
 
 /// Screencopy formats to RGBA (little-endian 32-bit formats).
-fn to_rgba(src: &[u8], fmt: wl_shm::Format, w: u32, h: u32, stride: u32, y_invert: bool) -> DResult<Vec<u8>> {
+fn to_rgba(
+    src: &[u8],
+    fmt: wl_shm::Format,
+    w: u32,
+    h: u32,
+    stride: u32,
+    y_invert: bool,
+) -> DResult<Vec<u8>> {
     use wl_shm::Format as F;
     let order: [usize; 3] = match fmt {
         F::Argb8888 | F::Xrgb8888 => [2, 1, 0],
@@ -307,7 +392,14 @@ impl ShmBuffer {
             if libc::ftruncate(raw, len as libc::off_t) != 0 {
                 return Err(DesktopError::Failed("ftruncate failed".into()));
             }
-            let ptr = libc::mmap(std::ptr::null_mut(), len, libc::PROT_READ | libc::PROT_WRITE, libc::MAP_SHARED, raw, 0);
+            let ptr = libc::mmap(
+                std::ptr::null_mut(),
+                len,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_SHARED,
+                raw,
+                0,
+            );
             if ptr == libc::MAP_FAILED {
                 return Err(DesktopError::Failed("mmap failed".into()));
             }
@@ -337,11 +429,26 @@ impl Drop for ShmBuffer {
 // ----- dispatch -------------------------------------------------------------
 
 impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for State {
-    fn event(_: &mut Self, _: &wl_registry::WlRegistry, _: wl_registry::Event, _: &GlobalListContents, _: &Connection, _: &QueueHandle<Self>) {}
+    fn event(
+        _: &mut Self,
+        _: &wl_registry::WlRegistry,
+        _: wl_registry::Event,
+        _: &GlobalListContents,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
 }
 
 impl Dispatch<wl_output::WlOutput, usize> for State {
-    fn event(state: &mut Self, _: &wl_output::WlOutput, event: wl_output::Event, idx: &usize, _: &Connection, _: &QueueHandle<Self>) {
+    fn event(
+        state: &mut Self,
+        _: &wl_output::WlOutput,
+        event: wl_output::Event,
+        idx: &usize,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
         let Some(o) = state.outputs.get_mut(*idx) else { return };
         match event {
             wl_output::Event::Mode { width, height, .. } => o.mode = (width, height),
@@ -362,7 +469,14 @@ impl Dispatch<wl_output::WlOutput, usize> for State {
 }
 
 impl Dispatch<zxdg_output_v1::ZxdgOutputV1, usize> for State {
-    fn event(state: &mut Self, _: &zxdg_output_v1::ZxdgOutputV1, event: zxdg_output_v1::Event, idx: &usize, _: &Connection, _: &QueueHandle<Self>) {
+    fn event(
+        state: &mut Self,
+        _: &zxdg_output_v1::ZxdgOutputV1,
+        event: zxdg_output_v1::Event,
+        idx: &usize,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
         let Some(o) = state.outputs.get_mut(*idx) else { return };
         match event {
             zxdg_output_v1::Event::LogicalPosition { x, y } => {
@@ -380,13 +494,23 @@ impl Dispatch<zxdg_output_v1::ZxdgOutputV1, usize> for State {
 }
 
 impl Dispatch<sc_frame::ZwlrScreencopyFrameV1, ()> for State {
-    fn event(state: &mut Self, _: &sc_frame::ZwlrScreencopyFrameV1, event: sc_frame::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+    fn event(
+        state: &mut Self,
+        _: &sc_frame::ZwlrScreencopyFrameV1,
+        event: sc_frame::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
         let c = &mut state.capture;
         match event {
-            sc_frame::Event::Buffer { format, width, height, stride } => c.buffer = Some((format, width, height, stride)),
+            sc_frame::Event::Buffer { format, width, height, stride } => {
+                c.buffer = Some((format, width, height, stride))
+            }
             sc_frame::Event::BufferDone => c.buffer_done = true,
             sc_frame::Event::Flags { flags } => {
-                c.y_invert = matches!(flags, WEnum::Value(f) if f.contains(sc_frame::Flags::YInvert));
+                c.y_invert =
+                    matches!(flags, WEnum::Value(f) if f.contains(sc_frame::Flags::YInvert));
             }
             sc_frame::Event::Ready { .. } => c.ready = true,
             sc_frame::Event::Failed => c.failed = true,
@@ -396,10 +520,21 @@ impl Dispatch<sc_frame::ZwlrScreencopyFrameV1, ()> for State {
 }
 
 impl Dispatch<tl_manager::ZwlrForeignToplevelManagerV1, ()> for State {
-    fn event(state: &mut Self, _: &tl_manager::ZwlrForeignToplevelManagerV1, event: tl_manager::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+    fn event(
+        state: &mut Self,
+        _: &tl_manager::ZwlrForeignToplevelManagerV1,
+        event: tl_manager::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
         if let tl_manager::Event::Toplevel { toplevel } = event {
             state.next_serial += 1;
-            state.toplevels.push(Toplevel { handle: Some(toplevel), serial: state.next_serial, ..Toplevel::default() });
+            state.toplevels.push(Toplevel {
+                handle: Some(toplevel),
+                serial: state.next_serial,
+                ..Toplevel::default()
+            });
         }
     }
 
@@ -409,13 +544,25 @@ impl Dispatch<tl_manager::ZwlrForeignToplevelManagerV1, ()> for State {
 }
 
 impl Dispatch<tl_handle::ZwlrForeignToplevelHandleV1, ()> for State {
-    fn event(state: &mut Self, h: &tl_handle::ZwlrForeignToplevelHandleV1, event: tl_handle::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
-        let Some(t) = state.toplevels.iter_mut().find(|t| t.handle.as_ref() == Some(h)) else { return };
+    fn event(
+        state: &mut Self,
+        h: &tl_handle::ZwlrForeignToplevelHandleV1,
+        event: tl_handle::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        let Some(t) = state.toplevels.iter_mut().find(|t| t.handle.as_ref() == Some(h)) else {
+            return;
+        };
         match event {
             tl_handle::Event::Title { title } => t.title = title,
             tl_handle::Event::AppId { app_id } => t.app_id = app_id,
             tl_handle::Event::State { state: s } => {
-                let words: Vec<u32> = s.chunks_exact(4).map(|c| u32::from_ne_bytes([c[0], c[1], c[2], c[3]])).collect();
+                let words: Vec<u32> = s
+                    .chunks_exact(4)
+                    .map(|c| u32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
+                    .collect();
                 t.activated = words.contains(&(tl_handle::State::Activated as u32));
                 t.minimized = words.contains(&(tl_handle::State::Minimized as u32));
             }

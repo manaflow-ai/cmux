@@ -49,7 +49,13 @@ impl WlrootsDesktop {
         }
         let headless = std::env::var("CMUX_CU_HEADLESS").is_ok_and(|v| v == "1")
             || (!names.is_empty() && names.iter().all(|n| n.starts_with("HEADLESS")));
-        Ok(Self { wl: Mutex::new(wl), ipc, headless, apps: AppResolver::default(), atspi: Mutex::new(None) })
+        Ok(Self {
+            wl: Mutex::new(wl),
+            ipc,
+            headless,
+            apps: AppResolver::default(),
+            atspi: Mutex::new(None),
+        })
     }
 
     fn wl(&self) -> MutexGuard<'_, wl::Wl> {
@@ -93,30 +99,38 @@ impl WlrootsDesktop {
 
     fn find(&self, id: &str) -> DResult<(IpcWindow, Vec<IpcWindow>)> {
         let all = self.raw_windows()?;
-        let w = all
-            .iter()
-            .find(|w| w.id == id)
-            .cloned()
-            .ok_or_else(|| DesktopError::TargetNotFound(format!("window {id} is gone; call list_windows")))?;
+        let w = all.iter().find(|w| w.id == id).cloned().ok_or_else(|| {
+            DesktopError::TargetNotFound(format!("window {id} is gone; call list_windows"))
+        })?;
         Ok((w, all))
     }
 
     fn coords(w: &IpcWindow) -> Coords {
-        if w.rect.width > 0.0 { Coords::Window(Point { x: w.rect.x, y: w.rect.y }) } else { Coords::None }
+        if w.rect.width > 0.0 {
+            Coords::Window(Point { x: w.rect.x, y: w.rect.y })
+        } else {
+            Coords::None
+        }
     }
 
     fn frame_obj(&self, w: &IpcWindow) -> DResult<(Arc<Atspi>, super::atspi::Frame)> {
         let a = self.atspi().ok_or_else(|| {
-            DesktopError::Unsupported("the accessibility bus (AT-SPI) is not running in this session".into())
+            DesktopError::Unsupported(
+                "the accessibility bus (AT-SPI) is not running in this session".into(),
+            )
         })?;
         let rect = (w.rect.width > 0.0).then_some(w.rect);
         let frames = a.frames(|_| Coords::None)?;
         let mine: Vec<_> = frames
             .into_iter()
-            .filter(|f| (w.pid != 0 && f.pid == w.pid) || (w.pid == 0 && !w.title.is_empty() && f.name == w.title))
+            .filter(|f| {
+                (w.pid != 0 && f.pid == w.pid)
+                    || (w.pid == 0 && !w.title.is_empty() && f.name == w.title)
+            })
             .collect();
-        let f = super::atspi::pick_frame(mine, &w.title, rect)
-            .ok_or_else(|| DesktopError::Unsupported("no accessibility tree for this window".into()))?;
+        let f = super::atspi::pick_frame(mine, &w.title, rect).ok_or_else(|| {
+            DesktopError::Unsupported("no accessibility tree for this window".into())
+        })?;
         Ok((a, f))
     }
 
@@ -134,7 +148,11 @@ impl WlrootsDesktop {
                 _ => return Err(DesktopError::Unsupported("cannot focus this window".into())),
             }
         }
-        Ok(if self.headless && delivery == Delivery::Background { "wlr_virtual_input_headless" } else { "wlr_virtual_input" })
+        Ok(if self.headless && delivery == Delivery::Background {
+            "wlr_virtual_input_headless"
+        } else {
+            "wlr_virtual_input"
+        })
     }
 
     fn point_in(w: &IpcWindow, p: Point) -> DResult<()> {
@@ -149,7 +167,11 @@ impl WlrootsDesktop {
         Ok(())
     }
 
-    fn element_center(&self, w: &IpcWindow, element_id: &str) -> DResult<(Arc<Atspi>, super::atspi::Obj, Option<Point>)> {
+    fn element_center(
+        &self,
+        w: &IpcWindow,
+        element_id: &str,
+    ) -> DResult<(Arc<Atspi>, super::atspi::Obj, Option<Point>)> {
         let (a, _) = self.frame_obj(w)?;
         let obj = a.element(&w.id, element_id)?;
         let c = a.center(&obj, Self::coords(w));
@@ -160,8 +182,18 @@ impl WlrootsDesktop {
         self.wl().state.outputs.iter().position(|o| contains(&o.logical, p.x, p.y))
     }
 
-    fn send_keys(&self, w: &IpcWindow, delivery: Delivery, syms: Vec<u32>, plan: Vec<(usize, bool)>) -> DResult<ActionOutcome> {
+    fn send_keys(
+        &self,
+        w: &IpcWindow,
+        delivery: Delivery,
+        syms: Vec<u32>,
+        plan: Vec<(usize, bool)>,
+    ) -> DResult<ActionOutcome> {
+        if delivery == Delivery::Foreground || self.headless {
+            self.wl().ensure_keymap(&syms)?;
+        }
         let route = self.global_input(w, delivery)?;
+        self.wl().sync()?;
         self.wl().keys(&syms, &plan)?;
         Ok(ActionOutcome::delivered(route))
     }
@@ -235,9 +267,14 @@ impl Desktop for WlrootsDesktop {
                     match name {
                         Some(n) => outs.iter().position(|o| &o.name == n).ok_or_else(|| {
                             let names: Vec<&str> = outs.iter().map(|o| o.name.as_str()).collect();
-                            DesktopError::TargetNotFound(format!("display {n:?}; displays: {names:?}"))
+                            DesktopError::TargetNotFound(format!(
+                                "display {n:?}; displays: {names:?}"
+                            ))
                         })?,
-                        None => outs.iter().position(|o| o.logical.x == 0.0 && o.logical.y == 0.0).unwrap_or(0),
+                        None => outs
+                            .iter()
+                            .position(|o| o.logical.x == 0.0 && o.logical.y == 0.0)
+                            .unwrap_or(0),
                     }
                 };
                 self.wl().capture_output(idx)
@@ -245,21 +282,35 @@ impl Desktop for WlrootsDesktop {
             CaptureTarget::Window(id) => {
                 let (w, all) = self.find(id)?;
                 if w.rect.width <= 0.0 || !w.visible {
-                    return Err(DesktopError::Unsupported("the window is not on screen; take a display screenshot".into()));
+                    return Err(DesktopError::Unsupported(
+                        "the window is not on screen; take a display screenshot".into(),
+                    ));
                 }
                 if ipc::covered(&w, &all) {
                     return Err(DesktopError::Unsupported(
                         "another window covers this one and wlr-screencopy only copies the screen; take a display screenshot".into(),
                     ));
                 }
-                let center = Point { x: w.rect.x + w.rect.width / 2.0, y: w.rect.y + w.rect.height / 2.0 };
-                let idx = self.output_for(center).ok_or_else(|| DesktopError::Unsupported("the window is off screen".into()))?;
+                let center =
+                    Point { x: w.rect.x + w.rect.width / 2.0, y: w.rect.y + w.rect.height / 2.0 };
+                let idx = self
+                    .output_for(center)
+                    .ok_or_else(|| DesktopError::Unsupported("the window is off screen".into()))?;
                 let full = self.wl().capture_output(idx)?;
                 let s = full.scale;
                 let (x, y) = ((w.rect.x - full.origin.x) * s, (w.rect.y - full.origin.y) * s);
-                let (rgba, cw, ch, x0, y0) = crop_rgba(&full.rgba, full.width, full.height, x as i64, y as i64, (w.rect.width * s) as i64, (w.rect.height * s) as i64)
-                    .ok_or_else(|| DesktopError::Unsupported("the window is off screen".into()))?;
-                let origin = Point { x: full.origin.x + x0 as f64 / s, y: full.origin.y + y0 as f64 / s };
+                let (rgba, cw, ch, x0, y0) = crop_rgba(
+                    &full.rgba,
+                    full.width,
+                    full.height,
+                    x as i64,
+                    y as i64,
+                    (w.rect.width * s) as i64,
+                    (w.rect.height * s) as i64,
+                )
+                .ok_or_else(|| DesktopError::Unsupported("the window is off screen".into()))?;
+                let origin =
+                    Point { x: full.origin.x + x0 as f64 / s, y: full.origin.y + y0 as f64 / s };
                 Ok(RawFrame { width: cw, height: ch, rgba, scale: s, origin })
             }
         }
@@ -285,12 +336,16 @@ impl Desktop for WlrootsDesktop {
                         Err(e) => return Err(e),
                     }
                 }
-                c.ok_or_else(|| DesktopError::Unsupported("the element has no action and no position".into()))?
+                c.ok_or_else(|| {
+                    DesktopError::Unsupported("the element has no action and no position".into())
+                })?
             }
             PointerTarget::Point { point, .. } => *point,
         };
         Self::point_in(&w, p)?;
-        if simple && bg && matches!(target, PointerTarget::Point { .. })
+        if simple
+            && bg
+            && matches!(target, PointerTarget::Point { .. })
             && let Ok((a, f)) = self.frame_obj(&w)
             && let Some(hit) = a.at_point(&f.obj, p, Self::coords(&w))
             && let Some(obj) = a.actionable_ancestor(&hit, &f.obj)
@@ -299,10 +354,14 @@ impl Desktop for WlrootsDesktop {
         {
             return Ok(ActionOutcome::delivered("atspi_action").at(p));
         }
-        let route = self.global_input(&w, spec.delivery)?;
         let code = button_code(spec.button);
-        let mods: Vec<Modifier> = spec.modifiers.iter().copied().filter(|m| *m != Modifier::Fn).collect();
+        let mods: Vec<Modifier> =
+            spec.modifiers.iter().copied().filter(|m| *m != Modifier::Fn).collect();
         let syms: Vec<u32> = mods.iter().filter_map(|m| keysym::of_modifier(*m)).collect();
+        if !syms.is_empty() && (spec.delivery == Delivery::Foreground || self.headless) {
+            self.wl().ensure_keymap(&syms)?;
+        }
+        let route = self.global_input(&w, spec.delivery)?;
         let mut wl = self.wl();
         if !syms.is_empty() {
             let plan: Vec<(usize, bool)> = (0..syms.len()).map(|i| (i, true)).collect();
@@ -321,7 +380,13 @@ impl Desktop for WlrootsDesktop {
         Ok(ActionOutcome::delivered(route).at(p))
     }
 
-    fn type_text(&self, window_id: &str, element_id: Option<&str>, text: &str, delivery: Delivery) -> DResult<ActionOutcome> {
+    fn type_text(
+        &self,
+        window_id: &str,
+        element_id: Option<&str>,
+        text: &str,
+        delivery: Delivery,
+    ) -> DResult<ActionOutcome> {
         let (w, _) = self.find(window_id)?;
         if delivery == Delivery::Background
             && let Ok((a, f)) = self.frame_obj(&w)
@@ -355,9 +420,15 @@ impl Desktop for WlrootsDesktop {
         self.send_keys(&w, delivery, syms, plan)
     }
 
-    fn press_keys(&self, window_id: &str, combo: &KeyCombo, delivery: Delivery) -> DResult<ActionOutcome> {
+    fn press_keys(
+        &self,
+        window_id: &str,
+        combo: &KeyCombo,
+        delivery: Delivery,
+    ) -> DResult<ActionOutcome> {
         let (w, _) = self.find(window_id)?;
-        let mut syms: Vec<u32> = combo.modifiers.iter().filter_map(|m| keysym::of_modifier(*m)).collect();
+        let mut syms: Vec<u32> =
+            combo.modifiers.iter().filter_map(|m| keysym::of_modifier(*m)).collect();
         syms.push(keysym::of_key(&combo.key));
         let n = syms.len();
         let mut plan: Vec<(usize, bool)> = (0..n).map(|i| (i, true)).collect();
@@ -388,7 +459,14 @@ impl Desktop for WlrootsDesktop {
         Ok(ActionOutcome::delivered(route).at(p))
     }
 
-    fn drag(&self, window_id: &str, from: Point, to: Point, button: Button, delivery: Delivery) -> DResult<ActionOutcome> {
+    fn drag(
+        &self,
+        window_id: &str,
+        from: Point,
+        to: Point,
+        button: Button,
+        delivery: Delivery,
+    ) -> DResult<ActionOutcome> {
         let (w, _) = self.find(window_id)?;
         Self::point_in(&w, from)?;
         Self::point_in(&w, to)?;
@@ -409,11 +487,20 @@ impl Desktop for WlrootsDesktop {
     fn set_value(&self, window_id: &str, element_id: &str, value: &str) -> DResult<ActionOutcome> {
         let (w, _) = self.find(window_id)?;
         let (a, obj, c) = self.element_center(&w, element_id)?;
-        let out = if a.set_value(&obj, value)? { ActionOutcome::confirmed("atspi_set_value") } else { ActionOutcome::delivered("atspi_set_value") };
+        let out = if a.set_value(&obj, value)? {
+            ActionOutcome::confirmed("atspi_set_value")
+        } else {
+            ActionOutcome::delivered("atspi_set_value")
+        };
         Ok(at_opt(out, c))
     }
 
-    fn perform_action(&self, window_id: &str, element_id: &str, action: &str) -> DResult<ActionOutcome> {
+    fn perform_action(
+        &self,
+        window_id: &str,
+        element_id: &str,
+        action: &str,
+    ) -> DResult<ActionOutcome> {
         let (w, _) = self.find(window_id)?;
         let (a, obj, c) = self.element_center(&w, element_id)?;
         a.perform(&obj, action)?;

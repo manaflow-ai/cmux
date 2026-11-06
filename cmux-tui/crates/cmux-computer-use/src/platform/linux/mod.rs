@@ -123,7 +123,11 @@ pub struct WaylandCaps {
 }
 
 /// The decision of [`open`], kept pure so it is tested without a display.
-pub fn choose(env: &Env, wayland: Option<WaylandCaps>, portal_remote_desktop: bool) -> Result<SessionKind, String> {
+pub fn choose(
+    env: &Env,
+    wayland: Option<WaylandCaps>,
+    portal_remote_desktop: bool,
+) -> Result<SessionKind, String> {
     if let Some(forced) = env.forced.as_deref() {
         return match forced {
             "x11" => env
@@ -178,8 +182,12 @@ pub fn open() -> Result<Arc<dyn Desktop>, String> {
             let xwayland_only = env.wayland_socket().is_some();
             x11::X11Desktop::connect(xwayland_only).map(|d| Arc::new(d) as Arc<dyn Desktop>)
         }
-        SessionKind::Wlroots => wlroots::WlrootsDesktop::connect().map(|d| Arc::new(d) as Arc<dyn Desktop>),
-        SessionKind::Portal => portal::PortalDesktop::connect(&env).map(|d| Arc::new(d) as Arc<dyn Desktop>),
+        SessionKind::Wlroots => {
+            wlroots::WlrootsDesktop::connect().map(|d| Arc::new(d) as Arc<dyn Desktop>)
+        }
+        SessionKind::Portal => {
+            portal::PortalDesktop::connect(&env).map(|d| Arc::new(d) as Arc<dyn Desktop>)
+        }
     }
 }
 
@@ -220,7 +228,8 @@ static STATE_DIR: OnceLock<Mutex<Option<PathBuf>>> = OnceLock::new();
 /// engine). Without it: `$CMUX_COMPUTER_USE_STATE_DIR`, then
 /// `$XDG_STATE_HOME/cmux/computer-use`, then `~/.local/state/cmux/computer-use`.
 pub fn set_state_dir(dir: PathBuf) {
-    *STATE_DIR.get_or_init(|| Mutex::new(None)).lock().unwrap_or_else(|e| e.into_inner()) = Some(dir);
+    *STATE_DIR.get_or_init(|| Mutex::new(None)).lock().unwrap_or_else(|e| e.into_inner()) =
+        Some(dir);
 }
 
 pub(crate) fn state_dir() -> Option<PathBuf> {
@@ -232,11 +241,10 @@ pub(crate) fn state_dir() -> Option<PathBuf> {
     {
         return Some(PathBuf::from(dir));
     }
-    let base = std::env::var("XDG_STATE_HOME")
-        .ok()
-        .filter(|v| !v.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| std::env::var("HOME").ok().map(|h| PathBuf::from(h).join(".local/state")))?;
+    let base =
+        std::env::var("XDG_STATE_HOME").ok().filter(|v| !v.is_empty()).map(PathBuf::from).or_else(
+            || std::env::var("HOME").ok().map(|h| PathBuf::from(h).join(".local/state")),
+        )?;
     Some(base.join("cmux").join("computer-use"))
 }
 
@@ -304,6 +312,19 @@ impl DesktopIndex {
             .iter()
             .find(|e| e.id == id)
             .or_else(|| self.entries.iter().find(|e| e.id.eq_ignore_ascii_case(id)))
+    }
+
+    /// The one entry whose `Exec` runs this executable name.
+    pub fn for_exe(&self, exe: &str) -> Option<&DesktopEntry> {
+        let mut hits = self.entries.iter().filter(|e| {
+            exec_argv(&e.exec)
+                .first()
+                .and_then(|p| Path::new(p).file_name().and_then(|f| f.to_str()).map(str::to_string))
+                .is_some_and(|p| p == exe)
+        });
+        let first = hits.next()?;
+        // Several entries for one binary (a launcher's modes): no guess.
+        if hits.next().is_some() { None } else { Some(first) }
     }
 
     /// The entry for an X11 WM_CLASS (class, instance) or a Wayland app_id.
@@ -433,11 +454,18 @@ pub(crate) fn desktop_id_from_cgroup(cgroup: &str) -> Option<String> {
             let rest = rest.replace("\\x2d", "-");
             let mut parts: Vec<&str> = rest.split('-').collect();
             if parts.len() >= 2
-                && parts.last().is_some_and(|p| p.chars().all(|c| c.is_ascii_hexdigit()) || p.starts_with('@'))
+                && parts
+                    .last()
+                    .is_some_and(|p| p.chars().all(|c| c.is_ascii_hexdigit()) || p.starts_with('@'))
             {
                 parts.pop();
             }
-            if parts.len() >= 2 && matches!(parts[0], "gnome" | "kde" | "flatpak" | "dbus" | "xfce" | "cinnamon" | "snap") {
+            if parts.len() >= 2
+                && matches!(
+                    parts[0],
+                    "gnome" | "kde" | "flatpak" | "dbus" | "xfce" | "cinnamon" | "snap"
+                )
+            {
                 parts.remove(0);
             }
             let id = parts.join("-");
@@ -459,7 +487,9 @@ pub(crate) fn exe_name(pid: u32) -> Option<String> {
         .and_then(|p| p.file_name())
         .and_then(|f| f.to_str())
         .map(|s| s.trim_end_matches(" (deleted)").to_string());
-    name.or_else(|| std::fs::read_to_string(format!("/proc/{pid}/comm")).ok().map(|s| s.trim().to_string()))
+    name.or_else(|| {
+        std::fs::read_to_string(format!("/proc/{pid}/comm")).ok().map(|s| s.trim().to_string())
+    })
 }
 
 /// Resolves app ids and names, caching the desktop file index.
@@ -499,16 +529,43 @@ impl AppResolver {
             return (instance.to_string(), instance.to_string());
         }
         let exe = exe_name(pid).unwrap_or_else(|| "unknown".into());
+        if let Some(e) = index.for_exe(&exe) {
+            let name = if e.name.is_empty() { e.id.clone() } else { e.name.clone() };
+            return (e.id.clone(), name);
+        }
         (exe.clone(), exe)
     }
 }
 
+/// Compositor and shell processes whose own accessible frames (panels,
+/// overlays) are not app windows.
+pub(crate) fn is_shell_process(pid: u32) -> bool {
+    matches!(
+        exe_name(pid).as_deref(),
+        Some(
+            "gnome-shell"
+                | "kwin_wayland"
+                | "kwin_x11"
+                | "plasmashell"
+                | "mutter"
+                | "gnome-shell-calendar-server"
+        )
+    )
+}
+
 /// Starts an app by desktop file id or executable name, detached from us.
-pub(crate) fn launch(resolver: &AppResolver, app_id: &str) -> crate::desktop::DResult<crate::desktop::App> {
+pub(crate) fn launch(
+    resolver: &AppResolver,
+    app_id: &str,
+) -> crate::desktop::DResult<crate::desktop::App> {
     use crate::desktop::{App, DesktopError};
     let index = resolver.index();
     let (argv, id, name) = if let Some(e) = index.by_id(app_id) {
-        (exec_argv(&e.exec), e.id.clone(), if e.name.is_empty() { e.id.clone() } else { e.name.clone() })
+        (
+            exec_argv(&e.exec),
+            e.id.clone(),
+            if e.name.is_empty() { e.id.clone() } else { e.name.clone() },
+        )
     } else if !app_id.contains('/') && which(app_id).is_some() {
         (vec![app_id.to_string()], app_id.to_string(), app_id.to_string())
     } else {
@@ -548,7 +605,8 @@ pub(crate) fn which(name: &str) -> Option<PathBuf> {
 /// Bounds of several rects (the layout box).
 pub(crate) fn union(rects: &[Rect]) -> Option<Rect> {
     let first = rects.first()?;
-    let (mut x0, mut y0, mut x1, mut y1) = (first.x, first.y, first.x + first.width, first.y + first.height);
+    let (mut x0, mut y0, mut x1, mut y1) =
+        (first.x, first.y, first.x + first.width, first.y + first.height);
     for r in rects.iter().skip(1) {
         x0 = x0.min(r.x);
         y0 = y0.min(r.y);
@@ -563,7 +621,15 @@ pub(crate) fn contains(r: &Rect, x: f64, y: f64) -> bool {
 }
 
 /// Crops an RGBA frame to `rect` (in the frame's own pixels).
-pub(crate) fn crop_rgba(rgba: &[u8], width: u32, height: u32, x: i64, y: i64, w: i64, h: i64) -> Option<(Vec<u8>, u32, u32, i64, i64)> {
+pub(crate) fn crop_rgba(
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    x: i64,
+    y: i64,
+    w: i64,
+    h: i64,
+) -> Option<(Vec<u8>, u32, u32, i64, i64)> {
     let x0 = x.clamp(0, width as i64);
     let y0 = y.clamp(0, height as i64);
     let x1 = (x + w).clamp(0, width as i64);
