@@ -7,9 +7,10 @@ import Testing
 /// same window length at both points, plus each process's CPU share. A cost
 /// that grows with the workspaces already made shows as a stack that is heavier
 /// late than early. Prints a profile and checks nothing; opt-in with
-/// `CMUX_SAMPLE_PROFILE=1` (``SelfSampler``).
-@MainActor @Suite(.serialized, .timeLimit(.minutes(15)), .enabled(if: SelfSampler.enabled && SameTreeDaemonBinary.url != nil,
-                                                                   "self-sampling profile; set CMUX_SAMPLE_PROFILE=1"))
+/// `CMUX_CLASSIC_UPGRADE_PERF=1`, as ``ClassicUpgradeSimulationPerfTests`` (``SelfSampler``).
+@MainActor @Suite(.serialized, .timeLimit(.minutes(15)),
+                  .enabled(if: ProcessInfo.processInfo.environment["CMUX_CLASSIC_UPGRADE_PERF"] == "1" && SameTreeDaemonBinary.url != nil,
+                           "set CMUX_CLASSIC_UPGRADE_PERF=1 on a fleet run"))
 struct ClassicUpgradeHugeProfileTests {
     static let window = 20
 
