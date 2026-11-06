@@ -10,6 +10,7 @@ run-name: >-
   ${{ inputs.promote_nightly_next_sha && format('Promote nightly-next to {0}', inputs.promote_nightly_next_sha)
       || github.event_name == 'schedule' && format('Nightly macOS build · {0}', github.event.schedule)
       || inputs.nightly_next_unsigned_run && format('Resume nightly-next run {0} attempt {1}', inputs.nightly_next_unsigned_run, inputs.nightly_next_unsigned_attempt)
+      || inputs.nightly_next_loop_retry && format('Retry nightly-next ({0} of 2)', inputs.nightly_next_loop_retry)
       || inputs.nightly_next_republish_run && format('Republish nightly-next run {0} attempt {1}', inputs.nightly_next_republish_run, inputs.nightly_next_republish_attempt)
       || inputs.nightly_next_post_publish && 'Finish a published nightly-next build (release, deltas, notes, PR comments)'
       || '' }}
@@ -114,6 +115,11 @@ on:
         required: false
         default: ''
         type: string
+      nightly_next_loop_retry:
+        description: nightly-next only, sent by a failed run's retry-nightly-next. How many times in a row the loop has retried (1 or 2). The run takes the push group's one pending place, so it builds the newest head (or resumes the failed run's unsigned app when the head is still its commit).
+        required: false
+        default: ''
+        type: string
       nightly_next_republish_run:
         description: nightly-next only. Build, sign and notarize nothing. Publish this completed nightly-next push run's verified DMG again with this run's workflow and publication tooling, through the normal guarded publication.
         required: false
@@ -125,7 +131,7 @@ on:
         default: ''
         type: string
       nightly_next_post_publish:
-        description: nightly-next only, sent by a run's dispatch-published-in once its feed is published. JSON {source_run, source_attempt, tail} naming that push run; the build's record is read only from that run's own artifact, after the API confirms it is a nightly.yml push on nightly-next (scripts/ci/nightly_published_build.py). This run builds and signs no app; it runs what follows the feed (GitHub release, deltas, dSYMs, release notes, reel, PR comments), so none of it holds the push group.
+        description: nightly-next only, sent by an older push run's dispatch-published-in once its feed was published (the tail now runs in the run that published). JSON {source_run, source_attempt, tail} naming that push run; the build's record is read only from that run's own artifact, after the API confirms it is a nightly.yml push on nightly-next (scripts/ci/nightly_published_build.py). This run builds and signs no app; it runs what follows the feed (GitHub release, deltas, dSYMs, release notes, reel, PR comments), so none of it holds the push group.
         required: false
         default: ''
         type: string
@@ -164,8 +170,9 @@ concurrency:
   # pushed head waits, and GitHub replaces a waiting run (never a started one) with a newer push, so only
   # the newest head is built and signed. Leo, 2026-11-05, when 25 run-scoped nightlies queued behind the
   # one signer: "why do multiple merges even build the f***ing nightlies anyway?". Other nightly-next
-  # runs (dispatches) stay run-scoped; the release/feed writers keep their own groups below.
-  group: nightly-build-${{ github.ref_name == 'main' && 'nightly-shared' || github.ref_name }}-${{ github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' && 'push' || format('run-{0}', github.run_id)) || github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && format('nightly-next-promote-{0}', github.run_id) || github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && inputs.nightly_next_continue_only && format('continue-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && (inputs.notary_test_without_password_import || inputs.notary_test_without_browser_data_import || inputs.notary_probe_production_identity || (inputs.notary_test_import_part || 'none') != 'none') && format('notary-test-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
+  # runs (dispatches) stay run-scoped, except the loop's own retry of a failed run (nightly_next_loop_retry),
+  # which takes the push group's pending place like a push; the release/feed writers keep their own groups below.
+  group: nightly-build-${{ github.ref_name == 'main' && 'nightly-shared' || github.ref_name }}-${{ github.ref == 'refs/heads/nightly-next' && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry != '') && 'push' || format('run-{0}', github.run_id)) || github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && format('nightly-next-promote-{0}', github.run_id) || github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && inputs.nightly_next_continue_only && format('continue-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && (inputs.notary_test_without_password_import || inputs.notary_test_without_browser_data_import || inputs.notary_probe_production_identity || (inputs.notary_test_import_part || 'none') != 'none') && format('notary-test-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
   cancel-in-progress: false
 
 permissions: {}
@@ -314,6 +321,7 @@ jobs:
           NOTARY_PROBE_IDENTITY: ${{ github.event_name == 'workflow_dispatch' && inputs.notary_probe_nightly_identity && (inputs.notary_probe_production_identity && 'both' || 'nightly') || 'production' }}
           UNSIGNED_RUN: ${{ inputs.nightly_next_unsigned_run }}
           UNSIGNED_ATTEMPT: ${{ inputs.nightly_next_unsigned_attempt }}
+          LOOP_RETRY: ${{ inputs.nightly_next_loop_retry }}
           CONTINUE_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.nightly_next_continue_only && 'true' || 'false' }}
           REPUBLISH_RUN: ${{ inputs.nightly_next_republish_run }}
           REPUBLISH_ATTEMPT: ${{ inputs.nightly_next_republish_attempt }}
@@ -366,6 +374,17 @@ jobs:
             }
             core.setOutput('republish_run', republish ? process.env.REPUBLISH_RUN : '');
             core.setOutput('republish_attempt', republish ? process.env.REPUBLISH_ATTEMPT : '');
+            const loopRetry = process.env.LOOP_RETRY || '';
+            // A loop retry runs at the head when it is dispatched, which can be newer than a saved unsigned
+            // app's commit, so it always builds again: naming an unsigned run would publish that older app.
+            if (loopRetry && (context.eventName !== 'workflow_dispatch' || context.ref !== 'refs/heads/nightly-next' ||
+                !/^[12]$/.test(loopRetry) || republish || unsignedResume)) {
+              core.setFailed('nightly_next_loop_retry is 1 or 2, on nightly-next, and never a republish or an unsigned resume');
+              return;
+            }
+            // The loop retries its own failed run (retry-nightly-next): an unsigned resume from anywhere else
+            // (main's feed watch) would only take the nightly mini beside the loop, so it builds nothing.
+            const resumeOutsideLoop = unsignedResume;
             const forceBuild = unsignedResume || republish || process.env.FORCE_BUILD === 'true';
             const seedOnly = process.env.SEED_ONLY === 'true';
             // A build-only run measures the unsigned universal app build (cold
@@ -575,6 +594,7 @@ jobs:
             core.setOutput('continue_only', continueOnly ? 'true' : 'false');
             const alreadyPublished = !continueOnly && !buildOnly && !forceBuild && (isTrackRef || isRcRef) && publishedSha === headSha;
             let shouldBuild = !seedOnly && !alreadyPublished && (buildOnly || !isTrackRef || forceBuild || nightlySha !== headSha);
+            if (resumeOutsideLoop) shouldBuild = false;
             // The six-hour schedule only warms caches downstream, and keeps
             // its eligibility outputs as they are so that routing still works.
             // It is named here because the build-input check below leaves it
@@ -679,7 +699,9 @@ jobs:
               }
             }
             let decisionReason;
-            if (seedOnly) {
+            if (resumeOutsideLoop) {
+              decisionReason = `Skipping this resume of run ${process.env.UNSIGNED_RUN}: the nightly-next loop retries its own failed runs at the newest head (retry-nightly-next).`;
+            } else if (seedOnly) {
               decisionReason = 'Manual cache-only run: refresh compilation caches without building or publishing an app.';
             } else if (scheduledCacheOnly) {
               decisionReason = 'Scheduled cache warmup: refresh compilation caches only. The daily 08:47 UTC schedule is the app catch-up run.';
@@ -6300,13 +6322,15 @@ jobs:
   # this build's), first-parent, so main's PRs arriving through a sync merge
   # are not claimed. No secrets; a comment failure never fails the nightly.
   #
-  # The published build that the jobs after the feed describe (scripts/ci/nightly_published_build.py). On
-  # nightly-next it runs in the dispatched post-publication run (dispatch-published-in), reading the record
-  # the push run sent, so none of the jobs below holds the push group. Main's nightly and RC run those jobs
-  # in their own run: there it passes this run's own jobs through. It skips in a nightly-next build run.
+  # The published build that the jobs after the feed describe (scripts/ci/nightly_published_build.py). Every
+  # track runs those jobs in the run that published, so a nightly-next run is the whole pipeline (build, sign,
+  # publish, the GitHub release, deltas, notes, reel, PR comments) and the push group's next run starts only
+  # after it: one nightly at a time on the nightly mini, the newest pushed head next (Leo, 2026-11-06: "when it
+  # finishes, it starts another one, like the latest one at that present moment"). It passes this
+  # run's own jobs through. A post-publication dispatch from an older push run still reads its record.
   published-build:
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly]
-    if: "always() && (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/nightly-next' && inputs.nightly_next_post_publish != '' || needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track != 'nightly-next' && needs.publish-nightly.result == 'success')"
+    if: "always() && (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/nightly-next' && inputs.nightly_next_post_publish != '' || needs.decide.outputs.should_publish == 'true' && needs.publish-nightly.result == 'success')"
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     timeout-minutes: 10
     permissions:
@@ -6393,59 +6417,11 @@ jobs:
           RECORD_FILE: ${{ runner.temp }}/published-build/published-build.json
         run: python3 scripts/ci/nightly_published_build.py outputs
 
-  # Everything after the feed runs in a dispatched run of this workflow (nightly_next_post_publish), not
-  # in the push run. A nightly-next push run holds the one push group until its last job ends (#36111):
-  # the PR comments held it 17-40 min (run 41982716550, 247 PRs), and then the GitHub release, deltas,
-  # notes and reel held it 17-35 min after the feed on the 7 runs before 2026-11-06, while the next push
-  # waited (run 42149108998: 20 of its 43 queued minutes). This job asks for that run as soon as the feed
-  # is published, with the published build's record (scripts/ci/nightly_published_build.py), so the push
-  # run ends at publish-nightly. In the dispatched run, published-build hands the record to those jobs.
-  dispatch-published-in:
-    # The build jobs too: the record says whether any of them failed (push_clean).
-    needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, build-sign-notarize-nightly, resolve-nightly-cmux-tui-client, publish-nightly]
-    if: "!cancelled() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true'"
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      actions: write
-    env:
-      GH_TOKEN: ${{ github.token }}
-      NEEDS: ${{ toJSON(needs) }}
-      RUN_ID: ${{ github.run_id }}
-      RUN_ATTEMPT: ${{ github.run_attempt }}
-      SHA: ${{ github.sha }}
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          sparse-checkout: scripts/ci
-      - name: Record the published build
-        env:
-          RECORD_FILE: ${{ runner.temp }}/published-build/published-build.json
-        run: |
-          set -euo pipefail
-          mkdir -p "$(dirname "$RECORD_FILE")"
-          python3 scripts/ci/nightly_published_build.py pack > "$RUNNER_TEMP/dispatch-input.json"
-      # The post-publication run reads the record only from here (published-build), never from its input.
-      - name: Upload the record
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: nightly-published-build-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/published-build/published-build.json
-          if-no-files-found: error
-          retention-days: 3
-      - name: Ask for this build's post-publication run
-        run: |
-          gh workflow run nightly.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME" \
-            -f nightly_next_post_publish="$(cat "$RUNNER_TEMP/dispatch-input.json")"
-
-  # In the dispatched post-publication run. decide skips when nightly_next_post_publish is set, so only
-  # published-build and the jobs below it run there (tests/test_nightly_next_post_publish.py). The comments
-  # wait for the whole-Mac publish jobs, so they never hold the mini while those wait.
+  # In the run that published (or an older push run's post-publication dispatch). The comments wait for the
+  # whole-Mac publish jobs, so they never hold the mini while those wait.
   published-in:
     needs: [published-build, publish-nightly-next-github, generate-nightly-deltas, republish-nightly-deltas]
-    if: "!cancelled() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/nightly-next' && inputs.nightly_next_post_publish != '' && needs.published-build.outputs.comment == 'true'"
+    if: "!cancelled() && github.ref == 'refs/heads/nightly-next' && needs.published-build.outputs.comment == 'true'"
     # A paced job of up to five hours, on the nightly mini like the rest of the nightly. Never Blacksmith.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     # Each write is paced at 7.5 s under GitHub's hourly content limit.
@@ -6662,15 +6638,54 @@ jobs:
                 print(f"| #{pr['pr']} | {title} | {cell} |")
             PY
 
+  # The nightly-next loop's retry (Leo, 2026-11-06: one nightly at a time, the newest head next; a failed run
+  # is retried at the newest commit, not at its own). When this run built and failed to publish, and
+  # nightly-next still points at its commit, it asks for one more run of the push group: GitHub keeps that
+  # group's one pending place for the newest arrival, so a push that lands meanwhile takes it instead and
+  # nothing waits beside the loop. The retry builds again from scratch: a dispatch runs at the head when it
+  # is dispatched, so a push that lands between the check and the dispatch (and loses its pending place to the
+  # retry) is still the commit the retry builds; resuming this run's unsigned app would publish the older
+  # commit for it. At most two retries in a row.
+  retry-nightly-next:
+    needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, publish-nightly]
+    if: "always() && !cancelled() && github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' || inputs.nightly_next_loop_retry != '') && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && needs.publish-nightly.result != 'success'"
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SHA: ${{ github.sha }}
+      RUN_ID: ${{ github.run_id }}
+      RUN_ATTEMPT: ${{ github.run_attempt }}
+      RETRY: ${{ inputs.nightly_next_loop_retry }}
+    steps:
+      - name: Ask the push group for the newest head
+        run: |
+          set -euo pipefail
+          tries=$(( ${RETRY:-0} + 1 ))
+          if [ "$tries" -gt 2 ]; then
+            echo "::warning::nightly-next failed after two retries in a row; the next push starts the loop again"
+            exit 0
+          fi
+          head=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/nightly-next" --jq .object.sha)
+          if [ "$head" != "$SHA" ]; then
+            echo "nightly-next moved to $head: its push run takes the group's pending place, so no retry"
+            exit 0
+          fi
+          echo "retry $tries of 2 after run $RUN_ID attempt $RUN_ATTEMPT: build the nightly-next head again"
+          gh workflow run nightly.yml --repo "$GITHUB_REPOSITORY" --ref nightly-next -f nightly_next_loop_retry="$tries"
+
   # A cancelled job (a timeout reports as cancelled) counts as a failure. On
   # nightly-next the signed release notes are part of the publication: a
   # published build whose notes jobs did not both succeed is reported too
   # (run 37526646874 published with its notes job cancelled and no alarm).
   report-nightly-failure:
-    needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, build-nightly-remote-daemon, resolve-nightly-cmux-tui-client, prepare-nightly-variant, build-sign-notarize-nightly, verify-signed-nightly, verify-final-dmg-nightly, verify-recovered-nightly-next, republish-nightly-next, publish-nightly, dispatch-published-in, published-build, generate-nightly-deltas, republish-nightly-deltas, sign-release-notes, publish-release-notes]
-    # Twice on nightly-next: the push run reports its build and feed, the dispatched run (cross_run) the rest.
-    # A dispatched run whose published-build fails has no record, so it reports under nightly-next's names.
-    if: always() && (needs.decide.outputs.should_publish == 'true' || needs.published-build.outputs.cross_run == 'true' || inputs.nightly_next_post_publish != '' && needs.published-build.result == 'failure') && needs.decide.outputs.notary_test != 'true' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || needs.publish-nightly.outputs.feed_check == 'failure' || needs.publish-nightly.outputs.tag_status == 'stale' || needs.publish-nightly.outputs.refusal_reason != '' || (needs.published-build.outputs.cross_run == 'true' && needs.published-build.outputs.track == 'nightly-next' && needs.published-build.outputs.publish_result == 'success' && needs.published-build.outputs.publish_already_published != 'true' && needs.published-build.outputs.publish_refused != 'true' && needs.published-build.outputs.publish_source != 'recovered' && (needs.sign-release-notes.result != 'success' || needs.publish-release-notes.result != 'success')))
+    needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, build-nightly-remote-daemon, resolve-nightly-cmux-tui-client, prepare-nightly-variant, build-sign-notarize-nightly, verify-signed-nightly, verify-final-dmg-nightly, verify-recovered-nightly-next, republish-nightly-next, publish-nightly, published-build, generate-nightly-deltas, republish-nightly-deltas, sign-release-notes, publish-release-notes]
+    # Once, after the whole run. An older push run's post-publication dispatch (cross_run) reports its own jobs;
+    # one whose published-build fails has no record, so it reports under nightly-next's names.
+    if: always() && (needs.decide.outputs.should_publish == 'true' || needs.published-build.outputs.cross_run == 'true' || inputs.nightly_next_post_publish != '' && needs.published-build.result == 'failure') && needs.decide.outputs.notary_test != 'true' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || needs.publish-nightly.outputs.feed_check == 'failure' || needs.publish-nightly.outputs.tag_status == 'stale' || needs.publish-nightly.outputs.refusal_reason != '' || (needs.published-build.result == 'success' && needs.published-build.outputs.track == 'nightly-next' && needs.published-build.outputs.publish_result == 'success' && needs.published-build.outputs.publish_already_published != 'true' && needs.published-build.outputs.publish_refused != 'true' && needs.published-build.outputs.publish_source != 'recovered' && (needs.sign-release-notes.result != 'success' || needs.publish-release-notes.result != 'success')))
     # The declared nightly-only mini is enabled after live admission is verified.
     # Keep the existing fallback; never reuse the stale builder-only placement.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
@@ -6743,8 +6758,8 @@ jobs:
             // A refused publication succeeds as a job but published nothing.
             if (process.env.REFUSAL_REASON) failed.push(`publish-nightly (refused: ${process.env.REFUSAL_REASON})`);
             // nightly-next: notes jobs that were skipped after a publication
-            // (a recovered one skips them on purpose), in the dispatched run that runs them.
-            if (process.env.TRACK === 'nightly-next' && results['published-build']?.outputs?.cross_run === 'true'
+            // (a recovered one skips them on purpose), in the run that ran the tail.
+            if (process.env.TRACK === 'nightly-next' && results['published-build']?.result === 'success'
                 && results['published-build']?.outputs?.publish_result === 'success' && process.env.PUBLISH_SOURCE !== 'recovered') {
               for (const job of ['sign-release-notes', 'publish-release-notes']) {
                 const result = results[job]?.result;
