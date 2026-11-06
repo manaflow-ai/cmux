@@ -10,7 +10,7 @@ import CmuxNextSidebar
 // focus model, titlebar and actions see; the others are parked contents (no focus topology) whose views stay on
 // screen in their slots. A press in one focuses it (`ShellWindow.sendEvent`), as does a click on its sidebar row; a
 // click on a row off screen shows that workspace alone. `SidebarModel.onScreen` is the set on screen. With the
-// toggle off none of this runs: the set stays nil and onScreen empty.
+// toggle off the set stays nil and onScreen empty, also while window docks arrange the frame (`setOnScreen`).
 extension WindowController {
     /// The gap between workspaces shown side by side.
     static var multiViewGap: CGFloat { Metrics.space2 }
@@ -245,7 +245,7 @@ extension WindowController {
     }
 
     private func setOnScreen(_ ids: Set<String>) {
-        let value = Set(ids.map(SidebarWorkspaceID.init))
+        let value = Self.multiViewEnabled ? Set(ids.map(SidebarWorkspaceID.init)) : []
         if sidebar.model.onScreen != value { sidebar.model.onScreen = value }
     }
 }

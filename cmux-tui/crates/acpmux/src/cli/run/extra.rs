@@ -541,7 +541,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         v.get("sessions").and_then(Value::as_u64).unwrap_or(0),
                         v.get("liveAgents").and_then(Value::as_u64).unwrap_or(0)
                     );
-                    if let Some(line) = crate::hub::views::outdated_hosts_line(&v) {
+                    if let Some(line) = crate::hub::views::other_build_hosts_line(&v) {
                         println!("{line}");
                     }
                     println!(

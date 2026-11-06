@@ -156,8 +156,8 @@ struct WindowDockWindowTests {
 
     // MARK: - Cmd-Shift-P actions
 
-    /// Show or Hide Dock Tab Bar gives the dock the Home Chief pane's mode (one tab: no bar), per dock; Move Dock to
-    /// Right moves it; Show or Hide Dock hides and shows it; Focus Dock focuses its workspace. Each runs through the
+    /// Show/Hide Dock Tab Bar gives the dock the Home Chief pane's mode (one tab: no bar), per dock; Move Dock to
+    /// Right moves it; Show/Hide Dock hides and shows it; Focus Dock focuses its workspace. Each runs through the
     /// registry, the path of the palette, the keyboard, the CLI and MCP.
     @Test func thePaletteActionsDriveTheDock() async throws {
         try await Self.withDocks {
@@ -188,7 +188,7 @@ struct WindowDockWindowTests {
 
             #expect(run("window.toggleDock"))
             f.frame()
-            #expect(f.shown == ["k1"], "Show or Hide Dock did not hide it: \(f.shown)")
+            #expect(f.shown == ["k1"], "Show/Hide Dock did not hide it: \(f.shown)")
             #expect(run("window.toggleDock"))
             f.frame()
             #expect(f.shown == ["k0", "k1"])

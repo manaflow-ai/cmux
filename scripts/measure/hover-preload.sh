@@ -5,18 +5,20 @@
 #       missed refreshes and main-thread busy ms per frame, each pointer move's main-thread ms;
 #   (b) time to content after a select, cold and after a 150 ms rest on the row (--trials each);
 #   (c) the woken pages hibernate again after the 30 s grace, and the footprint before, woken and after.
-# OFF is the base build, never a setting (there is no switch that turns hover preload off), built first in this
-# checkout so the head build after it reuses the warm DerivedData. ON is this checkout. The base is either
+# Hover preload is the setting browser.wakeTabsOnHover (off by default). With no base given, OFF is this checkout's
+# app with the setting off and ON the same app with it on (one build, the setting is the only difference). With a
+# base, OFF is the base build, built first in this checkout so the head build after it reuses the warm DerivedData,
+# and ON is this checkout with the setting on. The base is either
 #   --base-revert=<sha>: this checkout with commit <sha> reverted (uncommitted), so OFF and ON differ only in that
 #                        change (hover preload landed as a8442a2b089bca34318c6e47b3767cba09f24cb6, #36637); or
 #   --base-ref=<sha>:    that commit (it must carry this bench's debug socket methods).
 # Runs alone on the worker because it launches an app:
 #   cmux-ci run --class exclusive --label measure --measurement --script scripts/measure/hover-preload.sh --ref <sha> \
-#     --arg=--base-revert=a8442a2b089bca34318c6e47b3767cba09f24cb6 [--arg=--arms=OFF,ON,OFF,ON] [--arg=--engine=chromium]
+#     [--arg=--arms=OFF,ON,OFF,ON] [--arg=--base-ref=<sha>] [--arg=--engine=chromium]
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
-# --arms=OFF,ON,OFF,ON (the default with a base; ON alone without) runs the bench once per arm, in that order, on
-# this mini: OFF launches the base build, ON this checkout's.
+# --arms=OFF,ON,OFF,ON (the default) runs the bench once per arm, in that order, on
+# this mini: OFF launches the base build (or this one with the setting off), ON this checkout's with it on.
 tag="hoverpre"
 out="$(mktemp -d)"
 head_sha="$(git rev-parse HEAD)"
@@ -32,14 +34,7 @@ for arg in "$@"; do
   esac
 done
 set -- ${bench_args[@]+"${bench_args[@]}"}
-if [[ -z "$arms" ]]; then
-  arms="ON"
-  [[ -n "$base_ref$base_revert" ]] && arms="OFF,ON,OFF,ON"
-fi
-if [[ ",$arms," == *",OFF,"* && -z "$base_ref$base_revert" ]]; then
-  echo "hover-preload: an OFF arm needs --base-revert or --base-ref (the base build, not a setting)" >&2
-  exit 2
-fi
+[[ -z "$arms" ]] && arms="OFF,ON,OFF,ON"
 
 # Builds the checked-out commit as tag $1 and prints its app path. A step's checkout has empty submodules: reload.sh
 # needs Ghostty's headers and ghostty-next for the bundled cmux-tui.
@@ -87,18 +82,20 @@ elif [[ -n "$base_ref" ]]; then
 fi
 [[ -n "$base_app" ]] && echo "hover-preload: OFF app built ($base_desc)"
 app="$(build "$tag")"
-echo "hover-preload: ref $head_sha"
+echo "hover-preload: ref $head_sha host $(hostname -s) macOS $(sw_vers -productVersion 2>/dev/null || echo ?)"
 # A fleet step has no LaunchServices session: run the app binary itself (bench_memory.launch).
 IFS=, read -r -a arm_list <<<"$arms"
 index=0 failed=0
 for arm in "${arm_list[@]}"; do
   index=$((index + 1))
   label="$(tr '[:upper:]' '[:lower:]' <<<"$arm")"
-  arm_app="$app"
-  [[ "$label" == off ]] && arm_app="$base_app"
-  echo "hover-preload: arm $index/${#arm_list[@]} $label ($([[ "$label" == off ]] && echo "$base_desc" || echo "head $head_sha"))"
+  arm_app="$app" wake=1 desc="head $head_sha, browser.wakeTabsOnHover on"
+  if [[ "$label" == off ]]; then
+    if [[ -n "$base_app" ]]; then arm_app="$base_app" desc="$base_desc"; else wake=0 desc="head $head_sha, browser.wakeTabsOnHover off"; fi
+  fi
+  echo "hover-preload: arm $index/${#arm_list[@]} $label ($desc)"
   # One arm that fails does not stop the others (each launches its own app); the step fails at the end.
   CMUX_BENCH_LAUNCH=direct python3 scripts/cmux-next/bench_hover_preload.py --app "$arm_app" --label "$label" \
-    --out "$PWD/hover-preload-$index-$label.json" "$@" || { echo "hover-preload: arm $index ($label) failed" >&2; failed=1; }
+    --wake-on-hover="$wake" --out "$PWD/hover-preload-$index-$label.json" "$@" || { echo "hover-preload: arm $index ($label) failed" >&2; failed=1; }
 done
 exit "$failed"
