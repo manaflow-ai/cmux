@@ -144,7 +144,7 @@ public final class AgentsStepModel {
         installs[id] = .installing
         // task-owner: one install the person asked for; it ends with the installer (acpmux bounds it).
         Task { [weak self, source] in
-            let failure = await source?.installAgent(id) ?? "cmux could not reach its agents service"
+            let failure: String? = if let source { await source.installAgent(id) } else { "cmux could not reach its agents service" }
             guard let self else { return }
             if let failure {
                 installs[id] = .failed(failure)
