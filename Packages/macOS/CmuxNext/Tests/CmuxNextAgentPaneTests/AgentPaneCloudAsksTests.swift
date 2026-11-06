@@ -158,7 +158,7 @@ struct AgentPaneCloudAsksTests {
         #expect(shown.buttons.map(\.id) == [ask.cancelID, AgentPaneCloudAsker.linkButton, "use"])
         #expect(shown.buttons.map(\.role) == [.cancel, .default, .normal])
         #expect(shown.identifier == "cmux.dialog.test")
-        guard case .object(let json) = ask.json else { return Issue.record("not an object") }
+        guard case .object(let json) = ask.json else { Issue.record("not an object"); return }
         #expect(json["identifier"] == nil)
         #expect(json["kind"] == .string("loginCopy") && json["code"] == .string("ABCD-1234"))
         #expect(json["link"] == .object(["url": .string(link.absoluteString), "title": .string("Open sign-in")]))
