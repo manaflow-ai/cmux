@@ -62,7 +62,7 @@ import { PeerStateEvents } from "./peerStateEvents";
 import { peerConnectedFromStatus, peerKindsFromStatus, peerStatesFromStatus } from "./environments";
 import { peerResourcesFromStatus } from "./machineResources";
 import { type ChatUnavailable, chatUnavailable, type PeerStatus, peerStatusFromStatus } from "./chatUnavailable";
-import { hostKind, sessionEntry, summaryActivityAt, text, type AcpmuxSessionEntry } from "./sessionList";
+import { hostKind, sessionEntry, sessionTitle, summaryActivityAt, text, type AcpmuxSessionEntry } from "./sessionList";
 import { sameUsageStats, type SessionUsageStats } from "./usageStats";
 import { usageLimitsOf } from "./usageLimits";
 import { clampRunning, subsessionLimits } from "./subsessionLimits";
@@ -6530,6 +6530,21 @@ export class AcpmuxDirectClient {
         bookmarksHeard(event.sessionId ?? this.selectedSessionId, event.msg?.bookmarks);
       } else if (event.kind === "forked") {
         this.forkedAtSeq = event.seq;
+        // Where the chat's history ends and the fork's own begins: what the fork holds, and from
+        // which chat (Leo, 2026-11-06: "where did the forked chat even go??? what does it even
+        // have???"). One quiet line at the cut; the rows above it are the chat's, through the
+        // turn it was forked at.
+        const parent =
+          typeof msg.parentId === "string" ? this.sessions.find((s) => s.sessionId === msg.parentId) : undefined;
+        this.rows.set(`forked-from-${event.seq}`, {
+          id: `forked-from-${event.seq}`,
+          version: 1,
+          at: event.at,
+          kind: "notice",
+          text: parent
+            ? translate("notice.forkedFrom", { chat: sessionTitle(parent) })
+            : translate("notice.forkedFromGone"),
+        });
         // An agent that could not fork the working chat: the fork's agent reads the chat's
         // transcript instead, and the fork says so in one line (acpmux `hub/fork.rs`).
         if (msg.from === "transcript") {
@@ -6543,6 +6558,18 @@ export class AcpmuxDirectClient {
             text: translate("notice.forkFromTranscript", { harness }),
           });
         }
+      } else if (event.kind === "fork_start_failed") {
+        // The fork's agent did not start after the fork answered (acpmux `hub/fork.rs`); the
+        // first prompt starts it again.
+        const id = `fork-start-${event.seq}`;
+        const reason = typeof msg.error === "string" && msg.error ? msg.error : undefined;
+        this.rows.set(id, {
+          id,
+          version: 1,
+          at: event.at,
+          kind: "notice",
+          text: reason ? translate("notice.forkStartFailedReason", { reason }) : translate("notice.forkStartFailed"),
+        });
       } else if (event.kind === "failover") {
         // acpmux moved the chat to its fallback harness (`hub/turns.rs`); the turn goes on there.
         if (typeof msg.from === "string" && typeof msg.to === "string") {

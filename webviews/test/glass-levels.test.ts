@@ -1,0 +1,78 @@
+// One set of glass levels (Leo, 2026-11-06: "we have, like, a ton of varying glassiness on stuff for
+// some reason"). Every web glass surface frosts through a level of the design scale (chrome, popover,
+// menu, chip), never a blur of its own: scripts/check-glass-levels.ts says what counts.
+import { expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+
+import designScale from "../../schemas/design-scale/design-scale.json";
+import { findRawBlurs, rawBlursInCss, rawBlursInScript } from "../scripts/check-glass-levels";
+
+const source = (file: string) => readFileSync(new URL(`../src/${file}`, import.meta.url), "utf8");
+
+test("every blur in the page code names a glass level", () => {
+  expect(findRawBlurs()).toEqual([]);
+});
+
+test("the levels are chrome, popover, menu and chip, each with its tint, blur and radius in desktop.css", () => {
+  const levels = designScale.glass.filter((level) => level.kind === "level");
+  expect(levels.map((level) => level.name)).toEqual(["chrome", "popover", "menu", "chip"]);
+  const desktop = source("pages/shared/desktop.css");
+  for (const level of levels) {
+    expect(desktop).toContain(`--ds-glass-${level.name}-tint: ${level.tint}%;`);
+    expect(desktop).toContain(`--ds-glass-${level.name}-blur: ${level.blur};`);
+    expect(desktop).toMatch(new RegExp(`--ds-glass-${level.name}-radius: [\\d.]+px;`));
+  }
+  // The shared tokens every surface reads are the levels: panes the chrome, tooltips the chip.
+  expect(desktop).toContain("--surface-blur: var(--ds-glass-chrome-blur);");
+  expect(desktop).toContain("--tooltip-blur: var(--ds-glass-chip-blur);");
+});
+
+test("popups and hover cards are the popover level, menus the menu level", () => {
+  const glass = source("ui/glass/glass.css").replace(/\/\*[\s\S]*?\*\//g, "");
+  const rule = (selector: string) => {
+    const at = glass.indexOf(`${selector} {`);
+    expect(at, selector).toBeGreaterThanOrEqual(0);
+    return glass.slice(at, glass.indexOf("}", at));
+  };
+  const popover = rule(".ui-popup.ui-glass,\n.ui-card.ui-glass");
+  expect(popover).toContain("var(--ds-glass-popover-tint)");
+  expect(popover).toContain("--glass-backdrop: var(--ds-glass-popover-blur)");
+  const menu = rule(
+    ".ui-popup.ui-glass:is(.ui-menu, .ui-context-menu, .ui-select-popup, .toolbar-menu, .page-menu, .acpmux-menu, .acpmux-slash-menu)",
+  );
+  expect(menu).toContain("var(--ds-glass-menu-tint)");
+  expect(menu).toContain("--glass-backdrop: var(--ds-glass-menu-blur)");
+});
+
+test("Session Info, the composer and the running tray share the popover level", () => {
+  for (const file of [
+    "agent-session/acpmux/session-info/sessionInfo.css",
+    "agent-session/acpmux/composerStates.css",
+    "agent-session/acpmux/subagents/subagents.css",
+  ]) {
+    const css = source(file);
+    expect(css, file).toContain("var(--ds-glass-popover-blur)");
+    expect(css, file).toContain("var(--ds-glass-popover-art-tint)");
+  }
+});
+
+test("the check fails a raw blur and passes a level, an element filter and a stated exception", () => {
+  const css = [
+    ".a { backdrop-filter: blur(18px) saturate(1.08); }",
+    ".b { --x-frost: blur(24px); }",
+    ".c { --x-blur: 6px; }",
+    ".d { backdrop-filter: var(--ds-glass-popover-blur); --y-blur: 0px; }",
+    ".e { filter: blur(2px); backdrop-filter: blur(0); }",
+    ".f { -webkit-backdrop-filter: blur(var(--ds-glass-chrome-radius)); }",
+    "/* glass-raw-blur-allow: a scrim, not glass */",
+    ".g { backdrop-filter: blur(2px); }",
+  ].join("\n");
+  expect(rawBlursInCss(css, "x.css")).toEqual([
+    "x.css:1: backdrop-filter: blur(18px) saturate(1.08)",
+    "x.css:2: --x-frost: blur(24px)",
+    "x.css:3: --x-blur: 6px",
+  ]);
+  expect(rawBlursInScript('el.style.backdropFilter = "blur(12px)";\nconst ok = "blur(var(--r))";', "x.ts")).toEqual([
+    'x.ts:1: el.style.backdropFilter = "blur(12px)";',
+  ]);
+});
