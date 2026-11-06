@@ -310,6 +310,7 @@
         "CmuxNextHangReports",
         "CmuxNextHibernation",
         "CmuxNextHistory",
+        "CmuxNextHistoryDaemon",
         "CmuxNextHome",
         "CmuxNextHomeEngine",
         "CmuxNextHostPressure",
@@ -440,6 +441,7 @@
         "CmuxNextHangReports",
         "CmuxNextHibernation",
         "CmuxNextHistory",
+        "CmuxNextHistoryDaemon",
         "CmuxNextHome",
         "CmuxNextHomeEngine",
         "CmuxNextHostedChief",
@@ -1264,6 +1266,16 @@
       "packages": [
         "CmuxAgentBrands"
       ]
+    },
+    "CmuxNextHistoryDaemon": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHistoryDaemon",
+      "targets": [
+        "CmuxNextDaemon",
+        "CmuxNextHistory",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
     },
     "CmuxNextHome": {
       "kind": "regular",
