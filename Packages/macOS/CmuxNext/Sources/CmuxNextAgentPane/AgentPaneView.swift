@@ -59,6 +59,10 @@ public final class AgentPaneView: NSView {
     var crashReloadCount = 0
     /// The automatic retries after the page's web content ended.
     let crashRetry = AgentPageCrashRetry()
+    /// Where the window's toasts rest (window coordinates), nil when none shows (AgentPaneView+ToastRoom.swift).
+    var toastsRect: NSRect?
+    /// The toast band the page last got, in CSS pixels.
+    var sentToastRoom: Double = 0
     /// The page ends of the app's agent panes, grouped by the termination that ended them.
     let terminations: AgentPageTerminations
     /// The app's flicker ring file (``AgentPageFlickerLog``, made by the composition root); nil writes nothing (tests).
@@ -434,6 +438,8 @@ public final class AgentPaneView: NSView {
         placeChromiumMove(at: frame)
         if loadingView.superview === self { loadingView.frame = topBar.contentFrame(in: bounds) }
         layoutSessionInfo()
+        // A pane resized or moved under shown toasts: its band follows at once.
+        if toastsRect != nil || sentToastRoom != 0 { sendToastRoom(duration: 0) }
         redraw.laidOut(self)
     }
 

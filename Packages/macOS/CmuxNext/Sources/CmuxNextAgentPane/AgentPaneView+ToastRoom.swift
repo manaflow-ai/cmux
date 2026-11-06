@@ -8,9 +8,20 @@ public import CmuxNextDesign
 /// bottom stack above it.
 extension AgentPaneView: CmuxToastReserving {
     public func toastsSettled(in rect: NSRect?, duration: TimeInterval) {
+        toastsRect = rect
+        sendToastRoom(duration: duration)
+    }
+
+    /// Gives the page its toast band for where the toasts rest now; the page slides its chat there
+    /// over `duration` seconds. A document that loaded again (`force`) gets it even when unchanged.
+    func sendToastRoom(duration: TimeInterval, force: Bool = false) {
         let pane = window == nil ? NSRect.zero : convert(bounds, to: nil)
-        let room = Self.toastRoom(toasts: rect, pane: pane) / max(uiPointerPageZoom, 0.01)
-        let script = "globalThis.__cmuxToastRoom?.(\(room.isFinite ? room : 0));"
+        let points = Self.toastRoom(toasts: toastsRect, pane: pane) / max(uiPointerPageZoom, 0.01)
+        let room = points.isFinite ? (Double(points) * 100).rounded() / 100 : 0
+        guard force || room != sentToastRoom else { return }
+        sentToastRoom = room
+        let ms = force ? 0 : (duration.isFinite ? max(0, duration) * 1000 : 0)
+        let script = "globalThis.__cmuxToastRoom?.(\(room), \(Int(ms.rounded())));"
         if let page { page.evaluate(script) } else { webView.evaluateJavaScript(script, completionHandler: nil) }
     }
 

@@ -7,7 +7,14 @@ public import CmuxNextDesign
 /// Details and back down as it goes, in the toasts' own motion.
 extension HomeNativeTranscriptView: CmuxToastReserving {
     public func toastsSettled(in rect: NSRect?, duration: TimeInterval) {
+        toastsRect = rect
         transcript.setRowsBottomClearance(toastClearance(for: rect), duration: duration)
+    }
+
+    /// The view was laid out (a resize, a move in its window, the field grew): the room follows at once.
+    func followToasts() {
+        guard toastsRect != nil || transcript.rowsBottomClearance != 0 else { return }
+        transcript.setRowsBottomClearance(toastClearance(for: toastsRect), duration: 0)
     }
 
     /// The room the transcript keeps under its newest message for toasts in `rect` (window

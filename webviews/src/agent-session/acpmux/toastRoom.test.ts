@@ -18,6 +18,30 @@ describe("toast room", () => {
     expect(document.documentElement.style.getPropertyValue("--cmux-toast-room")).toBe("");
   });
 
+  test("the chat slides to its new place as one transform, and not when motion is off", () => {
+    const { document } = new JSDOM(
+      '<!doctype html><html><body><section class="acpmux-shell"><div class="acpmux-main"></div></section></body></html>',
+    ).window;
+    const main = document.querySelector<HTMLElement>(".acpmux-main")!;
+    const calls: unknown[] = [];
+    main.animate = ((frames: unknown, options: unknown) => {
+      calls.push([frames, options]);
+      return {} as Animation;
+    }) as typeof main.animate;
+    setToastRoom(0, document);
+    setToastRoom(60, document, 300);
+    expect(calls).toEqual([
+      [
+        [{ transform: "translateY(60px)" }, { transform: "none" }],
+        { duration: 300, easing: "cubic-bezier(0.2, 0, 0, 1)" },
+      ],
+    ]);
+    document.documentElement.dataset.cmuxMotion = "off";
+    setToastRoom(0, document, 300);
+    expect(calls.length).toBe(1);
+    expect(document.documentElement.style.getPropertyValue("--cmux-toast-room")).toBe("");
+  });
+
   test("the shell keeps its stage and bottom stack above the band", () => {
     const css = readFileSync(join(import.meta.dir, "bottomStack.css"), "utf8");
     expect(css).toMatch(/\.acpmux-shell\s*\{[^}]*padding-bottom:\s*var\(--cmux-toast-room,\s*0px\)/);

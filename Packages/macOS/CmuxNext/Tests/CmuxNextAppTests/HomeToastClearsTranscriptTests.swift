@@ -72,7 +72,7 @@ import Testing
         await until { store.me != nil && store.isOnline }
         let me = try #require(store.me?.id)
 
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 800), styleMask: [.titled, .resizable],
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer {
@@ -91,6 +91,8 @@ import Testing
         view.autoresizingMask = [.width, .height]
         container.addSubview(view)
         container.layoutSubtreeIfNeeded()
+        // A borderless window keeps its size on any screen (a titled one is fitted to a small one).
+        #expect(window.contentView?.bounds.size == NSSize(width: 900, height: 800), "the window was resized")
         await until { !store.transcript(for: Self.conversation).isEmpty }
         await settle()
         await pass(window, view)
