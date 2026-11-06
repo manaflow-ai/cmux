@@ -6640,8 +6640,10 @@ jobs:
   # is retried at the newest commit, not at its own). When this run built and failed to publish, and
   # nightly-next still points at its commit, it asks for one more run of the push group: GitHub keeps that
   # group's one pending place for the newest arrival, so a push that lands meanwhile takes it instead and
-  # nothing waits beside the loop. A push run whose compile and helper succeeded is resumed from its saved
-  # unsigned app (it is the newest commit); any other is built again. At most two retries in a row.
+  # nothing waits beside the loop. The retry builds again from scratch: a dispatch runs at the head when it
+  # is dispatched, so a push that lands between the check and the dispatch (and loses its pending place to the
+  # retry) is still the commit the retry builds; resuming this run's unsigned app would publish the older
+  # commit for it. At most two retries in a row.
   retry-nightly-next:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, publish-nightly]
     if: "always() && !cancelled() && github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' || inputs.nightly_next_loop_retry != '') && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && needs.publish-nightly.result != 'success'"
@@ -6655,10 +6657,7 @@ jobs:
       SHA: ${{ github.sha }}
       RUN_ID: ${{ github.run_id }}
       RUN_ATTEMPT: ${{ github.run_attempt }}
-      EVENT: ${{ github.event_name }}
       RETRY: ${{ inputs.nightly_next_loop_retry }}
-      APP_RESULT: ${{ needs.build-nightly-app.result }}
-      HELPER_RESULT: ${{ needs.build-nightly-ghostty-cli-helper.result }}
     steps:
       - name: Ask the push group for the newest head
         run: |
@@ -6673,14 +6672,8 @@ jobs:
             echo "nightly-next moved to $head: its push run takes the group's pending place, so no retry"
             exit 0
           fi
-          args=(-f nightly_next_loop_retry="$tries")
-          if [ "$EVENT" = push ] && [ "$APP_RESULT" = success ] && [ "$HELPER_RESULT" = success ]; then
-            args+=(-f nightly_next_unsigned_run="$RUN_ID" -f nightly_next_unsigned_attempt="$RUN_ATTEMPT")
-            echo "retry $tries of 2: resume run $RUN_ID attempt $RUN_ATTEMPT's unsigned app at $SHA"
-          else
-            echo "retry $tries of 2: build $SHA again"
-          fi
-          gh workflow run nightly.yml --repo "$GITHUB_REPOSITORY" --ref nightly-next "${args[@]}"
+          echo "retry $tries of 2 after run $RUN_ID attempt $RUN_ATTEMPT: build the nightly-next head again"
+          gh workflow run nightly.yml --repo "$GITHUB_REPOSITORY" --ref nightly-next -f nightly_next_loop_retry="$tries"
 
   # A cancelled job (a timeout reports as cancelled) counts as a failure. On
   # nightly-next the signed release notes are part of the publication: a
