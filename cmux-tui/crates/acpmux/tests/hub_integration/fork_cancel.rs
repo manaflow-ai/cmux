@@ -34,9 +34,17 @@ fn transcripts(claude: &std::path::Path) -> Vec<String> {
 }
 
 /// Cancel takes the fork back whole: its chat is gone from the list and its store, and the
-/// transcript copy its agent made is removed; the chat it came from keeps its own.
+/// transcript copy its agent made is removed; the chat it came from keeps its own. Both kinds
+/// the pane cancels: a fork of a working chat as it is now (`live`), and an idle chat's fork
+/// from a reply (`throughSeq`, App.tsx `chat.fork` and `chat.forkTo`).
 #[tokio::test]
 async fn a_cancelled_fork_leaves_nothing_behind() {
+    for live in [true, false] {
+        a_cancelled_fork_leaves_nothing_behind_when(live).await;
+    }
+}
+
+async fn a_cancelled_fork_leaves_nothing_behind_when(live: bool) {
     let root = std::env::temp_dir().join(format!("acpmux-fork-cancel-{}", uuid::Uuid::now_v7()));
     let claude = root.join("claude");
     std::fs::create_dir_all(&claude).unwrap();
@@ -45,8 +53,16 @@ async fn a_cancelled_fork_leaves_nothing_behind() {
     let before = transcripts(&claude);
     assert!(!before.is_empty(), "the chat has its transcript");
 
-    let f = c.request(FORK_OP, json!({"sessionId": id, "live": true})).await.unwrap();
+    let boundary = if live {
+        json!({"sessionId": id, "live": true})
+    } else {
+        let end =
+            hub.events(&id, 0, 100_000).unwrap().into_iter().filter(|e| e.kind == "turn_result");
+        json!({"sessionId": id, "throughSeq": end.last().unwrap().seq})
+    };
+    let f = c.request(FORK_OP, boundary).await.unwrap();
     let fid = f["sessionId"].as_str().unwrap().to_owned();
+    assert!(hub.resolve(&fid).unwrap().meta().fork_before.is_none());
     // The fork's agent starts after the answer: wait until it has made its copy.
     let started = std::time::Instant::now();
     while hub.resolve(&fid).unwrap().meta().agent_session_id.is_none()
