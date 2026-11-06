@@ -179,6 +179,35 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(workDirectory.hasPrefix("/") && workDirectory.hasSuffix("/.claude-work"), workDirectory)
     }
 
+    /// The CLI executable has no string catalog of its own; its text comes from the enclosing
+    /// app's, so `claude-account` help follows the user's language like the rest of the CLI.
+    func testClaudeAccountHelpUsesTheAppCatalog() throws {
+        let cliPath = try bundledCLIPath()
+        let german = try claudeAccountCatalogValue("cli.claudeAccount.help", language: "de")
+        XCTAssertNotEqual(german, try claudeAccountCatalogValue("cli.claudeAccount.help", language: "en"))
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["AppleLanguages"] = "(de)"
+        environment["AppleLocale"] = "de_DE"
+        environment["CMUX_SOCKET_PATH"] = makeSocketPath("claude-account-help")
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        let result = runProcess(executablePath: cliPath, arguments: ["claude-account", "--help"], environment: environment, timeout: 5)
+
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains(german), result.stdout)
+    }
+
+    /// `key`'s value in the bundled app's compiled catalog for `language`, so tests compare the
+    /// CLI's output with the catalog instead of hard-coding a translation.
+    private func claudeAccountCatalogValue(_ key: String, language: String) throws -> String {
+        let resources = URL(fileURLWithPath: try bundledCLIPath())
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let strings = resources.appendingPathComponent("\(language).lproj/Localizable.strings")
+        let table = try XCTUnwrap(NSDictionary(contentsOf: strings) as? [String: String], strings.path)
+        return try XCTUnwrap(table[key], key)
+    }
+
     private func runClaudeAccountCLI(
         name: String,
         arguments: [String],
