@@ -229,7 +229,13 @@ async function hoverAll(page: Page): Promise<CardRun[]> {
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 4 });
     await page.locator(".cv-link-preview").first().waitFor({ timeout: 5_000 });
     await page.waitForTimeout(WINDOW_MS + 100);
-    if (process.env.DEBUG) log(await page.locator(".cv-link-preview").first().evaluate((e) => e.textContent));
+    if (process.env.DEBUG)
+      log(
+        await page
+          .locator(".cv-link-preview")
+          .first()
+          .evaluate((e) => e.textContent),
+      );
     await page.mouse.move(5, 5, { steps: 2 });
     await page.locator(".cv-link-preview").first().waitFor({ state: "detached", timeout: 5_000 });
     await page.waitForTimeout(200);
@@ -281,7 +287,10 @@ function analyze(file: string) {
     all
       .filter((e) => e.ph === "X" && e.dur !== undefined && task(e) && test(threadNames.get(`${e.pid}:${e.tid}`) ?? ""))
       .map((e) => [e.ts / 1000, (e.ts + e.dur!) / 1000] as [number, number]);
-  const viz = onThread((n) => n === "VizCompositorThread", (e) => e.name === "ThreadControllerImpl::RunTask");
+  const viz = onThread(
+    (n) => n === "VizCompositorThread",
+    (e) => e.name === "ThreadControllerImpl::RunTask",
+  );
   const raster = onThread((n) => n.startsWith("ThreadPoolForegroundWorker") || n.startsWith("CompositorTileWorker"), (e) => e.name === "TaskGraphRunner::RunTask"); // prettier-ignore
   const frames = stamps.filter((e) => e.pid === begin.pid && e.args?.data?.message === "f").map((e) => e.ts / 1000);
   const busy: number[] = [];
