@@ -94,6 +94,13 @@ fn hold_connects() {
     *held = Some(extended_hold(*held, Instant::now()));
 }
 
+/// The flip's own look at the hold: a bind or resume that came while the
+/// update downloaded or staged holds it too (it is retried as busy).
+pub(super) fn held_outcome(now: Instant) -> Option<Outcome> {
+    held_for(now)
+        .map(|left| Outcome::Busy(vec![format!("connect hold, {} s left", left.as_secs())]))
+}
+
 /// How much of the connect hold is left at `now`.
 pub(super) fn held_for(now: Instant) -> Option<Duration> {
     hold_left(*HELD_UNTIL.lock().unwrap_or_else(|e| e.into_inner()), now)
@@ -392,8 +399,9 @@ fn check_inner(paths: &Paths) -> Outcome {
         },
     };
     let commit = COMMIT.lock().unwrap_or_else(|e| e.into_inner());
-    let last =
-        last.or_else(|| stopped().then(|| Outcome::Failed("the updater stopped".to_owned())));
+    let last = last
+        .or_else(|| stopped().then(|| Outcome::Failed("the updater stopped".to_owned())))
+        .or_else(|| held_outcome(Instant::now()));
     if let Some(outcome) = last {
         drop(commit);
         disarm_guard();
