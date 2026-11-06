@@ -80,14 +80,14 @@ fn subgroup(
     color: Option<&str>,
 ) -> Result<Op, PlanRefusal> {
     let group = group(doc, parent).ok_or(PlanRefusal::UnknownGroup)?;
-    let mut level = 1;
+    let mut level: usize = 1;
     let mut seen = HashSet::from([group.id.as_str()]);
     let mut above = group.parent.as_deref();
     while let Some(id) = above
         && seen.insert(id)
         && let Some(item) = doc.item(id)
     {
-        level += 1;
+        level = level.saturating_add(1);
         above = item.parent.as_deref();
     }
     if level >= MAX_GROUP_DEPTH {
@@ -134,11 +134,12 @@ fn host_group(doc: &Doc, session: &str, on: bool, title: Option<&str>) -> Vec<Op
     }
     // The section the daemon would make for this machine, read as the wire
     // names it, already a remote group.
-    let mut wire =
-        json!({"id": id, "kind": {"type": "machine", "session_id": session}, "host_group": true});
-    if let Some(title) = title {
-        wire["title"] = json!(title);
-    }
+    let wire = json!({
+        "id": id,
+        "kind": {"type": "machine", "session_id": session},
+        "host_group": true,
+        "title": title,
+    });
     match serde_json::from_value::<Section>(wire) {
         Ok(section) => vec![Op::SectionAdd { section, place: SectionPlace::default() }],
         Err(_) => Vec::new(),

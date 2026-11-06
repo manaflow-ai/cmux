@@ -215,8 +215,10 @@ impl MachineNodes {
     }
 
     fn add(&mut self, item: &Item, parent: &str, session: &str) {
-        if let Some(&at) = self.last_group.get(session).and_then(|groups| groups.get(parent)) {
-            self.groups[at].add(item);
+        if let Some(&at) = self.last_group.get(session).and_then(|groups| groups.get(parent))
+            && let Some(group) = self.groups.get_mut(at)
+        {
+            group.add(item);
         }
     }
 
@@ -229,9 +231,10 @@ impl MachineNodes {
                     .into_iter()
                     .filter_map(|slot| match slot {
                         Slot::Node(node) => Some(*node),
-                        Slot::Group(index) => {
-                            groups[index].take().map(|group| Node::Group { group })
-                        }
+                        Slot::Group(index) => groups
+                            .get_mut(index)
+                            .and_then(Option::take)
+                            .map(|group| Node::Group { group }),
                     })
                     .collect();
                 (session, nodes)
@@ -317,9 +320,10 @@ pub fn project(doc: &Doc, rows: &[Row]) -> Projection {
             continue;
         }
         let index = *band_index.entry(section.id.clone()).or_insert_with(|| {
+            let index = out.sections.len();
             out.sections
                 .push(ProjectedSection::Band { section: section.clone(), items: Vec::new() });
-            out.sections.len() - 1
+            index
         });
         let Some(item) = item else { continue };
         if let Some(reference) = item.body.workspace() {
@@ -340,7 +344,7 @@ pub fn project(doc: &Doc, rows: &[Row]) -> Projection {
                     group.open_members.push(reference.clone());
                 }
             }
-        } else if let ProjectedSection::Band { items, .. } = &mut out.sections[index] {
+        } else if let Some(ProjectedSection::Band { items, .. }) = out.sections.get_mut(index) {
             let room = (section.kind == SectionKind::Pinned && belongs_to_a_space(&item.body))
                 .then(|| {
                     item.extra
