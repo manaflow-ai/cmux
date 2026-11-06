@@ -2901,6 +2901,27 @@ class CloudSessionStatusRequest:
 
 
 @dataclass(frozen=True)
+class ComputerUseApprovalsRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/computer-use-approvals/request'
+    action: str
+    answer: Union[str, None, MissingType] = field(default=MISSING)
+    app_id: Union[str, None, MissingType] = field(default=MISSING)
+    id: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ComputerUseConfigRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/computer-use-config/request'
+    config: Union[JsonValue, None]
+
+
+@dataclass(frozen=True)
+class ComputerUseEndpointRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/computer-use-endpoint/request'
+    pass
+
+
+@dataclass(frozen=True)
 class ConversationAgentTokenRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-agent-token/request'
     participant: str
@@ -6499,6 +6520,9 @@ __all__ = [
     'CloudSessionClearRequest',
     'CloudSessionSetRequest',
     'CloudSessionStatusRequest',
+    'ComputerUseApprovalsRequest',
+    'ComputerUseConfigRequest',
+    'ComputerUseEndpointRequest',
     'ConversationAgentTokenRequest',
     'ConversationAgentTokenResult',
     'ConversationAttachmentLinkRequest',

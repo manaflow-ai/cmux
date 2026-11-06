@@ -197,7 +197,12 @@ impl PersonActivity for Host {
 }
 
 pub struct CmuxCuEngine {
-    engine: Engine,
+    engine: Arc<Engine>,
+}
+
+/// A serving agent socket (`cmux_cu_serve`).
+pub struct CmuxCuServer {
+    server: Option<cmux_computer_use::server::Server>,
 }
 
 unsafe fn bytes<'a>(ptr: *const u8, len: usize) -> &'a [u8] {
@@ -280,7 +285,7 @@ pub unsafe extern "C" fn cmux_cu_engine_create(
     parts.takeover = host_arc;
     // SAFETY: header contract.
     parts.machine_name = unsafe { text(machine_name, machine_name_len) }.to_string();
-    Box::into_raw(Box::new(CmuxCuEngine { engine: Engine::new(parts) }))
+    Box::into_raw(Box::new(CmuxCuEngine { engine: Arc::new(Engine::new(parts)) }))
 }
 
 #[unsafe(no_mangle)]
@@ -398,6 +403,60 @@ pub unsafe extern "C" fn cmux_cu_engine_edit_approvals(
     0
 }
 
+/// Serves `engine` on the agent socket (`cmux-computer-use-v1`, the same Rust
+/// server the Linux and Windows workers run): a Unix socket at
+/// `socket_path` (0600, its directory 0700), admitting this user's processes
+/// that present `secret_hex` (at least 16 bytes). NULL with error filled on
+/// failure. The server keeps the engine alive; stop it before destroying the
+/// engine's host context.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_cu_serve(
+    engine: *mut CmuxCuEngine,
+    socket_path: *const u8,
+    socket_path_len: usize,
+    secret_hex: *const u8,
+    secret_hex_len: usize,
+    error: *mut CmuxCuBuffer,
+) -> *mut CmuxCuServer {
+    // SAFETY: from create.
+    let Some(engine) = (unsafe { engine.as_ref() }) else {
+        set_error(error, "engine is required".into());
+        return std::ptr::null_mut();
+    };
+    // SAFETY: header contract.
+    let path = unsafe { text(socket_path, socket_path_len) };
+    // SAFETY: header contract.
+    let Some(secret) = cmux_computer_use::wire::unhex(unsafe { text(secret_hex, secret_hex_len) })
+    else {
+        set_error(error, "the secret is not hex".into());
+        return std::ptr::null_mut();
+    };
+    if path.is_empty() {
+        set_error(error, "socket_path is required".into());
+        return std::ptr::null_mut();
+    }
+    match cmux_computer_use::server::serve(Arc::clone(&engine.engine), path, &secret) {
+        Ok(server) => Box::into_raw(Box::new(CmuxCuServer { server: Some(server) })),
+        Err(e) => {
+            set_error(error, format!("cannot serve {path}: {e}"));
+            std::ptr::null_mut()
+        }
+    }
+}
+
+/// Stops serving: no new connections, live ones closed, the socket file
+/// removed. Calls already running finish first. Frees `server`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_cu_serve_stop(server: *mut CmuxCuServer) {
+    if !server.is_null() {
+        // SAFETY: from cmux_cu_serve, freed once.
+        let mut server = unsafe { Box::from_raw(server) };
+        if let Some(server) = server.server.take() {
+            server.stop();
+        }
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn cmux_cu_tools_list() -> CmuxCuBuffer {
     let mut list = tools::mcp_list();
@@ -428,6 +487,74 @@ mod tests {
         assert_eq!(args["x"], 1);
         assert_eq!(ctx.origin, OriginKind::Remote { machine: "mini".into(), same_account: true });
         assert!(parse_request(&json!({})).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn serve_and_stop_through_the_c_abi() {
+        use std::io::{BufRead, BufReader, Write};
+        let desktop: Arc<dyn cmux_computer_use::Desktop> =
+            Arc::new(cmux_computer_use::desktop::fake::FakeDesktop::standard());
+        let engine = Box::into_raw(Box::new(CmuxCuEngine {
+            engine: Arc::new(Engine::new(EngineParts::new(desktop))),
+        }));
+        let dir = format!("/tmp/cuffi{}", std::process::id());
+        let path = format!("{dir}/s.sock");
+        let secret = "ab".repeat(32);
+        let mut error = CmuxCuBuffer::empty();
+        // SAFETY: valid pointers for the call.
+        let server = unsafe {
+            cmux_cu_serve(
+                engine,
+                path.as_ptr(),
+                path.len(),
+                secret.as_ptr(),
+                secret.len(),
+                &mut error,
+            )
+        };
+        assert!(!server.is_null());
+        let mut stream = std::os::unix::net::UnixStream::connect(&path).unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        writeln!(stream, "{}", json!({"secret": secret})).unwrap();
+        writeln!(stream, "{}", json!({"id": 1, "method": "status"})).unwrap();
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        assert!(line.contains("\"ok\":true"), "{line}");
+        line.clear();
+        reader.read_line(&mut line).unwrap();
+        assert!(line.contains("\"mode\":\"fullAccess\""), "{line}");
+        // SAFETY: from cmux_cu_serve / create.
+        unsafe {
+            cmux_cu_serve_stop(server);
+            cmux_cu_engine_destroy(engine);
+        }
+        assert!(!std::path::Path::new(&path).exists());
+        // A short secret is refused.
+        let short = "ab";
+        let engine = Box::into_raw(Box::new(CmuxCuEngine {
+            engine: Arc::new(Engine::new(EngineParts::new(Arc::new(
+                cmux_computer_use::desktop::fake::FakeDesktop::standard(),
+            )))),
+        }));
+        // SAFETY: valid pointers for the call.
+        let server = unsafe {
+            cmux_cu_serve(
+                engine,
+                path.as_ptr(),
+                path.len(),
+                short.as_ptr(),
+                short.len(),
+                &mut error,
+            )
+        };
+        assert!(server.is_null() && !error.data.is_null());
+        // SAFETY: from the library.
+        unsafe {
+            cmux_cu_buffer_free(error);
+            cmux_cu_engine_destroy(engine);
+        }
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

@@ -207,6 +207,15 @@ class GeneratedClientMixin:
     def cloud_session_status(self) -> JsonValue:
         return self._invoke_command('cloud-session-status', CloudSessionStatusRequest())
 
+    def computer_use_approvals(self, action: str, *, answer: Union[str, None, MissingType] = MISSING, app_id: Union[str, None, MissingType] = MISSING, id: Union[int, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('computer-use-approvals', ComputerUseApprovalsRequest(action=action, answer=answer, app_id=app_id, id=id))
+
+    def computer_use_config(self, config: Union[JsonValue, None]) -> JsonValue:
+        return self._invoke_command('computer-use-config', ComputerUseConfigRequest(config=config))
+
+    def computer_use_endpoint(self) -> JsonValue:
+        return self._invoke_command('computer-use-endpoint', ComputerUseEndpointRequest())
+
     def conversation_agent_token(self, participant: str) -> ConversationAgentTokenResult:
         return self._invoke_command('conversation-agent-token', ConversationAgentTokenRequest(participant=participant))
 
@@ -960,6 +969,9 @@ GeneratedClientMixin.cloud_selfhost_info.__cmux_command__ = COMMANDS['cloud-self
 GeneratedClientMixin.cloud_session_clear.__cmux_command__ = COMMANDS['cloud-session-clear']
 GeneratedClientMixin.cloud_session_set.__cmux_command__ = COMMANDS['cloud-session-set']
 GeneratedClientMixin.cloud_session_status.__cmux_command__ = COMMANDS['cloud-session-status']
+GeneratedClientMixin.computer_use_approvals.__cmux_command__ = COMMANDS['computer-use-approvals']
+GeneratedClientMixin.computer_use_config.__cmux_command__ = COMMANDS['computer-use-config']
+GeneratedClientMixin.computer_use_endpoint.__cmux_command__ = COMMANDS['computer-use-endpoint']
 GeneratedClientMixin.conversation_agent_token.__cmux_command__ = COMMANDS['conversation-agent-token']
 GeneratedClientMixin.conversation_attachment_link.__cmux_command__ = COMMANDS['conversation-attachment-link']
 GeneratedClientMixin.conversation_attachment_read.__cmux_command__ = COMMANDS['conversation-attachment-read']

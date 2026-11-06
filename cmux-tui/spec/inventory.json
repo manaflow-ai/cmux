@@ -620,7 +620,10 @@
       "remote-host-status",
       "remote-host-call",
       "remote-host-config",
-      "remote-host-app"
+      "remote-host-app",
+      "computer-use-endpoint",
+      "computer-use-config",
+      "computer-use-approvals"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",
