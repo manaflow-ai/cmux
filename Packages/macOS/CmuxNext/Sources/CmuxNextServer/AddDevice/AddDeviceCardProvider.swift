@@ -54,7 +54,11 @@ public final class AddDeviceCardProvider: WebCard {
     /// The shown line (its token is inside `line`): kept for the concealed copy only.
     private var shown: JoinLine?
     private var joinedID: String?
+    /// One per mint: a reply behind a newer mint is dropped, so the copy is always the line shown.
+    private var mintGeneration = 0
     private var mesh: Task<Void, Never>?
+    /// Ends the line at its `expiresAt` (the page's countdown reaches 0:00 at the same time).
+    private var expiry: Task<Void, Never>?
     private var listeners: [Int: @MainActor (JSONValue) -> Void] = [:]
     private var nextListener = 0
     #if DEBUG
@@ -75,6 +79,7 @@ public final class AddDeviceCardProvider: WebCard {
     // Not an isolated deinit (cx-t7hu): the handle is Sendable and stops from any thread.
     nonisolated deinit {
         mesh?.cancel()
+        expiry?.cancel()
     }
 
     /// Opens the card over `window`, on `way` when given (`network`, `code`, `newDevice`,
@@ -92,7 +97,7 @@ public final class AddDeviceCardProvider: WebCard {
     }
 
     /// Whether the mesh watch still runs (tests check that close stops it).
-    var isWatching: Bool { mesh != nil }
+    var isWatching: Bool { mesh != nil || expiry != nil }
 
     // MARK: - WebCard
 
@@ -112,12 +117,18 @@ public final class AddDeviceCardProvider: WebCard {
         session += 1
         isOpen = false
         way = nil
+        #if DEBUG
+        debugMintName = nil
+        #endif
         emit("closed")
     }
 
     private func endLine() {
+        mintGeneration += 1
         mesh?.cancel()
         mesh = nil
+        expiry?.cancel()
+        expiry = nil
         shown = nil
         joinedID = nil
     }
@@ -138,7 +149,8 @@ public final class AddDeviceCardProvider: WebCard {
             return .array(await join.doctor(joinedID).map(Self.json))
         case Self.mintOp:
             #if DEBUG
-            if debugMintName == nil { try requireGesture(context) }
+            // A capture's one mint (debug.add_device {join}); every later one needs the person.
+            if debugMintName != nil { debugMintName = nil } else { try requireGesture(context) }
             #else
             try requireGesture(context)
             #endif
@@ -198,14 +210,16 @@ public final class AddDeviceCardProvider: WebCard {
     private func mint(_ name: String?) async -> JSONValue {
         guard let join else { return ["failure": "unavailable"] }
         endLine()
-        let mine = session
+        let mine = session, mineMint = mintGeneration
         let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines)
         let result = await join.mint(trimmed?.isEmpty == false ? trimmed : nil)
-        guard mine == session else { return ["failure": "failed"] }
+        guard mine == session, mineMint == mintGeneration else { return ["failure": "failed"] }
         switch result {
         case let .success(line):
+            guard line.expiresAt > Date() else { return ["failure": "failed"] }
             shown = line
             startMesh(join, mine)
+            startExpiry(line, mineMint)
             return ["line": [
                 "line": .string(line.line), "joinTokenId": .string(line.joinTokenId),
                 "expiresAt": JSONValue(Int((line.expiresAt.timeIntervalSince1970 * 1000).rounded())),
@@ -224,7 +238,20 @@ public final class AddDeviceCardProvider: WebCard {
         joinedID = row.id
         mesh?.cancel()
         mesh = nil
+        expiry?.cancel()
+        expiry = nil
         return ["id": .string(row.id), "name": .string(row.name)]
+    }
+
+    private func startExpiry(_ line: JoinLine, _ mineMint: Int) {
+        let left = max(0, line.expiresAt.timeIntervalSinceNow)
+        // task-owner: one deadline per shown line; endLine() (a new mint, the flip, close) cancels it.
+        // wakeup-allow: a single wake at the line's expiry, never a repeating timer.
+        expiry = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(left))
+            guard !Task.isCancelled, let self, self.mintGeneration == mineMint else { return }
+            self.endLine()
+        }
     }
 
     private func startMesh(_ join: MachineJoinService, _ mine: Int) {

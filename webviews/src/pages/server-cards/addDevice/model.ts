@@ -176,6 +176,8 @@ export interface AddDeviceState {
   checks: JoinCheck[];
   /** Now, as of the countdown's last tick. */
   now: number;
+  /** One per opening: the card's fields start over on each. */
+  opening: number;
 }
 
 export class AddDeviceModel {
@@ -207,6 +209,7 @@ export class AddDeviceModel {
       joinCopied: false,
       checks: [],
       now: clock.now(),
+      opening: 0,
       ...initial,
     };
   }
@@ -232,7 +235,14 @@ export class AddDeviceModel {
     const start = way && ways.includes(way) ? way : defaultWay(offered);
     this.chosenByHand = start === way;
     this.beforeAdvanced = null;
-    this.set({ offer: offered, way: start, copied: false, candidates: { state: "loading" } });
+    this.joinName = "";
+    this.set({
+      offer: offered,
+      way: start,
+      copied: false,
+      candidates: { state: "loading" },
+      opening: this.state.opening + 1,
+    });
     const listing = await this.services.list();
     if (mine !== this.generation) return;
     this.set({ candidates: listing ? { state: "loaded", listing } : { state: "unavailable" } });

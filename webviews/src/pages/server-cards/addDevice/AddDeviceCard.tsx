@@ -384,7 +384,7 @@ function JoinLineBody({ model, state, strings, layout }: WayProps) {
       {join.phase === "idle" && (
         <>
           {steps && <Step n={1} text={t("addDevice.joinLine.name")} />}
-          <NameField model={model} strings={strings} labelled={!steps} />
+          <NameField key={state.opening} model={model} strings={strings} labelled={!steps} />
         </>
       )}
       {join.phase === "minting" && <Waiting text={t("addDevice.joinLine.minting")} />}

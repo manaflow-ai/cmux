@@ -465,4 +465,17 @@ describe("the Any machine way", () => {
     expect(clockText(581)).toBe("9:41");
     expect(clockText(40)).toBe("0:40");
   });
+
+  test("a new opening forgets the last name", async () => {
+    const fake = new Fake();
+    const m = fake.model();
+    await m.begin(joinOffer);
+    const first = m.getSnapshot().opening;
+    m.joinName = "old-box";
+    await m.begin(joinOffer);
+    expect(m.joinName).toBe("");
+    expect(m.getSnapshot().opening).toBe(first + 1);
+    await m.mint();
+    expect(fake.mints).toEqual([null]);
+  });
 });
