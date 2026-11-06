@@ -4,9 +4,9 @@ use super::*;
 use crate::session_identity::SessionReceipt;
 use cmux_json::JsonSet as _;
 
-// Shared-lock rule: take `peers` only for a brief Arc lookup, then release it before taking
-// `peer_leases`, `remote_sessions`, or a per-peer writer gate. No path nests `peers` with another
-// shared hub lock, and no disk or JSON work runs under any shared lock.
+// Shared-lock rule: `peers` may be held while taking `remote_sessions` (`peers` → rows), but
+// never the reverse. Look up an Arc briefly before taking `peer_leases` or a per-peer writer gate,
+// and no disk or JSON work runs under any shared lock.
 
 #[cfg(test)]
 pub(crate) struct PeerNoticeProjectionHook {
@@ -159,7 +159,13 @@ impl Hub {
         let old = {
             let mut peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
             let _rows = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
-            peers.insert(name.to_owned(), peer.clone())
+            let old = peers.get(name).cloned();
+            if let Some(old) = &old {
+                // Fence grace timers before the replacement becomes visible under this name.
+                old.remote_rows_epoch.fetch_add(1, std::sync::atomic::Ordering::Release);
+            }
+            peers.insert(name.to_owned(), peer.clone());
+            old
         };
         if let Some(old) = old {
             old.stop();
@@ -420,16 +426,24 @@ impl Hub {
     /// (`peer_lease.rs`).
     pub async fn remove_peer(&self, name: &str) -> Result<(), RpcError> {
         // The config lock first, held through the save: a reconnect (which holds it through its
-        // start) never starts the peer again between its stop and its removal from the config
-        // (lock order: config, writer, `peer_leases`, `peers`, `remote_sessions`).
+        // start) never starts the peer again between its stop and its removal from the config.
+        // The peer lookup is brief and released before the writer gate; the removal then follows
+        // `peer_leases`, `peers`, `remote_sessions`.
         let mut cfg = self.config.write().await;
         let gone = {
+            if self.peer(name).is_none() {
+                return Err(RpcError::not_found(format!("no peer {name:?}")));
+            }
             let writer = self.peer_cache_writer(name);
             let _writer = writer.lock().unwrap_or_else(|e| e.into_inner());
             // Under the lease lock, so no save of the removed peer's sessions
             // lands after its cache is gone (`save_peer_cache`).
             let leases = self.peer_leases.lock().unwrap_or_else(|e| e.into_inner());
             if leases.contains_key(name) {
+                self.peer_cache_writers
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .remove(name);
                 return Err(RpcError::invalid_params(format!(
                     "{name:?} is a leased peer; it ends when the connection that leased it closes"
                 )));
@@ -441,6 +455,13 @@ impl Hub {
             let mut rows = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
             let peer = peers.remove(name);
             let Some(peer) = peer else {
+                drop(rows);
+                drop(peers);
+                drop(leases);
+                self.peer_cache_writers
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .remove(name);
                 return Err(RpcError::not_found(format!("no peer {name:?}")));
             };
             peer.stop();
@@ -654,8 +675,22 @@ impl Hub {
         let Some(current) = self.peer(peer).filter(|p| p.generation == generation) else {
             return;
         };
+        let fence = current.remote_rows_epoch.load(std::sync::atomic::Ordering::Acquire);
+        self.mark_peer_unreachable_at_fence(&current, peer, generation, fence);
+    }
+
+    fn mark_peer_unreachable_at_fence(
+        &self,
+        current: &Arc<crate::peer::Peer>,
+        peer: &str,
+        generation: u64,
+        fence: u64,
+    ) {
         let changed = {
             let mut map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+            if current.remote_rows_epoch.load(std::sync::atomic::Ordering::Acquire) != fence {
+                return;
+            }
             let last_seen = current.link().last_seen;
             let changed = map.mark_peer_stale(peer, last_seen);
             if !changed.is_empty() {
@@ -1945,6 +1980,41 @@ mod tests {
         hook.release();
         applying.join().unwrap();
         assert!(hub.remote_sessions().is_empty(), "the purged row was reinserted after retry");
+    }
+
+    #[tokio::test]
+    async fn an_old_grace_timer_cannot_mark_replacement_rows_unreachable() {
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(cfg, store);
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let old = crate::peer::Peer::new("builder", "ws://127.0.0.1:9", None, None, tx);
+        hub.peers.lock().unwrap().insert("builder".into(), old.clone());
+        hub.apply_peer_notice(
+            "builder",
+            old.generation,
+            crate::peer::PeerNotice::Sessions(vec![json!({
+                "sessionId": "x", "name": "lane-x", "status": "idle", "createdAt": 1,
+                "updatedAt": 2
+            })]),
+        );
+        let fence = old.remote_rows_epoch.load(std::sync::atomic::Ordering::Acquire);
+        let pc = crate::config::PeerConfig {
+            wireguard: None,
+            url: "ws://127.0.0.1:9".into(),
+            token: None,
+            peer_token: None,
+            vm_boundary: false,
+            github_broker: false,
+        };
+        let (_generation, _settled) = hub.spawn_peer("builder", &pc, false);
+
+        hub.mark_peer_unreachable_at_fence(&old, "builder", old.generation, fence);
+        let rows = hub.remote_sessions();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["status"], "idle", "old timer marked replacement rows stale");
+        hub.peer("builder").unwrap().stop();
     }
 
     #[test]

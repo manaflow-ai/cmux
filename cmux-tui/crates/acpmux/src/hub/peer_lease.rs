@@ -323,6 +323,10 @@ mod tests {
             hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, false, &cfg).unwrap();
         let e = hub.remove_peer("vm").await.unwrap_err();
         assert!(e.message.contains("leased"), "{}", e.message);
+        assert!(
+            !hub.peer_cache_writers.lock().unwrap().contains_key("vm"),
+            "a refused leased removal leaked its cache writer"
+        );
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "{}", "peer_remove saved config");
         assert!(hub.is_leased("vm"));
         assert_eq!(hub.peers().len(), 1, "{:?}", hub.peers());
