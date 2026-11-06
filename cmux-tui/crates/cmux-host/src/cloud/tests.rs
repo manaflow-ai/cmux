@@ -46,6 +46,7 @@ struct FakeState {
     registered: Option<Value>,
     prefix_env: String,
     ops: VecDeque<(u16, Value)>,
+    empty_posts: Vec<Seen>,
 }
 
 #[derive(Clone, Default)]
@@ -115,6 +116,29 @@ impl Http for Fake {
             _ => Ok((404, json!({}))),
         }
     }
+
+    fn post_empty(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Value), String> {
+        let mut st = self.0.borrow_mut();
+        st.empty_posts.push(Seen {
+            url: url.to_owned(),
+            bearer: bearer.map(str::to_owned),
+            body: Value::Null,
+        });
+        let path = url.strip_prefix(DEV).ok_or_else(|| format!("unexpected origin in {url}"))?;
+        match path {
+            "/v1/cloud/machines/vm_m0000000000000000004/carrier" => Ok((
+                200,
+                json!({ "ok": true, "value": {
+                    "relay": "relay+do://relay.example",
+                    "slot": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "ticket": "ticket-1",
+                    "expires_at": T0 + 60_000,
+                }}),
+            )),
+            _ => Ok((404, json!({}))),
+        }
+    }
+
 }
 
 fn daemon() -> DaemonInfo {
@@ -413,3 +437,28 @@ fn vm_receiver_client_existing_bind_auth_report_and_refresh_keep_working() {
     assert!(ops.iter().all(|s|s.bearer.as_deref()==Some("tok-1") && s.body["params"]["machine"]==MACHINE));
     assert_eq!(store.read(BIND_FILE), None);
 }
+
+#[test]
+fn carrier_ticket_request_uses_an_empty_body() {
+    use super::client::CloudClient;
+
+    let fake = Fake::new();
+    let rng = SystemRandom::new();
+    let mut store = MemoryStore::default();
+    store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
+    let key = ensure_install_key(&mut store, "i-original", &rng).unwrap().key;
+    let result = bind_machine(&mut store, &fake, &key, "AAAA=", &daemon(), None, T0);
+    assert!(matches!(result, BindResult::Bound(_)), "original bind failed");
+    let saved: Bound = serde_json::from_str(&store.read(BOUND_FILE).unwrap()).unwrap();
+
+    let mut client = CloudClient::new(fake.clone(), saved, key);
+    let reply = client.carrier_ticket(T0);
+    assert_eq!(reply["ok"], true);
+
+    let state = fake.0.borrow();
+    assert_eq!(state.empty_posts.len(), 1, "carrier route should use the no-body path");
+    let request = &state.empty_posts[0];
+    assert_eq!(request.url, format!("{DEV}/v1/cloud/machines/{MACHINE}/carrier"));
+    assert_eq!(request.bearer.as_deref(), Some("tok-1"));
+}
+
