@@ -180,6 +180,15 @@ nonisolated final class DaemonCommandTap: @unchecked Sendable {
                 events.bytes += reply.count
                 var name = object?["event"] as? String ?? "?"
                 if let item = (object?["item"] as? [String: Any])?["kind"] as? String { name += "/" + item }
+                // A delta's changes by resource (and op): which record grows.
+                for change in (object?["item"] as? [String: Any])?["changes"] as? [[String: Any]] ?? [] {
+                    let key = "change \(change["resource"] as? String ?? "?") \(change["op"] as? String ?? change["kind"] as? String ?? "")"
+                    let size = (try? JSONSerialization.data(withJSONObject: change).count) ?? 0
+                    var part = eventsByName[key] ?? (0, 0)
+                    part.count += 1
+                    part.bytes += size
+                    eventsByName[key] = part
+                }
                 var entry = eventsByName[name] ?? (0, 0)
                 entry.count += 1
                 entry.bytes += reply.count
