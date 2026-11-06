@@ -1357,7 +1357,7 @@
             }
           }
         ],
-        "id" : "computerUse",
+        "id" : "computer-use",
         "lead" : [
           "computerUse"
         ],
@@ -2056,7 +2056,7 @@
       {
         "categories" : [
           "agents",
-          "computerUse",
+          "computer-use",
           "chief"
         ],
         "id" : "ai",
