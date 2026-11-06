@@ -54,6 +54,11 @@ public nonisolated enum HomeStrings {
         String(format: String(localized: "home.chief.organizing", defaultValue: "Organizing Chief history: %1$lld of %2$lld",
                               table: "Home", bundle: .module), built, total)
     }
+    /// The Chief conversation's notice while a turn's session is slow to start on a loaded machine.
+    static func chiefStillStarting(seconds: Int) -> String {
+        String(format: String(localized: "home.chief.stillStarting", defaultValue: "The machine is busy. The Chief is still starting (%lld s).",
+                              table: "Home", bundle: .module), seconds)
+    }
     public static var archiveDefaultChief: String {
         String(localized: "home.chief.archive.default", defaultValue: "Make another Chief the default before archiving this one.",
                table: "Home", bundle: .module)

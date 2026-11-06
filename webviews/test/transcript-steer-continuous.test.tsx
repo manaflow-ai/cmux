@@ -723,11 +723,18 @@ test("Codex folds interim text under Worked for; Claude folds it into its run's 
   ];
 
   const now = START + 200_000;
-  // A Claude turn folds under one Worked for too (Leo, 2026-11-04); opened, its runs fold inside it.
-  const claudeClosed = turnView(rows, new Set(), { now, agentFamily: "claude" });
-  expect(claudeClosed.map((each) => each.id)).toEqual(["prompt", `${WORKED}-prompt`, "final", "summary"]);
-  const claude = turnView(rows, new Set([`${WORKED}-prompt`]), { now, agentFamily: "claude" });
-  expect(claude.map((each) => each.id)).toEqual(["prompt", `${WORKED}-prompt`, "a-one", "final", "summary"]);
+  // By default a Claude turn folds under Worked for, as Codex does (Codex parity).
+  expect(turnView(rows, new Set(), { now, agentFamily: "claude" }).map((each) => each.id)).toEqual([
+    "prompt",
+    "worked-prompt",
+    "final",
+    "summary",
+  ]);
+  // Claude's in-place arm (claudeTurnFold.experiment.ts "runs") folds it into its run's line.
+  globalThis.cmuxExperiments = { "claude-turn-fold": "runs" };
+  const claude = turnView(rows, new Set(), { now, agentFamily: "claude" });
+  globalThis.cmuxExperiments = undefined;
+  expect(claude.map((each) => each.id)).toEqual(["prompt", "a-one", "final", "summary"]);
   const run = claude.find((each) => each.id === "a-one");
   expect(run?.foldRun).toBe(true);
   expect(run?.items?.find((item) => item.kind === "note")?.text).toBe("The first check is still running.");

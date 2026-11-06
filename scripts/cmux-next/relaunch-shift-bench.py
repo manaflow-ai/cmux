@@ -18,7 +18,7 @@ the page first drew them). Runs `--rounds` relaunches in one journey (variants u
 Writes DIR/report.json ({"rounds": [launch-shift summary per relaunch], "median": {...}, "journey": rows}) and
 DIR/report.md, and prints RELAUNCH-SHIFT {json}. Fleet entry: scripts/measure/relaunch-shift.sh.
 """
-import argparse, glob, json, os, statistics, subprocess, sys, threading
+import argparse, glob, json, os, shutil, statistics, subprocess, sys, threading
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -34,18 +34,22 @@ def median_of(rounds):
     for key in KEYS:
         values = [r["total"].get(key) for r in rounds if isinstance(r.get("total", {}).get(key), (int, float))]
         out[key] = statistics.median(values) if values else None
-    shifts = [len((r.get("chat") or {}).get("shifts") or []) for r in rounds if "first_content_ms" in (r.get("chat") or {})]
-    out["chat_shifts"] = statistics.median(shifts) if shifts else None
+    chats = [r.get("chat") or {} for r in rounds if "first_content_ms" in (r.get("chat") or {})]
+    for key, read in (("chat_shifts", lambda c: len(c.get("shifts") or [])), ("chat_scroll_jumps", lambda c: len(c.get("scroll_jumps") or [])),
+                      ("chat_appeared", lambda c: len(c.get("appeared") or [])), ("chat_first_rows", lambda c: c.get("first_rows") or 0)):
+        out[key] = statistics.median(read(c) for c in chats) if chats else None
     return out
 
 
 def markdown(rounds, median):
-    lines = ["| relaunch | " + " | ".join(KEYS) + " | chat shifts |", "|" + "---|" * (len(KEYS) + 2)]
+    lines = ["| relaunch | " + " | ".join(KEYS) + " | chat shifts / scroll jumps / first rows |", "|" + "---|" * (len(KEYS) + 2)]
     for n, r in enumerate(rounds, 1):
         chat = r.get("chat") or {}
         lines.append(f"| {n} | " + " | ".join(str(r["total"].get(k)) for k in KEYS) +
-                     f" | {len(chat.get('shifts') or []) if 'first_content_ms' in chat else 'n/a'} |")
-    lines.append("| median | " + " | ".join(str(median.get(k)) for k in KEYS) + f" | {median.get('chat_shifts')} |")
+                     (f" | {len(chat.get('shifts') or [])} / {len(chat.get('scroll_jumps') or [])} / {chat.get('first_rows')} |"
+                      if "first_content_ms" in chat else " | n/a |"))
+    lines.append("| median | " + " | ".join(str(median.get(k)) for k in KEYS) +
+                 f" | {median.get('chat_shifts')} / {median.get('chat_scroll_jumps')} / {median.get('chat_first_rows')} |")
     for n, r in enumerate(rounds, 1):
         views = r["total"].get("views") or {}
         if views:
@@ -66,12 +70,17 @@ def main():
     out = os.path.abspath(args.out)
     os.makedirs(out, exist_ok=True)
     # No test window frame: the relaunch must restore each window's own saved frame, not move it to a fixed one.
-    app = BenchApp(args.app, out=out, window=None)
+    # The journey seeds agent chats on the tag's own acpmux with its fake agent (configure_fake): BenchApp's mock agent
+    # pane (no acpmux at all) and its agent-launch kill switch (no agent process, the fake one included) are off here.
+    # Every harness the journey configures runs the fake agent, as on a capture slot.
+    app = BenchApp(args.app, out=out, window=None, env={"CMUX_NEXT_AGENT_PANE_MOCK": None, "ACPMUX_AGENT_LAUNCH": None})
     app.launch()
     # The journey quits and relaunches this app: reap the first process when it ends, so it is not left a zombie that
     # still answers kill(pid, 0) and looks alive to the journey.
     threading.Thread(target=app.process.wait, daemon=True).start()
     journey_out = os.path.join(out, "journey")
+    # Only this run's rounds: a reused --out keeps an earlier run's summaries, which would pass for this run's.
+    shutil.rmtree(journey_out, ignore_errors=True)
     variants = ",".join([args.variants] * max(1, args.rounds))
     command = [sys.executable, os.path.join(HERE, "restore-journey.py"), "--socket", app.socket, "--allow-non-slot",
                "--variants", variants, "--record-launch", str(args.seconds), "--out", journey_out]
@@ -94,10 +103,22 @@ def main():
     except (OSError, ValueError):
         pass
     report = {"app": args.app, "rounds": rounds, "median": median, "journey_exit": code,
-              "journey": [r for r in rows if r.get("area") in ("launch frames", "layout")]}
+              "journey": [r for r in rows if r.get("area") in ("launch frames", "layout") or "long chat" in str(r.get("item")) or (r.get("area") == "seed" and not r.get("ok"))]}
     with open(os.path.join(out, "report.json"), "w") as f:
         json.dump(report, f, indent=1, default=str)
     text = markdown(rounds, median)
+    # The long chat's own rows (made, shown, the tab shown at each quit): whether the chat numbers measured a chat.
+    longs = [r for r in report["journey"] if "long chat" in str(r.get("item")) or r.get("area") == "seed"]
+    if longs:
+        text += "\n\nLong chat and failed seed rows:\n" + "\n".join(f"- {'PASS' if r.get('ok') else 'FAIL'} {r.get('item')}: {r.get('detail', '')}" for r in longs)
+    if any(r.get("area") == "seed" and not r.get("ok") for r in longs):
+        # The step log keeps only the journey log's tail: a failed seed's own lines (acpmux, a part that raised) would be lost.
+        try:
+            with open(os.path.join(journey_out, "journey.log"), errors="replace") as f:
+                said = [line.rstrip() for line in f if any(w in line.lower() for w in ("seed", "acpmux", "failed", "not seeded", "no "))]
+            text += "\n\nSeed log (first 40 matching lines):\n" + "\n".join(said[:40])
+        except OSError:
+            pass
     with open(os.path.join(out, "report.md"), "w") as f:
         f.write(text + "\n")
     print(text)

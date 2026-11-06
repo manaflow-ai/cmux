@@ -42,6 +42,8 @@ final class HomeAgentFoldRowProvider: TranscriptCustomRowProvider {
         var latest: String?
         /// Each agent's title, in `peers` order (``HomeAgentMessageRow/peerTitles``).
         var titles: [String] = []
+        /// Each agent's unread dot, in `peers` order (``HomeAgentMessageRow/peerUnread``); empty: a report is unread.
+        var unread: [Bool] = []
     }
 
     /// The header style this provider draws (DEBUG: the Agent Messages Playground registers another).
@@ -86,10 +88,12 @@ final class HomeAgentFoldRowProvider: TranscriptCustomRowProvider {
         if payload.role != "note" { payload.states = row.peerStates.map { "\($0)" } }
         payload.latest = row.latest
         payload.titles = row.peerTitles
+        payload.unread = row.peerUnread
         payload.style = style
         let key = [String(describing: payload.style), payload.role, "\(payload.chevron)", "\(payload.open)", payload.label,
                    payload.chips.joined(separator: ","), payload.peers.joined(separator: ","), payload.states.joined(separator: ","),
-                   payload.latest ?? "", payload.titles.joined(separator: "\u{1}")].joined(separator: "\u{0}")
+                   payload.latest ?? "", payload.titles.joined(separator: "\u{1}"),
+                   payload.unread.map { $0 ? "1" : "0" }.joined()].joined(separator: "\u{0}")
         guard let custom = try? CustomPart(kind: Self.kind, version: HomeDiagramRowProvider.version(key), value: payload) else { return nil }
         return .custom(custom)
     }
@@ -125,6 +129,18 @@ final class HomeAgentFoldRowProvider: TranscriptCustomRowProvider {
         if let style = HomeAgentFoldStyle.drawing(payload) { return style.height(payload) }
         #endif
         return drawsPills(payload) ? HomeAgentPills(payload, shape: .pill, width: .greatestFiniteMagnitude).height : height
+    }
+
+    /// The agent whose pill of the shipped agents row `part` holds `point` (the row's body coordinates,
+    /// a body `width` wide), or nil: not an agents row, or between pills. The host opens that agent's chat.
+    static func peer(_ part: CustomPart, at point: CGPoint, width: CGFloat) -> String? {
+        guard part.kind == kind, let payload = payload(part), drawsPills(payload) else { return nil }
+        #if DEBUG
+        if let style = HomeAgentFoldStyle.drawing(payload) {
+            return style.pillShape.flatMap { HomeAgentPills(payload, shape: $0, width: width).peer(at: point) }
+        }
+        #endif
+        return HomeAgentPills(payload, shape: .pill, width: width).peer(at: point)
     }
 
     /// True for an agents row: the shipped look draws it as one pill per agent.

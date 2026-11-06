@@ -36,6 +36,23 @@ import Testing
         #expect(toolbar.view.hasMore, "the ⋮ stays for the pane's actions")
     }
 
+    /// Relaunch (Leo 2026-11-04: "too many layout shifts/flicker renderings"): a restored pane's toolbar was empty at its
+    /// first layout (its items came on the observation's first turn), so the first frame gave the tab strip the whole
+    /// row and the next one took 27 pt back. The toolbar has its items, and its width, before any run-loop turn.
+    @Test func thePaneToolbarHasItsWidthBeforeTheFirstLayout() throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let store = services.daemon.store
+        store.connectionState = .connected(try Self.connected())
+        store.apply(snapshot: Self.tree([1]))
+        let model = try #require(store.workspaces.first?.screens.first?.panes.first)
+        let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"w1","workspace_key":"w1"}"#.utf8))
+        let pane = PaneController(pane: model, daemon: services.daemon, layoutPaneID: LayoutPaneID(model.id), services: services, state: WindowState(record: record))
+        defer { pane.teardown() }
+        let toolbar = PaneToolbar(pane: pane) // no await: what the pane's first layout sees
+        #expect(toolbar.view.intrinsicContentSize.width > 0, "the toolbar reserves its slot before the first layout")
+    }
+
     @Test func thePaneStripPlusIsAPlainButtonWithoutATypeMenuOnPress() throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
@@ -121,7 +138,7 @@ import Testing
         let before = plus.position.x
         let last = try #require(strip.placed[tabs[1].id])
         strip.placed[tabs[1].id] = TabPlace(x: last.x, width: last.width - 60)
-        let move = TabStripMove(generation: 100, motion: motion, closing: nil)
+        let move = TabStripMove(generation: 100, motion: motion)
         strip.applyFrames(move: move)
         try #require(abs(plus.position.x - before) > 1, "the fixture must move the controls")
         for fraction in [0.0, 0.25, 0.5, 0.75, 1.0] {
@@ -134,7 +151,7 @@ import Testing
         TabStripMove.cancel(chooser)
         let mapping = strip.scrollMapping
         strip.scrollOffset += 20
-        let scroll = TabStripMove(generation: 101, motion: motion, closing: nil, isScroll: true)
+        let scroll = TabStripMove(generation: 101, motion: motion, isScroll: true)
         strip.applyFrames(move: scroll, scrollFrom: mapping)
         let start = MotionPath(plus, "position").value(at: scroll.begin).x
         let end = MotionPath(plus, "position").value(at: scroll.begin + motion.duration).x

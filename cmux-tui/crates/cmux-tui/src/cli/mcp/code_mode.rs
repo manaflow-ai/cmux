@@ -89,20 +89,7 @@ const BOILERPLATE: [&str; 4] = [
      focus.",
 ];
 
-pub(super) const INSTRUCTIONS: &str = "This chat runs in cmux: a terminal, tab or workspace \
-    the person asks for (\"on my right\", \"a new workspace\") is a cmux one, made and run with \
-    these tools, not your own shell. cmux tools run through cmux_exec scripts; its \
-    description lists the common ones. Selectors take a public id (ws_…, pane_…, tab_…, \
-    term_…), a unique prefix, <session>:<id> or an exact name; workspace, screen, pane and tab \
-    also take `current` (this chat's own) or `focused` (the one the person looks at). Tools of the chat's \
-    other cmux servers (cua_*: computer use on Mac \
-    apps; secrets_*, sessions_*, subsessions_*, forum_*) come with their \
-    rules in `servers` of a cmux.docs answer: follow them. A change takes idempotency_key: on \
-    in_progress, retry with the key from the error; another server's call that fails \
-    in_progress has no key and may have run, so check its effect first. Tools never move the \
-    person's focus unless the call passes focus: true or the tool's purpose is focus. Name workspaces and tabs to the person \
-    by title, never by id. When they must act in a tab (log in, confirm), tab_update {tab, \
-    attention: \"reason\"} marks it. In a reply, ![alt](/abs/path.png) shows an image.";
+pub(super) const INSTRUCTIONS: &str = acpmux::agent_tools::prompt_sources::CODE_MODE_INSTRUCTIONS;
 
 /// The tool family of the computer use server (`cmux-cua` folds as `cua_*`).
 pub(super) const COMPUTER_USE_FAMILY: &str = "cua";
@@ -124,7 +111,16 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
     // agent only through `cmux.docs`, and a Codex chat has no hook to steer its shell.
     let bg = if tools.iter().any(|t| t["name"] == BG_START) { BG_STEER } else { "" };
     let github = if tools.iter().any(|t| t["name"] == GITHUB_STATUS) { GITHUB_STEER } else { "" };
-    let wrap_up = if tools.iter().any(|t| t["name"] == WRAP_UP) { WRAP_UP_STEER } else { "" };
+    let wrap_up = if tools.iter().any(|t| t.get("name").and_then(Value::as_str) == Some(WRAP_UP)) {
+        WRAP_UP_STEER
+    } else {
+        ""
+    };
+    let offers = if tools.iter().any(|t| t.get("name").and_then(Value::as_str) == Some(OFFER)) {
+        OFFER_STEER
+    } else {
+        ""
+    };
     let grouped = families(tools);
     // A harness that shows one tool must still find computer use in it: a
     // chat asked to "open Calculator" used osascript (2026-10-27).
@@ -204,7 +200,7 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
              inputSchema}}], more: [names]}}; a tool's exact name finds it first. \
              app_* tools are the app's menu actions. A failed call throws an Error whose `cmux` \
              field has the error, its state and its idempotency key; its message names the fix. \
-             A failed script reports the calls that already ran. Families: {families}.{bg}{github}{wrap_up}"
+             A failed script reports the calls that already ran. Families: {families}.{bg}{github}{wrap_up}{offers}"
         ),
         "inputSchema": {
             "type": "object",
@@ -259,6 +255,26 @@ pub(super) const WRAP_UP_STEER: &str = " When you end a turn that did work, call
     and actions (one or two answers, your pick first) only when a decision waits on the person, \
     in place of AskUserQuestion or a question in prose; their click comes back as their next \
     message. Then end the turn without repeating the recap.";
+
+/// acpmux's `offer_session` behind this server (acpmux `offer_mcp.rs`, its upstream `cmux-sessions`
+/// folds as `sessions`): a new chat the agent suggests, which the agent pane draws as a card with
+/// Options, Do it here and Start (webviews `offer/SuggestedTasks.tsx`). Its server's instructions
+/// reach a code-mode chat only through `cmux.docs`, so a default chat never offered one; the steer
+/// goes in `cmux_exec`'s description and the server's instructions, as the wrap-up's does. Leo,
+/// 2026-11-05, on Claude Desktop's suggested-session card: "I want to be able to, like, recommend
+/// Claude to be able to do that as well. in our cmux-next app. and have it be rendered."
+pub(super) const OFFER: &str = "sessions_offer_session";
+/// The upstream that serves [`OFFER`] (acpmux `offer_mcp::SERVER_NAME`).
+pub(super) const OFFER_SERVER: &str = "cmux-sessions";
+/// The server instructions' line, short for the 2048-character cut; [`OFFER_STEER`] has the rest.
+pub(super) const OFFER_INSTRUCTION: &str = " Side work you notice but should not do now: suggest it as a new chat with cmux.sessions_offer_session({title, prompt}).";
+pub(super) const OFFER_STEER: &str = " When you notice work outside the task at hand that the \
+    person would likely want (a bug, a follow-up, a cleanup), do not do it inline and do not only \
+    mention it: call `cmux.sessions_offer_session({title, prompt, worktree?})` from cmux_exec. It \
+    draws a card in this chat; the person starts it as a new chat (or has you do it here) with your \
+    prompt, which must carry the whole task and its context, since the new chat has none of this \
+    one's history. It returns at once: go on with your task. For a few follow-ups at the end of a \
+    turn, `cmux.sessions_suggest_tasks({tasks: [{title, prompt}]})`.";
 
 /// Tool names grouped by their first word (`pane_split` is `pane`).
 fn families(tools: &[Value]) -> BTreeMap<String, Vec<String>> {
@@ -593,8 +609,12 @@ fn exec_mode(
                             record.set("idempotency_key", json!(key));
                         }
                         // The wrap-up's box, for the agent pane to draw from the transcript.
-                        if ok && name == WRAP_UP && answered["value"].is_object() {
-                            record.set("shown", answered["value"].clone());
+                        if ok
+                            && name == WRAP_UP
+                            && let Some(shown) =
+                                answered.get("value").filter(|value| value.is_object())
+                        {
+                            record.set("shown", shown.clone());
                         }
                         records.push(record);
                     }
@@ -1255,6 +1275,18 @@ mod wrap_up_steer_tests {
         assert!(text.contains("cmux.acpmux_wrap_up({recap, ask, actions})"), "{text}");
         let without = descriptors(&[json!({"name": "pane_split"})]);
         assert!(!without[0]["description"].as_str().unwrap().contains("wrap_up"));
+    }
+
+    /// A chat with the cmux-sessions server folded in is told to suggest side work as a new chat
+    /// (`sessions_offer_session`) in `cmux_exec`'s description; one without it is not.
+    #[test]
+    fn the_exec_description_names_the_session_offer_only_where_it_is() {
+        let with =
+            descriptors(&[json!({"name": OFFER}), json!({"name": "sessions_suggest_tasks"})]);
+        let text = with[0]["description"].as_str().unwrap();
+        assert!(text.contains("cmux.sessions_offer_session({title, prompt, worktree?})"), "{text}");
+        let without = descriptors(&[json!({"name": "pane_split"})]);
+        assert!(!without[0]["description"].as_str().unwrap().contains("offer_session"));
     }
 }
 

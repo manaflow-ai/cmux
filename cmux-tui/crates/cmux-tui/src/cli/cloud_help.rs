@@ -15,9 +15,9 @@ const HIDDEN: &[(&str, &str)] = &[("new-machine", "cmux machine new")];
 pub(super) const START_CHAT: &str = "start-chat";
 
 /// The CLI-owned runtime backend selector (available before app startup).
-pub(super) const ENV_USAGE: &str = "usage: cmux cloud env get [--json]\n       cmux cloud env set local|dev|preview-N|staging|prod [--json]\n\nThe selection is isolated to this app bundle. DEV and NEXT nightly may switch;\nRelease and RC always use prod. Switching requires a fresh Cloud sign-in.\n";
+pub(super) const ENV_USAGE: &str = "usage: cmux cloud env get [--backend NAME|ORIGIN] [--json]\n       cmux cloud env set local|dev|preview-N|staging|prod [--json]\n       cmux cloud env check-create --backend NAME|ORIGIN --params JSON [--json]\n\nThe selection is isolated to this app bundle. DEV and NEXT nightly may switch;\nRelease and RC default to prod and accept allowlisted launch backends.\nLaunch the app with --cloud-backend NAME or CMUX_NEXT_CLOUD_BACKEND.\ncheck-create performs a capability-only preflight and never creates a machine.\nSwitching requires a fresh Cloud sign-in.\n";
 
-pub(super) const ENV_USAGE_JA: &str = "使い方: cmux cloud env get [--json]\n        cmux cloud env set local|dev|preview-N|staging|prod [--json]\n\n選択はこのアプリのバンドルごとに保存されます。DEV と NEXT nightly は切り替え可能です。\nRelease と RC は常に prod を使用します。切り替え後は Cloud に再度サインインしてください。\n";
+pub(super) const ENV_USAGE_JA: &str = "使い方: cmux cloud env get [--json]\n        cmux cloud env set local|dev|preview-N|staging|prod [--json]\n        cmux cloud env check-create --backend NAME|ORIGIN --params JSON [--json]\n\n選択はこのアプリのバンドルごとに保存されます。DEV と NEXT nightly は切り替え可能です。\ncheck-create は capability の事前確認だけを行い、マシンを作成しません。\nRelease と RC は既定で prod を使用し、許可された起動先へ切り替え可能です。切り替え後は Cloud に再度サインインしてください。\n";
 
 /// A machine action's target flag.
 const TARGET: &str = "--target machine:MACHINE_ID";
@@ -154,10 +154,16 @@ const GROUPS: &[Group] = &[
                 "エージェントセッション（claude、codex など）を開始",
             ),
             verb(
+                "relay-chat",
+                "{target} --agent AGENT --prompt TEXT [--cwd DIR] [--prompt-id ID]",
+                "Send a prompt over the machine's relay and answer when the turn ends",
+                "マシンのリレー経由でプロンプトを送り、ターンの終了時に応答を返す",
+            ),
+            verb(
                 "open-desktop",
-                "{target} [--viewer web]",
-                "Show the machine's desktop in a browser tab",
-                "マシンのデスクトップをブラウザタブに表示",
+                "{target} [--viewer rd|web]",
+                "Show the machine's desktop in a new workspace",
+                "マシンのデスクトップを新しいワークスペースに表示",
             ),
             verb(
                 "setup-github",
@@ -280,6 +286,18 @@ const GROUPS: &[Group] = &[
                 "{target} --port PORT",
                 "Stop forwarding a port",
                 "ポートの転送を停止",
+            ),
+            verb(
+                "preview-share",
+                "{target} --port PORT",
+                "Copy a one-day link anyone can open to a port",
+                "誰でも開けるポートへの 1 日有効なリンクをコピー",
+            ),
+            verb(
+                "preview-revoke",
+                "{target} --port PORT --link-id ID",
+                "Revoke a port's shared link",
+                "ポートの共有リンクを無効にする",
             ),
             verb(
                 "open-browser",
@@ -416,7 +434,7 @@ QUICK START
   (it answers reply, machine_id, session_id, workspace_id and tab_id;
   `cmux cloud start-chat --help` has every flag):
   cmux cloud start-chat --prompt 'Summarize README.md' --wait --json
-  cmux cloud start-chat --name dev --cwd /home/cmux/work --prompt 'Run the tests' --json
+  cmux cloud start-chat --name dev --prompt 'Run the tests' --json
 
   Then, on that chat (MACHINE_ID and SESSION_ID from the answer):
   cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp send --no-wait SESSION_ID \"next prompt\"'
@@ -447,7 +465,7 @@ const INTRO_JA: &str = "\
   reply、machine_id、session_id、workspace_id、tab_id を返す。
   全フラグは `cmux cloud start-chat --help`）:
   cmux cloud start-chat --prompt 'Summarize README.md' --wait --json
-  cmux cloud start-chat --name dev --cwd /home/cmux/work --prompt 'Run the tests' --json
+  cmux cloud start-chat --name dev --prompt 'Run the tests' --json
 
   続けて同じチャットに（MACHINE_ID と SESSION_ID は返答から）:
   cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp send --no-wait SESSION_ID \"next prompt\"'
@@ -488,7 +506,7 @@ const OUTRO_JA: &str = "\
 バックエンド（NEXT アプリのバンドルごと）
   cmux cloud env get --json
   cmux cloud env set local|dev|preview-N|staging|prod --json
-DEV と nightly は切り替え可能です。Release と RC は常に prod を使用します。
+DEV と nightly は切り替え可能です。Release と RC は既定で prod を使用し、許可された起動先へ切り替え可能です。
 
 シークレット（この Mac のキーチェーンに保存）
   cmux cloud secret set NAME [--repo OWNER/NAME]
@@ -516,7 +534,7 @@ The chat opens as a tab in the machine's workspace in the cmux app.
 
   --prompt TEXT      What to send (`-` reads it from stdin)
   --agent AGENT      claude (default), codex, ...
-  --cwd DIR          A folder on the machine (default: the workspace's folder)
+  --cwd DIR          A folder on the machine (default: a new one under ~/chats)
   --name MACHINE     Use the machine with this name, or create it
   --target machine:MACHINE_ID
                      Use this machine (`cmux cloud list-machines`)
@@ -529,7 +547,7 @@ plus reply with --wait.
 
 EXAMPLES
   cmux cloud start-chat --prompt 'Summarize README.md' --wait --json
-  cmux cloud start-chat --name dev --cwd /home/cmux/work --prompt 'Run the tests' --json
+  cmux cloud start-chat --name dev --prompt 'Run the tests' --json
 
 FOLLOW-UPS (MACHINE_ID and SESSION_ID from the answer)
   cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp send --no-wait SESSION_ID \"next prompt\"'

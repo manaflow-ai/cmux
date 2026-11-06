@@ -76,9 +76,9 @@ struct AppsProviderLink {
 final class AppsProviderChannel {
     /// Refusals tried again on the same connection.
     static let retried: Set<String> = ["apps.provider.taken", "failed", "not_connected", "timeout"]
-    /// Families newer daemons know (`apps/provider.rs` `FAMILIES`); an older daemon's
-    /// `bad-request` registers again without them.
-    static let newerFamilies: Set<String> = ["memory"]
+    /// Families newer daemons know (`apps/provider.rs` `FAMILIES`), newest first: an older daemon's
+    /// `bad-request` registers again without the newest one sent, so one that knows `memory` keeps it.
+    static let newerFamilies: [String] = ["toast", "memory"]
 
     /// Spacing of registration retries: 0.5 s doubling, at most 30 s, jittered.
     nonisolated static let registerBackoff = Backoff(initial: .milliseconds(500), maximum: .seconds(30))
@@ -187,9 +187,9 @@ final class AppsProviderChannel {
                 }
                 // A daemon from before a family existed refuses the whole registration; keep the
                 // families it knows rather than losing them all (it restarts on the next handoff).
-                if refused == "bad-request", families.contains(where: AppsProviderChannel.newerFamilies.contains) {
-                    families.removeAll(where: AppsProviderChannel.newerFamilies.contains)
-                    logger.info("apps-provider-register refused: bad-request; registering without the newer families")
+                if refused == "bad-request", let newest = AppsProviderChannel.newerFamilies.first(where: families.contains) {
+                    families.removeAll { $0 == newest }
+                    logger.info("apps-provider-register refused: bad-request; registering without \(newest, privacy: .public)")
                     if families.isEmpty { return }
                     continue
                 }

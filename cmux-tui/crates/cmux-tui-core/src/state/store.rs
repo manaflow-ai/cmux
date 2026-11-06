@@ -102,6 +102,7 @@ pub(crate) fn create_state_schema(transaction: &Transaction<'_>) -> anyhow::Resu
     super::projects_store::create_projects_schema(transaction)?;
     super::palette_usage_store::create_palette_usage_schema(transaction)?;
     super::stash_store::create_stash_schema(transaction)?;
+    super::conductor_import_store::create_conductor_import_schema(transaction)?;
     super::kept_tab_store::create_kept_tab_schema(transaction)?;
     super::status_meta::create_status_meta_schema(transaction)?;
     super::workspace_checklist_store::create_checklist_schema(transaction)?;
@@ -327,6 +328,19 @@ impl WorkspaceRegistry {
             }
         }
         Ok(None)
+    }
+
+    /// Write registry metadata that is no resource and no state change in one transaction:
+    /// it takes no resource revision, writes no journal record and publishes nothing.
+    pub(crate) fn write_meta<T>(
+        &self,
+        write: impl FnOnce(&Transaction<'_>) -> anyhow::Result<T>,
+    ) -> anyhow::Result<T> {
+        let db = self.connection.get();
+        let transaction = db.unchecked_transaction()?;
+        let value = write(&transaction)?;
+        transaction.commit()?;
+        Ok(value)
     }
 
     /// Run a read against the registry connection.

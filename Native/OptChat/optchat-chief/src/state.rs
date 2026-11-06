@@ -171,6 +171,11 @@ pub struct HostState {
     /// The number of the last watch started (`w<N>`); ids never repeat.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub last_watch: u64,
+    /// The cloud peers whose VMs this Chief paused (B4,
+    /// cloud-subagents-DESIGN.md). Saved, so a Chief that restarts or moves to
+    /// another Mac resumes such a VM before it tells a subagent there.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
+    pub cloud_paused: std::collections::BTreeSet<String>,
 }
 
 /// One watch the Chief started with `watch`: the host runs `command` off
@@ -389,7 +394,7 @@ pub struct SubRecord {
     #[serde(default)]
     pub workspace: Option<String>,
     /// Where `control show` opens its workspace while it has none (hidden,
-    /// `subagents.showWorkspaces` off, #26386, or closed by `control hide`).
+    /// as the Chief chose, sidebar_choice.rs, or closed by `control hide`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace_slot: Option<WorkspaceSlot>,
     /// That workspace's public id (`ws_…`), when its place can name it: its

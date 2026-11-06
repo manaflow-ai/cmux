@@ -13,6 +13,8 @@ public struct WindowViewGeometry {
         public let name: String
         public let rect: CGRect
         public let drawn: Bool
+        /// Drawn and with an area: on screen.
+        public var isVisible: Bool { drawn && rect.width > 0 && rect.height > 0 }
     }
 
     public static let maxDepth = 16
@@ -21,21 +23,39 @@ public struct WindowViewGeometry {
 
     public init() {}
 
+    /// The window's views, and the layout planes its overlay panel holds above its pages.
+    ///
+    /// While a Chromium page shows, the window's overlay plane (pane rings and dims) moves into the
+    /// click-through panel above the page windows (`WindowOverlayLayer`) and back when none shows. The
+    /// plane draws at the same place in either window, so its views are read from both, in this
+    /// window's coordinates: a plane that changed windows at its place did not move on screen. Only the
+    /// panel's plane container counts; its own chrome and the overlays it presents are other windows.
     public init(window: NSWindow) {
         if let content = window.contentView {
             self.init(root: content.superview ?? content)
         } else {
             self.init()
         }
+        for case let panel as OverlayHostPanel in window.childWindows ?? [] where panel.isVisible {
+            for plane in panel.planeContainer.subviews {
+                add(root: plane) { rect in window.convertFromScreen(panel.convertToScreen(rect)) }
+            }
+        }
     }
 
     /// The tree under `root` (a window's frame view: the titlebar and the content).
     public init(root: NSView) {
+        add(root: root) { $0 }
+    }
+
+    /// Adds the tree under `root`, its window rects mapped by `place` (into the recorded window's coordinates).
+    private mutating func add(root: NSView, place: (CGRect) -> CGRect) {
         var stack: [(view: NSView, depth: Int, drawn: Bool)] = [(root, 0, true)]
         while let item = stack.popLast(), entries.count < Self.maxViews {
             let view = item.view
             let drawn = item.drawn && !view.isHidden && view.alphaValue > 0.01
-            entries[ObjectIdentifier(view)] = Entry(name: String(describing: type(of: view)), rect: view.convert(view.bounds, to: nil).integral, drawn: drawn)
+            let rect = place(view.convert(view.bounds, to: nil)).integral
+            entries[ObjectIdentifier(view)] = Entry(name: String(describing: type(of: view)), rect: rect, drawn: drawn)
             // A view that is not drawn hides its subtree: its subviews' frames are not on screen.
             guard drawn, item.depth < Self.maxDepth else { continue }
             for subview in view.subviews { stack.append((subview, item.depth + 1, drawn)) }
@@ -56,17 +76,19 @@ public struct WindowViewGeometry {
         }
         for (id, now) in entries {
             guard let was = previous.entries[id] else {
-                if now.drawn { note("\(now.name) appeared \(Self.text(now.rect))") }
+                if now.isVisible { note("\(now.name) appeared \(Self.text(now.rect))") }
                 continue
             }
-            guard was.drawn || now.drawn else { continue }
-            if was.drawn != now.drawn {
-                note("\(now.name) \(now.drawn ? "shown" : "hidden") \(Self.text(now.rect))")
+            // A view with no area draws nothing: an empty status dot shown or hidden, or a toolbar laid out from zero size
+            // (that one counts once it has an area).
+            guard was.isVisible || now.isVisible else { continue }
+            if was.isVisible != now.isVisible {
+                note("\(now.name) \(now.isVisible ? "shown" : "hidden") \(Self.text(was.isVisible ? was.rect : now.rect))")
             } else if was.rect != now.rect {
                 note("\(now.name) moved \(Self.text(was.rect)) -> \(Self.text(now.rect))")
             }
         }
-        for (id, was) in previous.entries where was.drawn && entries[id] == nil {
+        for (id, was) in previous.entries where was.isVisible && entries[id] == nil {
             note("\(was.name) went away \(Self.text(was.rect))")
         }
         return (total, lines.sorted())

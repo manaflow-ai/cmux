@@ -1007,6 +1007,26 @@ public abstract class GeneratedCmuxClient {
         return ReloadConfigResult.fromWire(result);
     }
 
+    public final RemoteHostAppResult remoteHostApp() throws CmuxException {
+        Object result = execute(Commands.REMOTE_HOST_APP, Map.of());
+        return RemoteHostAppResult.fromWire(result);
+    }
+
+    public final Object remoteHostCall(RemoteHostCallRequest request) throws CmuxException {
+        Object result = execute(Commands.REMOTE_HOST_CALL, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object remoteHostConfig(RemoteHostConfigRequest request) throws CmuxException {
+        Object result = execute(Commands.REMOTE_HOST_CONFIG, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object remoteHostStatus() throws CmuxException {
+        Object result = execute(Commands.REMOTE_HOST_STATUS, Map.of());
+        return Wire.immutableJson(result);
+    }
+
     public final Object remoteTerminalSnapshot(RemoteTerminalSnapshotRequest request) throws CmuxException {
         Object result = execute(Commands.REMOTE_TERMINAL_SNAPSHOT, request.toWire());
         return Wire.immutableJson(result);

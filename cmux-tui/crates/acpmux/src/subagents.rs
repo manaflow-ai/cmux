@@ -63,6 +63,12 @@ pub struct SubagentTree {
     /// The background subagents still running: they outlive the turn that
     /// started them, so the session works on past it (`hub/work_below.rs`).
     background: HashSet<String>,
+    /// Every subagent ever marked background, ended ones included: one that ended (a failed
+    /// Claude agent) and runs again (SendMessage resumed it, its retry went on) says `running`
+    /// without the mark, and is background work again. Its ids are among `parents`' keys and
+    /// leave with them (a root learned late), so it holds no more than the tree already does; the
+    /// tree goes with its hub session.
+    was_background: HashSet<String>,
     /// Every subagent that runs now (live updates only), foreground or background, at any
     /// depth, oldest first, each with the label a list names it by (its name, else its task):
     /// the summary's `subagentsRunning` and `subagentNames` (`hub/views.rs`).
@@ -250,6 +256,7 @@ impl SubagentTree {
             self.names.entry(id).or_insert(name);
         }
         self.background.extend(log.background.into_iter().filter(|id| !known.contains(id)));
+        self.was_background.extend(log.was_background);
         for (id, label) in log.running {
             if !known.contains(&id) && !self.running.iter().any(|(r, _)| *r == id) {
                 self.running.push((id, label));
@@ -363,13 +370,17 @@ impl SubagentTree {
 
     /// Follows the background subagents through one update's events: one
     /// marked `background` that runs is added (a later event of it need not
-    /// repeat the mark), and any that ends leaves.
+    /// repeat the mark), any that ends leaves, and one that ended runs again as
+    /// background work (`was_background`).
     fn note_background(&mut self, events: &[Value]) {
         for event in events {
             let Some(id) = event.get("id").and_then(Value::as_str) else { continue };
             if event.get("state").and_then(Value::as_str) != Some("running") {
                 self.background.remove(id);
             } else if event.get("background") == Some(&Value::Bool(true)) {
+                self.was_background.insert(id.to_owned());
+                self.background.insert(id.to_owned());
+            } else if self.was_background.contains(id) {
                 self.background.insert(id.to_owned());
             }
         }
@@ -794,6 +805,7 @@ impl SubagentTree {
         }
         // An echo that arrived before the root was known counted it as background work.
         self.background.remove(id);
+        self.was_background.remove(id);
         self.running.retain(|(known, _)| known != id);
         let children = self
             .parents

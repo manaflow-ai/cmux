@@ -19,7 +19,7 @@ import Testing
         (.editor, FilePageService.engineOptions), (.iconPicker, IconPickerService.engineOptions), (.passwords, .standard),
         (.chiefInspector, .standard), (.debugSettings, .standard), (.homeChannels, PageFactory.homeChannelsEngineOptions),
         (.changelog, .standard), (.coderouter, .standard), (.files, .standard), (.stats, .standard),
-        (.chiefUsage, .standard), (.mobilePairing, .standard), (.agentActivity, .standard),
+        (.chiefUsage, .standard), (.mobilePairing, .standard), (.agentActivity, .standard), (.github, .standard),
     ]
 
     /// The pages that still show in WebKit, and why (webviews-chromium-AUDIT.md).

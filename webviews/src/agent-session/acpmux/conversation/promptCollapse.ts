@@ -1,6 +1,7 @@
 // A long prompt collapses as Claude's does (Leo 2026-10-21): its first ten lines, the last one
 // fading out, with Show more / Show less under them (UserBubble.tsx). A block the composer sent as
-// a paste is a chip, "<first words> · N lines", that opens in place. model.ts estimates the row
+// a paste is a card of its first lines over the composer's label ("Pasted text · N lines · NK
+// characters"), that opens in place. model.ts estimates the row
 // from the same numbers, so a prompt that mounts moves nothing below it.
 
 import { sliceWhole } from "../../../ui/wholeChars";
@@ -9,9 +10,15 @@ import { sliceWhole } from "../../../ui/wholeChars";
 export const COLLAPSED_PROMPT_LINES = 10;
 /// The Show more line under a collapsed prompt (`.cv-user__more`: 4px above a 20px line).
 export const PROMPT_MORE_HEIGHT = 24;
-/// A pasted block's chip as the bubble draws it closed (`.cv-user__paste-block`: a 32px chip in
-/// 4px above and below).
-export const PASTE_CHIP_HEIGHT = 40;
+/// The lines of its text a pasted block's card shows closed.
+export const PASTE_PREVIEW_LINES = 3;
+/// The text a closed card draws: more than its lines hold at the bubble's widest, so a paste of a
+/// megabyte lays out no more than a short one (HUGE_PROMPT_CHARS).
+export const PASTE_PREVIEW_CHARS = 1_000;
+/// A pasted block's card as the bubble draws it closed, in prompt lines `lineHeight` tall
+/// (`.cv-user__paste-block`: 4px above and below the card, its 8px top and 4px bottom padding,
+/// and its 20px label 4px under the lines).
+export const pasteChipHeight = (lineHeight: number) => PASTE_PREVIEW_LINES * lineHeight + 44;
 /// Before the bubble is laid out (and where it never is), a prompt longer than this many
 /// characters is taken to wrap past the collapsed lines.
 const LONG_PROMPT_CHARS = 1_000;
@@ -121,12 +128,28 @@ export function promptParts(text: string, ranges: readonly PasteRange[]): Prompt
   return parts;
 }
 
+/// A line break as pasted text can carry it: \n, \r\n, a lone \r (classic Mac text), or Unicode's
+/// line and paragraph separators (U+2028, U+2029), which rich-text editors put for a soft return.
+/// The prompt field's own paste turns \r into \n; a VS Code paste, a drop and a file keep theirs.
+export const PASTE_LINE_BREAK = /\r\n|[\n\r\u2028\u2029]/g;
+
 /// A paste chip's name: the paste's first words, on one line.
 export function pasteName(text: string): string {
-  const line = text.split("\n").find((candidate) => candidate.trim()) ?? "";
+  const line = text.split(PASTE_LINE_BREAK).find((candidate) => candidate.trim()) ?? "";
   const words = line.trim().replace(/\s+/g, " ");
   return words.length > 40 ? `${sliceWhole(words, 39).trimEnd()}…` : words;
 }
 
-/// A paste's line count (a final line break ends its last line, not a new one).
-export const pasteLines = (text: string) => text.replace(/\n$/, "").split("\n").length;
+/// What a closed paste card draws of `text`: its head from its first line with words, the card's
+/// clamp hiding what its lines do not hold. Reads only its first `PASTE_PREVIEW_CHARS`.
+export function pastePreview(text: string): string {
+  const head = promptHead(text, PASTE_PREVIEW_CHARS * 2);
+  return promptHead(head.replace(/^(?:[ \t]*(?:\r\n|[\n\r\u2028\u2029]))+/, ""), PASTE_PREVIEW_CHARS);
+}
+
+/// A paste's line count (a final line break ends its last line, not a new one). Counts every break
+/// PASTE_LINE_BREAK names, so text whose lines end in \r or U+2028 is not "1 line".
+export function pasteLines(text: string): number {
+  const body = text.replace(/(?:\r\n|[\n\r\u2028\u2029])$/, "");
+  return (body.match(PASTE_LINE_BREAK)?.length ?? 0) + 1;
+}

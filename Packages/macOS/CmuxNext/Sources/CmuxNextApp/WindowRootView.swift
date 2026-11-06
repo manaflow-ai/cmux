@@ -353,8 +353,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
                 for case let old? in [previous, outgoing] where old !== view { withdraw(old) }
             }
         }
-        // Mid-slide the content keeps the slide's one width (`MainPaneCardView.contentHold`).
-        let frame = contentHost.heldContentFrame ?? contentHost.bounds
+        let frame = contentHost.bounds
         if view.superview !== contentHost {
             view.frame = frame
             contentHost.addSubview(view)
@@ -388,8 +387,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// leaves the window). Other content leaves the window.
     private func withdraw(_ view: NSView) {
         guard view is WorkspaceContentView, view.superview === contentHost else { return view.removeFromSuperview() }
-        if let window, let responder = window.firstResponder as? NSView, responder.isDescendant(of: view),
-           !window.makeFirstResponder(nil) {
+        if !view.handKeyboardToWindow(), let window {
             // A field editor that refuses to resign while it validates: end the edit, then resign.
             window.endEditing(for: nil)
             window.makeFirstResponder(nil)

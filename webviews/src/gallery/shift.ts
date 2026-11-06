@@ -12,7 +12,8 @@
 //   - a box that has not yet held still for `REST_FRAMES` frames: an entrance animation, a row
 //     still mounting. Once it rested, any later move counts (the composer gap that jumps on load).
 //     A step starts on a settled page, so its first frame's boxes have rested (`restedAtStart`);
-//   - the step's target, its ancestors and descendants (the tool row that expands);
+//   - the step's target, its ancestors and descendants (the tool row that expands), and while that
+//     row opens at the very bottom (`BOTTOM_FOLD`), everything inside it: it rises as one;
 //   - a box after the target in document order that moves straight down: the expansion pushes it;
 //   - a box before the target that moves straight up while the target's transcript row opens at the
 //     very bottom (`BOTTOM_FOLD`, `data-bottom-stack-fold`, set by the transcript for the length of
@@ -171,12 +172,17 @@ export function sampleBoxes(doc: Document, target: Element | null, extra: Elemen
   const view = doc.defaultView;
   const width = view?.innerWidth ?? 0;
   const height = view?.innerHeight ?? 0;
-  const foldingUp = !!target?.closest(BOTTOM_FOLD);
+  // The row opening at the very bottom moves as one: what it holds (a batch's message rows) rises
+  // with its toggle and the text above, so it is the target's as much as the toggle's line is.
+  const folding = target?.closest(BOTTOM_FOLD) ?? null;
+  const foldingUp = !!folding;
   for (const element of new Set([...doc.querySelectorAll(TRACK_SELECTOR), ...extra])) {
     const rect = element.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) continue;
     if (rect.bottom <= 0 || rect.right <= 0 || rect.top >= height || rect.left >= width) continue;
-    const targeted = !!target && (element === target || element.contains(target) || target.contains(element));
+    const targeted =
+      !!target &&
+      (element === target || element.contains(target) || target.contains(element) || !!folding?.contains(element));
     const position = target && !targeted ? target.compareDocumentPosition(element) : 0;
     const after = (position & 4) !== 0; // 4: DOCUMENT_POSITION_FOLLOWING (no global Node in tests)
     const before = foldingUp && (position & 2) !== 0; // 2: DOCUMENT_POSITION_PRECEDING

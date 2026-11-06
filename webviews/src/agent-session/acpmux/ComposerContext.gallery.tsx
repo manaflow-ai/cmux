@@ -464,7 +464,9 @@ function stripVariants(arm: StripArm) {
       note: note(
         arm === "where-machine" || arm === "where-machine-always"
           ? "Cloud picked: two chips, Project and Where, with no machine chip and no New machine step. Send reuses the person's Cloud machine or makes one, its progress in the chat (Leo, 2026-11-04: \"after you pick Cloud, like, you shouldn't be seeing the new machine situation\")."
-          : "Cloud picked: Cloud gives the workspace its own new machine; its project is picked in the same Project chip.",
+          : arm === "cloud-toggle"
+            ? "Cloud picked: the machine chip says Cloud, never New machine; Send reuses the person's Cloud machine or makes one, its progress in the chat."
+            : "Cloud picked: Cloud gives the workspace its own new machine; its project is picked in the same Project chip.",
       ),
       props: { ...props, runMode: { mode: "cloud" as const, onMode: () => undefined } },
     },

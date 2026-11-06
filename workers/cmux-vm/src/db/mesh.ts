@@ -139,6 +139,8 @@ export interface MeshStoreService extends OverlayServerStore, OverlayServerCodeS
   /** `recordRule` for many rules in one statement: all of them are recorded, or none. */
   readonly recordRules: (tenantId: TenantId, rules: ReadonlyArray<MeshRuleRow>) => Effect.Effect<void, StoreError>;
   readonly markRuleDeleted: (tenantId: TenantId, meshId: string, key: string, at: Date) => Effect.Effect<void, StoreError>;
+  /** `markRuleDeleted` for many keys of one mesh in one statement. */
+  readonly markRulesDeleted: (tenantId: TenantId, meshId: string, keys: ReadonlyArray<string>, at: Date) => Effect.Effect<void, StoreError>;
 }
 
 export class MeshStore extends Context.Tag("cmux-vm/MeshStore")<MeshStore, MeshStoreService>() {}
@@ -620,6 +622,19 @@ export const sqlMeshStoreLayer: Layer.Layer<MeshStore, never, SqlClient> = Layer
             [meshId, tenantId, key, at.toISOString()],
           )
           .pipe(Effect.asVoid),
+      markRulesDeleted: (tenantId, meshId, keys, at) =>
+        keys.length === 0
+          ? Effect.void
+          : sql
+              .query(
+                "mesh.markRulesDeleted",
+                // The keys go as one JSON array parameter (SqlParam is scalar), cast as text first (sql.ts).
+                `UPDATE cmux_vm.mesh_firewall_rules SET deleted_at = $3::timestamptz
+                  WHERE mesh_cmux_id = $1 AND tenant_id = $2 AND deleted_at IS NULL
+                    AND rule_key IN (SELECT jsonb_array_elements_text($4::text::jsonb))`,
+                [meshId, tenantId, at.toISOString(), JSON.stringify(keys)],
+              )
+              .pipe(Effect.asVoid),
     };
     return service;
   }),

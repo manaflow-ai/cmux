@@ -7876,127 +7876,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "خادم cmux هذا قديم جدًا لعرض هذه الصفحة، ولا يستطيع cmux إعادة تشغيله. حدّث ملف cmux-tui الذي يستخدمه cmux، ثم افتح علامة التبويب هذه مرة أخرى."
+            "value": "تحتاج هذه الصفحة إلى خدمة cmux أحدث في الخلفية، ولا يستطيع cmux إعادة تشغيلها. حدّث cmux، ثم افتح علامة التبويب هذه مجددًا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ovaj cmux daemon je prestar za ovu stranicu, a cmux ga ne može ponovo pokrenuti. Ažurirajte cmux-tui program koji cmux koristi, pa ponovo otvorite ovu karticu."
+            "value": "Ovoj stranici treba noviji pozadinski servis cmuxa, a cmux ga ne može ponovo pokrenuti. Ažurirajte cmux, pa ponovo otvorite ovu karticu."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne cmux-dæmon er for gammel til at vise denne side, og cmux kan ikke genstarte den. Opdater det cmux-tui-program, som cmux bruger, og åbn derefter fanen igen."
+            "value": "Denne side kræver en nyere baggrundstjeneste i cmux, og cmux kan ikke genstarte den. Opdater cmux, og åbn fanen igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dieser cmux-Daemon ist zu alt für diese Seite, und cmux kann ihn nicht neu starten. Aktualisiere das cmux-tui-Programm, das cmux verwendet, und öffne diesen Tab dann erneut."
+            "value": "Diese Seite braucht einen neueren cmux-Hintergrunddienst, und cmux kann ihn nicht neu starten. Aktualisiere cmux und öffne diesen Tab erneut."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This cmux daemon is too old to serve this page, and cmux cannot restart it. Update the cmux-tui binary that cmux uses, then open this tab again."
+            "value": "This page needs a newer cmux background service, and cmux can't restart it. Update cmux, then open this tab again."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Este daemon de cmux es demasiado antiguo para mostrar esta página y cmux no puede reiniciarlo. Actualiza el binario cmux-tui que usa cmux y vuelve a abrir esta pestaña."
+            "value": "Esta página necesita un servicio en segundo plano de cmux más reciente, y cmux no puede reiniciarlo. Actualiza cmux y vuelve a abrir esta pestaña."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ce daemon cmux est trop ancien pour afficher cette page, et cmux ne peut pas le redémarrer. Mettez à jour le binaire cmux-tui utilisé par cmux, puis rouvrez cet onglet."
+            "value": "Cette page nécessite un service d’arrière-plan cmux plus récent, et cmux ne peut pas le redémarrer. Mettez cmux à jour, puis rouvrez cet onglet."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Questo daemon di cmux è troppo vecchio per mostrare questa pagina e cmux non può riavviarlo. Aggiorna il binario cmux-tui usato da cmux, poi riapri questa scheda."
+            "value": "Questa pagina richiede un servizio in background di cmux più recente, e cmux non può riavviarlo. Aggiorna cmux, poi riapri questa scheda."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "この cmux デーモンは古すぎるためこのページを表示できず、cmux は再起動できません。cmux が使う cmux-tui バイナリを更新してから、このタブを開き直してください。"
+            "value": "このページには新しい cmux バックグラウンドサービスが必要ですが、cmux はそれを再起動できません。cmux をアップデートしてから、このタブを開き直してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "daemon របស់ cmux នេះចាស់ពេកសម្រាប់ទំព័រនេះ ហើយ cmux មិនអាចចាប់ផ្ដើមវាឡើងវិញបានទេ។ សូមធ្វើបច្ចុប្បន្នភាព cmux-tui ដែល cmux ប្រើ រួចបើកផ្ទាំងនេះម្ដងទៀត។"
+            "value": "ទំព័រនេះត្រូវការសេវាផ្ទៃខាងក្រោយ cmux ថ្មីជាងនេះ ហើយ cmux មិនអាចចាប់ផ្តើមវាឡើងវិញបានទេ។ អាប់ដេត cmux រួចបើកផ្ទាំងនេះម្តងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 cmux 데몬은 너무 오래되어 이 페이지를 제공할 수 없고, cmux가 다시 시작할 수 없습니다. cmux가 사용하는 cmux-tui 바이너리를 업데이트한 다음 이 탭을 다시 여세요."
+            "value": "이 페이지에는 최신 cmux 백그라운드 서비스가 필요하지만 cmux가 다시 시작할 수 없습니다. cmux를 업데이트한 다음 이 탭을 다시 여세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne cmux-demonen er for gammel til å vise denne siden, og cmux kan ikke starte den på nytt. Oppdater cmux-tui-programmet som cmux bruker, og åpne fanen på nytt."
+            "value": "Denne siden trenger en nyere bakgrunnstjeneste i cmux, og cmux kan ikke starte den på nytt. Oppdater cmux, og åpne fanen igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ten demon cmux jest zbyt stary, aby obsłużyć tę stronę, a cmux nie może go ponownie uruchomić. Zaktualizuj plik cmux-tui używany przez cmux, a potem otwórz tę kartę ponownie."
+            "value": "Ta strona wymaga nowszej usługi w tle cmux, a cmux nie może jej ponownie uruchomić. Zaktualizuj cmux, a potem otwórz tę kartę ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Este daemon do cmux é antigo demais para esta página, e o cmux não consegue reiniciá-lo. Atualize o binário cmux-tui que o cmux usa e abra esta aba novamente."
+            "value": "Esta página precisa de um serviço em segundo plano do cmux mais recente, e o cmux não consegue reiniciá-lo. Atualize o cmux e abra esta aba de novo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Этот демон cmux слишком старый для этой страницы, и cmux не может его перезапустить. Обновите программу cmux-tui, которую использует cmux, и снова откройте эту вкладку."
+            "value": "Этой странице нужна более новая фоновая служба cmux, а cmux не может её перезапустить. Обновите cmux и снова откройте вкладку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "daemon ของ cmux นี้เก่าเกินไปสำหรับหน้านี้ และ cmux เริ่มใหม่ไม่ได้ อัปเดตไฟล์ cmux-tui ที่ cmux ใช้ แล้วเปิดแท็บนี้อีกครั้ง"
+            "value": "หน้านี้ต้องใช้บริการเบื้องหลังของ cmux ที่ใหม่กว่า และ cmux รีสตาร์ตบริการนั้นไม่ได้ อัปเดต cmux แล้วเปิดแท็บนี้อีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu cmux arka plan hizmeti bu sayfa için çok eski ve cmux onu yeniden başlatamıyor. cmux'un kullandığı cmux-tui programını güncelleyin, sonra bu sekmeyi yeniden açın."
+            "value": "Bu sayfa daha yeni bir cmux arka plan hizmeti gerektiriyor ve cmux onu yeniden başlatamıyor. cmux'u güncelleyin, sonra bu sekmeyi yeniden açın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Цей демон cmux занадто старий для цієї сторінки, і cmux не може його перезапустити. Оновіть програму cmux-tui, яку використовує cmux, і знову відкрийте цю вкладку."
+            "value": "Цій сторінці потрібна новіша фонова служба cmux, а cmux не може її перезапустити. Оновіть cmux і знову відкрийте вкладку."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Daemon cmux này quá cũ để phục vụ trang này và cmux không thể khởi động lại nó. Hãy cập nhật tệp cmux-tui mà cmux dùng, rồi mở lại thẻ này."
+            "value": "Trang này cần dịch vụ nền cmux mới hơn và cmux không thể khởi động lại nó. Hãy cập nhật cmux rồi mở lại thẻ này."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此 cmux 守护进程版本过旧，无法提供此页面，且 cmux 无法重新启动它。请更新 cmux 使用的 cmux-tui 程序，然后重新打开此标签页。"
+            "value": "此页面需要更新版本的 cmux 后台服务，且 cmux 无法重启它。请更新 cmux，然后重新打开此标签页。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此 cmux 常駐程式版本過舊，無法提供此頁面，且 cmux 無法重新啟動它。請更新 cmux 使用的 cmux-tui 程式，然後重新開啟此分頁。"
+            "value": "此頁面需要更新版本的 cmux 背景服務，且 cmux 無法重新啟動它。請更新 cmux，然後重新開啟此分頁。"
           }
         }
       }
