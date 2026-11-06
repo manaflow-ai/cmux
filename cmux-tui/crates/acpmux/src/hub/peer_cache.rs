@@ -569,8 +569,8 @@ mod tests {
         assert_eq!(saved["sessions"][0]["sessionId"], "new");
     }
 
-    #[test]
-    fn a_notice_between_write_and_flush_publish_remains_dirty() {
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_notice_between_write_and_flush_publish_remains_dirty() {
         let (hub, dir) = test_hub();
         let peer = add_idle_peer(&hub, "builder");
         let (entered_tx, entered_rx) = std::sync::mpsc::channel();
@@ -584,7 +584,7 @@ mod tests {
         entered_rx
             .recv_timeout(std::time::Duration::from_secs(2))
             .expect("cache worker never reached the flush publication");
-        let projection = PeerNoticeProjectionHook::new();
+        let projection = super::peers::PeerNoticeProjectionHook::new();
         *hub.peer_notice_projection_hook.lock().unwrap() = Some(projection.clone());
         let (done_tx, done_rx) = std::sync::mpsc::channel();
         let notice = {
