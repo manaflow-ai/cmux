@@ -93,7 +93,9 @@ impl Hub {
                         .map(|p| (p.name.clone(), p.generation))
                         .collect();
                     for (peer, generation) in dirty {
-                        self.save_peer_cache(&peer, generation, true);
+                        if let Some(hub) = self.hub_ref.get().and_then(std::sync::Weak::upgrade) {
+                            std::thread::spawn(move || hub.save_peer_cache_now(&peer, generation, true));
+                        }
                     }
                     continue;
                 }

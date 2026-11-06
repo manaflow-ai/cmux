@@ -7,7 +7,7 @@
 
 use super::*;
 use crate::peer::{Peer, PeerNotice};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};

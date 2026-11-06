@@ -536,6 +536,7 @@ pub(super) struct StreamState {
 pub(super) type InlineBtwOwner = (String, std::collections::BTreeMap<String, String>);
 
 pub struct Hub {
+    pub(super) hub_ref: std::sync::OnceLock<std::sync::Weak<Hub>>,
     pub(crate) workflow_runs: crate::workflow_runs::Service,
     pub config: RwLock<Config>,
     pub(crate) wireguard: Option<Arc<crate::wireguard::Transport>>,
@@ -908,6 +909,7 @@ impl Hub {
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let usage_limits = StdMutex::new(config.usage_warnings.limits());
         let hub = Arc::new(Self {
+            hub_ref: std::sync::OnceLock::new(),
             config: RwLock::new(config),
             usage_limits,
             wireguard,
@@ -1065,6 +1067,7 @@ impl Hub {
             tailnet_controller: std::sync::OnceLock::new(),
             briefs,
         });
+        let _ = hub.hub_ref.set(Arc::downgrade(&hub));
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);
         }
