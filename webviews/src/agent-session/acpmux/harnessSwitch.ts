@@ -686,11 +686,10 @@ export class HarnessSwitch {
     // Prompts go out after the picks, so the first turn runs on what the user chose.
     await Promise.all(applied);
     if (this.intent !== intent) return;
-    const first = intent.queued[0];
     // A ticket taken on an earlier connection cannot cross the reconnect boundary. Sending the
     // prompt without it would recreate the issue's failed bubble, so return it to the composer and
     // make the next Enter start a fresh switch with a new gesture.
-    if (first?.ticket && first.ticket.port !== port) {
+    if (intent.queued.some((prompt) => prompt.ticket && prompt.ticket.port !== port)) {
       this.handBack(intent.queued);
       for (const prompt of intent.queued) prompt.reject(Object.assign(startCancelled(), { handedBack: true }));
       intent.queued = [];
@@ -701,20 +700,24 @@ export class HarnessSwitch {
       intent.done.resolve(undefined);
       return;
     }
-    // A ticket taken on an earlier connection is no good on this one: a prompt without a ticket
-    // falls back to the port's normal live-gesture path, as it did before this fix.
-    const firstTicket = first?.ticket?.port === port ? await first.ticket.value : undefined;
+    // Each prompt goes with its own ticket: the first one's send took (#23031), or the one the
+    // composer bound at the Enter of a send it held for its files. One without a ticket falls back
+    // to the port's normal live-gesture path.
+    const tickets = new Map<Queued, string | undefined>();
+    await Promise.all(
+      intent.queued.map(async (prompt) => {
+        if (prompt.ticket?.port === port) tickets.set(prompt, await prompt.ticket.value);
+      }),
+    );
     if (this.intent !== intent || this.port !== port) return;
     const queued = intent.queued;
     intent.queued = [];
     this.intent = undefined;
     for (const prompt of queued) {
-      port
-        .send(prompt.text, prompt.attachments, prompt.id, prompt === first ? firstTicket : undefined)
-        .then((value) => {
-          prompt.written?.();
-          prompt.resolve(value);
-        }, prompt.reject);
+      port.send(prompt.text, prompt.attachments, prompt.id, tickets.get(prompt)).then((value) => {
+        prompt.written?.();
+        prompt.resolve(value);
+      }, prompt.reject);
     }
     this.changed();
     intent.done.resolve(opened);
