@@ -59,13 +59,19 @@ pub fn link_group(session: SessionId, generation: u64, attempt: ConnectionAttemp
 /// oldest is forgotten first, and a forgotten key needs a new grant.
 #[derive(Debug, Default)]
 pub(crate) struct AdmittedGrants {
-    inner: Mutex<(HashMap<[u8; 32], GrantAdmission>, VecDeque<[u8; 32]>)>,
+    inner: Mutex<Admitted>,
+}
+
+#[derive(Debug, Default)]
+struct Admitted {
+    by_key: HashMap<[u8; 32], GrantAdmission>,
+    order: VecDeque<[u8; 32]>,
 }
 
 impl AdmittedGrants {
     pub(crate) fn remember(&self, noise_key: [u8; 32], admission: GrantAdmission) {
         let mut guard = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let (admitted, order) = &mut *guard;
+        let Admitted { by_key: admitted, order } = &mut *guard;
         if admitted.insert(noise_key, admission).is_none() {
             order.push_back(noise_key);
             while order.len() > MAX_ADMITTED_GRANTS {
@@ -78,7 +84,7 @@ impl AdmittedGrants {
 
     pub(crate) fn get(&self, noise_key: &[u8; 32]) -> Option<GrantAdmission> {
         let guard = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        guard.0.get(noise_key).cloned()
+        guard.by_key.get(noise_key).cloned()
     }
 }
 
