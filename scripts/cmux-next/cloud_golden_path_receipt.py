@@ -102,22 +102,68 @@ def _entry_name(entry: dict[str, object]) -> str:
             return _norm(value)
     return ""
 
-def _entry_ok(entry: dict[str, object]) -> bool:
+def _entry_state(entry: dict[str, object]) -> str | None:
+    """"ok" or "fail" from the entry's own evidence, None when it proves neither.
+
+    A nonzero exit, a false success flag, a failing status or a failure object
+    fails the entry; success needs explicit evidence (exit 0, a true flag or an
+    ok status). A bare name, or a `started` record, proves nothing.
+    """
+    failed = False
+    succeeded = False
+    for key in ("exit", "exit_code", "exitcode", "returncode"):
+        value = entry.get(key)
+        if isinstance(value, int) and not isinstance(value, bool):
+            if value == 0:
+                succeeded = True
+            else:
+                failed = True
     for key in ("ok", "passed", "success", "verified", "ready"):
         if key in entry:
-            return _truthy(entry[key])
+            if _truthy(entry[key]):
+                succeeded = True
+            else:
+                failed = True
     for key in ("outcome", "status", "verdict", "result"):
-        if key in entry and isinstance(entry[key], str):
-            return not _falsey(entry[key])
-    return True
+        value = entry.get(key)
+        if isinstance(value, str):
+            if _falsey(value):
+                failed = True
+            elif _truthy(value):
+                succeeded = True
+    if entry.get("failure") or entry.get("error"):
+        failed = True
+    if failed:
+        return "fail"
+    return "ok" if succeeded else None
 
-def _has_named_entry(records: list[object], tokens: tuple[str, ...]) -> bool:
-    return any(
-        _entry_name(entry)
-        and any(token in _entry_name(entry) for token in tokens)
-        and _entry_ok(entry)
+def _named_state(records: list[object], tokens: tuple[str, ...]) -> str | None:
+    """"fail" if any matching named entry failed, else "ok" if one succeeded."""
+    states = [
+        _entry_state(entry)
         for entry in _dicts(records)
-    )
+        if _entry_name(entry) and any(token in _entry_name(entry) for token in tokens)
+    ]
+    if "fail" in states:
+        return "fail"
+    return "ok" if "ok" in states else None
+
+def _named_failures(records: list[object]) -> bool:
+    return any(_entry_name(entry) and _entry_state(entry) == "fail" for entry in _dicts(records))
+
+def _unfinished_stages(records: list[object]) -> list[str]:
+    """Stages whose last lifecycle record (the orchestrator's started/ok/error) is `started`."""
+    last: dict[tuple[str, str], str] = {}
+    for entry in _dicts(records):
+        stage = entry.get("stage")
+        status = entry.get("status")
+        if not isinstance(stage, str) or not isinstance(status, str):
+            continue
+        state = _norm(status)
+        if state not in {"started", "ok", "error"}:
+            continue
+        last[(str(entry.get("request_id") or ""), stage)] = state
+    return sorted({_clean(stage) for (_request, stage), state in last.items() if state == "started"})
 
 def _explicit_true(records: list[object], aliases: set[str]) -> bool:
     return any(_truthy(value) for value in _field_values(records, aliases))
@@ -135,11 +181,11 @@ def _continuity(records: list[object]) -> tuple[bool, dict[str, object]]:
     pause = _explicit_true(records, pause_aliases)
     resume = _explicit_true(records, resume_aliases)
     reconnect = _explicit_true(records, reconnect_aliases)
+    round_values: list[bool] = []
     for entry in _dicts(records):
         rounds = entry.get("rounds")
         if not isinstance(rounds, list) or not rounds:
             continue
-        round_values = []
         for round_item in rounds:
             if not isinstance(round_item, dict):
                 round_values.append(False)
@@ -158,16 +204,15 @@ def _continuity(records: list[object]) -> tuple[bool, dict[str, object]]:
                 and resume_observed
                 and reconnect_observed
             )
-        if all(round_values):
-            pause = resume = reconnect = True
-    named_failures = any(
-        not _entry_ok(entry)
-        for entry in _dicts(records)
-        if any(token in _entry_name(entry) for token in ("pause", "resume", "reconnect", "continuity"))
-    )
+    # Every round of every merged record counts: one failed round fails continuity.
+    rounds_failed = not all(round_values)
+    if round_values and not rounds_failed:
+        pause = resume = reconnect = True
+    named_failures = _named_state(records, ("pause", "resume", "reconnect", "continuity")) == "fail"
     explicit_failure = (
         _explicit_false(records, pause_aliases | resume_aliases | reconnect_aliases)
         or named_failures
+        or rounds_failed
     )
     return (
         pause and resume and reconnect and not explicit_failure,
@@ -176,6 +221,8 @@ def _continuity(records: list[object]) -> tuple[bool, dict[str, object]]:
             "resume_observed": resume,
             "reconnect_observed": reconnect,
             "explicit_failure": explicit_failure,
+            "rounds": len(round_values),
+            "rounds_failed": rounds_failed,
         },
     )
 
@@ -193,23 +240,43 @@ def normalize(records: list[object]) -> dict[str, object]:
     session_id = _first_text(records, {"sessionid", "acpsessionid", "session"})
     reply = _first_text(records, {"reply", "replytext", "firstreply", "firstreplytext"})
     request_id = _first_text(records, {"requestid", "probeid", "runid"})
-    start = (
-        _has_named_entry(records, ("startchat", "startsession", "newchat", "cloudchat"))
+    # The golden-path orchestrator (cmuxterm-hq tools/cloud-golden-path) writes per-stage
+    # started/ok/error records: machine.create, chat.first_reply, session.pause/resume/reconnect.
+    start_state = _named_state(records, ("startchat", "startsession", "newchat", "cloudchat"))
+    machine_state = _named_state(records, ("machinecreate",))
+    chat_state = _named_state(records, ("chatfirstreply",))
+    start = start_state != "fail" and machine_state != "fail" and chat_state != "fail" and (
+        start_state == "ok"
+        or (machine_state == "ok" and chat_state == "ok")
         or any(isinstance(value, dict) for value in _field_values(records, {"firstchat", "startchat"}))
         or (bool(_first_text(records, {"route"})) and bool(machine_id))
     )
+    discovery_state = _named_state(
+        records,
+        ("sessiondiscover", "sessionlist", "acpsession", "listsessions", "attachsession", "startsession", "chatfirstreply"),
+    )
     session_discovery = (
         bool(session_id)
+        and discovery_state != "fail"
         and (
-            _has_named_entry(
-                records,
-                ("sessiondiscover", "sessionlist", "acpsession", "listsessions", "attachsession", "startsession"),
-            )
+            discovery_state == "ok"
             or bool(_first_text(records, {"sessiondiscovered", "sessiondiscovery", "acpsession"}))
             or any(isinstance(value, dict) for value in _field_values(records, {"turn", "acpsession"}))
         )
     )
-    first_reply = bool(reply) or _has_named_entry(records, ("firstreply", "reply", "assistantmessage")) or _explicit_true(records, {"replyok"})
+    reply_state = _named_state(records, ("firstreply", "reply", "assistantmessage"))
+    first_reply = reply_state != "fail" and (
+        reply_state == "ok"
+        or bool(reply)
+        or _explicit_true(records, {"replyok"})
+    )
+    unfinished = _unfinished_stages(records)
+    if unfinished:
+        unfinished_tokens = {_norm(stage) for stage in unfinished}
+        if any(token in unfinished_tokens for token in ("machinecreate", "chatfirstreply")):
+            start = False
+        if "chatfirstreply" in unfinished_tokens:
+            session_discovery = first_reply = False
     continuity, continuity_detail = _continuity(records)
 
     provider_values = _field_values(records, {
@@ -232,8 +299,14 @@ def normalize(records: list[object]) -> dict[str, object]:
     }
     blockers: list[str] = []
     failures = [status for status in _statuses(records) if status in {"fail", "failed", "error", "timeout", "timedout", "cancelled"}]
-    if failures or bool(continuity_detail["explicit_failure"]):
+    if unfinished:
+        stages["pause_resume_reconnect"] = stages["pause_resume_reconnect"] and not any(
+            token in _norm(stage) for stage in unfinished for token in ("pause", "resume", "reconnect")
+        )
+    if failures or bool(continuity_detail["explicit_failure"]) or _named_failures(records) or unfinished:
         blockers.append("receipt_reports_failure")
+    if unfinished:
+        blockers.append("stage_unfinished")
     if provider_false:
         blockers.append("provider_proof_rejected")
     if not machine_id:
@@ -261,6 +334,7 @@ def normalize(records: list[object]) -> dict[str, object]:
         "provider_verification": provider_detail,
         "continuity": continuity_detail,
         "blockers": blockers,
+        "unfinished_stages": unfinished,
         "evidence": {"record_count": len(records)},
     }
 
