@@ -65,7 +65,7 @@ public nonisolated enum ChromeTunables {
         default: 0.14, range: 0...0.6, step: 0.01, unit: .fraction, code: "ChromeTunables.opaqueOverlayLift")
     public static let glassOverlayTintStrength = Tunable<Double>.number(
         "glass.overlayTintStrength", .glass, "Overlay tint strength", help: "Multiplier on the theme glass tint's alpha for overlay surfaces (palette, hover cards, browser bars, drop overlay).",
-        default: 1.25, range: 0...3, step: 0.05, unit: .multiplier, code: "ChromeTunables.glassOverlayTintStrength")
+        default: GlassLevel.popover.tintStrength, range: 0...3, step: 0.05, unit: .multiplier, code: "ChromeTunables.glassOverlayTintStrength")
     public static let cardOpacity = Tunable<Double>.number(
         "glass.cardOpacity", .glass, "Card opacity", help: "Least opacity of the solid fill a card that opts into the card fill (no native overlay does; web pages read it as --cmux-card-tint) lays on its glass; text keeps 4.5:1 over any backdrop above it.",
         default: CardMaterial.defaultMinimumOpacity, range: 0.5...1, step: 0.01, unit: .fraction, code: "ChromeTunables.cardOpacity")
