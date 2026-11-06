@@ -20,7 +20,7 @@ NIGHTLY = ROOT / ".github" / "workflows" / "nightly.yml"
 # Publish jobs whose environment (release) holds CMUX_RELEASE_APP_ID/_KEY, by workflow.
 DEV = ROOT / ".github" / "workflows" / "cmux-next-dev-daily.yml"
 APP_JOBS = {
-    NIGHTLY: {"publish-nightly": "write", "generate-nightly-deltas": "read", "republish-nightly-deltas": "write"},
+    NIGHTLY: {"publish-nightly": "write"},
     DEV: {"publish": "write"},
 }
 APP_INSTALL = re.compile(r"bash (\.gh-tooling/)?scripts/ci/gh_app_token\.sh --install")
@@ -61,7 +61,7 @@ class WorkflowTests(unittest.TestCase):
                         self.assertGreater(i, app[0], (name, s.get("name")))
 
     def test_release_asset_uploads_take_the_app_token_first(self) -> None:
-        for name in ("publish-nightly", "republish-nightly-deltas"):
+        for name in ("publish-nightly",):
             uploads = [s for s in self.workflows[NIGHTLY][name]["steps"]
                        if "publish-release-assets.py" in str(s.get("run", ""))]
             self.assertTrue(uploads, name)
@@ -94,7 +94,7 @@ class WorkflowTests(unittest.TestCase):
     def test_uploaders_run_from_the_workflow_commit(self) -> None:
         # A build checkout may predate GH_APP_TOKEN support; these jobs run the uploaders from
         # .gh-tooling (github.sha) so the App token is read.
-        for name in ("publish-nightly", "republish-nightly-deltas"):
+        for name in ("publish-nightly",):
             steps = self.workflows[NIGHTLY][name]["steps"]
             checkout = next(s for s in steps if s.get("name") == "Checkout the gh token wrapper at the workflow commit")
             for script in ("scripts/ci/publish-release-assets.py",):
