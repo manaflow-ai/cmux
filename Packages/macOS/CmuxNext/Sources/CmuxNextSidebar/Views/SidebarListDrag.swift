@@ -79,6 +79,8 @@ final class SidebarListDrag {
     var restShaped = true
     /// One card drags only: a group keeps its block shape.
     var morphs = false
+    /// The drag's base layout and drop rules, made once per row set and look (`SidebarListView.dragBase`), not per move.
+    var base: (key: SidebarDragBaseKey, layout: SidebarLayout, rules: DropResolver.DragRules?)?
     /// The last drop probe (debug.sidebar_rows "drop"): the card edge that
     /// decided, the row it hit in the base layout and where in that row.
     var probe: SidebarDropProbe?
@@ -109,12 +111,10 @@ final class SidebarListDrag {
     /// The drop for the card at `card` (list coordinates, as drawn over
     /// `displayed`), or nil to keep the last target; records the probe.
     /// Spec 1780d02: the card's centre decides over a loose row, the leading
-    /// edge elsewhere (DropResolver.resolveDrag).
-    func resolve(card: CGRect, displayed: SidebarLayout, base: SidebarLayout, sections: [SidebarSection],
-                 ungroupedFirst: Bool) -> DropTarget?? {
+    /// edge elsewhere (DropResolver.DragRules).
+    func resolve(card: CGRect, displayed: SidebarLayout, base: SidebarLayout, rules: DropResolver.DragRules?) -> DropTarget?? {
         let leading = movingUp ? card.minY : card.maxY
-        guard let resolved = DropResolver.resolveDrag(centreY: card.midY, leadingY: leading, gapY: displayed.gapY, gapHeight: displayed.gapShift,
-                                                      payload: payload, base: base, sections: sections, ungroupedFirst: ungroupedFirst) else {
+        guard let resolved = rules?.resolve(centreY: card.midY, leadingY: leading, gapY: displayed.gapY, gapHeight: displayed.gapShift) else {
             noteProbe(nil, card: card, displayed: displayed, base: base)
             return nil
         }

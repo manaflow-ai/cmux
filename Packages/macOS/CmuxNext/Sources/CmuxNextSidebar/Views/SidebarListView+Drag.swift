@@ -121,14 +121,26 @@ extension SidebarListViewComponents {
         }
         if drag.group != nil { return updateGroupDrag(drag) }
         if drag.docItems != nil { return updateDocDrag(drag, point: point) }
-        let sections = listSections // the held rows as shown (`SidebarRowHold`)
-        let base = SidebarLayout.make(sections: sections, metrics: metrics, options: options(includeGap: false))
-        let resolved = drag.resolve(card: card, displayed: displayed, base: base, sections: sections, ungroupedFirst: model.ungroupedFirst)
+        let (base, rules) = dragBase(drag)
+        let resolved = drag.resolve(card: card, displayed: displayed, base: base, rules: rules)
         guard let target = SidebarGroupDrop.gate(self, drag, card: card, resolved: resolved) else { return }
         guard target != drag.target else { return }
         drag.target = target
         drag.lift.setRefused(target == nil)
         showDragLayout()
+    }
+    /// The drag's base layout (no gap) and its drop rules in the Rust reducer, made again only when the rows or their
+    /// look change: a move lays out nothing and crosses into Rust with the card's points only, so its cost does not grow
+    /// with the rows the list holds (`SidebarDragMoveCostTests`). The rows are the held ones as shown (`SidebarRowHold`).
+    func dragBase(_ drag: Drag) -> (SidebarLayout, DropResolver.DragRules?) {
+        let options = options(includeGap: false)
+        let key = SidebarDragBaseKey(content: model.contentRevision, metrics: metrics, options: options, ungroupedFirst: model.ungroupedFirst)
+        if let base = drag.base, base.key == key { return (base.layout, base.rules) }
+        let sections = listSections
+        let layout = SidebarLayout.make(sections: sections, metrics: metrics, options: options)
+        let rules = DropResolver.DragRules(payload: drag.payload, base: layout, sections: sections, ungroupedFirst: model.ungroupedFirst)
+        drag.base = (key, layout, rules)
+        return (layout, rules)
     }
     func finishDrag(at windowPoint: NSPoint? = nil) {
         guard let drag else { return }
