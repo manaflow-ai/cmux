@@ -6,8 +6,8 @@
 //! Code gives the count a 1 to 3 s deadline it did not keep there. When a turn logs `turn_silent`
 //! (`silent_turn.rs`), acpmux sends SIGTERM to every such listing under the chat's own agent
 //! (found as `ChildAgent::harness_processes` finds them, never from a bare pid, each checked by
-//! pid and start time before its signal) and logs `listing_ended` {turnId, pid, args}: a count
-//! Claude Code loses only reads as unknown.
+//! pid and start time before its signal, and only while that turn still runs silent) and logs
+//! `listing_ended` {turnId, pid, args}: a count Claude Code loses only reads as unknown.
 //! A listing a tool asked for (Glob's `--null`, a `--glob` that picks files) or one with a depth
 //! bound is left alone, as is every process outside the chat's own agent.
 
@@ -54,14 +54,30 @@ pub(super) fn unbounded_listing(argv: &[String]) -> bool {
     true
 }
 
+/// Whether the turn `turn_id` still runs and is still silent, as a listing is about to end:
+/// `silent` is the session's `silent_turn`, `running` its running turn. One that heard its model
+/// or ended while its listings were found leaves them, and the next turn's own, alone.
+pub(super) fn still_silent(silent: Option<&str>, running: Option<&str>, turn_id: &str) -> bool {
+    silent == Some(turn_id) && running == Some(turn_id)
+}
+
 impl Hub {
     /// Ends the unbounded listings under `session`'s agent, as its turn `turn_id` goes silent.
     #[cfg(unix)]
     pub(super) async fn end_silent_listings(&self, session: &Arc<Session>, turn_id: &str) {
         let Some(child) = session.child.lock().await.clone() else { return };
         let procs = child.harness_processes().await;
+        let (watched, turn) = (session.clone(), turn_id.to_owned());
         let ended = tokio::task::spawn_blocking(move || {
-            crate::agent_host::tree::terminate_picked(&procs, unbounded_listing)
+            // Checked for each listing just before its signal, not once for all of them.
+            crate::agent_host::tree::terminate_picked(&procs, |argv| {
+                unbounded_listing(argv) && {
+                    let silent =
+                        watched.silent_turn.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                    let running = watched.turn().map(|t| t.turn_id);
+                    still_silent(silent.as_deref(), running.as_deref(), &turn)
+                }
+            })
         })
         .await
         .unwrap_or_default();
