@@ -101,13 +101,22 @@ extension CloudStartSession {
         }
     }
 
+    /// The refusal's wording, in the strings module's terms (it does not see ``CloudHarnessLoginDecision``).
+    static func loginRefusal(_ reason: CloudHarnessLoginDecision.Reason) -> CloudStartSessionStrings.LoginRefusal {
+        switch reason {
+        case .machineLoginMissing: .machineLoginMissing
+        case .consentFirst: .consentFirst
+        default: .loginNeeded
+        }
+    }
+
     /// Why the relay sends nothing after the machine's login step (`decision`, nil when none ran): the rules refused
     /// it (a run that may not ask, as start-session refuses), or Claude there still has no login (this Mac holds none
     /// of the person's to give it), or the copy failed. Nil sends. Every field is fixed text: no token or provider output.
     static func relayLoginRefusal(_ decision: CloudHarnessLoginDecision?, _ started: Request, machine: String) -> (code: String, message: String)? {
         guard let decision else { return nil }
         let asked = started.asked(machine: machine)
-        if let reason = decision.refusal { return ("cloud.relay.login_refused", CloudStartSessionStrings.loginRefused(reason, asked)) }
+        if let reason = decision.refusal { return ("cloud.relay.login_refused", CloudStartSessionStrings.loginRefused(loginRefusal(reason), asked)) }
         // No login copied to a machine that needs one: none cached on this Mac, or the person said no to the copy of the
         // one it holds (the confirm, or Release's one-time consent: both come only after the cache check).
         if decision.outcome == CloudStartChat.loginDeclined { return ("cloud.relay.login_declined", CloudStartSessionStrings.relayLoginDeclined(asked)) }
