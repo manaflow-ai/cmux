@@ -867,6 +867,8 @@ mod message_recovery_tests {
         let sender_id = sender.id.clone();
         original.detach_child(&sender).await;
         original.store.flush().unwrap();
+        // The first daemon's shutdown seal: the journal's lock passes to the restarted one.
+        original.seal();
         // The restarted daemon has not read its saved sessions yet.
         let restarted = Hub::new_loading(
             config.clone(),
