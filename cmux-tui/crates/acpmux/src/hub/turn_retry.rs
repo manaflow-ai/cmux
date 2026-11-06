@@ -121,19 +121,35 @@ impl Hub {
             return;
         }
         let Some(turn) = session.turn() else { return };
-        // A later retry of a turn already ending, or one a Stop ends: nothing more to end.
+        // A turn a Stop ends needs no end of its own.
         if super::cancel::is_stopping(session, &turn.turn_id) {
             return;
         }
+        // Once per turn: its later retries schedule no second cancel and no second end.
+        {
+            let mut scheduled =
+                session.sign_in_refused_turn.lock().unwrap_or_else(|e| e.into_inner());
+            if scheduled.as_deref() == Some(turn.turn_id.as_str()) {
+                return;
+            }
+            *scheduled = Some(turn.turn_id.clone());
+        }
+        // Read after the tap counted this retry's line (`heard_now`): a new agent for the turn
+        // (a failover keeps its id), or the model answering meanwhile, moves it, and the end is
+        // not carried out (`stalled_gen`, as the stalled end).
+        let generation = session.stalled_gen.load(Ordering::SeqCst);
         tracing::warn!(session = %session.id, turn = %turn.turn_id, attempt, "the model API refused the agent's sign-in: ending its turn");
         let answer = json!({"stopReason": "cancelled", "_meta": {"acpmux": {"signInRefused": {
             "attempt": attempt, "errorStatus": retry.get("errorStatus"), "error": retry.get("error")}}}});
         let session = session.clone();
         let turn_id = turn.turn_id;
-        // Off the tap, as the stalled end: the agent gets the cancel (bounded), then the turn
-        // ends whether it answered or not, while it is still this turn.
+        // Off the tap, as the stalled end: the agent of this very turn gets the cancel (bounded),
+        // then the turn ends whether it answered or not.
         tokio::spawn(async move {
-            let ours = |s: &Session| s.turn().is_some_and(|t| t.turn_id == turn_id);
+            let ours = |s: &Session| {
+                s.stalled_gen.load(Ordering::SeqCst) == generation
+                    && s.turn().is_some_and(|t| t.turn_id == turn_id)
+            };
             let _ = tokio::time::timeout(super::stalled_turn::CANCEL_SEND, async {
                 let child = session.child.lock().await.clone();
                 if ours(&session)
