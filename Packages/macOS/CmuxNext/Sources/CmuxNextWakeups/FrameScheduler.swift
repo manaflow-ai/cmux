@@ -204,9 +204,10 @@ public final class FrameScheduler: NSObject {
         stalls = 0
     }
 
-    /// Drops the link and every client (the window closed).
+    /// Drops the link and every client (the window closed); each client's `dropped` runs once the scheduler is idle.
     public func invalidate() {
-        for client in clients.values { client.detach() }
+        let dropped = Array(clients.values)
+        for client in dropped { client.detach() }
         clients.removeAll()
         budgetedOrder.removeAll()
         stall.cancel()
@@ -215,6 +216,7 @@ public final class FrameScheduler: NSObject {
         // A window shown again (Reopen Closed Window) keeps its scheduler: its next first frame is one refresh.
         (lastTimestamp, lastTarget) = (nil, nil)
         closeObserver = nil
+        for client in dropped { client.droppedNow?() }
     }
 
     // MARK: Frames
