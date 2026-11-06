@@ -30,6 +30,12 @@ enum ClaudeAccountSwitchResult: Equatable, Sendable {
     case agentNotOwnedByPane
     /// A switch for this pane is already in progress.
     case alreadySwitching
+    /// Claude was responding right before the pane would have restarted, and the caller had not
+    /// agreed to stop a response: it started while the switch prepared. Nothing changed.
+    case agentRunning
+    /// The agent-index scan that names the Claude processes running the session failed or timed
+    /// out, so cmux could not confirm the restart would stop them. Nothing changed.
+    case agentIndexUnavailable
     /// The transcript could not be made available to the target account; the pane was left
     /// alone so a fresh conversation never replaces it.
     case transcriptUnavailable

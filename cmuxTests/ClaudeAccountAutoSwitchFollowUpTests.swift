@@ -93,6 +93,8 @@ struct ClaudeAccountAutoSwitchFollowUpTests {
             .remoteUnsupported,
             .agentNotOwnedByPane,
             .alreadySwitching,
+            .agentRunning,
+            .agentIndexUnavailable,
             .transcriptUnavailable,
             .respawnFailed,
         ]

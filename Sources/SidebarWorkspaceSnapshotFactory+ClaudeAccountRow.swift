@@ -36,7 +36,8 @@ extension SidebarWorkspaceSnapshotFactory {
     /// `CLAUDE_CONFIG_DIR`. A pane cmux switched to another account names that account (its
     /// `claudeAccountEnvironment`): the label is the pane's account (spec D9), and the index
     /// learns it only once the resumed Claude starts, or never when no resume ran. Every other
-    /// pane names the account of its live Claude agent in the index.
+    /// pane, and a switched one the index shows running another agent now, names the account of
+    /// its live Claude agent in the index (see ``accountLabelAgent(switchedAccount:indexed:)``).
     func claudeAccountLabels(orderedPanelIds: [UUID]) -> [String] {
         Self.claudeAccountLabels(workspace: workspace, orderedPanelIds: orderedPanelIds)
     }
@@ -61,14 +62,28 @@ extension SidebarWorkspaceSnapshotFactory {
     static func claudeAccountLabels(workspace: Workspace, orderedPanelIds: [UUID]) -> [String] {
         let index = SharedLiveAgentIndex.shared.index
         let agents: [(kind: RestorableAgentKind, environment: [String: String]?)] = orderedPanelIds.compactMap { panelId in
-            if let account = workspace.terminalPanel(for: panelId)?.claudeAccountEnvironment {
-                return (kind: .claude, environment: account.accountEnvironment)
-            }
-            return index?.entry(workspaceId: workspace.id, panelId: panelId).map {
-                (kind: $0.snapshot.kind, environment: $0.snapshot.launchCommand?.environment)
-            }
+            accountLabelAgent(
+                switchedAccount: workspace.terminalPanel(for: panelId)?.claudeAccountEnvironment?.accountEnvironment,
+                indexed: index?.entry(workspaceId: workspace.id, panelId: panelId).map {
+                    (kind: $0.snapshot.kind, environment: $0.snapshot.launchCommand?.environment)
+                }
+            )
         }
         return claudeAccountLabels(agents: agents, homeDirectory: NSHomeDirectory())
+    }
+
+    /// The agent a pane names in account labels, shared by the row and the compact tooltip: the
+    /// account cmux switched the pane to (`switchedAccount`), unless the pane's agent-index entry
+    /// (`indexed`) shows another kind of agent now, which keeps its own environment. A pane with
+    /// no entry yet, or a Claude one, names the switched account: the index learns it late.
+    static func accountLabelAgent(
+        switchedAccount: [String: String]?,
+        indexed: (kind: RestorableAgentKind, environment: [String: String]?)?
+    ) -> (kind: RestorableAgentKind, environment: [String: String]?)? {
+        if let switchedAccount, indexed.map({ $0.kind == .claude }) ?? true {
+            return (kind: .claude, environment: switchedAccount)
+        }
+        return indexed
     }
 
     static func claudeAccountLabels(

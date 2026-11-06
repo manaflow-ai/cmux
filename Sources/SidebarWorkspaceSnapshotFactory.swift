@@ -494,18 +494,19 @@ struct SidebarWorkspaceSnapshotFactory {
 
     /// Unique config-profile labels of the workspace's live agents, in panel order. Compact mode
     /// shows the Claude account here instead of a row, so a pane cmux switched to another account
-    /// names it from the pane, as the row does (``claudeAccountLabels(orderedPanelIds:)``); a
-    /// non-Claude agent in that pane keeps its own profile.
+    /// names it from the pane by the row's rule (``accountLabelAgent(switchedAccount:indexed:)``);
+    /// a non-Claude agent in that pane keeps its own profile.
     private func agentProfileLabels(orderedPanelIds: [UUID]) -> [String] {
         let index = SharedLiveAgentIndex.shared.index
         let home = NSHomeDirectory()
         var labels: [String] = []
         for panelId in orderedPanelIds {
-            let entry = index?.entry(workspaceId: workspace.id, panelId: panelId)
-            let switchedAccount = entry.map { $0.snapshot.kind == .claude } ?? true
-                ? workspace.terminalPanel(for: panelId)?.claudeAccountEnvironment?.accountEnvironment
-                : nil
-            let environment = switchedAccount ?? entry?.snapshot.launchCommand?.environment
+            let environment = Self.accountLabelAgent(
+                switchedAccount: workspace.terminalPanel(for: panelId)?.claudeAccountEnvironment?.accountEnvironment,
+                indexed: index?.entry(workspaceId: workspace.id, panelId: panelId).map {
+                    (kind: $0.snapshot.kind, environment: $0.snapshot.launchCommand?.environment)
+                }
+            )?.environment
             if let label = SidebarAgentProfileLabel.label(environment: environment, homeDirectory: home),
                !labels.contains(label) {
                 labels.append(label)

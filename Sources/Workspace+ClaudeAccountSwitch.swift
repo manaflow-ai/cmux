@@ -85,6 +85,14 @@ extension Workspace {
         hasRunningAgentLifecycle(key: Self.claudeAgentLifecycleKey, panelId: panelId)
     }
 
+    /// Whether restarting the pane now would stop a Claude response nobody agreed to stop: Claude
+    /// is mid-response and the caller did not pass `stopsRunningResponse`. A switch asks this
+    /// right before the restart, because a response can start while it scans and copies.
+    @MainActor
+    func claudeAccountSwitchWouldStopUnapprovedResponse(panelId: UUID, stopsRunningResponse: Bool) -> Bool {
+        !stopsRunningResponse && isClaudeResponseRunning(panelId: panelId)
+    }
+
     /// Whether the pane has a Claude agent. Reads cached agent state only and never loads the
     /// account registry, so it is cheap enough for every command palette refresh.
     @MainActor
@@ -118,7 +126,9 @@ extension Workspace {
     /// A Claude the pane's restart would not stop (inside tmux or screen, in another terminal, or
     /// detached) is refused with ``ClaudeAccountSwitchResult/agentNotOwnedByPane``, and a Claude
     /// that started in the pane while the transcript was copied with
-    /// ``ClaudeAccountSwitchRefusal/noClaudeSession``. The surface then respawns with the
+    /// ``ClaudeAccountSwitchRefusal/noClaudeSession``. When the agent-index scan that names the
+    /// session's live owners fails or times out, the switch is refused with
+    /// ``ClaudeAccountSwitchResult/agentIndexUnavailable``. The surface then respawns with the
     /// target's account keys (see ``ClaudeAccountSwitchSurfaceEnvironment``), the transcript is
     /// synced again once the old Claude has exited, and `claude --resume` is typed into the new
     /// shell once it reports a prompt. A resume that cannot be typed, or must not be because the
@@ -127,21 +137,31 @@ extension Workspace {
     /// pane stays marked as switching until then. Remote panes are refused. Confirming a running
     /// turn is the caller's job; this never asks.
     ///
-    /// - Parameter paneIsFree: For the unattended automatic switch: asked synchronously right
-    ///   before the pane restarts, after every await. `false` (the pane got input or holds an
-    ///   unsent message) leaves the pane alone and returns
-    ///   ``ClaudeAccountSwitchResult/paneInUse``. A manual switch passes nothing.
+    /// - Parameters:
+    ///   - stopsRunningResponse: Whether the caller agreed to stop a response Claude is giving:
+    ///     the socket's `force`, or the menu's confirmation. Without it, a response that started
+    ///     while the switch scanned and copied refuses the switch with
+    ///     ``ClaudeAccountSwitchResult/agentRunning``, checked right before the restart. The
+    ///     automatic switch passes `true`: its own `paneIsFree` decides whether the pane may
+    ///     restart.
+    ///   - paneIsFree: For the unattended automatic switch: asked synchronously right before the
+    ///     pane restarts, after every await. `false` (the pane got input or holds an unsent
+    ///     message) leaves the pane alone and returns ``ClaudeAccountSwitchResult/paneInUse``. A
+    ///     manual switch passes nothing.
     @MainActor
     func switchClaudeAccount(
         panelId: UUID,
         toAccountNamed name: String,
         trigger: ClaudeAccountSwitchTrigger,
+        stopsRunningResponse: Bool,
         paneIsFree: (@MainActor () -> Bool)? = nil
     ) async -> ClaudeAccountSwitchResult {
         guard Self.claudeAccountSwitchInFlightPanelIds.insert(panelId).inserted else {
             return .alreadySwitching
         }
         defer { Self.claudeAccountSwitchInFlightPanelIds.remove(panelId) }
+        // Index scans this switch starts from here on can answer its first owner check.
+        let switchStartedAtUptimeNanoseconds = DispatchTime.now().uptimeNanoseconds
 
         guard let candidate = await claudeAccountSwitchCandidateSnapshot(panelId: panelId) else {
             return .notClaude
@@ -180,11 +200,15 @@ extension Workspace {
         // Restarting the pane stops only a Claude on the pane's own terminal; one in tmux or
         // detached would keep writing this session while the resumed Claude continues it.
         // Checked before the transcript is copied, so a refused switch changes nothing. The
-        // session's live owners come from an index scan started now: a cached index is only a
-        // past observation and would miss a Claude started elsewhere since. One that cannot load
-        // refuses like the index path above.
-        guard let ownersBeforeCopy = await SharedLiveAgentIndex.shared.indexRefreshingNow() else {
-            return .refused(.noClaudeSession)
+        // session's live owners come from an index that read the hook stores after this switch
+        // began (see SharedLiveAgentIndex.indexForOwnershipDecision): a cached index is only a past
+        // observation. A scan the session lookup above ran for this switch qualifies, so this
+        // check then starts none of its own; the check after the copy reads a newer one. A scan
+        // that fails or times out confirms no owner, so it refuses.
+        guard case .index(let ownersBeforeCopy) = await SharedLiveAgentIndex.shared.indexForOwnershipDecision(
+            freshAfterUptimeNanoseconds: switchStartedAtUptimeNanoseconds
+        ) else {
+            return .agentIndexUnavailable
         }
         guard let agentsBeforeCopy = claudeAccountSwitchAgentsOwnedByPane(
             panelId,
@@ -218,10 +242,10 @@ extension Workspace {
             return .transcriptUnavailable
         }
 
-        // Checked again with the agents recorded now and a new scan: they may have changed during
-        // the copy. Nothing is awaited from here to the respawn.
+        // Checked again with the agents recorded now and an index that read the hook stores after
+        // the copy: they may have changed meanwhile. Nothing is awaited from here to the respawn.
         guard let ownersAfterCopy = await SharedLiveAgentIndex.shared.indexRefreshingNow() else {
-            return .refused(.noClaudeSession)
+            return .agentIndexUnavailable
         }
         guard let replacedAgents = claudeAccountSwitchAgentsOwnedByPane(
             panelId,
@@ -236,7 +260,12 @@ extension Workspace {
         guard replacedAgents.startedProcesses(since: agentsBeforeCopy).isEmpty else {
             return .refused(.noClaudeSession)
         }
-        // No await from here to the restart, so what the user did meanwhile is seen.
+        // No await from here to the restart, so what the user did meanwhile is seen. The caller
+        // checked for a response before the scans and the copy; one that started since would die
+        // with the restart.
+        if claudeAccountSwitchWouldStopUnapprovedResponse(panelId: panelId, stopsRunningResponse: stopsRunningResponse) {
+            return .agentRunning
+        }
         if let paneIsFree, !paneIsFree() { return .paneInUse }
         let accountEnvironment = ClaudeAccountSwitchSurfaceEnvironment(
             plan: plan,
