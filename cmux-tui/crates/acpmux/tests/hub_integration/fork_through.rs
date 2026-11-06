@@ -5,6 +5,9 @@
 
 use super::*;
 
+// How long a long chat's fork takes to answer (an ignored bench).
+#[path = "fork_latency.rs"]
+mod fork_latency;
 // Side questions fork the chat too, and share its Claude helpers.
 #[path = "aside.rs"]
 mod aside;

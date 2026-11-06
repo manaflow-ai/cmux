@@ -863,6 +863,19 @@ while True:
             send({"type": "result", "subtype": "success", "result": "flooded", "num_turns": 1,
                   "duration_api_ms": 5, "usage": {"input_tokens": 1, "output_tokens": 1}})
             continue
+        # "burst: N" streams N text deltas, a Read call and its result after every 20th, then
+        # ends the turn: a long chat's log in one prompt (the fork_latency bench).
+        if said.startswith("burst: "):
+            for i in range(int(said[len("burst: "):])):
+                send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                                         "delta": {"type": "text_delta", "text": f"word {i} "}}})
+                if i % 20 == 19:
+                    use = {"type": "tool_use", "id": f"toolu_b{i}", "name": "Read", "input": {"file_path": f"/tmp/f{i}.txt"}}
+                    send({"type": "assistant", "message": {"content": [use]}})
+                    send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": f"toolu_b{i}", "content": "read"}]}})
+            send({"type": "result", "subtype": "success", "result": "burst", "num_turns": 1,
+                  "duration_api_ms": 5, "usage": {"input_tokens": 1, "output_tokens": 1}})
+            continue
         # "/compact" runs Claude Code 2.1.303's compaction: the compacting status, the
         # boundary, the summary as a synthetic user line, the command's stdout, a result.
         if said.strip() == "/compact":
