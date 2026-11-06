@@ -126,7 +126,9 @@ final class KeyboardPinTrace: NSObject {
             parts.append(String(format: "field=%@ fy=%.2f fb=%.2f fx=%.1f fw=%.1f fr=%d",
                                 field.accessibilityIdentifier ?? "?", rect.minY, rect.maxY, rect.minX, rect.width,
                                 field.isFirstResponder ? 1 : 0))
-            fieldSteps.add(time: link.timestamp - start, bottom: rect.maxY)
+            // Timed when read: a late callback still carries its frame's timestamp.
+            let keyboardTop = Self.keyboardRect(in: window)?.minY ?? window.bounds.maxY
+            fieldSteps.add(time: CACurrentMediaTime() - start, bottom: rect.maxY, keyboardTop: keyboardTop)
             if let guide = Self.keyboardGuide(above: field) {
                 let frame = guide.owningView.map { window.convert(guide.layoutFrame, from: $0) } ?? .zero
                 parts.append(String(format: "kg=%.2f kgh=%.1f", frame.minY, frame.height))
@@ -219,40 +221,45 @@ final class KeyboardPinTrace: NSObject {
     }
 }
 
-/// Per-frame steps of the composer field's bottom edge as drawn. A frame is a
-/// jump when the field moves faster than any keyboard animation carries it
-/// (3600 pt/s: 60 pt in a 60 Hz frame; the keyboard's own spring peaks near
-/// 2000 pt/s), or when one step is far larger than the steps on either side
-/// of it: a constraint applied outside the animation moves the field in one
-/// frame, where an animation, even one cut short, accelerates into it.
+/// The composer field's bottom edge and the keyboard's top as drawn, per
+/// frame. A frame is a jump when the field covers more than 30 pt beyond what
+/// the keyboard covered in the same interval, faster than any keyboard
+/// animation moves it (2500 pt/s): a constraint applied outside an animation
+/// moves the field in one frame while the keyboard is elsewhere. Riding the
+/// keyboard, even a keyboard that steps 100 pt in a frame, is never a jump. A
+/// one-frame keyboard excursion over 100 pt (the keyboard's placeholder
+/// reporting its end frame before its animation attaches) is read as the mean
+/// of its neighbours, so a step is judged one frame late.
 struct FieldStepMeter {
     private(set) var jumps = 0
     private(set) var largestJump: CGFloat = 0
-    /// The latest jumps, `t:step`.
+    /// The latest jumps, `t:field step/keyboard step`.
     private(set) var log: [String] = []
-    private var previous: (time: Double, bottom: CGFloat)?
-    /// The last step, waiting for the next one to judge it.
-    private var pending: (time: Double, step: CGFloat, speed: CGFloat, before: CGFloat)?
-    private var lastSpeed: CGFloat = 0
+    private var readings: [(time: Double, field: CGFloat, keyboard: CGFloat)] = []
 
-    mutating func add(time: Double, bottom: CGFloat) {
-        defer { previous = (time, bottom) }
-        guard let previous, time > previous.time else { return }
-        let step = bottom - previous.bottom
-        let speed = abs(step) / CGFloat(time - previous.time)
-        if let pending {
-            let neighbors = max(pending.before, speed)
-            let spike = pending.speed > 1200 && pending.speed > 3 * neighbors
-            if pending.speed > 3600 || spike { record(pending.time, pending.step) }
+    mutating func add(time: Double, bottom: CGFloat, keyboardTop: CGFloat) {
+        readings.append((time, bottom, keyboardTop))
+        guard readings.count >= 3 else { return }
+        if readings.count > 3 { readings.removeFirst() }
+        let (a, b, c) = (readings[0], readings[1], readings[2])
+        var keyboard = b.keyboard
+        if abs(b.keyboard - a.keyboard) > 100, abs(b.keyboard - c.keyboard) > 100,
+           (b.keyboard - a.keyboard) * (b.keyboard - c.keyboard) > 0 {
+            keyboard = (a.keyboard + c.keyboard) / 2
+            readings[1].keyboard = keyboard
         }
-        pending = (time, step, speed, lastSpeed)
-        lastSpeed = speed
+        let interval = max(b.time - a.time, 1.0 / 60)
+        let fieldStep = b.field - a.field
+        let keyboardStep = keyboard - a.keyboard
+        if abs(fieldStep - keyboardStep) > 30, abs(fieldStep) / CGFloat(interval) > 2500 {
+            record(b.time, fieldStep, keyboardStep)
+        }
     }
 
-    private mutating func record(_ time: Double, _ step: CGFloat) {
+    private mutating func record(_ time: Double, _ step: CGFloat, _ keyboardStep: CGFloat) {
         jumps += 1
         largestJump = max(largestJump, abs(step))
-        log.append(String(format: "%.2f:%.0f", time, step))
+        log.append(String(format: "%.2f:%.0f/%.0f", time, step, keyboardStep))
         if log.count > 8 { log.removeFirst(log.count - 8) }
     }
 }
