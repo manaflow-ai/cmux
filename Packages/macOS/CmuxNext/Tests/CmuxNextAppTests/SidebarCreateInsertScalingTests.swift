@@ -107,4 +107,37 @@ import Testing
             #expect(list.displayed == Self.fullLayout(h), "second insert at \(index), selects \(selects), by computer \(byComputer)")
         }
     }
+
+    /// An archived group leaves its list for "Archive (N)" at the bottom (`splittingArchive`): opened, its header row
+    /// there is no place for a row inserted right before its node (review of #37139).
+    @Test func anInsertBeforeAnArchivedGroupStaysInItsList() {
+        var group = SidebarGroup(id: GroupID("ci-ag"), name: "archived", workspaces: [
+            SidebarWorkspace(id: WorkspaceID("ci-a0"), title: "member 0"), SidebarWorkspace(id: WorkspaceID("ci-a1"), title: "member 1"),
+        ])
+        group.isArchived = true
+        let h = Self.make(10, extra: [.group(group), .workspace(SidebarWorkspace(id: WorkspaceID("ci-after"), title: "after"))])
+        defer { h.window.close() }
+        h.sidebar.list.openDoneFolds.insert(.archive)
+        h.sidebar.list.reload(animated: false)
+        Self.insert(h, at: 10)
+        let list = h.sidebar.list
+        #expect(list.displayed.row(for: .workspace(Self.created)) != nil)
+        #expect(list.displayed == Self.fullLayout(h), "the row went under Archive")
+    }
+
+    /// An archived group keeps its place in its list while it holds the selection (`splittingArchive`): a create that
+    /// moves the selection out of it sends the group to the Archive (review of #37139).
+    @Test func anInsertThatTakesTheSelectionFromAnArchivedGroupArchivesIt() {
+        var group = SidebarGroup(id: GroupID("ci-sg"), name: "archived", workspaces: [
+            SidebarWorkspace(id: WorkspaceID("ci-s0"), title: "member 0"), SidebarWorkspace(id: WorkspaceID("ci-s1"), title: "member 1"),
+        ])
+        group.isArchived = true
+        let h = Self.make(10, extra: [.group(group)])
+        defer { h.window.close() }
+        h.model.activeWorkspaceID = WorkspaceID("ci-s0")
+        h.sidebar.renderNow()
+        #expect(h.sidebar.list.displayed.row(for: .group(GroupID("ci-sg"))) != nil, "the group holding the selection is listed")
+        Self.insert(h, at: 3)
+        #expect(h.sidebar.list.displayed == Self.fullLayout(h), "the group stayed in its list")
+    }
 }
