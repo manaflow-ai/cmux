@@ -42,6 +42,7 @@ below are for slots, pull requests and built bundles. Agents in cmux learn all o
 | The shipped pages back | `scripts/cmux-next/web-overlay.sh off` (ignores the file; run `server off` first to stop the server) |
 | Your Rust edits to the daemon live, terminals kept | `cmux live start --rust [--build-host HOST]` ([below](#the-daemons-rust-live)) |
 | What's running | `cmux live status` |
+| Your Swift live too, in a tagged build | `cmux live start --swift` restarts it into the live code build of its commit, sessions kept, and patches your edits in and every save; `cmux live stop --swift` restarts into the optimized build of your edits ([live-code.md](live-code.md#live-mode-restart-into-the-live-code-build-and-back)) |
 | Turn the feature off | Settings > General > **Live Web Reload**, or `cmux settings set updates.liveWebReload false` |
 
 ## On and off

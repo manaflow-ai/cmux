@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1326,
+    "entries": 1327,
     "shortcuts": 189
   },
   "sections": [
@@ -38,6 +38,12 @@
           "title": "Automations",
           "shortcut": null,
           "command": "cmux automation show-page"
+        },
+        {
+          "id": "home.compareTablePlayground",
+          "title": "Before/After Table Playground",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "home.chatColors",

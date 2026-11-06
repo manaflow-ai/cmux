@@ -173,6 +173,7 @@ mod seen;
 mod session;
 pub(crate) mod session_pages;
 mod settings_watch;
+mod silent_listing;
 mod silent_turn;
 mod stalled_turn;
 mod start_retry;
@@ -473,6 +474,9 @@ pub struct PromptOptions {
     pub interrupt_turn: Option<String>,
     /// Who sent the prompt, when not the person (`prompt_provenance.rs`).
     pub provenance: Option<Value>,
+    /// Connection proof that a person authored this prompt. A `person_message` kind alone is not
+    /// enough: local clients may supply that shape without the authenticated person handshake.
+    pub human_authenticated: bool,
     /// Sender identity carried across a peer link. Provenance is intentionally removed at that
     /// boundary, but the additive message event still needs the sender's stable identity.
     pub message_sender: Option<Value>,
@@ -752,6 +756,10 @@ pub struct Hub {
     /// Tests only: pause a retry's task before it sets its wait (`auto_resume.rs`).
     #[cfg(test)]
     pub(super) retry_seam: full_access_bound::WriteSeam,
+    /// Tests only: pause an unstarted turn's end between its shutdown check and its write
+    /// (`start_retry.rs` `fail_unless_shutdown_settles`); it blocks its thread.
+    #[cfg(test)]
+    pub(super) settle_seam: full_access_bound::WriteSeam,
     /// Tests only: delay a Stop before its notification reaches the child writer.
     #[cfg(test)]
     pub(super) cancel_write_seam: Arc<full_access_bound::WriteSeam>,
@@ -1016,6 +1024,8 @@ impl Hub {
             purge_seam: Default::default(),
             #[cfg(test)]
             retry_seam: Default::default(),
+            #[cfg(test)]
+            settle_seam: Default::default(),
             harness_watch: Default::default(),
             settings_watch: Default::default(),
             git_watch: Default::default(),
@@ -1404,6 +1414,7 @@ impl Hub {
             cancels: AtomicU64::new(0),
             start_retry_wake: Notify::new(),
             start_retry_waits: AtomicBool::new(false),
+            start_retry_cancels: AtomicU64::new(start_retry::NO_RETRY),
             cancel_forced_turn: StdMutex::new(None),
             unwritten_prompt: StdMutex::new(None),
             cancel_forced_result_turn: StdMutex::new(None),
