@@ -97,3 +97,16 @@ test("reuses the unchanged prefix when a streamed row changes", () => {
   expect(updated[0]).toBe(shaped[0]);
   expect(updated[1]).toBe(changedSecond);
 });
+
+test("a reused live projection drops the old last row's quiet thought once a row follows it", () => {
+  // While the chat works, the last row keeps its quiet thought (it may still stream). A new row
+  // after it makes that row settled history, so the reused prefix must not keep its live shape.
+  const streaming = step("a", [call, thought("Hm", 0, 0)]);
+  const initial = [streaming];
+  expect(withoutQuietThoughts(initial, true)[0]!.items).toHaveLength(2);
+  const next = [streaming, reply];
+  const updated = withoutQuietThoughts(next, true, initial, 1);
+  expect(updated.map((row) => row.id)).toEqual(["a", "reply"]);
+  expect(updated[0]!.items).toEqual([call]);
+  expect(updated).toEqual(withoutQuietThoughts(next, true));
+});
