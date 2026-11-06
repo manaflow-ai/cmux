@@ -225,7 +225,7 @@ fn a_chat_made_again_after_its_delete_keeps_its_files_through_a_replay() {
 /// The store an older build (no event journal: the logs alone, as a downgrade runs) opens on
 /// `home`.
 fn open_older_build(home: &Path) -> Box<dyn Store> {
-    let store = LocalStore::new(home.to_path_buf(), config().segment_bytes)
+    let store = LocalStore::new(home.join("sessions"), config().segment_bytes)
         .unwrap_or_else(|e| panic!("open the store as an older build: {e:#}"));
     Box::new(store)
 }

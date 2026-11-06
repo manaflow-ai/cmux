@@ -441,7 +441,7 @@ fn metadata_an_older_build_wrote_after_a_kill_survives_the_replay() {
     assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
     let killed = journal.restart(Crash::Process);
     drop(store);
-    let older = LocalStore::new(home.path().to_path_buf(), config().segment_bytes)
+    let older = LocalStore::new(home.path().join("sessions"), config().segment_bytes)
         .unwrap_or_else(|e| panic!("open the store as an older build: {e:#}"));
     older.save(&meta(CHAT, "three", 1)).unwrap_or_else(|e| panic!("{e:#}"));
     drop(older);
@@ -469,7 +469,7 @@ fn a_chat_an_older_build_deleted_after_a_kill_is_not_made_again() {
     assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
     let killed = journal.restart(Crash::Process);
     drop(store);
-    let older = LocalStore::new(home.path().to_path_buf(), config().segment_bytes)
+    let older = LocalStore::new(home.path().join("sessions"), config().segment_bytes)
         .unwrap_or_else(|e| panic!("open the store as an older build: {e:#}"));
     older.delete(CHAT).unwrap_or_else(|e| panic!("{e:#}"));
     drop(older);
