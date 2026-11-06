@@ -18,3 +18,13 @@ public nonisolated struct CloudStartFolderGone: Error, Equatable {
         await CloudMoveFolder.isFolder(root) ? failure : CloudStartFolderGone(folder: folder)
     }
 }
+
+public extension CloudMoveFailure {
+    /// A chat start's failed copy as the composer reports it, with `retry`. A failure already in the person's words keeps
+    /// them (the machine's socket did not answer: ``CloudMoveStrings/notConnected(_:)``); any other error is the copy's
+    /// own, read by `text`. Wrapped as a copy error, the socket's failure showed as a Swift value (run 42157718918).
+    static func copying(_ error: any Error, machine: String, retry: CloudMoveRetries.Retry, text: (any Error) -> String) -> CloudMoveFailure {
+        if let failure = error as? CloudMoveFailure { return CloudMoveFailure(message: failure.message, retry: retry) }
+        return CloudMoveFailure(message: CloudMoveStrings.syncFailed(machine, text(error)), retry: retry)
+    }
+}

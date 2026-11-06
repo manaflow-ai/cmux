@@ -157,7 +157,7 @@ struct CloudStartChat {
             } answer: { ($0.0.ok, $0.0.errorCode, $0.0.side) } update: { await CloudMachineUpdates.updateNow(machine.machineID, services: services) }
         } catch {
             // Timed out or didn't launch: Retry copies again on this machine, into a new folder.
-            throw await CloudStartFolderGone.or(CloudMove.Failure(message: CloudMoveStrings.syncFailed(name, CloudStrings.errorText(error)), retry: again), root: folder.root, folder: folderName)
+            throw await CloudStartFolderGone.or(CloudMove.Failure.copying(error, machine: name, retry: again, text: CloudStrings.errorText), root: folder.root, folder: folderName)
         }
         report(.init(name: "folder", folder: folderName, machine: name, size: size,
                      cloneState: copy.0.seedState, clonePhase: copy.0.seedPhase,
