@@ -2,6 +2,7 @@
 import AppKit
 import CmuxCUEngine
 import Foundation
+import ScreenCaptureKit
 
 // cmux-cu-service [serve] [--socket PATH]   the engine on its per-user socket
 // cmux-cu-service stdio                     one MCP session on stdin/stdout,
@@ -39,7 +40,18 @@ case "status", "grant":
     let prompt = mode == "grant"
     let ax = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": prompt] as CFDictionary)
     var screen = CGPreflightScreenCaptureAccess()
-    if prompt, !screen { screen = CGRequestScreenCaptureAccess() }
+    if prompt, !screen {
+        screen = CGRequestScreenCaptureAccess()
+        // macOS 15+ lists an app under Screen & System Audio Recording only
+        // once it asks ScreenCaptureKit itself; ask, and report what it says.
+        let asked = DispatchSemaphore(value: 0)
+        SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: true) { _, error in
+            if let error { print("screen_capture_kit=\(error.localizedDescription)") }
+            asked.signal()
+        }
+        _ = asked.wait(timeout: .now() + 10)
+        screen = CGPreflightScreenCaptureAccess()
+    }
     print("accessibility=\(ax ? "granted" : "missing") screen_recording=\(screen ? "granted" : "missing")")
     exit(ax && screen ? 0 : 3)
 case "stdio":
