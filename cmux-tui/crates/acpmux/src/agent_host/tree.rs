@@ -101,11 +101,21 @@ pub fn kill_still_running(procs: &[Started]) {
 
 /// SIGTERM each process under `roots` whose argv `pick` takes, if it still runs as the same
 /// process; returns the pid and argv of each one signalled (`hub/silent_listing.rs`).
-pub fn terminate_under(
-    _roots: &[u32],
-    _pick: impl Fn(&[String]) -> bool,
-) -> Vec<(u32, Vec<String>)> {
-    Vec::new()
+pub fn terminate_under(roots: &[u32], pick: impl Fn(&[String]) -> bool) -> Vec<(u32, Vec<String>)> {
+    let mut ended = Vec::new();
+    for p in descendants(roots) {
+        let Some(args) = argv(p.pid).filter(|a| pick(a)) else { continue };
+        let table = process_table();
+        if !table.iter().any(|now| now.pid == p.pid && now.start == p.start) {
+            continue;
+        }
+        let Ok(pid) = i32::try_from(p.pid) else { continue };
+        // SAFETY: the pid runs with the start time it had under `roots`.
+        if unsafe { libc::kill(pid, libc::SIGTERM) } == 0 {
+            ended.push((p.pid, args));
+        }
+    }
+    ended
 }
 
 /// A live process running under a harness, for the idle census (`hub/idle_census.rs`).
