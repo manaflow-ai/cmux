@@ -72,6 +72,12 @@ export function OverlayDialog({ dialog, onEdit, onPress, onLayout }: OverlayDial
     initial.current = node?.querySelector<HTMLElement>("input[type=text], input[type=password]") ?? node;
   };
 
+  // Shown again after its tab was hidden: the focus goes back where the dialog opens, never a button.
+  const shown = dialog.shown ?? 1;
+  useLayoutEffect(() => {
+    if (shown > 1) initial.current?.focus();
+  }, [shown]);
+
   // A key the host answered asked the focus to move.
   const focusSerial = dialog.focus?.serial ?? 0;
   const focusBackward = dialog.focus?.backward ?? false;
@@ -242,12 +248,15 @@ function Field({
   }
 }
 
-/** The card's controls in the order the person sees them: fields, then buttons left to right, then
- * the quiet row and the trailing check boxes. */
+/** The card's controls in the order the person sees them: top to bottom, then left to right (a
+ * stacked button row draws the default first, the reverse of its DOM order). */
 function focusables(card: HTMLElement): HTMLElement[] {
-  return [...card.querySelectorAll<HTMLElement>("input, select, button")].filter(
+  const controls = [...card.querySelectorAll<HTMLElement>("input, select, button")].filter(
     (node) => !(node as HTMLInputElement).disabled,
   );
+  const place = new Map(controls.map((node) => [node, node.getBoundingClientRect()]));
+  // Stable: controls on one line keep their DOM order.
+  return controls.sort((a, b) => place.get(a)!.top - place.get(b)!.top || place.get(a)!.left - place.get(b)!.left);
 }
 
 function moveFocus(card: HTMLElement, backward: boolean) {

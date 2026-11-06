@@ -34,7 +34,10 @@ public final class OverlayDialogDrawing: CmuxDialogDrawing {
     }
 
     public func focus(_ dialog: CmuxDialogPresentation) {
-        views[ObjectIdentifier(dialog)]?.page.focusPage()
+        guard let shown = views[ObjectIdentifier(dialog)] else { return }
+        shown.page.focusPage()
+        // Shown again (a tab switch): the card's own focus goes back to where a dialog opens.
+        pool.provider(of: shown.page)?.resetFocus(dialog)
     }
 
     public func detach(_ dialog: CmuxDialogPresentation) {
@@ -63,6 +66,7 @@ final class OverlayDialogProvider: PageProvider, CmuxDialogRendering {
     func show(_ dialog: CmuxDialogPresentation?) {
         self.dialog = dialog
         focusSerial = 0
+        shows = 0
         publish()
     }
 
@@ -70,6 +74,15 @@ final class OverlayDialogProvider: PageProvider, CmuxDialogRendering {
     func retire() {
         dialog = nil
         container = nil
+    }
+
+    /// Bumped by each show after the first, so the page puts its focus back to the opening one.
+    private var shows = 0
+
+    func resetFocus(_ dialog: CmuxDialogPresentation) {
+        guard dialog === self.dialog else { return }
+        shows += 1
+        if shows > 1 { publish() }
     }
 
     func dialogValuesChanged(_ dialog: CmuxDialogPresentation) {
@@ -93,9 +106,12 @@ final class OverlayDialogProvider: PageProvider, CmuxDialogRendering {
             guard let button = params["button"]?.stringValue else { throw PageError.invalidParams(op) }
             dialog.press(button, values: Self.values(params["values"]))
         case "cmux.overlay.dialog.layout":
-            // CSS px from the page's top-left; the view is flipped (AppKit's bottom-left origin is not).
-            guard let card = params["card"], let x = card["x"]?.doubleValue, let y = card["y"]?.doubleValue,
-                  let w = card["w"]?.doubleValue, let h = card["h"]?.doubleValue else { throw PageError.invalidParams(op) }
+            // CSS px from the page's top-left, in points at the page's zoom (the interface scale); the view
+            // is flipped only when AppKit's bottom-left origin is not.
+            guard let card = params["card"], let cssX = card["x"]?.doubleValue, let cssY = card["y"]?.doubleValue,
+                  let cssW = card["w"]?.doubleValue, let cssH = card["h"]?.doubleValue else { throw PageError.invalidParams(op) }
+            let zoom = max(container?.page.pageZoom ?? 1, 0.01)
+            let (x, y, w, h) = (cssX * zoom, cssY * zoom, cssW * zoom, cssH * zoom)
             let height = dialog.view?.bounds.height ?? 0
             let rect = CGRect(x: x, y: (dialog.view?.isFlipped ?? false) ? y : height - y - h, width: w, height: h)
             dialog.cardRect = rect
@@ -124,8 +140,13 @@ final class OverlayDialogProvider: PageProvider, CmuxDialogRendering {
 
     private var state: JSONValue {
         guard let dialog else { return ["dialog": .null] }
-        return ["dialog": Self.wire(dialog, focus: focusSerial == 0 ? .null : ["serial": .number(Double(focusSerial)),
-                                                                              "backward": .bool(focusBackward)])]
+        var wire = Self.wire(dialog, focus: focusSerial == 0 ? .null : ["serial": .number(Double(focusSerial)),
+                                                                       "backward": .bool(focusBackward)])
+        if case .object(var object) = wire {
+            object["shown"] = .number(Double(max(shows, 1)))
+            wire = .object(object)
+        }
+        return ["dialog": wire]
     }
 
     static func wire(_ dialog: CmuxDialogPresentation, focus: JSONValue) -> JSONValue {

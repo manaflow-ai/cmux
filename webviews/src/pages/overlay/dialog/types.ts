@@ -49,6 +49,9 @@ export interface DialogState {
   identifier?: string;
   /** A key asked the focus to move: once per serial. */
   focus: { serial: number; backward: boolean } | null;
+  /** How many times the dialog has shown (a tab switch hides and shows it): each new show puts the
+   * focus back where the dialog opens. */
+  shown?: number;
 }
 
 export interface DialogStream {

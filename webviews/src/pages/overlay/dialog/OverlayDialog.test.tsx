@@ -172,3 +172,17 @@ test("a standard dialog shows each button's key and tells the host its card", as
   expect(host.querySelector('[data-button="keep"]')?.getAttribute("aria-keyshortcuts")).toBe("Return");
   expect(layouts.length).toBeGreaterThan(0);
 });
+
+test("shown again after a tab switch, the focus goes back to the first text field", async () => {
+  const { host } = await render(quit);
+  const field = host.querySelector('[data-field="note"]') as HTMLInputElement;
+  const keep = host.querySelector('[data-button="keep"]') as HTMLButtonElement;
+  act(() => keep.focus());
+  expect(dom!.window.document.activeElement).toBe(keep);
+  await act(async () => {
+    root!.render(
+      <OverlayDialog dialog={{ ...quit, shown: 2 }} onPress={() => {}} onEdit={() => {}} onLayout={() => {}} />,
+    );
+  });
+  expect(dom!.window.document.activeElement).toBe(field);
+});
