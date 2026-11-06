@@ -88,8 +88,14 @@ impl MacDesktop {
         }
     }
 
-    fn apps_by_pid(&self) -> HashMap<i32, workspace::RunningApp> {
-        workspace::running_apps().unwrap_or_default().into_iter().map(|a| (a.pid, a)).collect()
+    /// The apps that own the given windows, looked up fresh by pid
+    /// (NSRunningApplication), so the answer never waits on a run loop.
+    /// Computer Use works on windows, so the window server's window owners
+    /// are the apps it can see: no process list is read.
+    fn apps_of(&self, windows: &[CgWindow]) -> HashMap<i32, workspace::RunningApp> {
+        let pids: HashSet<i32> =
+            windows.iter().filter(|w| w.is_app_window()).map(|w| w.pid).collect();
+        pids.into_iter().filter_map(|pid| workspace::app_for_pid(pid).map(|a| (pid, a))).collect()
     }
 
     fn request_direct(&self, which: &str) -> DResult<()> {
@@ -133,6 +139,9 @@ impl MacDesktop {
         let mut focused_done = false;
         let mut out = Vec::new();
         for w in cg.into_iter().filter(CgWindow::is_app_window) {
+            // A window without a known app has no identity the policy can
+            // match (deny list, approvals): leave it out rather than guess.
+            let Some(app) = apps.get(&w.pid) else { continue };
             let needs_ax = !w.on_screen || w.title.is_empty();
             let state = if needs_ax {
                 ax_states
@@ -148,8 +157,7 @@ impl MacDesktop {
             }
             let focused = !focused_done && w.on_screen && Some(w.pid) == frontmost;
             focused_done |= focused;
-            let app_id =
-                apps.get(&w.pid).map_or_else(|| workspace::app_id_for_pid(w.pid), |a| a.id());
+            let app_id = app.id();
             let (ax_title, minimized) = state.unwrap_or_default();
             out.push(Window {
                 id: w.id.to_string(),
@@ -187,14 +195,17 @@ impl Desktop for MacDesktop {
     }
 
     fn list_apps(&self) -> DResult<Vec<App>> {
-        let with_windows: HashSet<i32> = cgwindows::on_screen()
+        let on_screen: HashSet<i32> = cgwindows::on_screen()
             .into_iter()
             .filter(CgWindow::is_app_window)
             .map(|w| w.pid)
             .collect();
-        let mut apps: Vec<App> = workspace::running_apps()?
-            .into_iter()
-            .filter(|a| a.is_regular() || (a.is_accessory() && with_windows.contains(&a.pid)))
+        // Every window (hidden apps keep theirs off screen); an accessory
+        // app (menu bar extra, agent) counts only with a window on screen.
+        let mut apps: Vec<App> = self
+            .apps_of(&cgwindows::all())
+            .into_values()
+            .filter(|a| a.is_regular() || (a.is_accessory() && on_screen.contains(&a.pid)))
             .map(|a| App {
                 id: a.id(),
                 name: a.name,
@@ -208,8 +219,9 @@ impl Desktop for MacDesktop {
     }
 
     fn list_windows(&self) -> DResult<Vec<Window>> {
-        let apps = self.apps_by_pid();
-        Ok(self.windows_from(cgwindows::all(), &apps))
+        let windows = cgwindows::all();
+        let apps = self.apps_of(&windows);
+        Ok(self.windows_from(windows, &apps))
     }
 
     fn capture(&self, target: &CaptureTarget) -> DResult<RawFrame> {

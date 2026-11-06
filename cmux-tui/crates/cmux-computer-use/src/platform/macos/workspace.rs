@@ -11,7 +11,7 @@ use objc2::msg_send;
 use objc2::rc::{Retained, autoreleasepool};
 use objc2::runtime::{AnyClass, AnyObject, Bool};
 
-use super::sys::{Cf, process_name};
+use super::sys::Cf;
 use crate::desktop::{DResult, DesktopError};
 
 /// How long launch_app waits for the app to report it started.
@@ -25,6 +25,8 @@ const POLICY_ACCESSORY: isize = 1;
 pub struct RunningApp {
     pub pid: i32,
     pub bundle_id: Option<String>,
+    /// The executable's file name (`executableURL`).
+    pub executable: Option<String>,
     pub name: String,
     pub policy: isize,
     pub active: bool,
@@ -37,7 +39,7 @@ impl RunningApp {
         self.bundle_id
             .clone()
             .filter(|b| !b.is_empty())
-            .or_else(|| process_name(self.pid))
+            .or_else(|| self.executable.clone())
             .unwrap_or_else(|| format!("pid:{}", self.pid))
     }
 
@@ -83,38 +85,24 @@ fn describe(app: &AnyObject) -> Option<RunningApp> {
         let active: Bool = msg_send![app, isActive];
         let hidden: Bool = msg_send![app, isHidden];
         let bundle_id = ns_string(msg_send![app, bundleIdentifier]);
+        let url: Option<Retained<AnyObject>> = msg_send![app, executableURL];
+        let executable = url
+            .and_then(|u| ns_string(msg_send![&*u, lastPathComponent]))
+            .filter(|s| !s.is_empty());
         let name = ns_string(msg_send![app, localizedName])
-            .or_else(|| process_name(pid))
+            .filter(|s| !s.is_empty())
+            .or_else(|| executable.clone())
             .unwrap_or_default();
         Some(RunningApp {
             pid,
             bundle_id,
+            executable,
             name,
             policy,
             active: active.as_bool(),
             hidden: hidden.as_bool(),
         })
     }
-}
-
-/// Every running app (any activation policy).
-pub fn running_apps() -> DResult<Vec<RunningApp>> {
-    autoreleasepool(|_| {
-        let ws = shared_workspace()?;
-        // SAFETY: -runningApplications returns an NSArray of NSRunningApplication.
-        let list: Option<Retained<AnyObject>> = unsafe { msg_send![&*ws, runningApplications] };
-        let Some(list) = list else { return Ok(Vec::new()) };
-        // SAFETY: NSArray -count / -objectAtIndex: within bounds.
-        let count: usize = unsafe { msg_send![&*list, count] };
-        let mut out = Vec::with_capacity(count);
-        for i in 0..count {
-            let app: Option<Retained<AnyObject>> = unsafe { msg_send![&*list, objectAtIndex: i] };
-            if let Some(info) = app.as_deref().and_then(describe) {
-                out.push(info);
-            }
-        }
-        Ok(out)
-    })
 }
 
 /// The app of one pid, fresh from the system (also when the workspace's
@@ -195,11 +183,4 @@ fn start_launch(bundle_id: &str) -> DResult<mpsc::Receiver<LaunchResult>> {
         ];
     }
     Ok(rx)
-}
-
-/// The bundle id of a pid's app, else its executable name.
-pub fn app_id_for_pid(pid: i32) -> String {
-    app_for_pid(pid)
-        .map(|a| a.id())
-        .unwrap_or_else(|| process_name(pid).unwrap_or_else(|| format!("pid:{pid}")))
 }

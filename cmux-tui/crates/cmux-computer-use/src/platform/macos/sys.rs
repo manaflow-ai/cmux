@@ -406,16 +406,3 @@ pub fn symbol(name: &CStr) -> Option<*mut c_void> {
     let p = unsafe { libc::dlsym(libc::RTLD_DEFAULT, name.as_ptr()) };
     (!p.is_null()).then_some(p)
 }
-
-/// The executable file name of a process (`proc_pidpath`).
-pub fn process_name(pid: i32) -> Option<String> {
-    let mut buf = vec![0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
-    // SAFETY: the buffer is PROC_PIDPATHINFO_MAXSIZE bytes long.
-    let n = unsafe { libc::proc_pidpath(pid, buf.as_mut_ptr().cast(), buf.len() as u32) };
-    if n <= 0 {
-        return None;
-    }
-    buf.truncate(n as usize);
-    let path = String::from_utf8_lossy(&buf).into_owned();
-    path.rsplit('/').next().filter(|s| !s.is_empty()).map(str::to_string)
-}
