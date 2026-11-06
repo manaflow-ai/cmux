@@ -152,7 +152,9 @@ import Testing
         }
         let before = run(windowed: false)
         let after = run(windowed: true)
-        print("MEMBENCH agent-chat turns=1000 reply=16KB before=\(before.live >> 10)KB held=\(before.held) after=\(after.live >> 10)KB held=\(after.held)")
+        let line = "MEMBENCH agent-chat turns=1000 reply=16KB before=\(before.live >> 10)KB held=\(before.held) after=\(after.live >> 10)KB held=\(after.held)"
+        print(line)
+        Attachment.record(line, named: "membench.txt")
         #expect(after.held <= AgentChatStore.windowTrigger)
         #expect(before.held == 1000)
         #expect(after.live < before.live / 4)

@@ -130,7 +130,9 @@ import Testing
         }
         let dropped = run(spilling: false)
         let spilled = run(spilling: true)
-        print("MEMBENCH feed events=3000 body=8KB window=\(FeedStore.memoryLimit) dropped=\(dropped.live >> 10)KB onDisk=\(dropped.onDisk) spilled=\(spilled.live >> 10)KB onDisk=\(spilled.onDisk)")
+        let line = "MEMBENCH feed events=3000 body=8KB window=\(FeedStore.memoryLimit) dropped=\(dropped.live >> 10)KB onDisk=\(dropped.onDisk) spilled=\(spilled.live >> 10)KB onDisk=\(spilled.onDisk)"
+        print(line)
+        Attachment.record(line, named: "membench.txt")
         #expect(dropped.onDisk == 0)
         #expect(spilled.onDisk == 2500)
         // A partial page (under 100 events of 8 KB) and the spilled ids, at most.
