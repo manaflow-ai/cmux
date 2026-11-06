@@ -13,7 +13,7 @@ import QuartzCore
 /// shows no indicator), the program's own status words and its memory with the last seconds of
 /// CPU as bars, then the thumbnail (Full previews). 13 pt rows on one leading edge.
 final class TabHoverCardView: NSView {
-    private static var padding: CGFloat { Metrics.space4 }
+    private static var padding: CGFloat { HoverCardStyle.shared.padding }
     static var thumbnailSize: CGSize {
         // 16:10, as wide as a full tab.
         CGSize(width: Metrics.tabMaxWidth, height: (Metrics.tabMaxWidth * 10 / 16).rounded())
@@ -56,7 +56,7 @@ final class TabHoverCardView: NSView {
     init() {
         super.init(frame: .zero)
         let content = self
-        titleLabel.font = Typography.bodyEmphasized
+        titleLabel.font = HoverCardStyle.shared.titleFont
         titleLabel.maximumNumberOfLines = 2
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.preferredMaxLayoutWidth = Self.cardWidth - 2 * Self.padding
@@ -68,7 +68,7 @@ final class TabHoverCardView: NSView {
         thumbnail.layer?.contentsGravity = .resizeAspectFill
         rows.orientation = .vertical
         rows.alignment = .leading
-        rows.spacing = Metrics.space2
+        rows.spacing = HoverCardStyle.shared.rowGap
         for row in [placeRow, statusRow, detailRow, memoryRow] {
             row.isHidden = true
             rows.addArrangedSubview(row)
@@ -98,8 +98,8 @@ final class TabHoverCardView: NSView {
             thumbnail.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -p),
         ])
         let leading = titleLabel.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: p)
-        let rowsTop = rows.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: Metrics.space2)
-        let top = thumbnail.topAnchor.constraint(equalTo: rows.bottomAnchor, constant: Metrics.space4)
+        let rowsTop = rows.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: HoverCardStyle.shared.titleGap)
+        let top = thumbnail.topAnchor.constraint(equalTo: rows.bottomAnchor, constant: HoverCardStyle.shared.mediaGap)
         let height = thumbnail.heightAnchor.constraint(equalToConstant: Self.thumbnailSize.height)
         let trailing = titleLabel.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -p)
         NSLayoutConstraint.activate([leading, rowsTop, top, height, trailing])
@@ -234,14 +234,15 @@ final class TabHoverCardView: NSView {
     private func set(_ row: HoverCardRowView, _ content: HoverCardRowContent?, icon: NSImage?,
                      truncation: NSLineBreakMode = .byTruncatingTail) {
         if let content, !content.text.isEmpty {
-            let live = Typography.system(.monospacedDigit, size: Typography.body.pointSize, weight: .regular)
-            row.configure(content, image: icon, font: row === statusRow || row === memoryRow ? live : Typography.body,
+            let style = HoverCardStyle.shared
+            let live = Typography.system(.monospacedDigit, size: style.secondaryFont.pointSize, weight: .regular)
+            row.configure(content, image: icon, font: row === statusRow || row === memoryRow ? live : style.secondaryFont,
                           wrapWidth: Self.cardWidth - 2 * Self.padding - Self.iconSize - Metrics.space2, truncation: truncation)
             row.isHidden = false
         } else {
             row.isHidden = true
         }
-        rowsTop?.constant = rows.arrangedSubviews.allSatisfy(\.isHidden) ? 0 : Metrics.space2
+        rowsTop?.constant = rows.arrangedSubviews.allSatisfy(\.isHidden) ? 0 : HoverCardStyle.shared.titleGap
     }
 
     /// Shows the tab's state trailing the title, which gives up the indicator's width only while it draws.
@@ -266,7 +267,7 @@ final class TabHoverCardView: NSView {
     func setThumbnailVisible(_ visible: Bool) {
         thumbnail.isHidden = !visible
         thumbnailHeight?.constant = visible ? Self.thumbnailSize.height : 0
-        thumbnailTop?.constant = visible ? Metrics.space4 : 0
+        thumbnailTop?.constant = visible ? HoverCardStyle.shared.mediaGap : 0
     }
 
     /// The thumbnail the card shows.

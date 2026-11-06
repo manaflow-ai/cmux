@@ -795,6 +795,9 @@ pub struct Hub {
     pub(super) auto_background_after: StdMutex<Option<std::time::Duration>>,
     /// The `<session>/<tool call>` shells a timer of `auto_background.rs` watches.
     pub(super) auto_background_armed: StdMutex<std::collections::HashSet<String>>,
+    /// How long a foreground call runs before the person's message waiting behind it moves it to
+    /// the background, None: never (`auto_background.rs`).
+    pub(super) message_background_after: StdMutex<Option<std::time::Duration>>,
     /// Chats agents offered the person, still open (`offers.rs`).
     pub(super) offers: offers::Offers,
     /// Which session each lane reports its turns to (`lane_reports.rs`).
@@ -1040,6 +1043,9 @@ impl Hub {
             background_timeout: StdMutex::new(processes::STOP_TIMEOUT),
             auto_background_after: StdMutex::new(auto_background::auto_background_from_env()),
             auto_background_armed: Default::default(),
+            message_background_after: StdMutex::new(Some(
+                auto_background::MESSAGE_BACKGROUND_AFTER,
+            )),
             offers: Default::default(),
             lane_reports: Default::default(),
             lane_report_reads: Default::default(),

@@ -372,8 +372,17 @@ impl Hub {
                     self.inbox_prompt_written(session, &prompt_id);
                 }
             },
-        )
-        .await;
+        );
+        // The person's message does not wait behind a long foreground call: it goes to the
+        // background until the agent reads the message (`auto_background.rs`).
+        let answer = if super::auto_background::persons_message(
+            opts.provenance.as_ref(),
+            opts.agent.as_deref(),
+        ) {
+            self.answer_moving_work(session, &child, answer).await
+        } else {
+            answer.await
+        };
         // A Stop ended the turn before its agent answered another agent's message. Never
         // written (it waited behind the Stop), it comes back and starts the next turn (module
         // docs of `cancel.rs`). Written, it comes back only once its agent confirms it dropped it

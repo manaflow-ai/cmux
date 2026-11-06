@@ -1,5 +1,5 @@
 /// A set of the sections that only adds one loose workspace row (SIDEBAR INSERT 2: Cmd-N's stand-in row at the press,
-/// a scripted create): the list splices that one row into the layout it shows (`SidebarLayout.insertingLoose`) instead
+/// a scripted create): the list splices that one row into the layout it shows (`SidebarLayout.insertLoose`) instead
 /// of laying every row out again.
 public nonisolated struct SidebarRowInsertion: Sendable {
     /// `SidebarModel.sectionsRevision` before the set and after it: the list splices only onto the layout it built at
