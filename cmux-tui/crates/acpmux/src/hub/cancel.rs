@@ -35,9 +35,10 @@
 //! subagent's stop (`_acpmux/subagent_stop`). Claude Code's own interrupt spares them too once
 //! acpmux says it stops tasks one by one (`claude_stdio/outbound.rs` `initialize_request`).
 //!
-//! A harness with unanswered steering messages is also spared. Their settlement needs the
+//! A harness with unanswered agent steering messages is also spared. Their settlement needs the
 //! live harness to confirm whether it dropped them unread; killing it first loses that proof
 //! and can drop a message or duplicate work. The forced logical end retains that exchange.
+//! Personal steers need no withdrawal proof and do not prevent recovery.
 //!
 //! The person's Stop also holds the other agents' messages queued behind the turn
 //! ([`Hub::person_stop`]): they stay queued, held, until the person's next turn completes or the
@@ -240,8 +241,13 @@ impl Hub {
         // Keep the harness while unread steering messages still need its acknowledgement.
         // Killing it first loses the proof needed to return an unread message without
         // replaying one it may have acted on (steer_end.rs::steer_taken_back).
-        let pending_steers =
-            !session.steer_now.lock().unwrap_or_else(|e| e.into_inner()).waiting.is_empty();
+        let pending_steers = session
+            .steer_now
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .sent
+            .values()
+            .any(|steer| steer.needs_withdrawal);
         let spare = if self.runs_background_work(&session) {
             Some("background_work")
         } else if pending_steers {
