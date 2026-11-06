@@ -1,7 +1,7 @@
 public import CmuxNextCompat
 public import CmuxNextPages
 public import CmuxNextSettings
-import Foundation
+public import Foundation
 
 extension PageDescriptor {
     /// A Cloud machine on its way to an open terminal (webviews/src/pages/cloud-progress):
