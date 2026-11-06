@@ -44,6 +44,9 @@ public enum AgentSessionEvent: Hashable, Sendable {
     case update(ACPSessionUpdate)
     /// `user_message` (or the replayed prompt of a historical turn).
     case userMessage(text: String, promptId: String, turnId: String, attachments: [AgentAttachment], at: Date)
+    /// The turn's prompt is another agent's message (its `_meta.provenance`, or the lane-gh
+    /// broker's label): the transcript draws its card, not the person's bubble.
+    case promptFrom(turnId: String, incoming: AgentIncoming)
     case queued(text: String, promptId: String, position: Int)
     case dequeued(promptId: String)
     /// A waiting prompt's text changed (`queue_updated`, Edit queued prompt).
@@ -132,8 +135,8 @@ public enum AgentClientIntent: Hashable, Sendable {
     case resumeQueue
 }
 
-public struct AgentAttachment: Hashable, Sendable, Identifiable {
-    public enum Kind: Hashable, Sendable { case image, file }
+public struct AgentAttachment: Hashable, Sendable, Codable, Identifiable {
+    public enum Kind: Hashable, Sendable, Codable { case image, file }
 
     public var id: String
     public var kind: Kind

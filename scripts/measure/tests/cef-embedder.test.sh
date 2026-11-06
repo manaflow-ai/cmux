@@ -61,4 +61,21 @@ chmod 0755 "$work/lent"
 SRC="sha256:$(mk_sources 'echo "codesign: some error" >&2; exit 1')"
 if run "$SRC" "$REF" signals; then fail "a runner that stopped passed the step"; fi
 grep -q 'stopped (exit 1) before its first case' "$work/out" || { cat "$work/out"; fail "an early stop was not named"; }
+
+# A helper that exits just after the runner (Chromium's code-sign clone cleanup, parent launchd) is not a
+# survivor: a pgrep at once failed 157 fleet jobs d1-d4 with "1 process(es) outlived the tests" (2026-11-05).
+late='h="$CMUX_EMBEDDER_TEST_DIR/cleanup-helper.sh"; mkdir -p "${h%/*}"; printf "exec -a \"\$0\" sleep %s\n" "$LATE_S" >"$h"
+nohup bash "$h" >/dev/null 2>&1 </dev/null &
+shift; for c in "$@"; do echo "==> case $c"; echo "    PASS ($c, exit 0, 1s)"; done'
+SRC="sha256:$(mk_sources "$late")"
+LATE_S=1 run "$SRC" "$REF" signals || { cat "$work/out"; fail "a helper that exits 1 s after the runner failed the step"; }
+grep -qx 'cmux-embedder: 1/1 passed' "$work/out" || { cat "$work/out"; fail "no 1/1 summary with a late helper"; }
+# One that does not exit in the wait still fails the step, is named and is ended.
+SRC="sha256:$(mk_sources "$late")"
+if LATE_S=60 CMUX_EMBEDDER_SURVIVOR_WAIT_S=2 run "$SRC" "$REF" signals; then
+  fail "a process that outlived the wait passed the step"
+fi
+grep -q '1 process(es) outlived the tests' "$work/out" || { cat "$work/out"; fail "the survivor was not counted"; }
+grep -q 'cleanup-helper.sh' "$work/out" || { cat "$work/out"; fail "the survivor's command line was not printed"; }
+pgrep -f "$work/.*cleanup-helper.sh" >/dev/null && fail "the survivor was not ended"
 echo "cef-embedder: ok"

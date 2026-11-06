@@ -67,7 +67,7 @@ enum CloudCreationRows {
         }
         header.detail = withUpdate(header.detail, updates.targets[CloudMachineUpdateTarget.id(session.machineID)],
                                    compatibility: compatibility)
-        return header.redialing(session.link?.redial.isRedialing == true)
+        return header
     }
 
     /// The header status of a change the server accepted (``CloudMachineStage/isChanging``).

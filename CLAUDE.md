@@ -193,7 +193,7 @@ staged, and committed. CI keeps the non-mutating lint as the backstop.
 Claude Code and Codex post-edit hooks (`.claude/settings.json`, `.codex/hooks.json`)
 run the same fixer on edited `Packages/**/*.swift` files; they print repairs and never fail an edit.
 They also warn, for the edited files only, about workflow YAML that does not parse or that
-actionlint rejects, a new `tests/test_*.py` missing from `tests/test-execution.toml`, and a
+actionlint rejects, a new `tests/test_*.py` missing from `tests/test-execution.d/`, and a
 CmuxNext Swift or cmux-tui Rust file grown past its god-file cap (`scripts/ci/check-post-edit.sh`).
 
 `scripts/ci/format-post-edit.sh` formats each edited file the way CI checks it:
@@ -318,7 +318,9 @@ nightly-only labels). This applies to humans, Leo and every agent:
   `next_batch.py`), a new delete of user data, a new
   `pull_request_target` or `workflow_run` trigger) lands on an independent review receipt
   `Review (<reviewer>): SHIP at <full head sha>` on the exact head plus a green compile; agents
-  never need a label. A collaborator's approval of the head, or `risk:human-ok` from a maintainer,
+  never need a label. Agents post as the PR author's account, so an agent's PR body has one line
+  `Author-agent: <agent id>`, and a receipt from that account must read `Review (<reviewer agent id>,
+  started by <agent id>): SHIP at <sha>`, with neither id the author agent (`scripts/ci/risk_tier.py`). A collaborator's approval of the head, or `risk:human-ok` from a maintainer,
   also counts. Any tier is held while it takes back a change
   merged in the last week, until the description has `Takes back #N: <why>`. Ship
   user-visible high-tier behavior behind a default-off setting; revert with

@@ -27,9 +27,13 @@ final class HomeTablePictures: Sendable {
     static let maxPixel = 1280
 
     private struct State {
-        var ready: [String: String] = [:]
+        /// Each source's thumbnail path, once made. Not `ready`: this module also has a `ready` array,
+        /// so the crash ratchet would count a `ready[...]` here as an index that can trap.
+        var thumbnailPaths: [String: String] = [:]
         var loading: Set<String> = []
         var failed: Set<String> = []
+        /// Each loading source's pixel size, read once (``loadingMark(_:)``).
+        var sizes: [String: CGSize] = [:]
         var onReady: @MainActor @Sendable (String) -> Void = { _ in }
     }
 
@@ -46,7 +50,7 @@ final class HomeTablePictures: Sendable {
         self.fetch = fetch
     }
 
-    /// Called with a source once its thumbnail is ready (on the main actor).
+    /// Called with a source once its thumbnail is ready, or could not be made (on the main actor).
     var onReady: @MainActor @Sendable (String) -> Void {
         get { state.withLock { $0.onReady } }
         set { state.withLock { $0.onReady = newValue } }
@@ -68,29 +72,61 @@ final class HomeTablePictures: Sendable {
     func asset(_ source: String) -> String? {
         guard Self.handles(source) else { return nil }
         let start: Bool = state.withLock { s in
-            if s.ready[source] != nil || s.loading.contains(source) || s.failed.contains(source) { return false }
+            if s.thumbnailPaths[source] != nil || s.loading.contains(source) || s.failed.contains(source) { return false }
             s.loading.insert(source)
             return true
         }
         if start { Task.detached(priority: .utility) { [self] in await self.make(source) } }
-        return state.withLock { $0.ready[source] }
+        return state.withLock { $0.thumbnailPaths[source] }
+    }
+
+    /// The mark ``HomeMapping/pictures(of:media:)`` reads as "still loading": `cmux-loading:<width>x<height>`.
+    static let loadingPrefix = "cmux-loading:"
+
+    /// While `source`'s thumbnail is being made: ``loadingPrefix`` and the picture's pixel size (read from a
+    /// local file's header once, `0x0` for a web picture), so its cell holds a skeleton of the picture's own
+    /// size; nil once made or when it cannot be (its alt text shows). Ask ``asset(_:)`` first: that starts it.
+    func loadingMark(_ source: String) -> String? {
+        guard Self.handles(source) else { return nil }
+        let known: CGSize?? = state.withLock { s -> CGSize?? in
+            guard s.thumbnailPaths[source] == nil, !s.failed.contains(source) else { return .none }
+            return .some(s.sizes[source])
+        }
+        guard case .some(let cached) = known else { return nil }
+        let size = cached ?? Self.pixelSize(source)
+        if cached == nil { state.withLock { $0.sizes[source] = size } }
+        return Self.loadingPrefix + "\(Int(exactly: size.width.rounded()) ?? 0)x\(Int(exactly: size.height.rounded()) ?? 0)"
+    }
+
+    /// A local picture's pixel size from its header (no decode); zero for a web picture or an unreadable file.
+    static func pixelSize(_ source: String) -> CGSize {
+        guard let url = original(source), url.isFileURL, extensions.contains(url.pathExtension.lowercased()),
+              let src = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
+              let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as NSDictionary?,
+              let w = props.object(forKey: kCGImagePropertyPixelWidth) as? Int,
+              let h = props.object(forKey: kCGImagePropertyPixelHeight) as? Int else { return .zero }
+        // A picture taken on its side (EXIF 5-8) shows turned, as its thumbnail does.
+        let turned = ((props.object(forKey: kCGImagePropertyOrientation) as? Int) ?? 1) >= 5
+        return turned ? CGSize(width: h, height: w) : CGSize(width: w, height: h)
     }
 
     /// Makes `source`'s thumbnail now and returns its path (nil when it is not a picture it may draw).
     @discardableResult
     func prepare(_ source: String) async -> String? {
-        if let ready = state.withLock({ $0.ready[source] }) { return ready }
+        if let ready = state.withLock({ $0.thumbnailPaths[source] }) { return ready }
         state.withLock { _ = $0.loading.insert(source) }
         await make(source)
-        return state.withLock { $0.ready[source] }
+        return state.withLock { $0.thumbnailPaths[source] }
     }
 
     private func make(_ source: String) async {
         let file = await thumbnail(source)
         let notify: (@MainActor @Sendable (String) -> Void)? = state.withLock { s in
             s.loading.remove(source)
-            guard let file else { s.failed.insert(source); return nil }
-            s.ready[source] = file
+            s.sizes.removeValue(forKey: source)
+            // A failed picture's card draws again too: its skeleton gives way to its alt text.
+            guard let file else { s.failed.insert(source); return s.onReady }
+            s.thumbnailPaths[source] = file
             return s.onReady
         }
         if let notify { await MainActor.run { notify(source) } }

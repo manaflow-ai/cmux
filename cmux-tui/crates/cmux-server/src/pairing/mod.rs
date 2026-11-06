@@ -8,6 +8,7 @@ mod credentials;
 mod identity;
 pub(crate) mod info;
 pub mod invite;
+pub mod machine_join;
 pub(crate) mod messages;
 mod native;
 mod network;
@@ -50,6 +51,11 @@ pub trait Transport {
         _bearer: Option<&str>,
     ) -> Result<Value> {
         Err(Error::unreachable("server.pair.backend_unavailable"))
+    }
+    /// Redeems the join token an approval pushed (machine_join.rs) and says how
+    /// it went, for the result's `machine` field. Never fails the pairing.
+    fn machine_join(&self, _join: &enrollment::MachineJoin, _api: &str, _name: &str) -> Value {
+        machine_join::failed("server.pair.machine_join_unavailable")
     }
 }
 
@@ -96,6 +102,47 @@ pub fn status(path: &Path) -> Result<Value> {
     serde_json::to_value(state).map_err(|_| Error::internal("server.pair.invalid_status"))
 }
 
+/// This server's enrollment as the app's Server panel reads it in `server status --json`
+/// (`LocalServerStatus.pairing`): `paired` with host, team and owner; `pairing` while a
+/// network enrollment or a begin with a lost reply settles; `unpaired` with the live code,
+/// check words and key thumbprint while a code waits for approval; else bare `unpaired`.
+/// The collect secret never leaves the identity file.
+pub fn app_view(path: &Path, now_ms: u64) -> Result<Value> {
+    let status = status(path)?;
+    let Some(identity) = identity::read(path)? else { return Ok(json!({"state": "unpaired"})) };
+    Ok(match status.get("state").and_then(Value::as_str) {
+        Some("paired") => {
+            json!({"state": "paired", "host": status.get("host"), "team": status.get("team"),
+            "owner": status.get("user")})
+        }
+        Some("network_pending" | "indeterminate") => json!({"state": "pairing"}),
+        Some("pending") => {
+            let thumbprint = enrollment::jwk_thumbprint(&identity.public_jwk)
+                .map_err(|_| Error::verification("server.pair.invalid_identity"))?;
+            let begun = identity
+                .begin_response()?
+                .filter(|v| {
+                    v.get("expires_at").and_then(Value::as_u64).is_some_and(|at| at > now_ms)
+                })
+                .map(|v| Begun::parse(&v, &thumbprint, now_ms))
+                .transpose()
+                .map_err(|_| Error::verification("server.pair.invalid_begin"))?;
+            match begun {
+                Some(begun) => offer_view(&begun),
+                None => json!({"state": "unpaired"}),
+            }
+        }
+        _ => json!({"state": "unpaired"}),
+    })
+}
+
+/// The app's shape of a code that waits for approval (`PairingOffer`).
+fn offer_view(begun: &Begun) -> Value {
+    let progress = begun.public_progress();
+    json!({"state": "unpaired", "code": progress.get("code"), "expires_at_ms": begun.expires_at,
+        "words": progress.get("words"), "fingerprint": begun.thumbprint})
+}
+
 /// Whether the backend may still accept a code expiring at `expires_at` (its clock): it allows
 /// five minutes of skew, so a code past expiry here is resumed, never replaced, until then.
 fn code_live(expires_at: u64, now_ms: u64) -> bool {
@@ -139,6 +186,7 @@ pub fn enroll_with_invite(
     let invite = invite.map(invite::normalize).transpose()?;
     let invite = invite.as_deref();
     let api = api_origin(api)?;
+    let name = info.get("name").and_then(Value::as_str).unwrap_or_default().to_owned();
     if intent.is_some_and(|s| s.is_empty() || s.encode_utf16().count() > 128 || s.contains('\0')) {
         return Err(Error::usage("server.pair.invalid_intent"));
     }
@@ -252,7 +300,8 @@ pub fn enroll_with_invite(
     }
     progress(&public_progress)?;
     match transport.wait(&api, &begun)? {
-        Waited::NetworkPaired { paired, grant } => {
+        Waited::NetworkPaired { mut paired, grant } => {
+            let join = paired.machine_join.take();
             paired.validate().map_err(|_| Error::verification("server.pair.invalid_result"))?;
             if api_origin(grant.origin())? != grant.origin()
                 || !grant.matches_keys(&identity.public_jwk, &identity.wg_public()?)
@@ -264,14 +313,23 @@ pub fn enroll_with_invite(
             identity.save_native(&grant, transport.now_ms())?;
             native::validate(&identity)?;
             store.save(&identity)?;
-            native::finish(&mut identity, &store, transport)
+            let mut value = native::finish(&mut identity, &store, transport)?;
+            if let Some(join) = join {
+                value.set("machine", transport.machine_join(&join, &api, &name));
+            }
+            Ok(value)
         }
-        Waited::Paired(paired) => {
+        Waited::Paired(mut paired) => {
             paired.validate().map_err(|_| Error::verification("server.pair.invalid_result"))?;
+            let join = paired.machine_join.take();
             identity.paired = Some(paired.clone());
             identity.attempt = None;
             store.save(&identity)?;
-            public_result(&paired)
+            let mut value = public_result(&paired)?;
+            if let Some(join) = join {
+                value.set("machine", transport.machine_join(&join, &api, &name));
+            }
+            Ok(value)
         }
         Waited::Refused => {
             let invited = identity.attempt.as_ref().is_some_and(|a| a.invite.is_some());

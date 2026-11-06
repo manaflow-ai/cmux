@@ -10,8 +10,8 @@
 #   cmux-ci run --class exclusive --measurement --label measure --label macos-26 \
 #     --script scripts/measure/cu-driver-bench.sh --ref SHA --artifact artifacts/cu-driver-bench.tgz \
 #     [--target-worker aws-m4pro-8] [--arg=base_url=http://HOST:PORT] --timeout 7200
-# base_url= is the team subrouter's Claude route (as scripts/measure/team-eval.sh takes it); the
-# guest only checks that it answers. Output: CU-DRIVER-BENCH lines and artifacts/cu-driver-bench.tgz
+# base_url= is the team's Claude route (as scripts/measure/team-eval.sh takes it), reached from this
+# worker; the step checks it answers before anything else and stops when it does not. Output: CU-DRIVER-BENCH lines and artifacts/cu-driver-bench.tgz
 # (cu-driver-bench/vm.json and the Lume logs). Exit 0 when vm.json was written, else 4.
 #
 # suite=input-ab [reps=N] [drivers=a,b] then runs the input A/B (cu-driver-eval.sh) in the guest,
@@ -20,6 +20,15 @@
 # the guest user's login session, as a LaunchAgent, so its windows are real windows on the guest's
 # 1920x1080 display. Its artifact is then artifacts/cu-driver-eval.tgz, as on a console Mac, with
 # vm.json added; its exit status is the A/B's.
+#
+# suite=route base_url=http://HOST:PORT gives the guest's Claude Code that route, the way the bench's
+# agent will reach its model: the guest stays off the team's network, and an `ssh -R` from this worker
+# makes the guest's 127.0.0.1:4016 the route (nothing on the worker listens beyond its loopback). It
+# installs the pinned Claude Code in the guest, writes ANTHROPIC_BASE_URL and the route's placeholder
+# token into the clone's managed Claude Code settings (read whatever --setting-sources says; never in
+# the image, never logged), and runs one `claude -p` with the bench's scrubbed environment. A 529 or
+# overloaded answer is retried with backoff and counted apart (vm.json route.retries). Exit 0 when the
+# guest's claude answered, else 4.
 set -uo pipefail
 started_at=$(date +%s)
 base_url="" suite=probe reps=3 drivers="cmux-cua,cua-driver-0.38.0"
@@ -32,10 +41,12 @@ for arg in "$@"; do
     *) echo "cu-driver-bench.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
-[[ "$suite" == probe || "$suite" == input-ab ]] || { echo "cu-driver-bench.sh: suite= is probe or input-ab" >&2; exit 2; }
+[[ "$suite" == probe || "$suite" == input-ab || "$suite" == route ]] || { echo "cu-driver-bench.sh: suite= is probe, input-ab or route" >&2; exit 2; }
 [[ "$reps" =~ ^[1-9][0-9]?$ ]] || { echo "cu-driver-bench.sh: reps= is 1..99" >&2; exit 2; }
 [[ "$drivers" =~ ^[a-z0-9.,-]*$ ]] || { echo "cu-driver-bench.sh: drivers= is a comma list of names" >&2; exit 2; }
 [[ -z "$base_url" || "$base_url" =~ ^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]] || { echo "cu-driver-bench.sh: base_url=http://HOST[:PORT]" >&2; exit 2; }
+# The guest reaches the route through a TCP forward to a plain http:// URL on its own loopback.
+[[ "$suite" != route || "$base_url" =~ ^http://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]] || { echo "cu-driver-bench.sh: suite=route needs base_url=http://HOST[:PORT]" >&2; exit 2; }
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 here="$root/scripts/measure/cu-driver-eval"
@@ -73,6 +84,17 @@ EOF
     tar -czf "$root/artifacts/cu-driver-eval.tgz" -C "$root/artifacts" cu-driver-eval
   fi
 }
+
+if [[ -n "$base_url" ]]; then
+  # First, before the VM: this worker must reach the route itself. Any HTTP answer will do.
+  route_http=$(curl -sS -m 5 -o /dev/null -w '%{http_code}' "$base_url/" 2>/dev/null)
+  facts=$(python3 -I -c 'import json, sys; print(json.dumps({"route": {"host_http": sys.argv[1]}}))' "${route_http:-000}")
+  note "route from this worker: HTTP ${route_http:-000}"
+  if [[ -z "$route_http" || "$route_http" == 000 ]]; then
+    finish "this worker does not reach the model route (no HTTP answer in 5 s)"
+    exit 4
+  fi
+fi
 
 note "STAGE lume"
 lume_sum=$(pin lume sha256)
@@ -197,21 +219,20 @@ printf "git=%s\n" "$(git --version 2>&1 | head -1)"
 printf "free=%s\n" "$(df -h / | tail -1 | awk "{print \$4}")"
 printf "console_user=%s\n" "$(stat -f %Su /dev/console)"
 '
-[[ -n "$base_url" ]] && probe+="printf 'route=%s\n' \"\$(curl -s -m 10 -o /dev/null -w '%{http_code}' '$base_url/_subrouter/ready')\""$'\n'
 probe_status=0
 lume ssh "$vm" -t 120 "$probe" >"$out/guest.txt" 2>"$out/guest.err" || probe_status=$?
 cat "$out/guest.txt"
-facts=$(python3 -I - "$out/guest.txt" "$(sw_vers -productVersion)" "$(scutil --get ComputerName 2>/dev/null || hostname)" "$image_name:$image_tag" "$image_digest" "$lume_sum" "$(git rev-parse HEAD)" <<'EOF'
+facts=$(python3 -I - "$out/guest.txt" "$(sw_vers -productVersion)" "$(scutil --get ComputerName 2>/dev/null || hostname)" "$image_name:$image_tag" "$image_digest" "$lume_sum" "$(git rev-parse HEAD)" "$facts" <<'EOF'
 import json, sys
-KEYS = {"macos", "display", "sip", "xcode_tools", "swiftc", "brew", "python", "node", "git", "free", "console_user", "route"}
+KEYS = {"macos", "display", "sip", "xcode_tools", "swiftc", "brew", "python", "node", "git", "free", "console_user"}
 guest = {}
 for line in open(sys.argv[1]):
     key, _, value = line.rstrip("\n").partition("=")
     if key in KEYS:  # Lume's own log lines share this stream
         guest[key] = value
-print(json.dumps({"schema": "cmux.cu-driver-bench.vm/1", "host": sys.argv[3], "host_macos": sys.argv[2],
-                  "image": sys.argv[4], "digest": sys.argv[5], "lume_sha256": sys.argv[6], "rev": sys.argv[7],
-                  "vm": {"cpu": 6, "memory_gb": 12, "display": "1920x1080"}, "guest": guest}))
+print(json.dumps({**json.loads(sys.argv[8]), "schema": "cmux.cu-driver-bench.vm/1", "host": sys.argv[3],
+                  "host_macos": sys.argv[2], "image": sys.argv[4], "digest": sys.argv[5], "lume_sha256": sys.argv[6],
+                  "rev": sys.argv[7], "vm": {"cpu": 6, "memory_gb": 12, "display": "1920x1080"}, "guest": guest}))
 EOF
 )
 if [[ $probe_status != 0 ]] || ! grep -q '^console_user=' "$out/guest.txt"; then
@@ -219,13 +240,13 @@ if [[ $probe_status != 0 ]] || ! grep -q '^console_user=' "$out/guest.txt"; then
   exit 4
 fi
 [[ "$suite" == probe ]] && { finish; exit 0; }
-# The A/B's windows need the image's auto-login session of lume.
+# The A/B's windows and the bench's need the image's auto-login session of lume.
 if ! grep -q '^console_user=lume$' "$out/guest.txt"; then
   finish "the guest's console user is not lume ($(sed -n 's/^console_user=//p' "$out/guest.txt")): no login session for the A/B's windows"
   exit 4
 fi
 
-note "STAGE input-ab"
+note "STAGE ssh"
 # lume ssh takes a password and no stdin, so it installs a key for this run once; plain ssh and its
 # pipes do the rest. The key lives in this run's scratch and is removed with the clone.
 keydir="$lume_home/tmp/key-$vm"
@@ -250,6 +271,75 @@ ssh_opts=(-i "$keydir/id" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKn
 guest() { ssh "${ssh_opts[@]}" "lume@$ip" "$@"; }
 guest_n() { ssh -n "${ssh_opts[@]}" "lume@$ip" "$@"; }
 guest_n true || { finish "ssh with the run's key failed"; exit 4; }
+# setfact GROUP KEY VALUE: VALUE as JSON when it parses (a number, true), else as a string.
+setfact() {
+  facts=$(python3 -I -c '
+import json, sys
+f = json.loads(sys.argv[1])
+try:
+    value = json.loads(sys.argv[4])
+except ValueError:
+    value = sys.argv[4]
+f.setdefault(sys.argv[2], {})[sys.argv[3]] = value
+print(json.dumps(f))' "$facts" "$@")
+}
+
+if [[ "$suite" == route ]]; then
+  note "STAGE route"
+  # The guest's 127.0.0.1:4016 becomes the route, through this worker. Only this ssh is killed on exit.
+  route_hostport=${base_url#http://}
+  [[ "$route_hostport" == *:* ]] || route_hostport+=":80"
+  forward_pid=""
+  trap '[[ -n "$forward_pid" ]] && kill "$forward_pid" 2>/dev/null; rm -rf "$keydir"; cleanup' EXIT
+  ssh -N "${ssh_opts[@]}" -o ExitOnForwardFailure=yes -R "127.0.0.1:4016:$route_hostport" "lume@$ip" </dev/null >"$out/forward.log" 2>&1 &
+  forward_pid=$!
+  forwarded=0
+  for _ in $(seq 1 15); do
+    kill -0 "$forward_pid" 2>/dev/null || break
+    guest_n 'nc -z 127.0.0.1 4016' 2>/dev/null && { forwarded=1; break; }
+    sleep 2
+  done
+  [[ $forwarded == 1 ]] || { cat "$out/forward.log"; finish "the forward of the route into the guest did not come up (forward.log)"; exit 4; }
+  # The pinned Claude Code, fetched once into the worker's cache and copied in, where the bench expects it.
+  cc_version=$(pin claude_code version) cc_sum=$(pin claude_code sha256)
+  cc_bin="$lume_home/bin/claude-$cc_sum"
+  if [[ "$(shasum -a 256 "$cc_bin" 2>/dev/null | awk '{print $1}')" != "$cc_sum" ]]; then
+    curl -fsSL --retry 3 -o "$cc_bin.part" "$(pin claude_code url)" && mv "$cc_bin.part" "$cc_bin"
+  fi
+  [[ "$(shasum -a 256 "$cc_bin" 2>/dev/null | awk '{print $1}')" == "$cc_sum" ]] || { rm -f "$cc_bin"; finish "could not fetch the pinned Claude Code"; exit 4; }
+  guest 'sudo -n mkdir -p /opt/homebrew/bin && sudo -n chown "$(id -un)" /opt/homebrew/bin && cat >/opt/homebrew/bin/claude && chmod 755 /opt/homebrew/bin/claude' <"$cc_bin" ||
+    { finish "could not copy Claude Code into the guest"; exit 4; }
+  setfact route claude_code "$(guest_n '/opt/homebrew/bin/claude --version' 2>/dev/null | head -1)"
+  # Managed settings are read whatever --setting-sources a run passes, so the bench's scrubbed claude
+  # gets the route too. Sent on stdin: the file's text never reaches an argv or a log. The token is the
+  # route's shared placeholder; the route authorizes by network.
+  printf '{"env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:4016", "ANTHROPIC_AUTH_TOKEN": "subrouter2"}}\n' |
+    guest 'sudo -n mkdir -p "/Library/Application Support/ClaudeCode" && sudo -n tee "/Library/Application Support/ClaudeCode/managed-settings.json" >/dev/null' ||
+    { finish "could not write the guest's managed Claude Code settings"; exit 4; }
+  # One call as the bench makes them (its claude_env(): an allowlist environment, project settings
+  # only), bounded at 150 s. A 529 or an overloaded answer is the route's load, not the guest's.
+  retries=0 answered=0 started=$(date +%s)
+  for wait_s in 15 30 60 0; do
+    guest_n 'cd /tmp && env -i HOME="$HOME" USER="$USER" LANG=en_US.UTF-8 PATH=/opt/homebrew/bin:/usr/bin:/bin \
+      perl -e "alarm shift; exec @ARGV" 150 /opt/homebrew/bin/claude -p --model claude-haiku-4-5 --setting-sources project \
+      --strict-mcp-config --tools "" --no-session-persistence --max-turns 1 "Reply with the word OK."' >"$out/route-probe.txt" 2>&1
+    if grep -qiw ok "$out/route-probe.txt" && ! grep -qiE 'error|529|overloaded' "$out/route-probe.txt"; then answered=1; break; fi
+    grep -qiE '529|overloaded' "$out/route-probe.txt" || break
+    (( wait_s > 0 )) || break
+    retries=$(( retries + 1 ))
+    note "the route is overloaded; retry $retries in $wait_s s"
+    sleep "$wait_s"
+  done
+  setfact route retries "$retries"
+  setfact route probe_s "$(( $(date +%s) - started ))"
+  setfact route answered "$([[ $answered == 1 ]] && echo true || echo false)"
+  [[ $answered == 1 ]] || { head -c 2000 "$out/route-probe.txt"; finish "the guest's claude -p did not answer through the route (route-probe.txt)"; exit 4; }
+  note "the guest's Claude Code $cc_version answered through the route"
+  finish
+  exit 0
+fi
+
+note "STAGE input-ab"
 rev=$(git rev-parse HEAD)
 git archive "$rev" scripts/measure/cu-driver-eval.sh scripts/measure/cu-driver-eval scripts/build-cmux-cua.sh |
   guest 'rm -rf ~/cu-eval && mkdir -p ~/cu-eval && tar -x -C ~/cu-eval' || { finish "could not copy the A/B into the guest"; exit 4; }

@@ -15,6 +15,11 @@ public final class WebDevOverrideWatcher {
     private let home = FileManager.default.homeDirectoryForCurrentUser
     private var readTask: Task<Void, Never>?
     private var readRequested = false
+    /// Whether Chromium pages were serving the live loop after the last ``reloadPages(live:hosting:pages:served:watcher:)``.
+    private var chromiumServedLive = false
+    /// Counts ``reloadPages(live:hosting:pages:served:watcher:)`` calls, so an engine move a later reload
+    /// superseded does not finish.
+    private var reloadGeneration = 0
 
     /// A page or agent pane scheme handler is serving `webView`, from any of its paths (bundled
     /// file, dev server, overlay): it joins ``WebBundleServedViews`` so a change reloads it, and the
@@ -74,20 +79,47 @@ public final class WebDevOverrideWatcher {
     /// same URL again, which the WebKit scheme handlers and (with ``PageChromiumHosting/setLivePages(_:)``)
     /// Chromium's page host answer from the dev server, the overlay, a web update or the bundle.
     /// Also run when the Live Web Reload setting changes (``WebDevOverride/setAllowed(_:)``).
-    static func reloadPages() {
-        let live = WebDevOverride.current.isActive
-        let chromiumLive = live && (PageWebView.chromiumHosting?.setLivePages(true) ?? false)
-        if !live { _ = PageWebView.chromiumHosting?.setLivePages(false) }
-        WebBundleServedViews.shared.reloadServed()
-        // Chromium pages reload when they serve the loop now or did until now. One whose Chromium
-        // cannot serve it keeps its bundled files until it next opens, in WebKit (PageEnginePolicy).
-        defer { chromiumServedLive = chromiumLive }
-        guard chromiumLive || chromiumServedLive else { return }
-        for page in PageRegistry.pages() where page.chromiumPage != nil { page.reload() }
+    ///
+    /// - Parameters:
+    ///   - live: Whether the override points pages at a server or an overlay.
+    ///   - hosting: The Chromium host (the app's ``PageWebView/chromiumHosting``).
+    ///   - pages: The open pages (nil: every live one, ``PageRegistry``).
+    ///   - served: The WebKit views the scheme handlers served.
+    ///   - watcher: The watcher whose reload count supersedes earlier engine moves (tests pass their own).
+    /// - Returns: The work still running for pages that change engine, nil for none (tests wait on it).
+    @discardableResult
+    static func reloadPages(live: Bool = WebDevOverride.current.isActive,
+                            hosting: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
+                            pages: [PageWebView]? = nil,
+                            served: WebBundleServedViews = .shared,
+                            watcher: WebDevOverrideWatcher = .shared) -> Task<Void, Never>? {
+        watcher.reloadGeneration &+= 1
+        let chromiumLive = live && (hosting?.setLivePages(true) ?? false)
+        if !live { _ = hosting?.setLivePages(false) }
+        served.reloadServed()
+        let pages = pages ?? PageRegistry.pages()
+        defer { watcher.chromiumServedLive = chromiumLive }
+        // The loop is on and this Chromium cannot serve it: its open pages show only their bundled
+        // files, so each one the engine policy now puts on WebKit reopens there at once, at its route
+        // and scroll (a Settings page open before an overlay install showed none of it until it
+        // next opened, cmuxterm-hq#7149 L8).
+        if live, !chromiumLive, let hosting {
+            let moving = pages.filter(\.isOnChromium)
+            guard !moving.isEmpty else { return nil }
+            // A later reload supersedes these moves: a page whose scroll read outlasts it stays put.
+            let generation = watcher.reloadGeneration
+            let current = { generation == watcher.reloadGeneration }
+            // task-owner: one move per page, on the main actor; each ends with its page
+            let moves = moving.map { page in Task { await page.reopenForLiveOverride(hosting: hosting, isCurrent: current) } }
+            return Task { // task-owner: waits for this reload's moves (tests wait on it)
+                for move in moves { await move.value }
+            }
+        }
+        // Chromium pages reload when they serve the loop now or did until now.
+        guard chromiumLive || watcher.chromiumServedLive else { return nil }
+        for page in pages where page.chromiumPage != nil { page.reload() }
+        return nil
     }
-
-    /// Whether Chromium pages were serving the live loop after the last ``reloadPages()``.
-    private static var chromiumServedLive = false
 
     /// Follows the overlay's `manifest.json`, which an install writes after its files.
     private func watchManifest(of overlay: URL?) {

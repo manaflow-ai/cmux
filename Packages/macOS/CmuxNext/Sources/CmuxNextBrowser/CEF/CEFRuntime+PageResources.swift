@@ -5,7 +5,7 @@ extension CEFRuntime {
     /// ``CEFTab/pageResources``, else a 404. Chromium waits for the answer, so every request gets one.
     /// `range` is the request's `Range` header (a video's byte range).
     func answerPageResource(token: Int32, url: String, range: String?, tab: CEFTab?) {
-        guard let answer = tab?.pageResources ?? (livePages ? CEFPageSchemes.liveFallback : nil),
+        guard let answer = tab?.pageResources ?? (livePages ? liveFallback : nil),
               let parsed = URL(string: url) else {
             respond(token: token, with: .notFound)
             return

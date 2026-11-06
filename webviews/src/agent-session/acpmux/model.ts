@@ -55,7 +55,7 @@ import {
 import type { ComposerAttachment } from "./attachments";
 import { STARTED_SESSIONS, type StartedSession, hasStatusLine } from "./started/startedSessions";
 import {
-  PASTE_CHIP_HEIGHT,
+  pasteChipHeight,
   type PasteRange,
   HUGE_PROMPT_HEAD_CHARS,
   collapsedPromptHeight,
@@ -90,6 +90,13 @@ export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progres
 export type AcpmuxBackgroundTask = {
   toolCallId: string;
   command: string;
+  /// The helper or subagent that started this shell, when the harness identifies it.
+  ownerId?: string;
+  ownerTitle?: string;
+  /// The call's description, retained for clients that need a compact activity label.
+  description?: string;
+  startedAt?: number;
+  endedAt?: number;
   state: "completed" | "failed" | "stopped";
   reason?: string;
   /// Claude Code's own words on how it ended (its task notification's summary).
@@ -392,6 +399,12 @@ export type AcpmuxRow = {
   items?: AcpmuxActivity[];
   /// A plan row's todo list (cx-ncc.80): the agent's latest `plan` update in its turn.
   plan?: AcpmuxPlanEntry[];
+  /// A plan row that stands for an earlier turn's list under the running turn (turns.ts
+  /// `earlierTurnPlan`): it reads as from before the person's last message, and nothing spins.
+  planEarlier?: boolean;
+  /// A plan row whose list a later turn cleared before writing one of its own (an empty `plan`,
+  /// direct.ts): it stays folded in its own turn but no longer carries over (turns.ts `earlierTurnPlan`).
+  planCleared?: boolean;
   /// A background task row's shell, which ended where the row sits (cx-ncc.84).
   backgroundTask?: AcpmuxBackgroundTask;
   /// A compaction row's compaction, noted where it happened.
@@ -498,6 +511,9 @@ export type AcpmuxRow = {
   /// A turn footer's whole turn for its Copy (conversation/turnCopy.ts): the agent's replies and each
   /// run of tool calls between them, in order; undefined when the agent said nothing.
   turnCopy?: TurnCopyPart[];
+  /// A finished turn footer's timed tool calls and thoughts, in order, for its waterfall
+  /// (conversation/waterfallSpans.ts `turnWork`, TurnWaterfall.tsx); undefined when none was timed.
+  turnWork?: AcpmuxActivity[];
   /// A footer turns.ts `supersededFooters` added where the person came in on a stretch of a turn (a
   /// steer that landed in it, or a new prompt over a turn with no summary): the stretch counts as
   /// ended, and the footer offers its Copy.
@@ -510,9 +526,10 @@ export type AcpmuxRow = {
   permission?: AcpmuxPermission;
   /// A `questionRecord` row's question, answered or cancelled (question/record.ts).
   question?: AgentQuestion;
-  /// A `nextStep` row's tagged ask and, once a prompt answered it, the answer
-  /// (conversation/nextStepAsk.ts, NextStepCard.tsx).
-  nextStep?: { ask: NextStepAsk; answer?: string };
+  /// A `nextStep` row's tagged ask and, once a later prompt picked one of its answers, that answer
+  /// (conversation/nextStepAsk.ts, NextStepCard.tsx). `superseded`: a later turn ended on a card of
+  /// its own, so this one folds; `answer` then holds what the person said after it, if anything.
+  nextStep?: { ask: NextStepAsk; answer?: string; superseded?: boolean };
   /// A `permissionRecord` row's answer, its ask in `permission` (permissions/record.ts).
   decision?: PermissionDecision;
   /// A turn summary whose turn draws a "Worked for" line (conversation/turns.ts), so its
@@ -822,6 +839,9 @@ export type AcpmuxPermission = {
   toolCallId?: string;
   /// Proposed changes from this ask only; these have not been applied to the workspace.
   diffs?: AcpmuxFileDiff[];
+  /// The plan a plan approval asks about, as Markdown (Claude Code's ExitPlanMode, Grok's
+  /// `x.ai/exit_plan_mode`, Cursor's `create_plan`; direct.ts `permissionPlan`).
+  plan?: string;
   pending: boolean;
   options: {
     id: string;
@@ -1346,6 +1366,8 @@ const LIVE_STEP_EDGE = "+step";
 /// One-line activity rows are 22 apart top to top (design/chat-transcript.md "One-line row pitch",
 /// #29965), `--cv-tool-row-height`.
 const TOOL_ROW_PT = 22;
+/// The gap under "Worked for"'s rule (Lucas, 2026-11-06), conversation.css `.cv-worked.has-divider.is-toggle`.
+const WORKED_GAP_PT = gridLength("gap");
 const toolRowHeight = () => TOOL_ROW_PT * chromeScale;
 const TOOL_RUN_BOTTOM = 0;
 /// A one-line row that is not a tool run (`isLineRow`) draws one tool row's line, as a one-call run
@@ -1680,7 +1702,6 @@ const isStatusKind = (row: AcpmuxRow) =>
   row.kind === "failover" ||
   row.kind === "policyUnenforced" ||
   row.kind === "agentPair" ||
-  row.kind === "sessionStart" ||
   row.kind === BACKGROUND_TURN ||
   row.kind === TASK_LINE ||
   row.kind === MESSAGE_RUN ||
@@ -1775,8 +1796,9 @@ export const isLineRow = (row: AcpmuxRow) =>
   row.kind === PENDING_MESSAGES ||
   (row.kind === "user" && !row.received && isIncomingRunLine(row.incoming?.kind));
 const isIncomingRunLine = (kind: string | undefined) => isIncomingLine(kind) || kind === "inbox";
-/// A row that draws nothing (a turn's bookkeeping, conversation/turns.ts).
-const drawsNothing = (row: AcpmuxRow) => row.incoming?.kind === "hidden";
+/// A row that draws nothing: a turn's bookkeeping (conversation/turns.ts), or a session start
+/// (rows/SessionStartRow.tsx), which the transcript no longer draws.
+const drawsNothing = (row: AcpmuxRow) => row.incoming?.kind === "hidden" || row.kind === "sessionStart";
 /// The row after `index` that draws something.
 export function nextDrawnRow(rows: readonly AcpmuxRow[], index: number): AcpmuxRow | undefined {
   for (let next = index + 1; next < rows.length; next += 1) if (!drawsNothing(rows[next]!)) return rows[next];
@@ -1934,7 +1956,8 @@ function fallbackRowHeight(
   if ((row.kind === WORKING || row.kind === THINKING) && row.below) return finish(footerRow());
   // A finished work disclosure is one activity line, including when opened. Its estimate and
   // MARK_STEP use the same 22px rhythm as the calls it reveals (transcript-spacing.md rule 3).
-  if (row.kind === WORKED) return finish(toolRowHeight());
+  // Plus the grid gap under its rule before the fold's rows (conversation.css `.cv-worked.has-divider`).
+  if (row.kind === WORKED) return finish(toolRowHeight() + WORKED_GAP_PT * chromeScale);
   if (row.kind === WORKING || row.kind === THINKING) return finish(metaRow());
   // The activity line under a plan is the live footer. It reserves the finished footer's 24px
   // line and turn gap so swapping in `turnSummary` never changes the transcript geometry.
@@ -1945,13 +1968,14 @@ function fallbackRowHeight(
   // reader clicks Load preview, the transcript's ResizeObserver measures the head over its frame.
   if (row.kind === PREVIEW) return finish(previewCardHeight(row.text, false));
   // A tagged ask's card (conversation/NextStepCard.tsx): waiting, 12px padding over the question
-  // and its muted line, then a 36px row of answers; answered, the question over the answer in 8px.
+  // and its muted line, then a 36px row of answers; answered or superseded, the question over the
+  // answer in 8px.
   if (row.kind === NEXT_STEP && row.nextStep) {
-    const { ask, answer } = row.nextStep;
+    const { ask, answer, superseded } = row.nextStep;
     const perLine = Math.max(120, width - 32) / 7.5;
     const lines = (text: string | undefined) => (text ? Math.max(1, Math.ceil(text.length / perLine)) : 0);
     return finish(
-      answer === undefined
+      answer === undefined && !superseded
         ? 24 + 2 + (lines(ask.question) + lines(ask.detail)) * 20 + 8 + 36
         : 16 + 2 + (lines(ask.question) + lines(answer)) * 20 + 4,
     );
@@ -1984,13 +2008,14 @@ function fallbackRowHeight(
         Math.max(1, Math.ceil((row.recap?.text.length ?? 0) / Math.max(24, Math.floor(width / 8) - 6))) *
           metrics().lineHeight,
     );
-  // A session start: its facts line (conversation/SessionStartNote.tsx); the full facts open
-  // below when asked.
-  if (row.kind === "sessionStart") return finish(toolRowHeight());
+  // A session start draws nothing (rows/SessionStartRow.tsx): no height, no gap.
+  if (row.kind === "sessionStart") return finish(0);
   // The plan card's 24px items inside 8px of padding and 8px margins (conversation/PlanList.tsx).
   // Ended, it folds to its one 24px progress line unless the reader opened it, which adds the items.
   if (row.kind === "plan" && row.plan) {
     const items = row.plan.length * 24;
+    // An earlier turn's list adds its one "from before your last message" line.
+    if (row.planEarlier) return finish(40 + 24 + items);
     return finish(40 + (row.turnEnded ? 24 + (planOpen(row.id) ? items : 0) : items));
   }
   // A turn's footer: its line of buttons (the stack gives the gaps). An empty footer (only hover
@@ -2410,7 +2435,7 @@ function measuredRowHeight(
       for (const part of promptParts(row.text, row.pasted!))
         contentHeight +=
           part.kind === "paste"
-            ? PASTE_CHIP_HEIGHT
+            ? pasteChipHeight(lineHeight)
             : Math.max(
                 lineHeight,
                 // A huge typed part draws collapsed to its head (conversation/PromptText.tsx), so its
