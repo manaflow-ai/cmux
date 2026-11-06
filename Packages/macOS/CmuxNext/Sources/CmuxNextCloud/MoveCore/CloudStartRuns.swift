@@ -193,21 +193,16 @@ public final class CloudStartRuns<Answer: Sendable, Machine: Sendable> {
 
     /// Whether a run kept `age` ago still answers the next same ask (Rust's rule; an FFI that does not answer starts anew).
     private static func reusable(age: Duration) -> Bool {
-        struct Request: Encodable { var ageMs: UInt64 }
-        struct Reply: Decodable { var reusable: Bool }
-        return CloudMoveCore().call("run_reusable", Request(ageMs: UInt64(max(0, age.wholeMilliseconds))), as: Reply.self)?.reusable ?? false
+        CloudMoveCore().runReusable(ageMs: UInt64(max(0, age.wholeMilliseconds)))
     }
 
     /// Drops the kept runs Rust names: expired ones, then the oldest beyond `keeping`.
     private func trim(keeping: Int) {
-        struct Kept: Encodable { var id: Int, ageMs: UInt64 }
-        struct Request: Encodable { var kept: [Kept], keeping: Int }
-        struct Reply: Decodable { var drop: [Int] }
         let at = now()
         let kept = Array(runs.compactMap { key, run in run.kept.map { (key, $0) } }.enumerated())
-        let request = Request(kept: kept.map { Kept(id: $0.offset, ageMs: UInt64(max(0, (at - $0.element.1).wholeMilliseconds))) }, keeping: keeping)
+        let ages = kept.map { UInt64(max(0, (at - $0.element.1).wholeMilliseconds)) }
         // An FFI that does not answer drops every kept run: none outlives its limit.
-        let drop = CloudMoveCore().call("runs", request, as: Reply.self)?.drop ?? kept.map(\.offset)
+        let drop = CloudMoveCore().runsToDrop(ages: ages, keeping: keeping) ?? kept.map(\.offset)
         for index in drop where kept.indices.contains(index) { runs[kept[index].element.0] = nil }
     }
 
@@ -293,5 +288,23 @@ public final class CloudRefreshGate {
     /// cannot overlap an old transport that has not returned from cancellation.
     public func cancel() {
         for batch in batches.values { batch.task?.cancel() }
+    }
+}
+
+extension CloudMoveCore {
+    /// Whether a start-session run kept `ageMs` ago still answers the next same ask.
+    func runReusable(ageMs: UInt64) -> Bool {
+        struct Request: Encodable { var ageMs: UInt64 }
+        struct Reply: Decodable { var reusable: Bool }
+        return call("run_reusable", Request(ageMs: ageMs), as: Reply.self)?.reusable ?? false
+    }
+
+    /// The indexes of the kept runs (by their `ages`) to drop: expired ones, then the oldest beyond `keeping`.
+    func runsToDrop(ages: [UInt64], keeping: Int) -> [Int]? {
+        struct Kept: Encodable { var id: Int, ageMs: UInt64 }
+        struct Request: Encodable { var kept: [Kept], keeping: Int }
+        struct Reply: Decodable { var drop: [Int] }
+        let request = Request(kept: ages.enumerated().map { Kept(id: $0.offset, ageMs: $0.element) }, keeping: keeping)
+        return call("runs", request, as: Reply.self)?.drop
     }
 }

@@ -207,6 +207,9 @@ public nonisolated struct CloudMoveCLI: Sendable {
         init(answer: Answer) { self.answer = answer }
     }
 
+    /// One run's output, for Rust to read.
+    private struct ReadRequest: Encodable { var reading: String, stdout: String, stderr: String, status: Int32 }
+
     /// How Rust says to run a call.
     private struct Invocation: Decodable { var args: [String], timeoutSeconds: Int?, minTimeoutSeconds: Int? }
 
@@ -220,8 +223,7 @@ public nonisolated struct CloudMoveCLI: Sendable {
     private func run<Call: Encodable>(_ call: Call, reading: String = "plain", stdin: Data? = nil,
                                       stderrLine: (@Sendable (String) -> Void)? = nil) async throws -> Read {
         let result = try await output(call, stdin: stdin, stderrLine: stderrLine)
-        struct Request: Encodable { var reading: String, stdout: String, stderr: String, status: Int32 }
-        let request = Request(reading: reading, stdout: String(decoding: result.stdout, as: UTF8.self),
+        let request = ReadRequest(reading: reading, stdout: String(decoding: result.stdout, as: UTF8.self),
                               stderr: String(decoding: result.stderr, as: UTF8.self), status: result.status)
         return CloudMoveCore().call("cli_read", request, as: Read.self)
             ?? Read(answer: Answer(ok: false, errorCode: Self.badAnswer, error: "exit \(result.status)"))
