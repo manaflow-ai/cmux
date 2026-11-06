@@ -794,7 +794,7 @@ impl Hub {
             "timeoutMs": u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX),
             "auto": auto,
         });
-        let ask = child.request(crate::claude_stdio::BACKGROUND_TASKS, params);
+        let ask = child.request(crate::claude_stdio::BACKGROUND_TASKS, params.clone());
         match tokio::time::timeout(timeout, ask).await {
             Ok(Ok(answer)) => {
                 let moved = answer.get("backgrounded").and_then(Value::as_bool).unwrap_or(true);
@@ -802,6 +802,14 @@ impl Hub {
             }
             Ok(Err(e)) => Err(e),
             Err(_) => {
+                // Logged, so an answer that comes later shows as Claude Code's delay, not
+                // hidden behind this wait (bg-8 of Leo's chat: 10 s here, 195.9 s to answer).
+                self.append(
+                    session,
+                    "mux",
+                    "background_wait_ended",
+                    json!({"toolCallId": tool, "timeoutMs": params["timeoutMs"], "auto": auto}),
+                );
                 Err(RpcError::internal("Claude Code did not answer background_tasks in time"))
             }
         }
