@@ -314,6 +314,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         parent_id: None,
         fork_seq: None,
         fork_before: None,
+        history_from: None,
         fork_requests: Default::default(),
         fork_parent_verified: None,
         agent_info: None,
