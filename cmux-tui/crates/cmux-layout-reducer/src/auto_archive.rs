@@ -180,9 +180,12 @@ fn plan_due(request: &Request) -> Plan {
         let Some(idle) = idle_seconds(candidate, &request.rules, policy, request.trigger) else {
             continue;
         };
-        let Some(last) = candidate.last_used() else { continue };
+        // First sight: the app records it at `now`, so its clock starts now. It is never due on
+        // arrival, but its deadline still counts toward the next check.
+        let first_sight = candidate.last_used().is_none();
+        let last = candidate.last_used().unwrap_or(now);
         let deadline = last + idle;
-        if deadline <= now {
+        if deadline <= now && !first_sight {
             due.push((index, now - last));
         } else if next.is_none_or(|soonest| deadline < soonest) {
             next = Some(deadline);

@@ -211,5 +211,18 @@ fn the_wire_reads_the_app_request() {
     assert!(result.due.is_empty());
     assert_eq!(result.first_sight, [1]);
     let reply = serde_json::to_value(&result).unwrap();
-    assert_eq!(reply, json!({"due": [], "next_check": null, "first_sight": [1], "snoozed": false}));
+    assert_eq!(reply, json!({"due": [], "next_check": NOW + 3.0 * DAY, "first_sight": [1], "snoozed": false}));
+}
+
+#[test]
+fn a_first_sight_is_never_due_but_its_deadline_schedules_the_next_check() {
+    // The only candidate is new: without its deadline no pass would come back for it.
+    let result = plan(&request(&[ws(None)], Style::Quiet, 3.0, json!({}), Trigger::Background));
+    assert!(result.due.is_empty());
+    assert_eq!(result.first_sight, [0]);
+    assert_eq!(result.next_check, Some(NOW + 3.0 * DAY));
+    // Even with no idle time at all, arrival is not idleness.
+    let zero = plan(&request(&[ws(None)], Style::Quiet, 0.0, json!({}), Trigger::Sweep));
+    assert!(zero.due.is_empty());
+    assert_eq!(zero.next_check, Some(NOW + MINIMUM_RECHECK));
 }
