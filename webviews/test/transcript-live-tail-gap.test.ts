@@ -52,7 +52,7 @@ const all = [...opened, ...chunks, ended];
 
 /// A pane attached after `opened`, whose live events are `live` (`_acpmux/event`, in order);
 /// `events` answers each `_acpmux/events` read after a cursor, or throws to fail it.
-async function pane(events: (after: number, call: number) => Rec[]) {
+async function pane(events: (after: number, call: number) => Rec[], attached: Rec[] = opened) {
   const session = {
     sessionId: CHAT,
     cwd: "/home/dev/x",
@@ -72,7 +72,7 @@ async function pane(events: (after: number, call: number) => Rec[]) {
       case "_acpmux/watch":
         return { sessions: [session] };
       case "_acpmux/attach":
-        return { session, lastSeq: 2, events: opened, hasMore: false };
+        return { session, lastSeq: attached.at(-1)!.seq, events: attached, hasMore: false };
       case "_acpmux/events": {
         const page = events(Number(params?.afterSeq ?? 0), reads++);
         return { events: page, hasMore: false, more: false, lastSeq: page.at(-1)?.seq ?? 0 };
@@ -274,4 +274,27 @@ test("the same reply with no marker at all is whole above the steer once its tur
   await p.until(() => p.replies()[0] === texts.join(""));
   expect(p.replies()).toEqual([texts.join("")]);
   expect(p.order()).toEqual(["user", "assistant", "user"]);
+});
+
+test("a turn that records its end before its result is still read whole", async () => {
+  // acpmux records `turn_end` just before the same turn's `turn_result`; the check took it for the
+  // previous turn's end and never read the turn.
+  const turnEnd = mux(3 + PARTS.length, "turn_end", { promptId: "p-1", turnId: "turn-1" });
+  const result = mux(4 + PARTS.length, "turn_result", { promptId: "p-1", turnId: "turn-1", status: "completed" });
+  const history = [...opened, ...chunks, turnEnd, result];
+  const p = await pane((after) => history.filter((record) => record.seq > after));
+  for (const record of [chunks[2]!, chunks[4]!, turnEnd, result]) p.live(record);
+  await p.until(() => p.reply() === PARTS.join(""));
+  expect(p.reply()).toBe(PARTS.join(""));
+});
+
+test("a turn whose opening is older than the records the pane holds is read from the oldest one held", async () => {
+  // The turn began before the pane's kept window: its opening is not held, but the part shown is repaired.
+  const tail = [chunk(3, "Older text. "), chunk(4, "Shown first. "), chunk(5, "Lost piece. "), chunk(6, "Last piece.")];
+  const end = mux(7, "turn_result", { promptId: "p-1", turnId: "turn-1", status: "completed" });
+  const history = [...opened, ...tail, end];
+  const p = await pane((after) => history.filter((record) => record.seq > after), [tail[1]!]);
+  for (const record of [tail[3]!, end]) p.live(record);
+  await p.until(() => p.reply() === "Shown first. Lost piece. Last piece.");
+  expect(p.reply()).toBe("Shown first. Lost piece. Last piece.");
 });
