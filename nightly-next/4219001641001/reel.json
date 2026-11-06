@@ -1,0 +1,203 @@
+{
+  "version": 1,
+  "build": "4219001641001",
+  "notes": "notes/4219001641001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 36937,
+      "title": "feat(webviews): lean session info",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37052,
+      "title": "measure: debug.pointer_hover {row} says why a row has no point; the hover bench shows a hidden sidebar",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37048,
+      "title": "ci(perf bench): submit the bench as a pool perf-lead measurement",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37047,
+      "title": "cmux-tui: list the no-folder start on the Native owner link",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37024,
+      "title": "machine new: use the signed-in app, and open the machine a person made",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36963,
+      "title": "measure: the live code benches inset Home's transcript, so their red shows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37000,
+      "title": "Cloud start: a cancellation during the cached-login check is recorded as cancelled",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37016,
+      "title": "perf(sidebar): a row insert/remove frames only drawable rows and fades on the render server (m23 F3+F4)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36952,
+      "title": "Agent chat: reply tables wrap to fit the column, with Open and Copy on their own corner",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35349,
+      "title": "fix(new-tab): ship the tight 2px mic-to-Send gap",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37044,
+      "title": "test(webviews runner): the retry-overrun case waits for the runner's TERM, not a 1.9 s sleep in a 2 s limit",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37025,
+      "title": "acpmux: say when a live agent host runs an older build than the daemon",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36995,
+      "title": "Cloud start: a login cancelled with its start is recorded as cancelled",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37035,
+      "title": "measure: rust-dev-loop fetches pinned cargo-nextest for tests=, runs cargo test --no-fail-fast like nextest",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37009,
+      "title": "cmux NEXT: the focus ring fires only on a key move, clears on click or Escape, and Toggle Focus Ring turns every pane ring off",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37008,
+      "title": "Cloud start: keep the second link wait, and dial it again only for the account that asked",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37039,
+      "title": "ci(guards): the CI guard group runs on Linux only, never on a mini",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37007,
+      "title": "cmux NEXT: a pane whose split closed under load takes clicks again",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37001,
+      "title": "acpmux: log the shadow admission verdict beside every pick and create",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36983,
+      "title": "Agent guidance: read early and batch every independent call from the first step, with less text",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36965,
+      "title": "measure: rust-dev-loop reaches blaze's home through a short link when its socket path is too long",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36212,
+      "title": "fix(cmux-tui-core): the public fold compares a restated tab decorated, as the journal writes it",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37034,
+      "title": "base red: window-opening test suites carry .closesItsWindows (WindowCleanupCoverageTests)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36940,
+      "title": "codex parity: tool calls",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37023,
+      "title": "measure: hover preload bench aims at rows, sweeps in the app, runs OFF on the base build",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37019,
+      "title": "ci(evals): the perf bench and eval gateway jobs are thin cmux-ci clients",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37012,
+      "title": "pre-push: refuse a push whose changed workflow does not parse",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36857,
+      "title": "cmux-next: pin CCmuxAppFFI to cmux-app-ffi-c1654f352ab41eaaea1c72a0f02d8d43f6a8507b",
+      "author": "manaflow-cmux-ffi-release[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36992,
+      "title": "ci(base-red): read only the runs whose check suite can answer, so a head's reds fit the job-read limit",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37014,
+      "title": "test(nightly): the notary handoff test runs the step beside the repo scripts",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36955,
+      "title": "evals: perf bench, cu-driver and screen-stream evals read their own CI_EVAL_STEP_GATEWAY variable",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36944,
+      "title": "Contracts: AcpmuxRequestMeta lists every key acpmux's clients send; --focus=VALUE takes only true or false",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
