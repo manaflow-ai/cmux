@@ -21,8 +21,7 @@ export type FolderChoice = { id: string; label: string; repo?: ProjectRepo };
 /// the row's tooltip. A repository's row picks the current folder, else its main checkout, else its
 /// newest worktree; its other worktrees, newest first, open under it with → (← or the count closes
 /// them). The current folder is checked. The actions sit under the scrolling folders, each with its
-/// glyph, as ChatGPT's menu has them (Leo, 2026-11-06: "i think chatgpt's is nicer but regardless /
-/// it's just folder / that's your project"): Add folder…, Add another folder…, New Worktree and No
+/// glyph (Leo, 2026-11-06: "it's just folder / that's your project"): Add folder…, Add another folder…, New Worktree and No
 /// folder last, where the host offers them.
 /// A folder is the one thing the menu picks (Leo, 2026-11-06: "what even is the deal with add
 /// project? ... why not just add fodler? what's special about project?"): Add folder… is the host's
@@ -58,7 +57,7 @@ export function FolderPopover({
   onBrowse?(request?: BrowseRequest): Promise<BrowseResult> | BrowseResult | void;
   /// New Worktree of the current folder.
   onNewWorktree?(): void;
-  /// No folder (Leo 2026-10-18, as ChatGPT and Claude Code offer): the chat starts in no folder of
+  /// No folder (Leo 2026-10-18): the chat starts in no folder of
   /// the user's (its private one). Checked while `noProject`.
   onNoProject?(): void;
   noProject?: boolean;

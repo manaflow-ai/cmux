@@ -1130,7 +1130,7 @@
 .acpmux-location-row,
 .acpmux-location-action { display: flex; align-items: center; gap: var(--cmux-menu-icon-gap); width: 100%; min-width: 0; }
 .acpmux-folder-popover .ui-combobox-pinned[data-placement="top"]::after { content: ""; display: block; height: 1px; margin: 4px 6px 0; background: color-mix(in srgb, currentColor 12%, transparent); }
-/* Actions under the folders (Leo, 2026-11-06, on ChatGPT's menu: "it's just folder"): the rule
+/* Actions under the folders (Leo, 2026-11-06: "it's just folder"): the rule
    sits over them, and each carries its glyph in the folders' icon column. */
 .acpmux-folder-popover .ui-combobox-pinned[data-placement="bottom"]::before { content: ""; display: block; height: 1px; margin: 0 6px 4px; background: color-mix(in srgb, currentColor 12%, transparent); }
 .acpmux-location-action-icon { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 16px; color: var(--agent-muted); }

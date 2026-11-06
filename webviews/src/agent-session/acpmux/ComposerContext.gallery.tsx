@@ -1343,7 +1343,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
     // just add fodler? what's special about project?". One concept: a folder. These arms differ only
     // in how the one row that is not about the chat's own folder reads.
     "folder-one-concept": {
-      note: "Shipped, ChatGPT's shape (Leo: \"i think chatgpt's is nicer\"): search, the recent folders with their icons and the current one checked, then Add folder… (this Mac's folder panel), Add another folder… (one more folder the chat also sees) and No folder, each with its glyph.",
+      note: "Shipped (Leo: \"it's just folder\"): search, the recent folders with their icons and the current one checked, then Add folder… (this Mac's folder panel), Add another folder… (one more folder the chat also sees) and No folder, each with its glyph.",
       props: extraProps("local", ["/Users/you/notes"], {
         summary: { sessionId: "", harness: "claude", cwd: projects[0]!.cwd, host: "This Mac", hostKind: "local" },
       }),
