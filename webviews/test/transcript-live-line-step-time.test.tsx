@@ -34,7 +34,13 @@ function calls(): Map<string, AcpmuxActivity> {
 const [bash, agent] = [...calls().values()];
 
 const prompt: AcpmuxRow = { id: "u", kind: "user", version: 1, at: events[0]!.at - 20_000 };
-const run = (...items: AcpmuxActivity[]): AcpmuxRow => ({ id: "run", kind: "activity", version: 1, at: prompt.at, items });
+const run = (...items: AcpmuxActivity[]): AcpmuxRow => ({
+  id: "run",
+  kind: "activity",
+  version: 1,
+  at: prompt.at,
+  items,
+});
 const line = (rows: AcpmuxRow[]) =>
   turnView(rows, new Set(), { working: true, liveRuns: true, lineBelow: true }).find((row) => row.kind === THINKING)!;
 const words = (node: ReactNode) =>
