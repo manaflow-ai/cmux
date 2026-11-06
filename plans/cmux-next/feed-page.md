@@ -37,7 +37,7 @@ callers use the same ops. Times are Unix ms. Every mutation takes an idempotency
 | `feed.withdraw` | mutation, app connection only | `{dedupe_key}` -> `{cancelled: [id]}` |
 | `feed.github.configure` | mutation, app connection only | `{enabled, interval_s?}` (120 by default, clamped to 30..3600) -> `{enabled, interval_s}`; on starts the poller, off stops it |
 | `feed.github.refresh` | mutation | `{}` -> `{enabled}` (a user wakeup; the poller's in-flight guard drops one during a pass) |
-| `feed.github.find_work` | read | `{}` -> `{reviews: [GitHubWork], assigned: [GitHubWork]}`, `GitHubWork = {id, number, title, url, repo, body?, state?, branch?, updated_at}` (the Find Work palette; read now with `gh`) |
+| `feed.github.find_work` | read | `{}` -> `{reviews: [GitHubWork], assigned: [GitHubWork]}`, `GitHubWork = {id, number, title, url, repo, author?, body?, state?, branch?, updated_at}` (the Find Work palette; read now with `gh`) |
 | `feed.reports.read` | read | `{}` -> `{revision, available, reports: [{id, sender, body, created_at}]}` (newest first, at most 200) |
 | `feed.reports.changed` | stream | daemon event `feed-reports-changed {revision}` |
 | `feed.reports.reply` | mutation | `{session, text (<= 64 KiB), prompt_id?}` (the prompt id defaults to the idempotency key, so a retry delivers once) -> `{sent: bool}` |
@@ -66,7 +66,7 @@ ViewItem = the item's wire JSON (FeedDO shape, snake_case: id, home, kind, title
   plus pending: bool,
   row: {headline, detail?, detail_is_code, who?, where?, icon, urgent, dimmed, local},
   github?: {title, repo, number, url, body?, branch?, checks: [{name, conclusion}]},
-  github_actions?: ["open"|"checkout"|"start_agent"|"approve"|"comment"]
+  github_actions?: ["open"|"checkout"|"start_agent"|"approve"|"request_changes"|"comment"]
   (the wire JSON also carries the derived `type`: "notice" or "request")
 ```
 

@@ -173,6 +173,9 @@ pub struct Pull {
     pub state: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub branch: Option<String>,
+    /// The author's login.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
     pub updated_at: i64,
 }
 
@@ -200,6 +203,7 @@ impl Pull {
                 .pointer("/pull_request/head/ref")
                 .and_then(Value::as_str)
                 .map(str::to_owned),
+            author: value.pointer("/user/login").and_then(Value::as_str).map(str::to_owned),
             updated_at: parse_time(value.get("updated_at")?.as_str()?)?,
         })
     }
@@ -530,8 +534,10 @@ fn pull_item(pull: &Pull, kind: PullKind, now: i64) -> (FeedItem, Detail) {
 
 /// Which GitHub actions an item offers (Swift `FeedGitHubActions.install`):
 /// open and comment for a GitHub item with a detail URL, approve for a
-/// review with a number, checkout when its branch is known too, and start
-/// an agent (the host refuses it when no pane is focused).
+/// review with a number (and request changes, which the host's action
+/// handler runs as `gh pr review --request-changes`), checkout when its
+/// branch is known too, and start an agent (the host refuses it when no
+/// pane is focused).
 pub fn actions(item: &FeedItem, detail: Option<&Detail>) -> Option<Vec<&'static str>> {
     let detail = detail?;
     if !item.dedupe_key.as_deref().is_some_and(|key| key.starts_with("github:"))
@@ -547,6 +553,7 @@ pub fn actions(item: &FeedItem, detail: Option<&Detail>) -> Option<Vec<&'static 
     actions.push("start_agent");
     if review {
         actions.push("approve");
+        actions.push("request_changes");
     }
     actions.push("comment");
     Some(actions)

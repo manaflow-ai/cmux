@@ -408,3 +408,17 @@ fn shutdown_ends_every_thread() {
     wait_until("the poller to stop", || !h.feed.inner.lock().github_running);
     wait_until("the driver to stop", || view(&h.feed)["connection"]["state"] == "disconnected");
 }
+
+#[test]
+fn find_work_reads_reviews_and_assignments_now() {
+    let h = harness(None);
+    h.gh.answers.lock().unwrap().push_back(Ok(search(json!([review_pull()]))));
+    h.gh.answers.lock().unwrap().push_back(Ok(search(json!([]))));
+    let work = h.feed.find_work().unwrap();
+    assert_eq!(work["reviews"][0]["author"], "you", "{work}");
+    assert_eq!(work["reviews"][0]["repo"], "acme/app", "{work}");
+    assert_eq!(work["reviews"][0]["number"], 7, "{work}");
+    assert_eq!(work["assigned"], json!([]));
+    h.gh.answers.lock().unwrap().push_back(Err("gh is not installed".to_owned()));
+    assert!(matches!(h.feed.find_work(), Err(FeedError::Unavailable(_))));
+}

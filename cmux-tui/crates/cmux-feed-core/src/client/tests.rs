@@ -667,7 +667,7 @@ fn a_pull_request_held_for_your_trial_is_an_open_needs_you_request() {
     assert_eq!(sync.detail(item).unwrap().title, "Spaces switcher");
     assert_eq!(sync.etag(Query::HeldForTrial), Some("\"e\""));
     let actions = github::actions(item, sync.detail(item)).unwrap();
-    assert_eq!(actions, vec!["open", "start_agent", "approve", "comment"]);
+    assert_eq!(actions, vec!["open", "start_agent", "approve", "request_changes", "comment"]);
 }
 
 #[test]
