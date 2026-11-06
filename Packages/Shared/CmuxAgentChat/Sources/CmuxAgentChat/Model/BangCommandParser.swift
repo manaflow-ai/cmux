@@ -140,6 +140,10 @@ public enum BangCommandParser {
                     guard index < characters.count else { return nil }
                     index += 1
                 }
+                if index < characters.count {
+                    let next = characters[index]
+                    guard next.isWhitespace || ";|&<>".contains(next) else { return nil }
+                }
                 documents.append((delimiter, stripTabs))
                 word = ""
                 continuation = false
