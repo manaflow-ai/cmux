@@ -34,7 +34,7 @@ public struct HomeMenuEntry: Hashable, Sendable {
     /// Messages does (`HomeListActions.confirmDelete`), in `window`.
     @MainActor
     public func perform(in registry: ActionRegistry, window: NSWindow?) {
-        let run = { [action, arguments] in
+        let run: @MainActor @Sendable () -> Void = { [action, arguments] in
             _ = registry.perform(action, invocation: ActionInvocation(arguments: arguments, origin: .user))
         }
         if action == "home.hideConversation" { HomeListActions.confirmDelete(in: window, run) } else { run() }
