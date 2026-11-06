@@ -7,8 +7,12 @@
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+// These helpers are shared with durable_watch_lifecycle.rs, which uses all of them; this test
+// uses only part of each, so the rest would be dead code here.
+#[allow(dead_code)]
 #[path = "durable_watch_lifecycle/daemon.rs"]
 mod daemon;
+#[allow(dead_code)]
 #[path = "durable_watch_lifecycle/peer.rs"]
 mod peer;
 use acpmux::rpc::{Message, method};
