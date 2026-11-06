@@ -159,8 +159,8 @@ public nonisolated struct WindowFrame: Sendable {
     /// encoding and file writes held it for seconds a frame strip under load, which the frame and hang probes counted.
     @concurrent public static func writeAll(_ frames: [(frame: WindowFrame, path: String)], strip: [WindowFrame], stripPath: String,
                                            in dir: String) async {
-        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        for (frame, path) in frames { frame.write(to: path) }
+        try? FileManager.checked.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        for (frame, path) in frames { if let image = frame.image { writePNG(image, to: path) } }
         writeStrip(strip, to: stripPath)
     }
 
