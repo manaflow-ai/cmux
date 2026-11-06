@@ -25,11 +25,8 @@
 #                              pack (scripts/cmux-next/cef-runtime-pack.sh) written to
 #                              CMUX_NEXT_CEF_RUNTIME_OUT, pinned to
 #                              CMUX_NEXT_CEF_RUNTIME_BASE_URL, before the app is signed
-#   CMUX_SIGN_MODE             "all" (default), "all-except-computer-use", or
-#                              "main-only". The split Computer Use notarization
-#                              flow uses all-except-computer-use while Apple's
-#                              service processes the helper, then main-only after
-#                              stapling so the submitted helper CDHash survives.
+#   CMUX_SIGN_MODE             "all" (default) or "main-only" (re-seal only the
+#                              main bundle, keeping every nested signature).
 #
 # Signs in the Apple-documented inside-out order:
 #   0. scripts/sign-cmux-bundle-helpers.sh stamps the cmux server's launchd
@@ -40,15 +37,14 @@
 #      scripts/sign-cmux-bundle-helpers.sh; libexec/cmux-server-helper gets none.
 #      The macOS cmux-tui SSH payloads under Resources/bin/cmux-tui-ssh/ are
 #      signed the same way (scripts/sign-cmux-tui-ssh-payloads.sh).
-#   2. The nested cmux Computer Use app with the Developer ID identity.
-#   3. Each nested plugin under Contents/PlugIns/* with --deep.
-#   4. The embedded Chromium engine (CEF framework, its libraries, the shim
+#   2. Each nested plugin under Contents/PlugIns/* with --deep.
+#   3. The embedded Chromium engine (CEF framework, its libraries, the shim
 #      and the five helper apps with their own entitlements) through
 #      scripts/cmux-next/sign-cef.sh, the remote browser host under
 #      Contents/Helpers (rbh_sign), then every other nested framework under
 #      Contents/Frameworks/* with --deep (covers Sparkle's XPCServices and
 #      Updater.app, and Iroh).
-#   5. The main app bundle with the effective app-level entitlements,
+#   4. The main app bundle with the effective app-level entitlements,
 #      WITHOUT --deep. --deep here would overwrite helper/plugin
 #      signatures and re-introduce the app-id mismatch that amfi on
 #      notarized macOS 26 Tahoe rejects with errno 163.
@@ -85,7 +81,7 @@ if [[ ! -f "$HELPER_ENTITLEMENTS" ]]; then
   exit 1
 fi
 case "$SIGN_MODE" in
-  all|all-except-computer-use|main-only) ;;
+  all|main-only) ;;
   *)
     echo "error: unsupported CMUX_SIGN_MODE: $SIGN_MODE" >&2
     exit 2
@@ -102,7 +98,6 @@ else
 fi
 
 COMMON=(--force --options runtime "${TS_FLAG[@]}" --sign "$IDENTITY")
-COMPUTER_USE_HELPER="$APP_PATH/Contents/Library/cmux Computer Use.app"
 SYSTEM_EXTENSIONS_DIR="$APP_PATH/Contents/Library/SystemExtensions"
 CEF_FRAMEWORK_NAME="Chromium Embedded Framework.framework"
 
@@ -132,25 +127,14 @@ if [[ -d "$SYSTEM_EXTENSIONS_DIR" ]]; then
   exit 1
 fi
 
-if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; then
+if [[ "$SIGN_MODE" == "all" ]]; then
   # 0-1. The cmux server launchd plists, then the CLI and private helpers.
   "$SCRIPT_DIR/sign-cmux-bundle-helpers.sh" "$APP_PATH" "$HELPER_ENTITLEMENTS" "$IDENTITY"
   # cmux-tui builds for SSH hosts. Notarization requires the macOS ones to be
   # Developer ID signed; the script re-pins them in the bundled manifest.
   "$SCRIPT_DIR/sign-cmux-tui-ssh-payloads.sh" "$APP_PATH" "$HELPER_ENTITLEMENTS" "$IDENTITY"
 
-  # 2. Computer Use helper app. An early notarization submission owns this
-  # signature in all-except-computer-use mode; changing it would invalidate the
-  # ticket that finish is waiting to staple.
-  if [[ "$SIGN_MODE" == "all" && -d "$COMPUTER_USE_HELPER" ]]; then
-    echo "==> signing nested helper $(basename "$COMPUTER_USE_HELPER")"
-    /usr/bin/codesign \
-      "${COMMON[@]}" \
-      --entitlements "$HELPER_ENTITLEMENTS" \
-      "$COMPUTER_USE_HELPER"
-  fi
-
-  # 3. Plugins
+  # 2. Plugins
   if [[ -d "$APP_PATH/Contents/PlugIns" ]]; then
     while IFS= read -r -d '' plugin; do
       echo "==> signing plugin $(basename "$plugin")"
@@ -158,7 +142,7 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
     done < <(find "$APP_PATH/Contents/PlugIns" -mindepth 1 -maxdepth 1 -print0)
   fi
 
-  # 4. Frameworks. The Chromium engine first, with its own per-helper
+  # 3. Frameworks. The Chromium engine first, with its own per-helper
   # entitlements; --deep would re-sign its helpers without them.
   if [[ -d "$APP_PATH/Contents/Frameworks" ]]; then
     "$SCRIPT_DIR/remove-sparkle-sandbox-xpc-services.sh" "$APP_PATH"
@@ -195,7 +179,7 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
   fi
 fi
 
-# 5. Main app bundle (no --deep), with the effective entitlements.
+# 4. Main app bundle (no --deep), with the effective entitlements.
 echo "==> signing main bundle ($SIGN_MODE)"
 /usr/bin/codesign "${COMMON[@]}" --entitlements "$EFFECTIVE_APP_ENTITLEMENTS" "$APP_PATH"
 
@@ -209,9 +193,6 @@ for alias in cmux-tui acpmux; do
     exit 1
   fi
 done
-if [[ -d "$COMPUTER_USE_HELPER" ]]; then
-  /usr/bin/codesign --verify --strict --verbose=2 "$COMPUTER_USE_HELPER"
-fi
 # The sidecar must carry exactly the slices the app does: universal for stable
 # and the transitional nightly, one architecture for thinned nightlies.
 SIDECAR_CHECK=(--archs "$(lipo -archs "$APP_PATH/Contents/MacOS/cmux")" --require-signed)
@@ -296,12 +277,5 @@ for helper_dir in bin libexec; do
     fi
   done
 done
-
-if [[ -d "$COMPUTER_USE_HELPER" ]] \
-   && /usr/bin/codesign -d --entitlements :- "$COMPUTER_USE_HELPER" 2>&1 \
-        | grep -q "application-identifier"; then
-  echo "error: nested Computer Use helper unexpectedly carries application-identifier" >&2
-  exit 1
-fi
 
 echo "==> signing OK: $APP_PATH"

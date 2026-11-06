@@ -36,7 +36,6 @@
 #                           cmux-tui/crates/cmux-remote-browser-host/Cargo.lock at the
 #                           pinned binary's source_commit (remote-browser-host.pin.json)
 #   rust-iroh-ffi           Iroh.framework                   manaflow-ai/iroh-ffi at the Package.resolved revision
-#   rust-cmux-cua           cmux Computer Use.app            manaflow-ai/cmux-cua at the scripts/build-cmux-cua.sh pin
 #
 # In pin mode first-party crates point at the permanent tag
 # cmux-tui-src-<pin, 11 characters>, which must exist.
@@ -80,8 +79,6 @@ pins = [p for p in json.load(open(sys.argv[1]))["pins"] if p["identity"] == "iro
 print(pins[0]["state"]["revision"])' "$ROOT/Packages/macOS/CmuxNext/Package.resolved")"
 [[ "$iroh_rev" =~ ^[0-9a-f]{40}$ ]] || { echo "error: no iroh-ffi revision in Packages/macOS/CmuxNext/Package.resolved" >&2; exit 1; }
 
-cua_rev="$(sed -n 's/^CMUX_CUA_PINNED_SHA="\([0-9a-f]*\)"$/\1/p' "$ROOT/scripts/build-cmux-cua.sh")"
-[[ "$cua_rev" =~ ^[0-9a-f]{40}$ ]] || { echo "error: no CMUX_CUA_PINNED_SHA in scripts/build-cmux-cua.sh" >&2; exit 1; }
 
 mkdir -p "$CACHE"
 if [[ "$TUI_SOURCE" == pin ]]; then
@@ -123,16 +120,6 @@ if [[ ! -d "$iroh_src" ]]; then
   mv "$iroh_src.partial" "$iroh_src"
 fi
 
-cua_src="$CACHE/cmux-cua-$cua_rev"
-if [[ ! -d "$cua_src" ]]; then
-  rm -rf "$cua_src.partial" && mkdir -p "$cua_src.partial"
-  git -C "$cua_src.partial" init --quiet
-  git -C "$cua_src.partial" fetch --quiet --depth 1 https://github.com/manaflow-ai/cmux-cua.git "$cua_rev"
-  git -C "$cua_src.partial" checkout --quiet FETCH_HEAD
-  [[ "$(git -C "$cua_src.partial" rev-parse HEAD)" == "$cua_rev" ]] || { echo "error: cmux-cua checkout is not $cua_rev" >&2; exit 1; }
-  mv "$cua_src.partial" "$cua_src"
-fi
-cua_rust="$cua_src/libs/cmux-cua/rust"
 
 # The remote browser host is a prebuilt, pinned binary (ensure-remote-browser-host.sh),
 # not a build of this tree: its notices come from the crate at the pin's
@@ -186,7 +173,6 @@ if [[ "$WRITE_TREES" == 1 ]]; then
   cargo_tree rust-mobile-host "$ROOT/cmux-next-ios/rust" cmux-mobile-host
   cargo_tree rust-cmux-remote-browser-host "$rbh_src/$rbh_crate" cmux-remote-browser-host
   cargo_tree rust-iroh-ffi "$iroh_src" iroh-ffi
-  cargo_tree rust-cmux-cua "$cua_rust" cmux-cua
 fi
 
 python3 "$NOTICES/fetch_crates.py" --cache "$CACHE" \
@@ -196,8 +182,7 @@ python3 "$NOTICES/fetch_crates.py" --cache "$CACHE" \
   --lock "$ROOT/Native/OptChat/optchat-chief/Cargo.lock" \
   --lock "$ROOT/cmux-next-ios/rust/Cargo.lock" \
   --lock "$rbh_src/$rbh_crate/Cargo.lock" \
-  --lock "$iroh_src/Cargo.lock" \
-  --lock "$cua_rust/Cargo.lock"
+  --lock "$iroh_src/Cargo.lock"
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
@@ -255,11 +240,6 @@ section rust-iroh-ffi "Rust crates: Iroh.framework (manaflow-ai/iroh-ffi)" \
   --lock "$iroh_src/Cargo.lock" --lock-label "manaflow-ai/iroh-ffi Cargo.lock at ${iroh_rev:0:11}" \
   --root iroh-ffi --workspace "$iroh_src" \
   --path-download "git+https://github.com/manaflow-ai/iroh-ffi.git@$iroh_rev"
-section rust-cmux-cua "Rust crates: Computer Use helper (cmux Computer Use.app, manaflow-ai/cmux-cua)" \
-  --lock "$cua_rust/Cargo.lock" --lock-label "manaflow-ai/cmux-cua Cargo.lock at ${cua_rev:0:11}" \
-  --root cmux-cua --workspace "$cua_rust" \
-  --path-download "git+https://github.com/manaflow-ai/cmux-cua.git@$cua_rev"
-
 python3 "$ROOT/scripts/cmux-next/notices/ghostty_themes_notice.py" --root "$ROOT" --out "$work/ghostty-themes.md"
 compose=(python3 "$ROOT/scripts/cmux-next/notices/compose_notices.py"
   --hand-written "$ROOT/scripts/cmux-next/notices/hand-written.md"
@@ -271,13 +251,11 @@ compose=(python3 "$ROOT/scripts/cmux-next/notices/compose_notices.py"
   --section "$work/rust-mobile-host.md"
   --section "$work/rust-cmux-remote-browser-host.md"
   --section "$work/rust-iroh-ffi.md"
-  --section "$work/rust-cmux-cua.md"
   --out "$ROOT/THIRD_PARTY_LICENSES.md")
 review=(python3 "$NOTICES/review_list.py" --cache "$CACHE"
   --lock "$tui_src/cmux-tui/Cargo.lock" --lock "$tui_src/first-party-apps/cloud/server/Cargo.lock"
   --lock "$ROOT/Native/DiffSidecar/Cargo.lock" --lock "$ROOT/Native/OptChat/optchat-chief/Cargo.lock" --lock "$iroh_src/Cargo.lock"
-  --lock "$ROOT/cmux-next-ios/rust/Cargo.lock" --lock "$rbh_src/$rbh_crate/Cargo.lock"
-  --lock "$cua_rust/Cargo.lock")
+  --lock "$ROOT/cmux-next-ios/rust/Cargo.lock" --lock "$rbh_src/$rbh_crate/Cargo.lock")
 if [[ "$TUI_SOURCE" == tree ]]; then
   "${compose[@]}"
   echo "wrote THIRD_PARTY_LICENSES.md for this tree (${ref:0:11}; $(wc -c < "$ROOT/THIRD_PARTY_LICENSES.md" | tr -d ' ') bytes)"

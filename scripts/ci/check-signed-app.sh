@@ -1,35 +1,21 @@
 #!/usr/bin/env bash
 # The checks scripts/sign-cmux-bundle.sh makes on the app it signed, made again
-# on a signed app whichever signer produced it, plus the Computer Use helper's
-# own ticket on a copy taken out of the app. verify-signed-nightly runs it, on
-# a Mac, in a job without secrets: the browser host check runs the bundled
+# on a signed app whichever signer produced it. verify-signed-nightly runs it,
+# on a Mac, in a job without secrets: the browser host check runs the bundled
 # host's `version`, as sign-cmux-bundle.sh does.
 #
-#   scripts/ci/check-signed-app.sh <app> <app-entitlements> [--require-helper-ticket]
+#   scripts/ci/check-signed-app.sh <app> <app-entitlements>
 #
 # The diff sidecar check (verify-diff-sidecar-artifact.sh) and codesign
 # --verify --deep --strict of the app are steps of their own in that job.
-#
-# The helper: cmux copies it out of the app before it runs it, so its own
-# stapled ticket must keep that copy valid with no network. The copy is made
-# with ditto, as notarize-computer-use-helper.sh validates it; stapler validate
-# checks the stapled ticket against the copy's CDHash locally, and codesign
-# and spctl assess the copy with it. A helper with no ticket of its own (the
-# Mac signer staples it after this copy of the app was taken; the DMG ticket
-# covers it) is a notice, or a failure with --require-helper-ticket.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-[[ $# -ge 2 && $# -le 3 ]] || { echo "usage: $0 <app> <app-entitlements> [--require-helper-ticket]" >&2; exit 2; }
-APP_PATH="$1" APP_ENTITLEMENTS="$2" REQUIRE_TICKET=false
-if [[ $# -eq 3 ]]; then
-  [[ "$3" == --require-helper-ticket ]] || { echo "error: unknown option $3" >&2; exit 2; }
-  REQUIRE_TICKET=true
-fi
+[[ $# -eq 2 ]] || { echo "usage: $0 <app> <app-entitlements>" >&2; exit 2; }
+APP_PATH="$1" APP_ENTITLEMENTS="$2"
 [[ -d "$APP_PATH/Contents" ]] || { echo "error: app bundle not found at $APP_PATH" >&2; exit 1; }
 [[ -f "$APP_ENTITLEMENTS" ]] || { echo "error: app entitlements not found at $APP_ENTITLEMENTS" >&2; exit 1; }
-COMPUTER_USE_HELPER="$APP_PATH/Contents/Library/cmux Computer Use.app"
 work="$(mktemp -d "${TMPDIR:-/tmp}/cmux-signed-app-check.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 
@@ -93,35 +79,3 @@ for helper_dir in bin libexec; do
   done
 done
 echo "==> entitlements, helpers and browser host: OK"
-
-if [[ ! -d "$COMPUTER_USE_HELPER" ]]; then
-  [[ "$REQUIRE_TICKET" == false ]] || { echo "error: no Computer Use helper in this app" >&2; exit 1; }
-  echo "==> no Computer Use helper in this app"
-  exit 0
-fi
-/usr/bin/codesign --verify --strict --verbose=2 "$COMPUTER_USE_HELPER"
-if /usr/bin/codesign -d --entitlements :- "$COMPUTER_USE_HELPER" 2>&1 | grep -q "application-identifier"; then
-  echo "error: nested Computer Use helper unexpectedly carries application-identifier" >&2
-  exit 1
-fi
-if [[ ! -f "$COMPUTER_USE_HELPER/Contents/CodeResources" ]]; then
-  if [[ "$REQUIRE_TICKET" == true ]]; then
-    echo "error: the Computer Use helper has no stapled ticket of its own" >&2
-    exit 1
-  fi
-  echo "::notice title=Computer Use helper::no stapled ticket of its own in this copy of the app; the DMG ticket covers it"
-  exit 0
-fi
-# shellcheck source=lib/notarization-ticket.sh
-source "$SCRIPT_DIR/lib/notarization-ticket.sh"
-# shellcheck source=lib/gatekeeper-assessment.sh
-source "$SCRIPT_DIR/lib/gatekeeper-assessment.sh"
-copy="$work/standalone/cmux Computer Use.app"
-mkdir -p "$work/standalone"
-/usr/bin/ditto "$COMPUTER_USE_HELPER" "$copy"
-xcrun stapler validate "$copy"
-verify_stapled_ticket_covers_slices "$copy"
-/usr/bin/codesign --verify --strict --verbose=2 "$copy"
-# Uncached, with the propagation retries notarize-computer-use-helper.sh uses.
-assess_with_gatekeeper "$copy"
-echo "==> Computer Use helper: a copy out of the app keeps its own stapled ticket"

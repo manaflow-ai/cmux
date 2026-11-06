@@ -315,10 +315,6 @@
       "class": "apple-swift-tests",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
     },
-    "cmux-next-cua-helper-identity.yml#helper-identity": {
-      "class": "macos-runtime-tests",
-      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
-    },
     "cmux-next-daemon-macos-shadow.yml#cmux-next-daemon-macos-shadow": {
       "class": "macos-runtime-tests",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
@@ -335,10 +331,6 @@
     "cmux-next-perf-bench.yml#bench": {
       "class": "apple-gui",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
-    },
-    "cu-driver-eval.yml#eval": {
-      "class": "apple-gui",
-      "picker_followup": "runs-on is the build-fleet gateway runner, which only hands the measurement to the controller with cmux-ci run"
     },
     "screen-stream-eval.yml#eval": {
       "class": "apple-gui",
@@ -521,12 +513,6 @@
     "release.yml#build-sign-notarize-blacksmith": "apple-signing-release",
     "reload-build.yml#build": "apple-app-build",
     "remote-daemon.yml#remote-daemon-macos-tests": "macos-runtime-tests",
-    "repair-v0-64-25-helper-rpaths.yml#repair": "apple-signing-release",
-    "repair-v0-64-25-helper-rpaths.yml#repair-blacksmith": "apple-signing-release",
-    "repair-v0-64-25-helper-rpaths.yml#verify-shipped": {
-      "class": "apple-signing-release",
-      "picker_followup": "signs with release keys on an ephemeral Blacksmith Mac; an owned route needs a picker with the per-job keychain and exclusive claim (signing_runner.py)"
-    },
     "resume-nightly-notarization.yml#resume": {
       "class": "apple-signing-release",
       "picker_followup": "signs with release keys on an ephemeral Blacksmith Mac; an owned route needs a picker with the per-job keychain and exclusive claim (signing_runner.py)"
@@ -715,7 +701,6 @@
       "presence.yml#test": {"size": 4, "failover": 8, "measured": {}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class); no runs in the window"},
       "release.yml#pick-sign-runner": {"size": 4, "failover": 8, "measured": {}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class); no runs in the window"},
       "remote-daemon.yml#remote-daemon-tests": {"size": 4, "failover": 8, "measured": {"32": [1.5, 0.38, 0.37], "16": [1.0, 0.78, 0.53], "4": [3.0, 0.4, 0.43]}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class)"},
-      "repair-v0-64-25-helper-rpaths.yml#pick-sign-runner": {"size": 4, "failover": 8, "measured": {}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class); no runs in the window"},
       "rust-workspaces.yml#workspace": {"size": 8, "failover": 16, "measured": {"32": [645.5, 1.16, 3.27], "2": [5123.5, 0.32, 0.6]}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits"},
       "sdk-bootstrap-crates.yml#build": {"size": 8, "failover": 16, "measured": {}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits; no runs in the window"},
       "sdk-publish-crates.yml#bindings-e2e-rust": {"size": 8, "failover": 16, "measured": {}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits; no runs in the window"},

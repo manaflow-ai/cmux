@@ -124,10 +124,6 @@ path = "tests/test_compose_stable_appcast.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_computer_use_helper_icon_depth.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_crash_class_fast_gate.py"
 lane = "linux-guard"
 
@@ -394,10 +390,6 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_normalize_pbxproj.py"
 lane = "linux-guard"
-
-[[test]]
-path = "tests/test_notarize_computer_use_helper.py"
-lane = "legacy"
 
 [[test]]
 path = "tests/test_notary_wait_recover.py"
