@@ -96,20 +96,22 @@ nonisolated struct SidebarAttentionItem: Equatable {
     /// place, folded groups too); a workspace listed twice (a pin) counts once.
     static func all(in sections: [SidebarSection]) -> [SidebarAttentionItem] {
         var seen: Set<WorkspaceID> = [], items: [SidebarAttentionItem] = []
-        func visit(_ nodes: [SidebarNode]) {
-            for node in nodes {
+        func add(_ ws: SidebarWorkspace) {
+            guard seen.insert(ws.id).inserted, !ws.isArchived, let attention = WorkspaceRowAttention(ws) else { return }
+            items.append(SidebarAttentionItem(id: ws.id, title: ws.title, attention: attention))
+        }
+        for section in sections {
+            for node in section.nodes {
                 switch node {
                 case let .workspace(ws):
-                    guard seen.insert(ws.id).inserted, !ws.isArchived, let attention = WorkspaceRowAttention(ws) else { continue }
-                    items.append(SidebarAttentionItem(id: ws.id, title: ws.title, attention: attention))
+                    add(ws)
                 case let .group(group):
-                    visit(group.members)
+                    for case let .workspace(ws) in group.members { add(ws) }
                 case .item:
                     break
                 }
             }
         }
-        for section in sections { visit(section.nodes) }
         return items
     }
 }

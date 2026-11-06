@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// The sidebar-level notification surfaces (`SidebarNotificationEmphasis`): the inbox shelf at the top of
 /// the list, the arrival card at its bottom, and the loud-rows look's edge beacons. Each floats over the
