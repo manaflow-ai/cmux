@@ -10,8 +10,9 @@ import Testing
 /// crossing must not grow with the rows the sidebar holds.
 ///
 /// The harness lists `count` workspaces in groups of 10 in one machine section and sweeps a lifted card from the
-/// top of the list to the bottom in 200 moves. It prints, per size, the median and p95 of one move and of each part.
-/// `CMUX_DRAG_COST_REPORT=1` keeps the numbers only; the scaling check runs always.
+/// top of the list to the bottom in 200 moves. It prints, per size, the median and p95 of one move and of each part
+/// (`DRAG-MOVE-COST` lines). This is the baseline: a move here still lays the list out and sends every row to Rust as
+/// JSON, so it only reports. The drag handle's Swift switch adds the scaling check (5,000 rows at most 4 times 50).
 @MainActor @Suite(.serialized) struct SidebarDragMoveCostTests {
     static let sizes = [50, 200, 1000, 5000]
     static let moves = 200
