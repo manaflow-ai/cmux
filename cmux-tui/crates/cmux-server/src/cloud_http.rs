@@ -93,11 +93,7 @@ impl JsonPoster {
         url: &str,
         bearer: Option<&str>,
     ) -> Result<(u16, Value), String> {
-        let (status, bytes) =
-            self.send("POST", url, None, bearer)?;
-        let parsed =
-            serde_json::from_slice(&bytes).unwrap_or_else(|_| Value::Object(Default::default()));
-        Ok((status, parsed))
+        self.send("POST", url, None, bearer)
     }
 
     /// One original budget through authentication, policy and keyset reads.
