@@ -572,6 +572,26 @@ test("chat.handoff.prepare lands the held model, then adds the message to the re
   ]);
 });
 
+test("a review still loading when the new chat shows is read again, and the message joins it", async () => {
+  // Review of #37196: the new chat's selection starts its review's read; the record was read
+  // before it came in, so the message failed to join the review.
+  const { prepareHeldFork } = await import("../src/agent-session/acpmux/forkHold");
+  let loaded = false;
+  const saves: unknown[] = [];
+  const target = await prepareHeldFork(
+    { harness: "codex", message: "fix the build" },
+    {
+      continueIn: async () => "s2",
+      pickModel: async () => true,
+      record: () => (loaded ? review("context so far") : undefined),
+      refresh: async () => void (loaded = true),
+      save: async (input) => (saves.push(input), review("saved")),
+    },
+  );
+  expect(target).toBe("s2");
+  expect(saves).toHaveLength(1);
+});
+
 for (const [why, deps] of [
   ["the model did not land", { pickModel: async () => false }],
   ["the review takes no save (a refresh failure, a conflict, another chat shown)", { save: async () => undefined }],

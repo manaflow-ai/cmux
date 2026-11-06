@@ -126,6 +126,7 @@ export async function prepareHeldFork(
     pickModel,
     options,
     record,
+    refresh,
     save,
     saved,
   }: {
@@ -136,6 +137,8 @@ export async function prepareHeldFork(
     options?(target: string, picked: { effort?: string; fast?: boolean }): Promise<void>;
     /// The review's record as it is now.
     record(): Handoff | undefined;
+    /// Reads the shown chat's review again.
+    refresh?(): Promise<unknown>;
     save(review: HandoffReviewInput): Promise<Handoff | undefined>;
     /// The message joined the review: the review draws its draft again.
     saved?(): void;
@@ -154,7 +157,13 @@ export async function prepareHeldFork(
   }
   const message = params.message ?? "";
   if (!message.trim()) return target;
-  const shown = record();
+  // The selection of the new chat starts its review's read: one not in yet is read here
+  // (review of #37196: the message failed to join a review still loading).
+  let shown = record();
+  if (shown?.target.sessionId !== target) {
+    await refresh?.();
+    shown = record();
+  }
   // l10n-allow: the composer's promise only; the composer keeps the text, never shows this.
   if (shown?.target.sessionId !== target) throw new Error("review not shown");
   const accepted = await save({

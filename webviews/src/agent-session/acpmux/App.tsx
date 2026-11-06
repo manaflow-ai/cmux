@@ -5571,6 +5571,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ...snapshot,
       commands: mergedCommands(snapshot.commands, enabledCmuxActions),
       ...(keptStopping && { stopping: true as const }),
+      // The Quick Composer's send never forks (it has no review to show), so its model menu
+      // holds no pick of another harness either (review of #37196: it drew the hold, then sent
+      // the message to this chat).
+      ...(quick && { canHandoff: false }),
     };
     // Prompts still waiting for a new chat to take them follow acpmux's queue, then the prompts the
     // folder's trust holds (trustHeld.ts).
@@ -7325,6 +7329,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   if (picked.fast) await client.setConfig(HELD_FAST_ID, HELD_FAST_ON).catch(() => undefined);
                 },
                 record: () => client.handoff.state.record,
+                refresh: () => client.refreshHandoff(),
                 save: (review) => client.saveHandoff(review),
                 // The review drew the draft before the message joined it: it draws it again.
                 saved: () => setReviewReload((value) => value + 1),
