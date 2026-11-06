@@ -777,19 +777,6 @@ fn same_folder(a: &Path, b: &Path) -> bool {
     }
 }
 
-#[cfg(test)]
-mod same_folder_tests {
-    use super::same_folder;
-
-    #[test]
-    fn the_same_folder_spelled_another_way_is_not_a_move() {
-        let dir = tempfile::tempdir().unwrap();
-        let other = tempfile::tempdir().unwrap();
-        assert!(same_folder(dir.path(), &dir.path().join(".")));
-        assert!(!same_folder(dir.path(), other.path()));
-    }
-}
-
 /// A fork's reservation of its chat's history ([`Store::reserve_reference`]), taken back if the
 /// fork is not made before its creation guard takes over.
 struct Reserved<'a> {
@@ -809,5 +796,18 @@ impl Drop for Reserved<'_> {
         if let Some(fork) = &self.fork {
             self.store.forget_reference(fork);
         }
+    }
+}
+
+#[cfg(test)]
+mod same_folder_tests {
+    use super::same_folder;
+
+    #[test]
+    fn the_same_folder_spelled_another_way_is_not_a_move() {
+        let dir = tempfile::tempdir().unwrap();
+        let other = tempfile::tempdir().unwrap();
+        assert!(same_folder(dir.path(), &dir.path().join(".")));
+        assert!(!same_folder(dir.path(), other.path()));
     }
 }
