@@ -1,11 +1,11 @@
 import XCTest
 
-/// Show more and Show less on a Feed row leave the list where it is: the row's top stays put and
-/// only what is below it moves.
+/// Show more on a Feed row leaves the list where it is: the row's top stays put and only what is
+/// below it moves, also when that top has scrolled under the bar.
 ///
 /// Before the fix, the list kept the row *below* the toggled one in place, so when the toggled row
-/// was the first on screen, expanding it pushed its top (and everything above) up by the new
-/// height, and collapsing pulled it down: the viewport jumped on every tap.
+/// was the first on screen (its top under the bar), expanding it pushed its top and the text being
+/// read up by the new height: the viewport jumped on the tap.
 final class FeedShowMoreAnchorUITests: XCTestCase {
     @MainActor
     func testShowMoreAndShowLessKeepTheRowInPlace() {
@@ -19,51 +19,73 @@ final class FeedShowMoreAnchorUITests: XCTestCase {
         if choose.waitForExistence(timeout: 10) { app.buttons["Manaflow"].tap() }
         XCTAssertTrue(app.buttons["All"].firstMatch.waitForExistence(timeout: 30), "Feed chips\n\(app.debugDescription)")
 
+        // The Finished filter: plain events only (no pinned asks), most with long bodies.
+        app.buttons["Finished"].firstMatch.tap()
         let list = app.tables["feed.list"]
         let bar = app.navigationBars["Feed"]
         XCTAssertTrue(list.waitForExistence(timeout: 10))
+        let tabBarTop = app.tabBars.firstMatch.exists ? app.tabBars.firstMatch.frame.minY : list.frame.maxY
 
-        // The first row with a Show more on screen, scrolled until its top sits just under the bar:
-        // the first row shown, the case that jumped.
-        var more = app.buttons["Show more"].firstMatch
-        for _ in 0..<12 where !(more.exists && more.isHittable) {
+        // A row with a Show more whose top can sit just under the bar with its Show more still on
+        // screen: one snapshot of the table per look (frames for every cell in one query).
+        func rows() -> [(id: String, top: CGFloat, more: CGFloat)] {
+            guard let snap = try? list.snapshot() else { return [] }
+            return snap.children.compactMap { cell in
+                guard cell.identifier.hasPrefix("feed.row.") else { return nil }
+                func find(_ e: XCUIElementSnapshot) -> XCUIElementSnapshot? {
+                    if e.elementType == .button, e.label == "Show more" { return e }
+                    for child in e.children { if let hit = find(child) { return hit } }
+                    return nil
+                }
+                guard let more = find(cell) else { return nil }
+                return (cell.identifier, cell.frame.minY, more.frame.maxY - cell.frame.minY)
+            }
+        }
+        let barBottom = bar.frame.maxY
+        // The row's top this far under the bar: the first row on screen, partly read, the case that
+        // jumped (the list kept the row after it, so the growing row pushed its own top up).
+        let under: CGFloat = 30
+        func pick() -> (id: String, top: CGFloat)? {
+            rows().first { $0.top > barBottom + 20 && $0.top - under + $0.more < tabBarTop - 40 }.map { ($0.id, $0.top) }
+        }
+        var found = pick()
+        for _ in 0..<15 where found == nil {
             app.swipeUp(velocity: .slow)
-            more = app.buttons["Show more"].firstMatch
+            found = pick()
         }
-        XCTAssertTrue(more.isHittable, "no Show more on screen\n\(app.debugDescription)")
-        let cell = list.cells.containing(.button, identifier: "Show more").firstMatch
-        let cellID = cell.identifier
-        XCTAssertTrue(cellID.hasPrefix("feed.row."), "row cell id: \(cellID)")
-        let row = list.cells[cellID]
-        let target = bar.frame.maxY + 4
-        let from = row.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0))
-            .withOffset(CGVector(dx: 0, dy: 2))
-        let drag = row.frame.minY - target
-        if abs(drag) > 2 {
-            // A held drag has no fling: the list stops where the finger does.
-            from.press(forDuration: 0.1, thenDragTo: from.withOffset(CGVector(dx: 0, dy: -drag)), withVelocity: .slow,
-                       thenHoldForDuration: 0.5)
+        guard let found else { return XCTFail("no row with Show more on screen\n\(app.debugDescription)") }
+        let row = list.cells[found.id]
+        // A held drag has no fling: the list stops where the finger does.
+        for _ in 0..<3 {
+            let drag = row.frame.minY - (barBottom - under)
+            if abs(drag) < 3 { break }
+            let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0)).withOffset(CGVector(dx: 0, dy: tabBarTop - 60))
+            start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -drag)), withVelocity: .slow,
+                        thenHoldForDuration: 0.6)
+            settle(row)
         }
-        settle(row)
         let restTop = row.frame.minY
-        let rowMore = row.buttons["Show more"]
+        XCTAssertEqual(restTop, barBottom - under, accuracy: 12, "could not place the row under the bar")
+        let rowMore = row.buttons.matching(NSPredicate(format: "label == 'Show more'")).firstMatch
         XCTAssertTrue(rowMore.isHittable, "Show more not on screen after placing the row (top \(restTop))\n\(app.debugDescription)")
         attach(app, "before-show-more")
 
         rowMore.tap()
-        let less = row.buttons["Show less"]
+        let less = row.buttons.matching(NSPredicate(format: "label == 'Show less'")).firstMatch
         XCTAssertTrue(less.waitForExistence(timeout: 5), "row did not expand")
         settle(row)
         attach(app, "after-show-more")
         XCTAssertEqual(row.frame.minY, restTop, accuracy: 1, "Show more moved the row's top")
 
-        // Show less: back where it was, with the same top.
+        // Show less with the row's top still under the bar: the row's end stays near where the person
+        // tapped, so its Show more is back on screen (not left far above it).
         if less.isHittable {
             less.tap()
-            XCTAssertTrue(row.buttons["Show more"].waitForExistence(timeout: 5), "row did not collapse")
+            let moreAgain = row.buttons.matching(NSPredicate(format: "label == 'Show more'")).firstMatch
+            XCTAssertTrue(moreAgain.waitForExistence(timeout: 5), "row did not collapse")
             settle(row)
             attach(app, "after-show-less")
-            XCTAssertEqual(row.frame.minY, restTop, accuracy: 1, "Show less moved the row's top")
+            XCTAssertTrue(moreAgain.isHittable, "Show less left the row off screen (top \(row.frame.minY))")
         }
     }
 
