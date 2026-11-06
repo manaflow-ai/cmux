@@ -24,7 +24,8 @@ struct ClaudeAccountSwitchReplacedAgents {
         case notOwnedByPane
     }
 
-    /// The agent processes recorded for the pane when the switch started.
+    /// The agent processes this check covers: the ones recorded for the pane, plus the live owners
+    /// the agent index names for the session (``including(liveSessionOwners:)``).
     let processes: [AgentPIDProcessIdentity]
     private let currentIdentity: (pid_t) -> AgentPIDProcessIdentity?
     private let controllingTTYDevice: (pid_t) -> Int64?

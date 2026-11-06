@@ -197,9 +197,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let german = try claudeAccountCatalogValue("cli.claudeAccount.help", language: "de")
         XCTAssertNotEqual(german, try claudeAccountCatalogValue("cli.claudeAccount.help", language: "en"))
 
+        // Its own home, so no cmux.json or defaults of the user running the tests reach the CLI.
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-account-help-\(UUID().uuidString.prefix(8))")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
         var environment = ProcessInfo.processInfo.environment
         environment["AppleLanguages"] = "(de)"
         environment["AppleLocale"] = "de_DE"
+        environment["HOME"] = home.path
+        environment["CFFIXED_USER_HOME"] = home.path
         environment["CMUX_SOCKET_PATH"] = makeSocketPath("claude-account-help")
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         let result = runProcess(executablePath: cliPath, arguments: ["claude-account", "--help"], environment: environment, timeout: 5)

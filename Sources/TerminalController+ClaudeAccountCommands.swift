@@ -4,7 +4,7 @@ import Foundation
 extension TerminalController {
     /// `claude_account.switch`: moves a local Claude pane to another registered account and
     /// resumes its conversation there, through the same
-    /// ``Workspace/switchClaudeAccount(panelId:toAccountNamed:trigger:)`` the terminal menu and
+    /// ``Workspace/switchClaudeAccount(panelId:toAccountNamed:trigger:stopsRunningResponse:paneIsFree:)`` the terminal menu and
     /// the command palette run.
     ///
     /// Runs on the socket worker: the switch awaits transcript copies, the old Claude's exit and
@@ -143,7 +143,8 @@ extension TerminalController {
 
     /// Checks the request against the pane (``ClaudeAccountSwitchSocketPreflight``), then runs
     /// the shared switch. `nil` when the pane is gone. Claude mid-response needs `force`, the
-    /// socket's answer to the confirmation the menu asks for. A switch whose resume was never
+    /// socket's answer to the confirmation the menu asks for; the switch checks again right
+    /// before the restart, for a response that starts meanwhile. A switch whose resume was never
     /// typed also posts a notification on the pane, because the caller may have been running
     /// in that very pane and died with the respawn.
     private func claudeAccountSwitchOutcome(
@@ -169,7 +170,8 @@ extension TerminalController {
         let outcome = ClaudeAccountSwitchSocketOutcome.finished(await workspace.switchClaudeAccount(
             panelId: panelId,
             toAccountNamed: accountName,
-            trigger: .manual
+            trigger: .manual,
+            stopsRunningResponse: force
         ))
         let paneIsLive = AppDelegate.shared?.agentNotificationDeliveryTarget(
             claimedTabId: workspaceId,

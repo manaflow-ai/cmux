@@ -1,7 +1,7 @@
 import CMUXAgentLaunch
 import Foundation
 
-/// What an automatic switch does once ``Workspace/switchClaudeAccount(panelId:toAccountNamed:trigger:)``
+/// What an automatic switch does once ``Workspace/switchClaudeAccount(panelId:toAccountNamed:trigger:stopsRunningResponse:paneIsFree:)``
 /// returns. Only a switch whose resume was typed may go on to type `continue`.
 enum ClaudeAccountAutoSwitchFollowUp: Equatable, Sendable {
     /// The conversation `sessionId` resumed on `to`. Announce the switch; when `typeContinue`,
@@ -65,7 +65,7 @@ enum ClaudeAccountAutoSwitchFollowUp: Equatable, Sendable {
                     .resumeNotification
             )
         case .refused, .notClaude, .remoteUnsupported, .agentNotOwnedByPane, .alreadySwitching,
-             .transcriptUnavailable, .respawnFailed:
+             .agentRunning, .agentIndexUnavailable, .transcriptUnavailable, .respawnFailed:
             self = .keepUsageLimitStatus
         case .paneInUse:
             self = paneClosed ? .keepUsageLimitStatus : .paneInUse
