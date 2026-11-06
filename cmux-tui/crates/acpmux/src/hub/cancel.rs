@@ -189,6 +189,22 @@ impl Hub {
         // The turn, or the turn its agent ran on into meanwhile (`carried_turn.rs`).
         let open = || Self::carried_on(&session, &turn);
         let Some(current) = open() else { return };
+        // A writer still preparing the turn has nothing in the harness to interrupt.
+        // Fence it before settling, so it cannot deliver that prompt after this Stop.
+        let unwritten = {
+            let mut unwritten = session.unwritten_prompt.lock().unwrap_or_else(|e| e.into_inner());
+            match unwritten.as_mut() {
+                Some((id, fenced)) if *id == current.turn_id => {
+                    *fenced = true;
+                    true
+                }
+                _ => false,
+            }
+        };
+        if unwritten {
+            Self::force_cancel(&session, &current);
+            return;
+        }
         // The agent that runs the turn now: a failover may have replaced the one the Stop saw.
         let Some(child) = session.child.lock().await.clone() else {
             Self::force_cancel(&session, &current);
@@ -424,6 +440,16 @@ impl Hub {
             None if session.turn().is_some() => return Ok(()),
             None => None,
         };
+        // Show Stop and start recovery before any writer wait. A full pipe or a
+        // stalled handoff must not prevent the cancellation deadline from running.
+        let write_deadline = if !compacting && let Some(turn) = turn.as_ref() {
+            if self.mark_stopping(session, turn) {
+                tokio::spawn(self.clone().escalate_stop(session.clone(), turn.clone()));
+            }
+            Some(tokio::time::Instant::now() + CANCEL_GRACE)
+        } else {
+            None
+        };
         // End the logical turn before waiting on a hosted writer. A compacting
         // Claude process can ignore the interrupt, and the first Stop must
         // still settle the UI immediately.
@@ -457,7 +483,14 @@ impl Hub {
         // its interrupt must still reach the harness before the replacement prompt.
         let input_handoff = match acquired {
             std::task::Poll::Ready(guard) => guard,
-            std::task::Poll::Pending => input_handoff.await,
+            std::task::Poll::Pending => match write_deadline {
+                Some(deadline) => match tokio::time::timeout_at(deadline, input_handoff).await {
+                    Ok(guard) => guard,
+                    // Stop was accepted; the independent escalation owns recovery.
+                    Err(_) => return Ok(()),
+                },
+                None => input_handoff.await,
+            },
         };
         #[cfg(test)]
         {
@@ -465,6 +498,17 @@ impl Hub {
             if let Some((arrived, release)) = seam {
                 let _ = arrived.send(());
                 let _ = release.await;
+            }
+        }
+        // Recovery or a natural result may have ended the turn during the writer wait.
+        // Its delayed session-wide cancel must not reach a new turn or generation.
+        if write_deadline.is_some() {
+            if turn.as_ref().is_some_and(|turn| Self::carried_on(session, turn).is_none()) {
+                return Ok(());
+            }
+            if session.child.lock().await.as_ref().is_none_or(|c| c.generation != child.generation)
+            {
+                return Ok(());
             }
         }
         // A turn whose own prompt is not written yet: fenced under the handoff, so its writer
@@ -483,15 +527,19 @@ impl Hub {
         let sent = if unwritten {
             Ok(())
         } else {
-            child
-                // Preserve the Stop's compaction snapshot: a delayed writer may run only
-                // after the old boundary has already cleared the translator's live flag.
-                .notify(
-                    method::SESSION_CANCEL,
-                    json!({"sessionId": sid, "_meta": {"acpmux": {"compactionCancelled": compacting}}}),
-                )
-                .await
-                .map_err(|e| RpcError::internal(e.to_string()))
+            // Preserve the compaction snapshot even if the old boundary clears while
+            // waiting. Ordinary Stop writes share the handoff's absolute deadline.
+            let cancel = child.notify(
+                method::SESSION_CANCEL,
+                json!({"sessionId": sid, "_meta": {"acpmux": {"compactionCancelled": compacting}}}),
+            );
+            match write_deadline {
+                Some(deadline) => match tokio::time::timeout_at(deadline, cancel).await {
+                    Ok(result) => result.map_err(|e| RpcError::internal(e.to_string())),
+                    Err(_) => Ok(()), // accepted; escalation continues independently
+                },
+                None => cancel.await.map_err(|e| RpcError::internal(e.to_string())),
+            }
         };
         drop(input_handoff);
         // Stop always ends the turn: an agent that does not answer the cancel
@@ -505,8 +553,6 @@ impl Hub {
             // reopen it. Other harnesses retain the normal grace period.
             if compacting {
                 Self::force_cancel(session, &turn);
-            } else if self.mark_stopping(session, &turn) {
-                tokio::spawn(self.clone().escalate_stop(session.clone(), turn));
             }
         }
         sent
