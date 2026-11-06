@@ -103,6 +103,21 @@ public final class HomeChiefSettingsView: NSView {
     let primaryNote = HomeChiefSettingsView.footnote(HomeEngineStrings.primaryNote)
     /// Runs On: where this Mac's Chief runs, whose chip opens the Teleport menu (``showTeleport(_:)``); hidden for other Chiefs.
     let teleportRow = NSStackView()
+    /// Computer: where a Chief of this Mac does computer use, this Mac or a Cloud machine
+    /// (``addComputerRow()``, cmux issue 36047); hidden for a Chief whose brain runs elsewhere.
+    let computerRow = NSStackView()
+    let computerPicker = ThemedPopUpButton(frame: .zero, pullsDown: false)
+    let computerNote = HomeChiefSettingsView.footnote(HomeEngineStrings.computerMacNote)
+    lazy var computerDesktop = HomeChiefLinkButton(title: HomeEngineStrings.computerShowDesktop, target: self,
+                                                   action: #selector(showComputerDesktop))
+    /// engine.json's `computer` the picker shows (`machine:<id>`); nil: this Mac.
+    var shownComputer: String?
+    /// The account's Cloud machines the Computer picker offers; the app sets it (unset: none).
+    public var cloudComputers: @MainActor () -> [HomeChiefCloudComputer] = { [] }
+    /// New Cloud Computer…: the app's own create flow (it asks before anything is made or paid).
+    public var onNewCloudComputer: () -> Void = {}
+    /// Show Desktop: the attached Cloud machine's (its id) screen in a cmux browser.
+    public var onShowComputerDesktop: (String) -> Void = { _ in }
     /// Follows the shown Chief's default flag (``bindPrimary(directory:conversation:)``).
     var primaryWatch: Task<Void, Never>?
     /// Where Choose Picture… and Use Default Picture write, and for which Chief: the daemon's
@@ -201,6 +216,7 @@ public final class HomeChiefSettingsView: NSView {
         note.preferredMaxLayoutWidth = Self.width - 2 * Self.inset
         addFullWidth(note)
         stack.setCustomSpacing(Metrics.space4, after: note)
+        addComputerRow()
         // Reactions: whether a tapback wakes this Chief, and the classifier that decides (a416).
         addFullWidth(Self.sectionHeader(HomeEngineStrings.reactionsSection))
         reactionRows.onPick = { [weak self] fields in self?.pick(fields) }
@@ -252,6 +268,7 @@ public final class HomeChiefSettingsView: NSView {
             brain.stringValue = String(format: HomeEngineStrings.brainFormat, muxHome.path)
         }
         for view in localViews { view.isHidden = !source.isLocal }
+        computerRow.isHidden = !source.isLocal
         showHarnessRow()
         let own = source is HomeChiefHostedEngine ? HomeEngineStrings.runsInCloud : HomeEngineStrings.runsHere
         place.stringValue = hostPlace ?? source.place.map { String(format: HomeEngineStrings.runsOnServerFormat, $0) } ?? own

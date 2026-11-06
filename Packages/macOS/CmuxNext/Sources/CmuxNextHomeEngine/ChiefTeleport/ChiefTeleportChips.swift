@@ -1,46 +1,41 @@
 public import AppKit
 import CmuxNextCompat
 
-/// A Home conversation's two Chief location chips: the one beside the Chief's name in the header
-/// (which says "Chief is on HOST" when Home cannot open the Chief there) and the Chief card's
-/// Runs On row. Both open the Teleport menu of the app's one ``ChiefTeleportModel``.
+/// A Home conversation's Chief location chip: the Chief card's Runs On row, whose Teleport menu
+/// moves the app's one ``ChiefTeleportModel``. The Home header shows no location chip (cmux issue
+/// 36047): where the Chief runs is part of the Chief, so it lives in the card the name pill opens.
 ///
 /// ```swift
-/// teleportChips.follow(for: self, { service?.showsTeleport(conversation: id) ?? false }) { header, card in
-///     transcript.headerPillAccessory = header
+/// teleportChips.follow(for: self, { service?.showsTeleport(conversation: id) ?? false }) { card in
 ///     settingsView.showTeleport(card)
 /// }
 /// ```
 @MainActor
 public final class ChiefTeleportChips {
-    private let header: ChiefTeleportChip
     private let card: ChiefTeleportChip
     private var following: Task<Void, Never>?
 
-    /// - Parameter model: The app's teleport state, which both chips show.
+    /// - Parameter model: The app's teleport state, which the chip shows.
     public init(model: ChiefTeleportModel) {
-        header = ChiefTeleportChip(model: model)
-        header.setAccessibilityIdentifier("cmux.home.chief.teleport.header")
-        header.saysAway = true
         card = ChiefTeleportChip(model: model)
         card.setAccessibilityIdentifier("cmux.home.chief.teleport.card")
     }
 
-    /// Places the chips while `shows` is true and takes them away while it is false, each time it changes,
+    /// Places the chip while `shows` is true and takes it away while it is false, each time it changes,
     /// until `owner` is gone.
     /// - Parameters:
-    ///   - owner: The view that shows the chips (held weakly): the follow ends at the first change after it is released.
+    ///   - owner: The view that shows the chip (held weakly): the follow ends at the first change after it is released.
     ///   - shows: Whether this conversation is the Chief `cmux chief move` moves (read under Observation).
-    ///   - place: Puts the header chip and the card chip in their places, or nil to take them away.
+    ///   - place: Puts the card chip in its place, or nil to take it away.
     public func follow(for owner: AnyObject, _ shows: @escaping @MainActor @Sendable () -> Bool,
-                       place: @escaping @MainActor @Sendable (_ header: ChiefTeleportChip?, _ card: ChiefTeleportChip?) -> Void) {
+                       place: @escaping @MainActor @Sendable (_ card: ChiefTeleportChip?) -> Void) {
         following?.cancel()
-        let (header, card) = (header, card)
+        let card = card
         // task-owner: self (cancelled on the next follow); ends at the first change after owner is released; event-driven (Observation)
         following = Task { [weak owner] in
             for await shown in ObservationStream(shows) {
                 guard owner != nil else { return }
-                place(shown ? header : nil, shown ? card : nil)
+                place(shown ? card : nil)
             }
         }
     }

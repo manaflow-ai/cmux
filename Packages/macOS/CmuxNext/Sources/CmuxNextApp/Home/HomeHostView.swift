@@ -61,7 +61,7 @@ final class HomeHostView: PaneMotionFollowingView {
     lazy var turnActions = HomeChiefTurnActions(transcript: transcript)
     /// Where this Chief runs and its other host, for the settings card (no floating switch over the chat).
     private var hostWatch: Task<Void, Never>?
-    /// The header's location chip and the card's Runs On row, on the Chief that `cmux chief move` moves.
+    /// The card's Runs On row (the header has no location chip, cmux issue 36047), on the Chief that `cmux chief move` moves.
     private var teleportChips: ChiefTeleportChips?
     /// Where attachments open and their right-click menu (the transcript holds it weakly).
     private var fileActions: HomeFileActions?
@@ -142,6 +142,7 @@ final class HomeHostView: PaneMotionFollowingView {
             _ = services?.registry.perform(ChiefInspectorHandlers.actionID, invocation: invocation)
         }
         settingsView.recents = services.chiefModelRecents
+        settingsView.bindCloudComputers(services.registry) { [weak services] in services?.machines.cloud.compactMap { $0.effectiveStatus == .destroyed ? nil : .init(id: $0.machineID, title: $0.machine.title) } ?? [] }
         // All Chief Settings…: Settings > Chief, the page with every Chief setting.
         settingsView.onAllSettings = { [weak self, weak services] in
             self?.settings.close()
@@ -157,8 +158,7 @@ final class HomeHostView: PaneMotionFollowingView {
         settingsView.bindPrimary(directory: service.directory, conversation: conversation)  // the Primary Chief row
         teleportChips = ChiefTeleportChips(model: services.chiefTeleport)
         teleportChips?.follow(for: self, { [weak service] in service?.showsTeleport(conversation: conversation) ?? false }) { [weak self] in
-            self?.transcript.headerPillAccessory = $0
-            self?.settingsView.showTeleport($1)
+            self?.settingsView.showTeleport($0)
         }
         // The stop button (HomeHostView+StopAll): a click, Esc and Cmd-. stop the Chief; Option-click stops all agents.
         let registry = services.registry

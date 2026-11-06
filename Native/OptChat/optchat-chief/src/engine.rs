@@ -62,6 +62,12 @@ pub struct EngineChoice {
     /// on or off; None: the turn's (or OPTCHAT_SUBAGENT_HARNESS, which wins).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subagent_harness: Option<String>,
+    /// The Cloud machine a Chief on this Mac does computer use on
+    /// (`machine:<id>`, cmux issue 36047): the owner attaches one in the
+    /// Chief's card. None: computer use stays on this Mac. Read at each turn
+    /// start, like the turn fields; the turn gets one line naming it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub computer: Option<String>,
 }
 
 /// The values `subagent_routing` takes.
@@ -392,6 +398,10 @@ pub fn apply_flags(
         changed = true;
         choice.turn_routing = parse_turn_routing(value)?;
     }
+    if let Some(value) = flags.value("computer") {
+        changed = true;
+        choice.computer = parse_computer(value)?;
+    }
     if !changed {
         return Err(USAGE.into());
     }
@@ -409,9 +419,48 @@ pub fn parse_turn_routing(value: &str) -> Result<Option<String>, String> {
     }
 }
 
+/// A `computer` value: a Cloud machine as `machine:<id>` or its bare id;
+/// `default`, `none` or empty clears it. The id is the Cloud machine id the
+/// app lists (`cmux cloud list-machines`): letters, digits, `-` and `_`, so
+/// the turn line that names it cannot carry anything else.
+pub fn parse_computer(value: &str) -> Result<Option<String>, String> {
+    let value = value.trim();
+    if matches!(value, "" | "default" | "none") {
+        return Ok(None);
+    }
+    let id = value.strip_prefix("machine:").unwrap_or(value);
+    // Other machines' ids (`MachineRegistry`): `ssh-…` hosts, `server-…`
+    // paired servers and `local` are not Cloud machines.
+    let cloud = !id.starts_with("ssh-") && !id.starts_with("server-") && id != "local";
+    let ok = cloud
+        && !id.is_empty()
+        && id.len() <= 128
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    if !ok {
+        return Err(format!(
+            "computer is a Cloud machine (machine:<id>), none or default, not {value:?}"
+        ));
+    }
+    Ok(Some(format!("machine:{id}")))
+}
+
+/// The per-turn line that names the Chief's attached Cloud computer (it goes
+/// in the turn's tail, after the cached prompt, so attaching one never
+/// changes the cached system text); None without one.
+pub fn computer_line(choice: &EngineChoice) -> Option<String> {
+    // A hand edit of engine.json skips the set's check: check it again here,
+    // so the line can only ever carry a Cloud machine id.
+    let target = parse_computer(choice.computer.as_deref()?).ok()??;
+    Some(format!(
+        "Your computer: the owner attached the Cloud machine {target} for computer use. Do desktop, browser and app work there with the chief-cloud-machines skill (--target {target}), not on this Mac, unless the owner asks for this Mac."
+    ))
+}
+
 pub const USAGE: &str = "chief engine show
 chief engine set --preset opus|hybrid|codex   (opus: Opus 5.5 medium everywhere; hybrid: Opus 5.5 medium turns, every subagent on codex; codex: codex everywhere, fast; other flags adjust it)
-chief engine set [--harness H] [--model M] [--effort E] [--compactor-harness H] [--compactor-model M] [--speed default|fast] [--compactor-speed default|fast] [--reactions-can-wake true|false] [--classifier-harness H] [--classifier-model M] [--classifier-prompt TEXT] [--turn-routing auto|off|default] [--subagent-routing auto|off] [--subagent-harness H]   (value `default` clears; turns apply it from the next turn, the compactor at the next host start, the reaction classifier at the next reaction, the subagent fields at the next spawn; routing is off unless set to auto)";
+chief engine set [--harness H] [--model M] [--effort E] [--compactor-harness H] [--compactor-model M] [--speed default|fast] [--compactor-speed default|fast] [--reactions-can-wake true|false] [--classifier-harness H] [--classifier-model M] [--classifier-prompt TEXT] [--turn-routing auto|off|default] [--subagent-routing auto|off] [--subagent-harness H] [--computer machine:<id>|none]   (value `default` clears; turns apply it from the next turn, the compactor at the next host start, the reaction classifier at the next reaction, the subagent fields at the next spawn; routing is off unless set to auto)";
 
 /// `engine show|set`; Ok carries what to print.
 pub fn run(flags: &crate::cli::Flags) -> Result<String, String> {
@@ -439,6 +488,10 @@ pub fn run(flags: &crate::cli::Flags) -> Result<String, String> {
             out.push_str(&format!(
                 "turn routing: {}\n",
                 choice.turn_routing.as_deref().unwrap_or("off")
+            ));
+            out.push_str(&format!(
+                "computer: {}\n",
+                choice.computer.as_deref().unwrap_or("this Mac")
             ));
             // The CLI each role runs, as the host resolved it at its start.
             match load_resolved(&home) {
