@@ -1785,6 +1785,11 @@ jobs:
             echo "checkout HEAD does not match the requested source commit" >&2
             exit 1
           }
+          # The download's `cmux-tui-*` also matches cmux-tui-dsyms-<target>, which a
+          # darwin target built on a Mac uploads (the build fallback; cmux#36966's run
+          # 42189372955). Its .dSYM folders are never published (sentry-dsyms reads its
+          # own copy), and `sha256sum cmux-tui-*` fails on a folder.
+          find assets/cmux-tui -maxdepth 1 -type d -name '*.dSYM' -prune -exec rm -rf {} +
           build_manifest() {
             local directory="$1"
             local binary_prefix="$2"

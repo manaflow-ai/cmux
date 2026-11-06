@@ -84,7 +84,10 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
             "who_else",
             "goal_set",
             "goal_update",
-            "goal_get"
+            "goal_get",
+            "watch_add",
+            "watch_ls",
+            "watch_rm"
         ]
     );
     let send = tools[0]["description"].as_str().unwrap();
@@ -1076,4 +1079,23 @@ fn goal_tools_are_listed_with_their_instruction() {
     }
     let text = instructions(&all).unwrap_or_default();
     assert!(text.contains("call goal_set with the objective and a checkable done-when"), "{text}");
+}
+
+/// The watch tools are listed with their instruction and build the CLI's requests; a malformed
+/// call is refused before it reaches the daemon.
+#[test]
+fn watch_tools_are_listed_and_build_the_cli_requests() {
+    let all = tools_with_artifacts(false);
+    let text = instructions(&all).unwrap_or_default();
+    assert!(text.contains("call watch_add once"), "{text}");
+    assert_eq!(
+        watch::request("watch_add", &json!({"sessions": ["w"], "match": "BLOCKER"})).unwrap(),
+        (method::MUX_WATCH_ADD, json!({"sessions": ["w"], "once": true, "match": "BLOCKER"}))
+    );
+    assert_eq!(
+        watch::request("watch_rm", &json!({"id": "w1"})).unwrap(),
+        (method::MUX_WATCH_RM, json!({"id": "w1"}))
+    );
+    assert!(watch::request("watch_add", &json!({"sessions": [1]})).is_err());
+    assert!(watch::request("watch_rm", &json!({})).is_err());
 }

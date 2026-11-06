@@ -600,6 +600,11 @@ lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. Reads the schema, the two docs pages, en.json and the three skill references; run python3 tests/test_shortcut_alternates_documented.py yourself after changing the accepted shortcuts.bindings forms or the prose that lists them (under 1 s, no build)."
 
 [[test]]
+path = "tests/test_cli_swap.py"
+lane = "manual"
+reason = "Run by the lane that changes cli-swap.py (no new CI tests): python3 tests/test_cli_swap.py; needs only python3."
+
+[[test]]
 path = "tests/test_rust_live_app_handoff.py"
 lane = "manual"
 reason = "Run by the lane that changes rust-live.py (no new CI tests): python3 tests/test_rust_live_app_handoff.py; needs only python3 and sleep."
@@ -613,6 +618,11 @@ reason = "Run by the lane that changes side-instance.sh (no new CI tests): pytho
 path = "tests/test_side_instance_remake_clears_old_identity.py"
 lane = "manual"
 reason = "Run by the lane that changes side-instance.sh (no new CI tests): python3 tests/test_side_instance_remake_clears_old_identity.py; needs only bash and python3."
+
+[[test]]
+path = "tests/test_sidebar_row_oracle.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Synthetic films for scripts/cmux-next/sidebar_row_oracle.py, the independent judge of sidebar row insert and remove (cmux-ad m23); run python3 -I tests/test_sidebar_row_oracle.py yourself after changing the oracle (under 2 s, no app, no build)."
 
 [[test]]
 path = "tests/test_signer_parity_compare.py"
