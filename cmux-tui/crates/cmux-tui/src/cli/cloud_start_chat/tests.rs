@@ -1206,11 +1206,12 @@ fn every_step_fits_in_one_timeout_from_the_start() {
     let relay_calls =
         |ran: &[Vec<String>]| ran.iter().filter(|step| step[1] == "relay-chat").count();
 
-    // --environment: 5 s list and 30 s create of a 40 s budget leave the relay 5 s, less than its answer
-    // window, so the link path starts the chat and its wait has nothing left: no wait past the deadline.
+    // --environment: 5 s list and 30 s create of a 45 s budget leave the relay 10 s, less than its answer
+    // window, so the link path starts the chat (by 40 s) and sends (by 45 s), and its wait has nothing left: no
+    // wait past the deadline.
     let mut fake = Fake::new(vec![signed_in(), made(), started(), sent()]);
     fake.costs.push(("new-machine", Duration::from_secs(30)));
-    let asked = request(&["--prompt", "x", "--environment", "env_1", "--wait", "--timeout", "40"]);
+    let asked = request(&["--prompt", "x", "--environment", "env_1", "--wait", "--timeout", "45"]);
     let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
     assert_eq!((error["code"].as_str(), exit), (Some("chat.wait_timeout"), 3));
     assert_eq!(relay_calls(&fake.ran), 0, "{:?}", fake.ran);
