@@ -224,6 +224,12 @@ pub fn run(
             return EXIT_BAD_CONFIGURE;
         }
     };
+    // The Linux portal keeps its restore token next to the grants, so the
+    // person approves screen access once; set before the desktop opens.
+    #[cfg(all(target_os = "linux", feature = "desktop"))]
+    if let Some(dir) = &configure.state_dir {
+        crate::platform::linux::set_state_dir(dir.clone());
+    }
     let platform = match platform() {
         Ok(p) => p,
         Err(reason) => {
