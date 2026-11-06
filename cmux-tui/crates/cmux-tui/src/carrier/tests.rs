@@ -262,3 +262,15 @@ fn the_team_comes_from_the_flag_else_the_environment_and_is_checked() {
     assert_eq!(with_team_env(bare.clone(), Some(other.clone())).unwrap().team, Some(other));
     assert_eq!(with_team_env(bare, Some("team_nothex".into())), None, "a bad value is refused");
 }
+
+#[test]
+fn the_connect_log_is_only_appended_and_stops_at_its_cap() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("carrier").join("connect.log");
+    super::route_log::append(&path, "a\n");
+    super::route_log::append(&path, "b\n");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "a\nb\n");
+    std::fs::write(&path, vec![b'x'; super::route_log::MAX_BYTES as usize - 1]).unwrap();
+    super::route_log::append(&path, "c\n");
+    assert_eq!(std::fs::metadata(&path).unwrap().len(), super::route_log::MAX_BYTES - 1);
+}

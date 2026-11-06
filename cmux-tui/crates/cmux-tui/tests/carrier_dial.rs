@@ -311,6 +311,12 @@ fn a_carrier_dial_carries_the_daemon_stream_both_ways() {
         !teams.is_empty() && teams.iter().all(Option::is_none),
         "no team, no header: {teams:?}"
     );
+    // The route line also went to the dial's own connect log, exactly.
+    let log = world.dir.path().join(".local/state/cmux-tui/sessions/carrier/connect.log");
+    let text = std::fs::read_to_string(&log).unwrap();
+    assert_eq!(text, route, "connect.log holds the route line and nothing else");
+    let ms = route.trim_end().rsplit_once(" ms=").unwrap().1;
+    assert!(!ms.is_empty() && ms.bytes().all(|b| b.is_ascii_digit()), "nothing after ms=: {route}");
 }
 
 #[test]

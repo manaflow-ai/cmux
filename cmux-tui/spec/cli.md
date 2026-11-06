@@ -66,7 +66,9 @@ again, and a resume of the session presents none. stderr gets one JSON line firs
 daemon never registered) or `handshake` (`bad_request` for bad usage). On `ok`,
 stdin and stdout carry `cmux.protocol/2` lines on the session's mux control service.
 Each attempt then writes `cloud.connect route=carrier machine=<vm_id>
-phase=<connect|reconnect|resume> outcome=<ok|error_code> ms=<n>` on stderr. One
+phase=<connect|reconnect|resume> outcome=<ok|error_code> ms=<n>` on stderr and appends it to
+`<workspace state dir>/carrier/connect.log`, a file only the dial writes, never
+emptied or replaced (it stops growing at 4 MiB). One
 deadline (`--deadline-ms`, default 180000) covers every step, with full-jitter
 retries inside it. Exit codes: 0, 2 ticket, 3 relay, 4 parked_timeout, 5 handshake,
 64 usage. On a Mac the Noise key is a login Keychain item (accessible after first

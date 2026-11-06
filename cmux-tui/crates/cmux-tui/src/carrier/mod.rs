@@ -15,6 +15,11 @@
 //! - Every connect attempt, and every resume attempt of the session after it,
 //!   writes one route line on stderr after the reply line:
 //!   `cloud.connect route=carrier machine=<vm_id> phase=<connect|reconnect|resume> outcome=<ok|error_code> ms=<n>`.
+//!   The same line is appended to `<workspace state dir>/carrier/connect.log`
+//!   (macOS `~/Library/Application Support/cmux-tui/sessions/carrier/connect.log`,
+//!   `CMUX_TUI_STATE_DIR` overrides the state dir), a file only the dial
+//!   writes and nothing empties ([`route_log`]). A resume happens inside the
+//!   same process, so its lines follow the connect's.
 //! - Exit codes: 0 ok, 2 ticket, 3 relay, 4 parked_timeout, 5 handshake, 64 bad usage.
 //!
 //! One deadline (default 180 s) covers the ticket, the relay, the park and
@@ -33,6 +38,7 @@ mod answer;
 mod client;
 mod contract;
 mod noise_key;
+mod route_log;
 
 use std::io::Write as _;
 use std::path::PathBuf;
@@ -169,12 +175,16 @@ pub(crate) fn run(args: &[String]) -> i32 {
     let code = runtime.block_on(async {
         // Route lines wait until the reply line is out, so it stays first.
         let (lines, mut queued) = tokio::sync::mpsc::unbounded_channel::<String>();
+        let connect_log = route_log::default_path();
         let plan = client::DialPlan {
             machine: args.machine.clone(),
             source,
             identity,
             deadline: tokio::time::Instant::now() + args.deadline,
             log: Arc::new(move |line| {
+                if let Some(path) = &connect_log {
+                    route_log::append(path, &line);
+                }
                 let _ = lines.send(line);
             }),
         };
