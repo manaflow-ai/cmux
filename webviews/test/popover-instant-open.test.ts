@@ -217,6 +217,10 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
     what: "a tab bar's or segmented control's highlight travels to the selected item",
   },
   "src/ui/motion/ViewSwap.tsx": { count: 2, what: "a swapped view's content enters, or an accent band sweeps it" },
+  "src/ui/motion/useTextSwap.ts": {
+    count: 4,
+    what: "a running call's words on the Working and activity lines change: the old rise out, the new rise in, the clock slides",
+  },
 };
 
 /// How many times a script drives the Web Animations API.
