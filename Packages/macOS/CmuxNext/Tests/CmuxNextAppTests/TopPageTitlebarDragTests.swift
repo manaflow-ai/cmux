@@ -51,6 +51,7 @@ struct TopPageTitlebarDragTests {
         do {
             let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 600, height: 400),
                                   styleMask: [.titled, .fullSizeContentView], backing: .buffered, defer: true)
+            window.isReleasedWhenClosed = false
             let pane = DecidingContainer(frame: window.contentView!.bounds)
             window.contentView!.addSubview(pane)
             let host = TitleRowHostView(frame: pane.bounds)
