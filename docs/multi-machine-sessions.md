@@ -33,7 +33,7 @@ latency, HIG, Nielsen, local-first) shaped the parts marked "(lens review)".
 
 ## The experience
 
-The bar is ChatGPT desktop and iOS: sign in, and your devices are there.
+The bar: sign in on any Mac or phone, and every one of your devices is there.
 
 1. **A new Mac.** Install cmux and sign in with the same account (or, from a
    Mac that already has cmux, **Set Up cmux on Another Mac…** over SSH you
@@ -68,7 +68,11 @@ The bar is ChatGPT desktop and iOS: sign in, and your devices are there.
    arriving from the peer) bumps it on the target first, and the target's
    input injector drops every queued or later input event that carries an
    older epoch before it acknowledges Stop. Input is applied only by the
-   target, so no lane ordering can let a keystroke through after it.
+   target, so no lane ordering can let a keystroke through after it. Frames
+   carry the epoch too: on Stop the target stops the capture source, drops
+   every frame still queued on the media lane for that session, and sends
+   nothing more under the old epoch, all before it acknowledges; the viewer
+   also drops any late frame of an old epoch (review: media fence).
 8. **One page per device.** Settings > Devices shows each phone and machine
    once, with everything it may do here. Today that is four switches: Allow
    iPhone Connections, Mac Screen device access, Join consent and Computer
@@ -178,6 +182,18 @@ link's. A relayed signature then names the wrong link and fails. This lands
 before any grant beyond pairing (the next machine PR), so no grant ever rides
 an unbound link.
 Machines use the same `auth`, with `kind: "mac"` and the grants it asks for.
+`kind` is the caller's claim and grants nothing by itself (review: kind
+binding): the registry takes a device's `kind` from the device
+(`POST /v1/devices`), so a phone could register as a Mac. The target
+therefore decides what a peer is from its own record, made by the person
+on the first-contact card, which says what the caller claims to be and
+shows its key fingerprint ("Studio, a Mac"). `install` is offered on that
+card, and accepted later, only for a peer the card recorded as a Mac whose
+identity key the person approved as one; a peer recorded as a phone never
+holds `install`, whatever `kind` a later `auth` sends, and a changed `kind`
+under the same key is refused as a different device. A phone's key is
+already a different key from any Mac's, so a phone that claims to be a Mac
+is a new first contact, shown to the person as one.
 
 **The grants are signed too** (review: grant scope). The signed `auth`
 message carries the requested grants as a canonical list (sorted grant
@@ -229,11 +245,17 @@ takes focus and has no default button.
 **Grant changes reach open channels** (review: revocation of live
 channels). Each peer record has a trust epoch, and every open channel and
 every live `control` or `screen` session carries the epoch it opened under.
-Taking a grant away, Remove, and Stop bump the epoch; before the change is
-acknowledged in Settings, hostd closes every channel and session of that
-peer whose service needs a grant the peer no longer holds, and drops any
-queued input for it (the same fence Stop uses). Adding a grant opens
-nothing; the peer's next request uses it.
+Taking a grant away, narrowing its scope (a folder, an agent or a build key
+taken off its list, an "Always" removed), Remove, and Stop bump the epoch.
+Before the change is acknowledged in Settings, hostd closes every channel
+and session of that peer whose service or scope is no longer allowed, drops
+any queued input for it (the same fence Stop uses), and cancels the work
+it started that falls outside the new scope (review: scope narrowing): an
+upload or install not yet moved into place is discarded; a move not yet
+committed stops at its last committed step; an agent started over `run`
+whose folder or agent left the list is stopped (its session and history
+stay, as for any stopped agent). Adding a grant opens nothing; the peer's
+next request uses it.
 
 **The person or an agent** (lens review: the confused deputy). `cmux machine
 NAME run|send|move` can be called by an agent on the caller, and an agent
@@ -319,7 +341,12 @@ MacBook**, or the sidebar row's menu.
    (review: replacement); the old tree, now in staging, is deleted after the
    ledger records the new one. A crash at any point leaves either the old or
    the new app at the path, never a mix, and the ledger's pending entry tells
-   the next start which one and what to clean up.
+   the next start which one and what to clean up. Installs to one path are
+   serialized by a lock on that path, so two sends of one tag never race.
+   The journal order is: write and sync the pending ledger entry (old and
+   new tree hashes), swap, write and sync the committed entry, then delete
+   the old tree. At start, a pending entry is resolved by hashing what is at
+   the path. The install PR tests a crash at each step.
 4. **It never replaces anything it did not install.** The receiver keeps an
    install ledger (0600, beside Activity): each install's path, bundle id,
    archive sha256, installed-tree hash and the peer that sent it. The
@@ -414,8 +441,13 @@ out of ticket mid-copy, and a retry inside the lease resumes. The pumps serve on
 A peer that only holds `move` can therefore bring nothing out. On the
 **receiver**, the peer holds `move` here, the request names one workspace,
 and the folder it writes is the workspace's own (a new folder under the person's
-chosen root on the receiver, or the same repo's worktree), checked by
-realpath on every file. No other root is reachable. That gate, with its
+chosen root on the receiver, or the same repo's worktree). Writes use the
+install extractor's rule, not a realpath check that a later write could race
+(review: move confinement): every file is opened relative to the
+workspace folder's descriptor one component at a time with `O_NOFOLLOW`;
+symlinks from the source are recreated last, only when their target
+resolves lexically inside the workspace folder, and are otherwise refused
+with the file named in the move's report. No other root is reachable. That gate, with its
 tests, is the move PR's first commit.
 
 A move is one transaction with an id (the ticket's). Each step (folder,
@@ -459,7 +491,12 @@ text, file contents or tokens. It extends the formats of acpmux
 bumps its trust epoch and closes its live links at once (see Grant changes
 reach open channels). The remover keeps a tombstone (the peer's identity
 key and the removal time) and refuses every `auth` from that key until the
-person pairs it again by card; the tombstone, not the other end's
+person pairs it again by card. Dropping the record, bumping the epoch and
+writing the tombstone are one durable transaction (one SQLite transaction,
+committed with a full sync) that commits before Remove is acknowledged or
+any link is closed (review: durable Remove); a crash before the commit
+leaves the peer paired and Remove not shown as done, never the peer
+forgotten without a tombstone; the tombstone, not the other end's
 cooperation, is what makes Remove hold. It then tells the other end so it
 forgets too, with a removal notice signed by the remover's identity key:
 over the live link when there is one, and otherwise as the answer to that
