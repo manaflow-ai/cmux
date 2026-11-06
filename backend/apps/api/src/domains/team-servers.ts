@@ -96,9 +96,10 @@ export const reduceServerEnrolled = (state: TeamState, params: unknown, ctx: Red
     tags: [SERVER_TAG],
     ...(persistedNetwork ? { network: persistedNetwork } : {})
   }
-  const joins = v.machine_join_token && state.server_machine_joins?.[v.install] !== v.machine_join_token ? { server_machine_joins: { ...(state.server_machine_joins ?? {}), [v.install]: v.machine_join_token } } : {}
-  if (existing && JSON.stringify(existing) === JSON.stringify(host) && !joins.server_machine_joins) return { ok: true, state, value: host, changed: false }
-  const next = { ...state, ...joins, host_count: (state.host_count ?? 0) + (existing ? 0 : 1) }
+  // The join token its approval minted, kept so the server's revoke revokes that machine too.
+  const newJoin = v.machine_join_token !== undefined && state.server_machine_joins?.[v.install] !== v.machine_join_token
+  if (existing && JSON.stringify(existing) === JSON.stringify(host) && !newJoin) return { ok: true, state, value: host, changed: false }
+  const next = { ...state, ...(newJoin ? { server_machine_joins: { ...(state.server_machine_joins ?? {}), [v.install]: v.machine_join_token! } } : {}), host_count: (state.host_count ?? 0) + (existing ? 0 : 1) }
   return withWrites(
     audited(next, ctx, "server.enrolled", host, { kind: "host.upsert", entity: host.id, payload: { ...host, team: state.team.id } }, `server ${host.name} paired`, {
       host: host.id,
