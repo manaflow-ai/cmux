@@ -422,6 +422,9 @@ export function reducer(state: AppState, action: AppAction): AppState {
         streamComplete: false,
         treeSource: null,
         whitespaceHidden: null,
+        // Another source: a reconcile of the old one is over, and its failure says nothing about this one.
+        reconciling: false,
+        reconcileFailedGeneration: null,
       };
     case "remove-comment": {
       const comments = state.comments.filter((comment) => comment.id !== action.id);

@@ -49,25 +49,33 @@ export function diffFingerprintReader(
 /// since, the first check runs `reconcile` (when `canRefresh`), which swaps the new diff in without
 /// moving the reader, instead of showing the notice. `failedGeneration`: the generation whose
 /// reconcile failed; the precomputed diff is still shown, so it is the baseline again (no second
-/// reconcile), and a tree that differs shows the notice.
+/// reconcile), and a tree that differs shows the notice. `id` tells one precompute from the next: two
+/// with the same fingerprint (the tree came back to it) each get their first comparison.
 export function useDiffFreshness(
   read: (() => Promise<string | undefined>) | undefined,
   generation: number,
   canRefresh: () => boolean,
   refresh: () => void,
   onUnavailable?: (reason: string | undefined) => void,
-  precomputed?: { fingerprint: string | undefined; reconcile: () => void; failedGeneration?: number | null },
+  precomputed?: {
+    fingerprint: string | undefined;
+    id?: number;
+    reconcile: () => void;
+    failedGeneration?: number | null;
+  },
 ): boolean {
   const [stale, setStale] = useState<number>();
   const baseline = useRef<string | undefined>(undefined);
   // A precomputed fingerprint is the baseline of one check only: a later load (the reconcile's own,
   // a Refresh) starts from what it read, so a generation change never reconciles again.
   const consumed = useRef<string | undefined>(undefined);
+  const precomputedKey =
+    precomputed?.fingerprint === undefined ? undefined : `${precomputed.id ?? 0}:${precomputed.fingerprint}`;
   const latest = useSyncedRef({ canRefresh, refresh, onUnavailable, reconcile: precomputed?.reconcile });
   const precomputedFingerprint = precomputed?.fingerprint;
   const reconcileFailed = precomputed?.failedGeneration === generation;
   useEffect(() => {
-    let first = precomputedFingerprint !== undefined && consumed.current !== precomputedFingerprint;
+    let first = precomputedKey !== undefined && consumed.current !== precomputedKey;
     baseline.current = first || reconcileFailed ? precomputedFingerprint : undefined;
     if (reconcileFailed) first = false;
     latest.current.onUnavailable?.(undefined);
@@ -82,7 +90,7 @@ export function useDiffFreshness(
         if (!current || now === undefined) return;
         latest.current.onUnavailable?.(undefined);
         const reconcile = first ? latest.current.reconcile : undefined;
-        if (first) consumed.current = precomputedFingerprint;
+        if (first) consumed.current = precomputedKey;
         first = false;
         if (baseline.current === undefined) baseline.current = now;
         else if (now !== baseline.current) {
@@ -131,6 +139,6 @@ export function useDiffFreshness(
       window.removeEventListener("blur", blur);
       document.removeEventListener("visibilitychange", visible);
     };
-  }, [read, generation, latest, precomputedFingerprint, reconcileFailed]);
+  }, [read, generation, latest, precomputedFingerprint, precomputedKey, reconcileFailed]);
   return stale === generation;
 }

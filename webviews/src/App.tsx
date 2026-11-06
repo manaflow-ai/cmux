@@ -429,7 +429,8 @@ export function App({ config, initialStatus }: ConfigProps) {
   usePendingReplacement(payload, label, dispatch, transport);
   // A diff the host precomputed (an agent's turn ended): its fingerprint is the freshness baseline,
   // and when the files changed since, the new diff replaces it with the reader kept in place.
-  const [precomputedFingerprint, setPrecomputedFingerprint] = useState<string>();
+  // Each precompute gets its own id, so a later one with the same fingerprint still gets its first check.
+  const [precomputed, setPrecomputed] = useState<{ fingerprint: string; id: number }>();
   const replaceAnchor = useRef<ReturnType<KindOrderHandlers["anchor"]>>(null);
   // The session on screen while a reconcile streams its replacement: kept open (previews and full
   // files read it) until the new diff commits, and the one shown again if the reconcile fails.
@@ -437,7 +438,10 @@ export function App({ config, initialStatus }: ConfigProps) {
   const renderHooks = useRef<RenderDiffHooks>({});
   renderHooks.current = {
     retained: retainedSessionRef,
-    prepared: setPrecomputedFingerprint,
+    prepared: (fingerprint) =>
+      setPrecomputed((previous) =>
+        fingerprint === undefined ? undefined : { fingerprint, id: (previous?.id ?? 0) + 1 },
+      ),
     beforeReplace: () => {
       replaceAnchor.current = kindOrderHandlers.current.anchor();
     },
@@ -820,7 +824,8 @@ export function App({ config, initialStatus }: ConfigProps) {
     () => refreshRef.current(),
     setMachineUnavailable,
     {
-      fingerprint: precomputedFingerprint,
+      fingerprint: precomputed?.fingerprint,
+      id: precomputed?.id,
       reconcile: () => {
         retainedSessionRef.current = activeSessionRef.current;
         dispatch({ type: "reconcile" });
