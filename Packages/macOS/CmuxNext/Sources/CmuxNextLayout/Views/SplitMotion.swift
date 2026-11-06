@@ -94,10 +94,12 @@ extension SplitMotion {
     /// pane that is still moving sideways (a column growing in, then split down) starts under that pane, at its shown
     /// x and width and with its velocity, not at its column's rest (RESIZE VIDEOS O1: 31 pt off for 12 frames). Only
     /// that pane: a neighbour whose edge is on the same line follows its own motion.
-    static func ride(_ frame: inout AnimatedFrame, panes: [PaneID: AnimatedFrame], skipping: Set<PaneID>, giver: PaneID? = nil) {
+    /// `slides`: the pane enters at its final width (``PaneArrival/slides``): it rides the edge as a sliver would.
+    static func ride(_ frame: inout AnimatedFrame, panes: [PaneID: AnimatedFrame], skipping: Set<PaneID>, giver: PaneID? = nil,
+                     slides: Bool = false) {
         let seed = frame.rect
         let horizontal: Bool
-        if seed.width == 0 { horizontal = true } else if seed.height == 0 { horizontal = false } else { return }
+        if seed.width == 0 || slides { horizontal = true } else if seed.height == 0 { horizontal = false } else { return }
         let reach: CGFloat = 16
         var best: (distance: CGFloat, shift: CGFloat, velocity: CGFloat)?
         func consider(_ distance: CGFloat, _ shift: CGFloat, _ velocity: CGFloat) {

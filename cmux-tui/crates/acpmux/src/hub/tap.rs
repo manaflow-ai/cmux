@@ -323,8 +323,9 @@ impl Hub {
                     crate::wrap_up_suggestion::observe(&tap_session.id, &params["update"]);
                 }
                 if subagent.is_none() && !muted && !kind.ends_with(".replay") {
-                    todo_plan = crate::acp_todo_plan::observe(&tap_session.id, &mut params["update"])
-                        .map(|update| (params.get("sessionId").cloned(), update));
+                    todo_plan =
+                        crate::acp_todo_plan::observe(&tap_session.id, &mut params["update"])
+                            .map(|update| (params.get("sessionId").cloned(), update));
                 }
                 // A predicted next prompt reaches the composer only when likely to be taken
                 // (`suggestion_gate.rs`); a withheld one goes on with no suggestion.

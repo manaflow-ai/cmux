@@ -39,9 +39,9 @@ enum PaneHandlers {
 
     /// A pane-navigation key (Focus Pane Left, Next Pane, a pane number, a column key) moves focus
     /// where the person asked, so the layout records a keyboard move: no without-a-click flash.
-    static func focusByKey(_ pane: LayoutPaneID, in content: WorkspaceContentController) {
+    static func focusByKey(_ pane: LayoutPaneID, in content: WorkspaceContentController, _ invocation: ActionInvocation) {
         DebugPaneFocus.began(content.focus)
-        content.layoutModel.focus(pane, notify: false, source: .keyboard)
+        content.layoutModel.focus(pane, notify: false, source: .keyMove(byPerson: invocation.isPersonsOwnRun))
         focus(pane, in: content)
     }
 
@@ -204,7 +204,7 @@ enum PaneHandlers {
                 guard let next = neighbor(of: pane.layoutPaneID, direction: direction, in: content) else {
                     return ctx.refuseQuietly(RefusalStrings.noPaneInDirection(RefusalStrings.direction(direction)))
                 }
-                focusByKey(next, in: content)
+                focusByKey(next, in: content, invocation)
             })
         }
         registry.bind("focusPreviousPane", invoke: { cycleFocus(ctx, $0, offset: -1) })
@@ -217,7 +217,7 @@ enum PaneHandlers {
             let order = screen.layout.visualPanes
             let index = number >= 9 ? order.count - 1 : number - 1
             guard order.indices.contains(index) else { return ctx.refuseQuietly(RefusalStrings.noPaneWithNumber) }
-            focusByKey(order[index], in: content)
+            focusByKey(order[index], in: content, invocation)
         })
     }
 
@@ -228,7 +228,7 @@ enum PaneHandlers {
         guard order.count > 1, let index = order.firstIndex(of: pane.layoutPaneID) else {
             return ctx.refuseQuietly(RefusalStrings.screenHasOnePane)
         }
-        focusByKey(order[(index + offset + order.count) % order.count], in: content)
+        focusByKey(order[(index + offset + order.count) % order.count], in: content, invocation)
     }
 
     // MARK: Sizing
@@ -245,13 +245,10 @@ enum PaneHandlers {
         }
         registry.bind("equalizeSplits", invoke: { invocation in
             guard let content = ctx.content(invocation), let screen = content.layoutModel.activeScreen else { return }
-            let trees: [SplitNode] = switch screen.layout {
-            case .splits(let root): [root]
-            case .columns(let columns): columns.flatMap(\.trees)
+            // One shared path: split ratios and, on columns, every column shown side by side (Home's chat included).
+            if content.layoutView.equalize(screen: screen.id) == .nothingToEqualize {
+                ctx.refuseQuietly(RefusalStrings.screenHasNoSplits)
             }
-            let splits = trees.flatMap(\.splits)
-            guard !splits.isEmpty else { return ctx.refuseQuietly(RefusalStrings.screenHasNoSplits) }
-            for split in splits { content.layoutModel.equalizeSplit(split) }
         })
         registry.bind("toggleSplitZoom", invoke: { invocation in
             guard let pane = ctx.daemonPane(invocation) else { return }
