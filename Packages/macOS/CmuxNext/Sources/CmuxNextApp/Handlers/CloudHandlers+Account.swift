@@ -225,8 +225,9 @@ extension CloudHandlers {
     static func newMachineRequest(_ invocation: ActionInvocation) throws -> CloudMachineRequest {
         // A text flag given with no value (`--bootstrap-script` last on the line) arrives as `true`:
         // refuse it rather than make a machine without what was asked.
-        for name in ["name", "size", "bootstrap", "bootstrapScript", "machineConfig", "repo"] where invocation[name] != nil && invocation[name]?.stringValue == nil {
+        for name in ["name", "size", "bootstrap", "bootstrapScript", "machineConfig", "repo", "environment"] where invocation[name] != nil && invocation[name]?.stringValue == nil {
             switch name {
+            case "environment": throw CloudWorkspaceSetupWizard.EnvironmentOption.Unknown()
             case "machineConfig": throw ActionFailure(message: CloudStrings.machineConfigUnreadable("--machine-config"))
             case "size": throw ActionFailure(message: CloudStrings.sizeMustBeOneOf(createSizes.keys.sorted().joined(separator: ", ")))
             case "name": throw ActionFailure(message: CloudStrings.laneNeedsName)
@@ -250,14 +251,15 @@ extension CloudHandlers {
         if kind == "lane" || path != nil {
             // A script alone runs as a plain bootstrap; `lane` also names the lane host.
             guard let path, !path.isEmpty else { throw ActionFailure(message: CloudStrings.bootstrapScriptRequired) }
-            request.bootstrapPath = expandingHome(path)
+            request.bootstrapPath = CloudMachineRequest.expandingHome(path)
             request.bootstrapKind = kind == "lane" ? .lane : .plain
         }
         if let config = invocation["machineConfig"]?.stringValue {
             guard !config.isEmpty else { throw ActionFailure(message: CloudStrings.machineConfigUnreadable(config)) }
-            request.machineConfigPath = expandingHome(config)
+            request.machineConfigPath = CloudMachineRequest.expandingHome(config)
         }
         if request.bootstrapKind == .lane, request.name == nil { throw ActionFailure(message: CloudStrings.laneNeedsName) }
+        request.environment = try invocation["environment"]?.stringValue.map(CloudWorkspaceSetupWizard.EnvironmentOption.word) // an env_ id, or a name createRequested reads
         if let spec = invocation["repo"]?.stringValue {
             do { request.repo = try CloudMachineRepo.parse(spec) } catch let invalid as CloudMachineRepo.Invalid {
                 // The spec is never echoed: it may carry a token.
@@ -269,11 +271,6 @@ extension CloudHandlers {
             }
         }
         return request
-    }
-
-    /// A quoted `~/boot.sh` reaches the app unexpanded.
-    static func expandingHome(_ path: String) -> String {
-        path == "~" || path.hasPrefix("~/") ? NSHomeDirectory() + String(path.dropFirst()) : path
     }
 
     /// The `machine_config` answer of a start (``CloudMachineConfig``): its status and how to read it.
@@ -302,6 +299,7 @@ extension CloudHandlers {
             do { request.machineConfig = try await request.loadMachineConfig(work: work) } catch let unreadable as CloudMachineRequest.ScriptUnreadable {
                 throw ActionFailure(message: CloudStrings.machineConfigUnreadable(unreadable.path))
             }
+            if let wanted = request.environment, !wanted.hasPrefix("env_") { request.environment = try await CloudWorkspaceSetupWizard.EnvironmentOption.id(for: wanted, in: context.services.cloud.appServerEnvironmentOptions()) }
             let creation = flow.start(in: window, existing: nil, request: request)
             if case .failed(let reason)? = await settledCreation(creation, in: creations) { throw ActionFailure(message: "new Cloud machine: \(reason)") }
             guard let session = creation.session else { throw ActionFailure(message: CloudStrings.createDeclined) }

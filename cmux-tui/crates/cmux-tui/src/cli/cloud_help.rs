@@ -520,7 +520,7 @@ set は値を非表示の入力プロンプトまたは標準入力から読み�
 /// `cmux cloud start-chat --help` (cloud_start_chat.rs runs it).
 pub(super) const START_CHAT_USAGE: &str = "\
 usage: cmux cloud start-chat [--prompt TEXT] [--agent AGENT] [--cwd DIR]
-                             [--login pass|machine|none]
+                             [--login pass|machine|none] [--environment ENV]
                              [--name MACHINE | --target machine:MACHINE_ID]
                              [--wait] [--timeout SECONDS] [--json]
 
@@ -540,6 +540,8 @@ The chat opens as a tab in the machine's workspace in the cmux app.
   --target machine:MACHINE_ID
                      Use this machine (`cmux cloud list-machines`)
                      Neither: create a new small machine with a new name
+  --environment ENV  Boot the new machine in this Cloud environment (its
+                     env_ id or its name); not with --target
   --wait             Wait for the turn to end and print the reply (no
                      prompt: the chat is ready, nothing to wait for)
   --timeout SECONDS  How long --wait waits (default 900)

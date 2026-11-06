@@ -74,7 +74,12 @@ public struct CloudMachineRequest: Equatable, Sendable {
 
     /// The create takes the plain path (the New Cloud Workspace dialog, or the bare create). One with an
     /// ``environment`` never does: that path would make the machine without it.
-    public var takesPlainPath: Bool { isDefault }
+    public var takesPlainPath: Bool { isDefault && environment == nil }
+
+    /// A quoted `~/boot.sh` reaches the app unexpanded (`--bootstrap-script`, `--machine-config`).
+    public static func expandingHome(_ path: String) -> String {
+        path == "~" || path.hasPrefix("~/") ? NSHomeDirectory() + String(path.dropFirst()) : path
+    }
 
     /// A file this request names (``bootstrapPath``, ``machineConfigPath``) could not be read, is
     /// empty or is over its size limit.

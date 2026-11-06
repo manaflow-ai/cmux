@@ -12,12 +12,17 @@ extension CloudWorkspaceSetupWizard.EnvironmentOption {
 
     /// `--environment`'s word, trimmed; ``Unknown`` for an empty one.
     public nonisolated static func word(_ text: String) throws -> String {
-        text
+        let word = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !word.isEmpty else { throw Unknown() }
+        return word
     }
 
     /// The id `wanted` names: an `env_…` id as given, else the id of the environment in `options` (the app's
     /// `cloud.environment.list`) with that name, exactly or in any case; ``Unknown`` for a name none has.
     public nonisolated static func id(for wanted: String, in options: [Self]) throws -> String {
-        wanted
+        if wanted.hasPrefix("env_") { return wanted }
+        guard let match = options.first(where: { $0.name == wanted })
+            ?? options.first(where: { $0.name.caseInsensitiveCompare(wanted) == .orderedSame }) else { throw Unknown() }
+        return match.id
     }
 }

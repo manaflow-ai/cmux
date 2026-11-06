@@ -1,5 +1,5 @@
-//! `cmux cloud start-chat [--prompt TEXT] [--agent claude] [--cwd DIR] [--login L] [--name MACHINE |
-//! --target machine:ID] [--wait] [--timeout SECONDS]`: one command takes a Cloud chat from
+//! `cmux cloud start-chat [--prompt TEXT] [--agent claude] [--cwd DIR] [--login L] [--environment E]
+//! [--name MACHINE | --target machine:ID] [--wait] [--timeout SECONDS]`: one command takes a Cloud chat from
 //! nothing to a reply, for a person, a script or the Chief (Leo, 2026-11-02: "we need to improve
 //! the docs/instructions/commands and guidance and whatnot to make this all smoother faster more
 //! efficient more exposed / cuz chief will be using this kind of flow").
@@ -8,6 +8,7 @@
 //! that verb's checks, keys and deadlines:
 //!
 //! 1. `cloud list-machines`: refuses at once when the app is signed out of cmux.
+//!    With `--environment`, `cloud new-machine --environment E` first makes the chat's machine in it.
 //! 2. `cloud start-session (--name N | --target T) --agent A [--cwd D] [--login L]`: takes the machine (or
 //!    creates it) and opens the chat's tab in the machine's workspace, a real chat in the app.
 //!    Without `--name` or `--target` it creates a new small machine with a new name, so the chat
@@ -64,8 +65,17 @@ const PROMPT_PIECE_BYTES: usize = 384 * 1024;
 const SMALL_PROMPT_PIECE_BYTES: usize = 45 * 1024;
 
 /// This command's flags that take the next word as their value.
-const TAKES_VALUE: &[&str] =
-    &["--prompt", "-p", "--agent", "--cwd", "--login", "--name", "--target", "--timeout"];
+const TAKES_VALUE: &[&str] = &[
+    "--prompt",
+    "-p",
+    "--agent",
+    "--cwd",
+    "--login",
+    "--environment",
+    "--name",
+    "--target",
+    "--timeout",
+];
 
 /// `--login`'s words, as `cloud start-session` takes them (`CloudHarnessLoginAsk.choice`): the person's
 /// login, the machine's own, or none.
@@ -171,6 +181,7 @@ pub(super) fn parse(
     let mut agent = None;
     let mut cwd = None;
     let mut login = None;
+    let mut environment = None;
     let mut name = None;
     let mut target = None;
     let mut wait = false;
@@ -198,6 +209,7 @@ pub(super) fn parse(
             "--agent" => agent = Some(value()?),
             "--cwd" => cwd = Some(value()?),
             "--login" => login = Some(value()?),
+            "--environment" => environment = Some(value()?),
             "--name" => name = Some(value()?),
             "--target" => target = Some(value()?),
             "--timeout" => {
@@ -245,6 +257,15 @@ pub(super) fn parse(
         }
         login => login,
     };
+    let environment = match environment.map(|word| word.trim().to_owned()) {
+        Some(word) if word.is_empty() => return Err(UsageError::new("--environment is empty")),
+        environment => environment,
+    };
+    if environment.is_some() && target.is_some() {
+        return Err(UsageError::new(
+            "--environment makes a new machine; not with --target, whose environment is set",
+        ));
+    }
     let machine = match (name, target) {
         (Some(_), Some(_)) => return Err(UsageError::new("give --name or --target, not both")),
         (Some(name), None) if name.trim().is_empty() => {
@@ -260,16 +281,7 @@ pub(super) fn parse(
         }
         (None, None) => Machine::New,
     };
-    Ok(Parsed::Run(Request {
-        prompt,
-        agent,
-        cwd,
-        login,
-        environment: None,
-        machine,
-        wait,
-        timeout,
-    }))
+    Ok(Parsed::Run(Request { prompt, agent, cwd, login, environment, machine, wait, timeout }))
 }
 
 /// One run of this binary: its exit code and what it printed.
@@ -388,6 +400,12 @@ pub(super) fn again_command(request: &Request, machine: &Machine) -> String {
         Machine::Named(name) => words.push(format!("--name {}", shell_quote(name))),
         Machine::Target(id) => words.push(format!("--target machine:{}", shell_quote(id))),
         Machine::New => {}
+    }
+    // A machine already made keeps the environment it has.
+    if let Some(environment) =
+        request.environment.as_ref().filter(|_| !matches!(machine, Machine::Target(_)))
+    {
+        words.push(format!("--environment {}", shell_quote(environment)));
     }
     if request.agent != "claude" {
         words.push(format!("--agent {}", request.agent));
@@ -548,9 +566,15 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     // holds from boot, with no link to the machine. Whatever kept it from the machine (an app or a machine
     // without the relay) leaves the link path below, on the machine it found or made.
     let mut wanted = request.machine.clone();
+    if let Some(environment) = &request.environment {
+        match in_environment(runner, &request.machine, environment, &listed) {
+            Ok(id) => wanted = Machine::Target(id),
+            Err(outcome) => return outcome,
+        }
+    }
     // No prompt: nothing to relay, so the chat starts over the link alone.
     if request.wait && request.prompt.is_some() {
-        match relay_chat(runner, request, &listed) {
+        match relay_chat(runner, request, &wanted, &listed) {
             Relayed::Answered(outcome) => return outcome,
             Relayed::Fallback(Some(id)) => wanted = Machine::Target(id),
             Relayed::Fallback(None) => {}
@@ -829,13 +853,18 @@ enum Relayed {
 /// 256 KiB). A larger one goes the link path, which uploads it.
 const RELAY_PROMPT_BYTES: usize = 96 * 1024;
 
-fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Value) -> Relayed {
+fn relay_chat(
+    runner: &mut dyn Runner,
+    request: &Request,
+    machine: &Machine,
+    listed: &Value,
+) -> Relayed {
     // `--timeout` counts from here, a new machine included.
     let started_at = runner.now();
     let Some(prompt) = request.prompt.as_deref().filter(|p| p.len() <= RELAY_PROMPT_BYTES) else {
         return Relayed::Fallback(None);
     };
-    let machine_id = match &request.machine {
+    let machine_id = match machine {
         Machine::Target(id) => id.clone(),
         Machine::Named(name) => {
             let row = at(listed, "machines")
@@ -849,25 +878,10 @@ fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Value) -> Rel
                 None => return Relayed::Fallback(None),
             }
         }
-        Machine::New => {
-            let made = match step_result(&runner.cmux(&words(&["cloud", "new-machine", "--json"])))
-            {
-                Ok(made) => made,
-                Err(error) => return Relayed::Answered(app_failure(error)),
-            };
-            match at(&made, "machine_id").as_str() {
-                Some(id) if at(&made, "pending").as_bool() != Some(true) => id.to_owned(),
-                _ => {
-                    return Relayed::Answered(failed(
-                        "cloud.start_pending",
-                        "the new machine is still being made; find it with `cmux cloud list-machines`, \
-                         then run this command again with --target machine:ID",
-                        json!({"app": made, "list": "cmux cloud list-machines --json"}),
-                        75,
-                    ));
-                }
-            }
-        }
+        Machine::New => match new_machine(runner, &[]) {
+            Ok(id) => id,
+            Err(outcome) => return Relayed::Answered(outcome),
+        },
     };
     let mut args = words(&["cloud", "relay-chat", "--target"]);
     args.push(format!("machine:{machine_id}"));
@@ -999,6 +1013,52 @@ fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Value) -> Rel
         json!({"answer": answer, "error": typed_error(&relayed)}),
         exit,
     ))
+}
+
+/// `--environment`: the chat's machine, made first in that environment (`--name`'s name when no machine
+/// has it yet); its id. A machine that exists already has its environment, so that is a usage error.
+fn in_environment(
+    runner: &mut dyn Runner,
+    machine: &Machine,
+    environment: &str,
+    listed: &Value,
+) -> Result<String, Outcome> {
+    let mut extra = Vec::new();
+    if let Machine::Named(name) = machine {
+        let mut rows = at(listed, "machines").as_array().into_iter().flatten();
+        if rows.any(|row| at(row, "title").as_str() == Some(name.as_str())) {
+            return Err(failed(
+                "usage.invalid",
+                format!(
+                    "--environment makes a new machine, and {name} exists already: give a new --name, \
+                     or leave out --environment"
+                ),
+                json!({"machine_name": name}),
+                2,
+            ));
+        }
+        extra.extend(["--name".to_owned(), name.clone()]);
+    }
+    extra.extend(["--environment".to_owned(), environment.to_owned()]);
+    new_machine(runner, &extra)
+}
+
+/// `cloud new-machine` with `extra`: the new machine's id once the app has it.
+fn new_machine(runner: &mut dyn Runner, extra: &[String]) -> Result<String, Outcome> {
+    let mut args = words(&["cloud", "new-machine"]);
+    args.extend_from_slice(extra);
+    args.push("--json".to_owned());
+    let made = step_result(&runner.cmux(&args)).map_err(app_failure)?;
+    match at(&made, "machine_id").as_str() {
+        Some(id) if at(&made, "pending").as_bool() != Some(true) => Ok(id.to_owned()),
+        _ => Err(failed(
+            "cloud.start_pending",
+            "the new machine is still being made; find it with `cmux cloud list-machines`, \
+             then run this command again with --target machine:ID",
+            json!({"app": made, "list": "cmux cloud list-machines --json"}),
+            75,
+        )),
+    }
 }
 
 /// The machine's typed error the app relayed (`CloudStartSession.relayFields`): acpmux's detail, a closed
