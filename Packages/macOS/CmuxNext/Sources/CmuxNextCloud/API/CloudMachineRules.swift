@@ -29,9 +29,7 @@ public nonisolated struct CloudMachineRules: Sendable {
 
     /// ``read(_:_:as:context:)`` of an answer already parsed.
     public func read<T: Decodable>(_ kind: String, _ value: JSONValue, as: T.Type, context: String) throws -> T {
-        struct Request: Encodable { var kind: String, value: JSONValue }
-        struct Reply: Decodable { var value: T?, error: String? }
-        guard let reply = call("cloud_model_read", Request(kind: kind, value: value), as: Reply.self) else {
+        guard let reply = call("cloud_model_read", ModelRead(kind: kind, value: value), as: ModelReadReply<T>.self) else {
             throw CloudAPIError.decoding("\(context): the app FFI did not answer")
         }
         guard let read = reply.value else { throw CloudAPIError.decoding("\(context): \(reply.error ?? "unreadable")") }
@@ -65,4 +63,15 @@ public nonisolated struct CloudMachineRules: Sendable {
 
     /// Which statuses are live and which are a change on its way (read once).
     static let statuses: Statuses = CloudMachineRules().call("cloud_machine_statuses", [String: String](), as: Statuses.self) ?? Statuses()
+}
+
+/// `cloud_model_read`'s request and answer (file level: a generic function nests no types).
+private struct ModelRead: Encodable {
+    var kind: String
+    var value: JSONValue
+}
+
+private struct ModelReadReply<T: Decodable>: Decodable {
+    var value: T?
+    var error: String?
 }

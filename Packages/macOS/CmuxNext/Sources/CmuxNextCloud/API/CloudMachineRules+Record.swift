@@ -54,10 +54,9 @@ extension CloudMachine {
     /// is it, else the first free `numbered(n)` from 2.
     public static func defaultName(taken: some Sequence<String>, base: String, numbered: (Int) -> String) -> String {
         let taken = Array(taken)
-        struct Request: Encodable { var taken: [String], candidates: [String] }
-        struct Reply: Decodable { var name: String? }
         let candidates = [base] + (2...(taken.count + 2)).map(numbered)
-        let reply = CloudMachineRules().call("cloud_machine_default_name", Request(taken: taken, candidates: candidates), as: Reply.self)
+        let reply = CloudMachineRules().call("cloud_machine_default_name", DefaultNameRequest(taken: taken, candidates: candidates),
+                                             as: DefaultNameReply.self)
         return reply?.name ?? base
     }
 }
@@ -65,12 +64,25 @@ extension CloudMachine {
 extension Collection<CloudMachine> {
     /// The ids of the store's machines the account's list did not name (`listed`): kept for a pin.
     public func keptForPin(listed: Set<String>) -> [String] {
-        struct Request: Encodable { var machines: [CloudMachine], listed: [String] }
-        struct Reply: Decodable { var ids: [String] }
-        let request = Request(machines: Array(self), listed: listed.sorted())
-        return CloudMachineRules().call("cloud_machine_kept_for_pin", request, as: Reply.self)?.ids ?? []
+        let request = KeptForPinRequest(machines: Array(self), listed: listed.sorted())
+        return CloudMachineRules().call("cloud_machine_kept_for_pin", request, as: KeptForPinReply.self)?.ids ?? []
     }
 }
+
+/// The generic rules' requests and answers (file level: a generic function nests no types).
+private struct DefaultNameRequest: Encodable {
+    var taken: [String]
+    var candidates: [String]
+}
+
+private struct DefaultNameReply: Decodable { var name: String? }
+
+private struct KeptForPinRequest: Encodable {
+    var machines: [CloudMachine]
+    var listed: [String]
+}
+
+private struct KeptForPinReply: Decodable { var ids: [String] }
 
 /// The account's machine cap, from `GET /api/vm`'s `limits` (cmux-cloud-machine `limits.rs`).
 public struct CloudMachineLimits: Sendable, Hashable, Codable {
