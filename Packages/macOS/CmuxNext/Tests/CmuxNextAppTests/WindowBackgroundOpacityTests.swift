@@ -80,6 +80,14 @@ import Testing
                        window: window, surface: surface, url: url, original: original)
     }
 
+    /// `body` on a harness with Ghostty's config `colors`; the harness is torn down after it.
+    func withHarness(_ json: String = "{}", ghostty colors: GhosttyThemeColors = ghostty(opacity: 1, blur: 0),
+                     _ body: (Harness) async throws -> Void) async throws {
+        let harness = try await make(json, ghostty: colors)
+        defer { harness.tearDown() }
+        try await body(harness)
+    }
+
     /// Waits for the observers (`ObservationStream`) to see a change.
     func settle(until done: () -> Bool) async {
         for _ in 0..<400 where !done() { await Task.yield() }
@@ -176,6 +184,19 @@ import Testing
         #expect(abs(harness.tintOpacity - 0.5) < 0.001)
         #expect(harness.settings.snapshot.windowBackground.material == .frosted)
         #expect(harness.surface.backdrop(in: harness.window).material == .frosted)
+    }
+
+    /// #36891: suites run in parallel in one process, so another suite can write Ghostty's
+    /// process-wide values while this test runs (its teardown, or a config reload that records
+    /// this Mac's own config). A write in Ghostty mode still names the material of the harness's
+    /// Ghostty blur.
+    @Test func ghosttyValuesWrittenElsewhereMidTestKeepTheHarnesssBlur() async throws {
+        try await withHarness(ghostty: Self.ghostty(opacity: 0.9, blur: 20)) { harness in
+            // What WindowOpacityOverArtTests' teardown, or a reload of this Mac's config, writes meanwhile.
+            GhosttyConfigBackground.loaded = GhosttyConfigBackground()
+            try await set(harness, Self.opacityKey, 0.5)
+            #expect(harness.settings.snapshot.windowBackground.material == .frosted)
+        }
     }
 
     /// A Material the user chose survives Opacity's reset: only Opacity goes back to Ghostty's.
