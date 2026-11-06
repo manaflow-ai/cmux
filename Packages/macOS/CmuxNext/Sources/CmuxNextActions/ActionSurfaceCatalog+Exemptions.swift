@@ -17,6 +17,9 @@ nonisolated extension ActionSurfaceCatalog {
         "workspace.dockLeft", "workspace.dockRight", "workspace.dockTop", "workspace.dockBottom", "workspace.undock",
         "workspace.toggleDockFloating", "window.toggleDockLeft", "window.toggleDockRight", "window.toggleDockTop",
         "window.toggleDockBottom", "window.toggleDockOrientation",
+        // The window dock (user 2026-11-05).
+        "home.openChiefDock", "window.movePaneToDock", "window.toggleDock", "window.toggleDockTabBar", "window.focusDock",
+        "window.dockEdgeLeft", "window.dockEdgeRight", "window.dockEdgeTop", "window.dockEdgeBottom",
         "help.showCrashLogs", "palette.mobileConnect", "newWindow", "newIncognitoWindow", "closeWindow", "tab.focus", "pane.focus", "screen.focus", "quit", "quitKeepSessions", "quitEndSessions",
         "quitEndEverything", "keepMacAwake", "newBrowserWorkspace", "openFolder",
         "palette.openFolderInVSCodeInline", "reopenPreviousSession", "workspace.importClassic", "reopenClosedWorkspace", "moveWorkspaceUp",
@@ -96,7 +99,7 @@ nonisolated extension ActionSurfaceCatalog {
         "browser.extension.remove", "browser.extension.command", "browserProfile.new", "browserProfile.rename",
         "browserProfile.setColor", "browserProfile.clearColor", "browserProfile.setIcon", "browserProfile.clearIcon",
         "browserProfile.clearBrowsingData", "browserProfile.removeImportedData", "browserProfile.newTab", "browserProfile.newWindow", "browserProfile.newWorkspace",
-        "browserProfile.openLink", "browserProfile.setWorkspaceDefault", "browserProfile.clearWorkspaceDefault",
+        "browserProfile.openLink", "browserProfile.openLinkInNew", "browserProfile.setWorkspaceDefault", "browserProfile.clearWorkspaceDefault",
         "browserProfile.setSpaceDefault", "browserProfile.clearSpaceDefault", "browserProfile.moveTab",
         "browserProfile.duplicateTab", "palette.toggleMatchTerminalBackground", "palette.enableMinimalMode",
         "palette.disableMinimalMode", "palette.enableBrowser", "palette.disableBrowser", "markAllNotificationsRead", "clearAllNotifications",

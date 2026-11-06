@@ -472,6 +472,10 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugPointerHover.run(call.params, services: services))
             },
+            .async("debug.pointer_sweep") { [weak services] call in
+                guard let services else { return .null }
+                return await DebugPointerHover.sweep(call.params, services: services)
+            }.withDeadline(.fixed(.seconds(60))),
             .mainActor("debug.menu") { [weak services] call in
                 .value(DebugExtensions.menu(call.params, presenter: services?.contextMenus))
             },

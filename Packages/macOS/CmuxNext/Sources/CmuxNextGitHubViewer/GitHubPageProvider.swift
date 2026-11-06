@@ -13,6 +13,8 @@ public import CmuxNextSettings
 /// - `diff.open {url, file?}`: the pull request's diff (`gh pr diff`) in the diff viewer, scrolled to
 ///   `file`. Spends the gesture. The diff is read in the background when the page first asks about
 ///   the pull request, and kept until the pull request's `updatedAt` moves, so the click opens it at once.
+///   It is read from the pull request's commits on this Mac when a chat folder has them
+///   (``GitHubLocalDiff``), else from GitHub.
 @MainActor
 public final class GitHubPageProvider: PageProvider {
     public static let namespace = "cmux.github."
@@ -21,11 +23,14 @@ public final class GitHubPageProvider: PageProvider {
     private struct Diff {
         let updatedAt: String
         let read: Task<String?, Never>
+        /// The read tries this Mac's commits first (``GitHubLocalDiff``).
+        var local = false
     }
 
     private let links: AgentPaneReplyLinks
     private let cache: AgentReplyPullRequests
     private let diffReader: @Sendable (URL) async -> String?
+    private let localDiff: GitHubLocalDiff?
     private let openWeb: @MainActor (URL, NSView?) -> Bool
     private let openDiff: @MainActor (_ text: String, _ link: GitHubLink, _ file: String?, _ from: NSView?) -> Bool
     private var diffs: [URL: Diff] = [:]
@@ -41,10 +46,12 @@ public final class GitHubPageProvider: PageProvider {
 
     public init(cache: AgentReplyPullRequests = .shared,
                 diffReader: @escaping @Sendable (URL) async -> String?,
+                localDiff: GitHubLocalDiff? = nil,
                 openWeb: @escaping @MainActor (URL, NSView?) -> Bool,
                 openDiff: @escaping @MainActor (_ text: String, _ link: GitHubLink, _ file: String?, _ from: NSView?) -> Bool) {
         self.cache = cache
         self.diffReader = diffReader
+        self.localDiff = localDiff
         self.openWeb = openWeb
         self.openDiff = openDiff
         let links = AgentPaneReplyLinks()
@@ -79,16 +86,29 @@ public final class GitHubPageProvider: PageProvider {
         let updatedAt = cache.answer(link.url, read: false).pullRequest?.updatedAt ?? ""
         if let kept = diffs[link.url] {
             if kept.updatedAt == updatedAt || updatedAt.isEmpty { return }
-            // A read started before the cache had the pull request is as new as its first `updatedAt`.
+            // A read started before the cache had the pull request is as new as its first `updatedAt`;
+            // now that its commits are known, this Mac's are tried before that read's answer.
             if kept.updatedAt.isEmpty {
-                diffs[link.url] = Diff(updatedAt: updatedAt, read: kept.read)
+                guard !kept.local, let local = localDiff, let plan = local.plan(link) else {
+                    diffs[link.url] = Diff(updatedAt: updatedAt, read: kept.read, local: kept.local)
+                    return
+                }
+                let earlier = kept.read
+                // task-owner: replaces the kept read for this updatedAt; the earlier read's answer is its fallback.
+                diffs[link.url] = Diff(updatedAt: updatedAt, read: Task.detached(priority: .userInitiated) {
+                    if let text = await local.diff(plan) { return text }
+                    return await earlier.value
+                }, local: true)
                 return
             }
         }
-        let reader = diffReader, url = link.url
-        // task-owner: one gh diff read per pull request and updatedAt; diff.open awaits it, a newer updatedAt replaces it.
-        // Detached: the read decodes up to 16 MB, never on the main thread.
-        diffs[link.url] = Diff(updatedAt: updatedAt, read: Task.detached(priority: .userInitiated) { await reader(url) })
+        let reader = diffReader, url = link.url, local = localDiff, plan = localDiff?.plan(link)
+        // task-owner: one diff read per pull request and updatedAt; diff.open awaits it, a newer updatedAt replaces it.
+        // Detached: the read decodes up to 16 MB, never on the main thread (the local read hops to it only to send).
+        diffs[link.url] = Diff(updatedAt: updatedAt, read: Task.detached(priority: .userInitiated) {
+            if let local, let plan, let text = await local.diff(plan) { return text }
+            return await reader(url)
+        }, local: plan != nil)
         while diffs.count > Self.maximumDiffs, let other = diffs.keys.first(where: { $0 != link.url }) { diffs[other] = nil }
     }
 
@@ -126,6 +146,26 @@ public final class GitHubPageProvider: PageProvider {
 
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: value, table: "GitHubViewer", bundle: .module)
+    }
+}
+
+public extension GitHubPageProvider {
+    /// A pull request's Files tab (Session Info's View diff, a `/pull/N/files` link in a reply): its
+    /// diff (`gh pr diff`) opens through `openDiff`, no page in between (Leo, 2026-11-05: "you want to
+    /// see the diff? Boom, here's a diff"); a diff that could not be read opens the Files tab's web page.
+    static func openFiles(_ link: GitHubLink, openDiff: @escaping @MainActor (String) -> Void, openWeb: @escaping @MainActor (URL) -> Void) {
+        openFiles(link, read: { await AgentChatPullRequestReader().diff(url: $0) }, openDiff: openDiff, openWeb: openWeb)
+    }
+
+    /// ``openFiles(_:openDiff:openWeb:)`` with its diff read by `read` (tests).
+    static func openFiles(_ link: GitHubLink, read: @escaping @Sendable (URL) async -> String?,
+                          openDiff: @escaping @MainActor (String) -> Void, openWeb: @escaping @MainActor (URL) -> Void) {
+        // task-owner: one gh diff read per click; it opens the diff, or the web page when the read fails.
+        Task { @MainActor in
+            // Detached: the read decodes up to 16 MB, never on the main thread.
+            let text = await Task.detached(priority: .userInitiated) { await read(link.url) }.value
+            if let text, text.hasPrefix("diff --git ") { openDiff(text) } else { openWeb(link.filesURL) }
+        }
     }
 }
 

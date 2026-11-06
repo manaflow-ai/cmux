@@ -610,7 +610,7 @@ impl Hub {
         // the child the previous holder started. The idle pass never ends the harness meanwhile.
         self.touch(session);
         let _using = session.harness_use.read().await;
-        let _spawning = session.spawn_lock.lock().await;
+        let _spawning = self.spawn_lease(session).await;
         // Stopped since the request: it starts nothing and touches no agent. One a later request
         // started after the stop is that request's (it reopened the session).
         if session.stops.load(Ordering::SeqCst) != stops {

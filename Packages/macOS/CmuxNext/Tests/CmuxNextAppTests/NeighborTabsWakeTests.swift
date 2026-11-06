@@ -58,7 +58,8 @@ import Testing
         #expect(rig.hibernation.coldShows == cold + 1)
     }
 
-    /// The pointer on a far tab thaws it before the click; the click is then warm.
+    /// The pointer resting on a far tab thaws it before the click (after the dwell,
+    /// plans/cmux-next/hover-preload-DESIGN.md); the click is then warm.
     @Test func aHoveredTabThawsBeforeTheClick() async throws {
         let rig = try Rig()
         defer { rig.close() }
@@ -66,7 +67,7 @@ import Testing
         try await rig.until("every hidden page freezes") { keys.allSatisfy(rig.hibernation.frozen.contains) }
         rig.show(keys[0], order: keys)
         rig.hibernation.noteHover(keys[2])
-        #expect(!rig.hibernation.frozen.contains(keys[2]))
+        try await rig.until("the hovered tab thaws after the dwell") { !rig.hibernation.frozen.contains(keys[2]) }
         #expect(rig.hibernation.exemptions[keys[2]] == .neighbor)
         let cold = rig.hibernation.coldShows
         rig.show(keys[2], order: keys)
@@ -127,6 +128,7 @@ import Testing
 
         // A timeout written to cmux.json: pages the person hibernated still wait for a show.
         rig.hibernation.apply(BrowserHibernationSetting(mode: .moderate, freezeSeconds: nil))
+        rig.hibernation.noteHover(nil) // a new stay on the tab (the gate fires once per stay)
         rig.hibernation.noteHover(keys[2])
         try await Task.sleep(for: BrowserHibernation.hoverDwellDelay * 3)
         #expect(rig.services.cache.phase(of: keys[2]) == .hibernated)

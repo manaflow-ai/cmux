@@ -36,6 +36,7 @@ export const WrapLines = glyph("text.wrap");
 export const TerminalSquare = glyph("tool.shell");
 export const OpenBook = glyph("tool.read");
 export const Magnifier = glyph("tool.search");
+export const Brain = glyph("tool.thought");
 export const Folder = glyph("folder");
 export const FileDoc = glyph("file");
 export const ArrowRight = glyph("action.go");

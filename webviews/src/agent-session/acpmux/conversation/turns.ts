@@ -33,6 +33,7 @@ import { awaitsPermission, groupId, isDraftCall, isFailed as callFailed, isRunni
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
 import { acpmuxSendCalls } from "./acpmuxSends";
 import { subsessionCall } from "./subsessionCalls";
+import { agentCall } from "./agentCalls";
 import { experimentArm } from "../../../experiments/experiment";
 import { finishedTaskLook } from "./taskLine.experiment";
 import { startedTasks, startsTask, TASK_LINE } from "./taskLines";
@@ -40,6 +41,7 @@ import { isWaitingMessage } from "./pendingMessages";
 import { appendLaneNotice } from "./laneNoticeBatches";
 import { agentMessage } from "./agentMessages";
 import { turnCopyParts } from "./turnCopy";
+import { turnWork } from "./waterfallSpans";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
 import { isThought, thoughtDuration } from "./thoughts";
 import {
@@ -53,6 +55,7 @@ import {
 import { foldMessageRuns, messageRunFoldFor, messageRunRevealKey, openMessageRuns } from "./messageRuns";
 import { backgroundRunFoldFor, foldBackgroundRuns, openBackgroundRuns } from "./backgroundRuns";
 import { turnFoldStyle, type TurnFoldStyle } from "./turnFoldStyle";
+import { canonicalCall } from "../toolNames";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -95,6 +98,14 @@ export function formatDuration(ms: number): string {
   const m = Math.floor((total % 3600) / 60);
   const s = total % 60;
   return [h && `${h}h`, m && `${m}m`, s && `${s}s`].filter(Boolean).join(" ");
+}
+
+/// A finished span's own time: "856ms" under a second, else as `formatDuration`; none for a span
+/// whose start and end were stamped at one moment, which measured nothing, so no row reads a
+/// floored "0s" (Leo, 2026-11-05: "it always only shows 0s?").
+export function spanDuration(t: Translate, ms: number): string | undefined {
+  if (!(ms > 0)) return undefined;
+  return ms < 1000 ? t("duration.ms", { n: Math.round(ms) }) : formatDuration(ms);
 }
 
 export const toolCalls = (t: Translate, count = 0) => t("turn.toolCalls", { n: count });
@@ -1238,12 +1249,15 @@ function shapeTurn(
   // The hint is only rendered for a settled retry target. Avoid scanning the turn body on each
   // live snapshot/token while the turn is still running.
   const changedFiles = (retryable || retryTarget) && !live ? turnChangedFiles(body) : false;
+  const work = live ? undefined : turnWork(body);
   shaped.push({
     ...summary,
     folded,
     text: answer?.text ?? summary.text,
     // The footer's Copy copies the whole turn (turnCopy.ts): its replies and tool lines in order.
     turnCopy: turnCopyParts(body),
+    // Its timed calls, for the footer's Timeline (waterfallSpans.ts); a live turn's footer has none.
+    ...(work && { turnWork: work }),
     ...(resumable && { resumable }),
     ...(retryable && { retryable }),
     ...(retryTarget && { retryTarget }),
@@ -1335,10 +1349,17 @@ function withTailAnswers(tail: AcpmuxRow[], endedBackground: ReadonlySet<string>
       text: answer.text,
       answerId: answer.id,
       turnCopy: turnCopyParts(body),
+      ...withWork(body),
       version: row.version * VERSION_SPAN + answer.version,
     };
   }
   return backgroundFooters(out ?? tail, endedBackground, seq);
+}
+
+/// A finished stretch's timed work, for its footer's Timeline (waterfallSpans.ts), when it has any.
+function withWork(rows: readonly AcpmuxRow[]): Pick<AcpmuxRow, "turnWork"> {
+  const work = turnWork(rows);
+  return work ? { turnWork: work } : {};
 }
 
 /// The id prefix of the footer `backgroundFooters` adds under a turn the agent ran on its own.
@@ -1397,6 +1418,7 @@ function backgroundFooters(tail: AcpmuxRow[], endedBackground: ReadonlySet<strin
       text: answer.text,
       answerId: answer.id,
       turnCopy: parts,
+      ...withWork(body.rows),
       ...(through !== undefined && { seq: through }),
     });
   });
@@ -1490,6 +1512,38 @@ export function liveTurnPlan(rows: readonly AcpmuxRow[]): AcpmuxRow | undefined 
   return undefined;
 }
 
+/// The todo list from before the person's last message, while the turn that message started has
+/// none of its own yet: kept pinned, marked "from before your last
+/// message", until the agent writes a new one (Leo, 2026-11-05: "i like these plans too... i want us
+/// to be able to render it in ours"). Only a list with steps left carries over: a finished one is
+/// done work, folded in its own turn. A newer list, even an empty one that cleared it, ends it.
+export function earlierTurnPlan(rows: readonly AcpmuxRow[]): AcpmuxRow | undefined {
+  let prompted = false;
+  for (let at = rows.length - 1; at >= 0; at -= 1) {
+    const row = rows[at]!;
+    if (row.kind === "user") {
+      // The running turn is another session's message's, not the person's: nothing carries over.
+      if (row.incoming && !prompted) return undefined;
+      prompted = true;
+    }
+    if (row.kind !== "plan") continue;
+    if (!row.turnEnded || !prompted || !row.plan?.length || row.planCleared) return undefined;
+    return row.plan.some((entry) => entry.status !== "completed") ? row : undefined;
+  }
+  return undefined;
+}
+
+/// The id suffix of the earlier list's copy that pins under the running turn (App.tsx).
+export const EARLIER_PLAN = ":earlier";
+
+/// `rows` with the earlier list's copy pinned under the running turn's latest message: over the live
+/// line where one is drawn (it is the turn's last row, `below`), else last. Without one, `rows` as is.
+export function withEarlierPlan(rows: AcpmuxRow[], plan: AcpmuxRow | undefined): AcpmuxRow[] {
+  if (!plan) return rows;
+  const at = rows.length > 0 && rows.at(-1)!.below ? rows.length - 1 : rows.length;
+  return [...rows.slice(0, at), plan, ...rows.slice(at)];
+}
+
 /// Whether two todo lists read the same (each step's words and state).
 export function samePlanEntries(
   a: readonly AcpmuxPlanEntry[] | undefined,
@@ -1571,6 +1625,7 @@ function supersededFooters(drawn: AcpmuxRow[], turn: readonly AcpmuxRow[], ended
       text: answer.text,
       answerId: answer.id,
       turnCopy: parts,
+      ...withWork(stretch),
     });
   };
   for (let index = 0; index < turn.length; index += 1) {
@@ -1851,7 +1906,8 @@ function codexLiveTurn(
 /// The latest run's last finished call, lifted out of the run for the live line to name: a command
 /// as its short line ("Ran grep …"), any other call as its row names it. Only a plain step: a failed
 /// call keeps its mark in the run, a command sent to the background keeps its state there, and
-/// messages, sub-sessions, render cards and edits keep their own rows. Nil when the latest step is anything else.
+/// messages, sub-sessions, subagent calls, render cards and edits keep their own rows. Nil when the latest step is anything else.
+/// Its `ms` is its run from start to end; none when both were stamped at one moment, which measured nothing.
 function liftedStep(
   rows: AcpmuxRow[],
   last: AcpmuxRow,
@@ -1875,6 +1931,11 @@ function liftedStep(
     isEditTool(call) ||
     renderCall(call) ||
     subsessionCall(call) ||
+    agentCall(call) ||
+    // A subagent's launch named only by its tool (Task, Agent), its input not read: its call ends
+    // when the subagent starts, so its time is the launch's, never the subagent's (Leo, 2026-11-05,
+    // on a line reading "Identify which wait belongs to the relay-login green step 0s · 32s").
+    canonicalCall(call)?.tool === "task" ||
     agentMessage(call) ||
     acpmuxSendCalls(call) ||
     acpmuxMcpSends(call)
@@ -1887,13 +1948,12 @@ function liftedStep(
   const next = rows.slice();
   if (kept.length) next[at] = { ...run, items: kept, version: run.version * LIFTED_STATES + 1 };
   else next.splice(at, 1);
-  const ms =
-    call.startedAt !== undefined && call.endedAt !== undefined ? Math.max(0, call.endedAt - call.startedAt) : undefined;
-  return { rows: next, doing, shell, ms };
+  const span = call.startedAt !== undefined && call.endedAt !== undefined ? call.endedAt - call.startedAt : undefined;
+  return { rows: next, doing, shell, ms: span !== undefined && span > 0 ? span : undefined };
 }
 
 /// The time a live turn's thoughts streamed, each from its first chunk to its latest, summed;
-/// undefined when none is dated.
+/// undefined when none is dated or the dated ones each came as one chunk, which measured nothing.
 function thoughtTime(rows: readonly AcpmuxRow[]): number | undefined {
   let total: number | undefined;
   for (const row of rows)
@@ -1902,7 +1962,7 @@ function thoughtTime(rows: readonly AcpmuxRow[]): number | undefined {
         const ms = isThought(item) ? thoughtDuration(item) : undefined;
         if (ms !== undefined) total = (total ?? 0) + ms;
       }
-  return total;
+  return total || undefined;
 }
 
 /// Foreground subagents still running in a live turn's rows (its subagent groups): the ones the
@@ -2036,6 +2096,10 @@ function runningLabel(tool: Parameters<typeof toolLabel>[0], text: string): stri
   const label = toolLabel(tool, text, (command) => command);
   const path = editedPaths(tool)[0];
   if (!path || tool.kind === "execute") return label;
+  // A search names its pattern, not the folder it searches in (toolNames.ts).
+  const canonical = canonicalCall(tool)?.tool;
+  if (canonical === "search" || canonical === "glob" || canonical === "fetch" || canonical === "websearch")
+    return label;
   return `${label.split(/\s+/, 1)[0]} ${path.split("/").pop() || path}`;
 }
 
@@ -2081,7 +2145,9 @@ function ownRow(row: AcpmuxRow, item: AcpmuxActivity): OwnRow {
     group.type === "sendGroup" ||
     group.type === "subsession" ||
     group.type === "subsessionGroup" ||
+    group.type === "agentCall" ||
     group.type === "dispatch" ||
+    group.type === "whoElse" ||
     (group.type === "mcp" && group.items.length === 1)
   )
     return true;
