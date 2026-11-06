@@ -1131,8 +1131,9 @@ impl Hub {
                     Ok(())
                 } else if let (None | Some("mode"), Some(mode)) = (id, value) {
                     // The full-access mode new chats start in, which the person chose for every
-                    // chat (`start_mode.rs`); never for a Web or peer connection.
-                    if starts_modes && self.is_start_full_access(&s.meta(), mode).await {
+                    // chat, or Claude's own Auto under it (`start_mode.rs`); never for a Web or
+                    // peer connection.
+                    if starts_modes && self.may_move_without_person(&s.meta(), mode).await {
                         Ok(())
                     } else {
                         Err(mode_person_required(mode, None, false, starts_modes))

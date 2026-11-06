@@ -1150,6 +1150,39 @@ pub(in crate::cli) fn contract_relay_words() -> Vec<String> {
 }
 
 #[test]
+fn a_relay_login_refusal_is_the_answer_and_nothing_else_runs_or_sends() {
+    // A fresh machine with nothing inherited, and each login refusal the app types: no start-session, no exec, no send.
+    for (code, exit) in [
+        ("cloud.relay.login_refused", 1),
+        ("cloud.relay.login_missing", 1),
+        ("cloud.relay.login_declined", 1),
+        ("cloud.relay.login_failed", 1),
+        ("cloud.relay.login_pending", 75),
+        ("cloud.relay.login_account_changed", 1),
+        ("cloud.relay.login_skipped", 1),
+        ("cloud.relay.login_unverified", 1),
+        ("cloud.relay.login_team_machine", 1),
+    ] {
+        let refusal = json!({"error_code": code, "error_message": "claude on dev has no login",
+                             "delivered": false, "command": "cmux cloud start-session --target machine:vm-1 --agent claude",
+                             "login_reason": "needs-login-choice"});
+        let mut fake = Fake::new(vec![signed_in(), made(), relayed(refusal)]);
+        let asked = request(&["--prompt", "hi", "--wait"]);
+        let Outcome::Failed { error, exit: got } = run(&mut fake, &asked) else {
+            panic!("{code}: {:?}", fake.ran)
+        };
+        assert_eq!((error["code"].as_str(), got), (Some(code), exit));
+        assert_eq!(error["details"]["sent"], false);
+        assert_eq!(
+            error["details"]["command"],
+            "cmux cloud start-session --target machine:vm-1 --agent claude"
+        );
+        assert_eq!(fake.ran.len(), 3, "{code}: ran after the refusal: {:?}", fake.ran);
+        assert_eq!(fake.ran[2][1], "relay-chat");
+    }
+}
+
+#[test]
 fn a_harness_sign_in_failure_is_not_the_cmux_account_signed_out() {
     // acpmux's Cloud text for a Claude with no sign-in (claude_auth.rs `compose_cloud`) and its typed kind:
     // the machine's Claude, never the person's cmux account, so no `cmux cloud sign-in`.
@@ -1172,36 +1205,6 @@ fn a_harness_sign_in_failure_is_not_the_cmux_account_signed_out() {
         json!({"code": "cloud_signed_out", "message": "x"}),
     ] {
         assert!(signed_out(&error), "{error}");
-    }
-}
-
-#[test]
-fn a_relay_login_refusal_is_the_answer_and_nothing_else_runs_or_sends() {
-    // A fresh machine with nothing inherited, and each login refusal the app types: no start-session, no exec, no send.
-    for (code, exit) in [
-        ("cloud.relay.login_refused", 1),
-        ("cloud.relay.login_missing", 1),
-        ("cloud.relay.login_declined", 1),
-        ("cloud.relay.login_failed", 1),
-        ("cloud.relay.login_pending", 75),
-        ("cloud.relay.login_account_changed", 1),
-    ] {
-        let refusal = json!({"error_code": code, "error_message": "claude on dev has no login",
-                             "delivered": false, "command": "cmux cloud start-session --target machine:vm-1 --agent claude",
-                             "login_reason": "needs-login-choice"});
-        let mut fake = Fake::new(vec![signed_in(), made(), relayed(refusal)]);
-        let asked = request(&["--prompt", "hi", "--wait"]);
-        let Outcome::Failed { error, exit: got } = run(&mut fake, &asked) else {
-            panic!("{code}: {:?}", fake.ran)
-        };
-        assert_eq!((error["code"].as_str(), got), (Some(code), exit));
-        assert_eq!(error["details"]["sent"], false);
-        assert_eq!(
-            error["details"]["command"],
-            "cmux cloud start-session --target machine:vm-1 --agent claude"
-        );
-        assert_eq!(fake.ran.len(), 3, "{code}: ran after the refusal: {:?}", fake.ran);
-        assert_eq!(fake.ran[2][1], "relay-chat");
     }
 }
 

@@ -252,10 +252,11 @@ const RUNNERS: [&str; 7] = ["npx", "bunx", "pnpx", "node", "bun", "uvx", "env"];
 
 /// The executables of leaf agents and their families: `derive_family`'s and
 /// the launchers discovery finds (`config/discover.rs`).
-const EXECUTABLES: [(&str, &str); 19] = [
+const EXECUTABLES: [(&str, &str); 20] = [
     ("codex", "codex"),
     ("codex-acp", "codex"),
     ("claude", "claude"),
+    ("claude-acp", "claude"),
     ("claude-agent-acp", "claude"),
     ("claude-code-acp", "claude"),
     ("gemini", "gemini"),
@@ -346,6 +347,8 @@ mod tests {
         let this = std::env::current_exe().unwrap().to_string_lossy().into_owned();
         assert_eq!(classify_command(&argv(&["claude", "auth", "status"]), "mine"), agent("claude"));
         assert_eq!(classify_command(&argv(&["/opt/x", "auth"]), "opencode-v2"), agent("opencode"));
+        // The claude-acp ACP adapter (`config/discover.rs`) is Claude Code under any profile name.
+        assert_eq!(classify_command(&argv(&["/opt/bin/claude-acp"]), "mine"), agent("claude"));
         // The host is this very binary running `chief acp`, nothing named like it.
         assert_eq!(classify_command(&argv(&[&this, "chief", "acp"]), "codex"), Runs::Host);
         assert_eq!(classify_command(&argv(&["cmux", "chief", "acp"]), "x"), Runs::Unknown);

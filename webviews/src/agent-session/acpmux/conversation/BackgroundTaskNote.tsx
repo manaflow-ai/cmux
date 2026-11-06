@@ -23,7 +23,7 @@ import { shortCommand } from "./shortCommand";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { useTranscriptReadOnly } from "./readOnly";
 import { SubagentNavContext } from "../subagents/SubagentGroup";
-import { formatDuration } from "./turns";
+import { spanDuration } from "./turns";
 
 export function BackgroundTaskNote({ task }: { task: AcpmuxBackgroundTask }) {
   const t = useT();
@@ -55,7 +55,7 @@ export function BackgroundTaskNote({ task }: { task: AcpmuxBackgroundTask }) {
   const owner = task.ownerTitle?.trim();
   const duration =
     task.startedAt !== undefined && task.endedAt !== undefined
-      ? formatDuration(Math.max(0, task.endedAt - task.startedAt))
+      ? spanDuration(t, task.endedAt - task.startedAt)
       : undefined;
   const ownerLink = owner && task.ownerId && openSubagent;
   const ownerProps = ownerLink
