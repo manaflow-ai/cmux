@@ -23,7 +23,9 @@ import Testing
         for _ in 0..<2_000 { await Task.yield() }
     }
 
-    private func pass(_ window: NSWindow, _ view: HomeNativeTranscriptView) {
+    private func pass(_ window: NSWindow, _ view: HomeNativeTranscriptView) async {
+        // A send's field and rows finish their motion first: a reading mid-motion is off by a point.
+        await until { view.transcript.isIdle }
         view.transcript.projection.refresh()
         window.contentView?.layoutSubtreeIfNeeded()
         view.transcript.controller.demo?.collection.layoutIfNeeded()
@@ -70,7 +72,7 @@ import Testing
         await until { store.me != nil && store.isOnline }
         let me = try #require(store.me?.id)
 
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 800), styleMask: [.titled, .resizable],
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer {
@@ -89,14 +91,16 @@ import Testing
         view.autoresizingMask = [.width, .height]
         container.addSubview(view)
         container.layoutSubtreeIfNeeded()
+        // A borderless window keeps its size on any screen (a titled one is fitted to a small one).
+        #expect(window.contentView?.bounds.size == NSSize(width: 900, height: 800), "the window was resized")
         await until { !store.transcript(for: Self.conversation).isEmpty }
         await settle()
-        pass(window, view)
+        await pass(window, view)
         // A message of mine, just sent, waits under the Chief's history as the newest row.
         view.transcript.setDraft("what's going on here")
         #expect(view.transcript.sendDraft() == nil, "the draft was not sent")
         await settle()
-        pass(window, view)
+        await pass(window, view)
         let rest = try expectClear(window, view, "no toast")
 
         let center = CmuxToastCenter(host: CmuxToastOverlayHost())
@@ -106,7 +110,7 @@ import Testing
                                  in: window)
         defer { handle.dismiss() }
         await settle()
-        pass(window, view)
+        await pass(window, view)
         #expect(toastFrames(in: window).count == 1, "the toast shows")
         let lifted = try expectClear(window, view, "toast shown")
         #expect(lifted > rest + 8, "the newest message stayed where the toast is (\(lifted) vs \(rest))")
@@ -114,14 +118,14 @@ import Testing
         // Details grow the toast upward: the transcript keeps clear of its new height.
         #expect(center.runAction(id: "machine-update", in: window))
         await settle()
-        pass(window, view)
+        await pass(window, view)
         let higher = try expectClear(window, view, "details shown")
         #expect(higher > lifted + 8, "the details covered the newest message (\(higher) vs \(lifted))")
 
         // The toast gone, the newest message rests where it was.
         handle.dismiss()
         await settle()
-        pass(window, view)
+        await pass(window, view)
         let back = try expectClear(window, view, "toast gone")
         #expect(abs(back - rest) < 1, "the newest message did not come back to rest (\(back) vs \(rest))")
     }
