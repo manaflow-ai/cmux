@@ -23,8 +23,10 @@
  * cmux-platform):
  *
  *   health -> sign in -> user.ensure -> install token -> create machine -> running (status) -> listed
- *   -> first exec -> pass Claude login -> start agent (acpmux on the machine) -> send chat -> reply -> connect (connect_info
- *   + link_token + link dial) -> handoff record -> sync push/pull (a folder round trip) -> pause -> resume -> delete
+ *   -> first exec -> pass Claude login -> start agent (acpmux on the machine) -> send chat -> reply -> turn 2 (same
+ *   session) -> daemon restart keeps the session (the guest's agent daemon killed, then a turn) -> connect (connect_info
+ *   + link_token + link dial) -> handoff record -> sync push/pull (a folder round trip) -> pause -> resume -> turn after
+ *   resume -> delete. `--skip lifecycle` leaves out the later turns and the daemon restart.
  *
  * Each step prints PASS/FAIL/SKIP with its latency; --out DIR also gets journey.json (the steps) and
  * summary.md (a table for a PR comment or job summary). The machine this run made is deleted at the
@@ -958,6 +960,68 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
     }
     const session = `journey-${tag}`;
+    // One turn's reply: the session's last message once `acp wait` says the turn ended, or the turn's own error.
+    const awaitReply = async (): Promise<string> => {
+      const t0 = Date.now();
+      let last = "";
+      while (Date.now() - t0 < chatBudget) {
+        const r = await exec(`${GUEST}"$c" acp wait ${shq(session)} --timeout 20 >/dev/null 2>&1; echo "@@wait $?"; "$c" acp last ${shq(session)} 2>&1; echo "@@lastexit $?"`, 45_000);
+        const wait = /@@wait (\d+)/.exec(r.stdout)?.[1];
+        last = r.stdout.replace(/@@wait \d+\n?/, "").replace(/@@lastexit \d+\s*$/, "").trim();
+        if (wait === "0" && last) return last;
+        if (wait === "2") throw new Error(`the agent waits on a permission: ${last.slice(-200)}`);
+        if (wait && wait !== "3" && wait !== "0") {
+          // A failed turn (exit 1) prints no reply: name its error, e.g. a harness with no sign-in on the machine.
+          const h = await exec(`${GUEST}"$c" acp tail ${shq(session)} 2>&1 | grep -E '"kind":"turn_error"' | tail -1`, 45_000).catch(() => null);
+          const why = /"error":"((?:[^"\\]|\\.)*)"/.exec(h?.stdout ?? "")?.[1] ?? "";
+          throw new Error(`acp wait exit ${wait}: ${(why || last).slice(-300)}`);
+        }
+      }
+      throw new Error(`no reply within ${chatBudget / 1000} s; last: ${last.slice(-300)}`);
+    };
+    const send = async (text: string) => {
+      const r = await exec(`${GUEST}printf '%s' ${shq(text)} | "$c" acp send --no-wait ${shq(session)} - 2>&1; echo "@@exit $?"`, 60_000);
+      if (!/@@exit 0/.test(r.stdout)) throw new Error(r.stdout.slice(-400) || r.stderr.slice(-400));
+    };
+    // The model requests the stub logged for real turns (streamed, not a title or topic side request).
+    const stubTurns = async (): Promise<any[]> => {
+      const r = await exec(`cat ${shq(stubLog)} 2>/dev/null`);
+      return r.stdout.split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } })
+        .filter((x: any) => x && x.method === "POST" && x.stream && !x.side);
+    };
+    // A later turn in the same session. With the stub, a request's step is the number of tool results already in the
+    // conversation: the first request of this turn at step >= 1 proves the session still holds turn 1 (its tool
+    // result), where a fresh conversation would start at step 0.
+    // `send --no-wait` returns once the prompt is queued, so `acp wait` right after it can still see the session idle
+    // and `acp last` would read the previous turn's reply. Each later turn's prompt starts with its own marker, and its
+    // reply is read only once `acp history` lists a turn with that prompt (the turn started; history keeps a prompt's
+    // first 120 characters). `acp wait --match` cannot see it: it leaves the person's own prompts out.
+    let turns = 0;
+    const turnStarted = async (marker: string) => {
+      const t0 = Date.now();
+      while (Date.now() - t0 < chatBudget) {
+        const r = await exec(`${GUEST}"$c" acp --json history ${shq(session)} --limit 5 2>&1`, 45_000);
+        let listed: any[] = [];
+        try { listed = JSON.parse(r.stdout.slice(r.stdout.indexOf("{"))).turns ?? []; } catch { /* not yet readable */ }
+        if (listed.some((t: any) => typeof t?.prompt === "string" && t.prompt.startsWith(marker))) return;
+        await sleep(2_000);
+      }
+      throw new Error(`the turn's prompt did not reach the session within ${chatBudget / 1000} s`);
+    };
+    const laterTurn = async (text: string): Promise<{ value: null; detail: string }> => {
+      const before = modelStub ? (await stubTurns()).length : 0;
+      const marker = `[journey turn ${tag}-${++turns}]`;
+      await send(`${marker} ${text}`);
+      await turnStarted(marker);
+      const last = await awaitReply();
+      if (!modelStub) return { value: null, detail: last.slice(0, 280) };
+      if (!last.includes(`Stub reply ${nonce}.`)) throw new Error(`the reply does not carry the stub's nonce ${nonce}: ${last.slice(-200)}`);
+      const fresh = (await stubTurns()).slice(before);
+      if (!fresh.length) throw new Error("the reply came back but the stub logged no model request for this turn");
+      if (!(fresh[0].step >= 1)) throw new Error(`this turn's first model request is at step ${fresh[0].step}: the session lost the earlier turns`);
+      return { value: null, detail: `${last.slice(0, 120)} (model request at step ${fresh[0].step}: the earlier turns came along)` };
+    };
+    const lifecycle = provider && !only.has("chat") && !only.has("lifecycle");
     if (only.has("chat")) {
       J.skip("start agent", "--skip chat");
     } else {
@@ -967,31 +1031,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: `session ${session}` };
       });
       await J.step("send chat", async () => {
-        const r = await exec(`${GUEST}printf '%s' ${shq(prompt)} | "$c" acp send --no-wait ${shq(session)} - 2>&1; echo "@@exit $?"`, 60_000);
-        if (!/@@exit 0/.test(r.stdout)) throw new Error(r.stdout.slice(-400) || r.stderr.slice(-400));
+        await send(prompt);
         return { value: null, detail: prompt.slice(0, 80) };
       });
       await J.step("reply", async () => {
-        const t0 = Date.now();
-        let last = "";
-        while (Date.now() - t0 < chatBudget) {
-          const r = await exec(`${GUEST}"$c" acp wait ${shq(session)} --timeout 20 >/dev/null 2>&1; echo "@@wait $?"; "$c" acp last ${shq(session)} 2>&1; echo "@@lastexit $?"`, 45_000);
-          const wait = /@@wait (\d+)/.exec(r.stdout)?.[1];
-          last = r.stdout.replace(/@@wait \d+\n?/, "").replace(/@@lastexit \d+\s*$/, "").trim();
-          if (wait === "0" && last) {
-            // The stub repeats the Bash output in its reply, so this also proves the tool ran and its output came back.
-            if (modelStub && !last.includes(`Stub reply ${nonce}. The tool printed ${nonce}-tool`)) throw new Error(`the reply does not carry the stub's nonce ${nonce} and the tool output: ${last.slice(-200)}`);
-            return { value: last, detail: last.slice(0, 280) };
-          }
-          if (wait === "2") throw new Error(`the agent waits on a permission: ${last.slice(-200)}`);
-          if (wait && wait !== "3" && wait !== "0") {
-            // A failed turn (exit 1) prints no reply: name its error, e.g. a harness with no sign-in on the machine.
-            const h = await exec(`${GUEST}"$c" acp tail ${shq(session)} 2>&1 | grep -E '"kind":"turn_error"' | tail -1`, 45_000).catch(() => null);
-            const why = /"error":"((?:[^"\\]|\\.)*)"/.exec(h?.stdout ?? "")?.[1] ?? "";
-            throw new Error(`acp wait exit ${wait}: ${(why || last).slice(-300)}`);
-          }
-        }
-        throw new Error(`no reply within ${chatBudget / 1000} s; last: ${last.slice(-300)}`);
+        const last = await awaitReply();
+        // The stub repeats the Bash output in its reply, so this also proves the tool ran and its output came back.
+        if (modelStub && !last.includes(`Stub reply ${nonce}. The tool printed ${nonce}-tool`)) throw new Error(`the reply does not carry the stub's nonce ${nonce} and the tool output: ${last.slice(-200)}`);
+        return { value: last, detail: last.slice(0, 280) };
       });
       if (modelStub && provider) {
         await J.step("stub: forwarded login and a tool round trip", async () => {
@@ -1005,6 +1052,37 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           if (!turns.every((x: any) => x.cred_sha256 === want)) throw new Error(`a model request did not carry the login the journey passed (the forwarded credential did not reach ${agent})`);
           if (!turns.some((x: any) => x.step === 1 && x.tool_results >= 1)) throw new Error("no tool round trip: no request came back with the shell call's result");
           return { value: null, detail: `${turns.length} model requests, each with the forwarded login (SHA-256 match); the shell call ran and its output came back` };
+        });
+      }
+      if (!lifecycle) {
+        J.skip("turn 2 (same session)", only.has("lifecycle") ? "--skip lifecycle" : `agent ${agent}`);
+        J.skip("daemon restart keeps the session", only.has("lifecycle") ? "--skip lifecycle" : `agent ${agent}`);
+      } else {
+        await J.step("turn 2 (same session)", async () => laterTurn("Say it once more, in one short sentence."));
+        // A link loss as the guest sees it: its agent daemon dies (SIGKILL, no clean shutdown) and acpmux.service
+        // (Restart=always) brings it back. The session must still be listed and take a turn, with no new `acp ensure`.
+        await J.step("daemon restart keeps the session", async () => {
+          const pidOf = async () => {
+            const r = await exec(`${GUEST}"$c" acp --json daemon status 2>&1`);
+            try { return JSON.parse(r.stdout.slice(r.stdout.indexOf("{"))).pid as number | undefined; } catch { return undefined; }
+          };
+          const old = await pidOf();
+          if (!old) throw new Error("acp daemon status names no pid");
+          const k = await exec(`kill -KILL ${old} 2>&1; echo "@@kill $?"`);
+          if (!/@@kill 0/.test(k.stdout)) throw new Error(`kill ${old}: ${k.stdout.slice(-200)}`);
+          const t0 = Date.now();
+          let now: number | undefined;
+          while (Date.now() - t0 < 60_000) {
+            await sleep(2_000);
+            now = await pidOf();
+            if (now && now !== old) break;
+          }
+          if (!now || now === old) throw new Error(`no new daemon within 60 s of killing pid ${old}`);
+          const back = Math.round((Date.now() - t0) / 100) / 10;
+          const ls = await exec(`${GUEST}"$c" acp ls --json 2>&1`);
+          if (!ls.stdout.includes(session)) throw new Error(`the new daemon (pid ${now}) does not list ${session}: ${ls.stdout.slice(-200)}`);
+          const turn = await laterTurn("Are you still there? Answer in one short sentence.");
+          return { value: null, detail: `daemon ${old} killed, ${now} serves after ${back} s; ${turn.detail}` };
         });
       }
     }
@@ -1095,6 +1173,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         if (r.code !== 0 || !r.stdout.includes("resumed")) throw new Error(`exit ${r.code} ${r.stderr.slice(-200)}`);
         return { value: null, detail: "ok" };
       });
+      if (lifecycle) await J.step("turn after resume", async () => laterTurn("Back after a pause: answer in one short sentence."));
+      else J.skip("turn after resume", only.has("lifecycle") ? "--skip lifecycle" : `agent ${agent}`);
     }
     if (!keep) {
       await J.step("delete", async () => {

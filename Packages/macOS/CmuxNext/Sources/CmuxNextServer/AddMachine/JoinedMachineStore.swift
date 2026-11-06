@@ -45,17 +45,18 @@ public final class JoinedMachineStore {
     /// `owner`'s section shows the rows: while any section does, the store re-reads the list once
     /// when the first online row's heartbeat would pass ``JoinedMachine/onlineWindow`` (the hub's
     /// 90 s row TTL), and a row whose read failed goes offline at that moment. No online row with a
-    /// heartbeat, no deadline. A fire finding no section on screen (`visible` false: covered) reads
-    /// nothing and stops until ``resumeAging()``; the section stays registered until ``stopAging(_:)``.
+    /// heartbeat, no deadline. With no section on screen (`visible` false: covered) no deadline is set,
+    /// and a fire finding none reads nothing; both wait for ``resumeAging()``; the section stays registered until ``stopAging(_:)``.
     public func startAging(_ owner: AnyObject, visible: @escaping @MainActor () -> Bool) {
         watchers[ObjectIdentifier(owner)] = visible
         scheduleAge()
     }
 
-    /// `owner`'s section hid or closed; the deadline stops when no section shows the rows.
+    /// `owner`'s section hid or closed; the deadline stops when no section left is on screen (none
+    /// left, or only covered ones), so a covered window never wakes for the one that went.
     public func stopAging(_ owner: AnyObject) {
         watchers[ObjectIdentifier(owner)] = nil
-        if watchers.isEmpty { ageTimer.cancel() }
+        if !watchers.values.contains(where: { $0() }) { ageTimer.cancel() }
     }
 
     /// Follows `account` (who is signed in and their team; nil signed out) for the store's life: each
@@ -95,7 +96,11 @@ public final class JoinedMachineStore {
     }
 
     private func scheduleAge() {
-        guard !watchers.isEmpty, let due = JoinedMachine.nextExpiry(machines) else { return ageTimer.cancel() }
+        // Only with a section on screen: one registering while covered, or a read landing after every
+        // window was covered, sets nothing (``resumeAging()`` starts it when a window shows).
+        guard watchers.values.contains(where: { $0() }), let due = JoinedMachine.nextExpiry(machines) else {
+            return ageTimer.cancel()
+        }
         // A second past the expiry, so the row has crossed the window when it is read; at least one second.
         let delay = max(1, due.timeIntervalSince(clock()) + 1)
         ageTimer.schedule(after: .milliseconds(Int(delay * 1000))) { @MainActor [weak self] in await self?.ageFired() }
