@@ -12,7 +12,7 @@ const restore = installDom();
 afterAll(() => restore());
 const { renderPage, settle } = await import("./testing");
 
-const PATH = "/settings/computerUse";
+const PATH = "/settings/computer-use";
 const card = (container: HTMLElement) => container.querySelector<HTMLElement>('[data-card="computer-use"]');
 const grants = (element: HTMLElement) =>
   [...element.querySelectorAll<HTMLElement>("[data-granted]")].map((badge) => badge.dataset.granted);

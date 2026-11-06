@@ -43,7 +43,7 @@ test("the sidebar draws each section's header above its categories", async () =>
   expect(shown[0]).toEqual({ header: null, links: ["general", "updates"] });
   expect(shown.find((section) => section.links.includes("agents"))).toEqual({
     header: "AI",
-    links: ["agents", "computerUse", "chief"],
+    links: ["agents", "computer-use", "chief"],
   });
   expect(shown.flatMap((section) => section.links)).toEqual(categories.map((category) => category.id));
   // A header labels its group for VoiceOver and is never a link a click or Tab lands on.

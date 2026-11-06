@@ -37,7 +37,7 @@ test("the categories are the approved ones, in order", () => {
     "editor",
     "browser",
     "agents",
-    "computerUse",
+    "computer-use",
     "chief",
     "notifications",
     "keyboard",
