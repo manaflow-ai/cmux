@@ -743,13 +743,10 @@ fn clone_job_releases_only_successful_repository_sync() {
     assert!(matches!(probe(&failed).unwrap(), Probe::Incomplete));
 }
 
-/// A clone that went through `cmux github credential` leaves the checkout
-/// asking it, so the agent's own `git push` there gets a token; an
-/// anonymous clone leaves no helper.
-#[test]
-fn a_clone_through_the_cloud_agent_keeps_its_helper_for_push() {
-    const HELPER: &str = "!'/opt/cmux/bin/cmux' github credential";
-    let world = World::new("keephelper");
+const HELPER: &str = "!'/opt/cmux/bin/cmux' github credential";
+
+/// A service whose only GitHub path is the Cloud agent's helper.
+fn agent_service(world: &World) -> GitSeedService {
     let remote = format!("file://{}", world.remote.display());
     let config = Config {
         git: Git {
@@ -760,7 +757,16 @@ fn a_clone_through_the_cloud_agent_keeps_its_helper_for_push() {
         },
         credentials: Some(vec![Credential::CmuxGithub(HELPER.into())]),
     };
-    let service = GitSeedService::with_config(Roots::new([world.home.path.clone()]), config);
+    GitSeedService::with_config(Roots::new([world.home.path.clone()]), config)
+}
+
+/// A clone that went through `cmux github credential` leaves the checkout
+/// asking it, so the agent's own `git push` there gets a token; an
+/// anonymous clone leaves no helper.
+#[test]
+fn a_clone_through_the_cloud_agent_keeps_its_helper_for_push() {
+    let world = World::new("keephelper");
+    let service = agent_service(&world);
     let folder = world.home.join("pushable");
     let job = start(&service, &clone_params(&folder, None)).unwrap();
     assert_eq!(wait(&service, &job)["state"], "done");
@@ -785,4 +791,30 @@ fn a_clone_through_the_cloud_agent_keeps_its_helper_for_push() {
         .output()
         .unwrap();
     assert!(!none.status.success(), "an anonymous clone keeps no helper");
+}
+
+/// A delta seed reaches no remote, so it keeps no helper: a checkout first
+/// cloned anonymously is left with the person's own GitHub path.
+#[test]
+fn a_delta_seed_keeps_no_helper_it_never_used() {
+    let world = World::new("deltahelper");
+    let first = world.snapshot("one", &[&world.base]);
+    let folder = world.home.join("project");
+    assert_eq!(seed(&world, &world.start_params(&folder, &first))["state"], "done");
+    write(&world.mac.join("a"), "a\nedited\n");
+    let second = world.snapshot("two", &[&first.work, &first.head]);
+    let mut params = world.start_params(&folder, &second);
+    params["since"] = first.work.clone().into();
+    params["base"] = first.work.into();
+    let service = agent_service(&world);
+    let job = start(&service, &params).unwrap();
+    assert_eq!(wait(&service, &job)["state"], "done");
+    let kept = Command::new("git")
+        .arg("-C")
+        .arg(&folder)
+        .args(["config", "--local", "--get-all", "credential.https://github.com.helper"])
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .output()
+        .unwrap();
+    assert!(!kept.status.success(), "no helper written by a seed that reached no remote");
 }
