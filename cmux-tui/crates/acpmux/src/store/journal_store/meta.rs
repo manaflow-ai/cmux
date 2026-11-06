@@ -348,8 +348,10 @@ impl super::repair::Replay {
 
 impl Inner {
     /// `Store::save` with the journal: the `meta` record and the overlay, no file written
-    /// ([module docs](self)).
-    pub(super) fn save_meta(&self, meta: &SessionMeta) -> Result<()> {
+    /// ([module docs](self)). A kept change's record (`keep`, `super::durability`) is a `Stream`
+    /// record, except the save that makes the chat's folder: a new chat is shown only once
+    /// durable ([`super::new_folders`]).
+    pub(super) fn save_meta(&self, meta: &SessionMeta, keep: ShowAfter) -> Result<()> {
         let image = serde_json::to_vec(meta)?;
         let dir = self.local.dir(&meta.id);
         // The file there now, stamped before the appends' lock: only the store's own writes
@@ -372,14 +374,14 @@ impl Inner {
         // A folder made now holds no `session.json`.
         let saw = if made { None } else { saw };
         let payload = encode_meta(&meta.id, folder, saw, &image);
-        let append = || {
-            self.journal
-                .append(KIND_META, Class::Ack, &payload)
-                .map_err(JournalStore::journal_error)
-        };
+        let kept = keep == ShowAfter::Written && !made;
+        let class = if kept { Class::Stream } else { Class::Ack };
+        let append =
+            || self.journal.append(KIND_META, class, &payload).map_err(JournalStore::journal_error);
         // A new folder's record is held back from the gate until the folder's entry is synced.
         let lsn = if made { self.new_folders.append_made(append)? } else { append()? };
-        self.acked.store(lsn, std::sync::atomic::Ordering::SeqCst);
+        let shown = if kept { &self.kept } else { &self.acked };
+        shown.store(lsn, std::sync::atomic::Ordering::SeqCst);
         order.applied = lsn;
         order.bytes = order.bytes.saturating_add(u64::try_from(payload.len()).unwrap_or(u64::MAX));
         order.metas.insert(meta.id.clone(), Pending { lsn, meta: meta.clone(), folder });

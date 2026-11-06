@@ -638,12 +638,12 @@ nonisolated final class AnnouncingTerminalIO: TerminalIO {
     }
 
     /// Every grid the view reported, in order, with the main-thread time of the report
-    /// (``resizeOnMain(cols:rows:final:window:)``: the session calls it in the report's turn, before the ordered input
+    /// (``resizeOnMain(cols:rows:window:)``: the session calls it in the report's turn, before the ordered input
     /// stream delivers ``resize(cols:rows:pixelWidth:pixelHeight:)``).
     let reports = Mutex<[Report]>([])
 
     /// Records the report and lets it go on through the ordered input stream (returns false).
-    @MainActor func resizeOnMain(cols: Int, rows: Int, final: Bool, window: NSWindow?) -> Bool {
+    @MainActor func resizeOnMain(cols: Int, rows: Int, window: NSWindow?) -> Bool {
         reports.withLock { $0.append(Report(grid: TerminalGridSize(columns: cols, rows: rows), at: .now)) }
         return false
     }
