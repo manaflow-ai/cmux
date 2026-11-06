@@ -895,7 +895,18 @@ impl Hub {
             } else if session.wait_start.load(Ordering::SeqCst) {
                 self.waiting_start(session, budget, started, Some(StartWatch::default())).await
             } else {
-                tokio::time::timeout(budget, started).await.ok()
+                // A retry's start ends at its turn's Stop (`start_retry.rs`), as any start ends
+                // at a stop of the chat: what it started is ended, and nothing runs after it.
+                let raced = tokio::select! {
+                    started = tokio::time::timeout(budget, started) => Some(started.ok()),
+                    () = super::start_retry::stopped_during_retry(session) => None,
+                };
+                let Some(started) = raced else {
+                    self.end_cold_start(session).await;
+                    self.append(session, "mux", "agent_start_stopped", json!({}));
+                    return Err(super::turns::stopped_before_prompt());
+                };
+                started
             };
             let failed = match started {
                 Some(Ok(child)) => return Ok(self.keep_account_home(session, profile, child)),

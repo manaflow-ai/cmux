@@ -8,6 +8,9 @@
 //! - Only a missed deadline is retried (`data.reason` `deadline_exceeded`, `data.wait`
 //!   `agent_start`). A start that failed (its harness exited, a refused key, no login) or whose
 //!   harness did no work (`harness_hung`) fails at once, as before.
+//! - A Stop of the turn while a retry's start runs ends that start, as a stop of the chat ends
+//!   any start (`stopped_during_retry`, raced by the cold start in `lifecycle.rs`): its agent is
+//!   ended and the turn ends cancelled.
 //! - Each try is a whole start through `child_for_since`: under the spawn lock it reaches a live
 //!   agent or a still-running agent host first (`reach_or_start`), so a start that finished late
 //!   is used, never doubled. A missed try's agent was ended by its deadline
@@ -61,6 +64,44 @@ impl Drop for Waiting<'_> {
     }
 }
 
+/// No retry's start runs ([`Session::start_retry_cancels`]).
+pub(super) const NO_RETRY: u64 = u64::MAX;
+
+/// While a retry's start runs, a Stop of its turn ends it: the turn's Stop count is set aside
+/// for `stopped_during_retry`.
+struct RetryFence<'a>(&'a Session);
+
+impl<'a> RetryFence<'a> {
+    fn new(session: &'a Session, cancels: u64) -> Self {
+        session.start_retry_cancels.store(cancels, Ordering::SeqCst);
+        Self(session)
+    }
+}
+
+impl Drop for RetryFence<'_> {
+    fn drop(&mut self) {
+        self.0.start_retry_cancels.store(NO_RETRY, Ordering::SeqCst);
+    }
+}
+
+/// Ends when a Stop came for the turn whose retry's start runs now (`RetryFence`); never for
+/// any other start. The cold start races it (`lifecycle.rs`) and ends what it started.
+pub(super) async fn stopped_during_retry(session: &Session) {
+    let epoch = session.start_retry_cancels.load(Ordering::SeqCst);
+    if epoch == NO_RETRY {
+        return std::future::pending().await;
+    }
+    loop {
+        let woken = session.start_retry_wake.notified();
+        tokio::pin!(woken);
+        woken.as_mut().enable();
+        if session.cancels.load(Ordering::SeqCst) != epoch {
+            return;
+        }
+        woken.await;
+    }
+}
+
 impl Hub {
     /// `started`, the first start of turn `turn_id`'s agent, or when it missed its deadline the
     /// start tried again after a wait (the module doc). `stops` and `cancels` are the chat's
@@ -72,7 +113,31 @@ impl Hub {
         cancels: u64,
         prompt_id: &str,
         turn_id: &str,
+        started: Result<Arc<ChildAgent>, RpcError>,
+    ) -> Result<Arc<ChildAgent>, RpcError> {
+        self.retry_late_start_with(
+            session,
+            stops,
+            cancels,
+            prompt_id,
+            turn_id,
+            started,
+            START_RETRIES,
+        )
+        .await
+    }
+
+    /// [`Hub::retry_late_start`] with at most `retries` retries.
+    #[allow(clippy::too_many_arguments)]
+    async fn retry_late_start_with(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        stops: u64,
+        cancels: u64,
+        prompt_id: &str,
+        turn_id: &str,
         mut started: Result<Arc<ChildAgent>, RpcError>,
+        retries: u32,
     ) -> Result<Arc<ChildAgent>, RpcError> {
         let mut wait = first_wait(self.config.read().await.agent_start_timeout());
         let mut attempt = 0;
@@ -81,17 +146,19 @@ impl Hub {
                 Err(e) if is_start_deadline(&e) => e,
                 done => return done,
             };
-            if attempt == START_RETRIES {
-                return Err(gave_up(e, attempt + 1));
-            }
-            attempt += 1;
             // Registered before the checks: a Stop between them and the sleep still wakes it.
             let woken = session.start_retry_wake.notified();
             tokio::pin!(woken);
             woken.as_mut().enable();
+            // Before the give-up too: a shutdown that began as the last try missed its deadline
+            // settles the turn, which then writes no failed end of its own.
             if let Some(end) = self.start_retry_ended(session, stops, cancels, turn_id) {
                 return Err(end.unwrap_or(e));
             }
+            if attempt == retries {
+                return Err(gave_up(e, attempt + 1));
+            }
+            attempt += 1;
             let delay_ms = u64::try_from(wait.as_millis()).unwrap_or(u64::MAX);
             tracing::warn!(session = %session.id, attempt, delay_ms, "agent start missed its deadline; trying again: {}", e.message);
             self.append(
@@ -111,6 +178,9 @@ impl Hub {
                 return Err(end.unwrap_or(e));
             }
             wait = wait.saturating_mul(2);
+            // A Stop of the turn ends this try's start as a stop of the chat ends any start
+            // (`stopped_during_retry`): no other full start runs after it.
+            let _fence = RetryFence::new(session, cancels);
             started = Box::pin(self.child_for_since(session, stops)).await;
         }
     }
@@ -205,15 +275,14 @@ mod tests {
         assert!(gave_up.message.ends_with("tried 4 times"), "{gave_up:?}");
     }
 
-    /// A shutdown while a prompt's start waits to be tried again ends the wait, and the turn
-    /// writes no failed end: the shutdown settles it, and the next daemon finds the prompt
-    /// unstarted and queues it again (`unstarted_prompt.rs`).
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn a_shutdown_during_the_wait_leaves_the_turn_to_the_shutdown() {
+    const WAIT: Duration = Duration::from_secs(30);
+
+    /// A hub whose one chat's agent is stopped and starts only once the returned gate file
+    /// exists (`FAKE_START_GATE`, removed), under a start budget of `budget_ms`.
+    async fn gated(budget_ms: u64) -> (Arc<Hub>, Arc<Session>, std::path::PathBuf) {
         use crate::config::{Config, StoreMode};
-        const WAIT: Duration = Duration::from_secs(30);
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-        let gate = std::env::temp_dir().join(format!("acpmux-retry-down-{}", uuid::Uuid::now_v7()));
+        let gate = std::env::temp_dir().join(format!("acpmux-retry-{}", uuid::Uuid::now_v7()));
         std::fs::write(&gate, b"").unwrap();
         let env = format!("FAKE_START_GATE={}", gate.display());
         let cfg = json!({"harnesses": {"fake": {"argv": ["/usr/bin/env", env, "python3", fake]}},
@@ -226,17 +295,90 @@ mod tests {
         let s = hub.new_session(req).await.unwrap();
         hub.kill(&s, false).await.unwrap();
         std::fs::remove_file(&gate).unwrap();
+        hub.config.write().await.agent_start_timeout_ms = Some(budget_ms);
+        (hub, s, gate)
+    }
+
+    fn send(hub: &Arc<Hub>, s: &Arc<Session>) -> tokio::task::JoinHandle<Result<Value, RpcError>> {
+        let (hub, s) = (hub.clone(), s.clone());
+        let blocks = vec![json!({"type": "text", "text": "hello"})];
+        tokio::spawn(async move { hub.prompt(&s, blocks, "test", false).await })
+    }
+
+    fn kinds(hub: &Hub, s: &Session, kind: &str) -> Vec<Value> {
+        let events = hub.events(&s.id, 0, 100_000).unwrap();
+        events.into_iter().filter(|e| e.kind == kind).map(|e| e.msg).collect()
+    }
+
+    async fn until(what: &str, check: impl Fn() -> bool) {
+        let wait = async {
+            while !check() {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        };
+        tokio::time::timeout(WAIT, wait).await.unwrap_or_else(|_| panic!("{what}"));
+    }
+
+    /// Review finding: a Stop that came just after the wait's last check, as the retry's start
+    /// began, let that whole start run on (another missed deadline, or an agent left up for a
+    /// stopped turn). The Stop ends the retry's start as a stop of the chat ends any start. The
+    /// 9 s budget waits 1 s before the retry; the Stop lands inside its start.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_stop_while_the_retrys_start_runs_ends_that_start() {
+        let (hub, s, gate) = gated(9_000).await;
+        let run = send(&hub, &s);
+        until("the start was never tried again", || {
+            !kinds(&hub, &s, "agent_start_retrying").is_empty()
+        })
+        .await;
+        until("the retry's start never began", || {
+            s.start_retry_cancels.load(Ordering::SeqCst) != NO_RETRY
+                && s.spawn_lock.try_lock().is_err()
+        })
+        .await;
+        let stopped_at = std::time::Instant::now();
+        let _ = hub.cancel(&s).await;
+        let answer =
+            tokio::time::timeout(WAIT, run).await.expect("the prompt never ended").unwrap();
+        let took = stopped_at.elapsed();
+        let e = answer.expect_err("a stopped prompt was answered");
+        assert_eq!(e.data.as_ref().map(|d| d["reason"].clone()), Some(json!("stopped")), "{e:?}");
+        assert!(
+            took < Duration::from_secs(5),
+            "the retry's start ran on for {took:?} after the Stop"
+        );
+        assert_eq!(kinds(&hub, &s, "agent_start_timed_out").len(), 1, "the retry's start ran out");
+        assert_eq!(kinds(&hub, &s, "agent_start_stopped").len(), 1);
+        assert!(s.child.lock().await.is_none(), "the stopped start's agent was left up");
+        let results = kinds(&hub, &s, "turn_result");
+        assert_eq!(results.last().unwrap()["status"], "cancelled", "{results:?}");
+        let _ = std::fs::remove_file(&gate);
+    }
+
+    /// Review finding: the last try missing its deadline as a shutdown begins gave up with a
+    /// failed end, which the turn wrote before the shutdown took it, so the next daemon did not
+    /// queue the prompt again. The shutdown settles it instead.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_shutdown_as_the_last_try_misses_leaves_the_turn_to_the_shutdown() {
+        let (hub, s, gate) = gated(900).await;
+        hub.begin_shutdown();
+        let late = RpcError::deadline_exceeded("agent_start", Duration::from_millis(900));
+        let (stops, cancels) = (s.stops.load(Ordering::SeqCst), s.cancels.load(Ordering::SeqCst));
+        let ended = hub.retry_late_start_with(&s, stops, cancels, "p", "t", Err(late), 0).await;
+        let Err(e) = ended else { panic!("a start ran under the shutdown") };
+        assert!(hub.shutdown_settles("t", &e), "the turn would write a failed end: {e:?}");
+        let _ = std::fs::remove_file(&gate);
+    }
+
+    /// A shutdown while a prompt's start waits to be tried again ends the wait, and the turn
+    /// writes no failed end: the shutdown settles it, and the next daemon finds the prompt
+    /// unstarted and queues it again (`unstarted_prompt.rs`).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_shutdown_during_the_wait_leaves_the_turn_to_the_shutdown() {
         // A 900 ms budget waits 100 ms before its first retry.
-        hub.config.write().await.agent_start_timeout_ms = Some(900);
-        let run = {
-            let (hub, s) = (hub.clone(), s.clone());
-            let blocks = vec![json!({"type": "text", "text": "hello"})];
-            tokio::spawn(async move { hub.prompt(&s, blocks, "test", false).await })
-        };
-        let kinds = |kind: &str| -> Vec<Value> {
-            let events = hub.events(&s.id, 0, 100_000).unwrap();
-            events.into_iter().filter(|e| e.kind == kind).map(|e| e.msg).collect()
-        };
+        let (hub, s, gate) = gated(900).await;
+        let run = send(&hub, &s);
+        let kinds = |kind: &str| kinds(&hub, &s, kind);
         let retrying = async {
             while kinds("agent_start_retrying").is_empty() {
                 tokio::time::sleep(Duration::from_millis(5)).await;
