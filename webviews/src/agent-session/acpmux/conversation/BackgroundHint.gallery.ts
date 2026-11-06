@@ -8,6 +8,7 @@ import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, tool, user } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
+import { backgroundHintRoom } from "./backgroundHintRoom.experiment";
 
 const suite = tool("cargo test --workspace", "execute", "in_progress", {
   command: "cargo test --workspace",
@@ -75,6 +76,12 @@ export default agentPaneEntry({
   area: "Agent pane",
   height: 360,
   covers: ["agent-session/acpmux/conversation/BackgroundHint.tsx"],
+  // Where the hint keeps its room (variant long-hovered): the line's end (shipped), right after the
+  // tokens, or shown there at rest.
+  experiment: {
+    definition: backgroundHintRoom,
+    script: [{ name: "Hover the live line", run: hoverHoldsCounts }],
+  },
   variants: {
     "long-hovered": {
       note: 'Leo, 2026-11-06, on "8s · 2m5 1.4K toke" drawn over itself while he hovered the line\'s right edge: "this flickers". A long command with its time, the turn\'s and its tokens; hovered, the hint fades in its kept room and every count holds still.',
