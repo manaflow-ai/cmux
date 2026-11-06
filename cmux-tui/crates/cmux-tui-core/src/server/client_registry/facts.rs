@@ -56,7 +56,7 @@ impl ClientFacts {
 
 impl ClientRegistry {
     /// Whether `client` is attached to `surface` and can type into it (`AttachedSurface::can_type`): its keys there
-    /// are the person's. Reads the published facts, never the registry lock; only the input lane calls it.
+    /// are the person's. Reads the published facts, never the registry lock.
     pub(in crate::server) fn types_into(&self, client: u64, surface: SurfaceId) -> bool {
         let facts = self.state.load().recover_poison();
         facts.clients.get(&client).is_some_and(|connection| {

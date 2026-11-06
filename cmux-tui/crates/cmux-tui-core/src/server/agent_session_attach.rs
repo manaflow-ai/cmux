@@ -112,8 +112,8 @@ pub(crate) struct AgentSessions {
     pub(super) inventory_watches: super::agent_inventory::watch::Watches,
     state: Mutex<AttachState>,
     /// WhoIs attestations from the same-user host proxy, fixed for each link. Every line of every connection asks
-    /// whether it is a proxy's link, so with publishing on (R-DAEMON-STATE stage S1) that read loads the published
-    /// copy and never waits for a bind or for another client's disconnect.
+    /// whether it is a proxy's link, so that read loads the published copy (R-DAEMON-STATE stage S1) and never waits
+    /// for a bind or for another client's disconnect.
     proxy_authors: crate::published::Published<HashMap<u64, Value>, HashMap<u64, Value>>,
     /// Link shares for guests (`agent-session-share-*`, agent_session_shares.rs).
     link_shares: proxy::shares::LinkShares,
@@ -147,24 +147,6 @@ impl AttachState {
 }
 
 impl AgentSessions {
-    /// The attachments of a daemon whose stage S1 switch (R-DAEMON-STATE) is `publish_proxy_authors`.
-    pub(crate) fn new(publish_proxy_authors: bool) -> Self {
-        Self {
-            proxy_authors: crate::published::Published::new(
-                HashMap::new(),
-                HashMap::clone,
-                publish_proxy_authors,
-            ),
-            ..Self::default()
-        }
-    }
-
-    /// Turns the stage S1 publication of the proxy authors on or off (tests).
-    #[cfg(test)]
-    pub(crate) fn set_publishing_for_test(&self, on: bool) {
-        self.proxy_authors.set_publishing_for_test(on);
-    }
-
     /// The live attachment of `surface` on `client`; an ended one is dropped.
     fn attachment(&self, client: u64, surface: SurfaceId) -> Option<Arc<Attachment>> {
         let mut state = self.lock();
@@ -210,6 +192,13 @@ impl AgentSessions {
     pub(crate) fn hold_proxy_authors_for_test(&self, hold: &dyn Fn()) {
         let _held = self.proxy_authors.lock().unwrap_or_else(|e| e.into_inner());
         hold();
+    }
+
+    /// Whether another thread holds the host proxy authors now (tests: the control of
+    /// [`Self::hold_proxy_authors_for_test`]).
+    #[cfg(test)]
+    pub(crate) fn proxy_authors_held_for_test(&self) -> bool {
+        matches!(self.proxy_authors.try_lock(), Err(std::sync::TryLockError::WouldBlock))
     }
 
     /// The connection ended: every attachment of it closes.

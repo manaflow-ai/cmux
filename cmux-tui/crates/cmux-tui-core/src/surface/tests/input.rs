@@ -1,6 +1,9 @@
 //! Input delivery tests: receipted writes, partial would-block writes, terminal
-//! query answers, and deferred cell-pixel responses.
+//! query answers, deferred cell-pixel responses, and a hosted terminal with no
+//! input route.
 
+#[cfg(unix)]
+use super::hosted::{frames_until_quiet, hosted_typing_surface};
 use super::*;
 
 struct PartialWouldBlockWriter {
@@ -184,5 +187,50 @@ fn send_key_encodes_command_chords_from_authoritative_keyboard_modes() {
     assert_eq!(
         encode(&["super+c", "cmd+z", "cmd+shift+z", "command+a"]),
         b"\x1b[99;9u\x1b[122;9u\x1b[122;10u\x1b[97;9u"
+    );
+}
+
+/// A hosted terminal publishes its input route when its runtime is made and at every runtime swap
+/// (`PtyTerminalRuntime::replace_runtime`), so its keys and pastes go through its input port. A hosted terminal
+/// with no route breaks that rule: its input must fail with a typed error (`cmux send` exits non-zero, the
+/// creating-input flush gives the bytes back), never go to the host connection around the port (with no reconnect
+/// wait and out of order with the port's frames), and never panic (plans/cmux-next/rust-panic-free.md rule 1).
+#[cfg(unix)]
+#[test]
+fn input_to_a_hosted_terminal_with_no_input_route_fails_and_does_not_panic() {
+    let (mux, surface, mut host) = hosted_typing_surface("hosted-input-no-route");
+    let pty = surface.as_pty().expect("a terminal");
+    pty.input_route.store(None);
+    let key = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| surface.write_bytes(b"k")));
+    let paste =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| surface.write_paste(b"p")));
+    let written: Vec<MessageKind> = frames_until_quiet(&mut host, Duration::from_millis(300))
+        .into_iter()
+        .map(|frame| frame.kind)
+        .filter(|kind| matches!(kind, MessageKind::Input | MessageKind::Paste))
+        .collect();
+    let outcome = |what: &str, result: std::thread::Result<std::io::Result<()>>| match result {
+        Ok(Err(error)) if error.kind() == std::io::ErrorKind::NotConnected => None,
+        Ok(Err(error)) => {
+            Some(format!("the {what} failed with another error: {error} ({:?})", error.kind()))
+        }
+        Ok(Ok(())) => Some(format!("the {what} was answered ok")),
+        Err(_) => Some(format!("the {what} panicked")),
+    };
+    let paste_panicked = paste.is_err();
+    let mut wrong: Vec<String> =
+        [outcome("key", key), outcome("paste", paste)].into_iter().flatten().collect();
+    if !written.is_empty() {
+        wrong.push(format!("input reached the host around the input port: {written:?}"));
+    }
+    if paste_panicked {
+        // The panic poisoned the terminal's runtime lock, so the surface's teardown would panic a second time.
+        std::mem::forget(surface);
+        std::mem::forget(mux);
+    }
+    assert!(
+        wrong.is_empty(),
+        "input to a hosted terminal with no input route: {}",
+        wrong.join("; ")
     );
 }

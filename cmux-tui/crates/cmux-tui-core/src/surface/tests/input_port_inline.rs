@@ -34,7 +34,7 @@ fn connection_writer(pty: &PtySurface) -> Arc<Mutex<crate::terminal_host_runtime
 
 #[test]
 fn a_key_to_an_idle_port_is_on_the_host_socket_when_its_request_returns() {
-    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-inline-key", true);
+    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-inline-key");
     let pty = surface.as_pty().expect("a terminal");
     // The writer is held before it writes anything: a key it had to write would not reach the socket.
     let _resume = pty.input_port.pause_writes_for_test();
@@ -65,7 +65,7 @@ fn a_key_to_an_idle_port_is_on_the_host_socket_when_its_request_returns() {
 fn a_connections_keys_share_one_kernel_queue_for_their_room_check() {
     use crate::terminal_host_runtime::room_check_queues;
     const KEYS: usize = 100;
-    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-inline-queue", true);
+    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-inline-queue");
     let pty = surface.as_pty().expect("a terminal");
     // The writer is held: a key that went to the port instead of inline never reaches the host.
     let _resume = pty.input_port.pause_writes_for_test();
@@ -123,7 +123,7 @@ fn the_inline_frame_header_is_the_encoders_header() {
 /// the port, returns at once, and reaches the host once the other writer is done.
 #[test]
 fn a_key_while_another_writer_holds_the_connection_goes_to_the_port() {
-    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-inline-busy", true);
+    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-inline-busy");
     let pty = surface.as_pty().expect("a terminal");
     let writer = connection_writer(pty);
     let held = writer.lock().unwrap();
@@ -170,8 +170,7 @@ fn a_key_while_another_writer_holds_the_connection_goes_to_the_port() {
 #[test]
 fn keys_to_a_host_that_stopped_reading_never_block_their_requests() {
     const KEYS: usize = 1000;
-    let (_mux, surface, mut host) =
-        hosted_typing_surface("hosted-input-port-inline-stalled-host", true);
+    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-inline-stalled-host");
     let typed: Vec<Vec<u8>> = (0..KEYS).map(|key| format!("{key:04}").into_bytes()).collect();
     std::thread::scope(|scope| {
         let typing = scope.spawn(|| {
@@ -225,7 +224,7 @@ fn keys_to_a_host_that_stopped_reading_never_block_their_requests() {
 /// (once the port is idle again) a key written inline reach the host in that order, once each.
 #[test]
 fn keys_keep_their_order_between_the_inline_write_and_the_ports_writer() {
-    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-inline-order", true);
+    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-inline-order");
     let pty = surface.as_pty().expect("a terminal");
     surface.write_bytes_replying(b"1", InputReply::Accepted).expect("the first key");
     let resume = pty.input_port.pause_writes_for_test();

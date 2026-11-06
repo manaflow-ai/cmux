@@ -230,8 +230,8 @@ pub fn lock_checked<T>(
 #[derive(Default)]
 pub struct RemoteRelayState {
     /// The verified link peer of each remote connection (memory only). Every line of every connection asks for its
-    /// record (the remote-client check, the request's actor), so with publishing on (R-DAEMON-STATE stage S1) a
-    /// reader loads the published copy and never waits for a bind, a disconnect or a revocation sweep.
+    /// record (the remote-client check, the request's actor), so a reader loads the published copy (R-DAEMON-STATE
+    /// stage S1) and never waits for a bind, a disconnect or a revocation sweep.
     pub peers: Published<PeerRecords, PeerRecords>,
     /// Connections whose peer stamp was produced after the Cloud control
     /// plane accepted a link token.  A caller-supplied capability is not
@@ -242,15 +242,6 @@ pub struct RemoteRelayState {
 }
 
 impl RemoteRelayState {
-    /// The state of a daemon whose stage S1 switch (R-DAEMON-STATE) is `publish_peers`: on, the peer records are
-    /// published and [`Self::peer_checked`] never takes their lock.
-    pub fn new(publish_peers: bool) -> Self {
-        Self {
-            peers: Published::new(PeerRecords::new(), PeerRecords::clone, publish_peers),
-            ..Self::default()
-        }
-    }
-
     /// The peer records, locked for a change or for a read of more than one record; an error when a panic poisoned
     /// them (callers fail closed).
     pub fn peers_checked(
@@ -259,16 +250,12 @@ impl RemoteRelayState {
         self.peers.lock().map_err(|_| RelayStateError::Poisoned(RelayLock::Peers))
     }
 
-    /// The peer record of `client`; an error when the peers lock is
-    /// poisoned (callers fail closed). With publishing on, the published
-    /// records: the newest finished bind or removal, no wait.
+    /// The peer record of `client` from the published records: the newest
+    /// finished bind or removal, no wait; an error when the peers lock is
+    /// poisoned (callers fail closed).
     pub fn peer_checked(&self, client: u64) -> Result<Option<LinkPeer>, RelayStateError> {
-        if self.peers.publishing() {
-            let peers =
-                self.peers.load().map_err(|_| RelayStateError::Poisoned(RelayLock::Peers))?;
-            return Ok(peers.get(&client).cloned());
-        }
-        Ok(self.peers_checked()?.get(&client).cloned())
+        let peers = self.peers.load().map_err(|_| RelayStateError::Poisoned(RelayLock::Peers))?;
+        Ok(peers.get(&client).cloned())
     }
 
     /// The peer record of `client` (tests). A poisoned peers lock gives

@@ -13,13 +13,8 @@
 //! A change that a panic cuts short is never published: the guard that held it drops during the unwind, and the
 //! mutex is then marked poisoned, so a reader's [`Published::load`] gives the last finished projection inside the
 //! poison error, and the reader decides whether to fail closed or to recover it.
-//!
-//! Publishing is on or off for the value's life (a stage switch decides it when the value is made;
-//! tests can turn it on). Off, a guard builds no projection, so a value nobody reads lock-free costs
-//! what a plain mutex costs; a reader asks [`Published::publishing`] which read is current.
 
 use std::ops::{Deref, DerefMut};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LockResult, Mutex, MutexGuard, PoisonError};
 #[cfg(any(test, feature = "test-support"))]
 use std::sync::{TryLockError, TryLockResult};
@@ -31,45 +26,21 @@ pub struct Published<T, S> {
     value: Mutex<T>,
     projection: ArcSwap<S>,
     project: fn(&T) -> S,
-    /// Whether a changing guard publishes. Fixed when the value is made; a test may set it, under `value`'s lock and
-    /// after the current value is published (Release), so a reader that sees it on (Acquire) sees a current projection.
-    publishing: AtomicBool,
 }
 
-/// A value whose projection is a copy of the whole value (small maps the key path reads), not publishing.
+/// A value whose projection is a copy of the whole value (small maps the key path reads).
 impl<T: Clone + Default> Default for Published<T, T> {
     fn default() -> Self {
-        Self::new(T::default(), T::clone, false)
+        Self::new(T::default(), T::clone)
     }
 }
 
 impl<T, S> Published<T, S> {
     /// `project` makes the immutable projection that readers load. It runs under the mutex after
-    /// each change while `publishing` is on, so it must read only and stay small.
-    pub fn new(value: T, project: fn(&T) -> S, publishing: bool) -> Self {
+    /// each change, so it must read only and stay small.
+    pub fn new(value: T, project: fn(&T) -> S) -> Self {
         let projection = ArcSwap::from_pointee(project(&value));
-        Self {
-            value: Mutex::new(value),
-            projection,
-            project,
-            publishing: AtomicBool::new(publishing),
-        }
-    }
-
-    /// Turns publishing on or off; on, the current value is published first, under the lock (tests).
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn set_publishing_for_test(&self, on: bool) {
-        let value = self.value.lock().unwrap_or_else(PoisonError::into_inner);
-        if on {
-            self.projection.store(Arc::new((self.project)(&*value)));
-        }
-        self.publishing.store(on, Ordering::Release);
-    }
-
-    /// Whether changes are published: on, [`Self::load`] gives the newest finished change; off, the projection is
-    /// stale and a reader takes [`Self::lock`] instead.
-    pub fn publishing(&self) -> bool {
-        self.publishing.load(Ordering::Acquire)
+        Self { value: Mutex::new(value), projection, project }
     }
 
     /// Whether a writer panicked while it held the value.
@@ -79,10 +50,8 @@ impl<T, S> Published<T, S> {
 
     /// The projection of the newest finished change: one atomic load, never a wait. When a writer
     /// panicked while it held the value (the mutex is poisoned), the projection comes in the error,
-    /// as `std::sync::Mutex::lock` gives its guard, so a caller can fail closed. Only a value that
-    /// publishes has a current projection; a reader of one that does not takes [`Self::lock`].
+    /// as `std::sync::Mutex::lock` gives its guard, so a caller can fail closed.
     pub fn load(&self) -> LockResult<arc_swap::Guard<Arc<S>>> {
-        debug_assert!(self.publishing(), "a projection read of a value that does not publish");
         let projection = self.projection.load();
         if self.value.is_poisoned() { Err(PoisonError::new(projection)) } else { Ok(projection) }
     }
@@ -155,8 +124,7 @@ impl<T, S> Drop for PublishGuard<'_, T, S> {
         // the mutex right after this (the same test std makes), and the half-made value is never published, so no
         // reader sees it, not even before the poisoning.
         let cut_short = std::thread::panicking() && !self.panicking_at_lock;
-        // The flag is read under the lock this guard holds, where it is also written.
-        if self.changed && !cut_short && self.owner.publishing.load(Ordering::Relaxed) {
+        if self.changed && !cut_short {
             let projection = Arc::new((self.owner.project)(&*self.guard));
             self.retired = Some(self.owner.projection.swap(projection));
         }
@@ -179,7 +147,7 @@ mod tests {
 
     #[test]
     fn a_change_is_published_when_its_guard_drops_and_a_read_publishes_nothing() {
-        let published = Published::new(Counter::default(), project, true);
+        let published = Published::new(Counter::default(), project);
         assert_eq!(**published.load().unwrap_or_else(|poison| poison.into_inner()), 0);
         {
             let mut guard = published.lock().unwrap_or_else(|poison| poison.into_inner());
@@ -205,7 +173,7 @@ mod tests {
 
     #[test]
     fn a_reader_does_not_wait_for_a_writer_that_holds_the_value() {
-        let published = std::sync::Arc::new(Published::new(Counter::default(), project, true));
+        let published = std::sync::Arc::new(Published::new(Counter::default(), project));
         let (held, holding) = std::sync::mpsc::channel();
         let (release, released) = std::sync::mpsc::channel::<()>();
         let writer = std::thread::spawn({
@@ -233,7 +201,7 @@ mod tests {
     /// the mutex is marked poisoned. Readers then fail closed with the last finished projection.
     #[test]
     fn a_change_cut_short_by_a_panic_is_never_published() {
-        let published = Published::new(Counter::default(), project, true);
+        let published = Published::new(Counter::default(), project);
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let mut guard = published.lock().unwrap_or_else(|poison| poison.into_inner());
             guard.value = 9;
@@ -247,7 +215,7 @@ mod tests {
 
     #[test]
     fn a_poisoned_value_gives_its_projection_in_the_error() {
-        let published = Published::new(Counter::default(), project, true);
+        let published = Published::new(Counter::default(), project);
         assert!(published.load().is_ok());
         published.poison_for_test();
         assert!(published.is_poisoned());
@@ -264,25 +232,13 @@ mod tests {
                 self.0.lock().unwrap_or_else(|poison| poison.into_inner()).value = 5;
             }
         }
-        let published = Published::new(Counter::default(), project, true);
+        let published = Published::new(Counter::default(), project);
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _cleanup = Cleanup(&published);
             panic!("an unrelated panic runs the cleanup");
         }));
         assert!(!published.is_poisoned());
         assert_eq!(**published.load().unwrap_or_else(|poison| poison.into_inner()), 5);
-    }
-
-    /// Off, nothing is published and a reader is told so.
-    #[test]
-    fn a_value_that_does_not_publish_says_so() {
-        let published = Published::new(Counter::default(), project, false);
-        assert!(!published.publishing());
-        published.lock().unwrap_or_else(|poison| poison.into_inner()).value = 3;
-        assert_eq!(*published.load_full_for_test(), 0, "a change was published while off");
-        published.set_publishing_for_test(true);
-        assert!(published.publishing());
-        assert_eq!(**published.load().unwrap_or_else(|poison| poison.into_inner()), 3);
     }
 
     impl<T, S> Published<T, S> {

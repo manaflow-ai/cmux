@@ -6,13 +6,24 @@ use super::*;
 /// reconnect or an in-place replacement host, cx-6so.49) before it fails.
 #[cfg(any(unix, windows))]
 ///
-/// The wait blocks its caller: one control connection's next request, or
-/// the TUI's input worker. It applies only while a host connection is lost,
-/// and a replacement host usually installs within a second. On the input lane
-/// the terminal's input port waits on its own thread, for each frame from the
-/// moment the port took it (`surface::input_port`); the person's keys do not
-/// wait, and every other write waits for its frame's result.
+/// It applies only while a host connection is lost, and a replacement host
+/// usually installs within a second. The terminal's input port waits on its
+/// own thread, for each frame from the moment the port took it
+/// (`surface::input_port`); the person's keys do not wait, and every other
+/// write (one control connection's next request, or the TUI's input worker)
+/// waits for its frame's result.
 pub(super) const HOST_INPUT_RECONNECT_WAIT: Duration = Duration::from_secs(5);
+
+/// The error of input to a hosted terminal that has no input route. Every hosted runtime publishes one when it is
+/// made and at every swap (`PtyTerminalRuntime::replace_runtime`), so this is a broken invariant: the input is
+/// refused as not written, never written to the host connection around the terminal's input port.
+#[cfg(any(unix, windows))]
+fn no_input_route() -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::NotConnected,
+        "the hosted terminal has no input route; input not written",
+    )
+}
 
 /// Whether a host send failed because the host connection is gone (the
 /// host died or its stream broke), not because the frame was refused.
@@ -28,14 +39,14 @@ pub(super) fn host_connection_lost(error: &std::io::Error) -> bool {
 }
 
 impl Surface {
-    /// Write input bytes to the PTY child. On the input lane (R-DAEMON-STATE S1) a hosted terminal's write answers
-    /// when its input port wrote it ([`InputReply::Written`]), with the write's error as before.
+    /// Write input bytes to the PTY child. A hosted terminal's write goes through its input port (R-DAEMON-STATE S1)
+    /// and answers when the port wrote it ([`InputReply::Written`]), with the write's error.
     pub fn write_bytes(&self, bytes: &[u8]) -> std::io::Result<()> {
         self.write_bytes_replying(bytes, InputReply::Written)
     }
 
-    /// [`Self::write_bytes`] answering as `reply` says on the input lane: the person's keys pass
-    /// [`InputReply::Accepted`] and return when the terminal's input port took them.
+    /// [`Self::write_bytes`] answering as `reply` says: the person's keys pass [`InputReply::Accepted`] and return
+    /// when the terminal's input port took them.
     pub(crate) fn write_bytes_replying(
         &self,
         bytes: &[u8],
@@ -51,10 +62,6 @@ impl Surface {
         if let Some(result) = Self::enqueue_on_input_port(pty, MessageKind::Input, bytes, reply) {
             return result;
         }
-        #[cfg(any(unix, windows))]
-        if let Some(result) = Self::send_hosted_input(pty, MessageKind::Input, bytes) {
-            return result;
-        }
         // Not hosted: the daemon writes the PTY itself (the holder model's custody master). Marked
         // before the runtime lock, so the mark never runs under it.
         cmux_flow_trace::hop("daemon.pty.write", 0, pty.flow_terminal_id());
@@ -64,8 +71,9 @@ impl Surface {
                 let master = master.as_deref().map(|master| master as &dyn MasterPty);
                 crate::pty_input_room::write_input(master, writer.as_mut(), bytes).map(|_| ())
             }
+            // A hosted terminal's input went to its input port above; one with no input route is refused.
             #[cfg(any(unix, windows))]
-            PtyRuntime::Hosted(host) => host.send(MessageKind::Input, bytes),
+            PtyRuntime::Hosted(_) => Err(no_input_route()),
             // A keep-on-exit terminal outlives its child, so typing into the
             // dead PTY is an expected interaction: drop the bytes silently
             // instead of failing every keystroke on the final screen.
@@ -74,10 +82,10 @@ impl Surface {
         }
     }
 
-    /// On the input lane (R-DAEMON-STATE stage S1 step 6): hands interactive input for a hosted terminal to the
-    /// terminal's input port. The person's keys ([`InputReply::Accepted`]) return once the port took them; every other
-    /// write returns with its frame's result (`InputPort::write`). `None` when the lane is off or the terminal is not
-    /// hosted (the caller writes as before). The final screen of an exited host drops the input, as before.
+    /// Hands interactive input for a hosted terminal to the terminal's input port (R-DAEMON-STATE stage S1 step 6).
+    /// The person's keys ([`InputReply::Accepted`]) return once the port took them; every other write returns with its
+    /// frame's result (`InputPort::write`). `None` when the terminal is not hosted (the caller writes the PTY itself).
+    /// The final screen of an exited host drops the input.
     #[cfg(any(unix, windows))]
     fn enqueue_on_input_port(
         pty: &PtySurface,
@@ -85,9 +93,6 @@ impl Surface {
         bytes: &[u8],
         reply: InputReply,
     ) -> Option<std::io::Result<()>> {
-        if !pty.mux.upgrade().is_some_and(|mux| mux.control_clients.input_lane.on()) {
-            return None;
-        }
         match pty.input_route.load().as_deref() {
             None => None,
             Some(input_port::InputRoute::Exited) => Some(Ok(())),
@@ -95,9 +100,9 @@ impl Surface {
                 std::io::ErrorKind::NotConnected,
                 "the terminal's host connection failed; input not written",
             ))),
-            // The reader ended: no host connection will come back, so the input is refused now, as the old path's
-            // write failed then (`cmux send` exits non-zero). `Failed` alone is not that: the reader keeps retrying,
-            // and it installs a live replacement before the state leaves `Failed` (#34544 review 2).
+            // The reader ended: no host connection will come back, so the input is refused now (`cmux send` exits
+            // non-zero). `Failed` alone is not that: the reader keeps retrying, and it installs a live replacement
+            // before the state leaves `Failed` (#34544 review 2).
             Some(input_port::InputRoute::Hosted(_)) if pty.reader_completion.is_complete() => {
                 Some(Err(std::io::Error::new(
                     std::io::ErrorKind::NotConnected,
@@ -110,61 +115,6 @@ impl Surface {
                 }
                 InputReply::Written => pty.input_port.write(&pty.terminal, kind, bytes),
             }),
-        }
-    }
-
-    /// Send input to a hosted terminal's host, across a lost host
-    /// connection (cx-6so.49). A host that died or whose stream broke has a
-    /// dead connection until the surface reader installs the reconnected or
-    /// replacement host; a send in that window fails with EPIPE although the
-    /// shell lives. Such a send waits for the reader's next stream change
-    /// (it notifies after it installed the new attachment) and is sent again
-    /// to the new host, until [`HOST_INPUT_RECONNECT_WAIT`] passes or the
-    /// reader gives up or ends. A frame that failed with a lost connection never
-    /// reached a live reader, so the retry cannot duplicate it. `None` when
-    /// the runtime is not hosted (the caller writes locally).
-    #[cfg(any(unix, windows))]
-    fn send_hosted_input(
-        pty: &PtySurface,
-        kind: MessageKind,
-        bytes: &[u8],
-    ) -> Option<std::io::Result<()>> {
-        let deadline = Instant::now() + HOST_INPUT_RECONNECT_WAIT;
-        let mut first_error = None;
-        loop {
-            // Read the revision before the send: an install after it wakes
-            // the wait below, so no reconnect is missed.
-            let observed = pty.stream_progress.revision();
-            let sent = match &*pty.runtime.lock().unwrap() {
-                PtyRuntime::Hosted(host) => host.send(kind, bytes),
-                // Keep-on-exit: the final screen drops input (see
-                // write_bytes). Input that already failed to reach the host
-                // did not arrive: it keeps its error.
-                PtyRuntime::ExitedHosted => return Some(first_error.map_or(Ok(()), Err)),
-                PtyRuntime::Local { .. } => return None,
-            };
-            let error = match sent {
-                Ok(()) => return Some(Ok(())),
-                Err(error) if host_connection_lost(&error) => error,
-                Err(error) => return Some(Err(error)),
-            };
-            let error = first_error.take().unwrap_or(error);
-            let state = TerminalHostConnectionState::from_u8(
-                pty.host_connection_state.load(Ordering::Acquire),
-            );
-            // Stop when nothing will install a new host: the reader gave up,
-            // ended, or the owner detaches the terminal.
-            if matches!(
-                state,
-                TerminalHostConnectionState::Failed | TerminalHostConnectionState::Exited
-            ) || pty.reader_completion.is_complete()
-                || pty.owner_detaching.load(Ordering::Acquire)
-                || Instant::now() >= deadline
-                || pty.stream_progress.wait_for_change(observed, deadline).is_none()
-            {
-                return Some(Err(error));
-            }
-            first_error = Some(error);
         }
     }
 
@@ -212,7 +162,7 @@ impl Surface {
         self.write_paste_with_timeout(bytes, None, InputReply::Written)
     }
 
-    /// [`Self::write_paste`] answering as `reply` says on the input lane ([`Self::write_bytes_replying`]).
+    /// [`Self::write_paste`] answering as `reply` says ([`Self::write_bytes_replying`]).
     pub(crate) fn write_paste_replying(
         &self,
         bytes: &[u8],
@@ -252,17 +202,19 @@ impl Surface {
         if let Some(result) = Self::enqueue_on_input_port(pty, MessageKind::Paste, bytes, reply) {
             return result;
         }
-        #[cfg(any(unix, windows))]
-        if let Some(result) = Self::send_hosted_input(pty, MessageKind::Paste, bytes) {
-            return result;
-        }
         let bracketed = {
             let term = pty.term.lock().unwrap();
             term.mode(2004, false)
         };
         let mut runtime = pty.runtime.lock().unwrap();
-        let PtyRuntime::Local { writer, master, .. } = &mut *runtime else {
-            unreachable!("hosted paste returned above")
+        let (writer, master) = match &mut *runtime {
+            PtyRuntime::Local { writer, master, .. } => (writer, master),
+            // A hosted terminal's paste went to its input port above; one with no input route is refused.
+            #[cfg(any(unix, windows))]
+            PtyRuntime::Hosted(_) => return Err(no_input_route()),
+            // The final screen of a keep-on-exit terminal drops a paste, as it drops keys.
+            #[cfg(any(unix, windows))]
+            PtyRuntime::ExitedHosted => return Ok(()),
         };
         #[cfg(not(unix))]
         let _ = master;
