@@ -3182,7 +3182,6 @@ export class AcpmuxDirectClient {
     const tail = forkHistoryTail(
       {
         events: this.events,
-        lastSeq: this.lastSeq,
         historyExhausted: this.historyExhausted,
         turnOpener: this.turnOpener,
       },
