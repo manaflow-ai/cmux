@@ -41,17 +41,32 @@ public final class Engine: @unchecked Sendable {
 
     public init() {}
 
+    /// The app's focused (else main, else first) AX window, and its window
+    /// server entry: by id (one lookup) when the AX window says its id, else
+    /// the window whose frame matches it, else the frontmost on-screen one.
+    func resolveWindow(appElement: AXElement, pid: pid_t) -> (AXElement?, WindowInfo?) {
+        let focused = appElement.element(kAXFocusedWindowAttribute) ?? appElement.element(kAXMainWindowAttribute)
+            ?? appElement.elements(kAXWindowsAttribute).first
+        if let id = focused?.windowID, let window = directory.window(id: id, pid: pid) { return (focused, window) }
+        let windows = directory.windows(pid: pid)
+        if let frame = focused?.frame, let match = windows.first(where: { $0.frame.equalTo(frame) }) {
+            return (focused, match)
+        }
+        return (focused, windows.first(where: \.onScreen) ?? windows.first)
+    }
+
     /// `cmux-cu-service probe APP`: one stream of the app's window for two
     /// seconds while a key is pressed, then what ScreenCaptureKit sent.
     public func probe(app query: String) async -> String {
         do {
             let app = try directory.resolve(query)
             let appElement = sessions.appElement(pid: app.pid)
-            let focused = appElement.element(kAXFocusedWindowAttribute) ?? appElement.elements(kAXWindowsAttribute).first
-            guard let id = focused?.windowID, let window = directory.window(id: id, pid: app.pid) else {
-                return "no window for \(app.name)"
-            }
-            var lines = ["window \(id) frame=\(window.frame) onScreen=\(window.onScreen)"]
+            let (focused, resolved) = resolveWindow(appElement: appElement, pid: app.pid)
+            guard let window = resolved else { return "no window for \(app.name)" }
+            let id = window.id
+            var lines = ["window \(id) frame=\(window.frame) onScreen=\(window.onScreen) "
+                + "ax_window=\(focused != nil) ax_window_id=\(focused?.windowID.map(String.init) ?? "nil") "
+                + "private_symbol=\(AXPrivate.shared.getWindow != nil)"]
             let geometry = ScreenshotGeometry(windowFrame: window.frame, displayScale: 2, maxLongEdge: maxImageEdge)
             let clock = ContinuousClock()
             let start = clock.now
@@ -90,14 +105,7 @@ public final class Engine: @unchecked Sendable {
         let app = try directory.resolve(query)
         monitor.watch(pid: app.pid)
         let appElement = sessions.appElement(pid: app.pid)
-        let focused = appElement.element(kAXFocusedWindowAttribute) ?? appElement.element(kAXMainWindowAttribute)
-            ?? appElement.elements(kAXWindowsAttribute).first
-        // The focused window by its id (one window server lookup); the full
-        // window list only when the id is unknown.
-        let window: WindowInfo? = focused?.windowID.flatMap { directory.window(id: $0, pid: app.pid) } ?? {
-            let windows = directory.windows(pid: app.pid)
-            return windows.first(where: \.onScreen) ?? windows.first
-        }()
+        let (focused, window) = resolveWindow(appElement: appElement, pid: app.pid)
         let menuBar = appElement.element(kAXMenuBarAttribute)
         let resolved = clock.now
 
