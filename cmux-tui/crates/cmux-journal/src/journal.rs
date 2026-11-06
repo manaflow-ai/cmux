@@ -304,7 +304,13 @@ impl Journal {
         state.pending_last = lsn;
         state.pending_records = state.pending_records.saturating_add(1);
         state.pending_ack |= class == Class::Ack;
+        let probe_pending = state.pending.len();
         drop(state);
+        crate::probe::line(format_args!(
+            "append lsn={lsn} kind={kind} class={} len={} pending={probe_pending}",
+            if class == Class::Ack { "ack" } else { "stream" },
+            payload.len()
+        ));
         if was_empty {
             self.shared.wake.notify_one();
         }

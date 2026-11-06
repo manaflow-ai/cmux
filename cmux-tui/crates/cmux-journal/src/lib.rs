@@ -60,6 +60,7 @@
 
 mod format;
 mod journal;
+mod probe;
 mod recovery;
 mod storage;
 mod writer;
