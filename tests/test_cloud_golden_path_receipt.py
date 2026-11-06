@@ -52,9 +52,9 @@ CLI_EVIDENCE: dict[str, object] = {
         "second_reply": {"ok": True, "ms": 1700}, "reconnected": True,
     },
 }
-# A receipt shaped exactly as cmux-platform#927's runner (scripts/golden-path-probe.ts, 8bd48889) writes it:
+# A receipt shaped exactly as cmux-platform#927's runner (scripts/golden-path-probe.ts, d32eddc0) writes it:
 # runGoldenPath's JSON for the same machine, with lease {machineId, connectionMachine, generation} and auth
-# {allowed}.
+# {allowed}; reconnect always fails reconnect.not_observable (the probe no longer pauses or resumes).
 PLATFORM_FIXTURE = ROOT / "tests" / "fixtures" / "cloud_golden_path_platform_receipt.json"
 
 
@@ -231,13 +231,13 @@ class GoldenPathReceiptTests(unittest.TestCase):
         self.assertEqual(result["status"], "fail")
         self.assertEqual(result["golden_path_stages"]["chat"], "failed")
 
-    def test_ok_stage_with_failure_object_fails(self) -> None:
-        platform = platform_receipt()
-        platform["stages"][1]["failure"] = failure("auth.denied")
-        result = receipt.normalize([cli_receipt(), platform, provider()])
-
-        self.assertEqual(result["status"], "fail")
-        self.assertEqual(result["golden_path_stages"]["auth"], "failed")
+    def test_ok_stage_with_failure_object_is_unsupported(self) -> None:
+        for code in ("auth.denied", "auth.not_observable", "auth.no_route"):
+            platform = platform_receipt()
+            platform["stages"][1]["failure"] = failure(code)
+            result = self.assertUnsupported([cli_receipt(), platform, provider()], code)
+            self.assertEqual(result["golden_path_stages"]["auth"], "missing", code)
+            self.assertEqual(result["golden_path_stages"]["lease"], "missing", code)
 
     def test_stage_not_observable_blocks(self) -> None:
         cli = cli_receipt()
@@ -723,7 +723,9 @@ class GoldenPathReceiptTests(unittest.TestCase):
         result = receipt.normalize([self.cli_from_writer(), self.platform_from_runner(), provider()])
 
         self.assertEqual(result["status"], "pass", result["blockers"])
+        # reconnect is the runner's gap, cleared by the CLI receipt; lease and auth are the CLI's, cleared by it.
         self.assertEqual(result["golden_path_stages"], {name: "ok" for name in ALL_STAGES})
+        self.assertTrue(result["checks"]["pause_resume_reconnect"])
         self.assertEqual(result["probe_ids"], ["start-matrix-golden-path", "3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6b"])
         self.assertEqual(result["stage_ms"]["lease"], 212)
         self.assertEqual(result["stage_ms"]["auth"], 88)
@@ -735,6 +737,17 @@ class GoldenPathReceiptTests(unittest.TestCase):
         self.assertNotIn("receipt_shape_unsupported", result["blockers"])
         self.assertIn("missing_acpmux_session_discovery", result["blockers"])
         self.assertIn("missing_pause_resume_reconnect", result["blockers"])
+        self.assertIn("stage_not_observable_reconnect", result["blockers"])
+        self.assertNotIn("receipt_reports_failure", result["blockers"])
+
+    def test_runner_fixture_matches_the_runner_at_d32eddc0(self) -> None:
+        platform = self.platform_from_runner()
+        reconnect = platform["stages"][-1]
+        self.assertEqual([item["stage"] for item in platform["stages"]], list(ALL_STAGES))
+        self.assertEqual((reconnect["ok"], reconnect["failure"]["code"]), (False, "reconnect.not_observable"))
+        self.assertNotIn("value", reconnect)
+        self.assertEqual(platform["failure"], {**reconnect["failure"], "stage": "reconnect"})
+        self.assertEqual(platform["outcome"], "failed")
 
     def test_runner_lease_and_auth_evidence_is_required(self) -> None:
         def with_value(position: int, value: dict[str, object]) -> list[object]:
@@ -764,6 +777,59 @@ class GoldenPathReceiptTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "fail")
         self.assertIn("receipt_reports_failure", result["blockers"])
+
+    # Review BLOCK at 1a18d111.
+
+    def test_out_of_range_numbers_are_unsupported_never_a_crash(self) -> None:
+        cases = {
+            "int beyond float range": 10 ** 400,
+            "int beyond 2**53": 2 ** 53 + 1,
+            "negative int beyond 2**53": -(2 ** 53) - 1,
+            "inf": float("inf"),
+            "nan": float("nan"),
+            "negative duration": -1,
+        }
+        for label, number in cases.items():
+            for position, key in ((3, "reply_ms"), (3, "ms")):
+                records = passing()
+                records[0]["stages"][position]["value"][key] = number
+                self.assertUnsupported(records, (label, key))
+            records = passing()
+            records[0]["stages"][4]["value"]["link"]["back_ms"] = number
+            self.assertUnsupported(records, (label, "back_ms"))
+            records = passing()
+            records[1]["stages"][0]["value"]["generation"] = number
+            self.assertUnsupported(records, (label, "generation"))
+        records = passing()
+        records[0]["stages"][3]["value"]["session_id_chars"] = 10 ** 400
+        self.assertUnsupported(records, "session_id_chars")
+        records = passing()
+        records[0]["stages"][3]["value"]["reply_ms"] = 2 ** 53
+        self.assertEqual(receipt.normalize(records)["status"], "pass")
+
+    def test_huge_numbers_in_a_file_block_never_crash(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            for literal in ("1" * 400, "1" * 5000, "1e999", "-1e999"):
+                records = passing()
+                records[0]["stages"][3]["value"]["reply_ms"] = "@@N@@"
+                text = "\n".join(json.dumps(record) for record in records).replace('"@@N@@"', literal) + "\n"
+                code, result = write_and_run(directory, text, "--check")
+                self.assertEqual(code, 2, literal)
+                self.assertEqual(result["status"], "blocked", literal)
+                self.assertTrue({"receipt_shape_unsupported", "receipt_malformed"} & set(result["blockers"]), literal)
+
+    def test_ok_gap_stage_joined_with_a_clean_receipt_never_passes(self) -> None:
+        cli = self.cli_from_writer()
+        for item in cli["stages"]:
+            if item["stage"] in ("lease", "auth"):
+                item["ok"] = True
+                item["value"] = ({"machineId": MACHINE, "connectionMachine": MACHINE, "generation": 0}
+                                 if item["stage"] == "lease" else {"allowed": True})
+        self.assertIn("failure", cli["stages"][2])
+        result = self.assertUnsupported([cli, self.platform_from_runner(), provider()])
+        # The CLI receipt supplies nothing: no discovery evidence, and the runner's reconnect gap stays open.
+        self.assertFalse(result["checks"]["acpmux_session_discovery"])
+        self.assertEqual(result["golden_path_stages"]["reconnect"], "not_observable")
 
 
 if __name__ == "__main__":

@@ -2,8 +2,8 @@
   "version": 1,
   "probeId": "3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6b",
   "startedAt": "2026-11-06T21:04:10.003Z",
-  "endedAt": "2026-11-06T21:05:02.871Z",
-  "outcome": "passed",
+  "endedAt": "2026-11-06T21:04:19.503Z",
+  "outcome": "failed",
   "machineId": "vm_q7x2m9k4p1z8w3n6r5t0",
   "stages": [
     {
@@ -75,13 +75,19 @@
       "stage": "reconnect",
       "requestId": "3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6b:reconnect",
       "startedAt": "2026-11-06T21:04:19.502Z",
-      "endedAt": "2026-11-06T21:05:02.870Z",
-      "ok": true,
-      "value": {
-        "events": 4,
-        "final": "done",
-        "reconnected": true
+      "endedAt": "2026-11-06T21:04:19.502Z",
+      "ok": false,
+      "failure": {
+        "code": "reconnect.not_observable",
+        "message": "no owner-visible route reports whether the machine's relay host socket was dialed again (MachineRelay keeps a paused machine's socket until HOST_STALE_MS and names no socket to a chat)",
+        "retryable": false
       }
     }
-  ]
+  ],
+  "failure": {
+    "code": "reconnect.not_observable",
+    "message": "no owner-visible route reports whether the machine's relay host socket was dialed again (MachineRelay keeps a paused machine's socket until HOST_STALE_MS and names no socket to a chat)",
+    "retryable": false,
+    "stage": "reconnect"
+  }
 }
