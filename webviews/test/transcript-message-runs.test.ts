@@ -7,11 +7,20 @@
 // `staysInSight`), and another agent's line and a compaction between two runs split them, so such a
 // turn drew a dozen flat rows that no click could fold. After: the run draws one line ("Sent 3
 // messages, read a file, ran a command, received a message") and opens to the rows as they drew.
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { layoutConversation } from "../src/agent-session/acpmux/model";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import { hiddenRowFolds, turnView } from "../src/agent-session/acpmux/conversation/turns";
+
+// Claude's in-place runs (claudeTurnFold.experiment.ts arm "runs"): these tests cover that arm. The
+// default folds a Claude turn under "Worked for", as Codex does (turnFoldStyle.test.ts).
+beforeAll(() => {
+  globalThis.cmuxExperiments = { "claude-turn-fold": "runs" };
+});
+afterAll(() => {
+  globalThis.cmuxExperiments = undefined;
+});
 
 const MESSAGE_RUN = "messageRun";
 let n = 0;

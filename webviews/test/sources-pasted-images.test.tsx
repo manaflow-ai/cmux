@@ -139,7 +139,7 @@ test("Sources numbers pasted screenshots across the whole list, in the web and n
   expect(sourceLabels(translate, sources)).toEqual(expected);
   const section = (expanded: boolean) =>
     sourcesSection({ sources, expanded, onExpandedChange: () => {}, open: true }, new NativeInfoActions(), translate)!;
-  // Folded, the first five keep the numbers they have unfolded.
-  expect(section(false).rows.map((row) => row.title)).toEqual(expected.slice(0, 5));
+  // Folded, the first four (SOURCES_SHOWN) keep the numbers they have unfolded.
+  expect(section(false).rows.map((row) => row.title)).toEqual(expected.slice(0, 4));
   expect(section(true).rows.map((row) => row.title)).toEqual(expected);
 });
