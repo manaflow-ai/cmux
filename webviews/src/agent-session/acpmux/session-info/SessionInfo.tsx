@@ -121,6 +121,7 @@ import { tryChipHost } from "../chips/host";
 import { useMissingPaths } from "../chips/linkStore";
 import { TasksSection } from "./TasksSection";
 import { currentPlan, planDone, ProgressSection, type SessionInfoPlan } from "./ProgressSection";
+import { attributeCommands } from "../summary/workflowView";
 import { WorkflowTasks, type WorkflowAgentRowVariant } from "./WorkflowTasks";
 import { UsageSection, usageMeta, type UsageOwnRowLayout } from "./UsageSection";
 import { AppPanelSection, useAppPanelSections } from "../../../apps/scene/panels";
@@ -2269,6 +2270,8 @@ export function SessionInfo({
   // The dev servers are background commands too: their rows head the one Background tasks section
   // (they were a card of their own, most often one row). Every server runs.
   const running = runningTasks + servers.length + workflows.filter((workflow) => workflow.state === "running").length;
+  // A command a workflow's agent started is listed under that agent, not as the chat's own.
+  const { own: ownCommands, workflows: workflowCommands } = attributeCommands(commands, workflows);
   // The other chats in this chat's worktree or on its branch (alsoHere.ts), shown only when there are.
   // A chat that goes a day idle leaves the list while Session Info stays open (useAlsoHere).
   const alsoHereRows = useAlsoHere(chatId, allSessions);
@@ -2294,15 +2297,17 @@ export function SessionInfo({
       {workflows.length > 0 && (
         <WorkflowTasks
           workflows={workflows}
+          commands={workflowCommands}
+          onStopCommand={onStopProcess}
           onStop={onStopWorkflow}
           onOpenWorkflowAgent={onOpenWorkflowAgent}
           agentRowVariant={workflowAgentRowVariant}
         />
       )}
       {servers.length > 0 && <ServersSection servers={servers} onStop={onStopProcess} onOpenUrl={onOpenUrl} />}
-      {commands.length + scheduled.length > 0 && (
+      {ownCommands.length + scheduled.length > 0 && (
         <TasksSection
-          commands={commands}
+          commands={ownCommands}
           scheduled={scheduled}
           onStop={onStopProcess}
           local={local}
