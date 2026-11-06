@@ -619,9 +619,9 @@ impl Hub {
                     .map_err(|e| super::fork_before::refused("fork.incomplete", &e.to_string()))?;
             }
         }
+        // These too go to no watcher: the `forked` record below is the first one heard.
         for output in held_output {
-            let at = Some(now_ms());
-            let _ = self.append_at(&new, "in", "tool_call_update", output, None, at);
+            self.append_quiet(&new, "in", "tool_call_update", output);
         }
         // The fork's copy of the running turn ends now: its tool calls still running did not
         // finish here, and the turn is cancelled, so the fork is idle and its partial reply
@@ -630,10 +630,10 @@ impl Hub {
             for (call, dir) in &open_tools {
                 let update = json!({"sessionUpdate": "tool_call_update", "toolCallId": call, "status": "failed", "_meta": {"acpmux": {"forkCut": true}}});
                 let msg = json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": update}});
-                self.append(&new, dir, "tool_call_update", msg);
+                self.append_quiet(&new, dir, "tool_call_update", msg);
             }
             let result = json!({"status": "cancelled", "stopReason": "cancelled", "detail": "forked", "turnId": turn.turn_id, "promptId": turn.prompt_id, "turnSeq": running_turn_seq});
-            self.append(&new, "mux", "turn_result", result);
+            self.append_quiet(&new, "mux", "turn_result", result);
         }
         // The copied turn results are the parent's attempts, not the fork's: it starts unstuck,
         // and a restore scans only past them.
