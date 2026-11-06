@@ -87,6 +87,7 @@ struct SplitMotionTargetTraceTests {
     static func trace(_ pane: PaneID, _ rig: Rig, _ change: () throws -> Void) throws -> MotionTargetTrace {
         var trace = MotionTargetTrace()
         var edges = try Self.edges(pane, rig)
+        let leftover = try Self.leftover(pane, rig)
         func sample() throws {
             let now = try Self.edges(pane, rig)
             let step = max(abs(now.top - edges.top), abs(now.bottom - edges.bottom))
@@ -112,6 +113,7 @@ struct SplitMotionTargetTraceTests {
         trace.settle("\(pane) top", rest.top)
         trace.settle("\(pane) bottom", rest.bottom)
         trace.settle("\(pane) prompt", try Self.promptY(pane, rig))
+        trace.allowFirstStep("\(pane) prompt", try Self.leftover(pane, rig) - leftover)
         return trace
     }
 
@@ -128,6 +130,14 @@ struct SplitMotionTargetTraceTests {
         let metrics = try Self.metrics(pane, rig)
         let frame = surface.convert(surface.bounds, to: nil)
         return frame.maxY - metrics.padding_top - CGFloat(metrics.cursor_row) * metrics.cell_height
+    }
+
+    /// The space under the grid's last row in its surface (less than a cell): where the final grid's rows sit against
+    /// the edge the hold rides differs from the start grid's by the change in it.
+    static func leftover(_ pane: PaneID, _ rig: Rig) throws -> CGFloat {
+        let surface = try PaneContentPolicyTests.surface(pane, in: rig)
+        let metrics = try Self.metrics(pane, rig)
+        return surface.bounds.height - metrics.padding_top - CGFloat(metrics.rows) * metrics.cell_height
     }
 
     static func metrics(_ pane: PaneID, _ rig: Rig) throws -> ghostty_surface_grid_metrics_s {

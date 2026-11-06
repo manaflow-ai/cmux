@@ -23,6 +23,13 @@ struct MotionTargetTrace {
 
     private(set) var tracks: [String: [Sample]] = [:]
     private(set) var settled: [String: CGFloat] = [:]
+    /// A first-frame step an element may take that is not motion: a terminal grid's last row sits a leftover (less than
+    /// a cell) above its surface's bottom, and that leftover differs between the start and the final grid.
+    private(set) var firstStep: [String: CGFloat] = [:]
+
+    mutating func allowFirstStep(_ element: String, _ points: CGFloat) {
+        firstStep[element] = abs(points)
+    }
 
     /// Where `element` shows in this frame, and how far its container's edges moved since the last frame (zero when the
     /// container does not move: then any move of the element is a jump; nil for a moving edge itself).
@@ -50,10 +57,11 @@ struct MotionTargetTrace {
         for (element, samples) in tracks.sorted(by: { $0.key < $1.key }) {
             guard let rest = settled[element] ?? samples.last?.position else { continue }
             for (frame, (before, now)) in zip(samples, samples.dropFirst()).enumerated() {
-                let away = abs(now.position - rest) - abs(before.position - rest)
+                let slack = frame == 0 ? firstStep[element] ?? 0 : 0
+                let away = abs(now.position - rest) - abs(before.position - rest) - slack
                 if away > Self.tolerance { found.append(Violation(element: element, frame: frame + 1, kind: .away, points: away)) }
                 guard let step = now.containerStep else { continue }
-                let jump = abs(now.position - before.position) - step
+                let jump = abs(now.position - before.position) - step - slack
                 if jump > Self.tolerance { found.append(Violation(element: element, frame: frame + 1, kind: .jump, points: jump)) }
             }
             if let last = samples.last, let settledAt = settled[element], abs(settledAt - last.position) > Self.tolerance {

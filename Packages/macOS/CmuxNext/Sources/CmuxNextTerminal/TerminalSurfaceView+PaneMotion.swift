@@ -87,8 +87,8 @@ extension TerminalSurfaceView: PaneMotionTargeting {
     /// The edge the terminal's text keeps when Ghostty resizes its grid to `finalRows` (`PageList.resizeWithoutReflow`), the
     /// edge the held surface rides so no row moves away from its rest (Leo 2026-11-06: a close "goes all the way down and
     /// then back up ... if it's at the top, it doesn't").
-    /// - More rows: Ghostty pulls scrollback down only when the cursor is on the last row, at most the history it has;
-    ///   otherwise the new rows are blank ones under the text, which keeps its top. Before, any cursor in the lower half
+    /// - More rows: Ghostty pulls scrollback down only when the cursor is on the last row; otherwise the new rows are blank
+    ///   ones under the text, which keeps its top. Before, any cursor in the lower half
     ///   rode the bottom edge: a prompt above the last row with no history to pull showed its text a whole growth above its
     ///   place at the spring's first frame, then slid back down.
     /// - Fewer rows: Ghostty trims the blank rows under the cursor first; only the rest go into the history, moving the
@@ -102,15 +102,10 @@ extension TerminalSurfaceView: PaneMotionTargeting {
         let rows = Int(metrics.rows), cursor = Int(metrics.cursor_row)
         let change = abs(finalRows - rows)
         guard change > 0 else { return .top }
-        let moved: Int
-        if finalRows > rows {
-            guard cursor >= rows - 1 else { return .top }
-            // No scrollbar report yet (a renderer that has not drawn): Ghostty pulls what history it has, taken as enough.
-            let history = session?.model.scrollbar.map { Int(clamping: $0.totalRows) - Int(clamping: $0.visibleRows) } ?? change
-            moved = min(max(0, history), change)
-        } else {
-            moved = max(0, change - max(0, rows - 1 - cursor))
-        }
+        // A cursor on the last row has scrolled output into the history, which Ghostty pulls down (the scrollbar report
+        // that would count it lags the output, so it is not read here).
+        if finalRows > rows { return cursor >= rows - 1 ? .bottom : .top }
+        let moved = max(0, change - max(0, rows - 1 - cursor))
         return moved * 2 >= change ? .bottom : .top
     }
 }
