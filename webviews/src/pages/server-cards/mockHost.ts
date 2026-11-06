@@ -1,8 +1,10 @@
 // l10n-allow-file: the browser dev loop's stand-in host, not shipped UI.
 // An in-memory server card host for the browser dev loop (`/server-cards/?mock#/pair-invite`): the
 // invite mints a moment after the card opens, a machine arrives a few seconds later, and Confirm
-// pairs it.
+// pairs it. `#/add-machine` runs on add-machine/mock.ts.
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
+import { MockAddMachineHost } from "./add-machine/mock";
+import { AddMachineOps } from "./add-machine/types";
 import { CardOps } from "./host";
 import { arrivedStatus, mintingStatus, showingStatus } from "./pairInvite/fixtures";
 import { PairInviteOps, type PairInviteStatus } from "./pairInvite/types";
@@ -11,6 +13,11 @@ export class MockServerCardsHost implements PageClient {
   private status: PairInviteStatus = mintingStatus();
   private listeners = new Set<() => void>();
   private timers: ReturnType<typeof setTimeout>[] = [];
+  private addMachineListeners = new Set<() => void>();
+  /** `#/add-machine`'s stand-in (add-machine/mock.ts). */
+  readonly addMachine = new MockAddMachineHost(() => {
+    for (const listener of this.addMachineListeners) listener();
+  });
 
   constructor(initial?: PairInviteStatus) {
     if (initial) this.status = initial;
@@ -18,6 +25,7 @@ export class MockServerCardsHost implements PageClient {
   }
 
   async call<R>(op: string, params: unknown): Promise<R> {
+    if (op.startsWith("cmux.addMachine.")) return this.addMachine.call(op, params) as R;
     switch (op) {
       case PairInviteOps.status:
         return this.status as R;
@@ -50,6 +58,12 @@ export class MockServerCardsHost implements PageClient {
 
   async subscribe<E>(stream: string, onEvent: (data: E, seq: number) => void): Promise<() => void> {
     if (stream === CardOps.commands) return () => {};
+    if (stream === AddMachineOps.changes) {
+      let seq = 0;
+      const listener = () => onEvent({} as E, ++seq);
+      this.addMachineListeners.add(listener);
+      return () => void this.addMachineListeners.delete(listener);
+    }
     if (stream !== PairInviteOps.changes) throw pageError("cmux.op.unknown", stream);
     let seq = 0;
     const listener = () => onEvent({} as E, ++seq);

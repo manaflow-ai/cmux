@@ -241,3 +241,9 @@ enum MachineSectionMetrics {
     /// A trailing icon button's side.
     static var buttonSide: CGFloat { DesignTokens.controlIcon }
 }
+
+/// Layout constants of the Machines section's rows.
+enum AddMachineMetrics {
+    /// The Machines section's status dot.
+    static let dotSize: CGFloat = 6
+}

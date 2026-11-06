@@ -20,7 +20,7 @@ final class ServerMenuBarController: NSObject, NSPopoverDelegate {
     /// The floating Add Server card (u3849: pairing is not a menu bar popover).
     private var card: AddServerCardPanel?
     private var model: ServerModel?
-    /// The floating web cards (Pair Another Machine), made on the first opening and kept warm.
+    /// The floating web cards (Pair Another Machine, Add Machine), made on the first opening and kept warm.
     private var cards: WebCardPanel?
     /// Makes the web card panel: nil without the App's services (previews and tests).
     private let makeCards: @MainActor () -> WebCardPanel?
@@ -116,12 +116,17 @@ final class ServerMenuBarController: NSObject, NSPopoverDelegate {
     /// keys, and mints a new invite (a card still showing a live one keeps it). Opened by a person
     /// only: the palette's person-only action and Add Device's hand-off.
     func openInvite() {
-        guard let panel = cards ?? makeCards() else {
+        guard let panel = cardPanel() else {
             Self.logger.fault("pair invite card: no card page (the App's services are gone)")
             return
         }
-        cards = panel
         panel.present(card: PairInviteCardProvider.route, over: Self.frontWindow(), takeKeys: true)
+    }
+
+    /// The web card panel (Pair Another Machine, Add Machine), made on its first use and kept warm.
+    func cardPanel() -> WebCardPanel? {
+        if cards == nil { cards = makeCards() }
+        return cards
     }
 
     /// The cmux window the card belongs over: the main window, else the

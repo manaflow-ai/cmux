@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import type { PageClient } from "../shared/pageClient";
 import type { Strings } from "../shared/i18n";
 import { cardOfHash } from "./host";
+import { AddMachineCardHost } from "./add-machine/AddMachineCardHost";
+import { ADD_MACHINE_CARD } from "./add-machine/types";
 import { PairInviteCardHost } from "./pairInvite/PairInviteCardHost";
 import { PAIR_INVITE_CARD } from "./pairInvite/types";
 
@@ -17,6 +19,8 @@ export function ServerCardsPage({ client, strings }: { client: PageClient | null
   switch (card) {
     case PAIR_INVITE_CARD:
       return <PairInviteCardHost client={client} strings={strings} />;
+    case ADD_MACHINE_CARD:
+      return <AddMachineCardHost client={client} strings={strings} />;
     default:
       return null;
   }

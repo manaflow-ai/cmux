@@ -229,6 +229,11 @@ export const PAGES = {
     out: "webviews/src/pages/server-cards/generated/strings.json",
     catalogs: [
       { file: `${sources}/CmuxNextServer/Resources/PairInvite.xcstrings` },
+      // Add Machine's card shares its table with the Machines section (`addMachine.` keys only).
+      {
+        file: `${sources}/CmuxNextServer/Resources/AddMachine.xcstrings`,
+        keys: (all) => all.filter((key) => key.startsWith("addMachine.")),
+      },
       {
         file: `${sources}/CmuxNextServer/Resources/Localizable.xcstrings`,
         keys: (all) =>
