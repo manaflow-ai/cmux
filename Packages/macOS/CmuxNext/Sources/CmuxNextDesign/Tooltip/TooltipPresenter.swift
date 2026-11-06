@@ -33,8 +33,8 @@ public final class TooltipPresenter {
                                                        warmFor: HoverIntentTiming.standard.tooltipWarm)
     /// The timing to use instead of the tunables' (tests).
     var timing: HoverIntentTiming?
-    /// The tooltip the pointer rests on, shown or waiting for its delay.
-    private weak var candidate: TooltipTracker?
+    /// The tooltip the pointer rests on, shown or waiting for its delay (read by tests).
+    private(set) weak var candidate: TooltipTracker?
     /// A scroll is under way: rows pass under the pointer, and none shows its tooltip.
     private var scrolling = false
     private(set) lazy var panel = TooltipPanel()

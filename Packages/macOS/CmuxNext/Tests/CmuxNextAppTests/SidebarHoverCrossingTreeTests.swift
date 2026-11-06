@@ -122,4 +122,22 @@ struct SidebarHoverCrossingTreeTests {
         #expect(b.hitTest(center) === shownClose, "the hovered row's x takes no click")
         #expect(!TooltipPresenter.isClear(shownClose), "the hovered row's x shows no tooltip")
     }
+
+    /// The pointer moves down the column of x's: it enters the next row's x while that x is still clear (the row's
+    /// layout shows it in the frame after the move). Once it shows, the x's own tooltip is the one waiting.
+    @Test func aControlShownUnderThePointerGetsItsTooltip() throws {
+        let (a, b, window) = rows()
+        defer { window.close(); TooltipPresenter.shared.dismiss() }
+        let root = try #require(window.contentView)
+        b.isHovered = true
+        root.layoutSubtreeIfNeeded()
+        cross(from: b, to: a, in: window)
+        let close = try #require(b.closeSlot.made)
+        let tip = try #require(TooltipTracker.whole(of: close))
+        #expect(TooltipPresenter.isClear(close))
+        TooltipPresenter.shared.enter(tip)
+        cross(from: a, to: b, in: window)
+        #expect(!TooltipPresenter.isClear(close), "the hovered row's x did not show")
+        #expect(TooltipPresenter.shared.candidate === tip, "the x the pointer is on waits for no tooltip")
+    }
 }
