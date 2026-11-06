@@ -1,11 +1,9 @@
 import AppKit
 import CmuxNextDesign
-import CmuxNextFeed
 
-/// The feed panel (`feed.show`, ⇧⌘I; FD8: the list view by default, the inbox
-/// view by the `feed.layout` tunable) at the top right of the active window.
-/// It shows the `FeedService` mirror; answers and triage go out as intents
-/// with origin user from the panel's own controls.
+/// The feed panel (`feed.show`, ⇧⌘I) at the top right of the active window: the Feed page's
+/// list (`#/list?surface=panel`). Answers and triage go to the daemon's feed client from the
+/// page's own controls; Esc closes the panel.
 @MainActor
 final class FeedPanelController {
     static let size = NSSize(width: 420, height: 560)
@@ -25,10 +23,8 @@ final class FeedPanelController {
     }
 
     private func show() {
-        guard let window = context.services.windows.active?.window, case let feed = context.services.feed else { return }
-        feed.startIfSignedIn()
-        feed.model.place = FeedPlace.lookup(context.services.daemon.store.place)
-        let panel = panel ?? makePanel(model: feed.model)
+        guard let window = context.services.windows.active?.window else { return }
+        let panel = panel ?? makePanel()
         self.panel = panel
         window.themeScope.adopt(panel)
         let content = window.contentLayoutRect
@@ -55,9 +51,9 @@ final class FeedPanelController {
         }
     }
 
-    private func makePanel(model: FeedModel) -> FeedPanel {
+    private func makePanel() -> FeedPanel {
         let panel = FeedPanel()
-        panel.contentView = FeedHostView(model: model, surface: .panel)
+        panel.contentView = PageFactory(services: context.services).feedWebPage(route: "#/list?surface=panel") ?? NSView()
         panel.onEscape = { [weak self] in self?.close() }
         return panel
     }

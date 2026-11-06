@@ -1,8 +1,8 @@
-public import Foundation
+package import Foundation
 
 extension UpdateFeedCard {
     /// The next step for one installed version's Feed notice.
-    public enum PostingStep: Equatable {
+    package enum PostingStep: Equatable {
         /// Publish the prepared card and remember its version.
         case post(UpdateFeedCard)
         /// Remember the disabled version without publishing a notice.
@@ -23,7 +23,7 @@ extension UpdateFeedCard {
     ///   - posted: The last version already handled by the Feed.
     ///   - enabled: The What's New setting, or nil before settings have loaded.
     ///   - card: Builds the card, or returns nil while its release notes are loading.
-    public static func postingStep(version: String?, posted: String?, enabled: Bool?, card: () -> UpdateFeedCard?) -> PostingStep {
+    package static func postingStep(version: String?, posted: String?, enabled: Bool?, card: () -> UpdateFeedCard?) -> PostingStep {
         guard let version else { return .wait }
         guard posted != version else { return .done }
         guard let enabled else { return .wait }
@@ -33,7 +33,7 @@ extension UpdateFeedCard {
 
     /// A sample agent update for the Feed's debug preview.
     /// - Parameter at: The preview's timestamp.
-    public static func sampleHarness(at: Date) -> UpdateFeedCard {
+    package static func sampleHarness(at: Date) -> UpdateFeedCard {
         UpdateFeedCard(
             subject: .harness(id: "claude", name: "Claude Code"), from: "2.1.303", to: "2.1.305",
             changes: ["Faster startup when many MCP servers are configured", "Fixed a hang when a hook printed a large output",

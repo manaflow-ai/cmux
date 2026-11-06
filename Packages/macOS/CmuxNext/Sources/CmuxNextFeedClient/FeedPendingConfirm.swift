@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 import os
 
 /// A native sheet that waits on the person, shown as an open Feed confirm request while it waits, so it
@@ -10,19 +10,19 @@ import os
 /// One instance per sheet: ``open(_:key:expiresInMs:)`` posts once, ``close()`` withdraws it once
 /// (the sheet was answered or timed out), whichever order they run in.
 @MainActor
-public final class FeedPendingConfirm {
+package final class FeedPendingConfirm {
     /// One feed call to the API Worker as the signed-in person (the App's `FeedService.call`).
-    public typealias Owner = @MainActor (_ path: String, _ body: [String: Any]) async throws -> [String: Any]
+    package typealias Owner = @MainActor (_ path: String, _ body: [String: Any]) async throws -> [String: Any]
 
     /// What the request shows: the sheet's title and text, its "bring the Mac forward" label and its
     /// cancel label.
-    public struct Request: Sendable, Equatable {
-        public var title: String
-        public var statement: String
-        public var confirmLabel: String
-        public var cancelLabel: String
+    package struct Request: Sendable, Equatable {
+        package var title: String
+        package var statement: String
+        package var confirmLabel: String
+        package var cancelLabel: String
 
-        public init(title: String, statement: String, confirmLabel: String, cancelLabel: String) {
+        package init(title: String, statement: String, confirmLabel: String, cancelLabel: String) {
             self.title = title
             self.statement = statement
             self.confirmLabel = confirmLabel
@@ -31,16 +31,16 @@ public final class FeedPendingConfirm {
     }
 
     private let owner: Owner
-    public private(set) var item: String?
+    private(set) var item: String?
     private var closed = false
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "feed.pending-confirm")
 
-    public init(owner: @escaping Owner) {
+    package init(owner: @escaping Owner) {
         self.owner = owner
     }
 
     /// The `feed.post` op for `request` under dedupe and idempotency key `key`; it lapses with the sheet.
-    public static func postBody(_ request: Request, key: String, expiresInMs: Int) -> [String: Any] {
+    package static func postBody(_ request: Request, key: String, expiresInMs: Int) -> [String: Any] {
         let params: [String: Any] = [
             "type": "request",
             "kind": "confirm",
@@ -59,14 +59,14 @@ public final class FeedPendingConfirm {
 
     /// A closed item's answer: true asks to bring the Mac forward, false to cancel the sheet; nil while
     /// it is open or without an answer.
-    public nonisolated static func confirmed(_ item: FeedItem) -> Bool? {
-        guard item.state != .open, let answer = item.answer, case let .confirm(confirmed) = answer.value else { return nil }
-        return confirmed
+    package nonisolated static func confirmed(_ item: FeedDaemonItem) -> Bool? {
+        guard item.isClosed else { return nil }
+        return item.confirmAnswer
     }
 
     /// Posts `request`; the item id, or nil when it was not posted (or closed first).
     @discardableResult
-    public func open(_ request: Request, key: String, expiresInMs: Int) async -> String? {
+    package func open(_ request: Request, key: String, expiresInMs: Int) async -> String? {
         guard !closed, item == nil else { return nil }
         do {
             let reply = try await owner("v1/ops", Self.postBody(request, key: key, expiresInMs: expiresInMs))
@@ -82,7 +82,7 @@ public final class FeedPendingConfirm {
     }
 
     /// The sheet ended (answered, declined or timed out): the request is withdrawn once.
-    public func close() async {
+    package func close() async {
         guard !closed else { return }
         closed = true
         if let item { await cancel(item) }

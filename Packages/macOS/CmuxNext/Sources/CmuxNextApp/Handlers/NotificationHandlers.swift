@@ -20,6 +20,7 @@ enum NotificationHandlers {
         let feedPanel = FeedPanelController(context: context)
         registry.bind("feed.show", run: { _ in feedPanel.toggle() })
         services.pages.register(services.feedPage)
+        FeedGitHubActions.bind(into: registry, services: services)
         registry.bind("clearAllNotifications", requires: ack, daemon: context.daemon, run: { _ in
             _ = try context.requireConnection()
             context.daemon.send("notification.clear") { connection in

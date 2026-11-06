@@ -10,6 +10,27 @@ nonisolated enum NotificationActionCatalog: ActionCatalogGroup {
                 category: .notifications, symbol: "tray.full", surfaces: [.palette, .keyboard, .menu],
                 cliName: "feed show", mainMenu: .window
             ),
+            // The Feed page's native UI ops (feed-page.md 2): the page passes an item id; the item
+            // itself is read from the daemon's feed client, never taken from the caller.
+            ActionDescriptor(
+                id: "feed.openItem",
+                title: String(localized: "action.feed.openItem", defaultValue: "Open Feed Item", table: "ActionCatalog", bundle: .module),
+                keywords: ["feed", "inbox", "open", "item"], category: .notifications, symbol: "arrow.up.forward.square", surfaces: [.keyboard],
+                arguments: [ActionArgument(name: "item", title: String(localized: "argument.feed.item", defaultValue: "Feed Item", table: "ActionCatalog", bundle: .module), kind: .string)],
+                surfacePlan: ActionSurfacePlan(palette: .exempt(.liveInput), cli: .exempt(.liveInput), contextMenuExemption: .noTargetSurface)
+            ),
+            ActionDescriptor(
+                id: "feed.githubAction",
+                title: String(localized: "action.feed.githubAction", defaultValue: "Run a Feed Item's GitHub Action", table: "ActionCatalog", bundle: .module),
+                keywords: ["feed", "inbox", "github", "pull request", "review", "approve", "comment", "checkout"],
+                category: .notifications, symbol: "arrow.triangle.pull", surfaces: [.keyboard],
+                arguments: [
+                    ActionArgument(name: "item", title: String(localized: "argument.feed.item", defaultValue: "Feed Item", table: "ActionCatalog", bundle: .module), kind: .string),
+                    ActionArgument(name: "action", title: String(localized: "argument.feed.githubAction", defaultValue: "GitHub Action", table: "ActionCatalog", bundle: .module), kind: .string),
+                    ActionArgument(name: "comment", title: String(localized: "argument.feed.comment", defaultValue: "Comment", table: "ActionCatalog", bundle: .module), kind: .string, isRequired: false),
+                ],
+                surfacePlan: ActionSurfacePlan(palette: .exempt(.liveInput), cli: .exempt(.liveInput), contextMenuExemption: .noTargetSurface)
+            ),
             ActionDescriptor(
                 id: "showNotifications",
                 title: String(localized: "action.showNotifications", defaultValue: "Show Notifications", bundle: .module),

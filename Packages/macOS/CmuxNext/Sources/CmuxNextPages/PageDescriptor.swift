@@ -255,4 +255,14 @@ public extension PageDescriptor {
     static let history = PageDescriptor(
         id: "cmux.history", resource: "history", namespaces: ["cmux.history."],
         nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite], actions: ["history.open"])
+
+    /// The Feed page (plans/cmux-next/feed-page.md): the Inbox tab, the Feed panel, the right
+    /// sidebar's Feed and Chief Home's pinned Needs you, one page on routes `#/inbox`, `#/list` and
+    /// `#/needs-you` (`?surface=page|panel|sidebar`). Its `cmux.feed.` ops go to the daemon's feed
+    /// client; it opens an item and runs a GitHub action through the host's actions, and Add
+    /// Connection opens Settings > Notifications at `feed.github.enabled` (`openSettings`).
+    static let feed = PageDescriptor(
+        id: "cmux.feed", resource: "feed", namespaces: ["cmux.feed."],
+        nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite],
+        actions: ["feed.openItem", "feed.githubAction", "openSettings"])
 }
