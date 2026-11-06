@@ -146,11 +146,12 @@ public final class MachineSectionPageProvider: PageProvider {
         ]
         if let state = row.serverState { fields["serverState"] = .string(state.rawValue) }
         if let health = row.health {
-            fields["health"] = .string(switch health {
+            let word: String = switch health {
             case .ok: "ok"
             case .warning: "warning"
             case .failing: "failing"
-            })
+            }
+            fields["health"] = .string(word)
         }
         if let step = row.healthStep { fields["healthStep"] = .string(step.rawValue) }
         if let machine = row.joined {
