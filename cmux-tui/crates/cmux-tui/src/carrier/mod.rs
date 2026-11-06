@@ -144,6 +144,31 @@ fn source(args: &DialArgs) -> Result<answer::HttpSource, Failure> {
     answer::HttpSource::new(api, credential).map_err(ticket)
 }
 
+/// Opens the machine's desktop stream on the dialed session by `deadline`.
+/// The daemon's refusal is [`contract::Step::Service`] (exit 6); a session
+/// that drops or stalls before the daemon answers is the carrier's
+/// ([`contract::Step::Relay`]), never a refusal.
+async fn open_desktop(
+    multiplexer: &Arc<cmux_remote::service::ServiceMultiplexer>,
+    deadline: tokio::time::Instant,
+) -> Result<Arc<cmux_remote::service::ServiceStream>, Failure> {
+    use cmux_remote::bridge::{BridgeError, CLOUD_DESKTOP_SOCKET, open_local_socket};
+    match tokio::time::timeout_at(deadline, open_local_socket(multiplexer, CLOUD_DESKTOP_SOCKET))
+        .await
+    {
+        Ok(Ok(stream)) => Ok(stream),
+        Ok(Err(BridgeError::Rejected(why))) => Err(Failure::fatal(contract::Step::Service, why)),
+        Ok(Err(error)) => Err(Failure::fatal(
+            contract::Step::Relay,
+            format!("the session ended before the desktop opened: {error}"),
+        )),
+        Err(_) => Err(Failure::fatal(
+            contract::Step::Relay,
+            "the desktop did not open before the deadline",
+        )),
+    }
+}
+
 /// `cmux carrier …` from `main`: the exit code.
 pub(crate) fn run(args: &[String]) -> i32 {
     let Some(args) = parse(args) else {
@@ -179,24 +204,21 @@ pub(crate) fn run(args: &[String]) -> i32 {
         })
         .await;
         // The desktop opens its stream before the reply, so a refusal (not
-        // the owner, no desktop on the machine) is the dial's answer.
-        let (dialed, desktop) =
-            match (dialed, args.service) {
-                (Ok(dialed), DialService::Desktop) => match cmux_remote::bridge::open_local_socket(
-                    &dialed.multiplexer,
-                    cmux_remote::bridge::CLOUD_DESKTOP_SOCKET,
-                )
-                .await
-                {
+        // the owner, no desktop on the machine) is the dial's answer. The
+        // open stays inside the dial's one deadline.
+        let (dialed, desktop) = match (dialed, args.service) {
+            (Ok(dialed), DialService::Desktop) => {
+                match open_desktop(&dialed.multiplexer, plan.deadline).await {
                     Ok(stream) => (Ok(dialed), Some(stream)),
-                    Err(error) => {
+                    Err(failure) => {
                         dialed.multiplexer.shutdown().await;
                         let _ = dialed.connection.close().await;
-                        (Err(Failure::fatal(contract::Step::Service, error.to_string())), None)
+                        (Err(failure), None)
                     }
-                },
-                (dialed, _) => (dialed, None),
-            };
+                }
+            }
+            (dialed, _) => (dialed, None),
+        };
         let code = match &dialed {
             Ok(_) => {
                 reply(&contract::connected_line());
