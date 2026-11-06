@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextTestSupport
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -637,8 +638,14 @@ import Testing
         workspace.isHidden = false
         tab.setFocused(true)
         #expect(log.items == ["detach"], "a hosted page shown in this turn must stay out of the window until its frame commits: \(log.items)")
+        // The window's display frames: a test window is never on screen, so its display link stays still, and the
+        // scheduler's stall tick is a main-actor task that this nested run loop does not run. Tick it by hand.
+        let frames = FrameScheduler.forWindow(window)
         let deadline = Date().addingTimeInterval(2)
-        while FocusSpyShim.granted.isEmpty, Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
+        while FocusSpyShim.granted.isEmpty, Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+            frames.frameDidFire()
+        }
         #expect(log.items == ["detach", "attach", "grant"], "the page attaches after the commit and takes the focus after the attach: \(log.items)")
         #expect(!hosting.isDetached)
     }
