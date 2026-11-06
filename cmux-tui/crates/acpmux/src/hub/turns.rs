@@ -878,6 +878,10 @@ impl Hub {
         {
             started = Box::pin(self.child_for_since(session, stops)).await;
         }
+        // A start that missed its deadline is pending, not failed: tried again after a wait.
+        let started =
+            Box::pin(self.retry_late_start(session, stops, cancels, &prompt_id, &turn_id, started))
+                .await;
         let started = match started {
             Ok(child) => session
                 .meta()
@@ -889,7 +893,12 @@ impl Hub {
         let (mut child, agent_sid) = match started {
             Ok(started) => started,
             Err(e) => {
-                self.fail_unstarted_turn(session, &prompt_id, &turn_id, &e, joined);
+                // A turn the shutdown settles writes no end of its own (`start_retry.rs`).
+                if !self.shutdown_settles(&turn_id, &e) {
+                    self.fail_unstarted_turn(session, &prompt_id, &turn_id, &e, joined);
+                } else if self.hands_off(session) {
+                    super::digest::forget_joined(Some(joined));
+                }
                 Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
                 drop(guard);
                 return Err(e);
@@ -2220,6 +2229,8 @@ impl Hub {
         // Counted first: a start for a request from before this stop ends (`ensure_child`).
         session.stops.fetch_add(1, Ordering::SeqCst);
         session.closing.store(true, Ordering::SeqCst);
+        // A start that waits to be tried again ends its wait (`start_retry.rs`).
+        session.start_retry_wake.notify_waiters();
         // Stopped, not hibernated: its next start is no wake (`idle.rs`).
         self.clear_hibernation(session);
         self.stop_auto_resume(session);

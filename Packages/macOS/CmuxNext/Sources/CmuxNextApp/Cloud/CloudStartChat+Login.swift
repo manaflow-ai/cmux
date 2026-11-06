@@ -25,7 +25,7 @@ extension CloudStartChat {
     nonisolated static let loginCancelled = "cancelled"
     /// What a login that threw records: `cancelled` when its start cancelled it, else the transfer's fixed text, never provider output.
     nonisolated static func loginOutcome(_ error: any Error, cancelled: Bool) -> String {
-        cancelled || error is CancellationError ? loginCancelled : "failed: " + ((error as? LocalizedError)?.errorDescription ?? String(describing: type(of: error)))
+        cancelled || error is CancellationError ? loginCancelled : loginFailed + ((error as? LocalizedError)?.errorDescription ?? String(describing: type(of: error)))
     }
 
     /// Gives the start's machine the person's Claude or Codex login when this build passes it. Returns
@@ -69,7 +69,7 @@ extension CloudStartChat {
             case .askConsent:
                 guard await gate.askConsent(&decision) else { return false }
             case .confirmThenInstall:
-                guard await CloudPresenter.confirmFirstLogin(provider: provider, machine: machine.machine.title, services: services) else { decision.outcome = "declined"; return false }
+                guard await CloudPresenter.confirmFirstLogin(provider: provider, machine: machine.machine.title, services: services) else { decision.outcome = Self.loginDeclined; return false }
                 CloudHarnessLoginChoices().save(.pass, userID: userID) // Their Yes is their choice for every later machine.
             }
             guard cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else { return false }
@@ -91,4 +91,11 @@ extension CloudStartChat {
             return true
         } catch { decision.outcome = Self.loginOutcome(error, cancelled: Task.isCancelled); return false }
     }
+
+    /// The start record's outcome when the copy failed, before its fixed text.
+    nonisolated static let loginFailed = "failed: "
+    /// The start record's outcome when the person said no to the copy.
+    static let loginDeclined = "declined"
+    /// The outcomes when this Mac held no login to give: the machine signs in with its chat's Sign in to Claude card.
+    static let signInOnMachine: Set<String?> = [CloudCredentialTransfer.CachedLogin.none.startOutcome, CloudCredentialTransfer.CachedLogin.unreadable.startOutcome]
 }

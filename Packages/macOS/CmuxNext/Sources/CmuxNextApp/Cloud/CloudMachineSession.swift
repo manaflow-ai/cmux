@@ -149,6 +149,9 @@ final class CloudMachineSession {
         connectHop = linkTransition
     }
 
+    /// ``connect(origin:)``, then that connect's hop (or the one in flight) ends: whether the app link is up now.
+    func linkHop(origin: CloudLinkOrigin) async -> Bool { connect(origin: origin); await linkTransition?.value; return linkPhase == .up && linkEnded == nil }
+
     /// Attaching to this machine (opening a workspace or a terminal, ssh,
     /// moving a chat here, a terminal's Connect): a paused machine resumes
     /// first through the Resume Machine path, since cmux Cloud's idle
