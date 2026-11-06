@@ -41,7 +41,7 @@ struct WorkspaceToolbarTitleView: View {
         HStack(spacing: 6) {
             // Connection state rides the title's existing indicator slot as
             // quiet chrome instead of covering the terminal: a spinner while
-            // reconnecting, a red dot while disconnected, the plain dot when
+            // reconnecting, a red dot while disconnected, a green dot when
             // healthy. All three share one fixed frame so the title never
             // shifts across transitions.
             Group {
@@ -51,11 +51,7 @@ struct WorkspaceToolbarTitleView: View {
                         .tint(.secondary)
                 } else {
                     Circle()
-                        .fill(
-                            connectionStatus == .unavailable
-                                ? connectionStatus.tintColor
-                                : Color.secondary
-                        )
+                        .fill(connectionStatus.tintColor)
                 }
             }
             .frame(width: 10, height: 10)
@@ -79,7 +75,7 @@ struct WorkspaceToolbarTitleView: View {
             minHeight: regularWidthMinHeight
         )
         .accessibilityElement(children: .combine)
-        .accessibilityValue(connectionStatus == .connected ? "" : connectionStatus.label)
+        .accessibilityValue(connectionStatus.label)
     }
 
     private var subtitleLine: String? {
