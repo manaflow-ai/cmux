@@ -4,7 +4,10 @@ import CmuxNextDaemon
 @testable import CmuxNextApp
 import CmuxNextCloud
 import CmuxNextCompat
+import CmuxNextCloudUI
 import CmuxNextDesign
+import CmuxNextPages
+import CmuxNextSettings
 @testable import CmuxNextSidebar
 import Foundation
 import Testing
@@ -171,13 +174,25 @@ struct CloudIdlePauseTests {
         #expect(WorkspaceHoverCardContent.connectionTone(.paused) == .secondary)
     }
 
-    @Test func theProgressViewOffersOneClickResume() {
+    /// The progress page reads a paused machine as paused (idle), not failed: its Resume is one click.
+    @Test func theProgressPageOffersOneClickResume() async throws {
         let f = Self.pausedMachine(reason: .idle)
         let creation = CloudMachineCreation(windowID: nil, session: f.session)
-        let view = CloudMachineProgressView(creation: creation, actions: .init(retry: { _ in }, dismiss: { _ in }))
-        #expect(view.showsButtons)
-        #expect(view.primaryButtonTitle == CloudStrings.resume)
-        #expect(!view.detailText.contains(CloudStrings.progressFailed("")), "paused must not read as a failed start")
+        var retried = 0
+        let provider = CloudProgressPageProvider(source: creation, actions: .init(
+            retry: { retried += 1 }, dismiss: {}, copy: { _ in }, personOnlyMessage: "person only"))
+        let state = provider.state()
+        #expect(state["stage"]?.stringValue == "paused")
+        #expect(state["idle"]?.boolValue == true)
+        #expect(state["failure"] == .null, "paused must not read as a failed start")
+        #expect(state["finished"]?.boolValue == true)
+        // Resume runs only from the person's own click.
+        await #expect(throws: PageError.self) {
+            _ = try await provider.call(CloudProgressPageProvider.retryOp, params: .object([:]), context: PageCallContext(page: "cmux.cloud-progress"))
+        }
+        _ = try await provider.call(CloudProgressPageProvider.retryOp, params: .object([:]),
+                                    context: PageCallContext(page: "cmux.cloud-progress", userGesture: true))
+        #expect(retried == 1)
     }
 
     // MARK: One record (Machine Status)
