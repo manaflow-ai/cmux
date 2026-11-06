@@ -35,6 +35,14 @@ which follows the most recently reloaded app. See [tagged builds](references/tag
 Never quit, kill, relaunch or `xctrace --launch` the user's running cmux
 (`com.cmuxterm.app`); it holds their live agent sessions.
 
+A tagged `--launch` is an authenticated dogfood operation. It requires a
+current-user-owned development credential file and an authorized development
+account, including when `CMUX_DEV_BACKEND_MODE=local` is selected. Local mode
+only chooses the backend origin; it does not waive the launch gate. Contributors
+without that access may use `--build-only` and the native/CI verification routes,
+but must not launch the printed app path or an untagged test product as a
+workaround.
+
 An app build does not establish test-target compilation or execution. Follow
 [the test guide](../cmux-testing/references/local-vs-ci-validation.md) for those claims.
 

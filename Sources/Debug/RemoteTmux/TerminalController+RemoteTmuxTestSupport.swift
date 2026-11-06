@@ -140,7 +140,19 @@ extension TerminalController {
         case "kill-pane":
             return args.count == 3 && args[1] == "-t" && isAtom(args[2]) ? args : nil
         case "select-pane":
-            return args.count == 3 && args[1] == "-t" && isAtom(args[2]) ? args : nil
+            if args.count == 3 && args[1] == "-t" && isAtom(args[2]) {
+                return args
+            }
+            let titleUpdate = args.count == 5 && args[1] == "-t" && isAtom(args[2])
+                // An explicit empty title is the fixture's deterministic way
+                // to exercise cmux's stable fallback-label path. It remains
+                // an argv value, never shell input.
+                && args[3] == "-T" && (args[4].isEmpty || isAtom(args[4]))
+            return titleUpdate ? args : nil
+        case "rename-window":
+            let allowed = args.count == 4 && args[1] == "-t" && isAtom(args[2])
+                && isAtom(args[3])
+            return allowed ? args : nil
         case "capture-pane":
             let allowed = args.count == 5 && args[1] == "-p" && args[2] == "-J"
                 && args[3] == "-t" && isAtom(args[4])
@@ -157,15 +169,16 @@ extension TerminalController {
             return ["send-keys", "-t", args[2], ruler, "Enter"]
         case "list-panes":
             let allowed = args.count == 5 && args[1] == "-t" && isAtom(args[2]) && args[3] == "-F"
-                && ["#{pane_width}", "#{pane_id}", "#{pane_width} #{pane_top}"].contains(args[4])
+                && ["#{pane_width}", "#{pane_id}", "#{pane_title}", "#{pane_width} #{pane_top}"].contains(args[4])
             return allowed ? args : nil
         case "list-windows":
             let allowed = args.count == 5 && args[1] == "-t" && isAtom(args[2]) && args[3] == "-F"
-                && args[4] == "#{window_id} #{window_name}"
+                && ["#{window_name}", "#{window_id} #{window_name}"].contains(args[4])
             return allowed ? args : nil
         case "display-message":
             let allowed = args.count == 5 && args[1] == "-p" && args[2] == "-t"
-                && isAtom(args[3]) && args[4] == "#{window_width}x#{window_height}"
+                && isAtom(args[3])
+                && ["#{pane_title}", "#{window_name}", "#{window_width}x#{window_height}"].contains(args[4])
             return allowed ? args : nil
         default:
             return nil

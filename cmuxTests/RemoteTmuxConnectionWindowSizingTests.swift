@@ -379,8 +379,15 @@ import Testing
         ["new-window", "-t", "sizing", "-n", "nested"],
         ["set", "-w", "-t", "sizing:0", "pane-border-status", "top"],
         ["resize-pane", "-t", "sizing:@0.%1", "-x", "13"],
+        ["select-pane", "-t", "%1", "-T", "pane-title"],
+        ["select-pane", "-t", "%1", "-T", ""],
+        ["rename-window", "-t", "@0", "window-title"],
         ["list-panes", "-t", "sizing:@0", "-F", "#{pane_width} #{pane_top}"],
+        ["list-panes", "-t", "sizing:@0", "-F", "#{pane_title}"],
         ["list-windows", "-t", "sizing", "-F", "#{window_id} #{window_name}"],
+        ["list-windows", "-t", "sizing", "-F", "#{window_name}"],
+        ["display-message", "-p", "-t", "%1", "#{pane_title}"],
+        ["display-message", "-p", "-t", "sizing:0", "#{window_name}"],
         ["display-message", "-p", "-t", "sizing:@0", "#{window_width}x#{window_height}"],
         ["start-ruler", "-t", "%1"],
     ])
@@ -393,6 +400,11 @@ import Testing
         ["new-session", "-d", "-s", "sizing", "-x", "180", "-y", "45", "sh -c id"],
         ["list-panes", "-t", "sizing", "-F", "#(id)"],
         ["split-window", "-h", "-t", "sizing", "sh -c id"],
+        ["select-pane", "-t", "%1", "-T", "bad title"],
+        ["select-pane", "-t", "%1", "-T", "bad;title"],
+        ["rename-window", "-t", "@0", "bad;title"],
+        ["rename-window", "-t", "@0", "#(id)"],
+        ["rename-window", "-t", "@0", "title", "extra"],
     ])
     func uiTestTmuxPolicyRejectsExecutableArguments(_ arguments: [String]) {
         #expect(!TerminalController.isAllowedRemoteTmuxTestCommand(arguments))
