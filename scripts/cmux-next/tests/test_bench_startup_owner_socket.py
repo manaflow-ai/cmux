@@ -49,9 +49,9 @@ class SocketRule(unittest.TestCase):
             "/tmp/cmux-tui-501/cmux-app-chrome-parity-switch-stall-v4.sock")
 
     def test_a_103_byte_path_fits_and_104_does_not(self):
-        base = "/b"
-        fit = "s" * (103 - len("/b/cmux-tui-501/.sock"))
-        self.assertEqual(bench_startup.session_socket_path(fit, base, 501), f"/b/cmux-tui-501/{fit}.sock")
+        base = "/bbbbbb"  # longer than /tmp, so the one byte more still fits there
+        fit = "s" * (103 - len(f"{base}/cmux-tui-501/.sock"))
+        self.assertEqual(bench_startup.session_socket_path(fit, base, 501), f"{base}/cmux-tui-501/{fit}.sock")
         self.assertEqual(bench_startup.session_socket_path(fit + "s", base, 501), f"/tmp/cmux-tui-501/{fit}s.sock")
 
     def test_a_session_too_long_for_tmp_gets_its_sha256_name(self):
