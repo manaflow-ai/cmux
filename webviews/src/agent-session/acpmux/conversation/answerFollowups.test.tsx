@@ -13,7 +13,7 @@ import { NextStepCard } from "./NextStepCard";
 import { nextStepAsk } from "./nextStepAsk";
 import { answerThrough } from "./turnActions";
 import { NEXT_STEP, turnViewFrom, waitingAsks } from "./turns";
-import { askKey, bottomAsks, claimAnswer, resetAnswerClaims } from "./waitingAskStore";
+import { askKey, bottomAsks, claimAnswer, dismissAsk, dismissedAsks, resetAnswerClaims } from "./waitingAskStore";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -107,6 +107,27 @@ test("F1: an answer clicked on the older of two pinned questions settles the old
   ]);
 });
 
+test("F1: a typed answer after the newer card answers it, and the older stays pinned and answerable", () => {
+  const rows = [
+    line("p1", "user", { text: "Why does it stop on lock?" }),
+    line("a1", "assistant", { text: "[taste] Should agents keep working while the Mac is locked?" }),
+    line("s1", "turnSummary", { status: "completed" }),
+    inbound("m1", "Gallery ready."),
+    line("a2", "assistant", { text: "[outward] Should I post the gallery?" }),
+    line("s2", "turnSummary", { status: "completed" }),
+    line("p2", "user", { text: "Yes" }),
+  ];
+  const view = turnViewFrom(rows, new Set());
+  const cards = view.rows.filter((row) => row.kind === NEXT_STEP);
+  expect(cards[1]?.nextStep?.answer).toBe("Yes");
+  expect(cards[0]?.nextStep?.answer).toBeUndefined();
+  expect(cards[0]?.nextStep?.superseded).toBeUndefined();
+  // Still waiting on the person, so still pinned: never live in the transcript but hidden above the composer.
+  expect(waitingAsks(view).map((card) => card.nextStep?.ask.question)).toEqual([
+    "Should agents keep working while the Mac is locked?",
+  ]);
+});
+
 test("F2: the card's two copies share the answer on its way, so two clicks send it once", async () => {
   const ask = nextStepAsk("[taste] Which look should ship?\n- Box\n- Inline")!;
   const sent: string[] = [];
@@ -139,6 +160,14 @@ test("F3: a send acpmux already took counts as sent; one it never took still say
   await expect(taken).resolves.toBeUndefined();
   const refused = answerThrough(() => Promise.reject(new Error("refused")))("Yes");
   await expect(refused).rejects.toThrow("refused");
+});
+
+test("dismissals without local storage: a second one keeps the first", () => {
+  delete scope.localStorage;
+  resetAnswerClaims();
+  dismissAsk("s1", "a");
+  dismissAsk("s1", "b");
+  expect([...dismissedAsks("s1")].sort()).toEqual(["a", "b"]);
 });
 
 test("F4: pinned questions show the stack but leave the composer's keys alone", () => {

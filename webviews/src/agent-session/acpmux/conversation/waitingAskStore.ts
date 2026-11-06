@@ -19,13 +19,19 @@ type Stored = Record<string, string[]>;
 /// sent differ once the chat is read back, so the id is not it.
 export const askKey = (row: AcpmuxRow) => `${row.at}\u0000${row.nextStep?.ask.question ?? ""}`;
 
+/// The dismissals as this page last read or wrote them: a page without local storage (or one that
+/// refuses a write) keeps them here, so a second dismissal never brings the first back.
+let memory: Stored | undefined;
+
 function read(): Stored {
+  if (memory) return { ...memory };
   try {
     const parsed: unknown = JSON.parse(globalThis.localStorage?.getItem(STORAGE_KEY) ?? "{}");
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Stored) : {};
+    memory = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Stored) : {};
   } catch {
-    return {};
+    memory = {};
   }
+  return { ...memory };
 }
 
 /// The cards the person dismissed in chat `sessionId`.
@@ -42,8 +48,9 @@ export function dismissAsk(sessionId: string | undefined, key: string): Readonly
   const keys = [...(stored[sessionId] ?? []).filter((kept) => kept !== key), key].slice(-DISMISSED_CAP);
   delete stored[sessionId];
   const chats = Object.entries(stored).slice(-(CHATS_CAP - 1));
+  memory = Object.fromEntries([...chats, [sessionId, keys]]);
   try {
-    globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(Object.fromEntries([...chats, [sessionId, keys]])));
+    globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(memory));
   } catch {
     // A full or blocked store keeps the dismissal for this page only.
   }
@@ -105,9 +112,10 @@ export function claimAnswer(key: string, text: string, at = Date.now()): void {
   }
 }
 
-/// Forgets the claims read so far (tests, a storage swap).
+/// Forgets the claims and dismissals read so far (tests, a storage swap).
 export function resetAnswerClaims(): void {
   claims = undefined;
+  memory = undefined;
 }
 
 /// An answer on its way from a card, by the card's key: the copy in the transcript and the pinned

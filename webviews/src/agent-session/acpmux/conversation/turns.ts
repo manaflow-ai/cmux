@@ -722,19 +722,23 @@ function settleNextSteps(out: AcpmuxRow[], cards: NextStepAt[], from: number): n
   return changed;
 }
 
-/// The cards still waiting on the person, oldest first: a question no prompt of theirs came after,
-/// with another turn after it, so it is no longer the chat's last word above the composer
-/// (PendingAsks.tsx pins these there). Walks back from the newest card only while the person said
-/// nothing, so it costs the waiting cards, never the chat's length.
+/// The cards still waiting on the person, oldest first: a question neither answered nor spoken after,
+/// with another turn after it, so it is no
+/// longer the chat's last word above the composer (PendingAsks.tsx pins these there). A prompt the
+/// person sent after a newer card answers that card, not an older one still waiting before it. Walks
+/// back from the newest card until one was taken over: every card before that one has the person's
+/// words after it too, so it costs the waiting cards, never the chat's length.
 export function waitingAsks(view: Pick<TurnView, "nextSteps" | "rows">): readonly AcpmuxRow[] {
   const { nextSteps, rows } = view;
   const waiting: AcpmuxRow[] = [];
   for (let index = nextSteps.length - 1; index >= 0; index -= 1) {
     const { at, spoke } = nextSteps[index]!;
-    if (spoke) break;
     const card = rows[at];
     const step = card?.nextStep;
-    if (!card || !step?.ask.question || step.answer !== undefined || step.superseded) continue;
+    if (!card || !step) continue;
+    if (step.superseded) break;
+    // Answered, or the person said something after it: it leaves the pin, its card stays answerable.
+    if (!step.ask.question || step.answer !== undefined || spoke) continue;
     waiting.push(card);
   }
   if (!waiting.length) return NO_ASKS;
