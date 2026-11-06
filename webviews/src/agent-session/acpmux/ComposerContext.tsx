@@ -577,6 +577,7 @@ export function ComposerContext({
   // A folder pick is always the folder (the page's project, which Cloud sends and recent projects
   // record), then the saved environment that is only that folder, if there is one.
   const pickFolder = (cwd: string) => {
+    setBrowseError(undefined);
     onCloudMachinePicked?.(undefined);
     onProject?.(cwd);
     const environment = savedRows && savedFolders.find((candidate) => normalizeCwd(candidate.folder) === cwd);
@@ -816,7 +817,13 @@ export function ComposerContext({
               current={currentFolder}
               onPick={pickFolder}
               onBrowse={browseProject}
-              onNoProject={onNoProject}
+              onNoProject={
+                onNoProject &&
+                (() => {
+                  setBrowseError(undefined);
+                  onNoProject();
+                })
+              }
               noProject={noProject && !currentFolder}
               onNewWorktree={currentFolder && onNewWorktree ? () => onNewWorktree(currentFolder) : undefined}
               {...(folderNote && !currentFolder ? { note: folderNote } : {})}

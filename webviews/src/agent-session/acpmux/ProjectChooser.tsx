@@ -102,6 +102,7 @@ export function ProjectChooser({
   };
   const press = usePopoverTrigger(open, (next) => (next ? show() : close(true)), show);
   const pick = (row: Row | undefined) => {
+    setBrowseError(undefined);
     if (row && !row.project) {
       // No folder: a change unless the chat is in no project already.
       close(noProject);
@@ -185,7 +186,13 @@ export function ProjectChooser({
             suggestions={suggestions}
             pinnedSuggestions={pinned}
             pinnedPlacement="bottom"
-            onQuery={setQuery}
+            onQuery={(value) => {
+              // The menu keeps the width it opened at while a search narrows its rows (its height
+              // stays too: keepHeight), so nothing in it moves as the user types.
+              const menu = search.current?.closest<HTMLElement>(".acpmux-project-menu");
+              if (menu && !menu.style.minWidth) menu.style.minWidth = `${menu.getBoundingClientRect().width}px`;
+              setQuery(value);
+            }}
             onSubmit={(key) => {
               if (key === ADD_PROJECT_KEY) {
                 close(false);
@@ -256,6 +263,7 @@ export function ProjectChooser({
               );
             }}
             inline
+            keepHeight
           />
           {shown.length === 0 && !typedPath && (query.trim() || !onNoProject) && (
             <div className="acpmux-project-empty">

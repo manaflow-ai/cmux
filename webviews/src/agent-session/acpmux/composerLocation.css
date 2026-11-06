@@ -1132,7 +1132,7 @@
 .acpmux-folder-popover .ui-combobox-pinned[data-placement="top"]::after { content: ""; display: block; height: 1px; margin: 4px 6px 0; background: color-mix(in srgb, currentColor 12%, transparent); }
 /* Actions under the folders (Leo, 2026-11-06: "it's just folder"): the rule
    sits over them, and each carries its glyph in the folders' icon column. */
-.acpmux-folder-popover .ui-combobox-pinned[data-placement="bottom"]::before { content: ""; display: block; height: 1px; margin: 0 6px 4px; background: color-mix(in srgb, currentColor 12%, transparent); }
+.acpmux-folder-popover .ui-combobox-pinned[data-placement="bottom"]::before { content: ""; display: block; height: 0; margin: 0 var(--cmux-menu-highlight-inset) var(--ds-space-1); border-top: var(--cmux-hairline) solid color-mix(in srgb, currentColor 12%, transparent); }
 .acpmux-location-action-icon { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 20px; color: var(--agent-muted); }
 /* Match the environment picker (#33137): hover/search/arrow navigation is neutral; the check
    alone marks selection. Preserve automatic keyboard focus without painting it on open. */
