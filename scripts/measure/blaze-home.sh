@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Sourced by rust-dev-loop.sh. blaze_home_path REAL prints the path BLAZE_HOME is set to for the blaze home
 # REAL: REAL itself when its daemon socket (REAL/v2.sock) fits a Unix socket address, else a link in /tmp to
 # it (blaze_home_link). macOS takes at most 104 bytes there (Linux 108): a fleet Mac's step home

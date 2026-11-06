@@ -15,7 +15,7 @@ short="$tmp/cmux-rust-dev-loop-blaze-home-$$-short"
 mkdir -p "$long" "$short"
 trap 'blaze_home_unlink "$long" 2>/dev/null || true; rm -rf "$tmp"' EXIT
 
-# shellcheck source=../blaze-home.sh
+# shellcheck source=scripts/measure/blaze-home.sh
 source "$lib"
 home="$(blaze_home_path "$long")"
 socket="$home/v2.sock"
