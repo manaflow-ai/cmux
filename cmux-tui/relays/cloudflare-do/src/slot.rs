@@ -306,7 +306,12 @@ impl RelaySlot {
             .min(REGISTRATION_HEARTBEAT_SECONDS)
             .min(u32::MAX.into()) as u32;
         send_control(socket, &RelayControl::Registered { lease_seconds })?;
-        self.pair_parked(&slot, socket, attachment.expires_at).await
+        // A failure answering a waiting client must not fail the daemon's
+        // registration; that client is answered with a retryable error.
+        if let Err(error) = self.pair_parked(&slot, socket, attachment.expires_at).await {
+            worker::console_error!("RelaySlot parked pairing error: {error}");
+        }
+        Ok(())
     }
 
     async fn handle_connect(
@@ -439,7 +444,7 @@ impl RelaySlot {
         for ((client, mut attachment), parked) in pairing_order(waiting) {
             attachment.parked = None;
             client.serialize_attachment(&attachment)?;
-            let daemon_open = self
+            let allocation = self
                 .allocate(
                     &client,
                     slot,
@@ -449,9 +454,14 @@ impl RelaySlot {
                     daemon,
                     daemon_expires_at,
                 )
-                .await?;
-            if !daemon_open {
-                break;
+                .await;
+            match allocation {
+                Ok(true) => {}
+                Ok(false) => break,
+                Err(error) => {
+                    Self::capacity(&client, "internal-error", "relay could not allocate a circuit");
+                    return Err(error);
+                }
             }
         }
         Ok(())
