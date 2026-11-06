@@ -918,7 +918,8 @@ impl Hub {
         // Retry After Errors off (`autoResumeDelaysMs: []`, or `agents.autoRetry.enabled` false):
         // the person's prompts wait for their Resume at once. Read before the queue's lock.
         let retry_off = {
-            let configured = self.config.try_read().ok().and_then(|c| c.auto_resume_delays_ms.clone());
+            let configured =
+                self.config.try_read().ok().and_then(|c| c.auto_resume_delays_ms.clone());
             super::auto_resume::effective_delays(configured).is_empty()
         };
         let (held, retrying): (Vec<String>, Vec<String>) = {

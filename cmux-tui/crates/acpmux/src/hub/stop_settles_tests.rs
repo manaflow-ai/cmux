@@ -310,14 +310,17 @@ async fn a_failed_turn_lets_its_inbox_notice_go_in_by_itself() {
     })
     .await;
     let turn = s.turn().unwrap().turn_id;
-    let provenance = json!({"kind": super::inbox::NOTICE_KIND, "noticeId": "p-notice", "threads": []});
+    let provenance =
+        json!({"kind": super::inbox::NOTICE_KIND, "noticeId": "p-notice", "threads": []});
     let opts = PromptOptions {
         prompt_id: Some("p-notice".to_owned()),
         provenance: Some(provenance.clone()),
         ..Default::default()
     };
     let (h, session) = (hub.clone(), s.clone());
-    let blocks = vec![json!({"type": "text", "text": "[inbox] New messages from other agents in 3 threads."})];
+    let blocks = vec![
+        json!({"type": "text", "text": "[inbox] New messages from other agents in 3 threads."}),
+    ];
     let _notice =
         tokio::spawn(async move { h.prompt_with(&session, blocks, "acpmux", false, opts).await });
     until("the notice queues", || s.queue().len() == 1).await;

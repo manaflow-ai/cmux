@@ -325,9 +325,11 @@ async fn a_message_a_failed_turn_put_back_keeps_its_pasted_ranges() {
         .request(method::MUX_EVENTS, json!({"sessionId": id, "afterSeq": 0, "limit": 5000}))
         .await
         .unwrap();
-    let paused = page["events"].as_array().unwrap().iter().find(|e| {
-        e["kind"] == "queue_paused" && e["msg"]["requeued"] == true
-    });
+    let paused = page["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["kind"] == "queue_paused" && e["msg"]["requeued"] == true);
     if let Some(paused) = paused {
         assert_eq!(paused["msg"]["retrying"], paused["msg"]["held"], "{paused}");
     }
