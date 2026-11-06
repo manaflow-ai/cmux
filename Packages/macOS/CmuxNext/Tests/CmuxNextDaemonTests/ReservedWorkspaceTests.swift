@@ -92,4 +92,25 @@ struct ReservedWorkspaceTests {
         #expect(store.releaseReservedWorkspace(.pressure) == nil)
         #expect(ReservedWorkspaceRelease.pressure.span == "cmdN.reserved.released.pressure")
     }
+
+    /// Cmd-N's first tab request, moved out of `AgentTabStore.showWorkspace` with the same bytes: the agent session,
+    /// the workspace, the origin, the mutation id and the transaction, and nothing else.
+    @Test func theFirstTabRequestKeepsItsFields() throws {
+        let record = AgentSessionRef(host: "install:test", hostName: nil)
+        let transaction = ClientTransactionID.generate()
+        let moved = NewConversationTabRequest.firstAgentTab(record, in: WorkspaceHandle(rawValue: 7), origin: "cmux-next", mutationID: "m-1",
+                                                            transaction: transaction)
+        var before = NewConversationTabRequest(agentSession: record, workspace: WorkspaceHandle(rawValue: 7), origin: "cmux-next", mutationID: "m-1")
+        before.transaction = transaction
+        #expect(try JSONEncoder().encode(moved) == JSONEncoder().encode(before))
+        #expect(moved.pane == nil && moved.split == nil && moved.page == nil)
+    }
+
+    @Test func aCreatedTabsKeyIsItsResourceElseItsSurface() throws {
+        func response(_ json: String) throws -> NewConversationTabRequest.Response {
+            try JSONDecoder().decode(NewConversationTabRequest.Response.self, from: Data(json.utf8))
+        }
+        #expect(try response(#"{"surface": 12, "replayed": false, "tab_resource_id": "tab_9"}"#).tabKey == "tab_9")
+        #expect(try response(#"{"surface": 12, "replayed": false}"#).tabKey == "surface:12")
+    }
 }

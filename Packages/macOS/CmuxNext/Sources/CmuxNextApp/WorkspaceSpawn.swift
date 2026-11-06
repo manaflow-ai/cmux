@@ -50,13 +50,12 @@ struct WorkspaceSpawner {
     /// sends the daemon's own next default (`SidebarMapping.defaultWorkspaceName`),
     /// so the row's title is the daemon's from the first frame.
     func start() -> () async throws -> String {
-        let reserved = reservedKey()
-        let key = spawn.key ?? reserved ?? WorkspaceKey.generate(), daemon = daemon, services = windows.services, machine = MachineID(daemon.machineID)
+        // A plain Cmd-N into a window shows the workspace its daemon reserved before the key (`AgentTabStore.reserveWorkspace`).
+        let use = daemon.connection == nil ? nil : daemon.store.reservedWorkspaceUse(plain: windowID != nil && spawn.isPlainNewTabPage && windows.services.agentTabs.showsWorkspaceAtOnce(on: daemon), home: windows.services.daemon.store)
+        if let span = use?.span { BenchSpans.mark(span) }
+        let key = spawn.key ?? use?.key ?? WorkspaceKey.generate(), daemon = daemon, services = windows.services, machine = MachineID(daemon.machineID)
         if let windowID { windows.claimNew(workspaceID: key.rawValue, window: windowID, frame: frame) }
-        guard daemon.connection != nil else {
-            if reserved != nil { services.agentTabs.releaseReservedWorkspace(on: daemon.store, .disconnected) }
-            return { [windows] in throw windows.createFailed(key.rawValue, DaemonError.notConnected) }
-        }
+        guard daemon.connection != nil else { return { [windows] in throw windows.createFailed(key.rawValue, DaemonError.notConnected) } }
         var row = spawn.slot == nil ? NewWorkspacePlacements.rule(for: windowID, in: windows) : nil
         if !spawn.placesFromCurrent || !spawn.placesBySetting, row?.placement != .afterCurrent { row?.current = nil }
         let rule = spawn.placesBySetting ? row : nil
@@ -72,7 +71,7 @@ struct WorkspaceSpawner {
         }
         WorkspaceLanes.shared.prune(windowID ?? "") { services.workspace(id: $0) != nil }
         if let windowID, let name, let instant = shown(key, name: name, window: windowID, rule: rule) { return instant }
-        if reserved != nil { services.agentTabs.releaseReservedWorkspace(on: daemon.store, .unshown) } // its key names no other workspace
+        if use?.key != nil { services.agentTabs.releaseReservedWorkspace(on: daemon.store, .unshown) } // its key names no other workspace
         let windowID = windowID
         return {
             do {
@@ -81,7 +80,7 @@ struct WorkspaceSpawner {
                     _ = await daemon.failure("close-workspace") { connection in
                         try await WorkspaceClose.close(WorkspaceKey(rawValue: id), terminals: terminals, on: connection)
                     }
-                }, settle: { await Self.settled(on: daemon) }) { try await named.create(key, rule: rule) }
+                }, settle: { await daemon.settledCheck() }) { try await named.create(key, rule: rule) }
             } catch {
                 windows.forgetCreate(key.rawValue)
                 throw windows.createFailed(key.rawValue, error)
@@ -117,13 +116,11 @@ struct WorkspaceSpawner {
                     _ = await daemon.failure("close-workspace") { connection in
                         try await WorkspaceClose.close(WorkspaceKey(rawValue: id), terminals: [], on: connection)
                     }
-                }, settle: { await Self.settled(on: daemon) }) {
+                }, settle: { await daemon.settledCheck() }) {
                     // One late-reply budget for the pin, the create and the first tab.
                     let giveUp = DaemonConnection.lateReplyDeadline()
                     if let room, let session = daemon.store.registryID, let home = services.machines.local.connection {
-                        try await DaemonConnection.retryingLateReplies(PinWorkspaceRequest.command, until: giveUp) {
-                            try await home.pinWorkspace(session: session, key: key, to: room.id)
-                        }
+                        try await home.pinWorkspaceBeforeCreate(session: session, key: key, to: room.id, until: giveUp)
                         BenchSpans.mark("cmdN.pinWorkspace.returned")
                     }
                     return try await shown.confirm(giveUp)
@@ -134,22 +131,6 @@ struct WorkspaceSpawner {
                 throw windows.createFailed(key.rawValue, error)
             }
         }
-    }
-
-    /// The reserved workspace's key for a plain Cmd-N into a window on its daemon (`AgentTabStore.reserveWorkspace`).
-    private func reservedKey() -> WorkspaceKey? {
-        let plain = windowID != nil && spawn.isPlainNewTabPage && windows.services.agentTabs.showsWorkspaceAtOnce(on: daemon)
-        let use = daemon.store.reservedWorkspaceUse(plain: plain, home: windows.services.daemon.store)
-        if let span = use.span { BenchSpans.mark(span) }
-        return use.key
-    }
-
-    /// The check that `daemon`'s store has applied every event before now (a
-    /// create's reply): a write barrier taken without waiting for it.
-    private static func settled(on daemon: DaemonService) async -> @MainActor () -> Bool {
-        guard let barrier = await daemon.connection?.eventSequence() else { return { false } }
-        let store = daemon.store
-        return { store.appliedSequence >= barrier }
     }
 
     /// The profile the workspace is born in: its window's, else the active
@@ -177,9 +158,7 @@ struct WorkspaceSpawner {
         let home = services.machines.local
         let room = home.store.profile(spawn.profile ?? profile)
         if let room, let session = daemon.store.registryID, let homeConnection = home.connection {
-            try await DaemonConnection.retryingLateReplies(PinWorkspaceRequest.command) {
-                try await homeConnection.pinWorkspace(session: session, key: key, to: room.id)
-            }
+            try await homeConnection.pinWorkspaceBeforeCreate(session: session, key: key, to: room.id)
             BenchSpans.mark("cmdN.pinWorkspace.returned")
         }
         if let browserProfile = spawn.browserProfile {
@@ -189,10 +168,7 @@ struct WorkspaceSpawner {
         let defaults = daemon.isLocal ? room?.defaults : nil
         // Local terminals get the app's environment; a Cloud terminal only
         // the caller's keys. Both get the placement keys hooks read.
-        var vars = daemon.isLocal ? await services.environment.terminalEnvironmentProvider()() : [:]
-        vars.merge(defaults?.env ?? [:]) { _, profile in profile }
-        vars.merge(spawn.env) { _, caller in caller }
-        vars.merge(DaemonConnection.placementEnvironment(workspace: key, terminal: terminal)) { _, placement in placement }
+        let vars = spawn.terminalEnvironment(app: daemon.isLocal ? await services.environment.terminalEnvironmentProvider()() : [:], room: defaults?.env, workspace: key, terminal: terminal)
         let env: [String: String]? = daemon.supports(DaemonCapability.terminalEnv.rawValue) ? vars : nil
         let keep: Bool? = spawn.keep && daemon.supports(DaemonCapability.terminalReap.rawValue) ? true : nil
         let repair: EmptyWorkspaceRepair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)

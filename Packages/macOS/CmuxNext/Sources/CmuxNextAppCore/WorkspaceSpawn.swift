@@ -86,6 +86,17 @@ public struct WorkspaceSpawn: Sendable {
             ?? (local ? inheritedCwd : nil) ?? daemonDefault
     }
 
+    /// The first terminal's environment: `app` (this Mac's launch identity; empty on a Cloud machine), then the room's
+    /// `room`, then the caller's ``env``, then the placement keys hooks read (`CMUX_WORKSPACE_ID`, `CMUX_SURFACE_ID`);
+    /// a later one wins.
+    public func terminalEnvironment(app: [String: String], room: [String: String]?, workspace: WorkspaceKey, terminal: TerminalID) -> [String: String] {
+        var vars = app
+        vars.merge(room ?? [:]) { _, profile in profile }
+        vars.merge(env) { _, caller in caller }
+        vars.merge(DaemonConnection.placementEnvironment(workspace: workspace, terminal: terminal)) { _, placement in placement }
+        return vars
+    }
+
     public static func folderName(_ directory: String) -> String? {
         let name = URL(fileURLWithPath: directory).standardizedFileURL.lastPathComponent
             .trimmingCharacters(in: .whitespacesAndNewlines)

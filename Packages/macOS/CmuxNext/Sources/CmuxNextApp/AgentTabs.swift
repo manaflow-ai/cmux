@@ -118,10 +118,8 @@ final class AgentTabStore {
             if resolvedLocalHost == nil { resolvedLocalHost = resolveLocalHost() }
             return resolvedLocalHost
         }
-        set { resolvedLocalHost = newValue; onLocalHostSet?() }
+        set { resolvedLocalHost = newValue }
     }
-    /// This Mac's host was set: a Cmd-N workspace can be reserved now (`WindowController.scheduleReservedContent`).
-    var onLocalHostSet: (@MainActor () -> Void)?
     var views: [String: AgentPaneView] = [:]
     /// The machine link each pane's composer strip shows, and the reconnect a chat's use of a down machine runs.
     let machineLink = AgentPaneMachineLink()
@@ -149,8 +147,6 @@ final class AgentTabStore {
     var recycle: ((AgentPaneView) -> Bool)?
     /// The prewarmed New Tab page, for a first page that has no view yet (NewTabSparePool).
     var takeSpare: (() -> AgentPaneView?)?
-    /// Memory pressure: no next Cmd-N workspace is reserved (``reserveWorkspace(on:cwd:)``) until it is normal again.
-    var reservationPaused = false
     /// The prewarmed page once it is connected and drawn, for a tab opening an existing chat of
     /// this Mac (``AgentPaneSpareAdoption``); nil leaves the spare in the pool.
     var takeConnectedSpare: (() -> AgentPaneView?)?
@@ -403,8 +399,8 @@ final class AgentTabStore {
 
     /// The tab's pane view, made on first show. A tab whose session runs on another machine is
     /// carried by that tab's own session daemon (``remoteHost``); nil when it cannot be (the
-    /// pane then shows the "runs on" notice). `known`: its record and store when no store lists it (a reserved Cmd-N page).
-    func view(for key: String, known: (record: AgentSessionRef, store: DaemonStore)? = nil) -> AgentPaneView? {
+    /// pane then shows the "runs on" notice).
+    func view(for key: String, known: (record: AgentSessionRef, store: DaemonStore)? = nil) -> AgentPaneView? { // known: a tab no store lists (a reserved Cmd-N page)
         let key = resolve(key)
         if let view = views[key] { return view }
         guard let (record, store) = known ?? lookup(key) else { return nil }

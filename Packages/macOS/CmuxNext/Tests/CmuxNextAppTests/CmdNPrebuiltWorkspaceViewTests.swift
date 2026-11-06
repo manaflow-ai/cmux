@@ -1,7 +1,5 @@
 import AppKit
 import CmuxNextActions
-import CmuxNextAgentPane
-import CmuxNextAppCore
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import Foundation
@@ -20,6 +18,8 @@ struct CmdNPrebuiltWorkspaceViewTests {
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-cmdn-prebuilt")
             try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
             let window = try #require(services.windows.active?.window, "no window")
+            // The window becomes key with this Mac's host known, as at a launch (its idle work may build ahead then).
+            services.windows.active?.windowDidBecomeKey(Notification(name: NSWindow.didBecomeKeyNotification, object: window))
             let before = services.windows.active?.workspaceContent?.contentView
 
             let store = services.daemon.store
@@ -53,6 +53,7 @@ struct CmdNPrebuiltWorkspaceViewTests {
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-cmdn-prebuilt-pressure")
             try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
             let controller = try #require(services.windows.active, "no window")
+            controller.reservedContent.fill()
             let store = services.daemon.store
             try await PasswordManagerRouteTests.until({ controller.reservedContent.ready != nil && store.reservedWorkspace != nil },
                                                       within: .seconds(10), report: { "the window built no next Cmd-N view" })
@@ -77,28 +78,6 @@ struct CmdNPrebuiltWorkspaceViewTests {
             for task in work { _ = await task.value }
             #expect(store.workspaces.contains { $0.id == key }, "Cmd-N's workspace is gone after its create")
         }
-    }
-
-    /// Only a plain Cmd-N (the New Tab page, nothing of its own) takes the reserved workspace; the reservation's folder
-    /// is the one a press with no folder of its own gets.
-    @Test func onlyAPlainNewTabPageTakesTheReservation() {
-        var spawn = WorkspaceSpawn(newTabPage: true)
-        #expect(spawn.isPlainNewTabPage)
-        #expect(spawn.startFolder(roomFolder: "", local: true, daemonDefault: "/home") == "/home")
-        #expect(spawn.startFolder(roomFolder: "/room", local: true, daemonDefault: "/home") == "/room")
-        #expect(spawn.startFolder(roomFolder: "/room", local: false, daemonDefault: nil) == nil)
-        spawn.inheritedCwd = "/work"
-        #expect(spawn.isPlainNewTabPage, "an inherited folder is the press's, given to the page at the key")
-        #expect(spawn.startFolder(roomFolder: nil, local: true, daemonDefault: "/home") == "/work")
-        let changes: [(inout WorkspaceSpawn) -> Void] = [{ $0.cwd = "/x" }, { $0.command = "ls" }, { $0.firstSession = "s" },
-                                                         { $0.key = WorkspaceKey.generate() }, { $0.browserProfile = "p" },
-                                                         { $0.firstChat = AgentPaneSeed(cwd: nil) }]
-        for change in changes {
-            var other = WorkspaceSpawn(newTabPage: true)
-            change(&other)
-            #expect(!other.isPlainNewTabPage)
-        }
-        #expect(!WorkspaceSpawn().isPlainNewTabPage)
     }
 
     private static func descendants(of view: NSView?) -> [NSView] {

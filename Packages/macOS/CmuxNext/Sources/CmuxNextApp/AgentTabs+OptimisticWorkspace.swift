@@ -53,10 +53,15 @@ extension AgentTabStore {
         sessions[tabKey] = session?.id
         if session?.linked == true { linkedSessions.insert(tabKey) }
         if session == nil { seeds[tabKey] = AgentPaneSeedSource(chat.map { var chat = $0; chat.cwd = chat.cwd ?? cwd; return chat } ?? AgentPaneSeed(cwd: cwd)) }
-        if reserved != nil { recontextReservedPage(tabKey, cwd: cwd, token: token) } else {
-            if session == nil, chat == nil { newTabPages[tabKey] = firstPage(cwd: cwd, token: token) }
+        let reservedPage = reserved.flatMap { _ in newTabPages[tabKey]?.page }
+        if session == nil, chat == nil { newTabPages[tabKey] = firstPage(cwd: cwd, token: token) }
+        if reserved == nil {
             track(tabKey, in: store)
             if let page = newTabPages[tabKey]?.page, let spare = takeSpare?() { adoptSpare(spare, key: tabKey, page: page) }
+        } else if let page = newTabPages[tabKey]?.page {
+            // The reserved page takes the press's context: its token alone keeps the screen; another folder remounts it.
+            if reservedPage?.drawsSameScreen(as: page) != true { BenchSpans.mark("cmdN.reserved.recontext") }
+            views[tabKey]?.adoptNewTab(page)
         }
         let fail: @MainActor () -> Void = { [weak self] in
             store.rejectIntent(transaction)
@@ -69,15 +74,10 @@ extension AgentTabStore {
                     key, name: name, on: connection, repair: repair, giveUp: giveUp
                 ) { workspace in
                     BenchSpans.mark("cmdN.workspace.created")
-                    var request = NewConversationTabRequest(agentSession: record, workspace: workspace.workspace, origin: Self.createOrigin,
-                                                            mutationID: firstTabKeyed ? workspace.firstChatTabMutationID : UUID().uuidString)
-                    request.transaction = transaction
-                    // One mutation id for every send: a tab the daemon made after the deadline replays.
-                    let response = try await DaemonConnection.retryingLateReplies(NewConversationTabRequest.command, until: giveUp) { try await connection.request(request) }
+                    let response = try await connection.newFirstTab(.firstAgentTab(record, in: workspace.workspace, origin: Self.createOrigin, mutationID: firstTabKeyed ? workspace.firstChatTabMutationID : UUID().uuidString,
+                                                                                    transaction: transaction), until: giveUp)
                     BenchSpans.mark("cmdN.tab.created")
-                    let tab = AgentTabCreated(key: response.tabResourceID?.rawValue ?? "surface:\(response.surface.rawValue)",
-                                              surface: response.surface)
-                    return (tab, await connection.eventSequence())
+                    return (AgentTabCreated(key: response.tabKey, surface: response.surface), await connection.eventSequence())
                 }
                 self?.tabCreated(tabKey, as: created.0)
                 ProvisionalTab.created(transaction, surface: created.0.surface, in: store)
@@ -92,36 +92,22 @@ extension AgentTabStore {
         return OptimisticWorkspace(tabKey: tabKey, transaction: transaction, confirm: confirm, abandon: fail)
     }
 
-    /// Reserves `daemon`'s next plain Cmd-N workspace before the key (STATUS 15250, Chrome's spare renderer): the store's
-    /// model with its screen and its first tab's New Tab page in `cwd` (the spare, else made now). Background work only.
-    func reserveWorkspace(on daemon: DaemonService, cwd: String?) -> ReservedWorkspace? {
+    /// Reserves `daemon`'s next plain Cmd-N workspace with its New Tab page in `cwd` (the spare, else made now); idle work only.
+    func reserveWorkspace(on daemon: DaemonService, cwd: String?) -> WorkspaceModel? {
         let store = daemon.store
-        if let reserved = store.reservedWorkspace { return reserved }
-        guard !reservationPaused, showsWorkspaceAtOnce(on: daemon), let localHost, let made = firstPage(cwd: cwd, token: nil) else { return nil }
+        if let reserved = store.reservedWorkspace { return reserved.model }
+        guard showsWorkspaceAtOnce(on: daemon), let localHost, let made = firstPage(cwd: cwd, token: nil) else { return nil }
         let record = AgentSessionRef(host: localHost, hostName: localHostName, session: nil), tab = ProvisionalTab()
         newTabPages[tab.id] = made
-        seeds[tab.id] = AgentPaneSeedSource(AgentPaneSeed(cwd: cwd))
         track(tab.id, in: store)
         if let spare = takeSpare?() { adoptSpare(spare, key: tab.id, page: made.page) } else if view(for: tab.id, known: (record: record, store: store)) == nil { release(tab.id); return nil }
-        return store.reserveWorkspace(ProvisionalWorkspace(key: WorkspaceKey.generate(), name: "", tab: tab.conversation(ConversationTabRef(agentSession: record))))
+        return store.reserveWorkspace(ProvisionalWorkspace(key: WorkspaceKey.generate(), name: "", tab: tab.conversation(ConversationTabRef(agentSession: record)))).model
     }
 
     /// Lets `store`'s reservation go; its page goes back to the New Tab spare pool when it can (``release(_:)``).
     func releaseReservedWorkspace(on store: DaemonStore, _ reason: ReservedWorkspaceRelease) {
-        guard let released = store.releaseReservedWorkspace(reason) else { return }
+        guard let tabKey = store.releaseReservedWorkspace(reason)?.tabKey else { return }
         BenchSpans.mark(reason.span)
-        if let tabKey = released.tabKey { release(tabKey) }
-    }
-
-    /// The press of a reserved workspace gives its page the press's key-hold token (the same screen), and a new context
-    /// when the press's folder is another.
-    private func recontextReservedPage(_ tabKey: String, cwd: String?, token: String?) {
-        guard let shown = newTabPages[tabKey] else { return }
-        let same = shown.page.cwd == cwd
-        if !same { BenchSpans.mark("cmdN.reserved.recontext") }
-        let kept: (page: AgentPaneNewTab, handler: NewTabPageHandler)? = same ? (page: shown.page.taking(token), handler: shown.handler) : nil
-        newTabPages[tabKey] = kept ?? firstPage(cwd: cwd, token: token) ?? shown
-        if same, let token { onFirstPageToken?(token) }
-        if let page = newTabPages[tabKey]?.page { views[tabKey]?.adoptNewTab(page) }
+        release(tabKey)
     }
 }

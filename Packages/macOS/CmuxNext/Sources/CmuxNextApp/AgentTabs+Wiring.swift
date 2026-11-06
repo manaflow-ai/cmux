@@ -49,7 +49,7 @@ extension AgentTabStore {
         defer { firstChats[workspace] = nil; firstPageTokens[workspace] = nil }
         // One mutation id for every send: a tab the daemon made after the deadline replays.
         let response = try await DaemonConnection.retryingLateReplies(NewConversationTabRequest.command) { try await connection.request(request) }
-        let key = response.tabResourceID?.rawValue ?? "surface:\(response.surface.rawValue)"
+        let key = response.tabKey
         if chat != nil {
             // No view took the seed while the request ran: the tab's view takes it.
             if let seed = firstChats.removeValue(forKey: workspace) { seeds[key] = seed }
@@ -118,7 +118,6 @@ extension AgentTabStore {
             guard let services, services.cloud.movedChats.started(host: host, session: session, remoteChat: cwd, harness: harness) else { return }
             services.cloud.accessAsks.start(services: services)
         }
-        tabs.onLocalHostSet = { [weak services] in services?.windows.active?.scheduleReservedContent() }
         tabs.cloudRepositoryLocal = { [weak services] in
             guard let services else { throw DaemonError.notConnected }
             return try await services.daemon.cloudRepositoryLocal()
@@ -473,8 +472,7 @@ extension AgentTabStore {
                                                     transaction: transaction)
             request.split = split
             let response = try await DaemonConnection.retryingLateReplies(NewConversationTabRequest.command, until: DaemonCommandScope.current.map { _ in ContinuousClock.now + AgentSessionWorkspace.firstTabBudget }) { try await connection.request(request) } // keyed: a late reply is asked again; a scripted open waits out a busy daemon, a person's tab (no scope) the 10 s budget
-            let created = AgentTabCreated(key: response.tabResourceID?.rawValue ?? "surface:\(response.surface.rawValue)",
-                                          surface: response.surface)
+            let created = AgentTabCreated(key: response.tabKey, surface: response.surface)
             // Every event the daemon sent before the reply: the provisional tab settles there.
             return (created, await connection.eventSequence())
         }

@@ -72,6 +72,8 @@ struct ProvisionalWorkspaceModels {
     /// The next Cmd-N's workspace, made before its key (``DaemonStore/reserveWorkspace(_:)``). Its own field: the
     /// prune of settled creates (`releaseSettledProvisionalWorkspaces`) keeps only keys a pending create names.
     var reserved: ReservedWorkspace?
+    /// Memory pressure: nothing is reserved until it is normal again.
+    var paused = false
 }
 
 /// The next Cmd-N's workspace, made before the key, as Chrome keeps a spare renderer (STATUS 15250): its model holds
@@ -114,8 +116,6 @@ public enum ReservedWorkspaceUse: Equatable, Sendable {
 public enum ReservedWorkspaceRelease: String, Sendable {
     /// Warning or critical memory pressure.
     case pressure
-    /// Its daemon is not connected.
-    case disconnected
     /// A press took its key but did not show it (the key never names another workspace).
     case unshown
 
@@ -131,6 +131,12 @@ extension DaemonStore {
 
     /// The reserved next Cmd-N workspace, if any.
     public var reservedWorkspace: ReservedWorkspace? { provisionalWorkspaces.reserved }
+
+    /// Memory pressure pauses reserving (the caller lets the reservation go); normal pressure resumes it.
+    public var reservationPaused: Bool {
+        get { provisionalWorkspaces.paused }
+        set { provisionalWorkspaces.paused = newValue }
+    }
 
     /// The reserved workspace when a press sends its key `key`.
     public func reservedWorkspace(keyed key: WorkspaceKey) -> ReservedWorkspace? {

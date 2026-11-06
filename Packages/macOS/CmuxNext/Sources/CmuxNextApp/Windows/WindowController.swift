@@ -10,8 +10,8 @@ import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
+import CmuxNextAppCore
 import CmuxNextSettings
-import CmuxNextWakeups
 import Observation
 
 /// One window: sidebar, titlebar, and the content of the workspace it shows.
@@ -35,8 +35,15 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     var parked: [String: WorkspaceContentController] = [:]
     /// Orders `parked` by when each was parked (`mountedContents`).
     var parkSerial: UInt64 = 0
-    /// The next Cmd-N's view, built before the key (`WindowController+Parking`); never `parked` or a saved record.
-    private(set) lazy var reservedContent = IdleSpare(owner: "WorkspaceSpare", on: services.mainWork) { [weak self] in self?.makeReservedContent() }
+    /// The next Cmd-N's view, built before the key in idle steps on the daemon's reserved workspace (its own slot).
+    private(set) lazy var reservedContent = WorkspaceSpareSlot<WorkspaceContentController>(owner: "WorkspaceSpare", on: services.mainWork, wanted: { [weak self] in
+        self.map { $0.services.windows.active === $0 && $0.content != nil && $0.services.daemon.reservesWorkspace } ?? false
+    }, reserve: { [weak self] in
+        self.flatMap { $0.services.agentTabs.reserveWorkspace(on: $0.services.daemon, cwd: WorkspaceSpawn().startFolder(roomFolder: $0.services.machines.local.store.profile($0.state.profileID)?.defaults?.cwd, local: true, daemonDefault: $0.services.daemon.defaultCwd)) }
+    }, build: { [weak self] model in
+        self.map { window in BenchSpans.measure("cmdN.reserved.build.init") { WorkspaceContentController(workspace: model, daemon: window.services.daemon, services: window.services, state: window.state, parked: true) } }
+    }, mount: { [weak self] content in BenchSpans.measure("cmdN.reserved.build.mount") { self?.root.contentHost.addHiddenSubview(content.contentView) } },
+       teardown: { $0.teardown() }, isCurrent: { [weak self] in $0.daemon === self?.services.daemon && $0.daemon.store.reserves($0.workspace) })
     /// Workspaces Toggle Left/Right/Top/Bottom Dock created for an empty edge, docked there once the daemon reports
     /// them (`arrangeOnScreen`). In memory only.
     var pendingDocks: [String: DockEdge] = [:]
@@ -166,7 +173,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         state.roomBrowserProfileOf = nil
         content?.teardown()
         content = nil
-        dropReservedContent()
+        reservedContent.drop()
         parked.values.forEach { $0.teardown() }
         parked.removeAll()
         topPages.teardown()
@@ -290,23 +297,23 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         // Parking the current one never trims the one to show; a current one of the same id (a rebuilt model) is torn down below.
         if let current = content { park(current, leaving: workspace.id) }
         DebugWorkspaceSwitch.mark(self, "park")
-        let controller: WorkspaceContentController, kept = parked.removeValue(forKey: workspace.id)
+        let reserved = parked[workspace.id] == nil ? reservedContent.take { $0.workspace === workspace } : nil // Cmd-N's, built before the key
+        let controller: WorkspaceContentController, kept = parked.removeValue(forKey: workspace.id) ?? reserved
         if let kept, kept.workspace === workspace, kept.daemon === daemon {
             controller = kept
             controller.unpark()
         } else {
             kept?.teardown()
-            // Cmd-N's workspace: the view built before the key, else one built now.
-            controller = takeReservedContent(showing: workspace, on: daemon) ?? WorkspaceContentController(workspace: workspace, daemon: daemon, services: services, state: state)
+            controller = WorkspaceContentController(workspace: workspace, daemon: daemon, services: services, state: state)
         }
         content = controller
         // Panes pan and spring per display frame: shortcut chips over them follow.
         controller.layoutView.onFramePlaced = { [weak self] in self?.shortcutHints?.scrollDidChange() }
         // One synchronous swap: the old view leaves (its panes stay mounted, paused) and the new
         // one draws in the same frame, its sidebar row already listed (a listed one pays no walk of every row) and selected.
-        DebugWorkspaceSwitch.kind(self, controller === kept ? "warm" : "cold")
+        DebugWorkspaceSwitch.kind(self, controller === reserved ? "reserved" : controller === kept ? "warm" : "cold")
         DebugWorkspaceSwitch.mark(self, "content")
-        sidebar.sameTurn.syncNow(rows: controller !== kept && !sidebar.model.lists(SidebarWorkspaceID(workspace.id)))
+        sidebar.sameTurn.syncNow(rows: (controller !== kept || controller === reserved) && !sidebar.model.lists(SidebarWorkspaceID(workspace.id)))
         DebugWorkspaceSwitch.mark(self, "sidebar")
         root.show(controller.contentView)
         DebugWorkspaceSwitch.mark(self, "root")
@@ -338,7 +345,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         services.windows.contentDidAppear(self)
         DebugWorkspaceSwitch.shown(self, in: window)
         revalidatePagePresentation()
-        scheduleReservedContent()
+        reservedContent.fill()
     }
 
     var focusedPane: PaneController? { content?.focusedPane }
@@ -357,7 +364,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     func windowDidBecomeKey(_ notification: Notification) {
         services.windows.didActivate(self)
-        scheduleReservedContent() // the next Cmd-N's view follows the key main window, as the New Tab spare does
+        reservedContent.fill { [weak self] in self?.services.windows.controllers.map(\.reservedContent) ?? [] } // follows the key main window
         let snapshots = services.sidebarSnapshots, id = state.id
         Task { await snapshots.touch(window: id) }
         focus.send(.windowKey(true))

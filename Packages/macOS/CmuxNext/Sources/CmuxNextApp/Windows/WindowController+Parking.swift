@@ -1,9 +1,6 @@
 import AppKit
-import CmuxNextAppCore
 import CmuxNextBridge
-import CmuxNextDaemon
 import CmuxNextLayout
-import CmuxNextWakeups
 
 // Parked workspaces (plans/cmux-next/tab-lifecycle.md): the workspaces this window showed most recently stay
 // mounted and paused (`ParkedWorkspaceBudget`), so a switch back swaps its view in within the frame.
@@ -44,17 +41,8 @@ extension WindowController {
         parkSerial &+= 1
         controller.park(serial: parkSerial)
         parked[controller.workspace.id] = controller
-        trimParked(keeping: controller.workspace.id, leaving: leaving)
-    }
-
-    /// Past `ParkedWorkspaceBudget.standard`'s capacity, the least recently parked workspaces leave as under
-    /// critical pressure, so a window that visited hundreds keeps a bounded set mounted.
-    private func trimParked(keeping parkedNow: String, leaving: String?) {
-        let budget = ParkedWorkspaceBudget.standard
-        let entries = parked.compactMap { $0.key == leaving ? nil : (id: $0.key, serial: $0.value.parkedSerial) }
-        guard entries.count > budget.capacity else { return }
-        let kept = Set(parked.keys.filter(keepsParked)).union([parkedNow])
-        for id in budget.evictions(parked: entries, kept: kept) {
+        // Past `ParkedWorkspaceBudget.standard`'s capacity the least recently parked leave, as under critical pressure.
+        for id in ParkedWorkspaceBudget.standard.evictions(parked: parked.mapValues(\.parkedSerial), parkedNow: controller.workspace.id, leaving: leaving, keeps: keepsParked) {
             parked.removeValue(forKey: id)?.teardown()
         }
     }
@@ -62,49 +50,5 @@ extension WindowController {
     /// The one under a top page (this window's workspace) and the ones on screen beside the shown one (multi-view, docks).
     private func keepsParked(_ id: String) -> Bool {
         (content == nil && id == state.workspaceID) || isOnScreenBeside(id)
-    }
-}
-
-// The next Cmd-N's workspace view, built before the key (STATUS 15250; Chrome's spare renderer): the key main window
-// builds it on the daemon's reserved workspace (`AgentTabStore.reserveWorkspace`) as idle work after a frame commit,
-// mounted hidden and parked like a parked workspace's view; Cmd-N's show takes it (no build, no window entry).
-extension WindowController {
-    /// Builds the reserved view after this frame, when this is the active main window; other windows' and a stale one go then.
-    func scheduleReservedContent() {
-        guard services.windows.active === self else { return }
-        AfterFrameCommit().run { [weak self] in
-            guard let self, services.windows.active === self else { return }
-            for other in services.windows.controllers where other !== self { other.dropReservedContent() }
-            if let ready = reservedContent.ready, ready.daemon !== services.daemon || !ready.daemon.store.reserves(ready.workspace) { dropReservedContent() }
-            reservedContent.fill()
-        }
-    }
-
-    /// Cmd-N shows `workspace`: the view built for it before the key, if this window holds it.
-    func takeReservedContent(showing workspace: WorkspaceModel, on daemon: DaemonService) -> WorkspaceContentController? {
-        guard let ready = reservedContent.ready, ready.workspace === workspace, ready.daemon === daemon else { return nil }
-        _ = reservedContent.take()
-        ready.unpark()
-        return ready
-    }
-
-    /// The reserved view leaves this window; the daemon's reservation stays for the key window.
-    func dropReservedContent() { reservedContent.take()?.teardown() }
-
-    /// `reservedContent`'s idle work: the daemon's reservation (made if none) and its view, hidden in the content area.
-    func makeReservedContent() -> WorkspaceContentController? {
-        let daemon = services.daemon, tabs = services.agentTabs
-        guard services.windows.active === self, content != nil, daemon.store.isLoaded else { return nil }
-        guard daemon.connection != nil else { tabs.releaseReservedWorkspace(on: daemon.store, .disconnected); return nil }
-        // The press's own folder (a focused terminal's) replaces this one at the key when it differs.
-        let cwd = WorkspaceSpawn().startFolder(roomFolder: services.machines.local.store.profile(state.profileID)?.defaults?.cwd, local: true, daemonDefault: daemon.defaultCwd)
-        guard let reserved = tabs.reserveWorkspace(on: daemon, cwd: cwd) else { return nil }
-        let controller = WorkspaceContentController(workspace: reserved.model, daemon: daemon, services: services, state: state, parked: true)
-        let view = controller.contentView
-        (view.isHidden, view.frame) = (true, root.contentHost.bounds)
-        root.contentHost.addSubview(view, positioned: .below, relativeTo: nil)
-        view.setParked(true)
-        view.reparentRootedThemeScope()
-        return controller
     }
 }
