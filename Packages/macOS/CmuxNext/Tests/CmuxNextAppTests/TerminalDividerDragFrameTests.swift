@@ -9,18 +9,17 @@ import Testing
 /// divider drag each terminal shows live pixels at that frame's pane size, not frozen, not stretched, not anchored; its
 /// program (the PTY) still gets one grid, when the drag lands. Before: the drag hold (`terminalDrag.holdSurface`, RESIZE
 /// VIDEOS A3) kept each surface at its drag-start size for the whole drag and its release (pixel-perfect's trace,
-/// STATUS 13764: col-drag-2 held 157-159 ticks per film, the surface up to 150 pt off its pane), whichever value the key
-/// resizes' switch `motion.frameOwner.terminals` had. Now each drag frame gives the surface its pane's size through the
-/// placement every resize uses, with the switch's present rule: on, the frame owner shows each size with its frame
-/// drawn at it (or keeps the last frame and size, top-left, until it is drawn); off, the bounds change at once and
-/// Ghostty's frame of that size lands 1-4 refreshes later (cmux-ad m18 turns the switch on by default).
+/// STATUS 13764: col-drag-2 held 157-159 ticks per film, the surface up to 150 pt off its pane). Now each drag frame gives
+/// the surface its pane's size through the placement every resize uses: the frame owner shows each size with its frame
+/// drawn at it (or keeps the last frame and size, top-left, until it is drawn); cmux-ad m26 (T-KEYS) deleted the switch
+/// `motion.frameOwner.terminals` and its off path.
 ///
 /// S4's rig (`TerminalKeyResizeFrameTests.PaneScreen`: p1 | p2, the app's pane content with a terminal in each, a window
-/// on screen), the switch set to the test's value; a drag of the split's divider 6 pt left per frame for 20 frames, then
-/// the release and its landing. After each frame's commit, per terminal, in the committed layer tree: its top-left on its
-/// area's, a size its pane had in this drag (this frame or an earlier one); with the switch on, the frame shown has the
-/// layer's pixel size; after the landing, at its final size, its PTY's newest grid the one it fits; and each terminal took
-/// a new size in at least half of the drag frames (it follows its pane; the drag hold gave 0).
+/// on screen); a drag of the split's divider 6 pt left per frame for 20 frames, then the release and its landing. After
+/// each frame's commit, per terminal, in the committed layer tree: its top-left on its area's, a size its pane had in this
+/// drag (this frame or an earlier one), the frame shown at the layer's pixel size; after the landing, at its final size,
+/// its PTY's newest grid the one it fits; and each terminal took a new size in at least half of the drag frames (it
+/// follows its pane; the drag hold gave 0).
 ///
 /// It needs a window on a display (a display worker: `cmux-ci run --display --label gui-session-v1`).
 @MainActor @Suite(.serialized, .closesItsWindows, .timeLimit(.minutes(1)),
@@ -29,16 +28,11 @@ struct TerminalDividerDragFrameTests {
     typealias Rig = TerminalKeyResizeFrameTests
     typealias Sample = TerminalKeyResizeFrameTests.Sample
 
-    @Test(arguments: [false, true])
-    func aDividerDragShowsEachTerminalAtItsPanesSizeInEveryFrameAndResizesItsProgramOnce(keysSwitch: Bool) async throws {
+    @Test
+    func aDividerDragShowsEachTerminalAtItsPanesSizeInEveryFrameAndResizesItsProgramOnce() async throws {
         let screen = try await Rig.PaneScreen()
         defer { screen.close() }
-        // Both values of the switch: a drag takes its present rule. The store is process-wide and another suite may set
-        // or reset it at an await, so the test pins it again before each frame (`PaneGroundCoversPaneTests.ownFrames`).
-        func pin() { TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, .bool(keysSwitch)) }
-        pin()
         await Rig.settle(screen)
-        pin()
         let view = try #require(screen.root.screenViews["s"])
         let handle = try #require(view.dividerViews[.split("x")])
         let start = handle.convert(CGPoint(x: handle.bounds.midX, y: handle.bounds.midY), to: nil)
@@ -50,7 +44,6 @@ struct TerminalDividerDragFrameTests {
         let moves = 20
         for move in 1...moves {
             view.handleDrag(kind: .split("x"), event: .moved(CGPoint(x: start.x - CGFloat(move) * 6, y: start.y), []))
-            pin()
             _ = screen.root.advanceFrame(1.0 / 120)
             screen.root.layoutSubtreeIfNeeded() // sync-layout: the stepped frame's own layout pass, as the frame tick runs it
             await Rig.commit()
@@ -61,7 +54,6 @@ struct TerminalDividerDragFrameTests {
         screen.root.syncWithModel()
         var moving = true, steps = 0
         while moving, steps < 240 {
-            pin()
             moving = screen.root.advanceFrame(1.0 / 120)
             screen.root.layoutSubtreeIfNeeded() // sync-layout: the landing's frames, as the frame tick runs them
             await Rig.commit()
@@ -102,15 +94,13 @@ struct TerminalDividerDragFrameTests {
         let grids = zip(screen.sessions, screen.ios).map { session, io in
             (fits: session.surfaceView.fittedGrid.map { "\($0.columns)x\($0.rows)" }, newest: io.resizes.last.map { "\($0.columns)x\($0.rows)" })
         }
-        print("m14 drag (keys switch \(keysSwitch)): \(moves) drag frames, \(steps) landing frames; new sizes in drag frames \(changes); " +
+        print("m14 drag: \(moves) drag frames, \(steps) landing frames; new sizes in drag frames \(changes); " +
               "frames behind their pane \(behind); PTY grids \(resizes); misplaced \(misplaced.count), unsized \(unsized.count), " +
               "frame of another pixel size than its layer \(stretched.count)")
         #expect(changes.allSatisfy { $0 >= moves / 2 }, "a terminal took a new size in only \(changes) of \(moves) drag frames: the drag holds it")
         #expect(misplaced.isEmpty, "\(misplaced.count) frames showed a terminal off its pane's top-left: \(misplaced.prefix(8))")
         #expect(unsized.isEmpty, "\(unsized.count) frames showed a terminal at a size its pane had not had yet: \(unsized.prefix(8))")
-        if keysSwitch {
-            #expect(stretched.isEmpty, "\(stretched.count) frames showed a terminal's frame at another pixel size than its layer: \(stretched.prefix(8))")
-        }
+        #expect(stretched.isEmpty, "\(stretched.count) frames showed a terminal's frame at another pixel size than its layer: \(stretched.prefix(8))")
         #expect(landed.isEmpty, "after the landing a terminal does not show its pane's size: \(landed)")
         #expect(grids.allSatisfy { $0.fits == $0.newest }, "after the landing a PTY's newest grid is not the one its view fits: \(grids)")
     }

@@ -109,7 +109,14 @@
     },
     {
       "title": "Cmd-P \"api\": three equal matches, in sidebar order",
-      "wait": 0.5
+      "wait": 0.5,
+      "rpc": {
+        "method": "debug.palette.capture",
+        "params": {
+          "path": "{collect}"
+        }
+      },
+      "collect": "sidebar-order.png"
     },
     {
       "title": "Type ' '",
@@ -207,7 +214,14 @@
     },
     {
       "title": "Cmd-P \"api\" again: the row picked for this query comes first",
-      "wait": 0.5
+      "wait": 0.5,
+      "rpc": {
+        "method": "debug.palette.capture",
+        "params": {
+          "path": "{collect}"
+        }
+      },
+      "collect": "picked-first.png"
     },
     {
       "title": "Close the palette",

@@ -171,6 +171,7 @@ final class CEFLayerHosting {
     func pageShown(browser: Int32) { // perf-hot: 10ms tab-switch (every Chromium tab show)
         guard let fork else { return }
         self.browser = browser
+        if attachOwed { attachIfOwed() }
         let wanted = isEnabled()
         if wanted == (page != nil) {
             syncDeadline()
@@ -218,7 +219,7 @@ final class CEFLayerHosting {
         if isDetached {
             // The old window never ends a live resize or a drag for a view that left it, and a detached page takes no
             // input: it attaches at once, at its new place, and stays attached for the rest of the motion.
-            setDetached(false)
+            attachOwed = !setDetached(false) && isDetached
             motionKeepsAttached = inResizeMotion
         } else if wasInMotion, !inResizeMotion {
             motionKeepsAttached = false
@@ -234,6 +235,7 @@ final class CEFLayerHosting {
     func windowBrowsersChanged(_ browsers: [Int32]) {
         guard let browser, !browsers.contains(browser) else { return }
         self.browser = browsers.first
+        if attachOwed { attachIfOwed() }
     }
 
     /// The window starts or ends a live resize (`CEFHostView.viewWillStartLiveResize`). Fork API 27 never lets a page
@@ -270,6 +272,7 @@ final class CEFLayerHosting {
     /// The fork's tracker read the host view (`-cmuxClipPath`): it is attached
     /// to the page window now, so a refused request may succeed.
     func trackerDidRead() { // perf-hot: 1us cef-geometry (each tracker read)
+        if attachOwed { attachIfOwed() }
         guard pending == .armed else { return }
         request(retry: true)
     }
@@ -288,6 +291,12 @@ final class CEFLayerHosting {
     /// Whether the page holds the keyboard (its window is key, or a focus ask waits for it). The page's own window
     /// being key by default; ``CEFPaneHost`` adds its shown tab's waiting ask.
     var holdsFocus: () -> Bool
+
+    /// A motion ended and the fork refused to bring the page window back (a busy fork, or a browser that went with a
+    /// renderer restart): the page still shows its pixels in the layer tree but its window is headless and off screen,
+    /// so it takes no click. Nothing else ends a motion, so the attach is retried at the next show, browser change,
+    /// window change and tracker read (``attachIfOwed()``) until the fork takes it.
+    private(set) var attachOwed = false
 
     /// The view is in a resize motion: a live resize of its window or a motion of its pane.
     var inResizeMotion: Bool { inLiveResize || motionHolders > 0 }
@@ -321,8 +330,14 @@ final class CEFLayerHosting {
             if !motionKeepsAttached { setDetached(true) }
         } else {
             motionKeepsAttached = false
-            setDetached(false)
+            attachOwed = !setDetached(false) && isDetached
         }
+    }
+
+    /// Retries an attach a landing could not make (``attachOwed``); a new motion owns the page window again instead.
+    private func attachIfOwed() {
+        guard !inResizeMotion else { return attachOwed = false }
+        attachOwed = !setDetached(false) && isDetached
     }
 
     /// Detaches the hosted page's window or attaches it again; the fork's attach places it at the view's rect then,
@@ -429,6 +444,7 @@ final class CEFLayerHosting {
     private func dropPage() {
         // The fork ends detached hosting when hosting goes off or the page window goes.
         isDetached = false
+        attachOwed = false
         guard let page else { return }
         page.removeFromSuperview()
         self.page = nil

@@ -1124,7 +1124,12 @@ impl Hub {
                 .as_ref()
                 .and_then(|m| m.get("currentModeId"))
                 .and_then(Value::as_str)
-                .unwrap_or("default")
+                // A Web start begins in Manual until the remote guard settles it.
+                .unwrap_or(if meta.remote_origin {
+                    "default"
+                } else {
+                    crate::claude_stdio::OWN_MODE
+                })
                 .to_owned();
             // A remote chain never runs in full access (remote_sandbox.rs),
             // even when a transfer moved a full-access chat here.
