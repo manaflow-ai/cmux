@@ -1,14 +1,23 @@
 public import AppKit
 
-/// Places a dialog view in its scope and blocks only that scope. The app
-/// uses `CmuxDialogOverlayHost` (the R84 `WindowOverlayHost`, above every
-/// Chromium page); tests may pass a recording host.
+/// Places dialogs (`CmuxDialogCenter` calls it).
 @MainActor
 public protocol CmuxDialogHosting: AnyObject {
     /// Shows `dialog`; `scopeGone` runs if the scope disappears first (the
     /// tab or window closed), and the center then cancels the dialog.
-    func show(_ dialog: CmuxDialogView, in scope: CmuxDialogScope, scopeGone: @escaping () -> Void)
-    func hide(_ dialog: CmuxDialogView)
+    func show(_ dialog: CmuxDialogPresentation, in scope: CmuxDialogScope, scopeGone: @escaping () -> Void)
+    func hide(_ dialog: CmuxDialogPresentation)
+}
+
+/// What draws dialogs for ``CmuxDialogOverlayHost``: the overlay page's React dialog (CmuxNextPages
+/// `OverlayDialogDrawing`), which the app's composition root gives the shared center's host. A view it returns fills the dialog's region (the
+/// window, or the tab) and draws the card in it, so the card's whole motion is the page's own.
+@MainActor
+public protocol CmuxDialogDrawing: AnyObject {
+    /// The view that draws `dialog` in `window` (nil: the app host); nil when none can.
+    func attach(_ dialog: CmuxDialogPresentation, in window: NSWindow?) -> NSView?
+    /// `dialog` left the screen: its view may draw the next one.
+    func detach(_ dialog: CmuxDialogPresentation)
 }
 
 /// Dialogs on the R84 overlay host: a window-scope dialog is a dimming
@@ -22,19 +31,24 @@ public protocol CmuxDialogHosting: AnyObject {
 @MainActor
 public final class CmuxDialogOverlayHost: CmuxDialogHosting {
     private final class Shown {
-        let dialog: CmuxDialogView
+        let dialog: CmuxDialogPresentation
         /// Weak: the overlay never keeps a closed tab alive.
         let scope: CmuxDialogWeakScope
         let scopeGone: () -> Void
         var handle: OverlayHandle?
         var watcher: CmuxDialogScopeWatcher?
 
-        init(dialog: CmuxDialogView, scope: CmuxDialogScope, scopeGone: @escaping () -> Void) {
+        init(dialog: CmuxDialogPresentation, scope: CmuxDialogScope, scopeGone: @escaping () -> Void) {
             self.dialog = dialog
             self.scope = CmuxDialogWeakScope(scope)
             self.scopeGone = scopeGone
         }
     }
+
+    /// What draws the dialogs (the overlay page); nil draws none (a host made before launch wired it).
+    private let drawing: (any CmuxDialogDrawing)?
+    /// The size of an app-scope dialog's region (no window to fill): room for the widest card.
+    static let appRegion = NSSize(width: 520, height: 420)
 
     private var shown: [ObjectIdentifier: Shown] = [:]
     /// Brings the app forward for an app-scope dialog: the app host hides
@@ -43,8 +57,9 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
     private let activate: () -> Void
     private let isAppActive: () -> Bool
 
-    public init(activate: @escaping () -> Void = { if !WindowPlacement.noActivate { NSApp.activate() } },
+    public init(drawing: (any CmuxDialogDrawing)? = nil, activate: @escaping () -> Void = { if !WindowPlacement.noActivate { NSApp.activate() } },
                 isAppActive: @escaping () -> Bool = { NSApp.isActive }) {
+        self.drawing = drawing
         self.activate = activate
         self.isAppActive = isAppActive
     }
@@ -57,15 +72,18 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
             return OverlayOptions(kind: .dialog, anchor: rect, isModal: true, dismissOnEscape: false, dimsContent: false,
                                   passesThroughClicks: false, modalRegion: rect)
         case .window, .app:
-            return OverlayOptions(kind: .dialog, isModal: true, dismissOnEscape: false, dimsContent: true, passesThroughClicks: false)
+            return OverlayOptions(kind: .dialog, anchor: windowRegion(scope), isModal: true, dismissOnEscape: false, dimsContent: true,
+                                  passesThroughClicks: false)
         }
     }
 
-    public func show(_ dialog: CmuxDialogView, in scope: CmuxDialogScope, scopeGone: @escaping () -> Void) {
-        dialog.layoutSubtreeIfNeeded()
-        let size = dialog.fittingSize
-        dialog.translatesAutoresizingMaskIntoConstraints = true
-        dialog.frame = NSRect(origin: .zero, size: size)
+    /// A window-scope dialog's region: the window's content (window coordinates); nil for the app host.
+    private static func windowRegion(_ scope: CmuxDialogScope) -> NSRect? {
+        guard case .window(let window) = scope, let content = window.contentView else { return nil }
+        return content.convert(content.bounds, to: nil)
+    }
+
+    public func show(_ dialog: CmuxDialogPresentation, in scope: CmuxDialogScope, scopeGone: @escaping () -> Void) {
         let entry = Shown(dialog: dialog, scope: scope, scopeGone: scopeGone)
         shown[ObjectIdentifier(dialog)] = entry
         if case .tab(let view) = scope {
@@ -78,6 +96,7 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
             }
             watcher.onResize = { [weak entry] in
                 guard let entry, let rect = entry.watcher?.windowRect else { return }
+                entry.dialog.view?.setFrameSize(rect.size)
                 entry.handle?.update(anchor: rect, modalRegion: rect)
             }
             entry.watcher = watcher
@@ -85,10 +104,11 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
         sync(entry)
     }
 
-    public func hide(_ dialog: CmuxDialogView) {
+    public func hide(_ dialog: CmuxDialogPresentation) {
         guard let entry = shown.removeValue(forKey: ObjectIdentifier(dialog)) else { return }
         entry.watcher?.stop()
         detach(entry)
+        drawing?.detach(dialog)
     }
 
     /// Presents or withdraws the overlay to match the scope's visibility.
@@ -105,11 +125,23 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
         guard let host else { return detach(entry) }
         if let handle = entry.handle, !handle.isDismissed, handle.host === host { return }
         detach(entry)
-        let handle = host.present(entry.dialog, options: Self.options(for: scope))
+        guard let view = drawing?.attach(entry.dialog, in: scope.window) else { return }
+        let options = Self.options(for: scope)
+        view.frame = NSRect(origin: .zero, size: options.anchor?.size ?? Self.appRegion)
+        entry.dialog.view = view
+        let handle = host.present(view, options: options)
         // The window closed (its host dismissed every overlay): the dialog ends.
         handle.onDismiss = entry.scopeGone
+        if case .window = scope {
+            // The page fills the window: it follows the window's size.
+            handle.onWindowGeometryChange = { [weak handle, weak view] in
+                guard let handle, let view, let region = Self.windowRegion(scope) else { return }
+                view.setFrameSize(region.size)
+                handle.update(anchor: region)
+            }
+        }
         entry.handle = handle
-        entry.dialog.focusInitial()
+        view.window?.makeFirstResponder(view)
     }
 
     private func detach(_ entry: Shown) {
