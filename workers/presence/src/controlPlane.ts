@@ -923,6 +923,8 @@ function decodeStoredCredentials(raw: string | undefined): StoredCtlCredentials 
 }
 
 const DISCOVERY_PATH = "/api/devices/iroh";
+/** Upstream refused the stored credentials (401/403); a retry cannot help. */
+const CREDENTIALS_REJECTED = "credentials_rejected" as const;
 const MINT_PATH = "/api/relay/token";
 
 function upstreamHeaders(credentials: StoredCtlCredentials, namespace: string | undefined, json: boolean): Record<string, string> {
@@ -1110,7 +1112,9 @@ export class ControlPlaneCore {
     }
 
     const fetched = await this.fetchDirectory(attachment);
-    if (fetched === null) {
+    // A just-attached bearer that upstream refuses is retired by the next
+    // alarm; until then the hello is served like any other failed fetch.
+    if (fetched === null || fetched === CREDENTIALS_REJECTED) {
       this.sendFrame(socket, attachment, errorFrame(
         "directory_unavailable",
         "directory fetch failed upstream; retrying",
@@ -1777,9 +1781,18 @@ export class ControlPlaneCore {
    * the latest one is preferred because it was verified most recently. Control
    * sockets omit that field. Endpoint-bound mints never borrow across sockets. */
   private async refreshDirectory(live: CtlSocket[]): Promise<void> {
-    const holder = await this.freshestBearerHolder(live);
+    const holder = this.freshestBearerHolder(live);
     if (holder === null) return;
-    const fetched = await this.fetchDirectory(holder);
+    const fetched = await this.fetchDirectory(holder.attachment);
+    if (fetched === CREDENTIALS_REJECTED) {
+      // Production control sockets never expire, so the bearer stored at
+      // attach outlives the Stack session that minted it. Upstream will
+      // reject it on every later alarm; retire the socket instead, so the
+      // client reconnects with fresh credentials and the next alarm reads
+      // through another socket.
+      await this.retireRejectedCredentials(holder.socket, holder.attachment);
+      return;
+    }
     if (fetched === null) return; // upstream down; keep serving cached facts
     const { rev, previous, previousRev } = await this.storeDirectory(fetched);
     await this.broadcastDirectoryChange(previous, fetched.payload, rev, previousRev, null);
@@ -1796,20 +1809,32 @@ export class ControlPlaneCore {
 
   // ---- Shared internals ----
 
-  private async freshestBearerHolder(live: CtlSocket[]): Promise<CtlAttachment | null> {
-    const attachments = live
-      .map((socket) => socket.getAttachment())
-      .filter((attachment): attachment is CtlAttachment => attachment !== null)
-      .sort((left, right) => (right.expiresAt ?? Number.POSITIVE_INFINITY)
-        - (left.expiresAt ?? Number.POSITIVE_INFINITY));
-    return attachments[0] ?? null;
+  private freshestBearerHolder(live: CtlSocket[]): { socket: CtlSocket; attachment: CtlAttachment } | null {
+    const holders = live
+      .map((socket) => ({ socket, attachment: socket.getAttachment() }))
+      .filter((holder): holder is { socket: CtlSocket; attachment: CtlAttachment } => holder.attachment !== null)
+      .sort((left, right) => (right.attachment.expiresAt ?? Number.POSITIVE_INFINITY)
+        - (left.attachment.expiresAt ?? Number.POSITIVE_INFINITY));
+    return holders[0] ?? null;
+  }
+
+  /** Drops a socket whose stored credentials upstream refused. The close
+   * reason matches the deadline close, which every client already treats as
+   * "reconnect with a fresh token". */
+  private async retireRejectedCredentials(socket: CtlSocket, attachment: CtlAttachment): Promise<void> {
+    await this.deps.storage.delete(BEARER_PREFIX + attachment.sessionId);
+    try {
+      socket.close(1000, "credentials expired; reconnect with a fresh token");
+    } catch {
+      // already closed
+    }
   }
 
   /** GET the discovery endpoint with the given connection's token, one
    * immediate retry on connection-level failure. Null on any failure. */
   private async fetchDirectory(
     attachment: CtlAttachment,
-  ): Promise<{ revision: number | null; payload: BrokerDirectoryPayload } | null> {
+  ): Promise<{ revision: number | null; payload: BrokerDirectoryPayload } | typeof CREDENTIALS_REJECTED | null> {
     if (await this.upstreamCooldownRemainingSeconds(DIRECTORY_RETRY_AT_KEY) !== null) {
       return null;
     }
@@ -1829,6 +1854,7 @@ export class ControlPlaneCore {
       headers: upstreamHeaders(credentials, "legacy", false),
     });
     if (result === null) return null;
+    if (result.status === 401 || result.status === 403) return CREDENTIALS_REJECTED;
     if (result.status < 200 || result.status >= 300) {
       await this.recordUpstreamCooldown(DIRECTORY_RETRY_AT_KEY, result);
       return null;
