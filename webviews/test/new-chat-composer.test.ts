@@ -205,7 +205,7 @@ await requireBrowserLane("new-chat-composer.test.ts", async () => {
     await page.close();
     expect(menu).toEqual({
       note: "New chats in this workspace start in a private folder.",
-      choose: "Choose folder…",
+      choose: "Add folder…",
       sentence: false,
     });
   });
@@ -219,7 +219,7 @@ await requireBrowserLane("new-chat-composer.test.ts", async () => {
     expect(note).toBeNull();
   });
 
-  test("the folder chip's Choose folder… asks the host's workspace folder sheet", async () => {
+  test("the folder chip's Add folder… asks the host's workspace folder sheet", async () => {
     const page = await open("choose-folder");
     await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay));
     const result = await page.evaluate(() => ({

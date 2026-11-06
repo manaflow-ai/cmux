@@ -322,6 +322,7 @@ mod terminal_host_link;
 mod terminal_move;
 mod terminal_move_topology;
 mod terminal_progress;
+mod terminal_publisher;
 mod terminal_reap;
 #[cfg(unix)]
 mod terminal_rehost;
@@ -667,8 +668,13 @@ pub struct Mux {
     /// never persisted, so a restarted daemon records nothing until asked
     /// again. The rows live in the workspace registry (`terminal_commands`).
     terminal_command_history: AtomicBool,
+    /// Keeps each terminal's newest finished command in memory for a parked
+    /// tab's record: follows `workspaces.freeing.enabled` (`mux/settings.rs`).
+    terminal_last_command: AtomicBool,
     /// The command history worker's bounded queue (`mux/command_history.rs`).
     command_history_worker: Mutex<Option<SyncSender<command_history::CommandHistoryMessage>>>,
+    /// Makes the durable commits terminal output asks for, off the output readers.
+    terminal_publisher: terminal_publisher::TerminalPublisher,
     notification_ledger: Mutex<VecDeque<ResourceNotification>>,
     /// Per-client read marks. The shared unread marker above answers "does this terminal need
     /// attention on the shared console"; this map answers "has this client install seen this

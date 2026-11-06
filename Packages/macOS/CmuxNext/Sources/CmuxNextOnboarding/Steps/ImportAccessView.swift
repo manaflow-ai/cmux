@@ -9,13 +9,13 @@ import CmuxNextDesign
 /// returns to the list.
 final class ImportAccessView: NSView {
     private let model: ImportStepModel
-    private let title = OnboardingLabel.make(font: .systemFont(ofSize: TypeScale.title, weight: TypeScale.emphasis), lines: 2)
+    private let title = OnboardingLabel.make(font: Typography.system(size: TypeScale.title, weight: TypeScale.emphasis), lines: 2)
     private let noAccess = OnboardingLabel.make(OnboardingStrings.accessNone, color: Palette.textSecondary, lines: 2)
     private let how = OnboardingLabel.make(color: Palette.textSecondary, lines: 2)
     private let stepContinue = OnboardingLabel.make(OnboardingStrings.accessStepContinue, color: Palette.textSecondary, lines: 1)
     private let stepPick = OnboardingLabel.make(OnboardingStrings.accessStepOpen, color: Palette.textSecondary, lines: 2)
     /// The folder on its own line, ~ for the home directory.
-    private let folder = OnboardingLabel.make(font: .monospacedSystemFont(ofSize: TypeScale.body, weight: TypeScale.regular), lines: 2)
+    private let folder = OnboardingLabel.make(font: Typography.system(.monospaced, size: TypeScale.body), lines: 2)
     private let progress = OnboardingProgressBar()
     private let refused = OnboardingLabel.make(font: OnboardingMetrics.captionFont, color: Palette.textSecondary, lines: 2)
     private var shown: ImportBrowser?

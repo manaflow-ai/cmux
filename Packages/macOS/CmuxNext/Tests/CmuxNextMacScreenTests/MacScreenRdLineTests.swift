@@ -1,11 +1,13 @@
+import CmuxNextRemoteView
 import Foundation
 @testable import CmuxNextMacScreen
 import Testing
 
 /// The Mac Screen reads the lines of `cmux rd serve|connect` the way the host means them. Every
 /// golden vector of cmux-rd-proto (tests/vectors/app_lines.json: the host prints its `AppLine`
-/// type, cmux-rd-ffi's line reader reads the same file) reads here as its `want`: the fields it
-/// holds, or no line at all.
+/// type) goes through the Rust line reader the Mac Screen uses (`RemoteRdLineReader`, cmux-rd-ffi)
+/// and reads as its `want`: the fields it holds, or no line at all. Before the reader replaced the
+/// Swift decoder, the decoder passed this same test (c6d9ab7c2af8, step 7921ed72ed76c99430274f2a).
 @Suite struct MacScreenRdLineTests {
     static func vectors() -> [[String: Any]] {
         let repo = (0..<6).reduce(URL(fileURLWithPath: #filePath)) { url, _ in url.deletingLastPathComponent() }
@@ -39,7 +41,7 @@ import Testing
         for vector in vectors {
             let name = vector["name"] as? String ?? "?"
             let text = vector["line"] as? String ?? ""
-            let read = try? JSONDecoder().decode(MacScreenRdMessage.self, from: Data(text.utf8))
+            let read: MacScreenRdMessage? = RemoteRdLineReader()?.push(Data((text + "\n").utf8)).first
             if let want = vector["want"] as? [String: Any] {
                 #expect(read.map(Self.shape) == want as NSDictionary, "\(name)")
             } else {

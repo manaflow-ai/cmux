@@ -204,7 +204,22 @@ button.cv-subagent > :last-child {
 /* The child view's first line (model.ts: 44px): a 28px "Subagent of" chip centred on a rule,
    8px above and below. Its text goes back to the parent's view; its × closes the subagent's view
    (an icon-only control: the --ds-control-icon box, 12px glyph, its hover on the × alone). */
-.cv-subagent-of {
+/* The pill pinned over the transcript's top in a subagent's view (App.tsx VirtualTranscript): the
+   stage's width, as the scroller's, so the pill sits on the rows' column; the rows under it are masked
+   out (conversation.css --acpmux-view-top). The row in the transcript keeps only its room. */
+.acpmux-pinned-top {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: var(--layer-sticky, 10);
+  pointer-events: none;
+}
+.acpmux-pinned-top > .cv-subagent-of {
+  margin-inline: var(--cv-inset) var(--cv-inset-end, var(--cv-inset));
+  pointer-events: auto;
+}
+.cv-subagent-of,
+.cv-subagent-of-slot {
   box-sizing: border-box;
   height: 44px;
   padding: var(--ds-space-2) 0;
@@ -918,14 +933,19 @@ button.cv-subagent > :last-child {
    keep at least 160px; the time, Stop and chevron keep their fixed columns, so they line up across
    rows. A long state word is cut first (its tooltip and accessible name keep it). */
 @container running-tray (max-width: 400px) {
+  /* There is only one text line beside the fixed controls in a narrow tray. Keep the activity
+     readable after the title instead of growing every row; wide trays use the block form below. */
+  .acpmux-running-tray .acpmux-agent-line__latest {
+    display: inline;
+    margin-inline-start: var(--ds-space-2);
+    line-height: inherit;
+  }
   .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button {
     --acpmux-tray-status-width: clamp(0px, calc(100cqw - 160px - var(--acpmux-tray-time-width) - var(--acpmux-tray-stop-width) - var(--acpmux-tray-chevron-width) - 4 * var(--acpmux-tray-gap) - 2 * var(--acpmux-tray-inset)), 74px);
   }
-  /* Two rows only where one cannot hold the title: a line whose workflow progress wraps here, a
-     line with its latest step on its own line (trayLatest.experiment.ts `below`), and every line of
-     a tray of 260px or less (below). The title goes above the same right-aligned
-     controls, and the status track takes the title's room. */
-  .acpmux-running-tray .acpmux-agent-line:is(:has(.acpmux-agent-line__progress), :has(.acpmux-agent-line__latest)) > .acpmux-agent-line__button {
+  /* A narrow tray keeps the title and activity together. Only workflow progress, which is already
+     a separate block of facts, takes a second row here; the activity line becomes inline below. */
+  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__button {
     --acpmux-tray-status-width: clamp(0px, calc(100cqw - var(--acpmux-tray-time-width) - var(--acpmux-tray-stop-width) - var(--acpmux-tray-chevron-width) - 4 * var(--acpmux-tray-gap) - 2 * var(--acpmux-tray-inset)), 74px);
     position: relative;
     grid-template-rows: var(--ui-row-height, 28px) var(--ui-row-height, 28px);
@@ -933,29 +953,29 @@ button.cv-subagent > :last-child {
     height: calc(2 * var(--ui-row-height, 28px));
     padding-block: 0;
   }
-  .acpmux-running-tray .acpmux-agent-line:is(:has(.acpmux-agent-line__progress), :has(.acpmux-agent-line__latest)):is(:has(.acpmux-agent-line__progress), :has(.acpmux-agent-line__latest)) > .acpmux-agent-line__button {
+  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__button {
     grid-template-rows: auto var(--ui-row-height, 28px);
     height: auto;
     align-items: center;
   }
-  .acpmux-running-tray .acpmux-agent-line:is(:has(.acpmux-agent-line__progress), :has(.acpmux-agent-line__latest)) > .acpmux-agent-line__button > .acpmux-lineage__icon {
+  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__button > .acpmux-lineage__icon {
     position: absolute;
     grid-area: auto;
     top: var(--acpmux-tray-two-row-icon-top);
     left: var(--acpmux-tray-inset);
   }
-  .acpmux-running-tray .acpmux-agent-line:is(:has(.acpmux-agent-line__progress), :has(.acpmux-agent-line__latest)) > .acpmux-agent-line__button > .acpmux-summary-text {
+  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__button > .acpmux-summary-text {
     grid-column: 1 / -1;
   }
-  .acpmux-running-tray .acpmux-agent-line:is(:has(.acpmux-agent-line__progress), :has(.acpmux-agent-line__latest)) > .acpmux-agent-line__button > :is(.acpmux-agent-line__trail, .acpmux-agent-line__stop-track, .acpmux-agent-line__chevron, .acpmux-agent-line__chevron-track) {
+  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__button > :is(.acpmux-agent-line__trail, .acpmux-agent-line__stop-track, .acpmux-agent-line__chevron, .acpmux-agent-line__chevron-track) {
     grid-row: 2;
   }
   /* The controls line has the title's track free: a long state word takes that room first. Stop's
      track stays its own, empty or not. */
-  .acpmux-running-tray .acpmux-agent-line:is(:has(.acpmux-agent-line__progress), :has(.acpmux-agent-line__latest)) > .acpmux-agent-line__button > .acpmux-agent-line__trail {
+  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__button > .acpmux-agent-line__trail {
     grid-column: 1 / 4;
   }
-  .acpmux-running-tray .acpmux-agent-line:is(:has(.acpmux-agent-line__progress), :has(.acpmux-agent-line__latest)) > .acpmux-agent-line__stop-slot {
+  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__stop-slot {
     top: auto;
     bottom: 0;
     height: var(--ui-row-height, 28px);
@@ -972,7 +992,7 @@ button.cv-subagent > :last-child {
     height: calc(2 * var(--ui-row-height, 28px));
     padding-block: 0;
   }
-  .acpmux-running-tray .acpmux-agent-line:is(:has(.acpmux-agent-line__progress), :has(.acpmux-agent-line__latest)) > .acpmux-agent-line__button {
+  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__button {
     grid-template-rows: auto var(--ui-row-height, 28px);
     height: auto;
     align-items: center;
@@ -1122,6 +1142,16 @@ button.cv-subagent > :last-child {
   line-height: var(--text-detail--line-height);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+.acpmux-running-tray__meta {
+  flex: 0 1 auto;
+  min-width: 0;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .acpmux-running-tray__tail a,
 .acpmux-running-tray__tail button {
@@ -1474,6 +1504,22 @@ button.cv-subagent > :last-child {
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
 }
+.acpmux-agent-line__latest.is-code,
+.acpmux-agent-line__latest-inline.is-code {
+  font-family: var(--cv-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+.acpmux-agent-line__via {
+  margin-left: var(--ds-space-2);
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  white-space: nowrap;
+}
+.acpmux-agent-line__name-link {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+  text-underline-offset: 2px;
+}
 /* What a running agent did last (AgentLine.tsx `latest`, trayLatest.experiment.ts): one quiet
    line under the title, cut with an ellipsis, so a new step changes its words and never the
    line's height. The state, time and Stop centre on the two lines (Leo, 2026-11-03: "Tray only,
@@ -1658,8 +1704,11 @@ button.cv-subagent > :last-child {
    Leo, 2026-11-04: "what if you wanted to collapse that one line? ... at the top of the hat, there's
    some sort of little thing ... a special kind of chevron". The hat's chevron sits on its top edge
    (left, middle or right, agentPane.display.trayHandle) and shows while the pointer is over the hat
-   (or it has keyboard focus); tucked, the hat leaves only a faint grabber at the same place on the
-   composer's top edge, in the accent while something runs, which turns into an up chevron on hover. */
+   (or it has keyboard focus); tucked, the hat leaves only a faint up chevron at the same place on the
+   composer's top edge, in the accent while something runs, which brightens on hover. The control has
+   no wide slab behind it (Leo, 2026-11-05: "the Tuck is a little bit ugly"): its compact glass
+   control and short bridge keep the buttons' wide hit areas while joining the composer hairline, as
+   Codex, ChatGPT and VS Code draw a divider's collapse control. */
 .acpmux-running-tray[data-tucks] {
   position: relative;
 }
@@ -1673,17 +1722,22 @@ button.cv-subagent > :last-child {
   margin: 0;
   padding: 0;
   border: 0;
-  border-radius: var(--ds-radius-control, 6px);
   background: transparent;
   color: var(--agent-muted);
   cursor: default;
   transform: translateX(-50%);
 }
+.acpmux-running-tray__tuck > svg,
+.acpmux-tray-pull__tab > svg {
+  position: relative;
+  transition: color var(--cv-actions-in) var(--cv-actions-ease);
+}
 /* Only the hat's top 8px band takes the tuck's clicks: the button starts 12px above the hat, whose clip
    hides that part, and its chevron sits at its foot. A click on the header's middle (its row is 24px or
    more) still opens the hat, never tucks it, and at the left or right the band stays above the header's
    leading icon and fold chevron. The pull tab's width, so the handle stays put between tucked and
-   shown; it takes clicks only while it shows. */
+   shown; it takes clicks only while it shows. Its hover only brightens the chevron: a pill there
+   would be cut by the hat's clip. */
 .acpmux-running-tray__tuck {
   top: -12px;
   width: 96px;
@@ -1694,6 +1748,11 @@ button.cv-subagent > :last-child {
   /* The transcript's shared hover-reveal fade (transcript-hover-fade.test.ts). */
   transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
 }
+/* At the foot the glyph's stroke met the hat's top edge and was cut there; 2px down it sits whole
+   inside the hat, under the edge, and the click band stays the same. */
+.acpmux-running-tray__tuck > svg {
+  transform: translateY(2px);
+}
 .acpmux-running-tray:hover > .acpmux-running-tray__tuck,
 .acpmux-running-tray:has([data-popup-open]) > .acpmux-running-tray__tuck,
 .acpmux-running-tray__tuck:focus-visible {
@@ -1703,13 +1762,16 @@ button.cv-subagent > :last-child {
 }
 .acpmux-running-tray__tuck:hover,
 .acpmux-tray-pull__tab:hover {
-  background: color-mix(in srgb, var(--agent-text) 7%, transparent);
   color: var(--agent-text);
 }
 .acpmux-running-tray__tuck:focus-visible,
 .acpmux-tray-pull__tab:focus-visible {
+  outline: none;
+}
+.acpmux-running-tray__tuck:focus-visible > svg {
+  border-radius: var(--ds-radius-control, 6px);
   outline: 2px solid var(--agent-accent);
-  outline-offset: -2px;
+  outline-offset: 1px;
 }
 /* Tucked: no height in the bottom stack, so the composer keeps its place; the tab's hover strip
    straddles the composer's top edge, centred on the composer card's column. */
@@ -1724,21 +1786,56 @@ button.cv-subagent > :last-child {
   width: 96px;
   height: 20px;
 }
-/* The grabber at rest. */
+/* The tab's compact control floats over the composer's hairline. The bridge remains visible on both
+   sides of the glass control, so the line meets the bar instead of stopping short; the hit strip
+   (where it takes clicks) stays put. */
+.acpmux-tray-pull__tab {
+  --acpmux-tray-pull-lift: 4px;
+  --acpmux-tray-pull-control-width: var(--ds-space-40);
+  --acpmux-tray-pull-control-height: var(--ds-control-icon);
+}
+/* A quiet bridge ties the handle to the composer's hairline. It is deliberately one device pixel
+   and uses the shared glass edge, so the resting handle is visible without becoming a second card. */
 .acpmux-tray-pull__tab::before {
   content: "";
   position: absolute;
-  top: 50%;
+  top: calc(50% - var(--acpmux-tray-pull-lift));
   left: 50%;
-  width: 24px;
-  height: 0;
-  border-top: 3px solid currentColor;
-  opacity: 0.35;
+  width: var(--ds-space-56);
+  height: var(--cmux-hairline);
+  background: var(--glass-edge, color-mix(in srgb, var(--agent-muted) 45%, transparent));
   transform: translate(-50%, -50%);
+  transition: background-color var(--cv-actions-in) var(--cv-actions-ease), opacity var(--cv-actions-in) var(--cv-actions-ease);
+  opacity: 0.85;
 }
-.acpmux-tray-pull[data-running] .acpmux-tray-pull__tab::before {
-  border-top-color: var(--agent-accent);
-  opacity: 0.6;
+/* The number and chevron share one small glass control. This keeps the count aligned with the
+   glyph at rest and on hover, instead of leaving it floating at the end of the old bar. */
+.acpmux-tray-pull__tab::after {
+  content: "";
+  position: absolute;
+  top: calc(50% - var(--acpmux-tray-pull-lift));
+  left: 50%;
+  width: var(--acpmux-tray-pull-control-width);
+  height: var(--acpmux-tray-pull-control-height);
+  border-radius: var(--ds-radius-control, 6px);
+  background: var(--glass-tint, color-mix(in srgb, var(--glass-surface, Canvas) 18%, transparent));
+  box-shadow: var(--glass-rim-shadow, inset 0 0 0 var(--cmux-hairline) var(--glass-edge));
+  transform: translate(-50%, -50%);
+  transition: background-color var(--cv-actions-in) var(--cv-actions-ease), box-shadow var(--cv-actions-in) var(--cv-actions-ease);
+}
+.acpmux-tray-pull__tab:focus-visible::before {
+  background: var(--agent-accent);
+  opacity: 1;
+}
+.acpmux-tray-pull__tab:hover::after,
+.acpmux-tray-pull__tab:has([data-popup-open])::after {
+  background: color-mix(in srgb, var(--glass-surface, Canvas) 30%, transparent);
+  box-shadow: var(--glass-rim-shadow, inset 0 0 0 var(--cmux-hairline) var(--glass-edge)),
+    0 var(--ds-space-1) var(--ds-space-2) color-mix(in srgb, var(--glass-surface, CanvasText) 12%, transparent);
+}
+.acpmux-tray-pull__tab:focus-visible::after {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: -1px;
 }
 /* Left or right along the edge (agentPane.display.trayHandle; Leo, 2026-11-04: "maybe the left… or
    the right…"), 12px in from the card's corner, the hat's chevron with it. */
@@ -1755,13 +1852,14 @@ button.cv-subagent > :last-child {
 }
 
 /* Tucked, the tab still says what needs the person: a dot while something waits on them, else a
-   small count of what runs, at the grabber's end, at rest and on hover. */
+   small count of what runs, past the chevron's pill, at rest and on hover. */
 .acpmux-tray-pull__dot,
 .acpmux-tray-pull__count {
   position: absolute;
-  top: 50%;
-  left: calc(50% + 16px);
+  top: calc(50% - var(--acpmux-tray-pull-lift));
+  left: calc(50% + var(--ds-space-1));
   transform: translateY(-50%);
+  z-index: var(--layer-raised);
 }
 .acpmux-tray-pull__dot {
   --acpmux-tray-pull-dot: 6px;
@@ -1771,20 +1869,28 @@ button.cv-subagent > :last-child {
   background: var(--acpmux-needs-you-mark);
 }
 .acpmux-tray-pull__count {
-  color: var(--agent-accent);
-  font-size: var(--text-detail);
+  color: var(--agent-text);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
-  line-height: 1;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
-/* The up chevron, on hover or keyboard focus, in the grabber's place. */
+/* The up chevron, faint at rest and in the accent while something runs, full on hover or focus. */
 .acpmux-tray-pull__tab > svg {
-  opacity: 0;
-  transform: rotate(180deg);
+  z-index: var(--layer-raised);
+  opacity: 0.45;
+  transform: translate(-6px, calc(-1 * var(--acpmux-tray-pull-lift))) rotate(180deg);
 }
-.acpmux-tray-pull__tab:hover::before,
-.acpmux-tray-pull__tab:has([data-popup-open])::before,
-.acpmux-tray-pull__tab:focus-visible::before {
-  opacity: 0;
+.acpmux-tray-pull[data-running] .acpmux-tray-pull__tab {
+  color: var(--agent-muted);
+}
+.acpmux-tray-pull[data-running] .acpmux-tray-pull__tab > svg {
+  color: var(--agent-accent);
+  opacity: 0.8;
+}
+.acpmux-tray-pull[data-running] .acpmux-tray-pull__tab::before {
+  background: color-mix(in srgb, var(--agent-accent) calc(62% * var(--glass-rim, 1)), transparent);
 }
 .acpmux-tray-pull__tab:hover > svg,
 .acpmux-tray-pull__tab:has([data-popup-open]) > svg,

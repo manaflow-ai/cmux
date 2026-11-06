@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextPalette
@@ -167,40 +168,6 @@ extension CloudHandlers {
             context.services.registry.ask("cloudRenameMachine", invocation,
                                           ActionArgumentAsk(argument: "name", initialText: session.machine.displayName ?? ""))
         }
-        // Share Machine… (CloudMachineShare): `--teammate` shares or (`--revoke`) takes back; without
-        // it a person's run opens the teammates page and a CLI or agent run answers the list.
-        bind("cloudShareMachine", registry, reason: reason) { invocation in
-            let session = try machine(invocation, context)
-            if let teammate = invocation["teammate"]?.stringValue?.trimmingCharacters(in: .whitespaces), !teammate.isEmpty {
-                let shared = invocation["revoke"]?.boolValue != true
-                return result("share machine", context) {
-                    do { try await CloudMachineShare.set(shared, teammate: teammate, on: session, cloud: cloud) } catch {
-                        throw ActionFailure(message: CloudMachineShare.message(error))
-                    }
-                    return machineFields(session.machineID, ["teammate": .string(teammate), "shared": .bool(shared)])
-                }
-            }
-            if origin(of: invocation) == .user {
-                return context.services.palette.show(page: CloudMachineShare.page(session, services: context.services),
-                                                     relativeTo: context.activeWindow?.window)
-            }
-            answer("machine shares", invocation, context) {
-                let roster: CloudMachineShareRoster
-                do { roster = try await CloudMachineShare.roster(session, cloud: cloud) } catch {
-                    throw ActionFailure(message: CloudMachineShare.message(error))
-                }
-                let lines = roster.rows.map { "\($0.shared ? "shared" : "-") \($0.name) (\($0.userID))" }
-                let teammates = roster.rows.map { row in
-                    ActionResultValue.object(["user_id": .string(row.userID), "name": .string(row.name), "shared": .bool(row.shared)])
-                }
-                return CloudAnswer(title: CloudShareStrings.listTitle, text: lines.isEmpty ? "(none)" : lines.joined(separator: "\n"),
-                                   fields: machineFields(session.machineID, ["teammates": .array(teammates), "can_share": .bool(roster.canShare)]))
-            }
-        }
-        // Grants live on the classic Cloud API (`/api/vm`): a machine on the app server link has none yet.
-        ActionTargetVisibility.hide("cloudShareMachine", in: registry) { invocation in
-            (try? machine(invocation, context))?.link == nil
-        }
         // Destructive: the registry confirmed it (sheet, or `confirm: true`).
         bind("cloudKillMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
@@ -237,7 +204,8 @@ extension CloudHandlers {
         }
         bind("cloudCopyLink", registry, reason: reason) { invocation in
             let session = try machine(invocation, context), port = try port(invocation); guard session.machine.allows(.ports) else { throw operationUnavailable }
-            run("copy machine link", context) { CloudPresenter.copy(try await cloud.api.openPort(session.machineID, port: port).url) }
+            let names = CloudPortNames(session, port: port)
+            run("copy machine link", context) { CloudPresenter.copy(try await previewShareLink(cloud.previewAPI, machine: session.machineID, port: port, names: names).url) }
         }
         bind("cloudResizeMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context); guard session.machine.allows(.sizing) else { throw operationUnavailable }
@@ -296,7 +264,7 @@ extension CloudHandlers {
         }
         bind("palette.cloud.ports", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
-            if session.appLink != nil, cloud.previewAPI != nil {
+            if cloud.previewAPI != nil {
                 return livePreviewPorts(session, invocation, context)
             }
             guard let connection = session.daemon.connection else { throw ActionFailure(message: CloudStrings.notConnected) }
@@ -676,6 +644,7 @@ extension CloudHandlers {
         if let used = stats.diskUsedMb { fields["disk_used_mb"] = .double(used) }
         if let total = stats.diskTotalMb { fields["disk_total_mb"] = .double(total) }
         if let address = session.machine.address?.ipv4 { fields["address"] = .string(address) }
+        fields["desktop"] = .bool(session.machine.capabilities.desktop)
         fields.merge(costFields(session.machine, now: now)) { _, new in new }
         if let idlePause = session.machine.idlePause {
             fields["idle_pause"] = .object(idlePauseFields(idlePause))

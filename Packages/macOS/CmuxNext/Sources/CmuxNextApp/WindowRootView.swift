@@ -249,6 +249,8 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     }
     /// The host pressure indicator after the band and the badge (`layoutTitlebarAccessories`).
     var hostPressureIndicator: NSView? { didSet { oldValue?.removeFromSuperview(); hostPressureIndicator.map { addSubview($0, positioned: .above, relativeTo: nil) }; needsLayout = true } }
+    /// Swift live mode's "Live mode" mark, last in the top row (`layoutTitlebarAccessories`).
+    var liveModeBadge: NSView? { didSet { oldValue?.removeFromSuperview(); liveModeBadge.map { addSubview($0, positioned: .above, relativeTo: nil) }; needsLayout = true } }
 
     var onHintGeometryChange: (() -> Void)?
     /// Called from layout when the band's presence changed, so strips under
@@ -362,8 +364,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
                 for case let old? in [previous, outgoing] where old !== view { withdraw(old) }
             }
         }
-        // Mid-slide the content keeps the slide's one width (`MainPaneCardView.contentHold`).
-        let frame = contentHost.heldContentFrame ?? contentHost.bounds
+        let frame = contentHost.bounds
         if view.superview !== contentHost {
             view.frame = frame
             contentHost.addSubview(view)

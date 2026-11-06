@@ -12,6 +12,9 @@ the panes rest:
   zoom        Cmd-Shift-Enter (toggleSplitZoom) and back (unzoom)
   window      Window > Zoom (the titlebar double-click's resize path) and back (window-unzoom)
   drag        the first vertical divider pressed and dragged 120 pt out and back, one event per 120 Hz frame
+  keys        a held key resize: resizePaneRight pressed 4 times at key-repeat pace (33 ms), then resizePaneLeft
+              4 times (Ctrl-Cmd-Right / Left by default, through the action path, which takes the key-resize hold); 4 steps
+              of 5% each way stay inside the pane minimums, so the split ends where it started
   sidepanel   the window's right sidebar shown (switchRightSidebarToFiles, keyboard stays put) and hidden
               (toggleRightSidebar, sidepanel-close): the main pane loses and regains its width at once, no spring
   scroll      (--browser) the page scrolled 1500 px down and back over about 1 s, one step per page animation frame
@@ -35,6 +38,9 @@ The window action also samples its size once per display frame (`debug.motion tr
 resize's p95/max interval, missed intervals and largest geometry step, and rejects a snap, a no-op or a failed restore even without
 --gate. Run this script from the candidate checkout against both the base and candidate app for an A/B.
 
+With --browser-engine webkit the probe page and the --pages pages are WebKit pages instead (no `debug.cef` counters
+change then; Lawrence 2026-11-05: "resize webviews (both chrome and webkit) more often").
+
 With --browser the top-left pane of each layout shows a Chromium page instead of a fed terminal (a local probe: a
 requestAnimationFrame loop counting into window.__frames, a spinner, a tall grid of cards; the first split terminal
 takes --stream), and each action pair starts with that pane focused. Per action it adds the change of `debug.cef`'s
@@ -44,7 +50,8 @@ frames (page_frames), of `debug.layers` divider catcher panel updates and child 
 the fork geometry posts per moving frame (posts_per_frame). A layout whose page never runs fails one row and is skipped.
 
 Usage: pane-perf-terminal.py --tag <tag> --app PATH [--layouts 1x2,4x2,6x5] [--browser]
-       [--actions split,close,column,zoom,window,drag,sidepanel,scroll,idle,page] [--rounds 3] [--scrollback 5000] [--stream]
+       [--browser-engine chromium|webkit]
+       [--actions split,close,column,zoom,window,drag,keys,sidepanel,scroll,idle,page] [--rounds 3] [--scrollback 5000] [--stream]
        [--record] [--json PATH] [--out DIR] [--gate] [--missed-budget N]
 """
 import argparse, glob, json, math, os, pathlib, signal, subprocess, sys, tempfile, time
@@ -62,6 +69,8 @@ parser.add_argument("--scrollback", type=int, default=5000)
 parser.add_argument("--stream", action="store_true", help="keep output streaming in the first terminal")
 parser.add_argument("--record", action="store_true", help="record each action once (a separate, untimed pass)")
 parser.add_argument("--browser", action="store_true", help="the top-left pane shows a Chromium page (pump and tracker counters)")
+parser.add_argument("--browser-engine", default="chromium", choices=["chromium", "webkit"],
+                    help="with --browser: the engine of the probe page and the --pages pages")
 parser.add_argument("--sample", default="", help="LAYOUT:ACTION[,...]: `sample` the app while it repeats ACTION")
 parser.add_argument("--sample-repeats", type=int, default=8)
 parser.add_argument("--content", default="terminal", choices=["terminal", "chromium"],
@@ -79,6 +88,7 @@ SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp, LaunchError  # noqa: E402  the shared GUI launch (session check, failure report)
+import bench_background  # noqa: E402  background daemon CPU per round (a reader drops a round over its limit)
 
 
 def load_stress():
@@ -252,9 +262,10 @@ def open_page():
     path = os.path.join(opts.out, "pane-perf-probe.html")
     open(path, "w").write(PROBE_PAGE)
     # The URL goes under `args` (a top-level `url` opens the New Tab page).
-    opened = action("openBrowser.chromium", {"url": pathlib.Path(path).resolve().as_uri()}, timeout=120)  # --out may be relative
+    verb = f"openBrowser.{opts.browser_engine}"
+    opened = action(verb, {"url": pathlib.Path(path).resolve().as_uri()}, timeout=120)  # --out may be relative
     if isinstance(opened, dict) and opened.get("error"):
-        return f"openBrowser.chromium refused: {opened['error']}"
+        return f"{verb} refused: {opened['error']}"
 
     def ready():  # the focused tab: the page's once it lands
         reply = rpc("browser.page.eval", {"script": "document.readyState === 'complete' && window.__frames > 2"}, timeout=20)
@@ -265,7 +276,7 @@ def open_page():
     if not wait(ready, 60, step=0.5):
         cef = rpc("debug.cef")
         cef = cef if isinstance(cef, dict) else {}
-        return (f"the probe page never ran in a Chromium tab within 60 s (openBrowser.chromium {json.dumps(opened)[:160]}; "
+        return (f"the probe page never ran in a {opts.browser_engine} tab within 60 s ({verb} {json.dumps(opened)[:160]}; "
                 f"debug.cef state {cef.get('state')} unavailable {json.dumps(cef.get('unavailable'))[:160]})")
     time.sleep(1.0)  # test harness: the page's first paints settle
     return None
@@ -290,7 +301,7 @@ def layout(columns, rows):
             pages[0] -= 1
             global PAGE
             PAGE = PAGE or serve_page()
-            action("openBrowser.chromium", {"url": PAGE}, settle=1.5, timeout=120)
+            action(f"openBrowser.{opts.browser_engine}", {"url": PAGE}, settle=1.5, timeout=120)
             return
         feed(pending.pop() if pending else False)
     if opts.browser:
@@ -375,6 +386,17 @@ def drag_divider():
     return None
 
 
+def key_resize():
+    """A held resizePaneRight, then a held resizePaneLeft, on the focused pane: one press per key repeat (33 ms), 4 each
+    way, so the split comes back to where it started for the next round."""
+    for verb in ["resizePaneRight"] * 4 + ["resizePaneLeft"] * 4:
+        reply = action(verb)
+        if isinstance(reply, dict) and reply.get("error"):
+            return f"{verb}: {reply['error']}"
+        time.sleep(0.033)  # test harness: the system's key repeat interval
+    return None
+
+
 def perform(name):
     """Runs one action; returns an error string or None."""
     verbs = {"split": "splitRight", "split-down": "splitDown", "close": "closePane", "close-down": "closePane",
@@ -384,6 +406,8 @@ def perform(name):
              "page": "splitBrowserRight", "page-close": "closePane"}
     if name == "drag":
         return drag_divider()
+    if name == "keys":
+        return key_resize()
     if name == "idle":
         time.sleep(1.0)  # test harness: nothing happens but the page's own animation
         return None
@@ -426,6 +450,7 @@ def measure(label, name):
     layers_before = first_window(rpc("debug.layers")) if opts.browser else None
     page_before = page_eval("window.__frames") if opts.browser else None
     rpc("debug.hangs", {"clear": True})
+    background = bench_background.sample()
     rpc("debug.motion", {"action": "start"})
     rpc("debug.frames", {"action": "start"})
     rpc("debug.window_transition", {"action": "start"})
@@ -434,6 +459,7 @@ def measure(label, name):
     trace = rpc("debug.window_transition", {"action": "stop"}) or {}
     frames = rpc("debug.frames", {"action": "stop"}) or {}
     motion = rpc("debug.motion", {"action": "stop"}) or {}
+    background_cpu = bench_background.delta(background)
     window_trace = rpc("debug.motion", {"action": "trace_stop"}) if name in WINDOW_ACTIONS else None
     hangs = rpc("debug.hangs") or {}
     work = (motion.get("work") or {}).get("clock", {}) if isinstance(motion, dict) else {}
@@ -448,6 +474,7 @@ def measure(label, name):
         "missed": frames.get("missed"), "frames_max_ms": frames.get("max_ms"), "frames_p99_ms": frames.get("p99_ms"),
         "frames_p50_ms": frames.get("p50_ms"), "frames_p95_ms": frames.get("p95_ms"), "frames": frames.get("frames"),
         "refresh_ms": frames.get("refresh_ms"), "moving_frames": moving,
+        "background_cpu": background_cpu,
         "layout_max_ms": work.get("max_ms"), "layout_p95_ms": work.get("p95_ms"), "layout_p50_ms": work.get("p50_ms"),
         "commit_p50_ms": (commit or {}).get("p50_ms"), "commit_p95_ms": (commit or {}).get("p95_ms"),
         "commit_max_ms": (commit or {}).get("max_ms"), "commit_over_4": (commit or {}).get("over_4_ms"),
@@ -530,13 +557,14 @@ def measure(label, name):
           f"p99 {result['frames_p99_ms']} max {result['frames_max_ms']} ms  missed {result['missed']} "
           f"(refresh {result['refresh_ms']})  tick p95 {result['layout_p95_ms']} max {result['layout_max_ms']} ms  "
           f"commit p95 {result['commit_p95_ms']} max {result['commit_max_ms']} ms  "
-          f"grids {result['grid_reports']}/{result['resizes_sent']}  hangs {result['hangs']}  err {error}{extra}", flush=True)
+          f"grids {result['grid_reports']}/{result['resizes_sent']}  hangs {result['hangs']}  "
+          f"background {background_cpu['total_s']} s{' OVER LIMIT' if background_cpu['over_limit'] else ''}  err {error}{extra}", flush=True)
     return result
 
 
 SEQUENCE = {"split": ["split", "close"], "split-down": ["split-down", "close-down"], "close": [],
             "column": ["column", "column-close"], "zoom": ["zoom", "unzoom"], "drag": ["drag"],
-            "window": ["window-zoom", "window-unzoom"],
+            "keys": ["keys"], "window": ["window-zoom", "window-unzoom"],
             "sidepanel": ["sidepanel", "sidepanel-close"], "scroll": ["scroll"], "idle": ["idle"],
             "page": ["page", "page-close"]}
 
@@ -567,7 +595,7 @@ def profile(name, label):
     pair = {"split": ["split", "close"], "close": ["split", "close"], "split-down": ["split-down", "close-down"], "column": ["column", "column-close"],
             "column-close": ["column", "column-close"], "zoom": ["zoom", "unzoom"], "unzoom": ["zoom", "unzoom"],
             "window-zoom": ["window-zoom", "window-unzoom"], "window-unzoom": ["window-zoom", "window-unzoom"],
-            "drag": ["drag"], "sidepanel": ["sidepanel", "sidepanel-close"],
+            "drag": ["drag"], "keys": ["keys"], "sidepanel": ["sidepanel", "sidepanel-close"],
             "sidepanel-close": ["sidepanel", "sidepanel-close"], "scroll": ["scroll"], "idle": ["idle"],
             "page": ["page", "page-close"], "page-close": ["page", "page-close"]}[name]
     path = os.path.join(opts.out, f"sample-{label}.txt")

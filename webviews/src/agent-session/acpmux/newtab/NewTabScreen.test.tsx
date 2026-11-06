@@ -15,6 +15,8 @@ import { inlineToken, type ComposerAttachment } from "../attachments";
 import { translate } from "../i18n";
 import { seedLastPicks } from "../lastPick";
 import { EMPTY_OMNIBAR } from "../omnibar";
+import { CloudTypingPrewarm, CLOUD_TYPING_PREWARM_REFRESH_MS, cloudTypingMachineID } from "../cloudTypingPrewarm";
+import type { CloudMachine } from "../cloudMachines";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -138,7 +140,7 @@ test("New Tab exposes the chat composer attachment menu", async () => {
   const add = container.querySelector<HTMLButtonElement>(".nt-pickers .acpmux-newtab-plus .acpmux-picker-button");
   expect(add).toBeTruthy();
   await act(async () => add!.click());
-  expect(container.querySelector('.acpmux-newtab-plus [data-value="add.files"]')).toBeTruthy();
+  expect(document.querySelector('[data-value="add.files"]')).toBeTruthy();
 });
 
 test("New Tab + offers Search chats and Search pages as app actions, and no Search files", async () => {
@@ -162,20 +164,26 @@ test("New Tab + offers Search chats and Search pages as app actions, and no Sear
   await render();
   const add = () => container.querySelector<HTMLButtonElement>(".acpmux-newtab-plus .acpmux-picker-button")!;
   await act(async () => add().click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   // A host that cannot run them gets no rows that would do nothing.
-  expect(container.querySelector('.acpmux-newtab-plus [data-value="history.search"]')).toBeNull();
+  expect(document.querySelector('[data-value="history.search"]')).toBeNull();
   await act(async () => add().click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
 
   await render(async (id) => ran.push(id));
   for (const id of ["agentPane.searchChats", "history.search"]) {
     await act(async () => add().click());
-    expect(container.querySelector('.acpmux-newtab-plus [data-value="searchFiles"]')).toBeNull();
-    expect(container.querySelector('.acpmux-newtab-plus [data-value="files.search"]')).toBeNull();
-    const row = container.querySelector<HTMLElement>(`.acpmux-newtab-plus [data-value="${id}"]`);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    if (add().getAttribute("aria-expanded") !== "true") {
+      await act(async () => add().click());
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    }
+    expect(document.querySelector('[data-value="searchFiles"]')).toBeNull();
+    expect(document.querySelector('[data-value="files.search"]')).toBeNull();
+    const row = document.querySelector<HTMLElement>(`[data-value="${id}"]`);
     expect(row).toBeTruthy();
-    await act(async () => {
-      row!.dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
-    });
+    await act(async () => row!.click());
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   }
   expect(ran).toEqual(["agentPane.searchChats", "history.search"]);
   expect(container.querySelector(".acpmux-switch-notice")).toBeNull();
@@ -183,10 +191,9 @@ test("New Tab + offers Search chats and Search pages as app actions, and no Sear
   // The app refused it: the page says so instead of nothing happening (New Tab shows no transcript).
   await render(() => Promise.reject(new Error("unavailable")));
   await act(async () => add().click());
-  const pages = container.querySelector<HTMLElement>('.acpmux-newtab-plus [data-value="history.search"]')!;
-  await act(async () => {
-    pages.dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
-  });
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  const pages = document.querySelector<HTMLElement>('[data-value="history.search"]')!;
+  await act(async () => pages.click());
   await act(async () => new Promise<void>((resolve) => setTimeout(resolve, 0)));
   expect(container.querySelector(".acpmux-switch-notice [role=alert]")?.textContent).toBe(
     "Search pages isn't available for this chat",
@@ -321,7 +328,7 @@ test("a fresh New Tab exposes the no-project path in its environment card", asyn
   expect(container.querySelector('.nt-env .nt-stage-row[aria-pressed="true"]')).toBeTruthy();
 });
 
-test("Do not work in a project, then a remote machine with a folder: headline, location and send name that folder", async () => {
+test("No folder, then a remote machine with a folder: headline, location and send name that folder", async () => {
   const remoteFolder = "/remote/project";
   const asks: unknown[][] = [];
   await act(async () => {
@@ -360,7 +367,7 @@ test("Do not work in a project, then a remote machine with a folder: headline, l
   expect(folder).toBeTruthy();
   await act(async () => folder!.click());
   const noProject = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) =>
-    row.textContent?.includes("Do not work in a project"),
+    row.textContent?.includes("No folder"),
   );
   expect(noProject).toBeTruthy();
   await act(async () => noProject!.click());
@@ -374,7 +381,7 @@ test("Do not work in a project, then a remote machine with a folder: headline, l
   expect(headline).toContain("project");
   expect(headline).toContain("build-box");
   expect(container.querySelector(".nt-location")?.textContent).toContain("project");
-  expect(container.querySelector(".nt-location")?.textContent).not.toContain("No project");
+  expect(container.querySelector(".nt-location")?.textContent).not.toContain("No folder");
   await typePrompt("fix it");
   await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
   expect(asks.length).toBe(1);
@@ -782,7 +789,7 @@ test("with Cloud picked, a send goes to onCloud with its prompt, not a new chat;
   expect(promptValue()).toBe("fix the flaky test");
 });
 
-test("with Cloud picked and Do not work in a project, a send names no folder: not even the tab's inherited one", async () => {
+test("with Cloud picked and No folder, a send names no folder: not even the tab's inherited one", async () => {
   const clouded: unknown[][] = [];
   await act(async () => {
     root!.render(
@@ -804,10 +811,10 @@ test("with Cloud picked and Do not work in a project, a send names no folder: no
       />,
     );
   });
-  // Do not work in a project, from the card's chooser (the tab inherited /repo/A).
+  // No folder, from the card's chooser (the tab inherited /repo/A).
   await act(async () => container.querySelector<HTMLButtonElement>(".nt-env .acpmux-project-button")!.click());
   const noProject = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) =>
-    row.textContent?.includes("Do not work in a project"),
+    row.textContent?.includes("No folder"),
   );
   expect(noProject).toBeTruthy();
   await act(async () => noProject!.click());
@@ -1125,7 +1132,7 @@ test("keeps a changed machine choice while browse settles, then permits retry", 
   expect(container.querySelector('[role="alert"]')).toBeNull();
 });
 
-test("keeps the project chooser open when a second Add Project browse is already pending", async () => {
+test("Add folder… is the host's folder panel: a second one while it is open asks nothing, and its pick lands", async () => {
   let resolveBrowse!: (folder: string | undefined) => void;
   let calls = 0;
   await act(async () => {
@@ -1135,6 +1142,7 @@ test("keeps the project chooser open when a second Add Project browse is already
         pageWidgets={new Set(["projects"])}
         projects={[{ cwd: "/Users/you/src/cmux", label: "cmux" }]}
         onBrowseProject={(request) => {
+          // The folder menu commits the pick itself (deferPick), so a folder picked meanwhile wins.
           expect(request?.deferPick).toBe(true);
           calls += 1;
           return new Promise<string | undefined>((resolve) => {
@@ -1144,30 +1152,23 @@ test("keeps the project chooser open when a second Add Project browse is already
       />,
     );
   });
-  await act(async () => container.querySelector<HTMLButtonElement>(".nt-env .acpmux-project-button")!.click());
-  const add = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) =>
-    row.textContent?.includes("New project"),
-  );
-  expect(add).toBeTruthy();
-  await act(async () => add!.click());
-  const pick = async (label: string) => {
-    const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) =>
-      row.textContent?.includes(label),
+  const addFolder = async () => {
+    await act(async () => container.querySelector<HTMLButtonElement>(".nt-env .acpmux-project-button")!.click());
+    const options = [...document.querySelectorAll<HTMLElement>('[role="option"]')].map((row) => row.textContent ?? "");
+    expect(options.some((text) => text.includes("New project") || text.includes("Add project"))).toBe(false);
+    const add = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) =>
+      row.textContent?.includes("Add folder…"),
     );
-    expect(option).toBeTruthy();
-    await act(async () => option!.click());
+    expect(add).toBeTruthy();
+    await act(async () => add!.click());
   };
-  await pick("This Mac");
-  await pick("Local folder");
+  await addFolder();
   expect(calls).toBe(1);
-  expect(document.querySelector('[data-add-project-step="source"]')).toBeTruthy();
-  // Back and re-enter while the first native chooser remains pending. Busy is not cancellation.
-  await act(async () => document.querySelector<HTMLButtonElement>(".acpmux-add-project-heading button")!.click());
-  await pick("This Mac");
-  await pick("Local folder");
+  // The first panel is still open: busy is not a second ask, nor a cancellation.
+  await addFolder();
   expect(calls).toBe(1);
-  expect(document.querySelector('[data-add-project-step="source"]')).toBeTruthy();
   await act(async () => resolveBrowse("/Users/you/src/new"));
+  expect(container.querySelector(".nt-env")?.textContent).toContain("new");
 });
 
 test("a closed agent chat uses the semantic agent glyph and preserves its title", async () => {
@@ -1204,4 +1205,167 @@ test("a project picked on the page is reported on its click (onProjectPicked), s
   expect(option).toBeTruthy();
   await act(async () => option!.click());
   expect(picked).toEqual(["/Users/you/src/cmux"]);
+});
+
+test.each(["project", "saved"] as const)(
+  "a direct %s selection clears the prior Cloud typing target",
+  async (selection) => {
+    // The App retains the account-machine choice outside NewTabScreen. A direct project/card
+    // or saved-environment pick must clear that same target before the next prompt edit.
+    let target: CloudMachine | null | undefined = {
+      id: "cloud-draft",
+      name: "Draft machine",
+      stage: "paused",
+    };
+    let now = 0;
+    const wakes: string[] = [];
+    const prewarm = new CloudTypingPrewarm(
+      {
+        prewarm: (id) => {
+          wakes.push(id);
+          return true;
+        },
+      },
+      () => now,
+    );
+    const environment: SavedEnvironment = {
+      id: "local-worktree",
+      name: "Local worktree",
+      kind: "local",
+      folder: "/repo/local",
+      worktree: true,
+      updatedAt: 1,
+    };
+    await act(async () => {
+      root!.render(
+        <NewTabScreen
+          {...firstRunProps}
+          snapshot={noChat()}
+          cwd="/repo/original"
+          pageWidgets={new Set(["projects"])}
+          projects={[{ cwd: "/repo/local", label: "Local project" }]}
+          environments
+          savedEnvironments={{
+            list: async () => [environment],
+            save: async () => environment,
+            remove: async () => {},
+          }}
+          onCloudMachinePicked={(machine) => {
+            target = machine ?? null;
+          }}
+          onPromptTyped={(text) => {
+            const machineID = cloudTypingMachineID(target === null ? null : target?.id, "previous-cloud");
+            prewarm.typed(text, machineID ? { machineID } : undefined);
+          }}
+        />,
+      );
+    });
+    await typePrompt("first edit");
+    expect(wakes).toEqual(["cloud-draft"]);
+    now += CLOUD_TYPING_PREWARM_REFRESH_MS;
+
+    if (selection === "project") {
+      await act(async () => container.querySelector<HTMLButtonElement>(".nt-env .acpmux-project-button")!.click());
+      const row = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((item) =>
+        item.textContent?.includes("Local project"),
+      );
+      expect(row).toBeTruthy();
+      await act(async () => row!.click());
+    } else {
+      const button = container.querySelector<HTMLButtonElement>(
+        '.acpmux-location-picker[data-kind="computer"] button',
+      )!;
+      await openMachines(button);
+      const row = document.querySelector<HTMLElement>(".acpmux-env-popover .acpmux-env-saved")!;
+      expect(row).toBeTruthy();
+      await act(async () => (row.closest<HTMLElement>('[role="option"]') ?? row).click());
+    }
+
+    expect(target).toBeNull();
+    await typePrompt("edit on the local destination");
+    expect(wakes).toEqual(["cloud-draft"]);
+  },
+);
+
+// Lawrence 2026-11-05: a typed URL opens in a chosen browser profile (all listed, searchable) or in a
+// brand-new one, from the keyboard.
+const profileOmnibar = {
+  ...EMPTY_OMNIBAR,
+  profiles: [
+    { id: "default", name: "Default" },
+    { id: "p-work", name: "Work" },
+    { id: "p-austin", name: "Austin Test" },
+  ],
+};
+
+test("Open in Profile…: Down, Return, a search and Return open the URL in that profile", async () => {
+  const opened: [string, string][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        omnibar={profileOmnibar}
+        onOpenInProfile={(url, id) => opened.push([url, id])}
+        onOpenInNewProfile={() => {}}
+      />,
+    );
+  });
+  let field = await typePrompt("example.com");
+  const types = () =>
+    [...container.ownerDocument.querySelectorAll<HTMLElement>(".nt-row")].map((row) => row.dataset.type);
+  expect(types().slice(0, 3)).toEqual(["open", "inProfile", "newProfile"]);
+  await press(field, "ArrowDown");
+  await press(field, "Enter");
+  // The field searches the profiles: every one is listed, then a new one.
+  expect(promptValue()).toBe("");
+  expect(types()).toEqual(["profile", "profile", "profile", "newProfile"]);
+  field = await typePrompt("aus");
+  expect(types()).toEqual(["profile", "newProfile"]);
+  await press(field, "Enter");
+  expect(opened).toEqual([["https://example.com", "p-austin"]]);
+});
+
+test("Open in Profile…: a search no profile is named makes one with that name; Escape goes back", async () => {
+  const made: [string, string | undefined][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        omnibar={profileOmnibar}
+        onOpenInProfile={() => {}}
+        onOpenInNewProfile={(url, name) => made.push([url, name])}
+      />,
+    );
+  });
+  let field = await typePrompt("example.com");
+  await press(field, "ArrowDown");
+  await press(field, "Enter");
+  field = await typePrompt("Client X");
+  await press(field, "Escape");
+  // Back on the address, as typed.
+  expect(promptValue()).toBe("example.com");
+  await press(field, "ArrowDown");
+  await press(field, "Enter");
+  field = await typePrompt("Client X");
+  await press(field, "Enter");
+  expect(made).toEqual([["https://example.com", "Client X"]]);
+});
+
+test("Open in New Profile from the address's rows makes a profile with the default name", async () => {
+  const made: [string, string | undefined][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        omnibar={profileOmnibar}
+        onOpenInProfile={() => {}}
+        onOpenInNewProfile={(url, name) => made.push([url, name])}
+      />,
+    );
+  });
+  const field = await typePrompt("example.com");
+  await press(field, "ArrowDown");
+  await press(field, "ArrowDown");
+  await press(field, "Enter");
+  expect(made).toEqual([["https://example.com", undefined]]);
 });

@@ -1,9 +1,13 @@
 import React, { useState } from "react";
+import { Notice, type NoticeAction, type NoticeKind } from "../../../ui/Notice";
+import { Spinner } from "../conversation/icons";
 import type { ToolCard } from "./toolCardStore";
 
-/// The chat's tool cards, each one quiet line among the chat's permission asks, above the composer:
-/// what a cmux tool asks or is doing, in the host's words, and its buttons. A click goes to the
-/// host (`onAnswer`); the card changes when the host pushes its next state.
+/// The chat's tool cards among the chat's permission asks, above the composer: what a cmux tool asks
+/// or is doing, in the host's words, and its buttons, drawn as the shared notice (ui/Notice.tsx,
+/// leo-workspace design/notifications.md). A click goes to the host (`onAnswer`); the card changes
+/// when the host pushes its next state. An action the host marks `check` is the card's checkmark
+/// ("Ask me first"): a click toggles it through the host, which pushes the new state.
 export function ToolCards({
   cards,
   onAnswer,
@@ -18,6 +22,11 @@ export function ToolCards({
       ))}
     </>
   );
+}
+
+/// The notice kind of a card's state: an ask asks, a stopped run is an error, the rest are status.
+export function toolCardKind(state: ToolCard["state"]): NoticeKind {
+  return state === "ask" ? "ask" : state === "failed" ? "error" : "toast";
 }
 
 /// One card. A card with a field (a secret the person types) keeps what was typed only in this
@@ -40,45 +49,61 @@ function ToolCardRow({
     if (input) setValue("");
     onAnswer(card.id, action, typed);
   };
+  const kind = toolCardKind(card.state);
+  const check = card.actions.find((action) => action.check !== undefined);
+  const buttons = card.actions.filter((action) => action !== check);
+  // A stopped run's Retry leads (the error kind's rule); the rest keep the host's order.
+  const retry = kind === "error" ? buttons.find((action) => action.id === "retry") : undefined;
+  const actions: NoticeAction[] = buttons
+    .filter((action) => action !== retry)
+    .map((action) => ({
+      id: action.id,
+      label: action.title,
+      hint: action.hint,
+      submit: action.submitsInput === true && input !== undefined,
+      disabled: action.submitsInput === true && (!input || !value || !fits),
+      onSelect: () => send(action.id, action.submitsInput),
+    }));
   return (
     <form
-      className="acpmux-trust-ask acpmux-tool-card"
+      className="acpmux-tool-card"
       data-state={card.state}
-      aria-live="polite"
       onSubmit={(event) => {
         event.preventDefault();
         if (submit) send(submit.id, true);
       }}
     >
-      <span className="acpmux-trust-ask-text">{card.text}</span>
-      {input && (
-        <input
-          className="acpmux-tool-card-input"
-          type={input.secure ? "password" : "text"}
-          value={value}
-          placeholder={input.placeholder}
-          aria-label={input.placeholder}
-          maxLength={input.maxBytes}
-          autoComplete="off"
-          autoCorrect="off"
-          autoCapitalize="off"
-          spellCheck={false}
-          onChange={(event) => setValue(event.target.value)}
-        />
-      )}
-      {card.actions.map((action) => (
-        <button
-          key={action.id}
-          type={action.submitsInput && input ? "submit" : "button"}
-          className="acpmux-trust-ask-action"
-          /* tooltip-allow: the button names the action; the tooltip is its scope, shown nowhere else */
-          title={action.hint}
-          disabled={action.submitsInput === true && (!input || !value || !fits)}
-          onClick={action.submitsInput && input ? undefined : () => send(action.id, action.submitsInput)}
-        >
-          {action.title}
-        </button>
-      ))}
+      <Notice
+        kind={kind}
+        message={card.text}
+        leading={card.state === "working" ? <Spinner size={14} /> : undefined}
+        retry={retry && { label: retry.title, hint: retry.hint, onRetry: () => send(retry.id, false) }}
+        actions={actions}
+        check={
+          check && {
+            label: check.title,
+            hint: check.hint,
+            checked: check.check === true,
+            onCheckedChange: () => send(check.id, false),
+          }
+        }
+      >
+        {input && (
+          <input
+            className="acpmux-tool-card-input"
+            type={input.secure ? "password" : "text"}
+            value={value}
+            placeholder={input.placeholder}
+            aria-label={input.placeholder}
+            maxLength={input.maxBytes}
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            onChange={(event) => setValue(event.target.value)}
+          />
+        )}
+      </Notice>
     </form>
   );
 }

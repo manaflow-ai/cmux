@@ -40,7 +40,7 @@ public final class BrowserMediaRowView: NSView {
         artwork.image = image ?? NSImage.icon(.browserToolbarMedia, size: 40)
         artwork.imageScaling = .scaleProportionallyUpOrDown
         artwork.wantsLayer = true
-        artwork.layer?.cornerRadius = 6
+        artwork.layer?.cornerRadius = Metrics.controlCornerRadius
         artwork.layer?.masksToBounds = true
         style(titleLabel, title, font: .systemFont(ofSize: TypeScale.body, weight: TypeScale.emphasis), color: .labelColor)
         style(subtitleLabel, subtitle, font: .systemFont(ofSize: TypeScale.caption, weight: TypeScale.regular), color: .secondaryLabelColor)

@@ -82,6 +82,19 @@ PATH="$tmp/fakebin:$PATH" bash "$FIX" --no-fmt --docs-shortcuts --app-host --app
 grep -q '^fixed: regenerated cmux-tui/crates/cmux-app-host/generated/scopes.json' "$tmp/out" || fail "the regenerated app-host file must be reported"
 ! grep -q '^left: cmux-tui/crates/cmux-app-host/generated' "$tmp/out" || fail "the base app-host files must not be reported as waiting"
 git -C "$repo" checkout -q -- .
+# The copies the app bundles follow the regenerated files (sync-app-runtime.sh): f2a158b55281
+# regenerated scopes.json alone and left app platform red on base.
+bundled=Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform
+cp "$ROOT_DIR/scripts/cmux-next/sync-app-runtime.sh" "$repo/scripts/cmux-next/"
+mkdir -p "$repo/cmux-tui/crates/cmux-app-host/schema/v2"
+echo '{}' > "$repo/cmux-tui/crates/cmux-app-host/schema/v2/scope-classes.json"
+(cd "$repo" && scripts/cmux-next/sync-app-runtime.sh >/dev/null)
+git -C "$repo" add -A && git -C "$repo" -c user.name=t -c user.email=t@t commit -qm bundled
+PATH="$tmp/fakebin:$PATH" bash "$FIX" --no-fmt --app-host --app-host-committed-exports "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed syncing the bundled copies"
+[[ "$(cat "$repo/$bundled/scopes.json")" == from-stale-export ]] || fail "the bundled scopes.json must follow the regenerated one"
+grep -q "^fixed: synced $bundled/scopes.json" "$tmp/out" || fail "the synced bundled copy must be reported"
+(cd "$repo" && scripts/cmux-next/sync-app-runtime.sh --check >/dev/null 2>&1) || fail "the bundled copies must be current after the fixer"
+git -C "$repo" checkout -q -- .
 # The read-only webviews job's patch may carry the rebuilt Chief memory
 # inspector page (a stale one fails every webviews bundle build), but no other
 # path outside webviews/.

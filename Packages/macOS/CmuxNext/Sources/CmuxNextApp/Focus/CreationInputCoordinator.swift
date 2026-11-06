@@ -29,8 +29,8 @@ final class CreationInputCoordinator {
     private var buffers: [Int: CreationInputBuffer] = [:]
     /// The person's new terminals' claims on their windows' keyboards (``beginWorkspace(in:)``).
     private let claims = CreationKeyboardClaims()
-    /// Set while a captured key runs again (`lane`: it was held for a terminal), so it is not captured a second time.
-    private var replaying: (on: Bool, lane: Bool) = (false, false)
+    /// Set while a captured key runs again (`lane`: it was held for a terminal): not captured a second time; `run`: its run, judged as held.
+    private(set) var replaying: (lane: Bool, run: CrossWindowInputGuard.HeldRun)?
     /// The longest a key waits for a selected terminal's surface (the slowest takes about 350 ms).
     var holdLimit: Duration = .seconds(2)
     var replyWaitLimit: Duration = CreationInputBuffer.replyWaitBound // a creation's reply keeps the keys at most this (tests: short)
@@ -215,7 +215,7 @@ final class CreationInputCoordinator {
         // A Chromium page window is a child of the shell, whose number keys the buffer.
         let shell = controller?.window ?? window
         // A held key runs again: never captured twice; a person's claim still keeps one typed for no terminal from the window.
-        if replaying.on { return !replaying.lane && kind == .content && keepsFromWindow(event, in: shell) }
+        if let replaying { return !replaying.lane && kind == .content && keepsFromWindow(event, in: shell) }
         if asking[shell.windowNumber] != nil { return false } // a close's question is up: a key typed now is its own, the held keys wait for its answer
         // The focus names a terminal whose surface is not shown yet (a reopened window, a workspace shown
         // cold): the key waits for it, at most `holdLimit`, and goes to that terminal (REOPEN-F4); a second one gets its own lane.
@@ -263,9 +263,10 @@ final class CreationInputCoordinator {
     /// Runs held `keys` of `window` again in order, each for its own terminal, never the focused one in its place. False
     /// when one started another creation (a new hold, or another in `buffer`): the rest wait for it, in order.
     private func runAgain(_ keys: [CreationInputBuffer.HeldKey], from buffer: CreationInputBuffer, in window: NSWindow) -> Bool {
-        let opened = buffer.openedCount
+        let opened = buffer.openedCount, run = CrossWindowInputGuard.HeldRun(keyWindow: router?.services?.keyWindowSource())
+        defer { replaying = nil }
         for (index, key) in keys.enumerated() {
-            replaying = (true, key.lane != nil)
+            replaying = (key.lane != nil, run)
             switch key {
             case .run(let event, _): if let router { replay(event, window, router) }
             case .type(let events, let lane): type(events, into: lane)
@@ -273,7 +274,6 @@ final class CreationInputCoordinator {
                 guard let (binding, context) = shortcut(event, tab: lane.tab, in: window), let router else { type([event], into: lane); break }
                 RegistryKeyBindings(router.registry).run(binding, keyContext: context.bits, target: ActionTargetRef(kind: .tab, id: lane.tab))
             }
-            replaying = (false, false)
             if let next = buffers[window.windowNumber], next !== buffer || next.openedCount != opened {
                 next.prepend(keys.dropFirst(index + 1).flatMap(\.keys), issuer: key.lane)
                 return false

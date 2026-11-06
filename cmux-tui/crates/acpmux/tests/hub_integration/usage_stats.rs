@@ -70,7 +70,7 @@ async fn the_session_list_and_info_carry_what_the_chats_transcript_says() {
 }
 
 /// A new connection, as each `acpmux ls` makes one: its list is not paced by an earlier one's.
-async fn connect(hub: &Arc<Hub>) -> TestClient {
+pub(super) async fn connect(hub: &Arc<Hub>) -> TestClient {
     let (in_tx, in_rx) = mpsc::channel(64);
     let (out_tx, out_rx) = mpsc::channel(4096);
     tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));

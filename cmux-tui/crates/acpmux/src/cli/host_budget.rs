@@ -27,3 +27,63 @@ pub(crate) fn warn_host_pressure(accepted: &Value) {
         eprintln!("{line}");
     }
 }
+
+/// The most stdin `machine verdict` reads: a fleet's readings fit many times over.
+const MAX_VERDICT_INPUT: u64 = 4 << 20;
+
+/// `acpmux machine verdict`: the shadow admission verdict for each set of host
+/// readings on stdin (`cmux_host_budget::shadow_verdict`), printed as JSON. One
+/// object in gives one verdict; an array gives an array, in order. A reading
+/// without `now_ms` is judged at this machine's clock.
+pub(crate) fn verdict_stdin() -> anyhow::Result<()> {
+    use std::io::Read as _;
+    let mut text = String::new();
+    std::io::stdin().take(MAX_VERDICT_INPUT + 1).read_to_string(&mut text)?;
+    if text.len() as u64 > MAX_VERDICT_INPUT {
+        anyhow::bail!("machine verdict: stdin is over {} MiB", MAX_VERDICT_INPUT >> 20);
+    }
+    let out = verdicts_for(&text, crate::store::now_ms())?;
+    crate::cli::output::print_json(&out);
+    Ok(())
+}
+
+/// The verdicts for `text` (one inputs object or an array), with `now_ms`
+/// filled in from `now` where it is left out.
+pub(crate) fn verdicts_for(text: &str, now: u64) -> anyhow::Result<Value> {
+    use crate::host_pressure::{ShadowInputs, shadow_verdict};
+    let judge = |v: Value| -> anyhow::Result<Value> {
+        let mut inputs: ShadowInputs = serde_json::from_value(v)
+            .map_err(|e| anyhow::anyhow!("machine verdict: not a host's readings: {e}"))?;
+        inputs.now_ms = inputs.now_ms.or(Some(now));
+        Ok(serde_json::to_value(shadow_verdict(&inputs))?)
+    };
+    let input: Value = serde_json::from_str(text)
+        .map_err(|e| anyhow::anyhow!("machine verdict: stdin is not JSON: {e}"))?;
+    match input {
+        Value::Array(items) => {
+            Ok(Value::Array(items.into_iter().map(judge).collect::<anyhow::Result<_>>()?))
+        }
+        one => judge(one),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::verdicts_for;
+
+    #[test]
+    fn machine_verdict_judges_one_object_or_an_array() {
+        let one = r#"{"host":"h","health_at_ms":100000,"cores":32,"load1":205.0,
+            "previous":{"sample_at_ms":40000,"cpu":{"state":"pressured","hot":1}}}"#;
+        let v = verdicts_for(one, 101_000).expect("judged");
+        assert_eq!(v["reason"], "saturated:cpu");
+        assert_eq!(v["would_defer"], true);
+        assert_eq!(v["health_age_s"], 1);
+        let many = format!("[{one}, {{\"host\":\"g\"}}]");
+        let v = verdicts_for(&many, 101_000).expect("judged");
+        assert_eq!(v[0]["host"], "h");
+        assert_eq!(v[1]["reason"], "unknown:stale");
+        assert!(verdicts_for("{\"lod1\": 1}", 0).is_err());
+        assert!(verdicts_for("not json", 0).is_err());
+    }
+}
