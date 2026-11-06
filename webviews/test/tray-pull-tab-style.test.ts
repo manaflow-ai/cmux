@@ -11,6 +11,18 @@ function rule(selector: string): string {
   return css.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`))?.[1] ?? "";
 }
 
+// Its count sits in a control sized for two digits: a hundred running lines read "99+", never a
+// wider control (review of #36323 at 2c299524).
+describe("tucked hat pull tab count", () => {
+  test("shows up to 99, then 99+", async () => {
+    const { pullTabCountText } = await import("../src/agent-session/acpmux/subagents/TrayPullTab");
+    expect(pullTabCountText(1)).toBe("1");
+    expect(pullTabCountText(99)).toBe("99");
+    expect(pullTabCountText(100)).toBe("99+");
+    expect(pullTabCountText(1250)).toBe("99+");
+  });
+});
+
 describe("tucked hat pull tab styling", () => {
   test("the bridge meets a compact glass control", () => {
     const bridge = rule(".acpmux-tray-pull__tab::before");

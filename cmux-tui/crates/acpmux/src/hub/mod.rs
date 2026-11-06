@@ -68,6 +68,7 @@ mod transcript_seq_tests;
 pub(crate) use fork::offers_fork;
 mod fork_at;
 pub(crate) mod fork_before;
+pub(crate) mod fork_cancel;
 mod fork_transcript_auth;
 pub mod forum;
 pub(crate) mod full_access_bound;
@@ -172,6 +173,7 @@ mod seen;
 mod session;
 pub(crate) mod session_pages;
 mod settings_watch;
+mod silent_listing;
 mod silent_turn;
 mod stalled_turn;
 mod start_retry;
@@ -472,6 +474,9 @@ pub struct PromptOptions {
     pub interrupt_turn: Option<String>,
     /// Who sent the prompt, when not the person (`prompt_provenance.rs`).
     pub provenance: Option<Value>,
+    /// Connection proof that a person authored this prompt. A `person_message` kind alone is not
+    /// enough: local clients may supply that shape without the authenticated person handshake.
+    pub human_authenticated: bool,
     /// Sender identity carried across a peer link. Provenance is intentionally removed at that
     /// boundary, but the additive message event still needs the sender's stable identity.
     pub message_sender: Option<Value>,
@@ -651,6 +656,8 @@ pub struct Hub {
     pub(super) login_env_requested: AtomicBool,
     /// Session ids an `import` is writing right now.
     pub(super) importing: StdMutex<std::collections::HashSet<String>>,
+    /// Forks being made under a caller's cancel token (`fork_cancel.rs`).
+    pub(super) pending_forks: fork_cancel::PendingForks,
     /// A log retention pass runs (`hub/retention.rs`): one at a time per hub.
     pub(super) retention_running: Arc<AtomicBool>,
     pub(super) handoffs: handoff::Handoffs,
@@ -954,6 +961,7 @@ impl Hub {
             catalog_ready: tokio::sync::watch::channel(true).0,
             login_env_requested: AtomicBool::new(false),
             importing: StdMutex::new(std::collections::HashSet::new()),
+            pending_forks: Default::default(),
             retention_running: Arc::new(AtomicBool::new(false)),
             handoffs,
             agent_hosts: AtomicBool::new(false),
@@ -1400,6 +1408,7 @@ impl Hub {
             cancels: AtomicU64::new(0),
             start_retry_wake: Notify::new(),
             start_retry_waits: AtomicBool::new(false),
+            start_retry_cancels: AtomicU64::new(start_retry::NO_RETRY),
             cancel_forced_turn: StdMutex::new(None),
             unwritten_prompt: StdMutex::new(None),
             cancel_forced_result_turn: StdMutex::new(None),

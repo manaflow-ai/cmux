@@ -22,7 +22,8 @@ use cmux_json::JsonSet as _;
 #[path = "activity_tests.rs"]
 mod tests;
 
-#[cfg(test)]
+// Every scale test reads Linux process counters (cfg target_os = "linux").
+#[cfg(all(test, target_os = "linux"))]
 #[path = "activity_scale_tests.rs"]
 mod scale_tests;
 

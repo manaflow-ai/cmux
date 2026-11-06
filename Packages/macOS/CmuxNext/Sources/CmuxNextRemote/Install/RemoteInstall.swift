@@ -235,6 +235,7 @@ public struct RemoteInstallPlan: Hashable, Sendable {
     public var fetchScript: String {
         prelude + """
         url='\(url.absoluteString)'
+        \(stageOnly ? "[ -f \"$dest.staged\" ] && [ \"$(digest \"$dest.staged\")\" = \"$want\" ] && mv -f \"$dest.staged\" \"$stage\"" : ":")
         if [ -f "$stage" ] && [ "$(digest "$stage")" = "$want" ]; then :; else
           if command -v curl >/dev/null 2>&1; then fetch() { curl --http1.1 -fsSL --proto '=https' --connect-timeout 20 --speed-limit 1024 --speed-time 60 -C - -o "$stage" "$url"; }
           elif command -v wget >/dev/null 2>&1; then fetch() { wget -c -q -T 60 -O "$stage" "$url"; }

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 592,
+  "count": 596,
   "sections": [
     {
       "id": "general",
@@ -1653,6 +1653,47 @@
           "kind": "toggle",
           "default": true,
           "group": "Sidebar"
+        },
+        {
+          "key": "workspaces.freeing.agents",
+          "title": "Free Idle Agents",
+          "help": "Also ends Claude Code and Codex sessions that wait for your next message. Opening the tab resumes the same session.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Hibernation"
+        },
+        {
+          "key": "workspaces.freeing.enabled",
+          "title": "Free Idle Terminals",
+          "help": "Ends the shells of workspaces you have not used for a long time when they sit at an empty prompt. Opening the workspace starts each shell again in the same folder, with its saved screen above it. Pinned workspaces and workspaces kept awake are never freed.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Hibernation"
+        },
+        {
+          "key": "workspaces.freeing.idleMinutes",
+          "title": "Free Terminals After",
+          "help": "A hibernated workspace's idle shells end after this many minutes without use (1440 is one day).",
+          "kind": "number",
+          "default": 1440,
+          "group": "Hibernation",
+          "range": {
+            "min": 60,
+            "max": 43200,
+            "unit": "minutes"
+          }
+        },
+        {
+          "key": "workspaces.freeing.runningCommands",
+          "title": "Running Commands",
+          "help": "What happens to a command that still runs in a workspace that frees its terminals.",
+          "kind": "choice",
+          "default": "never",
+          "group": "Hibernation",
+          "values": [
+            "never",
+            "relaunch"
+          ]
         },
         {
           "key": "workspaces.hibernation.enabled",
@@ -3512,7 +3553,8 @@
           "group": "Sidebar",
           "values": [
             "none",
-            "folder"
+            "folder",
+            "recents"
           ]
         },
         {
