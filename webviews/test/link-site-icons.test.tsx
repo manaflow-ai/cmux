@@ -251,3 +251,57 @@ test("an answer that is not a base64 PNG data URL is no icon", async () => {
   expect(marks[1]!.querySelector(".cv-site-icon__img")).not.toBeNull();
   await view.unmount();
 });
+
+test("a store at its limit keeps the icons links still draw: one more site asks once", async () => {
+  const calls = await setup((hosts) => Object.fromEntries(hosts.map((host) => [host, ICON])));
+  const { UrlChip } = await import("../src/agent-session/acpmux/chips/LinkChips");
+  const { UiProvider } = await import("../src/ui/UiProvider");
+  const { act } = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const hosts = Array.from({ length: 513 }, (_, index) => `kept${index}.dev`);
+  const links = (count: number) => (
+    <UiProvider container={rootElement}>
+      <p>
+        {hosts.slice(0, count).map((host) => (
+          <UrlChip key={host} href={`https://${host}/`}>{`https://${host}/`}</UrlChip>
+        ))}
+      </p>
+    </UiProvider>
+  );
+  const rootElement = dom.window.document.getElementById("root")!;
+  const root = createRoot(rootElement);
+  const settle = () =>
+    act(async () => {
+      for (let index = 0; index < 100; index++) await Promise.resolve();
+    });
+  await act(async () => root.render(links(512)));
+  await settle();
+  await act(async () => root.render(links(513)));
+  await settle();
+  // Each site is asked once: the 513th does not push out icons that drawn links show and ask again.
+  expect(favicons(calls).flat().length).toBe(513);
+  const drawn = rootElement.querySelectorAll("a.cv-chip.is-web .cv-site-icon .cv-site-icon__img").length;
+  expect(drawn).toBe(513);
+  await act(async () => root.unmount());
+});
+
+test("a host name the host would refuse is never asked, so it cannot spoil its batch", async () => {
+  const { siteIconHost } = await import("../src/agent-session/acpmux/chips/siteIcons");
+  expect(siteIconHost("https://my_site.example.com/")).toBeUndefined();
+  expect(siteIconHost("https://a$b.example.com/")).toBeUndefined();
+  expect(siteIconHost("https://React.dev/learn")).toBe("react.dev");
+  expect(siteIconHost("https://xn--bcher-kva.example/")).toBe("xn--bcher-kva.example");
+});
+
+test("a Markdown link's text still wraps: only its first character stays on the mark's line", async () => {
+  await setup(() => ({}));
+  const { renderInline } = await import("../src/agent-session/acpmux/conversation/Markdown");
+  const view = await render(
+    <p>{renderInline("[the full migration guide for version two](https://react.dev/learn)")}</p>,
+  );
+  const lead = view.element.querySelector("a.cv-chip .cv-chip__lead");
+  expect(lead).not.toBeNull();
+  expect(lead!.textContent).toBe("t");
+  expect(view.element.querySelector("a.cv-chip")!.textContent).toBe("the full migration guide for version two");
+  await view.unmount();
+});
