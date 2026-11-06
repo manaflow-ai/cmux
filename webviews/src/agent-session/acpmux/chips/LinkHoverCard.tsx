@@ -6,7 +6,12 @@
 // (linkDisplay.ts), sits under its title when it says more than the host already does; a pull
 // request has no address line, and adds its author, checks and files (PullRequestCard.tsx). Tight
 // spacing, no dividers, on the liquid glass (.ui-glass; styles.css .cv-link-preview; Leo
-// 2026-10-21: "the styling/layout/spacing could be a bit better").
+// 2026-10-21: "the styling/layout/spacing could be a bit better"). It shows in the frame it opens
+// in, with no fade and no rise (`instant`; Leo 2026-11-06: "it plays this really laggy, slow
+// animation for the GitHub ones"): its in-place blur over the chat (chatUnderGlass.ts) follows the
+// card's rect, so a 2 px rise rewrote the transcript's blur filter on every frame of the fade, and
+// the display compositor redrew the whole filtered transcript each time. It leaves with the
+// tooltip's short fade, which moves nothing. A menu opens on the click with no fade either.
 import type { PointerEvent, ReactNode } from "react";
 import { AnchoredCard } from "../../../ui/Tooltip";
 import { OpenInMenu } from "../previewCard/OpenInMenu";
@@ -98,6 +103,7 @@ export function LinkHoverCard({
           : "ui-glass ui-glass-floats cv-link-preview"
       }
       side={side}
+      instant
       interactive
       hoverBridgeId={hover.card["data-cmux-hover-bridge"]}
       under={chatUnderHoverCard}
