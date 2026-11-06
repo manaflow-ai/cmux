@@ -182,7 +182,17 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
             guard !isStaleLifecycleEvent(surfaceId: surfaceId, sessionId: sessionId) else { return .none }
             // A correction that restores a finished turn's phase is no sign
             // of work.
-            if let declaredPhase, declaredPhase != .running { return .none }
+            if let declaredPhase, declaredPhase != .running {
+                // Codex's correction for a stale prompt-submit follows the
+                // turn-started that reopened a finished turn; the store says
+                // the turn is idle, so close it again (CLI "stale-turn-corrected").
+                if kind == .stateChanged, declaredPhase == .idle, detail == "stale-turn-corrected",
+                   surfaces[surfaceId] != nil {
+                    surfaces[surfaceId]?.turnEnded = true
+                    return cancelPending(surfaceId: surfaceId)
+                }
+                return .none
+            }
             // Progress does not change whether an errored turn still needs a
             // resume, but it shows a turn running again after a completed one:
             // a continuation can start without a prompt hook.
