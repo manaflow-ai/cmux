@@ -27,6 +27,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
@@ -48,6 +49,31 @@ const RESUME_REDIALS: u8 = 3;
 /// Chats run at once; the platform holds at most 8 per machine.
 const MAX_CHATS: usize = 8;
 const MAX_PROMPT_BYTES: usize = 256 * 1024;
+
+/// The chats this machine is running for the relay, from a chat's arrival to its last event up. The updater
+/// (`updater::role`) waits while any runs: its restart of cmux-host ends this socket and every chat on it.
+static RUNNING_CHATS: AtomicUsize = AtomicUsize::new(0);
+
+/// How many relay chats run now.
+pub fn running_chats() -> usize {
+    RUNNING_CHATS.load(Ordering::SeqCst)
+}
+
+/// One running chat in a count, until it is dropped: with its task, also when the task is aborted before it ran.
+pub(crate) struct Running(&'static AtomicUsize);
+
+impl Running {
+    pub(crate) fn start(count: &'static AtomicUsize) -> Running {
+        count.fetch_add(1, Ordering::SeqCst);
+        Running(count)
+    }
+}
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
 
 /// A chat the platform sent down, checked.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -626,7 +652,12 @@ async fn serve(
                             continue;
                         }
                         let id = chat.id.clone();
-                        let task = tokio::spawn(run_chat(chat, runner.clone(), tx.clone()));
+                        let running = Running::start(&RUNNING_CHATS);
+                        let chat = run_chat(chat, runner.clone(), tx.clone());
+                        let task = tokio::spawn(async move {
+                            let _running = running;
+                            chat.await
+                        });
                         chats.0.insert(id, task.abort_handle());
                     }
                     Down::Cancel(id) => {

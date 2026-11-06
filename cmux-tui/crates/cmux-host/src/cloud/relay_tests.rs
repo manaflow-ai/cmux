@@ -470,3 +470,32 @@ fn a_failed_session_create_keeps_its_exit_and_its_type() {
     assert_eq!(event["detail"], "daemon_closed");
     assert_eq!(event["retryable"], true);
 }
+
+#[test]
+fn a_chat_counts_as_running_until_its_task_ends_or_is_aborted() {
+    static COUNT: AtomicUsize = AtomicUsize::new(0);
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    rt.block_on(async {
+        let (release, wait) = tokio::sync::oneshot::channel::<()>();
+        let running = Running::start(&COUNT);
+        let done = tokio::spawn(async move {
+            let _running = running;
+            let _ = wait.await;
+        });
+        assert_eq!(COUNT.load(Ordering::SeqCst), 1);
+        let _ = release.send(());
+        done.await.unwrap();
+        assert_eq!(COUNT.load(Ordering::SeqCst), 0);
+
+        // Aborted before it ever ran: the count still goes back down.
+        let running = Running::start(&COUNT);
+        let aborted = tokio::spawn(async move {
+            let _running = running;
+            std::future::pending::<()>().await;
+        });
+        assert_eq!(COUNT.load(Ordering::SeqCst), 1);
+        aborted.abort();
+        let _ = aborted.await;
+        assert_eq!(COUNT.load(Ordering::SeqCst), 0);
+    });
+}
