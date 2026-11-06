@@ -399,22 +399,6 @@ import CmuxNextWakeups
         #expect(model.checklist.rows.map(\.step.rawValue) == ["listed", "heartbeat"], "only the steps the joined check sent, no ssh enroll rows")
     }
 
-    @Test func theJoinedCardOffersShowInMachines() async {
-        let fake = MachineJoinLineFlowTests.Fake()
-        fake.rows = [MachineJoinLineFlowTests.Fake.joined("jt_1")]
-        let devices = AddDeviceFlowTests.Fake()
-        var shown = 0
-        var services = MachineJoinLineFlowTests.services(devices, fake)
-        services.showMachines = { shown += 1 }
-        let model = fake.deviceModel(services)
-        await model.begin(way: .joinLine)
-        await model.joinLine?.mint()
-        #expect(model.buttons.map(\.action) == [.showMachines, .done])
-        #expect(model.perform(.showMachines), "Show in Machines closes the card")
-        #expect(shown == 1)
-        #expect(model.joinLine?.isWatching == false)
-    }
-
     /// A call the test holds open: `entered` yields once the call is inside, `release()` lets it return.
     nonisolated final class Gate: @unchecked Sendable {
         let entered: AsyncStream<Void>

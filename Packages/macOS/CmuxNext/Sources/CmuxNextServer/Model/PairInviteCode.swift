@@ -36,7 +36,7 @@ extension PairingCode {
         }
 
         /// The same for a Mac or Linux machine without cmux: the install line "Set up a new device"
-        /// shows (``AddDevicePlatform/setupLine``), then the invite.
+        /// shows (the server card page's `setupLine`, addDevice/model.ts), then the invite.
         public static func installLine(_ code: String) -> String {
             "curl -fsSL https://cmux.com/tui/install-static.sh | sh && ~/.cmux/bin/\(line(code))"
         }

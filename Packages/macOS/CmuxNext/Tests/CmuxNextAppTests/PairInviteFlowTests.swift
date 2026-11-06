@@ -294,43 +294,4 @@ import Testing
         await settle()
         #expect(source.received.isEmpty, "a frame after close previews nothing")
     }
-
-    // MARK: - Add Device
-
-    @Test func signedInTheAnyMachineWayHandsOffToTheInvite() async {
-        let devices = AddDeviceFlowTests.Fake()
-        let join = MachineJoinLineFlowTests.Fake()
-        var services = MachineJoinLineFlowTests.services(devices, join)
-        var opened = 0
-        services.pairAnotherMachine = { { opened += 1 } }
-        let model = join.deviceModel(services)
-        await model.begin(way: .joinLine)
-        #expect(model.offersInvite)
-        #expect(model.buttons.map(\.action) == [.cancel, .pairAnotherMachine])
-        #expect(join.mints.isEmpty, "no ticket line is made")
-        #expect(model.perform(.pairAnotherMachine), "the hand-off closes the card")
-        #expect(opened == 1)
-    }
-
-    @Test func signedOutTheAnyMachineWayKeepsTheTicketLine() async {
-        let devices = AddDeviceFlowTests.Fake()
-        let join = MachineJoinLineFlowTests.Fake()
-        var services = MachineJoinLineFlowTests.services(devices, join)
-        services.pairAnotherMachine = { nil }
-        let model = join.deviceModel(services)
-        await model.begin(way: .joinLine)
-        #expect(!model.offersInvite)
-        #expect(model.buttons.map(\.action) == [.cancel, .makeJoinLine])
-        #expect(model.perform(.pairAnotherMachine) == false)
-    }
-
-    @Test func withNoJoinOfferedAddDeviceIsUnchanged() async {
-        let devices = AddDeviceFlowTests.Fake()
-        var services = devices.services()
-        services.pairAnotherMachine = { {} }
-        let model = AddDeviceModel(services: services)
-        await model.begin()
-        #expect(!model.offersInvite)
-        #expect(model.ways == [.network, .code, .newDevice], "no fourth way appears")
-    }
 }

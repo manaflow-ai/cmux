@@ -58,7 +58,8 @@ extension ServerMenuBarController {
 
 extension WebCardPanel {
     /// The App's server card panel, kept warm: Pair Another Machine (the invite minted and watched as the
-    /// signed-in user; its arrived machine previewed and approved by Add Server's own cloud source).
+    /// signed-in user; its arrived machine previewed and approved by Add Server's own cloud source) and
+    /// Add Device (``AppServices/addDevice``).
     @MainActor
     static func serverCards(services: AppServices) -> WebCardPanel? {
         let feed = services.feed
@@ -89,7 +90,7 @@ extension WebCardPanel {
             // A single-use code: marked concealed and transient (nspasteboard.org) so clipboard managers do not keep it.
             copy: { SystemPasswordPasteboard().write($0, markers: [ConcealedPasteboard.concealedType, ConcealedPasteboard.transientType]) },
             qr: { qrCode.pngDataURL(for: $0) })
-        guard let panel = WebCardPanel(descriptor: .serverCards, cards: [invite]) else { return nil }
+        guard let panel = WebCardPanel(descriptor: .serverCards, cards: [invite, services.addDevice]) else { return nil }
         panel.isPersonEvent = { [person = PersonInputCheck(sources: services.personInput.sources)] in person.isPerson($0) }
         return panel
     }

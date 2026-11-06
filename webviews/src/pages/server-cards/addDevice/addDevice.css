@@ -1,0 +1,197 @@
+/* Add Device (design/server-cards.md): the ways' switch, the chosen way's body, Advanced over the
+   ssh way, and the footer. The card sets its own width (440 px, 540 with the pair code offered),
+   which the panel takes in the same frame as its height. */
+.server-card-frame.add-device-frame {
+  width: max-content;
+}
+
+.add-device-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.add-device-switch {
+  display: flex;
+  align-self: stretch;
+}
+
+.add-device-switch .ui-tabs-trigger {
+  flex: 1 1 0;
+  justify-content: center;
+}
+
+/* With the pair code offered each way keeps its whole title. */
+.add-device-switch.is-fit .ui-tabs-trigger {
+  flex: 1 1 auto;
+}
+
+.add-device-advanced {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.add-device-advanced-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--page-text-2);
+  font: inherit;
+}
+
+.add-device-chevron {
+  width: 0;
+  height: 0;
+  border-block: 4px solid transparent;
+  border-inline-start: 6px solid currentColor;
+}
+
+.add-device-chevron.is-open {
+  transform: rotate(90deg);
+}
+
+.add-device-list {
+  align-self: stretch;
+}
+
+.add-device-list-scroll {
+  height: 100%;
+}
+
+.add-device-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-sizing: border-box;
+  padding-block: 4px;
+  padding-inline-end: 4px;
+}
+
+.add-device-row-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.add-device-row-detail {
+  flex: none;
+  color: var(--page-text-2);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
+
+.add-device-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--page-hover);
+}
+
+.add-device-line-text {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, monospace;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+/* compact: the line on one row, cut in the middle by the box, its countdown inside. */
+.add-device-line.is-compact .add-device-line-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.add-device-meta {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
+
+.add-device-countdown {
+  flex: none;
+  font-family: ui-monospace, monospace;
+  font-size: var(--text-caption);
+  color: var(--page-text-2);
+}
+
+.add-device-countdown.is-urgent {
+  color: var(--cmux-app-warning, #d08a00);
+}
+
+.add-device-other {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.add-device-other .server-card-text {
+  max-width: 60%;
+}
+
+.add-device-name {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  color: var(--page-text-2);
+}
+
+.add-device-name-field {
+  flex: 1;
+  min-width: 0;
+}
+
+.add-device-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--page-text-2);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
+
+.add-device-check {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.add-device-check-mark {
+  flex: none;
+  font-weight: 600;
+}
+
+.add-device-check[data-state="ok"] .add-device-check-mark,
+.add-device-check[data-state="fixed"] .add-device-check-mark {
+  color: var(--cmux-app-success, #30a46c);
+}
+
+.add-device-check[data-state="warn"] .add-device-check-mark {
+  color: var(--cmux-app-warning, #d08a00);
+}
+
+.add-device-check[data-state="fail"] .add-device-check-mark {
+  color: var(--cmux-app-danger, #e5484d);
+}
+
+.add-device-check[data-state="skip"] .add-device-check-mark {
+  color: var(--page-text-3);
+}

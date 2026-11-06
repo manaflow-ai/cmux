@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import type { PageClient } from "../shared/pageClient";
 import type { Strings } from "../shared/i18n";
+import { AddDeviceCardHost } from "./addDevice/AddDeviceCardHost";
+import { ADD_DEVICE_CARD } from "./addDevice/types";
 import { cardOfHash } from "./host";
 import { PairInviteCardHost } from "./pairInvite/PairInviteCardHost";
 import { PAIR_INVITE_CARD } from "./pairInvite/types";
@@ -17,6 +19,8 @@ export function ServerCardsPage({ client, strings }: { client: PageClient | null
   switch (card) {
     case PAIR_INVITE_CARD:
       return <PairInviteCardHost client={client} strings={strings} />;
+    case ADD_DEVICE_CARD:
+      return <AddDeviceCardHost client={client} strings={strings} />;
     default:
       return null;
   }

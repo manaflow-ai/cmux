@@ -7,7 +7,7 @@ extension PageDescriptor {
     /// The server cards (webviews/src/pages/server-cards): cmux-page://cmux.server-cards/, one card
     /// per route in one floating ``WebCardPanel``. A new card adds its ops' prefix here.
     public static let serverCards = PageDescriptor(id: "cmux.server-cards", resource: "server-cards",
-                                                   namespaces: ["cmux.card.", "cmux.pairInvite."])
+                                                   namespaces: ["cmux.card.", "cmux.pairInvite.", "cmux.addDevice."])
 }
 
 /// "Pair Another Machine…" on the server card page (`#/pair-invite`, webviews/src/pages/server-cards):

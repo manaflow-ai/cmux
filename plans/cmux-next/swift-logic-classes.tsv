@@ -9719,21 +9719,9 @@ CmuxNextScreenshots	class	ScreenshotsView	0	PLATFORM	0	0	Packages/macOS/CmuxNext
 CmuxNextScreenshots	protocol	ScreenshotsWorkspace	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextScreenshots/ScreenshotsWorkspace.swift	from protocol ScreenshotsWorkspace:7: view, workspace or file-system plumbing
 CmuxNextScreenshots	struct	SystemScreenshotEnvironment	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextScreenshots/SystemScreenshotEnvironment.swift	view, workspace or file-system plumbing
 CmuxNextScreenshots	class	SystemScreenshotsWorkspace	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextScreenshots/SystemScreenshotsWorkspace.swift	from class SystemScreenshotsWorkspace:9: view, workspace or file-system plumbing
-CmuxNextServer	enum	AddDeviceAction	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddDevice/AddDeviceAction.swift	Add Device card action enum (click and key path)
-CmuxNextServer	struct	AddDeviceButton	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddDevice/AddDeviceButton.swift	card footer button value
-CmuxNextServer	class	AddDeviceCard	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddDevice/AddDeviceCard.swift	from class AddDeviceCard:8: Add Device card presenter
-CmuxNextServer	class	AddDeviceCardPanel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddDevice/AddDeviceCardPanel.swift	from class AddDeviceCardPanel:8: NSPanel for Add Device card
-CmuxNextServer	class	AddDeviceModel	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddDevice/AddDeviceModel.swift	from class AddDeviceModel:10: Add Device flow: candidates, ways, enroll steps
-CmuxNextServer	enum	AddDevicePlatform	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddDevice/AddDevicePlatform.swift	device platform kind for join line text
+CmuxNextServer	class	AddDeviceCardProvider	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddDevice/AddDeviceCardProvider.swift	page provider: relays the Add Device card ops to the CLI, clipboard and card hand-offs
 CmuxNextServer	struct	AddDeviceServices	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddDevice/AddDeviceServices.swift	service seam closures for the card
 CmuxNextServer	struct	AddDeviceStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddDevice/AddDeviceStrings.swift	localized card strings
-CmuxNextServer	class	JoinLineCountdownLabel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddDevice/AddDeviceView+JoinLine.swift	from enum JoinLineLayout:7: join line layout variants (view)
-CmuxNextServer	enum	AddDeviceButtonTitle	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddDevice/AddDeviceView+JoinLine.swift	from enum JoinLineLayout:7: join line layout variants (view)
-CmuxNextServer	enum	JoinLineLayout	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddDevice/AddDeviceView+JoinLine.swift	join line layout variants (view)
-CmuxNextServer	extension	AddDeviceView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddDevice/AddDeviceView+JoinLine.swift	from enum JoinLineLayout:7: join line layout variants (view)
-CmuxNextServer	class	AddDeviceView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddDevice/AddDeviceView.swift	from class AddDeviceView:9: AppKit Add Device view
-CmuxNextServer	class	FlippedView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddDevice/AddDeviceView.swift	from class AddDeviceView:9: AppKit Add Device view
-CmuxNextServer	enum	AddDeviceWay	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddDevice/AddDeviceWay.swift	ways into Add Device card
 CmuxNextServer	struct	DeviceActivity	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddDevice/DeviceActivity.swift	decoded cmux device audit line
 CmuxNextServer	class	DeviceDirectory	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddDevice/DeviceDirectory.swift	from class DeviceDirectory:10: store of device listing and audit lines from the CLI
 CmuxNextServer	struct	DevicesPage	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddDevice/DeviceDirectory.swift	from class DeviceDirectory:10: store of device listing and audit lines from the CLI
@@ -9753,7 +9741,6 @@ CmuxNextServer	struct	JoinConsentStrings	0	MIXED	76	11	Packages/macOS/CmuxNext/S
 CmuxNextServer	struct	JoinStatus	0	MIXED	76	11	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddDevice/JoinConsent.swift	from enum JoinConsentSurface:8: join status/consent record decode 68; consent model, grant gate, refusals 458; strings/services 80
 CmuxNextServer	class	JoinConsentAskPanel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddDevice/JoinConsentAskPanel.swift	from class JoinConsentAskPanel:9: NSPanel consent ask panel
 CmuxNextServer	class	JoinConsentAskView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddDevice/JoinConsentAskPanel.swift	from class JoinConsentAskPanel:9: NSPanel consent ask panel
-CmuxNextServer	class	MachineJoinLineModel	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddDevice/MachineJoinLineModel.swift	from class MachineJoinLineModel:12: join line mint phases and one-second countdown
 CmuxNextServer	enum	JoinLineFailure	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddDevice/MachineJoinService.swift	from struct JoinLine:6: thin call site that mints join line via CLI
 CmuxNextServer	struct	JoinLine	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddDevice/MachineJoinService.swift	thin call site that mints join line via CLI
 CmuxNextServer	struct	MachineJoinService	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddDevice/MachineJoinService.swift	from struct JoinLine:6: thin call site that mints join line via CLI
