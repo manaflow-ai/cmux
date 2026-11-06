@@ -163,7 +163,7 @@ def write_outputs() -> int:
         cross_run, comment = "true", comments(rec)
     else:
         rec, cross_run = from_env(), ""
-        comment = False
+        comment = comments(rec)  # nightly-next comments its PRs from the run that published
     values = {name: rec.get(name, "") for name in NAMES}
     values.update(cross_run=cross_run, comment="true" if comment else "false")
     # publish-nightly's downloads is a Markdown list: a value with a newline goes in a delimited block.
