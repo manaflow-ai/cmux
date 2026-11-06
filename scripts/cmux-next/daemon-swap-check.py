@@ -162,18 +162,26 @@ UNCLAIMED: dict[int, str] = {}
 
 
 def names_root(pid: int, root: Path) -> bool:
-    """Whether a process's executable or command line names ROOT, this run's
-    own work dir (made by mkdtemp): a pid reused by any other process does not."""
-    needle = str(root)
+    """Whether a process's executable, or one of its arguments (or an
+    argument's `--flag=` value), is ROOT, this run's own work dir (made by
+    mkdtemp), or a path inside it: whole path components only, so a pid reused
+    by any other process, even one whose path merely starts with ROOT's name
+    or mentions it mid-argument, does not."""
+    def inside(path: str) -> bool:
+        return path == str(root) or path.startswith(f"{root}/")
+    def any_arg(args: list[str]) -> bool:
+        return any(inside(arg) or inside(arg.partition("=")[2]) for arg in args)
     if LINUX_PROC:
         try:
-            if os.readlink(f"/proc/{pid}/exe").startswith(needle):
+            if inside(os.readlink(f"/proc/{pid}/exe")):
                 return True
-            return needle.encode() in Path(f"/proc/{pid}/cmdline").read_bytes()
+            raw = Path(f"/proc/{pid}/cmdline").read_bytes()
         except OSError:
             return False
+        return any_arg(raw.decode(errors="replace").split("\0"))
     out = subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True, timeout=10)
-    return needle in out.stdout
+    # mkdtemp's name has no spaces, so ps's space-joined command line splits cleanly around it.
+    return any_arg(out.stdout.split())
 
 
 def claim(owned: Owned, pid: int | None, written: float, root: Path) -> None:
