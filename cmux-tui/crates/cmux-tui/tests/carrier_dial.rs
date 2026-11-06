@@ -84,7 +84,7 @@ impl Signer {
 async fn platform(
     signer: Arc<Signer>,
     relay: SocketAddr,
-    daemon_key: [u8; 32],
+    daemon_key: Option<String>,
     status: u16,
     asked: Arc<AtomicUsize>,
     teams: Teams,
@@ -95,6 +95,7 @@ async fn platform(
         loop {
             let Ok((mut stream, _)) = listener.accept().await else { return };
             let signer = signer.clone();
+            let daemon_key = daemon_key.clone();
             let asked = asked.clone();
             let teams = teams.clone();
             tokio::spawn(async move {
@@ -137,8 +138,10 @@ async fn platform(
                         "slot": SLOT,
                         "ticket": "open-client-ticket",
                         "expires_at": now() + 300,
-                        "daemon_key": URL_SAFE_NO_PAD.encode(daemon_key),
                     });
+                    if let Some(key) = &daemon_key {
+                        value["daemon_key"] = json!(key);
+                    }
                     if let Some(key) = request["noise_key"].as_str() {
                         let key: [u8; 32] =
                             URL_SAFE_NO_PAD.decode(key).unwrap().try_into().unwrap();
@@ -193,7 +196,29 @@ fn world(status: u16, asked: Arc<AtomicUsize>) -> World {
     world_granting(status, asked, "mux-control")
 }
 
+/// What the platform answers as `daemon_key`.
+#[derive(Clone, Copy)]
+enum DaemonKey {
+    /// The daemon's own key.
+    Real,
+    /// No `daemon_key` at all.
+    Missing,
+    /// Not 32 canonical base64url bytes.
+    Malformed,
+    /// A well-formed key that is not the daemon's.
+    Other,
+}
+
 fn world_granting(status: u16, asked: Arc<AtomicUsize>, service: &'static str) -> World {
+    world_full(status, asked, service, DaemonKey::Real)
+}
+
+fn world_full(
+    status: u16,
+    asked: Arc<AtomicUsize>,
+    service: &'static str,
+    key: DaemonKey,
+) -> World {
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
     let dir = tempfile::tempdir().unwrap();
     let mux = dir.path().join("mux.sock");
@@ -235,7 +260,12 @@ fn world_granting(status: u16, asked: Arc<AtomicUsize>, service: &'static str) -
         let platform = platform(
             signer,
             relay_address,
-            auth.identity().public_key(),
+            match key {
+                DaemonKey::Real => Some(URL_SAFE_NO_PAD.encode(auth.identity().public_key())),
+                DaemonKey::Missing => None,
+                DaemonKey::Malformed => Some("not-a-key".into()),
+                DaemonKey::Other => Some(URL_SAFE_NO_PAD.encode([9_u8; 32])),
+            },
             status,
             asked,
             teams.clone(),
@@ -360,6 +390,37 @@ fn a_grant_without_mux_control_fails_the_handshake_before_ok() {
     let route = line(&mut stderr);
     assert!(route.contains("phase=connect outcome=handshake"), "{route}");
     assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(5));
+}
+
+/// The dial's reply line, its route line and exit code with `key` answered.
+fn dial_with_key(key: DaemonKey) -> (Value, String, Option<i32>) {
+    let world = world_full(200, Arc::new(AtomicUsize::new(0)), "mux-control", key);
+    let mut child = dial(&world);
+    let mut stderr = BufReader::new(child.stderr.take().unwrap());
+    let reply: Value = serde_json::from_str(&line(&mut stderr)).unwrap();
+    let route = line(&mut stderr);
+    (reply, route, wait(&mut child, Duration::from_secs(20)))
+}
+
+#[test]
+fn an_answer_without_a_daemon_key_fails_at_the_ticket_before_any_handshake() {
+    for key in [DaemonKey::Missing, DaemonKey::Malformed] {
+        let (reply, route, code) = dial_with_key(key);
+        assert_eq!(reply["ok"], false, "{reply}");
+        assert_eq!(reply["error_code"], "ticket", "{reply}");
+        assert_eq!(reply["error_detail"], "the machine has no daemon key", "{reply}");
+        assert!(route.contains("phase=connect outcome=ticket"), "{route}");
+        assert_eq!(code, Some(2));
+    }
+}
+
+#[test]
+fn a_daemon_that_is_not_the_pinned_one_fails_the_handshake() {
+    let (reply, route, code) = dial_with_key(DaemonKey::Other);
+    assert_eq!(reply["ok"], false, "{reply}");
+    assert_eq!(reply["error_code"], "handshake", "{reply}");
+    assert!(route.contains("phase=connect outcome=handshake"), "{route}");
+    assert_eq!(code, Some(5));
 }
 
 /// The child's exit code, or None (and the child ended) past `limit`.

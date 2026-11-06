@@ -87,6 +87,11 @@ pub(super) fn classify(error: &ConnectionError, step: Step) -> Failure {
     }
 }
 
+/// The daemon key a dial pins: required, never learned from the handshake.
+pub(super) fn pinned_daemon(answer: &CarrierAnswer) -> Result<[u8; 32], Failure> {
+    answer.daemon_key.ok_or_else(|| Failure::fatal(Step::Ticket, "the machine has no daemon key"))
+}
+
 fn source_failure(error: SourceError) -> Failure {
     Failure { step: Step::Ticket, detail: error.detail, retryable: error.retryable }
 }
@@ -195,6 +200,7 @@ async fn attempt(
     step.set(Step::Ticket);
     let key = plan.identity.public_key();
     let answer = plan.source.fetch(&plan.machine, Some(&key)).await.map_err(source_failure)?;
+    let daemon = pinned_daemon(&answer)?;
     let grant = answer
         .grant
         .clone()
@@ -226,7 +232,7 @@ async fn attempt(
     let remaining = plan.deadline.saturating_duration_since(Instant::now());
     let config = ClientConnectionConfig {
         identity: plan.identity.clone(),
-        expected_daemon: answer.daemon_key,
+        expected_daemon: Some(daemon),
         auth: ClientAuthMode::Grant { token: Zeroizing::new(grant.to_string()) },
         device_name: "cmux-carrier".into(),
         session,

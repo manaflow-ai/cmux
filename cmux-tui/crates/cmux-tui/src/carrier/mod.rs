@@ -3,6 +3,12 @@
 //! a cmux-remote session through the machine's relay slot, admitted by a
 //! carrier grant, with the daemon's key pinned.
 //!
+//! The pin is required. An answer without `daemon_key`, or with one that is
+//! not 32 canonical base64url bytes, fails at `ticket` ("the machine has no
+//! daemon key", exit 2) before any handshake; a daemon whose static key
+//! differs from it fails at `handshake` (exit 5). No key is ever learned
+//! from a handshake.
+//!
 //! Contract (the same one `cmux link dial` kept for the Cloud app server):
 //! - stderr gets exactly one JSON reply line first: `{"ok":true,
 //!   "path_state":"relay","route":"carrier"}` when connected, else
