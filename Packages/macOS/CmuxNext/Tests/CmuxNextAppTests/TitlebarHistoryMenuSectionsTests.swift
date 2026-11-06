@@ -1,7 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
-import CmuxNextHistory
+@testable import CmuxNextHistory
 import CmuxNextHistoryDaemon
 import CmuxNextWakeups
 import CmuxNextPalette
@@ -106,7 +106,7 @@ struct TitlebarHistoryMenuSectionsTests {
     static let now = Date(timeIntervalSince1970: 10_000)
 
     static func closedRow(_ id: String, _ title: String, kind: CmuxNextHistory.ClosedItem.Kind = .terminalTab) -> TitlebarHistoryClosedRow {
-        TitlebarHistoryClosedRow(id: id, kind: kind, title: title, detail: "~/src", time: now.addingTimeInterval(-300))
+        TitlebarHistoryClosedRow(id: id, kind: kind, title: title, detail: "~/src")
     }
 
     static func sections() -> [LocationTrailMenuSection] {
@@ -122,7 +122,7 @@ struct TitlebarHistoryMenuSectionsTests {
         let menu = TitlebarHistoryMenu.make(Self.sections(), closed: .rows([Self.closedRow("daemon:closed_1", "build")]),
                                             choose: { _ in }, showAll: footer)
         let titles = menu.items.map { $0.isSeparatorItem ? "—" : $0.title }
-        #expect(titles == ["a", "—", "Recently Closed", "build — ~/src", "—", "Show Full History"])
+        #expect(titles == ["a — one", "—", "Recently Closed", "build — ~/src", "—", "Show Full History"])
         #expect(menu.items.last === footer)
     }
 
@@ -152,15 +152,30 @@ struct TitlebarHistoryMenuSectionsTests {
         #expect(menu.items.count == 1 + TitlebarHistoryMenu.closedLimit)
     }
 
-    @Test func roomyRowsShowAnIconAndASecondLine() throws {
-        let menu = TitlebarHistoryMenu.make([], closed: .rows([Self.closedRow("daemon:closed_1", "build")]),
-                                            style: .roomyTimed, now: Self.now, choose: { _ in }, showAll: nil)
-        let row = try #require(menu.items.last)
-        #expect(row.title == "build")
-        #expect(row.image != nil)
-        let text = try #require(row.attributedTitle?.string)
-        #expect(text.hasPrefix("build\n~/src · "))
-        #expect(menu.minimumWidth == TitlebarHistoryMenu.roomyMinimumWidth)
+    /// Leo 2026-11-06: "don't increase any size ... after adding a recently closed section, don't
+    /// shrink it stupidly ... don't baloon it". Every style lists today's history rows unchanged, adds
+    /// a bounded Recently Closed, and sets no width of its own.
+    @Test func recentlyClosedKeepsTheListsSize() {
+        let footer = { NSMenuItem(title: "Show History", action: nil, keyEquivalent: "") }
+        let today = TitlebarHistoryMenu.make(Self.sections(), choose: { _ in }, showAll: footer())
+        let many = (0..<20).map { Self.closedRow("daemon:closed_\($0)", "t\($0)") }
+        let todayRows = today.items.filter { $0.action == #selector(TitlebarHistoryMenuTarget.pick(_:)) }.map(\.title)
+        for style in TitlebarHistoryMenuStyle.allCases {
+            let menu = TitlebarHistoryMenu.make(Self.sections(), closed: .rows(many), style: style, choose: { _ in }, showAll: footer())
+            #expect(menu.items.filter { $0.action == #selector(TitlebarHistoryMenuTarget.pick(_:)) }.map(\.title) == todayRows)
+            let added = menu.items.count - today.items.count
+            #expect(added == (style == .submenu ? 2 : 2 + TitlebarHistoryMenu.closedLimit))
+            #expect(menu.minimumWidth == today.minimumWidth)
+            #expect(menu.items.allSatisfy { $0.attributedTitle == nil })
+        }
+    }
+
+    @Test func theSubmenuStyleHoldsTheClosedRows() throws {
+        let menu = TitlebarHistoryMenu.make([], closed: .rows([Self.closedRow("daemon:closed_1", "build")]), style: .submenu,
+                                            choose: { _ in }, showAll: nil)
+        let item = try #require(menu.items.first)
+        #expect(item.title == "Recently Closed")
+        #expect(item.submenu?.items.map(\.title) == ["build — ~/src"])
     }
 
     @Test func aLateTitleRenamesEntriesInPlace() {

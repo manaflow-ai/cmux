@@ -11,7 +11,6 @@ nonisolated enum HistoryStrings {
     static var menuRecentlyClosed: String { t("titlebarHistory.recentlyClosed", "Recently Closed") }
     static var menuNothingClosed: String { t("titlebarHistory.nothingClosed", "Nothing closed yet") }
     static var menuClosedUnavailable: String { t("titlebarHistory.closedUnavailable", "Closed items appear once cmux connects") }
-    static var menuJustNow: String { t("titlebarHistory.justNow", "just now") }
     static var readFailed: String { t("status.readFailed", "History didn't load") }
     static var readFailedHint: String { t("status.readFailedHint", "cmux did not answer in time. Press Return to try again.") }
     static var tryAgain: String { t("status.tryAgain", "Try Again") }

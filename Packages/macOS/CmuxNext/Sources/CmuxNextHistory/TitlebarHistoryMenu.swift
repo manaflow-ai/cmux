@@ -25,14 +25,12 @@ public nonisolated struct TitlebarHistoryClosedRow: Hashable, Sendable {
     public let title: String
     /// The address, folder or page under the title, and the machine when it is not this Mac.
     public let detail: String?
-    public let time: Date
 
-    public init(id: String, kind: ClosedItem.Kind, title: String, detail: String?, time: Date) {
+    public init(id: String, kind: ClosedItem.Kind, title: String, detail: String?) {
         self.id = id
         self.kind = kind
         self.title = title
         self.detail = detail
-        self.time = time
     }
 }
 
@@ -46,20 +44,24 @@ public nonisolated enum TitlebarHistoryClosedSection: Hashable, Sendable {
     case unavailable
 }
 
-/// How each row of the Back / Forward list reads (Debug Settings `history.menuStyle`).
+/// How the Back / Forward list shows Recently Closed (Debug Settings `history.menuStyle`). Every style
+/// keeps the list's size (Leo 2026-11-06: "don't increase any size ... after adding a recently closed
+/// section, don't shrink it stupidly ... don't baloon it"): rows stay one line at the menu's own
+/// font and width, the history sections list exactly what they listed before, and Recently Closed
+/// adds at most ``TitlebarHistoryMenu/closedLimit`` rows (or one row, as a submenu).
 public nonisolated enum TitlebarHistoryMenuStyle: String, CaseIterable, Hashable, Sendable, TunableChoice {
-    /// One line: "title — workspace", no icon (the list as it was).
-    case compact
-    /// An icon, the title, and a second line with the workspace and machine.
-    case roomy
-    /// Roomy, and the second line also says how long ago (the default).
-    case roomyTimed
+    /// Recently Closed inline under its header, one line per row (the default).
+    case inline
+    /// Inline, each row led by its kind's glyph at the menu's text size (the row height does not change).
+    case inlineIcons
+    /// One "Recently Closed" row that opens the closed items as a submenu: the list grows by one row.
+    case submenu
 
     public var tunableTitle: String {
         switch self {
-        case .compact: "Compact: one line per row"
-        case .roomy: "Roomy: icon, title, workspace line"
-        case .roomyTimed: "Roomy with time: icon, title, workspace and time"
+        case .inline: "Recently Closed inline, one line per row"
+        case .inlineIcons: "Recently Closed inline, with kind icons"
+        case .submenu: "Recently Closed as a submenu"
         }
     }
 }
@@ -71,20 +73,18 @@ public nonisolated enum TitlebarHistoryMenuStyle: String, CaseIterable, Hashable
 public struct TitlebarHistoryMenu {
     public init() {}
 
-    /// The widest a roomy list starts at, so titles and their second lines read in full.
-    public static let roomyMinimumWidth: CGFloat = 320
-    /// Closed rows the list shows; the History page has the rest.
-    public static let closedLimit = 8
+    /// Closed rows the list shows; the History page has the rest. Small, so the history rows above
+    /// keep the room they had.
+    public static let closedLimit = 5
 
     /// `showAll` is the registry's `history.show` row (it runs the registered action, as the
     /// palette does), retitled Show Full History; nil: no footer (the `scope` layout, the R69
     /// list as it was). `closed` nil leaves the Recently Closed section out.
     public static func make(_ sections: [LocationTrailMenuSection], closed: TitlebarHistoryClosedSection? = nil,
-                            style: TitlebarHistoryMenuStyle = .compact, now: Date = Date(),
+                            style: TitlebarHistoryMenuStyle = .inline,
                             choose: @escaping (Int) -> Void, reopen: @escaping (String) -> Void = { _ in },
                             showAll: NSMenuItem?) -> NSMenu {
         let menu = NSMenu()
-        if style != .compact { menu.minimumWidth = roomyMinimumWidth }
         let target = TitlebarHistoryMenuTarget(choose: choose, reopen: reopen)
         for section in sections where !section.items.isEmpty {
             if let header = HistoryStrings.menuHeader(section.kind) {
@@ -93,10 +93,8 @@ public struct TitlebarHistoryMenu {
             }
             for item in section.items {
                 let location = item.entry.location
-                let detail = [location.workspaceTitle, location.machineName].compactMap { $0 }.joined(separator: " · ")
-                let row = self.row(title: location.title, detail: detail.isEmpty ? nil : detail, symbol: symbol(location),
-                                   time: item.entry.enteredAt, style: style, now: now)
-                row.action = #selector(TitlebarHistoryMenuTarget.pick(_:))
+                let title = location.workspaceTitle.map { "\(location.title) — \($0)" } ?? location.title
+                let row = NSMenuItem(title: title, action: #selector(TitlebarHistoryMenuTarget.pick(_:)), keyEquivalent: "")
                 row.tag = item.index
                 row.target = target
                 row.representedObject = target  // NSMenuItem holds its target weakly; the row keeps it alive.
@@ -105,20 +103,16 @@ public struct TitlebarHistoryMenu {
         }
         if let closed {
             if !menu.items.isEmpty { menu.addItem(.separator()) }
-            menu.addItem(.sectionHeader(title: HistoryStrings.menuRecentlyClosed))
-            switch closed {
-            case .rows(let rows):
-                for closedRow in rows.prefix(closedLimit) {
-                    let row = self.row(title: closedRow.title, detail: closedRow.detail, symbol: symbol(closedRow.kind),
-                                       time: closedRow.time, style: style, now: now)
-                    row.action = #selector(TitlebarHistoryMenuTarget.pickClosed(_:))
-                    row.identifier = NSUserInterfaceItemIdentifier(closedRow.id)
-                    row.target = target
-                    row.representedObject = target
-                    menu.addItem(row)
-                }
-            case .empty: menu.addItem(note(HistoryStrings.menuNothingClosed))
-            case .unavailable: menu.addItem(note(HistoryStrings.menuClosedUnavailable))
+            let rows = closedRows(closed, icons: style == .inlineIcons, target: target)
+            if style == .submenu {
+                let item = NSMenuItem(title: HistoryStrings.menuRecentlyClosed, action: nil, keyEquivalent: "")
+                let submenu = NSMenu(title: HistoryStrings.menuRecentlyClosed)
+                rows.forEach(submenu.addItem)
+                item.submenu = submenu
+                menu.addItem(item)
+            } else {
+                menu.addItem(.sectionHeader(title: HistoryStrings.menuRecentlyClosed))
+                rows.forEach(menu.addItem)
             }
         }
         if let all = showAll {
@@ -129,52 +123,33 @@ public struct TitlebarHistoryMenu {
         return menu
     }
 
+    /// The Recently Closed rows, newest first and at most ``closedLimit``, or the one disabled line
+    /// that says why there are none.
+    static func closedRows(_ closed: TitlebarHistoryClosedSection, icons: Bool, target: TitlebarHistoryMenuTarget) -> [NSMenuItem] {
+        switch closed {
+        case .empty: return [note(HistoryStrings.menuNothingClosed)]
+        case .unavailable: return [note(HistoryStrings.menuClosedUnavailable)]
+        case .rows(let rows):
+            return rows.prefix(closedLimit).map { closedRow in
+                let title = closedRow.detail.map { "\(closedRow.title) — \($0)" } ?? closedRow.title
+                let row = NSMenuItem(title: title, action: #selector(TitlebarHistoryMenuTarget.pickClosed(_:)), keyEquivalent: "")
+                if icons {
+                    row.image = NSImage(systemSymbolName: symbol(closedRow.kind), accessibilityDescription: nil)?
+                        .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: TypeScale.body, weight: .regular))
+                }
+                row.identifier = NSUserInterfaceItemIdentifier(closedRow.id)
+                row.target = target
+                row.representedObject = target
+                return row
+            }
+        }
+    }
+
     /// A disabled line that says why a section has no rows.
     static func note(_ text: String) -> NSMenuItem {
         let item = NSMenuItem(title: text, action: nil, keyEquivalent: "")
         item.isEnabled = false
         return item
-    }
-
-    /// One row under `style`. `title` stays the plain title (type-select, VoiceOver); a roomy row
-    /// draws the title and its second line from `attributedTitle`.
-    static func row(title: String, detail: String?, symbol: String, time: Date, style: TitlebarHistoryMenuStyle,
-                    now: Date) -> NSMenuItem {
-        guard style != .compact else {
-            return NSMenuItem(title: detail.map { "\(title) — \($0)" } ?? title, action: nil, keyEquivalent: "")
-        }
-        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-        item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: TypeScale.body, weight: .regular))
-        var second = detail.map { [$0] } ?? []
-        if style == .roomyTimed { second.append(relative(time, now: now)) }
-        let text = NSMutableAttributedString(string: title, attributes: [.font: NSFont.menuFont(ofSize: TypeScale.body)])
-        if !second.isEmpty {
-            text.append(NSAttributedString(string: "\n" + second.joined(separator: " · "), attributes: [
-                .font: NSFont.menuFont(ofSize: TypeScale.caption),
-                .foregroundColor: NSColor.secondaryLabelColor,
-            ]))
-        }
-        item.attributedTitle = text
-        return item
-    }
-
-    /// "now", "5 min. ago": how long ago a row was entered or closed.
-    static func relative(_ time: Date, now: Date) -> String {
-        if now.timeIntervalSince(time) < 60 { return HistoryStrings.menuJustNow }
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .short
-        return formatter.localizedString(for: time, relativeTo: now)
-    }
-
-    /// A trail row's glyph: its page, browser, terminal, or chat.
-    static func symbol(_ location: HistoryLocation) -> String {
-        if location.page != nil { return "doc.text" }
-        return switch location.content {
-        case .terminal: "terminal"
-        case .browser: "globe"
-        case .other: "bubble.left"
-        }
     }
 
     static func symbol(_ kind: ClosedItem.Kind) -> String {
@@ -196,9 +171,9 @@ public nonisolated struct TitlebarHistoryTunables {
         help: "What right-clicking (or long-pressing) the titlebar Back or Forward button lists. Applies the next time the list opens.",
         default: .scopeThenWindow, code: "TitlebarHistoryTunables.menuLayout")
     public static let menuStyle = Tunable<TitlebarHistoryMenuStyle>.choice(
-        "history.menuStyle", .sidebar, "Back / Forward right-click rows",
-        help: "How each row of the titlebar Back / Forward list reads. Applies the next time the list opens.",
-        default: .roomyTimed, code: "TitlebarHistoryTunables.menuStyle")
+        "history.menuStyle", .sidebar, "Back / Forward Recently Closed",
+        help: "How the titlebar Back / Forward list shows Recently Closed. Applies the next time the list opens.",
+        default: .inline, code: "TitlebarHistoryTunables.menuStyle")
 
     public static var all: [TunableDescriptor] { [menuLayout.descriptor, menuStyle.descriptor] }
 }

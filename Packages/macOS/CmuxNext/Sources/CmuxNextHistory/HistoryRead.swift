@@ -48,8 +48,7 @@ extension TitlebarHistoryClosedSection {
         let rows = entries.compactMap { entry -> TitlebarHistoryClosedRow? in
             guard case .closed(let item) = entry.payload else { return nil }
             let detail = [entry.detail, entry.machineName].compactMap { $0 }.joined(separator: " · ")
-            return TitlebarHistoryClosedRow(id: item.id, kind: item.kind, title: entry.title, detail: detail.isEmpty ? nil : detail,
-                                            time: entry.time)
+            return TitlebarHistoryClosedRow(id: item.id, kind: item.kind, title: entry.title, detail: detail.isEmpty ? nil : detail)
         }
         self = rows.isEmpty ? .empty : .rows(rows)
     }
