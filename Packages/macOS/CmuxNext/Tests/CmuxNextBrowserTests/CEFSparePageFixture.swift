@@ -103,6 +103,7 @@ extension CEFSparePageSuites.CEFSparePageTests {
 /// `cmux_shim_create_window` are recorded; `cmux_shim_tab_set_frozen` and DevTools
 /// `Page.setWebLifecycleState` (`cmux_shim_devtools_call`) are logged as freezes and thaws;
 /// `cmux_shim_fork_api_version` is `forkAPI` (27 by default: layer hosting, no renderer paths);
+/// `cmux_shim_browser_set_layer_hosting` answers `hostingContext` (0, refused, by default);
 /// every other function does nothing and returns 0.
 nonisolated enum SpareSpy {
     nonisolated(unsafe) static var added: [(anchor: Int32, url: String, activate: Int32, browser: Int32)] = []
@@ -123,6 +124,8 @@ nonisolated enum SpareSpy {
     /// The next `cmux_shim_tab_add` also gets OnAfterCreated for one browser Chromium makes itself
     /// in the same window (an extension's tab) before the added tab's: that browser's id.
     nonisolated(unsafe) static var chromiumTabInNextAdd: Int32?
+    /// What `cmux_shim_browser_set_layer_hosting` answers when asked to host (0: refused, the default).
+    nonisolated(unsafe) static var hostingContext: UInt32 = 0
     nonisolated(unsafe) static weak var runtime: CEFRuntime?
 
     static func reset(forkAPI: Int32 = 27) {
@@ -132,6 +135,7 @@ nonisolated enum SpareSpy {
         setFrozenAnswer = 1
         moveAnswer = 1
         chromiumTabInNextAdd = nil
+        hostingContext = 0
         self.forkAPI = forkAPI
         runtime = nil
     }
@@ -197,6 +201,7 @@ nonisolated enum SpareSpy {
             return 1
         }
         let forkAPIVersion: @convention(c) () -> Int32 = { SpareSpy.forkAPI }
+        let setLayerHosting: @convention(c) (Int32, Int32) -> UInt32 = { _, enabled in enabled == 1 ? SpareSpy.hostingContext : 0 }
         let nothing: @convention(c) () -> Int = { 0 }
         return try CEFShimLibrary.resolving { name in
             switch name {
@@ -210,6 +215,7 @@ nonisolated enum SpareSpy {
             case "cmux_shim_tab_set_frozen": unsafeBitCast(setFrozen, to: UnsafeMutableRawPointer.self)
             case "cmux_shim_devtools_call": unsafeBitCast(devToolsCall, to: UnsafeMutableRawPointer.self)
             case "cmux_shim_fork_api_version": unsafeBitCast(forkAPIVersion, to: UnsafeMutableRawPointer.self)
+            case "cmux_shim_browser_set_layer_hosting": unsafeBitCast(setLayerHosting, to: UnsafeMutableRawPointer.self)
             default: unsafeBitCast(nothing, to: UnsafeMutableRawPointer.self)
             }
         }
