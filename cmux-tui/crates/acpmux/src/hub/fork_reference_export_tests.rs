@@ -5,7 +5,7 @@
 
 use super::*;
 
-fn memory_hub() -> Hub {
+fn memory_hub() -> Arc<Hub> {
     let mut config: Config = serde_json::from_value(json!({
         "harnesses": {"fake": {"argv": ["true"]}},
         "defaultHarness": "fake",
@@ -64,7 +64,7 @@ async fn an_exported_fork_by_reference_keeps_its_history_on_the_other_machine() 
             .unwrap();
     assert!(written.get("historyFrom").is_none(), "the bundle names the source's chat");
 
-    let here = Arc::new(memory_hub());
+    let here = memory_hub();
     let imported = here.import(&bundle, None).await;
     let _ = std::fs::remove_dir_all(&dir);
     let imported = imported.unwrap();
