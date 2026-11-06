@@ -2243,6 +2243,15 @@ export class AcpmuxDirectClient {
     },
   );
   private forking = false;
+  /// The person cancelled the fork `fork` waits on (`cancelFork`).
+  private forkCancelled = false;
+  /// When the Fork Conversation `fork` waits on began: the snapshot's `forkPending`.
+  private forkPendingSince?: number;
+  /// The chat that fork is of: only its snapshot shows the pending line and its Cancel.
+  private forkPendingFrom?: string;
+  /// The name that fork's request gives it, which its Cancel stops it by (acpmux
+  /// hub/fork_cancel.rs).
+  private forkCancelToken?: string;
   private streamingAssistant?: string;
   private streamingAssistantMessageId?: string;
   /// A prompt, steer or notice came while the streaming row's message was still being written: only
@@ -7609,6 +7618,9 @@ export class AcpmuxDirectClient {
       summary: this.publishedSummary(summary, effort, limits),
       connection,
       ...(this.daemonWaitingSince !== undefined ? { daemonWaitingSince: this.daemonWaitingSince } : {}),
+      ...(this.forkPendingSince !== undefined && this.forkPendingFrom === this.actingSessionId
+        ? { forkPending: { since: this.forkPendingSince } }
+        : {}),
       origin: this.origin,
       ...(this.listedSessions ? { listedSessions: true as const } : {}),
       ...(this.drewKeptTail ? { drewKeptTail: true as const } : {}),
@@ -10069,36 +10081,34 @@ export class AcpmuxDirectClient {
   /// Forks the open session (or `from`, the chat it was forked from) through the turn whose summary
   /// is `throughSeq`, and opens the fork. One fork at a time; a second click while acpmux forks does
   /// nothing. A failure says so in the transcript; a reader who opened another session meanwhile
-  /// stays there. `stay` keeps this chat open and only answers the fork, for its own tab.
+  /// stays there. `stay` keeps this chat open and only answers the fork, for its own tab: the pane
+  /// shows its pending line meanwhile (ForkPendingLine), whose Cancel is `cancelFork`.
   /// `"live"`: the whole chat as it is now, also while its turn runs (Fork Conversation).
   async fork(throughSeq: number | "live", from?: string, stay = false): Promise<string | undefined> {
     if (!this.canFork || !this.actingSessionId || this.forking) return undefined;
     this.forking = true;
+    this.forkCancelled = false;
     const generation = this.selectionGeneration;
-    // Fork Conversation (`stay`): the chat says "Forking…" until acpmux answers and the app opens
-    // the fork, so a slow fork never looks like nothing happened.
-    const pendingId = stay ? noticeId("notice-forking") : undefined;
-    if (pendingId) {
-      this.rows.set(pendingId, {
-        id: pendingId,
-        version: 1,
-        at: Date.now(),
-        kind: "notice",
-        text: translate("notice.forking"),
-      });
+    const sessionId = from ?? this.actingSessionId;
+    const cancelToken = stay ? crypto.randomUUID() : undefined;
+    if (stay) {
+      this.forkPendingSince = Date.now();
+      this.forkPendingFrom = sessionId;
+      this.forkCancelToken = cancelToken;
       this.emit();
     }
     try {
-      const sessionId = from ?? this.actingSessionId;
-      const result = await this.request(
-        FORK_OP,
-        throughSeq === "live" ? { sessionId, live: true } : { sessionId, throughSeq },
-      );
+      const boundary = throughSeq === "live" ? { sessionId, live: true } : { sessionId, throughSeq };
+      const result = await this.request(FORK_OP, cancelToken ? { ...boundary, cancelToken } : boundary);
+      if (this.forkCancelled) {
+        if (result?.sessionId) this.takeBackFork(String(result.sessionId));
+        return undefined;
+      }
       if (!result?.sessionId || generation !== this.selectionGeneration) return undefined;
       if (stay) return String(result.sessionId);
       return await this.select(String(result.sessionId));
     } catch (error) {
-      if (generation === this.selectionGeneration) {
+      if (!this.forkCancelled && generation === this.selectionGeneration) {
         const at = Date.now();
         const reason = errorMessage(error) || undefined;
         const id = noticeId("notice-fork");
@@ -10114,11 +10124,35 @@ export class AcpmuxDirectClient {
       return undefined;
     } finally {
       this.forking = false;
-      if (pendingId && this.rows.has(pendingId)) {
-        this.rows.delete(pendingId);
+      this.forkCancelled = false;
+      this.forkPendingFrom = undefined;
+      this.forkCancelToken = undefined;
+      if (this.forkPendingSince !== undefined) {
+        this.forkPendingSince = undefined;
         this.emit();
       }
     }
+  }
+  /// Cancel on the pending fork: acpmux stops it where it is, by the token its request named it
+  /// with, and leaves nothing of it; one already made is taken back whole. Its answer opens
+  /// nothing either way, and an answer with a fork takes that back too (`takeBackFork`). "i shuold
+  /// be able to cancel a fork probably" (Leo, 2026-11-06).
+  cancelFork(): void {
+    if (!this.forking || this.forkCancelled) return;
+    this.forkCancelled = true;
+    this.forkPendingSince = undefined;
+    const cancelToken = this.forkCancelToken;
+    if (cancelToken && this.forkPendingFrom) {
+      void this.request("_acpmux/kill", { sessionId: this.forkPendingFrom, cancelFork: true, cancelToken }).catch(
+        () => undefined,
+      );
+    }
+    this.emit();
+  }
+  /// Removes a fork nobody used: its chat, and the conversation copy its agent made (acpmux
+  /// `hub/fork_cancel.rs`). Not waited on: the pane already went back to the chat.
+  private takeBackFork(sessionId: string): void {
+    void this.request("_acpmux/kill", { sessionId, purge: true, cancelFork: true }).catch(() => undefined);
   }
   /// Forks the open session through `throughSeq` and stays on it: New side chat's copy, which the
   /// host opens beside this chat. One fork at a time, as `fork`.

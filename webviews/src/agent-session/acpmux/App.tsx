@@ -504,6 +504,7 @@ import { type ForumRule, forumRules, RulesNotice } from "./RulesNotice";
 import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./signIn";
 import { ACCESS_ACTIONS, type AccessOffer } from "./accessOffer";
 import { type ChatAccounts, ChatAccountsContext, ownRouteOf, readChatAccounts } from "./chatAccounts";
+import { ForkPendingLine } from "./ForkPendingLine";
 import { HostError, HostUnavailableLine, HostWaitingLine } from "./HostError";
 import { hostLineText } from "./hostLine";
 import {
@@ -10168,6 +10169,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     ) : (
       hostErrorCard
     );
+  // A pending Fork Conversation and its Cancel, in the dock and in Quick Chat alike: Quick Chat's
+  // menu forks too (review of #36979).
+  const forkPendingLine = snapshot.forkPending && (
+    <ForkPendingLine since={snapshot.forkPending.since} onCancel={() => directClient.current?.cancelFork()} />
+  );
   // The floating chat's compact bar shows whether the chat is working or waiting on the user, and
   // the reply's last line.
   let lastReply: (typeof snapshot.rows)[number] | undefined;
@@ -10245,6 +10251,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               <>
                 {asks}
                 {hostLine}
+                {forkPendingLine}
               </>
             }
             composer={composer}
@@ -10939,6 +10946,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   </div>
                 )}
                 {hostLine}
+                {forkPendingLine}
                 <LiveTypingLine
                   sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
                   fallback={snapshot.presence}
