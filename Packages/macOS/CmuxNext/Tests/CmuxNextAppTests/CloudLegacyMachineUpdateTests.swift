@@ -71,17 +71,19 @@ struct CloudLegacyMachineUpdateTests {
         #expect(fixture.board.targets[CloudMachineUpdateTarget.id("vm-1")]?.state == .cannotUpdate(reason: CloudMachineUpdateStrings.unsupported("Leo VM")))
     }
 
-    /// A rolled-back exec update is a rollback (one notice), and asks for no second exec run.
+    /// A rolled-back exec update is a rollback: one exec run per attempt, tried twice more in the
+    /// background (no toast), then final on the machine's row.
     @Test func aRollbackThroughExecIsARollback() async throws {
-        let machine = FakeCloudMachine(build: CloudMachineUpdateTargetTests.older, level: .limited, answers: [Self.unsupported],
-                                       legacy: [CloudMoveCLI.Answer(ok: false, errorCode: "machine_update_rolled_back", error: "ROLLBACK new-daemon-unstable")])
+        let rollback = CloudMoveCLI.Answer(ok: false, errorCode: "machine_update_rolled_back", error: "ROLLBACK new-daemon-unstable")
+        let machine = FakeCloudMachine(build: CloudMachineUpdateTargetTests.older, level: .limited, answers: Array(repeating: Self.unsupported, count: 3),
+                                       legacy: Array(repeating: rollback, count: 3))
         let fixture = try CloudUpdateFixture()
         defer { fixture.remove() }
         await fixture.run(machine)
 
-        #expect(machine.legacyUpdates == 1)
+        #expect(machine.legacyUpdates == 3)
         #expect(fixture.states.last == .failed(reason: "ROLLBACK new-daemon-unstable", rolledBack: true))
-        #expect(machine.reconnectRestarts == [true])
+        #expect(machine.reconnectRestarts == [true, true, true])
     }
 
     /// One exec starts the run, detached as root with the pinned install and the guest script;
