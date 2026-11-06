@@ -72,7 +72,8 @@ public struct WorkspaceScreen: View {
         TabsView(source: source, isShowingOverview: $showsGrid)
             .tabsKitTheme(.mobile)
             .overlay(alignment: .top) {
-                if showsGrid {
+                // Select Tabs puts its Close | More where Back is.
+                if showsGrid, !source.isSelectingTabs {
                     WorkspaceGridHeader(source: source).transition(.opacity.animation(.easeOut(duration: 0.2)))
                 }
             }
