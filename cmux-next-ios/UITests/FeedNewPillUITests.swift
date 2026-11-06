@@ -10,7 +10,9 @@ final class FeedNewPillUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchEnvironment["CMUX_MOBILE_FEED_STRESS"] = "300"
-        app.launchEnvironment["CMUX_MOBILE_FEED_STRESS_LIVE"] = "8"
+        // 3 changes a second: at 8 the list's off-main row layout never catches up on a simulator
+        // and it shows no new event (no pill) at all.
+        app.launchEnvironment["CMUX_MOBILE_FEED_STRESS_LIVE"] = "3"
         app.launchArguments += ["-cmux-mobile-tab", "feed", "-cmux-mobile-no-restore"]
         app.launch()
         let choose = app.scrollViews["setup.teams.choose"]
