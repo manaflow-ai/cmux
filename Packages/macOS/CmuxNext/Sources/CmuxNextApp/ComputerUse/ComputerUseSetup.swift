@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextCompat
+import CmuxNextMacScreen
 import CmuxNextOnboarding
 import CmuxNextSettings
 import CmuxNextWakeups
@@ -402,9 +403,11 @@ extension ComputerUseSetup {
         case "unavailable": "failed"
         default: "stopped"
         }
-        fields["worker"] = ["state": .string(state), "pid": remote.workerPID.map { .number(Double($0)) } ?? .null]
-        fields["approvals"] = .array(remote.approvals.map { approval in
-            ["app_id": .string(approval.appID), "name": .string(Self.appName(approval.appID)), "decision": .string(approval.decision)]
+        let pid: CmuxNextSettings.JSONValue = remote.workerPID.map { CmuxNextSettings.JSONValue.number(Double($0)) } ?? .null
+        fields["worker"] = .object(["state": .string(state), "pid": pid])
+        fields["approvals"] = .array(remote.approvals.map { approval -> CmuxNextSettings.JSONValue in
+            .object(["app_id": .string(approval.appID), "name": .string(Self.appName(approval.appID)),
+                     "decision": .string(approval.decision)])
         })
         return .object(fields)
     }

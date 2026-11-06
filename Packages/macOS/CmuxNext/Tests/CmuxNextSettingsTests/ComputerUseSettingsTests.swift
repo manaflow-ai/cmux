@@ -25,7 +25,6 @@ import Testing
     @Test func theDefaultIsFullAccessWithTheEngineDenyList() {
         let settings = computerUse(.object([:]))
         #expect(settings.mode == .fullAccess)
-        #expect(settings.enabled)
         #expect(settings.deniedApps == ComputerUseSettings.defaultDeniedApps)
         #expect(settings.allowOwnMachines && settings.pauseOnTakeover && settings.showCursor && settings.livePreview)
         #expect(!settings.allowForeground)
@@ -132,17 +131,6 @@ import Testing
         #expect(object["deniedApps"] as? [String] == ["com.example.a"])
         #expect(object["allowForeground"] as? Bool == true)
         #expect(object["cloudVm"] as? Bool == false)
-    }
-
-    @Test func theRetiredSwitchStillReadsAndWritesThroughTheMode() {
-        var settings = ComputerUseSettings()
-        settings.enabled = false
-        #expect(settings.mode == .off)
-        settings.enabled = true
-        #expect(settings.mode == .fullAccess)
-        settings.mode = .lookOnly
-        settings.enabled = true
-        #expect(settings.mode == .lookOnly)
     }
 
     @Test func remoteEnabledIsRetired() {
