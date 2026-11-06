@@ -31,12 +31,13 @@ import Darwin
 ///   typing at 30 keys a second never starves the sidebar).
 ///
 /// Background work is idle work (Chrome's idle tasks): nobody sees it this frame, so it runs only in
-/// a frame with idle time: not the link's first tick (it renders what started the link), one that came
-/// on time after the tick before it (no missed refresh), after a render pass under half a refresh. A
-/// switch, a Cmd-N or a sidebar insert starts the link and leaves a few late frames behind its first
-/// frame (its commit, the content's layout); a spare made in them (the next Cmd-N's workspace view,
-/// 3 ms a step) made each of them later still. It never waits longer than
-/// ``Budgets/idleTimeout`` in a row (Chrome's idle task timeout): under constant load it still moves.
+/// a frame with idle time: no content presentation pending (``presentationPending()``: shown content not
+/// yet on screen, as Blink keeps idle tasks back while a page's first paint is pending), on time after
+/// the tick before it (no missed refresh), after a render pass under half a refresh. A switch, a Cmd-N
+/// or a sidebar insert leaves a few late frames behind its first frame (its commit, the content's
+/// layout); a spare made in them (the next Cmd-N's workspace view, 3 ms a step) made each of them later
+/// still. It never waits longer than ``Budgets/idleTimeout`` in a row (Chrome's idle task timeout):
+/// under constant load it still moves.
 ///
 /// This is batching to the display cadence, not a throttle: work over budget runs on the next
 /// frame, never later. The app builds one at its composition root and hands it to the one
@@ -64,10 +65,11 @@ public final class MainFrameBudget {
     /// The previous display tick's time while the link runs (nil once it stops, and after a
     /// synthesized frame): what tells a late frame.
     private var lastTickTimestamp: CFTimeInterval?
-    /// This frame has no idle time, so background work waits: it is the link's first tick (it renders
-    /// what started the link: a key, a switch), or it came more than one and a half refreshes after
-    /// the tick before it (the main thread missed one at least).
-    private var frameIsBusy = false
+    /// This frame came more than one and a half refreshes after the tick before it: the main thread
+    /// missed one at least, so it has no idle time and background work waits.
+    private var frameIsLate = false
+    /// Where the last shown content is on its way to the screen (``presentationPending()``).
+    private var presentation = Presentation.presented
     /// Since when background work has waited for a frame with idle time (nil: it is not waiting).
     private var idleWaitStart: UInt64?
     /// Background work asked to run in this window (a wait ends when it stops asking).
@@ -83,7 +85,7 @@ public final class MainFrameBudget {
             guard !tickOwnsWindow else { return }
             renderSinceRoll = 0
             lastTickTimestamp = nil
-            frameIsBusy = false
+            frameIsLate = false
         }
     }
     private var spent: [UInt64] = [0, 0, 0]
@@ -136,14 +138,19 @@ public final class MainFrameBudget {
         if let timestamp, timestamp == lastTimestamp { return }
         lastTimestamp = timestamp
         if let refreshInterval, refreshInterval > 0 { windowLength = UInt64(refreshInterval * 1_000_000_000) }
-        // The link's first tick renders what started it; a tick more than one and a half refreshes after
-        // the previous one follows a missed refresh. Neither has idle time.
-        if let timestamp, let refreshInterval, refreshInterval > 0 {
-            frameIsBusy = lastTickTimestamp.map { timestamp - $0 > refreshInterval * 1.5 } ?? true
+        // A frame more than one and a half refreshes after the previous tick: one at least was missed.
+        if let timestamp, let previous = lastTickTimestamp, let refreshInterval, refreshInterval > 0 {
+            frameIsLate = timestamp - previous > refreshInterval * 1.5
         } else {
-            frameIsBusy = false
+            frameIsLate = false
         }
         lastTickTimestamp = timestamp
+        // Shown content: this tick builds its frame (layout, the panes' show), or presents the frame committed after that.
+        switch presentation {
+        case .awaitingFrame: presentation = .awaitingCommit
+        case .committed: presentation = .presented
+        case .awaitingCommit, .presented: break
+        }
         let now = uptimeNanos()
         if windowOpenedOffTick, now &- windowStart < windowLength {
             windowOpenedOffTick = false
@@ -170,10 +177,21 @@ public final class MainFrameBudget {
         renderSinceRoll = 0
     }
 
+    /// Shown content changed in this turn: a workspace switch or a Cmd-N showed another workspace, or a pane
+    /// showed (or queued to show) other content. Background work has no idle time until a display frame
+    /// presented it: the next tick builds its frame (the layout, the panes' show), the render pass after that
+    /// tick commits it, and the tick after that commit presents it; background work runs from the first idle
+    /// frame on. A later show starts the wait again. (SWITCH STALL 2: the New Tab palette list and the idle
+    /// spare, 4 to 5 ms, ran in the tick that built a Cmd-N's workspace frame, before its commit.)
+    public func presentationPending() {
+        presentation = .awaitingFrame
+    }
+
     /// Records one render pass (the main run loop's before-waiting phase: layout, display and the
     /// Core Animation commit), in nanoseconds. The longest pass since a window opened is charged to
     /// the next window: its scheduled work stops at ``Budgets/passTarget`` minus that pass.
     public func noteRenderPass(nanos: UInt64) {
+        if presentation == .awaitingCommit { presentation = .committed }
         renderSinceRoll = max(renderSinceRoll, nanos)
         stats.renderPasses += 1
         stats.maxRenderPassNanos = max(stats.maxRenderPassNanos, nanos)
@@ -223,12 +241,12 @@ public final class MainFrameBudget {
         return false
     }
 
-    /// Whether this frame has idle time for background work: it is not the link's first tick, it came on
-    /// time after the tick before it, and the last render pass took under half a refresh (the pass target at most). After waiting
-    /// ``Budgets/idleTimeout`` in a row for one, background work runs anyway.
+    /// Whether this frame has idle time for background work: no content presentation is pending, it came on
+    /// time after the tick before it, and the last render pass took under half a refresh (the pass target at most).
+    /// After waiting ``Budgets/idleTimeout`` in a row for one, background work runs anyway.
     private func hasIdleTime(_ now: UInt64) -> Bool {
         backgroundAsked = true
-        if !frameIsBusy, renderCharge < min(passTargetNanos, windowLength / 2) {
+        if presentation == .presented, !frameIsLate, renderCharge < min(passTargetNanos, windowLength / 2) {
             idleWaitStart = nil
             return true
         }
@@ -299,6 +317,18 @@ public final class MainFrameBudget {
             board.begin(outer.workClass, owner: outer.owner.index, sequence: outer.sequence, startNanos: outer.start,
                         budgetNanos: outer.budgetNanos, notify: false)
         }
+    }
+
+    /// Shown content on its way to the screen (``presentationPending()``).
+    private enum Presentation {
+        /// Shown in a turn: the next tick builds its frame.
+        case awaitingFrame
+        /// Its frame was built: the next render pass commits it.
+        case awaitingCommit
+        /// Committed: the next tick presents it.
+        case committed
+        /// On screen (or nothing was shown).
+        case presented
     }
 
     /// One task that started and has not returned.

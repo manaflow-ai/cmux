@@ -895,9 +895,9 @@ impl Hub {
             Ok(started) => started,
             Err(e) => {
                 // A turn the shutdown settles writes no end of its own (`start_retry.rs`).
-                if !self.shutdown_settles(&turn_id, &e) {
-                    self.fail_unstarted_turn(session, &prompt_id, &turn_id, &e, joined);
-                } else if self.hands_off(session) {
+                if !self.fail_unless_shutdown_settles(session, &prompt_id, &turn_id, &e, joined)
+                    && self.hands_off(session)
+                {
                     super::digest::forget_joined(Some(joined));
                 }
                 Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
@@ -1725,7 +1725,7 @@ impl Hub {
     /// One a Stop kept from its agent ([`stopped_before_prompt`], a Stop while the agent started
     /// or the prompt's copies were made) ends as the Stop's turn: cancelled, so clients offer
     /// Continue on it, as on any stopped turn.
-    fn fail_unstarted_turn(
+    pub(super) fn fail_unstarted_turn(
         self: &Arc<Self>,
         session: &Arc<Session>,
         prompt_id: &str,

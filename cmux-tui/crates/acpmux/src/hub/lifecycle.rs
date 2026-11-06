@@ -890,23 +890,26 @@ impl Hub {
             let started = Box::pin(self.cold_start(session, profile, stops, off));
             // The person's start has no deadline, one that asked to wait on its harness ends when
             // the harness stops working (`waiting_start`); an agent's or a lane's has a deadline.
-            let started = if session.person.load(Ordering::SeqCst) {
-                self.waiting_start(session, budget, started, None).await
-            } else if session.wait_start.load(Ordering::SeqCst) {
-                self.waiting_start(session, budget, started, Some(StartWatch::default())).await
-            } else {
-                // A retry's start ends at its turn's Stop (`start_retry.rs`), as any start ends
-                // at a stop of the chat: what it started is ended, and nothing runs after it.
-                let raced = tokio::select! {
-                    started = tokio::time::timeout(budget, started) => Some(started.ok()),
-                    () = super::start_retry::stopped_during_retry(session) => None,
-                };
-                let Some(started) = raced else {
-                    self.end_cold_start(session).await;
-                    self.append(session, "mux", "agent_start_stopped", json!({}));
-                    return Err(super::turns::stopped_before_prompt());
-                };
-                started
+            let waited = async {
+                if session.person.load(Ordering::SeqCst) {
+                    self.waiting_start(session, budget, started, None).await
+                } else if session.wait_start.load(Ordering::SeqCst) {
+                    self.waiting_start(session, budget, started, Some(StartWatch::default())).await
+                } else {
+                    tokio::time::timeout(budget, started).await.ok()
+                }
+            };
+            // A retry's start ends at its turn's Stop (`start_retry.rs`), however it waits (the
+            // person may have taken the chat since its first try), as any start ends at a stop
+            // of the chat: what it started is ended, and nothing runs after it.
+            let raced = tokio::select! {
+                started = waited => Some(started),
+                () = super::start_retry::stopped_during_retry(session) => None,
+            };
+            let Some(started) = raced else {
+                self.end_cold_start(session).await;
+                self.append(session, "mux", "agent_start_stopped", json!({}));
+                return Err(super::turns::stopped_before_prompt());
             };
             let failed = match started {
                 Some(Ok(child)) => return Ok(self.keep_account_home(session, profile, child)),

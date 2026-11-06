@@ -32811,6 +32811,46 @@
     {
       "args" : [
         {
+          "kind" : "string",
+          "name" : "teammate",
+          "required" : false
+        },
+        {
+          "kind" : "bool",
+          "name" : "revoke",
+          "required" : false
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "cloud share-machine",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudShareMachine",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Share Machine…",
+      "title_key" : "action.cloudShareMachine",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+        {
           "kind" : "bool",
           "name" : "confirm",
           "required" : false
@@ -50493,8 +50533,21 @@
           }
         },
         {
+          "enabled_when" : "can_perform",
+          "id" : "cloudShareMachine",
+          "kind" : "action",
+          "order" : 6,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : "cloud",
+            "requires" : [
+
+            ]
+          }
+        },
+        {
           "kind" : "separator",
-          "order" : 6
+          "order" : 7
         },
         {
           "children" : [
@@ -50782,14 +50835,14 @@
           ],
           "folder" : "connection",
           "kind" : "folder",
-          "order" : 7,
+          "order" : 8,
           "title" : "Connection",
           "title_key" : "menu.folder.connection",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 8
+          "order" : 9
         },
         {
           "children" : [
@@ -50835,7 +50888,7 @@
           ],
           "folder" : "copy",
           "kind" : "folder",
-          "order" : 9,
+          "order" : 10,
           "title" : "Copy",
           "title_key" : "menu.folder.copy",
           "title_table" : "Localizable"
@@ -51109,20 +51162,20 @@
           ],
           "folder" : "tools",
           "kind" : "folder",
-          "order" : 10,
+          "order" : 11,
           "title" : "Tools",
           "title_key" : "menu.folder.tools",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 11
+          "order" : 12
         },
         {
           "enabled_when" : "can_perform",
           "id" : "cloudKillMachine",
           "kind" : "action",
-          "order" : 12,
+          "order" : 13,
           "visible_when" : {
             "debug_only" : false,
             "feature" : "cloud",
