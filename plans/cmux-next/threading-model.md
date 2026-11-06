@@ -155,9 +155,9 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   it blocks on nothing; one re-arm per folder change; ChiefMovedMarkerAttachment)
 - Remote and mobile: `com.cmuxterm.next.remote-localhost`, `com.cmuxterm.next.remote-localhost.peer-scan`, `com.cmuxterm.next.cloud-browser-proxy`,
   `com.cmuxterm.next.cloud-hub-loopback` (Open Desktop's SOCKS connections to the app's WireGuard hub),
-  `cmux.cloud.machine-io.stdin` (one Worker machine exec or file call's request into the bundled cmux's stdin,
+  `cmux.bundled-cmux.stdin` (one Cloud API call's request into the bundled cmux's stdin,
   one thread per call: its pipe write blocks only it; it ends when the child has read the request or closed its
-  stdin, and a kill at the call's deadline or a cancel closes it, so it never outlives the child; CloudMachineIO),
+  stdin, and a kill at the call's deadline or a cancel closes it, so it never outlives the child; BundledCmux),
   `com.cmuxterm.next.remote-fetch`, `cmux.remote-view.render`, `cmux.remote-view.rd-transport`,
   `cmux.daemon-bridge.stream` (one Cloud desktop session's `link dial --service desktop` bridge socket,
   user-initiated, serial: DispatchIO delivers the stream's bytes here and it blocks on nothing; the rd transport
