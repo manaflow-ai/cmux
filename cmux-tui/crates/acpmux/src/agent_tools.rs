@@ -127,7 +127,11 @@ pub const ASKING_RULE: &str = "Asking the person: Full access already permits ha
 
 /// The small cmux-owned coordination block sent once as hidden first-turn context.
 /// Keep it canonical so the Context viewer shows and edits exactly what new sessions receive.
-pub const CONCURRENT_WORK_RULE: &str = "Read relevant instructions and likely source files early. Batch independent reads and searches into parallel tool calls; sequence dependent work. Start long-running builds, tests, and waits in the background when the tools support it, then continue useful independent work. Rejoin and inspect the results before relying on them. Keep reports concise: explain the outcome, verification, and remaining blockers.";
+/// It says only what the harnesses leave weak: models often fetch the reads a task implies
+/// (rather than names) one per turn, and the "list what you need, then request every
+/// independent item in this one response" step is the published fix for that. Concise
+/// reporting is left to the harness prompt and the recap guidance (`agent_guidance.rs`).
+pub const CONCURRENT_WORK_RULE: &str = "Before each tool step, privately list what you need next, then request every read, search and command that does not depend on another's result in that one response, starting with the first: the files and instructions the task names or implies. Run long builds, tests and waits in the background when the tool allows it, and check the result before relying on it.";
 
 /// cmux's own rules for its computer use server (`cmux-cua`), which `cmux
 /// mcp serve` puts before that server's `initialize` instructions on each

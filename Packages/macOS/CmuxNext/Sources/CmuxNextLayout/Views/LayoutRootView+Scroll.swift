@@ -73,6 +73,10 @@ extension LayoutRootView: ScrollGestureOwning {
 
     func handleMonitored(_ event: NSEvent) -> NSEvent? {
         if event.type == .scrollWheel { return handleMonitoredScroll(event, from: event.window, at: event.locationInWindow) }
+        if event.type == .keyDown {
+            handleMonitoredKey(event.keyCode, from: event.window)
+            return event
+        }
         guard event.window === window, window != nil else { return event }
         switch event.type {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
@@ -83,6 +87,14 @@ extension LayoutRootView: ScrollGestureOwning {
         default:
             return event
         }
+    }
+
+    /// A key down from `source`, as the monitor sees it before AppKit dispatches it: Escape takes
+    /// the focus ring away, and the key still reaches the pane (a terminal's vim, a page). A
+    /// Chromium page's keys come from its child window, which counts as this window.
+    func handleMonitoredKey(_ keyCode: UInt16, from source: NSWindow?) {
+        guard keyCode == 53, let window, let source, source === window || source.parent === window else { return }
+        model.dismissFocusRing()
     }
 
     /// A press at `locationInWindow` (the window's coordinates), as the monitor sees it before AppKit
