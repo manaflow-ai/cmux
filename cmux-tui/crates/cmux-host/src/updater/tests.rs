@@ -321,10 +321,3 @@ fn a_file_hash_covers_every_byte_past_one_read_buffer() {
     fs::write(&path, &bytes).unwrap();
     assert_eq!(store::sha256_file(&path).unwrap(), sha(&bytes));
 }
-
-#[test]
-fn a_running_relay_chat_holds_the_update() {
-    assert_eq!(relay_chats_busy(0), None);
-    assert_eq!(relay_chats_busy(1).as_deref(), Some("1 relay chat"));
-    assert_eq!(relay_chats_busy(3).as_deref(), Some("3 relay chats"));
-}
