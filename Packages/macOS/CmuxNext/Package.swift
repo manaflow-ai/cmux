@@ -551,7 +551,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextOnboarding",
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextBrowserImport", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextBrowserImport", "CmuxNextPages", "CmuxNextSettings",
+                           "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],

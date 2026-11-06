@@ -1,17 +1,23 @@
 public import AppKit
 public import CmuxNextDesign
+import CmuxNextPages
 
-/// The tool window (Import from Browser, Computer Use setup): a transparent
-/// window whose screen draws its own Liquid Glass or opaque surface, with
-/// only a close button. Return runs the primary button, Escape skips.
+/// The tool window (Agents, Import from Browser, Computer Use setup): the
+/// window's one glass backdrop with only a close button, and in it the
+/// onboarding page (`webviews/src/pages/onboarding/`, served by
+/// ``OnboardingPageProvider``). The page runs Return and Escape; the window
+/// keeps them for when the page has no focus. Native beside the page: the
+/// Computer Use helper drag panel (``ComputerUseHelperPanels``).
 public final class OnboardingWindowController: NSWindowController, NSWindowDelegate {
     public let model: OnboardingModel
+    private let page: PageWebView?
+    private var helperPanels: ComputerUseHelperPanels?
     /// Called once when the window has closed.
     public var onClose: (() -> Void)?
     /// `activeLook`: the app's ``ActiveLookScope``, for the window's backdrop (nil follows the key state).
     public init(model: OnboardingModel, activeLook: ActiveLookScope?) {
         self.model = model
-        let size = model.step.screen.size
+        let size = model.step.windowSize
         let window = OnboardingWindow(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.titled, .closable, .fullSizeContentView],
@@ -33,12 +39,17 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
         window.contentMinSize = size
         window.contentMaxSize = size
         window.identifier = NSUserInterfaceItemIdentifier("cmux.onboarding")
+        let provider = OnboardingPageProvider(model: model)
+        page = PageWebView(descriptor: .onboarding, routes: [PageRoute(prefix: "cmux.onboarding.", provider: provider)])
         super.init(window: window)
         window.delegate = self
-        // Kind `.onboarding`: a clear window with only a close button; each
-        // variant's surface draws its own glass or opaque background
-        // (`OnboardingSurfaceView`).
-        window.install(kind: .onboarding, content: OnboardingHostView(model: model), scope: .app, activeLook: activeLook)
+        // Kind `.onboarding`: a clear window with only a close button over the window's one
+        // backdrop (glass, or opaque under Reduce Transparency); the page draws no background.
+        let content = page ?? NSView()
+        content.frame = NSRect(origin: .zero, size: size)
+        content.autoresizingMask = [.width, .height]
+        window.install(kind: .onboarding, content: content, scope: .app, activeLook: activeLook)
+        if model.step == .computerUse { helperPanels = ComputerUseHelperPanels(model: model.computerUse, window: window) }
         window.onKey = { [weak model] key in
             switch key {
             case .next: model?.next()
@@ -55,6 +66,7 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
     public func present() {
         guard let window else { return }
         WindowPlacement.present(window)
+        page?.focusPage()
         model.stepDidAppear()
     }
 
@@ -71,6 +83,8 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
 
     public func windowWillClose(_ notification: Notification) {
         model.leave()
+        helperPanels?.hidePanel()
+        page?.close()
         onClose?()
     }
 }
