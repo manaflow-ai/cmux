@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Independent oracle for sidebar row insert and remove films (cmux-ad m23, STATUS 14191).
 
-  python3 scripts/cmux-next/sidebar_row_oracle.py FILM_DIR_OR_JSON [--json OUT] [--scale 2] [--tolerance-px 1]
+  python3 scripts/cmux-next/sidebar_row_oracle.py FILM_DIR_OR_JSON [--json OUT] [--scale 2] [--tolerance-px 1] [--motion grow|snap]
 
 It judges the contract of the INSTANT OWNER for a new workspace row (insert) and a closed one (remove): the new row
 grows from height 0; the closing row shrinks to 0; every row below moves on one curve (same start frame, same
@@ -44,6 +44,15 @@ The expected place of every row in every frame:
   - Flicker: the opacity of a row other than the new or closing row changes. Re-wrap: a row's x or width changes.
   - Selection: with per-frame `selected` / `selection`, the highlight keeps its offset to its row and the selected key
     changes at most once per motion; without them, "not recorded".
+  - --motion snap (the film was recorded with sidebar.insertMotion snap, the app's default since #28205; the lead's
+    ruling, STATUS 15439: the grow and shrink clauses above apply to the grow value only): a new row's fade is its
+    motion (opacity changes count as change in its window). The rows below the new row are at their settled y from the
+    first frame that changes (no slide) and the rows above stay; the new row shows at its slot at full height from its
+    first frame, its opacity starts below 0.95 (a fade, not a pop-in) and never falls by more than 0.01 from one frame
+    to the next; no frame shows a gap (the rows below in place and the new row not shown) or an overlap (the new row
+    over a row that has not made room). A remove takes the same path under both values (SidebarRowTransition.removeFrame:
+    the closing row closes to height 0 on the rows' spring), so it is judged as in grow. Missed refreshes, rebuilt rows,
+    flicker, re-wrap and the selection are judged the same in both modes. Default: --motion grow.
 Frame numbers are indexes into the film's frames. Exit 0 PASS, 1 FAIL, 2 not judged (no motion, cut motion, not
 120 Hz, no film). Not a CI job, step or gate: the INSTANT OWNER and pixel-perfect run it on their films.
 """
@@ -64,15 +73,18 @@ GROWN_FRACTION = 0.5  # a row first shown at most this part of its final height 
 MAX_PROGRESS_STEP = 0.5  # more of the motion than this in one refresh is a jump, not a curve
 END_FRACTION = 0.95  # a step from p <= 0.05 to p >= 0.95 shows no frame between start and end
 OPACITY_LOW, OPACITY_HIGH, FLICKER_OPACITY = 0.05, 0.95, 0.05
+FADE_BACK_EPS = 0.01  # snap: the new row's opacity may not fall by more than this from one frame to the next
+MOTIONS = ("grow", "snap")
 LIST_CAP = 400  # entries kept per list in the JSON
 ORDER = ["FAIL", "INVALID", "INCOMPLETE", "NO MOTION", "PASS"]
 NO_IDENTITY = "not available: rebuilt rows judged from presence, opacity and jumps (the probe has no view ids)"
 
 
 class Options:
-    def __init__(self, scale=None, tolerance_px=1.0, period_ms=None, expect_hz=120.0, inserted=None, closed=None):
+    def __init__(self, scale=None, tolerance_px=1.0, period_ms=None, expect_hz=120.0, inserted=None, closed=None, motion="grow"):
         self.scale, self.tolerance_px, self.period_ms, self.expect_hz = scale, tolerance_px, period_ms, expect_hz
         self.inserted, self.closed = inserted, closed
+        self.motion = motion  # the sidebar.insertMotion value the film was recorded with: grow (the m23 clauses) or snap
 
 
 def is_num(value):
@@ -181,26 +193,30 @@ def load_films(path):
 # ---------------------------------------------------------------- judge
 
 
-def changed(a, b):
-    """Whether the rows (not block items) or a row's y or height differ between two frames."""
+def changed(a, b, fading=False):
+    """Whether the rows (not block items) or a row's y or height differ between two frames; with FADING (--motion snap,
+    where the new row's fade is its motion) a row's opacity too."""
     ka, kb = {k for k in a if is_row(k)}, {k for k in b if is_row(k)}
     if ka != kb:
         return True
-    return any(abs(a[k][1] - b[k][1]) > CHANGE_EPS_PT or abs(a[k][3] - b[k][3]) > CHANGE_EPS_PT for k in ka)
+    return any(abs(a[k][1] - b[k][1]) > CHANGE_EPS_PT or abs(a[k][3] - b[k][3]) > CHANGE_EPS_PT
+               or (fading and abs(a[k][4] - b[k][4]) > CHANGE_EPS_PT) for k in ka)
 
 
-def moves_across(a, b, events):
+def moves_across(a, b, events, fading=()):
     """Whether the motion shows between two frames: a row shown in both changes its y or height, or a new or closing
     row (EVENTS) appears or leaves. A row realized or pruned at the list edge alone is not motion."""
     for k in a.keys() & b.keys():
         if is_row(k) and (abs(a[k][1] - b[k][1]) > CHANGE_EPS_PT or abs(a[k][3] - b[k][3]) > CHANGE_EPS_PT):
             return True
+    if any(k in a and k in b and abs(a[k][4] - b[k][4]) > CHANGE_EPS_PT for k in fading):
+        return True  # --motion snap: the new row's fade is its motion
     return any((k in a) != (k in b) for k in events)
 
 
-def motions(frames):
+def motions(frames, fading=False):
     """[(s, e)]: s the last still frame before a motion, e the first frame of its settled layout."""
-    changes = [i for i in range(1, len(frames)) if changed(frames[i - 1]["views"], frames[i]["views"])]
+    changes = [i for i in range(1, len(frames)) if changed(frames[i - 1]["views"], frames[i]["views"], fading)]
     runs = []
     for i in changes:
         if runs and i - runs[-1][1] <= MERGE_FRAMES:
@@ -227,14 +243,14 @@ def slot_deficit(frames, gs, ge, key, sign, slot):
     return statistics.median(rest) if rest else None
 
 
-def windows(frames, hints):
+def windows(frames, hints, snap=False):
     """[(s, e)]: the motions. A run where one row opens or closes takes in the runs next to it (before or after) while
     they bring the rows below it to their place: they still miss the new or closing row's slot (its height and the
     row spacing) and that run moves them most of the rest of the way. So rows that open the gap before the new row
     shows, or slide after the closing row is gone, are judged on its curve; any other change (a row that grows, a row
     realized or pruned at the list edge, a later press) keeps its own window."""
-    runs = motions(frames)
-    events = [pick_events(frames, s, e, hints)[:2] for s, e in runs]
+    runs = motions(frames, fading=snap)
+    events = [pick_events(frames, s, e, hints, snap)[:2] for s, e in runs]
     used, out = set(), []
     for index, ((s, e), (inserted, closed)) in enumerate(zip(runs, events)):
         if index in used:
@@ -277,7 +293,7 @@ def between(frame_views, key):
     return any(o < y for o in others) and any(o > y for o in others)
 
 
-def pick_events(frames, s, e, hints):
+def pick_events(frames, s, e, hints, snap=False):
     """(new rows, closing rows, notes): rows that open or close in this motion."""
     window = range(s, e + 1)
     start, end = frames[s]["views"], frames[e]["views"]
@@ -303,7 +319,9 @@ def pick_events(frames, s, e, hints):
         return frames[first[k]]["views"][k][3] <= GROWN_FRACTION * end[k][3]
     def shrinks(k):
         return frames[last[k]]["views"][k][3] <= GROWN_FRACTION * start[k][3]
-    inserted = [k for k in appeared if grows(k) or between(frames[first[k]]["views"], k)]
+    def fades(k):  # --motion snap: a new row shows at full height and fades in
+        return snap and frames[first[k]]["views"][k][4] < OPACITY_HIGH
+    inserted = [k for k in appeared if grows(k) or fades(k) or between(frames[first[k]]["views"], k)]
     closed = [k for k in left if shrinks(k) or between(frames[last[k]]["views"], k)]
     if appeared or left:
         notes.append("no row lists: new and closing rows found from the film alone")
@@ -314,7 +332,8 @@ def judge_motion(frames, s, e, times, period, opts, scale, identity, hints):
     tol = opts.tolerance_px
     window = range(s, e + 1)
     start, end = frames[s]["views"], frames[e]["views"]
-    inserted, closed, notes = pick_events(frames, s, e, hints)
+    snap_mode = getattr(opts, "motion", "grow") == "snap"
+    inserted, closed, notes = pick_events(frames, s, e, hints, snap_mode)
     events = set(inserted) | set(closed)
     seen = sorted({k for i in window for k in frames[i]["views"]})
     complete = s >= 1 and e < len(frames) - 1
@@ -361,6 +380,15 @@ def judge_motion(frames, s, e, times, period, opts, scale, identity, hints):
         event_spec[k] = ("closing", h, 0.0, y if top else y + h, top)
     for k in resized:
         event_spec[k] = ("resized", start[k][3], end[k][3], None, None)
+
+    snap = snap_mode and bool(inserted) and not closed
+    snap_result = judge_snap(frames, s, e, inserted, movers, still, start, end, scale, tol) if snap else None
+    if snap:
+        # Snap: the rows below are in their slots from the first motion frame (judged by judge_snap), the new row at full
+        # height from its first frame: grow's curve and its height clause do not apply to the insert.
+        for k in inserted:
+            event_spec.pop(k, None)
+        movers, still = {}, {}
 
     # Progress per frame: least squares over the rows that move; with none shown, the new or closing row's height.
     progress = {}
@@ -454,7 +482,7 @@ def judge_motion(frames, s, e, times, period, opts, scale, identity, hints):
     gaps, missed = [], 0
     if times is not None:
         for i in range(s + 1, e + 1):
-            if not moves_across(frames[i - 1]["views"], frames[i]["views"], events):
+            if not moves_across(frames[i - 1]["views"], frames[i]["views"], events, inserted if snap else ()):
                 continue
             gap = times[i] - times[i - 1]
             if gap > MISS_FACTOR * period:
@@ -505,7 +533,7 @@ def judge_motion(frames, s, e, times, period, opts, scale, identity, hints):
     selection = judge_selection(frames, window, scale, tol)
 
     kind = "+".join(name for name, rows in (("insert", inserted), ("remove", closed)) if rows) or "other"
-    fails = []
+    fails = list(snap_result["fails"]) if snap_result else []
     if missed:
         fails.append(f"{missed} missed refresh(es) in {len(gaps)} long interval(s), first at frame {gaps[0]['frame']}")
     if rebuilt:
@@ -550,7 +578,103 @@ def judge_motion(frames, s, e, times, period, opts, scale, identity, hints):
         "rebuilt": rebuilt[:LIST_CAP], "rebuilt_frames": sorted({r["frame"] for r in rebuilt}),
         "flicker": flicker[:LIST_CAP], "reflow": reflow[:LIST_CAP], "selection": selection,
         "verdict": verdict, "fails": fails, "notes": notes,
+        "motion": "snap" if snap else "grow",
+        **({k: v for k, v in snap_result.items() if k != "fails"} if snap_result else {}),
     }
+
+
+def judge_snap(frames, s, e, inserted, movers, still, start, end, scale, tol):
+    """--motion snap: the insert of sidebar.insertMotion snap (the default since #28205). The rows below the new row are
+    in their slots (their y in the settled layout, frame E) in every frame from the first that changes, with no slide;
+    the new row shows at its slot at full height from its first frame; while it fades its opacity never falls (by more
+    than FADE_BACK_EPS) and it starts below OPACITY_HIGH (a fade, not a pop-in); no frame shows a gap where the new row
+    goes (the rows below made room, the new row not shown) or an overlap (the new row shown over a row not yet moved).
+    Rows not below it stay at their y in S (as in grow)."""
+    window = range(s, e + 1)
+    fails, slot_errors, height_errors, gap_frames, overlap_frames, fade_back = [], [], [], [], [], []
+    worst = {"frame": None, "key": None, "px": 0.0}
+    worst_h = {"frame": None, "key": None, "px": 0.0}
+    rows_end = {k: v[1] for k, v in end.items() if is_row(k) and k not in inserted}
+    changes = [i for i in range(s + 1, e + 1) if changed(frames[i - 1]["views"], frames[i]["views"])]
+    first_change = changes[0] if changes else None
+    first_alpha = {}
+    for k in inserted:
+        box_end = end.get(k)
+        if box_end is None:
+            continue
+        top, height = box_end[1], box_end[3]
+        shown = [i for i in window if k in frames[i]["views"] and frames[i]["views"][k][3] * scale >= MOVER_PX]
+        first = shown[0] if shown else None
+        last_alpha = None
+        for i in shown:
+            box = frames[i]["views"][k]
+            err_h = abs(box[3] - height) * scale
+            err_y = abs(box[1] - top) * scale
+            if err_h > tol:
+                height_errors.append({"frame": i, "key": k, "px": round(err_h, 3)})
+            if err_y > tol:
+                slot_errors.append({"frame": i, "key": k, "px": round(err_y, 3)})
+            worst_h = max(worst_h, {"frame": i, "key": k, "px": err_h}, key=lambda w: w["px"])
+            worst = max(worst, {"frame": i, "key": k, "px": err_y}, key=lambda w: w["px"])
+            alpha = box[4]
+            if last_alpha is not None and alpha < last_alpha - FADE_BACK_EPS:
+                fade_back.append(i)
+            last_alpha = alpha
+        if first is not None:
+            first_alpha[k] = frames[first]["views"][k][4]
+        # Rows below the new row: in their end slots from the first frame that changes (no slide), never before it.
+        below = [r for r, y in rows_end.items() if r in start and y > top - 0.5]
+        for i in window:
+            if first_change is None or i < first_change:
+                continue
+            views = frames[i]["views"]
+            made_room = all(r in views and abs(views[r][1] - rows_end[r]) * scale <= tol for r in below if r in views)
+            new_shown = k in views and views[k][3] * scale >= MOVER_PX
+            if not new_shown and made_room and below and i < (first if first is not None else e + 1):
+                gap_frames.append(i)
+            for r in below:
+                if r not in views:
+                    continue
+                err = abs(views[r][1] - rows_end[r]) * scale
+                if err > tol:
+                    slot_errors.append({"frame": i, "key": r, "px": round(err, 3)})
+                    if new_shown and views[r][1] < views[k][1] + views[k][3] - 0.5:
+                        overlap_frames.append(i)
+                worst = max(worst, {"frame": i, "key": r, "px": err}, key=lambda w: w["px"])
+    # Rows that do not move in a snap insert (above the new row) stay where they start.
+    for i in window:
+        views = frames[i]["views"]
+        for r, y0 in still.items():
+            if r not in views:
+                continue
+            err = abs(views[r][1] - y0) * scale
+            worst = max(worst, {"frame": i, "key": r, "px": err}, key=lambda w: w["px"])
+            if err > tol:
+                slot_errors.append({"frame": i, "key": r, "px": round(err, 3)})
+    gap_frames = sorted(set(gap_frames))
+    overlap_frames = sorted(set(overlap_frames))
+    slid = sorted({x["key"] for x in slot_errors if x["key"] not in inserted})
+    if slid:
+        fails.append(f"snap: rows not in their slots from the first frame (they slide): {', '.join(slid[:6])}"
+                     f" (first at frame {min(x['frame'] for x in slot_errors if x['key'] in slid)})")
+    if height_errors:
+        fails.append(f"snap: the new row is not at full height from its first frame (frames {[x['frame'] for x in height_errors][:10]})")
+    if any(x["key"] in inserted for x in slot_errors):
+        fails.append("snap: the new row is not at its slot")
+    if gap_frames:
+        fails.append(f"snap: a gap where the new row goes (rows below in place, new row not shown) at frame(s) {gap_frames[:10]}")
+    if overlap_frames:
+        fails.append(f"snap: the new row overlaps a row that has not made room at frame(s) {overlap_frames[:10]}")
+    if fade_back:
+        fails.append(f"snap: the new row's fade steps back at frame(s) {fade_back[:10]}")
+    for k, alpha in first_alpha.items():
+        if alpha >= OPACITY_HIGH:
+            fails.append(f"snap: {k} does not fade in (opacity {alpha:.2f} in its first frame)")
+    return {"fails": fails, "row_errors": slot_errors[:LIST_CAP], "row_error_frames": sorted({x["frame"] for x in slot_errors}),
+            "max_row_error_px": round(worst["px"], 4), "max_row_error": dict(worst, px=round(worst["px"], 4)),
+            "height_errors": height_errors[:LIST_CAP], "height_error_frames": sorted({x["frame"] for x in height_errors}),
+            "max_height_error_px": round(worst_h["px"], 4), "max_height_error": dict(worst_h, px=round(worst_h["px"], 4)),
+            "gap_frames": gap_frames, "overlap_frames": overlap_frames, "fade_back_frames": fade_back}
 
 
 def judge_selection(frames, window, scale, tol):
@@ -613,7 +737,9 @@ def judge_film(name, raw_frames, hints, opts):
         "tolerance_px": opts.tolerance_px, "identity": identity or NO_IDENTITY,
         "selection": "recorded" if any("selected" in r or "selection" in r for r in raws) else "not recorded",
     }
-    judged = [judge_motion(frames, s, e, times, period, opts, scale, identity, hints) for s, e in windows(frames, hints)]
+    snap_mode = getattr(opts, "motion", "grow") == "snap"
+    judged = [judge_motion(frames, s, e, times, period, opts, scale, identity, hints)
+              for s, e in windows(frames, hints, snap_mode)]
     contract = [m for m in judged if m["kind"] != "other"]
     invalid = []
     # 4. Rows the row lists name as new or closed must open or close in the film.
@@ -671,7 +797,7 @@ def summary_line(report):
     identities = sorted({"ids" if f["identity"] == "ids" else "not available" for f in films})
     selections = sorted({f["selection"] for f in films})
     rebuilt = sum(len(f["rebuilt_frames"]) for f in films)
-    return (f"sidebar row oracle: {report['verdict']}: {len(films)} film(s), {len(motions_)} motion(s) "
+    return (f"sidebar row oracle: {report['verdict']}: motion {report.get('motion', 'grow')}: {len(films)} film(s), {len(motions_)} motion(s) "
             f"({kinds['insert']} insert, {kinds['remove']} remove); missed refreshes {report['missed_refreshes']} "
             f"(worst gap {report['worst_gap_ms']:.1f} ms; {'/'.join(f'{h:g}' for h in hz)} Hz by {'/'.join(clocks)}); "
             f"max row error {report['max_row_error_px']:.2f} px, new/closing row height error "
@@ -685,7 +811,7 @@ def build_report(path, opts):
     verdict = min((f["verdict"] for f in films), key=ORDER.index) if films else "NO MOTION"
     return {
         "oracle": "sidebar_row_oracle", "contract": "cmux-ad m23 (STATUS 14191): sidebar row insert and remove",
-        "input": path, "tolerance_px": opts.tolerance_px, "verdict": verdict, "films": films,
+        "input": path, "tolerance_px": opts.tolerance_px, "motion": getattr(opts, "motion", "grow"), "verdict": verdict, "films": films,
         "missed_refreshes": sum(f["missed_refreshes"] for f in films),
         "worst_gap_ms": max((f["worst_gap_ms"] for f in films), default=0.0),
         "max_row_error_px": max((f["max_row_error_px"] for f in films), default=0.0),
@@ -704,12 +830,16 @@ def main(argv=None):
     parser.add_argument("--expect-hz", type=float, default=120.0, help="the display rate the film must have (0: any)")
     parser.add_argument("--inserted", action="append", help="the key of the new row (default: from the row lists or the film)")
     parser.add_argument("--closed", action="append", help="the key of the closing row (default: from the row lists or the film)")
+    parser.add_argument("--motion", choices=MOTIONS, default="grow",
+                        help="the sidebar.insertMotion value of the film: grow (default: the new row grows from 0, the m23 "
+                             "clauses) or snap (the default motion of the app: the rows below in their slots at once, the new "
+                             "row at full height while it fades in)")
     args = parser.parse_args(argv)
     if not os.path.exists(args.film):
         print(f"sidebar row oracle: no such file or folder: {args.film}", file=sys.stderr)
         return 2
     opts = Options(scale=args.scale, tolerance_px=args.tolerance_px, period_ms=args.period_ms,
-                   expect_hz=args.expect_hz, inserted=args.inserted, closed=args.closed)
+                   expect_hz=args.expect_hz, inserted=args.inserted, closed=args.closed, motion=args.motion)
     report = build_report(args.film, opts)
     if not report["films"]:
         print(f"sidebar row oracle: no film in {args.film} (samples.json, film-*.json or a motion report)", file=sys.stderr)
