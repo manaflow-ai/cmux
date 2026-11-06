@@ -73,6 +73,19 @@ import Testing
                         ],
                     ]
                     if let data = try? JSONSerialization.data(withJSONObject: record) { notices.append(data) }
+                case "session/new":
+                    // hostd's adapter: the new chat is listed first, then the answer.
+                    let meta = (params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
+                    lock.withLock { prompts.append((machine, "session/new", "\(meta?["harness"] ?? "")/\(meta?["policy"] ?? "")")) }
+                    let session = "new-on-\(machine)"
+                    result = ["sessionId": session]
+                    let listed: [String: Any] = ["jsonrpc": "2.0", "method": "_acpmux/session_changed", "params": [
+                        "sessionId": session, "kind": "created",
+                        "session": ["sessionId": session, "name": "", "harness": "claude"],
+                    ]]
+                    if let data = try? JSONSerialization.data(withJSONObject: listed) {
+                        return [data, (try? JSONSerialization.data(withJSONObject: ["jsonrpc": "2.0", "id": id, "result": result])) ?? Data()]
+                    }
                 default: result = [:]
                 }
                 return [(try? JSONSerialization.data(withJSONObject: ["jsonrpc": "2.0", "id": id, "result": result])) ?? Data()] + notices
@@ -171,6 +184,21 @@ import Testing
         #expect(!wire.sent.contains { $0.0 == "vm-b" })
         first.disconnect()
         second.disconnect()
+    }
+
+    @Test func aNewChatStartsOnTheSelectedCloudMachineAndOpensAtOnce() async throws {
+        let wire = Wire()
+        let relay = CloudChatRelay(machine: try machine("vm-a"), macID: "mac")
+        relay.bind(wire)
+        #expect(await ready(relay.hub))
+        let session = try await relay.startChat()
+        #expect(session == "new-on-vm-a")
+        #expect(wire.sent.contains { $0.0 == "vm-a" && $0.1 == "session/new" && $0.2 == "claude/ask" })
+        // Listed before the answer, so the screen opens it without another directory read.
+        let store = try #require(relay.store(sessionID: session))
+        store.send(prompt: "hello from the phone")
+        #expect(await until { wire.sent.contains { $0.0 == "vm-a" && $0.1 == session && $0.2 == "hello from the phone" } })
+        relay.disconnect()
     }
 
     @Test func reconnectKeepsTheChatStoreAndUsesTheNewCarrier() async throws {
