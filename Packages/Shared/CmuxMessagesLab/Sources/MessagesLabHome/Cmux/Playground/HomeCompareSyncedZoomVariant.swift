@@ -9,8 +9,13 @@ final class HomeCompareSyncedZoomVariant: NSView {
     /// One side of the pair: its scroll view, the picture in it and its name above it.
     @MainActor private struct Side {
         let pane = HomeCompareSyncedScroll(frame: .zero)
-        let image = NSImageView(frame: .zero)
+        let image = TopImageView(frame: .zero)
         let label = NSTextField(labelWithString: "")
+    }
+    /// A picture that starts at the scroll view's top (an unflipped document view smaller than its clip view
+    /// sits at the bottom, under an empty band).
+    private final class TopImageView: NSImageView {
+        override var isFlipped: Bool { true }
     }
     private let sides = [Side(), Side()]
     private let rows = NSSegmentedControl(labels: [], trackingMode: .selectOne, target: nil, action: nil)
