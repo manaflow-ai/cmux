@@ -227,7 +227,7 @@ def head_jobs(check_obj: dict) -> list[dict]:
 
 
 def dropped(job_name: str, lane: str, appliers) -> bool:
-    if lane in ("full", "no-app"):
+    if lane == "full":
         return False
     if APP_BUILD_JOBS.match(job_name):
         return True

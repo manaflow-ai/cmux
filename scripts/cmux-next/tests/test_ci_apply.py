@@ -16,7 +16,7 @@ import ci_apply  # noqa: E402
 import live_apply  # noqa: E402
 
 APP = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeHostView.swift"
-PANE = "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneView.swift"
+HELPER = "Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/Admission.swift"
 BODY = [("-", "        return 1"), ("+", "        return 2")]
 
 
@@ -45,7 +45,7 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(p["lane"], "swift-body")
 
     def test_swift_outside_the_patched_modules_needs_the_full_build(self):
-        self.assertEqual(lane([("M", PANE)], {PANE: BODY})["lane"], "full")
+        self.assertEqual(lane([("M", HELPER)], {HELPER: BODY})["lane"], "full")
 
     def test_a_stored_property_needs_the_full_build(self):
         p = lane([("M", APP)], {APP: [("+", "    var count = 0")]})
@@ -89,6 +89,7 @@ class ReplayTests(unittest.TestCase):
         self.assertEqual(names, {"cmux-next / cmux-next app compile (build fleet)": True,
                                  "cmux-next / cmux-next swift test": False})
         self.assertFalse(any(ci_apply.dropped(n, "full", []) for n in names))
+        self.assertEqual({n: ci_apply.dropped(n, "no-app", []) for n in names}, names)
 
     def test_the_daemon_lane_drops_only_the_daemon_builds(self):
         drop = lambda n: ci_apply.dropped(f"cmux-tui artifacts / {n}", "daemon", ["daemon"])
