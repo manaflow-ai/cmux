@@ -147,6 +147,38 @@ class CliSwapTests(unittest.TestCase):
         self.assertIn("changed since the swap", out)
         self.assertEqual(os.readlink(link), str(upgraded))
 
+    def test_a_second_apply_never_takes_what_was_replaced_since_the_first(self):
+        os.environ["PATH"] = f"{self.bundled.parent}:/usr/bin:/bin"
+        self.assertEqual(self.apply("--name", "mine")[0], 0)
+        alias = self.home / ".local/bin/cmux-mine"
+        alias.unlink()
+        alias.write_text("a person's own script\n")
+        code, out = self.apply("--name", "mine")
+        self.assertEqual(code, 1, out)
+        self.assertIn("not from cli-swap", out)
+        self.run_cli("undo")
+        self.assertEqual(alias.read_text(), "a person's own script\n")
+
+    def test_a_link_replaced_since_the_first_apply_goes_back_to_the_replacement(self):
+        links = self.tmp / "usr-local-bin"
+        links.mkdir()
+        installed = self.tmp / "installed"
+        installed.mkdir()
+        (installed / "cmux").write_text("install script's build\n")
+        (installed / "cmux-upgraded").write_text("a package manager's upgrade\n")
+        for name in ("cmux", "cmux-upgraded"):
+            (installed / name).chmod(0o755)
+        link = links / "cmux"
+        link.symlink_to(installed / "cmux")
+        os.environ["PATH"] = f"{links}:/usr/bin:/bin"
+        self.assertEqual(self.apply()[0], 0)
+        link.unlink()
+        link.symlink_to(installed / "cmux-upgraded")
+        self.assertEqual(self.apply()[0], 0)
+        self.assertEqual(link.read_bytes(), self.build)
+        self.assertEqual(self.run_cli("undo")[0], 0)
+        self.assertEqual(os.readlink(link), str(installed / "cmux-upgraded"))
+
     def test_it_loads_on_python_3_9(self):
         # The system python3 of macOS: no `X | None` at runtime.
         source = (ROOT / "scripts/cmux-next/cli-swap.py").read_text()

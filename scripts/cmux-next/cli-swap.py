@@ -90,6 +90,12 @@ def save(state: Path, records: list[dict]) -> None:
     (state / "applied.json").write_text(json.dumps(records, indent=2) + "\n")
 
 
+def still_ours(record: dict) -> bool:
+    """The path still points at this swap's copy; anything else changed it since and owns it now."""
+    path = Path(record["path"])
+    return path.is_symlink() and os.readlink(path) == record.get("to")
+
+
 def relink(link: Path, to: str) -> None:
     staged = link.with_name(f".{link.name}.cli-swap")
     staged.unlink(missing_ok=True)
@@ -121,7 +127,8 @@ def command_apply(args) -> int:
     os.replace(part.name, copy)
 
     found = terminal_cmux(args.app)
-    records = load(state)
+    # A record whose path something else changed since is dropped: that path is theirs now.
+    records = [r for r in load(state) if still_ours(r)]
     if found and not in_app_bundle(found) and found.is_symlink():
         # A second apply keeps the first's record, so undo points the link at what it was before any.
         record = next((r for r in records if r["kind"] == "link" and r["path"] == str(found)), None)
@@ -174,7 +181,7 @@ def command_undo(_args) -> int:
         path = Path(record["path"])
         # Only what still points at this swap's copy: a link something else replaced or removed since
         # (a package manager, the person) is theirs now, and is left as it is.
-        if not path.is_symlink() or os.readlink(path) != record.get("to"):
+        if not still_ours(record):
             print(f"cli-swap: {path} changed since the swap; left as it is", file=sys.stderr)
             left.append(record)
             continue
