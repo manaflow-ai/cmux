@@ -169,6 +169,12 @@
   ) {
   margin-right: var(--cv-inset-end);
 }
+/* A new chat's hero question and the lists under it center on the composer's column, not the whole
+   pane, so they move left with it while the panel pushes. */
+.acpmux-shell[data-session-info-chat-placement="push"] > .acpmux-main :is(.acpmux-empty, .acpmux-home-area) {
+  padding-left: var(--cv-inset);
+  padding-right: var(--cv-inset-end);
+}
 .acpmux-shell .acpmux-header {
   width: calc(
     100% + var(--acpmux-summary-push, 0px) + var(--acpmux-session-info-push, 0px) +
@@ -608,7 +614,6 @@
 .acpmux-session-info-pr:has(> .acpmux-session-info-pr__link:hover),
 .acpmux-session-info-source:has(> .acpmux-session-info-source__link:hover),
 .acpmux-session-info-task__open:hover:not(:disabled),
-.acpmux-session-info-task--scheduled:hover,
 .acpmux-session-info-icon-button:hover:not(:disabled),
 button.acpmux-session-info-port:hover,
 .acpmux-session-info .acpmux-summary-link:hover:not(:disabled),
@@ -1195,13 +1200,6 @@ button.acpmux-session-info-port:hover,
   text-align: start;
   transition: background-color var(--acpmux-motion-hover, 80ms) var(--acpmux-motion-ease, ease-out);
 }
-/* A wakeup or cron job (TasksSection `scheduledRow`) is the same row as a command's: the same pill and
-   the same hover tint; only its icon and its time differ (Leo, 2026-11-06: "it doesn't get highlighted in
-   the same way that the other ones do"). */
-.acpmux-session-info-task--scheduled {
-  border-radius: var(--acpmux-session-info-row-radius);
-  transition: background-color var(--acpmux-motion-hover, 80ms) var(--acpmux-motion-ease, ease-out);
-}
 .acpmux-session-info-task__open:focus-visible {
   outline: 1.5px solid var(--agent-text);
   outline-offset: -1.5px;
@@ -1293,6 +1291,11 @@ button.acpmux-session-info-port:focus-visible {
    row and its control never both tint. */
 .acpmux-session-info-task--command {
   position: relative;
+  padding: 0;
+}
+/* A wakeup or cron job whose call the transcript holds is a button too (it shows the call): the
+   button carries the row's padding, so it lights edge to edge as a command's row does. */
+.acpmux-session-info-task--opens {
   padding: 0;
 }
 .acpmux-session-info-task--command > .acpmux-session-info-stop {
@@ -1691,4 +1694,14 @@ button.acpmux-session-info-scope__parent:focus-visible {
       background-color var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out),
       border-color var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out);
   }
+}
+
+/* The room held for a long list's rows not drawn yet (WindowedRows.tsx): its height alone, set from
+   the drawn rows' pitch. */
+ul > li.acpmux-session-info-rows-rest {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  pointer-events: none;
 }
