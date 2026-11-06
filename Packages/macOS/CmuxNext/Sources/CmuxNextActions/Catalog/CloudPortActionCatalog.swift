@@ -59,7 +59,7 @@ nonisolated enum CloudPortActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "cloudMachineLink",
                 title: String(localized: "action.cloudMachineLink", defaultValue: "Get Machine Link…", table: "CloudPortActions", bundle: .module),
-                description: "Returns the machine's (--target machine:<id>) link instead of copying it: machine_id, target and its private address. With --port N, also private_url and the platform's expiring share link for that port: url, linkId (for `cmux cloud preview-revoke`) and expiresAt.",
+                description: "Returns the machine's (--target machine:<id>) link instead of copying it: machine_id, target and its private address. With --port N, also private_url and the platform's expiring share link for that port: url, linkId and expiresAt. Revoke it with `cmux cloud preview-revoke --target machine:<id> --port <port> --linkId <id>`.",
                 keywords: ["vm", "cloud", "link", "url", "port"], category: .cloud, symbol: "link",
                 surfaces: [.palette], arguments: [optionalPort], targets: [.machine],
                 // The machine menu's Copy Machine Link is its GUI form.
