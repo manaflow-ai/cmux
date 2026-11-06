@@ -6,6 +6,13 @@ fuzz.py, and it reuses fuzz.py's guest connection: every app call goes through t
 bundled `cmux app call` over SSH, every screenshot is a VNC frame of the guest display. The
 guest needs no python3 and no Accessibility grant.
 
+The first-run "Sign In to Your Agents" tool window opens on some runs (when the acpmux harness read
+lists an agent in time) and takes the key window; the main window is later ordered over it without
+the keys (2026-11-06, step 21c5abb6). VNC keys go to the key window, so before design_on the smoke
+closes that window through its close button (debug.onboarding close) and waits for the main window
+to be key. It keeps the first run otherwise as a person sees it: CMUX_NEXT_SKIP_ONBOARDING=1 also
+drops the Bring your history page, and New Tab then left Home in front (step fbaf56c6).
+
 Steps (each one ok/FAIL in result.json, with a screenshot shot-<step>.png):
   launch     the app starts and answers a ping
   window     a main window exists (debug.windows)
@@ -24,7 +31,8 @@ Steps (each one ok/FAIL in result.json, with a screenshot shot-<step>.png):
   type_waits browser.page.insert_text answers only after the page handled the text (its
              gesture-free round trip): the page's input handler holds the page for 1.2 s, so the
              call takes 0.9 s or more, and the field holds the text
-  design_on  with Debug Settings' UI pointer picker on (browserPage.uiPointer, off by default),
+  design_on  with Debug Settings' UI pointer picker on (browserPage.uiPointer, off by default; the
+             tunable store is turned on first, as a Release build with bench hooks starts with it off),
              Ctrl-Opt-Cmd-D (VNC keys, the person's) turns design mode on: its overlay host is in
              the page (enableDesignMode runs in an isolated world without a gesture)
   design_off the same keys turn it off: the overlay host is gone
@@ -137,6 +145,13 @@ class Smoke:
     # --- app reads ----------------------------------------------------------------------------
     def windows(self) -> list:
         return self.call("debug.windows").get("windows") or []
+
+    def key_window(self) -> dict | None:
+        """The app's key window (debug.window_list), None when no window of the app is key."""
+        for w in self.call("debug.window_list").get("windows") or []:
+            if w.get("key"):
+                return {k: w.get(k) for k in ("id", "kind", "class", "title")}
+        return None
 
     def terminals(self) -> int:
         return int(self.call("debug.surfaces").get("live_terminals") or 0)
@@ -286,10 +301,25 @@ class Smoke:
 
         overlay = "!!document.querySelector('[data-cmux-design-mode=\"overlay\"]')"
         # Design mode is behind a Debug Settings toggle (off by default): on for these two steps.
+        # A Release build with bench hooks (the fleet's dev-release builds) launches with the tunable
+        # store off and keeps every default, so a set changes nothing there: turn the store on for this
+        # launch first (in memory only; a no-op where launch already turned it on).
+        store = self.call("debug.tunables", {"action": "activate"})
         picker = self.call("debug.tunables", {"action": "set", "key": "browserPage.uiPointer", "value": True})
+        picker["store_active"] = store.get("active")
+        # VNC keys go to the key window: close a first-run tool window that holds it (its close
+        # button's path), then wait for the main window to be key. A FAIL names the key window.
+        tool = self.call("debug.onboarding", {"action": "state"})
+        if tool.get("open"):
+            self.call("debug.onboarding", {"action": "close"})
+            self.wait(lambda: self.call("debug.onboarding", {"action": "state"}).get("open") is False, 15)
+        key_window = self.wait(lambda: (lambda w: w if w and w.get("kind") == "main" else None)(self.key_window()), 15) \
+            or self.key_window()
+        if tool.get("open"):
+            key_window = {**(key_window or {}), "closed_tool_window": tool.get("step")}
         self.vnc.chord("ctrl+opt+cmd+d")
         on = self.wait(lambda: self.page_eval(overlay) is True, 15)
-        self.step("design_on", bool(on), {"overlay": self.page_eval(overlay)})
+        self.step("design_on", bool(on), {"overlay": self.page_eval(overlay), "key_window": key_window})
         self.vnc.chord("ctrl+opt+cmd+d")
         off = self.wait(lambda: self.page_eval(overlay) is False, 15)
         self.step("design_off", bool(on) and bool(off), {"overlay": self.page_eval(overlay), "picker": picker})

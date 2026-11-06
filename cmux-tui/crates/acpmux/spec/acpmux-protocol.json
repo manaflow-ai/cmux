@@ -1988,11 +1988,16 @@
         "author": true,
         "beforePromptId": true,
         "callerSession": true,
+        "cancelToken": true,
+        "class": true,
         "cliHost": true,
+        "compression": true,
         "context": true,
         "cwd": true,
         "decisionNonce": true,
+        "disallowedTools": true,
         "dispatchSource": true,
+        "effort": true,
         "env": true,
         "ephemeral": true,
         "forceAdmit": true,
@@ -2040,13 +2045,16 @@
         "steerOnly": true,
         "supersede": true,
         "surface": true,
+        "tags": true,
         "teamMessage": true,
         "throughSeq": true,
+        "topic": true,
         "via": true,
         "vmBoundary": true,
         "waitStart": true,
         "workflowAllowedTools": true,
-        "workspaceId": true
+        "workspaceId": true,
+        "worktree": true
       },
       "type": "object"
     },
@@ -2862,6 +2870,13 @@
             "null"
           ]
         },
+        "cancelToken": {
+          "description": "The caller's name for this fork while it is made, at most 128 bytes: `_acpmux/kill` with\n`cancelFork` and this token stops it, or takes it back once made (`hub/fork_cancel.rs`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "live": {
           "type": [
             "boolean",
@@ -3073,6 +3088,8 @@
         "_meta": {
           "$ref": "#/types/RequestMeta"
         },
+        "cancelFork": true,
+        "cancelToken": true,
         "purge": true,
         "sessionId": true
       },

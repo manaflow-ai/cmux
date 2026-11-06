@@ -12,8 +12,8 @@
 //! - `cancel id`: over for good (its transcript stays for `zoom`).
 //! - `restart id [message]`: stop the turn, continue in the same session.
 //! - `priority id`: a queued one starts next. `cap n`: the live cap.
-//! - `show id` / `hide id`: open or close its sidebar workspace (#26386:
-//!   subagents run hidden unless `subagents.showWorkspaces` is on).
+//! - `show id` / `hide id`: open or close its sidebar workspace (the Chief
+//!   chose at its start, sidebar_choice.rs; #26386, a1018).
 //!
 //! Pushed to the Chief, never polled: reports (spawns.rs), prompts
 //! (`permission_note`), stuck runs (`sub_tick`) and delivered inboxes.

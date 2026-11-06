@@ -198,7 +198,7 @@ pub enum Input {
         ws: Option<String>,
     },
     /// Where a subagent's workspace opens (`control show`), sent at its
-    /// start whether or not it opens then (`subagents.showWorkspaces`).
+    /// start whether or not it opens then (sidebar_choice.rs).
     SubagentWorkspaceSlot {
         id: String,
         name: String,

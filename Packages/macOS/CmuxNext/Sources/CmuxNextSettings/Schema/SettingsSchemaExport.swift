@@ -108,6 +108,7 @@ public struct SettingsSchemaExport {
             "summary": descriptor.summary.map { text($0, keys.summary) as Any } ?? NSNull(),
             "default": descriptor.defaultValue.map(foundation) ?? NSNull(),
             "default_label": descriptor.defaultLabel.map { text($0, keys.defaultLabel) as Any } ?? NSNull(),
+            "placeholder": descriptor.placeholder.map { text($0.text, $0.key) as Any } ?? NSNull(),
             "keywords": descriptor.keywords,
             "agent_settable": SettingsSchema.agentSettable(descriptor) ?? false,
             "agent_refusal": SettingsSchema.agentRefusedKeys[descriptor.id].map { $0.rawValue as Any } ?? NSNull(),
