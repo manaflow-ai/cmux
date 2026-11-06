@@ -272,6 +272,49 @@ struct CmuxToastSurfaceTests {
         (handles + [fourth]).forEach { $0.dismiss() }
     }
 
+    /// A toast fading out still covers what is under it: the views that reserve room for toasts keep
+    /// that room until the fade ends, then take it back (review of #36969, F1).
+    @Test func theRoomUnderAToastStaysUntilItsFadeEnds() async throws {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let center = CmuxToastCenter()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        defer { window.closeWithOverlayHost() }
+        window.orderFrontRegardless()
+        let chat = ReservingSpy(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
+        try #require(window.contentView).addSubview(chat)
+        let handle = center.show(CmuxToast(id: "saved", message: "Saved"), in: window)
+        let shown = try #require(chat.reports.last ?? nil, "no room reserved for the shown toast")
+        let toast = try #require(Self.toastViews(in: window).first)
+        toast.layer?.removeAllAnimations() // its arrival is done
+
+        handle.dismiss()
+        try #require(toast.layer?.animation(forKey: "opacity") != nil, "the toast did not fade (no motion here)")
+        #expect(chat.reports.last == shown, "the room went while the toast still showed, fading")
+        for _ in 0..<200 where chat.reports.last != .some(nil) { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(chat.reports.last == .some(nil), "the room stayed after the toast was gone")
+    }
+
+    /// The window resized under shown toasts: the views that reserve room hear where they rest now
+    /// (review of #36969, F2).
+    @Test func aWindowResizeTellsTheReservingViewsWhereTheToastsRest() throws {
+        let center = CmuxToastCenter()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        defer { window.closeWithOverlayHost() }
+        window.orderFrontRegardless()
+        let chat = ReservingSpy(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
+        try #require(window.contentView).addSubview(chat)
+        let handle = center.show(CmuxToast(id: "saved", message: "Saved"), in: window)
+        let before = chat.reports.count
+        window.setContentSize(NSSize(width: 900, height: 500))
+        #expect(chat.reports.count > before, "the resize told the chat nothing")
+        let rect = try #require(chat.reports.last ?? nil)
+        #expect(abs(rect.midX - 450) < 1, "the chat heard an old toast rect \(rect)")
+        handle.dismiss()
+    }
+
     /// The toasts shown over `window`: they live in its overlay panel, a child window.
     private static func toastViews(in window: NSWindow) -> [CmuxToastView] {
         func walk(_ view: NSView) -> [CmuxToastView] {
@@ -284,6 +327,13 @@ struct CmuxToastSurfaceTests {
 @MainActor
 private final class AvoidedView: NSView, CmuxToastAvoiding {
     var toastAvoidanceRect: NSRect { bounds }
+}
+
+/// Records every toast rect it is told (nil: none shows).
+@MainActor
+private final class ReservingSpy: NSView, CmuxToastReserving {
+    private(set) var reports: [NSRect?] = []
+    func toastsSettled(in rect: NSRect?, duration: TimeInterval) { reports.append(rect) }
 }
 
 /// Records each window it is asked to reanchor in.
