@@ -139,6 +139,7 @@ public final class LayoutRootView: NSView {
         var screens: [LayoutScreen]
         var activeScreen: ScreenID?
         var focused: PaneID?
+        var focusRingEarned: Bool
         var dimsInactive: Bool
         var style: LayoutStyle
         var gestureActive: Bool
@@ -345,7 +346,8 @@ public final class LayoutRootView: NSView {
             $0.style != snapshot.style || $0.scrollbar != snapshot.scrollbar || $0.rowOps != snapshot.rowOps
         } ?? true
         let chromeChanged = sharedChanged || previous.map {
-            $0.focused != snapshot.focused || $0.dimsInactive != snapshot.dimsInactive || $0.attention != snapshot.attention
+            $0.focused != snapshot.focused || $0.focusRingEarned != snapshot.focusRingEarned
+                || $0.dimsInactive != snapshot.dimsInactive || $0.attention != snapshot.attention
         } ?? true
         let scrollChanged = previous.map {
             $0.focused != snapshot.focused || $0.centerMode != snapshot.centerMode || $0.gestureActive != snapshot.gestureActive
@@ -692,7 +694,7 @@ public final class LayoutRootView: NSView {
             driver.attach(to: self)
             if screenViews.values.contains(where: { $0.hasMotion || $0.activeDrag?.waiting == true })
                 || screenFrames.values.contains(where: { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }) { driver.start() }
-            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .magnify, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
+            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .magnify, .leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown]) { [weak self] event in
                 self?.handleMonitored(event) ?? event
             }
         }
@@ -708,7 +710,8 @@ extension LayoutRootView: ParkingObserver {}
 extension LayoutRootView.Snapshot {
     /// Everything the view reads from `model` now; in `observe`, the observation tracks every property it reads.
     init(_ model: LayoutModel) {
-        self.init(screens: model.screens, activeScreen: model.activeScreenID, focused: model.focusedPane, dimsInactive: model.dimsInactivePanes,
+        self.init(screens: model.screens, activeScreen: model.activeScreenID, focused: model.focusedPane,
+                  focusRingEarned: model.focusRingEarned, dimsInactive: model.dimsInactivePanes,
                   style: model.style, gestureActive: model.isGestureActive, centerRequest: model.centerRequest,
                   revealRequest: model.revealRequest, centerMode: model.centerFocusedColumn, attention: model.attention,
                   scrollbar: model.stripScrollbar, rowOps: model.acceptsRowOps, canvases: model.canvases)
