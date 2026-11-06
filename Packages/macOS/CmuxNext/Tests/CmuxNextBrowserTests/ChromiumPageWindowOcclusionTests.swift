@@ -27,26 +27,29 @@ import Testing
         return try #require(cls as? StandInPageWindow.Type)
     }
 
-    private static func window(of type: StandInPageWindow.Type) -> StandInPageWindow {
-        let window = type.init(contentRect: CGRect(x: 0, y: 0, width: 200, height: 100),
-                               styleMask: [.titled], backing: .buffered, defer: true)
+    /// Through `NSWindow.Type`: a Swift subclass with stored properties has no
+    /// required initializer, and the Objective-C one still makes `type`'s instance.
+    private static func window(of type: StandInPageWindow.Type) throws -> StandInPageWindow {
+        let windowType: NSWindow.Type = type
+        let window = try #require(windowType.init(contentRect: CGRect(x: 0, y: 0, width: 200, height: 100),
+                                                  styleMask: [.titled], backing: .buffered, defer: true) as? StandInPageWindow)
         window.isReleasedWhenClosed = false
         return window
     }
 
     @Test func anEmbeddedPageWindowIsNoBrowserWindowForTheOcclusionChecker() throws {
         let cls = try Self.pageWindowClass()
-        let page = Self.window(of: cls)
+        let page = try Self.window(of: cls)
         #expect(page.containsWebContentsViewCocoa())
         #expect(ChromiumPageWindowMain.installPageRules(on: cls))
         #expect(!page.containsWebContentsViewCocoa())
-        #expect(!Self.window(of: cls).containsWebContentsViewCocoa())
+        #expect(try !Self.window(of: cls).containsWebContentsViewCocoa())
     }
 
     @Test func aPageWindowThatIsNotEmbeddedKeepsChromiumsAnswer() throws {
         let cls = try Self.pageWindowClass()
         ChromiumPageWindowMain.installPageRules(on: cls)
-        let page = Self.window(of: cls)
+        let page = try Self.window(of: cls)
         page.embedded = false
         #expect(page.containsWebContentsViewCocoa())
         page.embedded = true
@@ -55,14 +58,14 @@ import Testing
 
     @Test func otherWindowsKeepTheirAnswer() throws {
         ChromiumPageWindowMain.installPageRules(on: try Self.pageWindowClass())
-        #expect(Self.window(of: StandInPageWindow.self).containsWebContentsViewCocoa())
+        #expect(try Self.window(of: StandInPageWindow.self).containsWebContentsViewCocoa())
     }
 
     @Test func installingAgainIsHarmless() throws {
         let cls = try Self.pageWindowClass()
         #expect(ChromiumPageWindowMain.installPageRules(on: cls))
         #expect(ChromiumPageWindowMain.installPageRules(on: cls))
-        let page = Self.window(of: cls)
+        let page = try Self.window(of: cls)
         #expect(!page.containsWebContentsViewCocoa())
         page.embedded = false
         #expect(page.containsWebContentsViewCocoa())
