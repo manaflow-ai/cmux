@@ -3,6 +3,8 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextBookmarks
 import CmuxNextDaemon
+import CmuxNextPages
+import CmuxNextSettings
 import Foundation
 import Testing
 
@@ -88,12 +90,33 @@ struct BookmarkFolderIconTests {
         #expect(bar.favicon(for: try Self.folder(Self.asset))?.tiffRepresentation == plain)
     }
 
+    /// The manager page's rows get these images (`cmux.bookmarkPage.icons`).
     @Test func theManagerDrawsAFoldersEmojiOrStoredIcon() throws {
+        let bookmarks = Self.services().bookmarks
+        #expect(bookmarks.folderIconImage(of: try Self.folder(nil), side: 32) == nil, "a folder without an icon draws the folder symbol")
+        #expect(bookmarks.folderIconImage(of: try Self.folder("🚀"), side: 32) != nil, "an emoji folder icon draws in its own colors")
+        #expect(bookmarks.folderIconImage(of: try Self.folder(Self.asset), side: 32) == nil, "the folder symbol stands in while the asset loads")
+    }
+
+    /// The React page asks the host for the icons of the rows on screen: an emoji folder gets its
+    /// image, a folder without an icon and an unknown id get none, and the state names the profile.
+    @Test func theManagerPageGetsAFoldersIconFromItsHost() async throws {
         let services = Self.services()
-        let manager = BookmarkManagerSourceAdapter(services: services, tabKey: "bookmark-folder-icon-test")
-        #expect(manager.favicon(for: try Self.folder(nil)) == nil, "a folder without an icon draws the folder symbol")
-        #expect(manager.favicon(for: try Self.folder("🚀")) != nil, "an emoji folder icon draws in its own colors")
-        #expect(manager.favicon(for: try Self.folder(Self.asset)) == nil, "the folder symbol stands in while the asset loads")
+        var tree = BookmarkTree()
+        try tree.apply(.create(.folder("Work", in: BookmarkRoot.bar.rawValue, id: "bm_emoji"), index: nil))
+        try tree.apply(.create(.folder("Plain", in: BookmarkRoot.bar.rawValue, id: "bm_plain"), index: nil))
+        try tree.apply(.update(id: "bm_emoji", icon: .set("🚀")))
+        services.bookmarks.trees["default"] = tree
+        let host = BookmarkPageHostProvider(host: services, tabKey: "bookmark-page-host-test")
+        let context = PageCallContext(page: PageDescriptor.bookmarks.id)
+        let state = try await host.call("cmux.bookmarkPage.state", params: .object([:]), context: context)
+        #expect(state["browser_profile_id"]?.stringValue == "default")
+        let ids: [JSONValue] = [.string("bm_emoji"), .string("bm_plain"), .string("bm_gone")]
+        let reply = try await host.call("cmux.bookmarkPage.icons", params: .object(["ids": .array(ids)]), context: context)
+        let icons = reply["icons"]?.objectValue ?? [:]
+        #expect(icons["bm_emoji"]?.stringValue?.hasPrefix("data:image/png;base64,") == true)
+        #expect(icons["bm_plain"] == nil && icons["bm_gone"] == nil)
+        #expect(reply["masks"]?.arrayValue == [], "an emoji draws in its own colors, not as a mask")
     }
 
     // MARK: Actions

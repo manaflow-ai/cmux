@@ -790,12 +790,13 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             swiftSettings: uiSwiftSettings
         ),
         // Bookmarks (plans/cmux-next/bookmarks.md): the tree per browser
-        // profile, Netscape HTML import/export, omnibar ranking, the local
-        // file store, the cmux://bookmarks page, the bookmarks bar and the
-        // edit bubble.
+        // profile mirrored from the home daemon, the client of its routed
+        // `bookmarks.*` ops (file import/export, search, rank), the local
+        // file store, the cmux://bookmarks React page's host, the bookmarks
+        // bar and the edit bubble.
         .target(
             name: "CmuxNextBookmarks",
-            dependencies: ["CmuxNextDesign", "CmuxNextIcons"],
+            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextPages", "CmuxNextSettings"],
             resources: [
                 .process("Resources"),
             ],

@@ -238,6 +238,7 @@ extension TabContentCache {
         if BookmarkPageAddress.matches(url) {
             let page = services.bookmarkPages.makePage(key: key, engine: engine, profile: profile)
             page.onNavigate = { [weak self] target in self?.leaveAppPage(key, to: target) }
+            page.webPage?.onOpenExternal = { [weak self] target in self?.leaveAppPage(key, to: target) }
             return page
         }
         let page = HistoryPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, source: services.historyPage,
