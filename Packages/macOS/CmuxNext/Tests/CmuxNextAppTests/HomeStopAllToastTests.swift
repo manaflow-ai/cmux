@@ -63,12 +63,11 @@ struct HomeStopAllToastTests {
         #expect(HomeStopAllStrings.detail(for: answer) == starting)
     }
 
-    /// The detail is the message's tooltip and the toast's VoiceOver help; the toast stays short.
-    @Test func theToastViewShowsTheDetailOnHoverOfTheMessage() throws {
-        let view = CmuxToastView(toast: CmuxToast.stopAll(ChiefStopAll(stopped: false, subagents: ["a1"], errors: [refused])))
-        let label = try #require(view.messageLabel)
-        #expect(label.themedToolTip == refused)
-        #expect(view.accessibilityHelp() == refused)
-        #expect(label.stringValue == [HomeStopAllStrings.stopped(["a1"]), "1 could not be stopped"].joined(separator: "\n"))
+    /// The refusal is the toast's detail (the web toast shows it on hover and in VoiceOver help);
+    /// the message stays short.
+    @Test func theToastCarriesTheRefusalAsItsDetail() {
+        let toast = CmuxToast.stopAll(ChiefStopAll(stopped: false, subagents: ["a1"], errors: [refused]))
+        #expect(toast.detail == refused)
+        #expect(toast.message == [HomeStopAllStrings.stopped(["a1"]), "1 could not be stopped"].joined(separator: "\n"))
     }
 }
