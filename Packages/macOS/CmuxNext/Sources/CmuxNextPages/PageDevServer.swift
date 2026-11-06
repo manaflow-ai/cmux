@@ -103,6 +103,20 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
         return URL(string: base + path + query)
     }
 
+    /// Whether `request` is `page`'s document (its root or its entry), the request a dev server
+    /// must answer with HTML.
+    static func isDocument(_ request: URL, page: PageDescriptor) -> Bool {
+        let components = request.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        return components.isEmpty || components == [page.entry]
+    }
+
+    /// Whether `contentType` (a `Content-Type` value) is HTML. A document answer that is not (a
+    /// proxy's text error, a missing type) is not used: drawn as text it showed the page's source.
+    public static func isHTML(_ contentType: String?) -> Bool {
+        guard let essence = contentType?.split(separator: ";", maxSplits: 1).first else { return false }
+        return essence.trimmingCharacters(in: .whitespaces).lowercased() == "text/html"
+    }
+
     /// The page's policy plus the server: the Vite client's HMR socket and its reconnect ping.
     func csp(for page: PageDescriptor) -> PageCSP {
         var csp = page.csp

@@ -44,6 +44,8 @@ fn a_carrier_section_names_the_relay_slot_and_its_ticket_command() {
             "carrier-ticket",
             "--carrier-grant-config",
             "/run/cmux/carrier-grant.json",
+            "--remote-local-socket",
+            "/run/cmux-rd/desktop.sock",
         ]
     );
 }

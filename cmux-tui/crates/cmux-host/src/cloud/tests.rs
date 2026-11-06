@@ -138,7 +138,6 @@ impl Http for Fake {
             _ => Ok((404, json!({}))),
         }
     }
-
 }
 
 fn daemon() -> DaemonInfo {
@@ -461,4 +460,3 @@ fn carrier_ticket_request_uses_an_empty_body() {
     assert_eq!(request.url, format!("{DEV}/v1/cloud/machines/{MACHINE}/carrier"));
     assert_eq!(request.bearer.as_deref(), Some("tok-1"));
 }
-

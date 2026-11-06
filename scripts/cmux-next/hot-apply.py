@@ -148,7 +148,15 @@ def app_commit(app: Path, repo: Path = ROOT) -> str:
     if not re.fullmatch(r"[0-9a-f]{7,40}", commit):
         raise RuntimeError(f"{app} has no CMUXCommit (a DEV build): nothing to compare SHA with")
     if not SHA.fullmatch(commit):
-        full = git(repo, "rev-parse", "--verify", "--quiet", f"{commit}^{{commit}}", check=False)
+        def resolve() -> str:
+            return git(repo, "rev-parse", "--verify", "--quiet", f"{commit}^{{commit}}", check=False)
+        full = resolve()
+        if not SHA.fullmatch(full):
+            # A short sha cannot be fetched by itself: the branch the nightly was cut from can.
+            shallow = git(repo, "rev-parse", "--is-shallow-repository", check=False) == "true"
+            subprocess.run(["git", "-C", str(repo), "fetch", "-q", *(["--unshallow"] if shallow else []),
+                            "origin", "feat-cmux-next"], capture_output=True)
+            full = resolve()
         if not SHA.fullmatch(full):
             raise RuntimeError(f"{app}'s CMUXCommit {commit} is not one commit in {repo} (fetch feat-cmux-next)")
         commit = full
@@ -267,24 +275,52 @@ def keep(state: Path, path: Path) -> tuple[Path, str]:
     return copy, digest
 
 
+def app_pids(app: Path) -> list[str]:
+    """The processes running an executable from APP's bin folder: by the executable's path (`comm`,
+    as side-instance.sh finds a copy's), or by argv[0] for a process whose comm is cut short."""
+    prefixes = {str(app / BIN) + "/", str((app / BIN).resolve()) + "/"}
+    found = []
+    for field in ("comm", "command"):
+        ps = subprocess.run(["ps", "-axww", "-o", f"pid=,{field}="], capture_output=True, text=True).stdout
+        for line in ps.splitlines():
+            pid, _, rest = line.strip().partition(" ")
+            if pid not in found and any(rest.strip().startswith(prefix) for prefix in prefixes):
+                found.append(pid)
+    # Linux: a daemon re-run through /proc/self/exe shows only its basename in comm and argv, but
+    # /proc/PID/exe still names the file (" (deleted)" once a swap renamed a build over it).
+    proc = Path("/proc")
+    if proc.is_dir():
+        for entry in proc.iterdir():
+            if not entry.name.isdigit() or entry.name in found:
+                continue
+            try:
+                exe = os.readlink(entry / "exe").removesuffix(" (deleted)")
+            except OSError:
+                continue
+            if any(exe.startswith(prefix) for prefix in prefixes):
+                found.append(entry.name)
+    return found
+
+
 def find_socket(app: Path, cli: Path) -> str | None:
     """The socket of the daemon running from APP's bin folder: a process there whose unix socket
-    answers `server status` with that process's pid."""
-    prefix = str(app / BIN) + "/"
-    ps = subprocess.run(["ps", "-axww", "-o", "pid=,command="], capture_output=True, text=True).stdout
-    for line in ps.splitlines():
-        pid, _, command = line.strip().partition(" ")
-        if not command.startswith(prefix):
-            continue
+    answers `server status` with that process's pid. None when no daemon runs from it; a socket
+    that never answered means one may, and raises rather than pass for none."""
+    hung = []
+    for pid in app_pids(app):
         lsof = subprocess.run(["lsof", "-a", "-p", pid, "-U", "-Fn"], capture_output=True, text=True).stdout
         for name in {entry[1:] for entry in lsof.splitlines() if entry.startswith("n/")}:
             try:
                 status = subprocess.run([str(cli), "--socket", name, "--json", "server", "status"],
                                         capture_output=True, text=True, timeout=10)
             except subprocess.TimeoutExpired:
+                hung.append(name)
                 continue
             if re.search(rf'"pid"\s*:\s*{pid}\b', status.stdout):
                 return name
+    if hung:
+        raise RuntimeError(f"`server status` never answered on {', '.join(sorted(hung))}: the daemon running "
+                           f"from {app} is not known; nothing changed (--socket names it)")
     return None
 
 

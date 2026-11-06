@@ -57,6 +57,10 @@ pub struct CarrierRoute {
 /// The machine's carrier, kept by the Cloud role at the bind commit.
 pub const CARRIER_FILE: &str = "/var/lib/cmux/carrier.json";
 
+/// The agent display's `cmux.rd/1` socket (#37218): an owner's carrier
+/// session reaches it through cmux-remote's `local-socket` service.
+pub const DESKTOP_SOCKET: &str = "/run/cmux-rd/desktop.sock";
+
 /// The session host's carrier grant config, written by cmux-host.
 pub const GRANT_CONFIG_FILE: &str = "/run/cmux/carrier-grant.json";
 
@@ -64,12 +68,13 @@ pub const GRANT_CONFIG_FILE: &str = "/run/cmux/carrier-grant.json";
 pub const CARRIER_FILE_NAME: &str = "carrier.json";
 
 /// The session host's flags that carry the route.
-const ROUTE_FLAGS: [&str; 5] = [
+const ROUTE_FLAGS: [&str; 6] = [
     "--relay",
     "--relay-slot",
     "--relay-ticket-command",
     "--relay-ticket-command-arg",
     "--carrier-grant-config",
+    "--remote-local-socket",
 ];
 
 /// [`CARRIER_FILE`]: the route, plus the team, the carrier grant issuer
@@ -127,6 +132,8 @@ impl CarrierRoute {
         }
         args.push("--carrier-grant-config".to_owned());
         args.push(grant_config.display().to_string());
+        args.push("--remote-local-socket".to_owned());
+        args.push(DESKTOP_SOCKET.to_owned());
         args
     }
 }

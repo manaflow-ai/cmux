@@ -892,10 +892,8 @@ mod carrier_file_tests {
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
         let args = carrier_args(&paths, bin);
         let grant = paths.at(GRANT_CONFIG_FILE);
-        assert_eq!(
-            args[args.len() - 2..],
-            ["--carrier-grant-config".to_owned(), grant.display().to_string()]
-        );
+        let at = args.iter().position(|arg| arg == "--carrier-grant-config").unwrap();
+        assert_eq!(args[at + 1], grant.display().to_string());
         let written: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&grant).unwrap()).unwrap();
         assert_eq!(

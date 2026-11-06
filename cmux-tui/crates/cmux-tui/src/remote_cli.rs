@@ -2624,6 +2624,7 @@ fn run_remote_sidecar(args: &[String]) -> anyhow::Result<()> {
             advertised_routes: Vec::new(),
             resume_lease: cmux_remote::daemon::DEFAULT_RESUME_LEASE,
             replaceable_sidecar: true,
+            local_sockets: Vec::new(),
         },
     )?;
     let mut mux_disappeared = false;
@@ -5080,6 +5081,7 @@ mod tests {
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         )
         .expect("acknowledged legacy state remained blocked");
