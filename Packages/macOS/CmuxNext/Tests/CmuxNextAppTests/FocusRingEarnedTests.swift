@@ -1,0 +1,137 @@
+import AppKit
+@testable import CmuxNextApp
+import CmuxNextDesign
+@testable import CmuxNextLayout
+import CmuxNextTestSupport
+import Testing
+
+/// Leo 2026-11-06, on a ring that stayed lit around a pane he was not touching, flickering:
+/// "i need the freaking focus ring to STOP FIRING SO OFTEN AND TO BE ABLE TO CANCEL IT JUST GETS
+/// STUCK IN THESE SITUATIONS" and "WHY DOESN'T THE COMMAND PALETTE TOGGLE FOR FOCUS RINGS WORK FOR
+/// TURNING IT OFF THIS IS NOT WORKING". Only the person's keys earn the focus ring; a click on
+/// the focused pane or Escape takes it away at once; Toggle Focus Ring turns every pane ring off.
+@MainActor
+@Suite(.closesItsWindows, .serialized)
+struct FocusRingEarnedTests {
+    final class Panes: LayoutPaneContentProvider {
+        func makeContentView(for pane: PaneID) -> NSView { NSView() }
+    }
+
+    final class Window {
+        let provider = Panes()
+        let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(
+            .split("x", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2"))))], activeScreenID: "s", focusedPane: "p1")
+        let root: LayoutRootView
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+
+        init() {
+            root = LayoutRootView(model: model, contentProvider: provider)
+            window.contentView = root
+            root.layoutSubtreeIfNeeded()
+        }
+
+        func ring(_ pane: PaneID) -> Bool? {
+            root.syncWithModel()
+            return root.overlayRings.first { $0.pane == pane.rawValue }?.showsRing
+        }
+
+        func center(_ pane: PaneID) throws -> CGPoint {
+            let frame = try #require(root.frame(of: pane))
+            return root.convert(CGPoint(x: frame.midX, y: frame.midY), to: nil)
+        }
+
+        func key(_ code: UInt16) {
+            let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                         windowNumber: window.windowNumber, context: nil, characters: "\u{1b}",
+                                         charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: code)!
+            #expect(root.handleMonitored(event) === event, "the key still reaches the pane")
+        }
+    }
+
+    /// The ring draws only with the setting on and the border indicator (the SplitFocusRingTests setup).
+    private static func withRing(_ body: () throws -> Void) rethrows {
+        let indicator = DesignSettings.shared.focusIndicator
+        let ring = DesignSettings.shared.focusRing
+        DesignSettings.shared.focusIndicator = .both
+        DesignSettings.shared.focusRing.enabled = true
+        defer {
+            DesignSettings.shared.focusIndicator = indicator
+            DesignSettings.shared.focusRing = ring
+        }
+        try body()
+    }
+
+    @Test func onlyAKeyMoveEarnsTheRing() {
+        let model = FocusMoveRingFlashTests.threePanes()
+        model.focus("b", notify: false)
+        #expect(!model.focusRingEarned, "a move nobody keyed (an agent, the CLI, a new pane) drew the ring")
+        model.focus("c", notify: false, source: .keyboard)
+        model.focus("c", notify: false) // the focus coordinator's mirror of the same move
+        #expect(model.focusRingEarned)
+        model.focus("a", source: .pointer)
+        #expect(!model.focusRingEarned)
+        model.focus("b", source: .keyboard)
+        model.focus("c", source: .scroll)
+        #expect(!model.focusRingEarned)
+    }
+
+    @Test func aProgrammaticMoveDrawsNoRing() throws {
+        try Self.withRing {
+            let w = Window()
+            defer { w.window.closeAfterTest() }
+            w.model.focus("p2", notify: false)
+            #expect(w.ring("p2") == false)
+            w.model.focus("p1", source: .keyboard)
+            #expect(w.ring("p1") == true)
+            #expect(w.ring("p2") == false)
+        }
+    }
+
+    @Test func aClickOnTheFocusedPaneClearsItsRingAtOnce() throws {
+        try Self.withRing {
+            let w = Window()
+            defer { w.window.closeAfterTest() }
+            w.model.focus("p2", source: .keyboard)
+            #expect(w.ring("p2") == true)
+            w.root.handleMonitoredPress(at: try w.center("p2"))
+            #expect(w.model.focusedPane == "p2")
+            #expect(w.ring("p2") == false, "the ring stayed after a click on its own pane")
+        }
+    }
+
+    @Test func escapeClearsTheRingAndFocusStays() throws {
+        try Self.withRing {
+            let w = Window()
+            defer { w.window.closeAfterTest() }
+            w.model.focus("p2", source: .keyboard)
+            #expect(w.ring("p2") == true)
+            w.key(0) // A
+            #expect(w.ring("p2") == true, "a key other than Escape cleared the ring")
+            w.key(53) // Escape
+            #expect(w.model.focusedPane == "p2")
+            #expect(w.ring("p2") == false, "Escape left the ring")
+        }
+    }
+
+    /// Toggle Focus Ring reads on while any pane ring can draw, and off turns every one off.
+    @Test func theToggleTurnsEveryPaneRingOff() {
+        let design = DesignSettings.shared
+        let ring = design.focusRing, attention = design.attention
+        defer {
+            design.focusRing = ring
+            design.attention = attention
+        }
+        design.focusRing.enabled = false
+        design.attention = AttentionSettings()
+        #expect(design.attention.drawsAnyRing, "the unread glow is on by default")
+        #expect(FocusRingHandlers.showsAnyRing(design), "the toggle read off while the unread ring could draw")
+        design.attention.terminalRing = .none
+        #expect(!FocusRingHandlers.showsAnyRing(design))
+        design.attention.agentChatRing = .ring
+        #expect(FocusRingHandlers.showsAnyRing(design))
+        design.attention.agentChatRing = .none
+        design.focusRing.enabled = true
+        #expect(FocusRingHandlers.showsAnyRing(design))
+    }
+}
