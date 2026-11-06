@@ -44,7 +44,9 @@ shell still running; FAKE_CLAUDE_BACKGROUND_ERROR=<text> refuses that
 request with the text instead. FAKE_CLAUDE_BACKGROUND_SILENT_MS=<ms> never
 answers it: <ms> later Claude Code moves the shell by itself, then ends the
 turn (with FAKE_CLAUDE_BACKGROUND_SILENT_END=1 the turn ends at once and the
-shell moves <ms> after). FAKE_CLAUDE_BACKGROUND_TWICE waits for two requests,
+shell moves <ms> after; with FAKE_CLAUDE_BACKGROUND_LATE=1 it answers the
+request `backgrounded: false` <ms> late, as Claude Code 2.1.312 answered bg-8
+195.9 s after a 10 s wait). FAKE_CLAUDE_BACKGROUND_TWICE waits for two requests,
 answers the first `backgrounded: true` and the second false, and moves the
 shell before the second answer ("moved") or after it ("answered"); the
 shell's tool result then names its output file. FAKE_CLAUDE_FG_WAIT_S (20
@@ -525,6 +527,8 @@ def fg_shell():
                     move()
                     return
                 time.sleep(int(silent) / 1000)
+                if os.environ.get("FAKE_CLAUDE_BACKGROUND_LATE"):
+                    answer(rid, False)
                 move()
                 send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_fg",
                       "content": "Command was moved to the background with ID: f1"}]}})
