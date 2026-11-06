@@ -210,6 +210,32 @@ class AppHandoffTests(unittest.TestCase):
         self.assertEqual(app.file.read_text(), "base build\n")
         self.assertTrue(swapper.marker().is_file())
 
+    def test_stop_finishes_a_restore_the_watcher_left_and_says_when_it_cannot(self):
+        # The watcher's own restore timed out and it exited: its pid file is gone, its marker is not.
+        # Before: `stop` said "not watching" and nothing put the app's build back.
+        app = FakeApp(self.tmp)
+        self.addCleanup(app.close)
+        self.swapper(app).swap({"cmux-tui": self.new})
+        status = lambda self_, _cli, **_k: app.status()
+        self.addCleanup(setattr, rust_live.Swapper, "owner", rust_live.Swapper.owner)
+        rust_live.Swapper.owner = status
+        old_env = os.environ.get("CMUX_RUST_LIVE_STATE_DIR")
+        os.environ["CMUX_RUST_LIVE_STATE_DIR"] = str(self.state)
+        self.addCleanup(lambda: os.environ.pop("CMUX_RUST_LIVE_STATE_DIR") if old_env is None
+                        else os.environ.__setitem__("CMUX_RUST_LIVE_STATE_DIR", old_env))
+        app.respawn = False
+        old = rust_live.APP_OWNER_SECS
+        rust_live.APP_OWNER_SECS = 0.5
+        self.addCleanup(setattr, rust_live, "APP_OWNER_SECS", old)
+        self.assertEqual(rust_live.command_stop(None), 1)
+        self.assertTrue(any(self.state.glob("app-original-*.json")))
+        app.respawn = True
+        app.owner = app.start()
+        self.assertEqual(rust_live.command_stop(None), 0)
+        self.assertEqual(app.file.read_text(), "base build\n")
+        self.assertEqual(app.builds_run[-1], "base build\n")
+        self.assertFalse(any(self.state.glob("app-original-*.json")))
+
     def test_a_daemon_outside_an_app_still_restarts_through_the_cli(self):
         swapper = rust_live.Swapper("s", None, state=self.state)
         loose = self.tmp / "target" / "cmux-tui"

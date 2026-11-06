@@ -799,10 +799,34 @@ def run_watcher(args, tree: Path, state: Path) -> int:
     return 0
 
 
+def restore_left_apps(state: Path) -> int:
+    """Hands every app daemon a watcher left swapped (its marker is still there: the watcher's own
+    restore timed out, or it died) back to the app's own build. 0 when none is left."""
+    failed = 0
+    for marker in sorted(state.glob("app-original-*.json")):
+        try:
+            selector = json.loads(marker.read_text())["selector"]
+        except (OSError, ValueError, KeyError):
+            continue
+        named = dict(zip(selector[::2], selector[1::2]))
+        swapper = Swapper(named.get("--session"), named.get("--socket"), state=state)
+        try:
+            restored = swapper.restore_app()
+        except RuntimeError as error:
+            print(f"rust-live: {error}", file=sys.stderr)
+            failed += 1
+            continue
+        if restored:
+            print(f"rust-live: {restored} is the app's own build again, and its daemon too")
+    return 1 if failed else 0
+
+
 def command_stop(_args) -> int:
     state = state_dir()
     pid = running_pid(state)
     if pid is None:
+        if any(state.glob("app-original-*.json")):
+            return restore_left_apps(state)
         print("rust-live: not watching")
         return 0
     os.kill(pid, signal.SIGTERM)
@@ -815,9 +839,9 @@ def command_stop(_args) -> int:
         print(f"rust-live: pid {pid} is finishing its build and then ends; it will swap nothing more")
         return 0
     pid_file(state).unlink(missing_ok=True)
-    print(f"rust-live: stopped watching (pid {pid}); the daemon keeps the last build it swapped in, "
-          "except an app's daemon, which is the app's own build again")
-    return 0
+    print(f"rust-live: stopped watching (pid {pid}); the daemon keeps the last build it swapped in")
+    # The watcher puts an app's daemon back on its way out; a marker it left means that did not finish.
+    return restore_left_apps(state)
 
 
 def command_status(args) -> int:
