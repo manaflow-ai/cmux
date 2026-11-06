@@ -982,9 +982,48 @@ def pr_paths(repo: str, base: str, sha: str, github) -> tuple[int, list[str]]:
         paths = [node.get("path") for node in files.get("nodes") or [] if isinstance(node.get("path"), str)]
         if (files.get("pageInfo") or {}).get("hasNextPage") or len(paths) != pr.get("changedFiles"):
             raise Refused(f"#{pr.get('number')}: GitHub listed {len(paths)} of its {pr.get('changedFiles')} changed "
-                          f"files, too few to show it stays out of {VERCEL_TREE}")
+                          f"files, too few to judge what it changes")
         return pr.get("number"), paths
     raise Refused(f"no PR into {base} has head {sha} to read its changed files from")
+
+
+# A step-A Rust change (cmux#37292, 2026-11-06): the app links one pinned release of the app FFI, and
+# scripts/cmux-next/check-app-ffi-pin.sh reports "error: the app FFI sources changed since the pinned source" on any PR
+# that changes its inputs. app-ffi-release.yml publishes only from a feat-cmux-next push, so such a PR can never carry
+# its own pin: its merge is what publishes the release the re-pin then names. That error alone, in the cmux-next checks
+# job, is excused when the PR changes FFI inputs, leaves Package.swift (the pin) alone and changes no Swift, so no app
+# code calls a symbol or op the pinned library lacks. Any other red in the job is judged as before.
+FFI_PIN_JOB = "cmux-next checks (god files, concurrency, crash safety, l10n)"
+FFI_PIN_CHECK = "Check the app FFI pin"
+FFI_PIN_ERROR = "error: the app FFI sources changed since the pinned source"
+FFI_PIN_MANIFEST = "Packages/macOS/CmuxNext/Package.swift"
+FFI_INPUTS = ("cmux-tui/crates/", "cmux-tui/rust-toolchain.toml", "scripts/cmux-next/build-app-ffi.sh")
+
+
+def ffi_pin_step_a(repo: str, base: str, sha: str, name: str, errors: set[str], tests: set[str], log: str,
+                   github) -> str | None:
+    """The audit line for a cmux-next checks job whose only red is the stale app FFI pin of a step-A Rust PR (the
+    rule above); None when its red is anything else. Raises Refused when that is its only red but the PR is not one
+    the rule covers."""
+    if name != FFI_PIN_JOB or tests or crash_signals(log):
+        return None
+    pin, rollup = normalise_error(FFI_PIN_ERROR), normalise_error(f"red check: {FFI_PIN_CHECK}")
+    said = {error for error in errors if not error.startswith(pin)}
+    if not any(error.startswith(pin) for error in errors) or said - {rollup}:
+        return None
+    number, paths = pr_paths(repo, base, sha, github)
+    if FFI_PIN_MANIFEST in paths:
+        raise Refused(f"'{name}': only its app FFI pin is red, and #{number} changes {FFI_PIN_MANIFEST}: a PR that "
+                      "moves the pin must pin a release built from its own sources")
+    if swift := [path for path in paths if path.endswith(".swift")]:
+        raise Refused(f"'{name}': only its app FFI pin is red, and #{number} changes Swift ({'; '.join(swift[:5])}): "
+                      "app code may call what the pinned library lacks; land the Rust alone, then the Swift after "
+                      "the re-pin")
+    if not any(touches(path, read) for path in paths for read in FFI_INPUTS):
+        raise Refused(f"'{name}': only its app FFI pin is red, and #{number} changes no app FFI input")
+    return (f"excused '{name}': only '{FFI_PIN_CHECK}' is red (\"{FFI_PIN_ERROR}\"), and #{number} changes app FFI "
+            f"inputs, not {FFI_PIN_MANIFEST} and no Swift: a step-A Rust change, pinned by the release its merge "
+            "publishes")
 
 
 def vercel_not_built(repo: str, base: str, sha: str | None, name: str, description: str, found: dict, github) -> str | None:
@@ -2144,6 +2183,9 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             audit.append(f"ignored '{name}': it gave no compile verdict, but {proof} compiled {sha} and passed")
             continue
         head_steps, head_tests, head_errors = signature(job, head_log)
+        if (pinned := ffi_pin_step_a(repo, base, sha, name, head_errors, head_tests, head_log, github)) is not None:
+            audit.append(pinned)
+            continue
         chromium_without_diagnostics = (name == CHROMIUM_CURRENCY_JOB
                                         and CHROMIUM_CURRENCY_STEP in head_steps
                                         and not (head_tests or head_errors or crash_signals(head_log)))
