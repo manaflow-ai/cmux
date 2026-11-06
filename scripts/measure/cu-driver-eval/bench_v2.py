@@ -98,7 +98,11 @@ def main() -> int:
     ours: dict[str, dict] = {}
     for label, binary in drivers.items():
         binary_path = Path(binary)
+        # Each driver comes as its app's executable, X.app/Contents/MacOS/<binary> (cu-driver-eval.sh):
+        # the arm gets that app, the bundle macOS grants.
         app = binary_path.parents[2]
+        if app.suffix != ".app" or binary_path.parent != app / "Contents" / "MacOS":
+            raise SystemExit(f"bench_v2.py: {label}'s driver {binary} is not an app's Contents/MacOS executable")
         if label.startswith("cmux-cua"):
             arm, state = "cc-cmux-cua", a.work / "cmux-cua"
             build = ca.CuaBuild(arm, label, app, "/tmp/cdb-bench-cmux-cua.sock", state / "daemon-state",
