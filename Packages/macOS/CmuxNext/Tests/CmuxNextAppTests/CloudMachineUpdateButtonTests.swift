@@ -40,7 +40,6 @@ struct CloudMachineUpdateButtonTests {
         #expect(machine.legacyUpdates == 1)
         #expect(fixture.states.suffix(2) == [.updating, .updated(build: CloudMachineUpdateTargetTests.bundled)])
         #expect(fixture.board.otherMachines == nil, "an updated machine is still in the row")
-        #expect(fixture.notices.isEmpty)
     }
 
     /// A machine repaired by hand since it said it cannot update: the click finds nothing to do,

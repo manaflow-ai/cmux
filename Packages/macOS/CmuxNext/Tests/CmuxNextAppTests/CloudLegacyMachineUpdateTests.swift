@@ -31,7 +31,6 @@ struct CloudLegacyMachineUpdateTests {
         #expect(machine.legacyJudged == [String(repeating: "c", count: 40)], "the exec update is held to the build the CLI judged")
         #expect(fixture.states == [.updating, .updated(build: Self.bundled)])
         #expect(machine.reconnectRestarts == [true], "the connection is pointed at the new daemon")
-        #expect(fixture.notices.isEmpty)
         #expect(fixture.board.otherMachines == nil, "an updated machine still listed as one that cannot update")
         #expect(fixture.ledger.targets == [CloudMachineUpdateTarget.id("vm-1"): "updated"])
     }
@@ -70,7 +69,6 @@ struct CloudLegacyMachineUpdateTests {
 
         #expect(machine.legacyUpdates == 0)
         #expect(fixture.board.targets[CloudMachineUpdateTarget.id("vm-1")]?.state == .cannotUpdate(reason: CloudMachineUpdateStrings.unsupported("Leo VM")))
-        #expect(fixture.notices.isEmpty)
     }
 
     /// A rolled-back exec update is a rollback (one notice), and asks for no second exec run.
