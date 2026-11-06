@@ -102,6 +102,17 @@ describe("pending intents", () => {
     expect(tasks.at(-1)?.id).toBe("task_new");
   });
 
+  test("successive pending creates take successive keys", () => {
+    const m = mirror();
+    const keys = visibleTasks(m, [
+      intent({ type: "create", id: "task_a", title: "A" }, "k1"),
+      intent({ type: "create", id: "task_b", title: "B" }, "k2"),
+    ])
+      .filter((t) => t.id === "task_a" || t.id === "task_b")
+      .map((t) => t.key);
+    expect(keys).toEqual(["CMX-12", "CMX-13"]);
+  });
+
   test("a move places the task between its neighbours", () => {
     const m = mirror();
     const order = visibleTasks(m, [intent({ type: "move", task: "task_9", after: "task_1" })]).map((t) => t.id);

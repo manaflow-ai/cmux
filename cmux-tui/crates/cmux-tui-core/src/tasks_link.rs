@@ -133,7 +133,13 @@ fn mutate(
     key: String,
 ) -> Result<Value, ResourceError> {
     let mut conn = connect(socket, operation)?;
-    match conn.call_with_origin(op, params, Some(key), Some(cmux_tasks_core::Origin::User)) {
+    match conn.call_with_origin(
+        op,
+        params,
+        Some(key),
+        Some(cmux_tasks_core::Origin::User),
+        CALL_DEADLINE,
+    ) {
         Ok((result, seq)) => Ok(json!({"result": result, "seq": seq})),
         Err(error) => Err(owner_error(operation, &error_code(&error.code), error.message)),
     }
@@ -182,7 +188,7 @@ fn read_snapshot(
 ) -> Result<Value, ResourceError> {
     use cmux_tasks::protocol::ServerLine;
     let (_, _) = conn
-        .call("task.subscribe", json!({}), None)
+        .call_with_origin("task.subscribe", json!({}), None, None, CALL_DEADLINE)
         .map_err(|error| owner_error(operation, &error_code(&error.code), error.message))?;
     // The snapshot line follows the subscribe's settle line.
     loop {

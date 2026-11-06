@@ -121,18 +121,19 @@ impl Conn {
         params: Value,
         key: Option<String>,
     ) -> Result<(Value, u64), ErrorBody> {
-        self.call_with_origin(op, params, key, None)
+        self.call_with_origin(op, params, key, None, CALL_DEADLINE)
     }
 
     /// One request with an `origin` (a relay that knows the person acted,
-    /// such as the daemon's Tasks page link); returns the reply and the
-    /// settled sequence.
+    /// such as the daemon's Tasks page link) and the reply `deadline` on a
+    /// socket; returns the reply and the settled sequence.
     pub fn call_with_origin(
         &mut self,
         op: &str,
         params: Value,
         key: Option<String>,
         origin: Option<Origin>,
+        deadline: std::time::Duration,
     ) -> Result<(Value, u64), ErrorBody> {
         match self {
             Conn::InProcess { engine, actor } => {
@@ -146,7 +147,7 @@ impl Conn {
             Conn::Socket { next_id, .. } => {
                 *next_id += 1;
                 let id = *next_id;
-                self.set_deadline(CALL_DEADLINE);
+                self.set_deadline(deadline);
                 let request = Request { id, op: op.to_owned(), params, key, origin };
                 let value = serde_json::to_value(&request)
                     .map_err(|e| ErrorBody::new(ErrorCode::Internal, e.to_string()))?;

@@ -56,8 +56,10 @@ export function mountTasksPage(root: HTMLElement, client: PageClient | null = de
   applyRoute();
   window.addEventListener("hashchange", applyRoute);
   followTasksPalette(document.documentElement);
+  // The native pasteboard first: `navigator.clipboard` may be missing on the page's custom origin.
   const copy = (text: string) => {
-    void navigator.clipboard.writeText(text).catch(() => client?.call(CLIPBOARD_WRITE, { text }));
+    const web = () => navigator.clipboard?.writeText(text) ?? Promise.reject(new Error("no clipboard"));
+    void (client ? client.call(CLIPBOARD_WRITE, { text }).catch(web) : web()).catch(() => {});
   };
   const strings = createStrings(table);
   document.documentElement.lang = strings.language;

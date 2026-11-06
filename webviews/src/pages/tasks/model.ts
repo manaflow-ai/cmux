@@ -234,6 +234,8 @@ function byOrder(a: Task, b: Task): number {
 export function visibleTasks(mirror: Mirror, pending: readonly Intent[]): Task[] {
   const tasks = new Map(mirror.tasks);
   const moves: Extract<IntentKind, { type: "move" }>[] = [];
+  // Each pending create takes the next number in turn (the owner does not echo `next_number`).
+  let nextNumber = Math.max(mirror.settings.next_number ?? 0, maxNumber(tasks) + 1);
   for (const { kind } of pending) {
     if (kind.type === "move") {
       moves.push(kind);
@@ -242,7 +244,7 @@ export function visibleTasks(mirror: Mirror, pending: readonly Intent[]): Task[]
     if (kind.type === "create") {
       if (tasks.has(kind.id)) continue;
       const status = kind.status ?? mirror.settings.default_status ?? firstStatus(mirror)?.id ?? "";
-      const number = mirror.settings.next_number ?? maxNumber(tasks) + 1;
+      const number = nextNumber++;
       tasks.set(
         kind.id,
         normalize({ id: kind.id, number, title: kind.title, status, sort_key: "￿", updated_at: Date.now() }, mirror),
