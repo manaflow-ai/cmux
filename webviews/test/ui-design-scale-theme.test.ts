@@ -58,6 +58,43 @@ describe("Tailwind theme from the design scale", () => {
     expect(missing).toEqual([]);
   });
 
+  test("shared spacing, icons, controls and radii track the interface-scale grid", () => {
+    const block = desktop.slice(desktop.indexOf("/* design-scale:begin"), desktop.indexOf("/* design-scale:end */"));
+    const design = JSON.parse(
+      fs.readFileSync(path.resolve(src, "../../schemas/design-scale/design-scale.json"), "utf8"),
+    ) as {
+      spacing: { steps: { name: string; px: number }[]; layout: number[] };
+      controls: { name: string; px: number }[];
+      icons: { name: string; px: number }[];
+      radii: { name: string; px: number }[];
+      namedRadii: { name: string; px?: number; var?: string }[];
+    };
+    expect(desktop).toContain("--grid-base: calc(4px * var(--cmux-interface-scale, 1))");
+    expect(desktop).toContain("--grid-row: calc(28px * var(--cmux-interface-scale, 1))");
+    // --ds-space-3, Tailwind p-3 and the native 4-point grid now all resolve
+    // to 12px at 100%, 15px at 125%, and 18px at 150%.
+    for (const { name, px } of design.spacing.steps) {
+      expect(px % 4).toBe(0);
+      expect(block).toContain(`--ds-space-${name}: calc(var(--grid-base) * ${px / 4});`);
+    }
+    for (const px of design.spacing.layout) {
+      expect(block).toContain(`--ds-space-${px}: calc(var(--grid-base) * ${px / 4});`);
+    }
+    // Named 5/6 steps deliberately denote 24/32px, so their Tailwind peers
+    // are p-6/p-8, not p-5/p-6.
+    for (const [family, rows] of [
+      ["control", design.controls],
+      ["icon", design.icons],
+      ["radius", [...design.radii, ...design.namedRadii]],
+    ] as const) {
+      for (const item of rows) {
+        if (item.px === undefined) continue; // menu radius comes from AppKit
+        expect(block).toContain(
+          `--ds-${family}-${item.name}: calc(${item.px}px * var(--cmux-interface-scale, 1));`,
+        );
+      }
+    }
+  });
   test("elevation has a dark value under both dark selectors", () => {
     const block = desktop.slice(desktop.indexOf("/* design-scale:begin"), desktop.indexOf("/* design-scale:end */"));
     expect(block).toContain(':root:not([data-theme="light"])');
