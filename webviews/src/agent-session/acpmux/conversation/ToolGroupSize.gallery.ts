@@ -2,7 +2,7 @@
 // A closed "Ran N commands" line at the very bottom of a chat, for N = 5, 20 and 100 (Leo,
 // 2026-11-06: "The tool call expansion, when it has several tool calls, I think sometimes it lags a
 // bit"). Opening it costs the same at any N: the rows the view shows draw in the click's frame, the
-// rest after the fold (ToolGroupRow.tsx `useShownSteps`), under a box already as tall as all of them.
+// rest after the fold (ToolGroupRow.tsx `StepList`), under a box already as tall as all of them.
 // test/tool-group-expand-cost.test.ts measures click to fully opened frame on these.
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, activity, chat, summary, tool, user } from "../../../gallery/fixtures/acpmux";
@@ -30,6 +30,8 @@ const earlier = Array.from({ length: 4 }, (_, index) => {
   ];
 }).flat();
 
+const GROUP = '[data-row-id="tool-group-size-run"] button.cv-tool.is-toggle[aria-expanded]';
+
 const rows = (n: number) => [
   ...earlier,
   user("Run every fetch case on its own", 6),
@@ -42,11 +44,17 @@ const rows = (n: number) => [
   summary(3.9, { status: "completed", durationMs: 21_000, toolCount: n }),
 ];
 
-/// Puts the view at the transcript's very bottom, as the reader leaves it after reading the reply.
+/// Opens the turn's "Worked for" line (a finished turn folds its run under it), then puts the view
+/// at the transcript's very bottom, as the reader leaves it after reading the reply.
 const atBottom: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelector('[data-row-id="tool-group-size-run"] button.cv-tool.is-toggle'), {
-    capMs: 10_000,
-  });
+  const worked = () => [...ctx.document.querySelectorAll<HTMLElement>(".cv-worked")].at(-1);
+  const group = () => ctx.document.querySelector(GROUP);
+  await ctx.waitFor(() => worked() ?? group(), { capMs: 10_000 });
+  if (!group() && worked()?.getAttribute("aria-expanded") === "false") {
+    worked()!.click();
+    await ctx.waitFor(group, { capMs: 10_000 });
+  }
+  // As the reader's wheel does: it lets go of the line the Worked for click held.
   const scroller = ctx.document.querySelector<HTMLElement>(".acpmux-scroll");
   if (!scroller) return;
   scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: 1, bubbles: true }));
