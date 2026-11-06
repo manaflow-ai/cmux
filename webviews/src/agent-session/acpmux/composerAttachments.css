@@ -484,7 +484,7 @@
 .acpmux-pdf-viewer-open {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   max-width: calc(100% - 32px);
   margin: 12px 16px 0;
   padding: 7px 10px;
@@ -519,15 +519,17 @@
   height: 16px;
   padding: 0;
   border: 0;
-  border-radius: 8px;
+  border-radius: 50%;
   display: grid;
   place-items: center;
   opacity: 0;
-  transition: opacity 120ms ease-out;
-  /* The composer's own surface, so the badge reads as a cut-out in the thumbnail in every theme. */
-  background: color-mix(in srgb, var(--acpmux-composer-bg) 82%, transparent);
-  box-shadow: 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
-  color: var(--agent-text);
+  /* Solid and inverted (RemoveGlyph.tsx): the text's own colour as the fill and the page's opaque
+     base as the ×, so it reads over a thumbnail or a text card's lines in every theme. Never the
+     composer's glass (13% of the text over a see-through page) and never a fade: both left a faint
+     × floating over the label (Leo, 2026-11-06: "Also this close button, this is bad clarity."). */
+  background: var(--agent-text);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--acpmux-base, Canvas) 72%, transparent);
+  color: var(--acpmux-base, Canvas);
   cursor: default;
 }
 .acpmux-attachment-file .acpmux-attachment-remove {
@@ -538,11 +540,11 @@
   opacity: 1;
 }
 :is(.acpmux-composer, .nt-box) .acpmux-attachment-remove:hover {
-  background: color-mix(in srgb, var(--agent-text) 22%, var(--acpmux-composer-bg));
+  background: color-mix(in srgb, var(--agent-text) 82%, var(--acpmux-base, Canvas));
 }
 :is(.acpmux-composer, .nt-box) .acpmux-attachment-remove:focus-visible {
   outline: 1.5px solid var(--agent-text);
-  outline-offset: -1.5px;
+  outline-offset: 1.5px;
 }
 .acpmux-attachment-note {
   color: var(--agent-muted);
@@ -570,7 +572,7 @@
 /* A text attachment (a huge paste, pastedText.ts, or a text file) as a small page of its text, as
    Claude and ChatGPT draw a long paste (composer/TextAttachmentCard.tsx): its first lines in 11 px
    monospace, left-aligned from the top, fading out over the bottom, with one quiet label under them
-   ("Pasted text · 25 lines"). The strip's card is the thumbnails' 64 px tall; the prompt's inline
+   ("Pasted text · 25 lines · 1.2K characters"). The strip's card is the thumbnails' 64 px tall; the prompt's inline
    one (markdownField.css) is 48. A pasted card is a button that puts the text back in the prompt;
    × removes it. Leo, 2026-11-01: "bro this is a TERRIBLE text preview we need to do better for
    these text type attachments' previews". Gallery: agent-pane.text-attachment-card. */
@@ -580,6 +582,10 @@
   max-width: 70vw;
   height: var(--acpmux-attach-height);
   overflow: hidden;
+}
+/* A paste's card is wider than a file's: its lines wrap, and its label carries its size. */
+.acpmux-attachment-pasted:not([data-text-kind="file"]) {
+  width: 256px;
 }
 .acpmux-attachment-pasted-open {
   flex: 1;
@@ -628,6 +634,15 @@ button.acpmux-attachment-pasted-open:hover {
      overlay, so the chip's own fill and hover show through. */
   -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 13px), transparent);
   mask-image: linear-gradient(to bottom, #000 calc(100% - 13px), transparent);
+}
+/* A paste's card wraps in the composer's own font (TextAttachmentCard `wrap`): one long paragraph
+   fills its lines instead of its first five words cut at the edge (Leo, 2026-11-05: "you're
+   previewing one, two, three, four, five words out of a multi-hundred-word pasted text bit"). A
+   file's card keeps its lines unwrapped in monospace, as code reads. */
+.acpmux-text-card__lines[data-wrap] {
+  font-family: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .acpmux-text-card__label {
   flex: none;
@@ -747,6 +762,7 @@ button.acpmux-attachment-pasted-open:hover {
      tall as an unsourced one. */
   display: flex;
   flex: none;
+  max-width: 100%;
 }
 .cv-user__sourced > .acpmux-source-badge {
   top: 6px;

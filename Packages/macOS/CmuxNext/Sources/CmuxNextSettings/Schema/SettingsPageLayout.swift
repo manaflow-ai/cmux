@@ -19,6 +19,9 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case importSuggestions
         /// Every release channel's recent builds, with the one this Mac runs (Settings > Updates).
         case channels
+        /// The app update's status: a check, a download's progress and Cancel, Restart to Update, a
+        /// failure's Try Again (Settings > Updates; the sidebar shows only the staged update).
+        case appUpdate
         /// The web UI served now, its last check and Roll Back (plans/cmux-next/web-ota.md); NIGHTLY only.
         case webUpdates
         /// Settings > Chief's Voice input row: the Debug toggle home.voiceInput, only where it exists.
@@ -184,7 +187,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
         ],
         trail: [.spaces], actions: [.general, .rooms], aliases: [.general, .rooms])
 
-    // How this Mac updates, then every channel's recent builds (docs/release-rings.md in hq).
+    // The app update's status, how this Mac updates, then every channel's recent builds (docs/release-rings.md in hq).
     private static let updates = CategorySpec(
         id: "updates", title: SettingsText.keyed("settings.category.updates", "Updates"), symbol: "icloud.and.arrow.down",
         groups: [
@@ -193,7 +196,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
                       title: SettingsText.keyed("settings.pageGroup.updatesAdvanced", "Updates: Advanced")),
         ],
         // After the groups: the Web UI card (the web half of Updates; NIGHTLY only), then the channels.
-        trail: [.webUpdates, .channels])
+        lead: [.appUpdate], trail: [.webUpdates, .channels])
 
     private static let theme = CategorySpec(
         id: "theme", title: SettingsText.keyed("settings.category.theme", "Theme"), symbol: "paintpalette",
@@ -223,7 +226,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 "workspaces.newPlacement", "workspaces.autoName", "sidebar.groupByComputer", "sidebar.sessionTree",
                 "sidebar.showProjects", "sidebar.groupBy", "sidebar.detailedStatusIcons", "sidebar.showTimestamps",
                 "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount",
-                "sidebar.groupHeader.unreadCount", "sidebar.priorityView.enabled", "sidebar.priorityView.shown",
+                "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background", "sidebar.priorityView.enabled", "sidebar.priorityView.shown",
             ]),
             // The three list shapes (#31140) get their own card so Sidebar Workspaces stays under
             // `maxRowsPerCard`.
@@ -293,28 +296,30 @@ public nonisolated struct SettingsPageLayout: Sendable {
             GroupSpec(group: "settings.group.agentChat", keys: ["app.warnBeforeClosingAgentSession"]),
             card("settings.pageGroup.chatLayout", "Chat Layout", [
                 "agentPane.display.width", "agentPane.display.fullWidth", "agentPane.zoom", "agentPane.display.minimap",
-                "agentPane.display.vscodeMinimap", "agentPane.display.rail.side", "agentPane.display.sessionInfo.placement",
+                "agentPane.display.vscodeMinimap", "agentPane.display.pinnedPlan", "agentPane.display.trayTucked", "agentPane.display.trayHandle", "agentPane.display.rail.side", "agentPane.display.sessionInfo.placement",
                 "agentPane.display.environment.placement",
             ]),
             card("settings.pageGroup.chatText", "Chat Text", [
-                "agentPane.display.font.preset", "agentPane.display.font.size", "agentPane.display.font.lineHeight",
+                "agentPane.display.font.ui", "agentPane.display.font.preset", "agentPane.display.font.size", "agentPane.display.font.lineHeight",
                 "agentPane.display.code.family", "agentPane.display.code.scale",
             ]),
             card("settings.pageGroup.messageBox", "Message Box", [
-                "agentPane.showContextUsage", "agentPane.showDictation", "agentPane.spellChecking",
+                "agentPane.showContextUsage", "agentPane.composerRing", "agentPane.showDictation", "agentPane.spellChecking",
                 "agentPane.attachmentView", "agentPane.scrollToBottomOnSend", "agentPane.display.harnessPlacement",
             ]),
             card("settings.pageGroup.filesLinks", "Files and Links", [
                 "agentPane.links.outsideRoots", "agentPane.images.remote", "agentPane.editedFiles.show",
                 "agentPane.editedFiles.maxRows", "agentPane.editedFiles.scope",
             ]),
-            group("settings.group.computerUse"),
+            group("settings.group.computerUse"), group("settings.group.cmuxRemote"),
             // The free AI model while signed out (cx-ds09i).
             group("settings.group.freeModel"),
             // What this Mac does while agents work (keep awake).
             group("settings.group.sessions"),
             // Whether agent sessions may start sub-sessions, how many and how deep.
             group("settings.group.subsessions"),
+            // cmux's guidance for the agents it runs and the person's own skills.
+            group("settings.group.agentGuidance"),
             // Whether a turn a rate limit or a lost connection ended is tried again, how often.
             group("settings.group.agentRetry"),
             // Folders that start an agent without the trust question.
@@ -340,6 +345,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         groups: [
             // How the Chief chat's bubbles look (the theme's colours, or iMessage's).
             group("settings.group.chiefChat"),
+            // The Chief window dock (Cmd-I): its edge, and whether links from the Chief keep it docked.
+            group("settings.group.chiefDock"),
             // The Chief pet floating over every app, and its character.
             group("settings.group.chiefPet"),
             // Which Chief Home opens; the Chiefs card draws it as its Engine row.

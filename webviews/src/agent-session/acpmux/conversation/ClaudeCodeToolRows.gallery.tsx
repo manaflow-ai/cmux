@@ -18,7 +18,7 @@ import { ToolRow } from "./ToolRow";
 import { TranscriptDisclosureProvider, resetTranscriptDisclosure } from "./transcriptDisclosure";
 import { WorkingCountsContext, type WorkingCounts } from "./WorkingFor";
 
-type Look = "shipped" | "bare" | "caret" | "split";
+type Look = "shipped" | "bare" | "caret" | "split" | "condensed";
 type Props = { look: Look; mode: "light" | "dark" };
 
 const START = Date.UTC(2026, 10, 3, 6, 0, 0);
@@ -47,6 +47,53 @@ const rows = {
   read: tool("Read App.tsx", "read", "completed", { locations: [{ path: "src/App.tsx" }], output: "export {}" }),
 };
 
+/// acpmux's condensed tools: a `description` argument says what the call is for, and the result's
+/// first line (also `structuredContent.summary`) says how it came out, with `status` ok, failed or
+/// running (Leo, 2026-11-03: "claude code desktop's summarization of tool calls/parsing of them seem
+/// kinda good? we should bea bel to do that AND have condensed tools that are callable in
+/// acpmux/cmux-next").
+const condensed = (summary: string, status: "ok" | "failed" | "running", facts: Record<string, unknown>) =>
+  JSON.stringify({
+    content: [{ type: "text", text: `${summary}\n${JSON.stringify(facts)}` }],
+    structuredContent: { summary, status, ...facts },
+    isError: false,
+  });
+const condensedRows = [
+  tool("mcp__acpmux__pr_state", "other", "completed", {
+    inputSummary: JSON.stringify({ repo: "manaflow-ai/cmux", pr: 33316, description: "Check the pr_state PR" }),
+    output: condensed("#33316 merged at 4c1e9a0", "ok", { state: "MERGED" }),
+  }),
+  tool("mcp__acpmux__bg_start", "other", "completed", {
+    inputSummary: JSON.stringify({
+      command: "rg -n cancelForced webviews/src",
+      notify: true,
+      description: "Find cancelForced references",
+    }),
+    output: condensed("Background command completed", "ok", { id: "bg-7", exitCode: 0 }),
+  }),
+  tool("mcp__acpmux__run_wait", "other", "completed", {
+    inputSummary: JSON.stringify({ run: 19123456789, description: "Wait for the webview tests" }),
+    output: condensed("web / react-apps-base-check failed: 2 tests", "failed", { conclusion: "failure" }),
+  }),
+];
+
+function ShippedRows() {
+  return (
+    <>
+      <p className="claude-code-tool-rows__prose">Found the row grammar in the transcript styles.</p>
+      <div className="acpmux-row">
+        <McpCallRows items={[rows.grep]} disclosureKey="gallery:grep" />
+      </div>
+      <div className="acpmux-row">
+        <ToolGroupRow kind="commands" items={rows.commands} disclosureKey="gallery:commands" folded />
+      </div>
+      <div className="acpmux-row">
+        <ToolRow item={rows.read} />
+      </div>
+    </>
+  );
+}
+
 function ClaudeCodeToolRows({ look, mode }: Props) {
   // The split arm of `live-line-tokens`, for this stage only (its own frame).
   useState(() => {
@@ -57,16 +104,18 @@ function ClaudeCodeToolRows({ look, mode }: Props) {
   return (
     <TranscriptDisclosureProvider sessionId="gallery-claude-code-tool-rows">
       <main className="claude-code-tool-rows acpmux-conversation" data-mode={mode} data-look={look}>
-        <p className="claude-code-tool-rows__prose">Found the row grammar in the transcript styles.</p>
-        <div className="acpmux-row">
-          <McpCallRows items={[rows.grep]} disclosureKey="gallery:grep" />
-        </div>
-        <div className="acpmux-row">
-          <ToolGroupRow kind="commands" items={rows.commands} disclosureKey="gallery:commands" folded />
-        </div>
-        <div className="acpmux-row">
-          <ToolRow item={rows.read} />
-        </div>
+        {look === "condensed" ? (
+          <>
+            <p className="claude-code-tool-rows__prose">Checking the PR and the tests.</p>
+            {condensedRows.map((row, index) => (
+              <div key={row.tool!.id} className="acpmux-row">
+                <McpCallRows items={[row]} disclosureKey={`gallery:condensed:${index}`} />
+              </div>
+            ))}
+          </>
+        ) : (
+          <ShippedRows />
+        )}
         <p className="claude-code-tool-rows__prose">Checking the other call sites.</p>
         <WorkingCountsContext.Provider value={counts}>
           <div className="acpmux-row acpmux-thinking">
@@ -94,11 +143,24 @@ export default componentEntry<Props>({
     "agent-session/acpmux/conversation/Thinking.tsx",
     "agent-session/acpmux/conversation/McpCallRows.tsx",
     "agent-session/acpmux/conversation/mcpCalls.ts",
+    "agent-session/acpmux/conversation/toolGroups.ts",
   ],
   styles: () =>
     Promise.all([import("../styles.css"), import("./conversation.css"), import("./ClaudeCodeToolRows.gallery.css")]),
   load: async () => ClaudeCodeToolRows,
-  keywords: ["claude", "tool", "using", "live", "tokens", "shimmer", "caret", "chevron"],
+  keywords: [
+    "claude",
+    "tool",
+    "using",
+    "live",
+    "tokens",
+    "shimmer",
+    "caret",
+    "chevron",
+    "condensed",
+    "description",
+    "summary",
+  ],
   variants: {
     shipped: variant(
       "shipped",
@@ -109,5 +171,11 @@ export default componentEntry<Props>({
     bare: variant("bare", "dark", "No icons, as Claude Code: words start on the prose edge; breaks the icon column."),
     caret: variant("caret", "dark", "Claude Code's right-pointing caret instead of our down chevron."),
     split: variant("split", "dark", "The earlier tokens, output and input apart, on the live line."),
+    condensed: variant(
+      "condensed",
+      "dark",
+      "acpmux's condensed tools: each call titled with its description, its one-line outcome muted after it, and a failed status in the failure red.",
+    ),
+    "condensed-light": variant("condensed", "light", "Condensed tools, light."),
   },
 });

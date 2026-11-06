@@ -23,6 +23,9 @@ pub(crate) fn is_permission_ask(kind: &str) -> bool {
 enum PeerAskRun {
     Current,
     Older,
+    /// A session the peer has not listed (yet) and that is not one of this
+    /// daemon's: forged unless the peer lists it later (`held_asks.rs`).
+    Unlisted,
     Forged,
 }
 
@@ -428,6 +431,8 @@ impl Hub {
                 s
             })
             .collect();
+        // The machines only the mesh hub reaches (`mesh_book.rs`): never an ssh peer's name.
+        v.extend(self.mesh_book_hosts());
         v.sort_by_key(|p| p.get("name").and_then(Value::as_str).unwrap_or("").to_owned());
         v
     }
@@ -486,7 +491,7 @@ impl Hub {
     /// Prefix a peer session's summary so it reads as `<peer>/<name>`. A display line the peer
     /// put on a pending ask never reaches a client (`drop_display_lines`): every row a peer's
     /// list or `session_changed` adds goes through here.
-    pub(super) fn remote_summary(peer: &str, mut summary: Value) -> Value {
+    pub(crate) fn remote_summary(peer: &str, mut summary: Value) -> Value {
         super::drop_display_lines(&mut summary);
         let generation = summary
             .get("sessionReceipt")
@@ -540,7 +545,7 @@ impl Hub {
     }
 
     /// Tell watching clients that a peer session appeared, changed or left.
-    fn announce_remote(&self, peer: &str, summary: Value, kind: &str) {
+    pub(super) fn announce_remote(&self, peer: &str, summary: Value, kind: &str) {
         let Some(id) = summary.get("sessionId").and_then(Value::as_str).map(str::to_owned) else {
             return;
         };
@@ -555,6 +560,7 @@ impl Hub {
                 host_seq: None,
             }),
             remote: Some(RemoteRef { peer: peer.to_owned(), summary }),
+            update_line: Default::default(),
         });
     }
 
@@ -593,6 +599,11 @@ impl Hub {
             match notice {
                 PeerNotice::Connected => {
                     tracing::info!(peer = %peer, "peer ready");
+                    // Its list came before this notice and is applied: a name it lacks is no
+                    // session there (`hub/no_session.rs`).
+                    if let Some(p) = self.peer(&peer).filter(|p| p.generation == generation) {
+                        p.rows_ready.store(true, std::sync::atomic::Ordering::SeqCst);
+                    }
                     // The link takes requests again: messages waiting for a peer go now, not
                     // after the rest of their retry delay (`server/outbox.rs` `deliver`).
                     self.outbox.peer_ready.notify_waiters();
@@ -618,6 +629,9 @@ impl Hub {
                     tracing::info!(peer = %peer, "peer restarting");
                 }
                 PeerNotice::Disconnected(e) => {
+                    if let Some(p) = self.peer(&peer).filter(|p| p.generation == generation) {
+                        p.rows_ready.store(false, std::sync::atomic::Ordering::SeqCst);
+                    }
                     // Called directly, with no grace: this drop is its outage's first
                     // when the link counts one failed attempt.
                     self.note_peer_drop(&peer, generation, &e);
@@ -662,7 +676,9 @@ impl Hub {
                             |r: &RemoteSession| r.summary.get("createdAt").and_then(Value::as_u64);
                         let listed = map.of_peer(&peer).map(|(_, r)| r);
                         let listed = listed.map(|r| (r.receipt.mux_session_id.clone(), created(r)));
-                        self.peer_snapshots.listed(&peer, listed.collect(), true);
+                        if self.peer_snapshots.allows(generation) {
+                            self.peer_snapshots.listed(&peer, listed.collect(), true);
+                        }
                         (changed, old.into_values().collect::<Vec<_>>())
                     };
                     // A notice before this list may have changed a row while its
@@ -674,6 +690,8 @@ impl Hub {
                     for summary in gone {
                         self.announce_remote(&peer, summary, "purged");
                     }
+                    // Its live asks that came before this list.
+                    self.release_held_peer_asks(&peer, generation);
                 }
                 PeerNotice::SessionChanged { session, kind, seq } => {
                     let Some(mux_id) =
@@ -713,6 +731,7 @@ impl Hub {
                                 peer: peer.clone(),
                                 summary: removed.unwrap_or_else(|| json!({"sessionId": mux_id})),
                             }),
+                            update_line: Default::default(),
                         });
                         return;
                     }
@@ -736,7 +755,17 @@ impl Hub {
                             RemoteSession { peer: peer.clone(), summary: summary.clone(), receipt },
                         );
                         let created = summary.get("createdAt").and_then(Value::as_u64);
-                        self.peer_snapshots.listed(&peer, vec![(mux_id.clone(), created)], false);
+                        if self.peer_snapshots.allows(generation) {
+                            self.peer_snapshots.listed(
+                                &peer,
+                                vec![(mux_id.clone(), created)],
+                                false,
+                            );
+                        }
+                    }
+                    // An ask decided there before the session was listed here never comes back.
+                    if matches!(kind.as_str(), "permission_decision" | "permission_resolved") {
+                        self.held_peer_asks.forget(&peer, &mux_id, None);
                     }
                     self.save_peer_cache(&peer, generation, false);
                     let _ = self.events.send(HubEvent {
@@ -750,7 +779,11 @@ impl Hub {
                             host_seq: None,
                         }),
                         remote: Some(RemoteRef { peer: peer.clone(), summary: summary.clone() }),
+                        update_line: Default::default(),
                     });
+                    // The rest of its live asks that came before the session was listed, after
+                    // the row.
+                    self.release_held_peer_asks(&peer, generation);
                 }
                 // A prompt this daemon forwarded was taken (`outbox.rs` `PeerAccepts`).
                 PeerNotice::Notification { method: m, params, .. }
@@ -781,6 +814,7 @@ impl Hub {
                                 host_seq: None,
                             }),
                             remote: Some(RemoteRef { peer: peer.clone(), summary: Value::Null }),
+                            update_line: Default::default(),
                         });
                     }
                 }
@@ -838,9 +872,33 @@ impl Hub {
                                 msg: params.get("msg").cloned().unwrap_or(Value::Null),
                                 host_seq: None,
                             };
-                            if !self.peer_record_counts(&peer, &id, &record.kind, &record.msg) {
-                                tracing::warn!(peer = %peer, session = %id, "a peer's ask for a session or run that is not its own: dropped");
-                                return;
+                            // An ask held for this session that was answered meanwhile is not
+                            // shown again once the session is listed.
+                            if matches!(
+                                record.kind.as_str(),
+                                "permission_decision" | "permission_auto" | "permission_withdrawn"
+                            ) {
+                                let permission =
+                                    record.msg.get("permissionId").and_then(Value::as_str);
+                                self.held_peer_asks.forget(&peer, &id, permission);
+                            }
+                            if is_permission_ask(&record.kind) {
+                                match self.peer_ask_run(&peer, &id, &record.msg) {
+                                    PeerAskRun::Current => {}
+                                    PeerAskRun::Unlisted => {
+                                        let notice = PeerNotice::Notification {
+                                            method: m.clone(),
+                                            params,
+                                            link,
+                                        };
+                                        self.hold_peer_ask(&peer, generation, &id, notice);
+                                        return;
+                                    }
+                                    PeerAskRun::Older | PeerAskRun::Forged => {
+                                        tracing::warn!(peer = %peer, session = %id, "a peer's ask for a session or run that is not its own: dropped");
+                                        return;
+                                    }
+                                }
                             }
                             record
                         }
@@ -854,6 +912,12 @@ impl Hub {
                         method::MUX_PERMISSION_PENDING
                             if !self.peer_ask_counts(&peer, &id, &params) =>
                         {
+                            if self.peer_ask_run(&peer, &id, &params) == PeerAskRun::Unlisted {
+                                let notice =
+                                    PeerNotice::Notification { method: m.clone(), params, link };
+                                self.hold_peer_ask(&peer, generation, &id, notice);
+                                return;
+                            }
                             tracing::warn!(peer = %peer, session = %id, "a peer's pending prompt for a session or run that is not its own: dropped");
                             return;
                         }
@@ -872,6 +936,7 @@ impl Hub {
                         session_id: id,
                         record: Arc::new(record),
                         remote: Some(RemoteRef { peer: peer.clone(), summary }),
+                        update_line: Default::default(),
                     });
                 }
             }
@@ -910,8 +975,11 @@ impl Hub {
             .find_mux(peer, id)
             .is_some();
         let local = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).contains_key(id);
-        if !listed || local {
+        if local {
             return PeerAskRun::Forged;
+        }
+        if !listed {
+            return PeerAskRun::Unlisted;
         }
         let Some(instance) = instance else { return PeerAskRun::Older };
         if instance == self.person.instance() {
@@ -944,13 +1012,40 @@ impl Hub {
     pub fn peer_history_ask_counts(&self, peer: &str, id: &str, ask: &mut Value) -> bool {
         match self.peer_ask_run(peer, id, ask) {
             PeerAskRun::Current => true,
-            PeerAskRun::Forged => false,
+            PeerAskRun::Forged | PeerAskRun::Unlisted => false,
             PeerAskRun::Older => {
                 if let Some(ask) = ask.as_object_mut() {
                     ask.remove("decisionNonce");
                 }
                 true
             }
+        }
+    }
+
+    /// Holds peer `peer`'s live ask `notice` for session `id`, which the peer
+    /// has not listed yet (`held_asks.rs`): applied again once it does.
+    fn hold_peer_ask(
+        &self,
+        peer: &str,
+        generation: u64,
+        id: &str,
+        notice: crate::peer::PeerNotice,
+    ) {
+        tracing::info!(peer = %peer, session = %id, "a peer's ask for a session it has not listed yet: held until it does");
+        self.held_peer_asks.hold(peer, generation, id, notice);
+    }
+
+    /// Applies again peer `peer`'s held asks whose session it lists now.
+    fn release_held_peer_asks(&self, peer: &str, generation: u64) {
+        let listed = |id: &str| {
+            self.remote_sessions
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .find_mux(peer, id)
+                .is_some()
+        };
+        for notice in self.held_peer_asks.take_listed(peer, generation, listed) {
+            self.apply_peer_notice(peer, generation, notice);
         }
     }
 
@@ -1139,6 +1234,8 @@ impl Hub {
             .filter(|r| keep(r))
             .cloned()
             .collect();
+        // The hub's rows of this person's other machines (`mesh_book.rs`), after the peers'.
+        let rows = rows.into_iter().chain(self.mesh_book_rows(&keep));
         for r in rows {
             let mut summary = r.summary.clone();
             summary.set("stale", Value::Bool(summary["stale"] == true));
@@ -1261,7 +1358,7 @@ impl Hub {
 }
 
 /// Whether peer session `r` is closed (its row's `status`).
-fn remote_closed(r: &RemoteSession) -> bool {
+pub(super) fn remote_closed(r: &RemoteSession) -> bool {
     r.summary.get("status").and_then(Value::as_str) == Some("closed")
 }
 

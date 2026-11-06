@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextPalette
@@ -167,40 +168,6 @@ extension CloudHandlers {
             context.services.registry.ask("cloudRenameMachine", invocation,
                                           ActionArgumentAsk(argument: "name", initialText: session.machine.displayName ?? ""))
         }
-        // Share Machine… (CloudMachineShare): `--teammate` shares or (`--revoke`) takes back; without
-        // it a person's run opens the teammates page and a CLI or agent run answers the list.
-        bind("cloudShareMachine", registry, reason: reason) { invocation in
-            let session = try machine(invocation, context)
-            if let teammate = invocation["teammate"]?.stringValue?.trimmingCharacters(in: .whitespaces), !teammate.isEmpty {
-                let shared = invocation["revoke"]?.boolValue != true
-                return result("share machine", context) {
-                    do { try await CloudMachineShare.set(shared, teammate: teammate, on: session, cloud: cloud) } catch {
-                        throw ActionFailure(message: CloudMachineShare.message(error))
-                    }
-                    return machineFields(session.machineID, ["teammate": .string(teammate), "shared": .bool(shared)])
-                }
-            }
-            if origin(of: invocation) == .user {
-                return context.services.palette.show(page: CloudMachineShare.page(session, services: context.services),
-                                                     relativeTo: context.activeWindow?.window)
-            }
-            answer("machine shares", invocation, context) {
-                let roster: CloudMachineShareRoster
-                do { roster = try await CloudMachineShare.roster(session, cloud: cloud) } catch {
-                    throw ActionFailure(message: CloudMachineShare.message(error))
-                }
-                let lines = roster.rows.map { "\($0.shared ? "shared" : "-") \($0.name) (\($0.userID))" }
-                let teammates = roster.rows.map { row in
-                    ActionResultValue.object(["user_id": .string(row.userID), "name": .string(row.name), "shared": .bool(row.shared)])
-                }
-                return CloudAnswer(title: CloudShareStrings.listTitle, text: lines.isEmpty ? "(none)" : lines.joined(separator: "\n"),
-                                   fields: machineFields(session.machineID, ["teammates": .array(teammates), "can_share": .bool(roster.canShare)]))
-            }
-        }
-        // Grants live on the classic Cloud API (`/api/vm`): a machine on the app server link has none yet.
-        ActionTargetVisibility.hide("cloudShareMachine", in: registry) { invocation in
-            (try? machine(invocation, context))?.link == nil
-        }
         // Destructive: the registry confirmed it (sheet, or `confirm: true`).
         bind("cloudKillMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
@@ -237,7 +204,8 @@ extension CloudHandlers {
         }
         bind("cloudCopyLink", registry, reason: reason) { invocation in
             let session = try machine(invocation, context), port = try port(invocation); guard session.machine.allows(.ports) else { throw operationUnavailable }
-            run("copy machine link", context) { CloudPresenter.copy(try await cloud.api.openPort(session.machineID, port: port).url) }
+            let names = CloudPortNames(session, port: port)
+            run("copy machine link", context) { CloudPresenter.copy(try await previewShareLink(cloud.previewAPI, machine: session.machineID, port: port, names: names).url) }
         }
         bind("cloudResizeMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context); guard session.machine.allows(.sizing) else { throw operationUnavailable }
@@ -287,9 +255,8 @@ extension CloudHandlers {
                 // cron decision written after the sidebar last refreshed.
                 let read = cloud.beginRecordRead(machineID: session.machineID)
                 defer { cloud.finishRecordRead(read) }
-                async let statsRequest = cloud.api.stats(session.machineID)
-                async let recordRequest = cloud.api.machine(session.machineID)
-                let (stats, record) = try await (statsRequest, recordRequest)
+                // From the API that made the machine: a Worker machine is not on /api/vm.
+                let (record, stats) = try await cloud.machineStatus(session.machineID)
                 // Through the list's own path: a pause suspends the link, a resume connects it.
                 cloud.apply(record, to: session, read: read)
                 return CloudAnswer(title: CloudStrings.statusTitle, text: describe(session, stats), fields: statusFields(session, stats))
@@ -297,7 +264,7 @@ extension CloudHandlers {
         }
         bind("palette.cloud.ports", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
-            if session.appLink != nil, cloud.previewAPI != nil {
+            if cloud.previewAPI != nil {
                 return livePreviewPorts(session, invocation, context)
             }
             guard let connection = session.daemon.connection else { throw ActionFailure(message: CloudStrings.notConnected) }
@@ -322,7 +289,7 @@ extension CloudHandlers {
         bind("palette.cloud.handoff", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
             answer("hand off machine", invocation, context) {
-                let live = try await cloud.api.machine(session.machineID)
+                let live = try await cloud.machineRecord(session.machineID)
                 return CloudAnswer(title: CloudStrings.handoffTitle, text: handoff(live),
                                    fields: ["machine_id": .string(live.id), "status": .string(live.status.rawValue)])
             }
@@ -677,10 +644,10 @@ extension CloudHandlers {
         if let used = stats.diskUsedMb { fields["disk_used_mb"] = .double(used) }
         if let total = stats.diskTotalMb { fields["disk_total_mb"] = .double(total) }
         if let address = session.machine.address?.ipv4 { fields["address"] = .string(address) }
+        fields["desktop"] = .bool(session.machine.capabilities.desktop)
         fields.merge(costFields(session.machine, now: now)) { _, new in new }
-        if let idlePause = session.machine.idlePause {
-            fields["idle_pause"] = .object(idlePauseFields(idlePause))
-        }
+        if let idlePause = session.machine.idlePause { fields["idle_pause"] = .object(idlePauseFields(idlePause)) }
+        if let failure = session.machine.lastChangeFailure { fields["error"] = .object(["code": .string(failure.code), "message": .string(failure.message)]) }
         return fields
     }
 
@@ -725,6 +692,7 @@ extension CloudHandlers {
 
     static func describe(_ session: CloudMachineSession, _ stats: CloudMachineStats, now: Date = Date()) -> String {
         var lines = ["\(session.machine.title) (\(session.machineID))", "state: \(stats.state), status: \(session.effectiveStatus.rawValue)"]
+        if let failure = session.machine.lastChangeFailure { lines.append("error: \(failure.code): \(failure.message)") }
         if let cpus = stats.cpus { lines.append("cpus: \(cpus)" + (stats.cpuPercent.map { String(format: ", %.0f%%", $0) } ?? "")) }
         if let used = stats.memoryUsedMb, let total = stats.memoryTotalMb { lines.append(String(format: "memory: %.0f / %.0f MB", used, total)) }
         if let used = stats.diskUsedMb, let total = stats.diskTotalMb { lines.append(String(format: "disk: %.0f / %.0f MB", used, total)) }
@@ -743,25 +711,5 @@ extension CloudHandlers {
             }
         }
         return lines.joined(separator: "\n")
-    }
-}
-
-/// `machine-listening-tcp` (cmux-tui protocol 12, `machine-listening-tcp-v1`):
-/// the host's `ss -H -ltn` table, read over the machine's own link.
-struct MachineListeningTCPRequest: DaemonRequest {
-    struct Response: Decodable, Sendable { var stdout: String }
-    static let command = "machine-listening-tcp"
-
-    /// Distinct listening ports, ascending, from `ss`/`netstat` lines.
-    static func ports(in table: String) -> [Int] {
-        var ports = Set<Int>()
-        for line in table.split(whereSeparator: \.isNewline) {
-            for field in line.split(separator: " ") where field.contains(":") {
-                guard let last = field.split(separator: ":").last, let port = Int(last), port > 0 else { continue }
-                ports.insert(port)
-                break
-            }
-        }
-        return ports.sorted()
     }
 }

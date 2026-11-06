@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "e1376b26094dcc4058ebfae8b8708916c1f9f204117cba1fee8a626ff0266943";
+pub const ir_sha256 = "e4a1ecdbb2d02067e00dcbd99c1fee0b9cdcca541c3d10095377224592fa0a86";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -328,6 +328,77 @@ pub const CellPixelSurface = struct {
     height_px: u16,
     surface: Id,
     width_px: u16,
+};
+
+pub const ChiefWorkAgentState = enum {
+    working,
+    waiting,
+    idle,
+    failed,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "working")) return .working;
+        if (std.mem.eql(u8, value, "waiting")) return .waiting;
+        if (std.mem.eql(u8, value, "idle")) return .idle;
+        if (std.mem.eql(u8, value, "failed")) return .failed;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .working => "working",
+            .waiting => "waiting",
+            .idle => "idle",
+            .failed => "failed",
+        };
+    }
+};
+
+pub const ChiefWorkAgent = struct {
+    id: []const u8,
+    name: []const u8,
+    started_at: wire.Nullable(u64),
+    state: ChiefWorkAgentState,
+    task: wire.Nullable([]const u8),
+    updated_at: wire.Nullable(u64),
+};
+
+pub const ChiefWorkTaskStatus = enum {
+    running,
+    done,
+    failed,
+    cancelled,
+    unknown,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "running")) return .running;
+        if (std.mem.eql(u8, value, "done")) return .done;
+        if (std.mem.eql(u8, value, "failed")) return .failed;
+        if (std.mem.eql(u8, value, "cancelled")) return .cancelled;
+        if (std.mem.eql(u8, value, "unknown")) return .unknown;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .running => "running",
+            .done => "done",
+            .failed => "failed",
+            .cancelled => "cancelled",
+            .unknown => "unknown",
+        };
+    }
+};
+
+pub const ChiefWorkTask = struct {
+    command: []const u8,
+    detail: wire.Nullable([]const u8),
+    ended_at: wire.Nullable(u64),
+    id: []const u8,
+    session_id: []const u8,
+    started_at: wire.Nullable(u64),
+    status: ChiefWorkTaskStatus,
+    title: []const u8,
 };
 
 pub const ClientInfo = struct {
@@ -1245,6 +1316,36 @@ pub const Layout = union(enum) {
     }
 };
 
+pub const LayoutSizePaneWidth = struct {
+    pane: Id,
+    width: f32,
+};
+
+pub const LayoutSizeSplitRatio = struct {
+    ratio: f32,
+    split: Id,
+};
+
+pub const LayoutSizeValue = union(enum) {
+    layout_size_split_ratio: LayoutSizeSplitRatio,
+    layout_size_pane_width: LayoutSizePaneWidth,
+
+    pub const cmux_wire_custom_union = true;
+
+    pub fn cmuxEncode(self: @This(), allocator: std.mem.Allocator) !wire.Value {
+        return switch (self) {
+            .layout_size_split_ratio => |payload| try wire.encodeValue(allocator, payload),
+            .layout_size_pane_width => |payload| try wire.encodeValue(allocator, payload),
+        };
+    }
+
+    pub fn cmuxDecode(allocator: std.mem.Allocator, value: wire.Value) !@This() {
+        _ = allocator;
+        _ = value;
+        return error.AmbiguousUnion;
+    }
+};
+
 pub const LayoutUndoConfirmationRequired = struct {
     closes_panes: []const Id,
     confirmation_required: bool,
@@ -1601,6 +1702,12 @@ pub const ReadScrollbackResult = struct {
 pub const ReattachViewResult = struct {
     participant: []const u8,
     state: SizeState,
+};
+
+pub const RemoteHostAppResult = struct {
+    host_pid: u32,
+    secret: []const u8,
+    socket: []const u8,
 };
 
 pub const RenderCursor = struct {
@@ -2007,8 +2114,17 @@ pub const ServerStatsWritePath = struct {
     effect_intent_batches: u64,
     effect_intent_failures: u64,
     effect_intents: u64,
+    registry_wal_frame_bytes: ?u64 = null,
     request_effect_commits: u64,
+    wal_commits: ?u64 = null,
+    wal_synced_commits: ?u64 = null,
     writer_registry_locks: u64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "registry_wal_frame_bytes",
+        "wal_commits",
+        "wal_synced_commits",
+    };
 };
 
 pub const ServerStatsWriterPhase = enum {
@@ -3012,6 +3128,18 @@ pub const TerminalKeyInput = struct {
     };
 };
 
+pub const TerminalLastCommand = struct {
+    command: []const u8,
+    ended_at_ms: []const u8,
+    exit_code: wire.Nullable(i32),
+    started_at_ms: []const u8,
+};
+
+pub const TerminalLastCommandResult = struct {
+    last_command: wire.Nullable(TerminalLastCommand),
+    terminal_id: []const u8,
+};
+
 pub const TerminalLifecycle = enum {
     launching,
     adopting,
@@ -3354,6 +3482,7 @@ pub const AttachSurfaceRequest = struct {
     expected_generation: wire.Field([]const u8) = .absent,
     expected_terminal_id: wire.Field([]const u8) = .absent,
     mode: wire.Field(AttachSurfaceRequestMode) = .absent,
+    replay_history_rows: wire.Field(u32) = .absent,
     rows: wire.Field(u16) = .absent,
     snapshot: wire.Field([]const u8) = .absent,
     snapshot_images: ?bool = null,
@@ -3382,6 +3511,7 @@ pub fn attachSurface(client: anytype, request: AttachSurfaceRequest) !client_run
                 .{ .name = "expected_generation", .since = null, .capability = "attach-identity-v1" },
                 .{ .name = "expected_terminal_id", .since = null, .capability = "attach-identity-v1" },
                 .{ .name = "mode", .since = 7, .capability = null },
+                .{ .name = "replay_history_rows", .since = null, .capability = "attach-replay-history-rows-v1" },
                 .{ .name = "rows", .since = null, .capability = "attach-initial-size" },
                 .{ .name = "snapshot", .since = null, .capability = "terminal-snapshot-v1" },
                 .{ .name = "snapshot_images", .since = null, .capability = "terminal-snapshot-images-v1" },
@@ -3802,6 +3932,30 @@ pub fn chiefInspect(client: anytype, request: ChiefInspectRequest) !wire.Decoded
             .authority = "local-admin",
             .since = 12,
             .capability = "chief-inspect-v1",
+        },
+        request,
+    );
+}
+
+pub const ChiefWorkRequest = struct {
+    chief: []const u8,
+};
+
+pub const ChiefWorkResult = struct {
+    agents: []const ChiefWorkAgent,
+    task_sources: []const []const u8,
+    tasks: []const ChiefWorkTask,
+    truncated: bool,
+};
+
+pub fn chiefWork(client: anytype, request: ChiefWorkRequest) !wire.Decoded(ChiefWorkResult) {
+    return client.callTyped(
+        ChiefWorkResult,
+        .{
+            .name = "chief-work",
+            .authority = "frontend",
+            .since = 12,
+            .capability = "chief-work-v1",
         },
         request,
     );
@@ -7014,6 +7168,7 @@ pub const MoveTabToColumnRequest = struct {
     dock: wire.Field(ColumnPin) = .absent,
     keep_focus: ?bool = null,
     pane: wire.Field(Id) = .absent,
+    pane_id: wire.Field([]const u8) = .absent,
     respawn: wire.Field(SplitRespawn) = .absent,
     screen: wire.Field(Id) = .absent,
     surface: Id,
@@ -7038,6 +7193,7 @@ pub fn moveTabToColumn(client: anytype, request: MoveTabToColumnRequest) !wire.D
             .fields = &.{
                 .{ .name = "dock", .since = 12, .capability = "dock-columns-v1" },
                 .{ .name = "keep_focus", .since = 12, .capability = "tab-split-keep-focus-v1" },
+                .{ .name = "pane_id", .since = 12, .capability = "tab-column-client-pane-v1" },
                 .{ .name = "respawn", .since = 12, .capability = "tab-column-respawn-v1" },
             },
         },
@@ -8003,6 +8159,79 @@ pub fn reloadConfig(client: anytype, request: ReloadConfigRequest) !wire.Decoded
     );
 }
 
+pub const RemoteHostAppRequest = struct {};
+
+pub fn remoteHostApp(client: anytype, request: RemoteHostAppRequest) !wire.Decoded(RemoteHostAppResult) {
+    return client.callTyped(
+        RemoteHostAppResult,
+        .{
+            .name = "remote-host-app",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "remote-host-v1",
+        },
+        request,
+    );
+}
+
+pub const RemoteHostCallRequest = struct {
+    method: []const u8,
+    params: wire.Field(JsonValue) = .absent,
+};
+
+pub const RemoteHostCallResult = JsonValue;
+
+pub fn remoteHostCall(client: anytype, request: RemoteHostCallRequest) !wire.Decoded(RemoteHostCallResult) {
+    return client.callTyped(
+        RemoteHostCallResult,
+        .{
+            .name = "remote-host-call",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "remote-host-v1",
+        },
+        request,
+    );
+}
+
+pub const RemoteHostConfigRequest = struct {
+    computer_use: wire.Field(bool) = .absent,
+    headless: wire.Field(bool) = .absent,
+    screen_sharing: wire.Field(bool) = .absent,
+};
+
+pub const RemoteHostConfigResult = JsonValue;
+
+pub fn remoteHostConfig(client: anytype, request: RemoteHostConfigRequest) !wire.Decoded(RemoteHostConfigResult) {
+    return client.callTyped(
+        RemoteHostConfigResult,
+        .{
+            .name = "remote-host-config",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "remote-host-v1",
+        },
+        request,
+    );
+}
+
+pub const RemoteHostStatusRequest = struct {};
+
+pub const RemoteHostStatusResult = JsonValue;
+
+pub fn remoteHostStatus(client: anytype, request: RemoteHostStatusRequest) !wire.Decoded(RemoteHostStatusResult) {
+    return client.callTyped(
+        RemoteHostStatusResult,
+        .{
+            .name = "remote-host-status",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "remote-host-v1",
+        },
+        request,
+    );
+}
+
 pub const RemoteTerminalSnapshotRequest = struct {
     surface: Id,
 };
@@ -8807,6 +9036,26 @@ pub fn setHostSizePolicy(client: anytype, request: SetHostSizePolicyRequest) !wi
     );
 }
 
+pub const SetLayoutSizesRequest = struct {
+    transaction: u64,
+    values: []const LayoutSizeValue,
+};
+
+pub const SetLayoutSizesResult = EmptyResult;
+
+pub fn setLayoutSizes(client: anytype, request: SetLayoutSizesRequest) !wire.Decoded(SetLayoutSizesResult) {
+    return client.callTyped(
+        SetLayoutSizesResult,
+        .{
+            .name = "set-layout-sizes",
+            .authority = "control",
+            .since = 12,
+            .capability = "layout-sizes-batch-v1",
+        },
+        request,
+    );
+}
+
 pub const SetPersonalTerminalRequest = struct {
     session_id: []const u8,
     terminal_key: []const u8,
@@ -9480,6 +9729,24 @@ pub fn terminalHistory(client: anytype, request: TerminalHistoryRequest) !wire.D
             .authority = "control",
             .since = 12,
             .capability = "terminal-snapshot-v1",
+        },
+        request,
+    );
+}
+
+pub const TerminalLastCommandRequest = struct {
+    surface: wire.Field(Id) = .absent,
+    terminal_id: wire.Field([]const u8) = .absent,
+};
+
+pub fn terminalLastCommand(client: anytype, request: TerminalLastCommandRequest) !wire.Decoded(TerminalLastCommandResult) {
+    return client.callTyped(
+        TerminalLastCommandResult,
+        .{
+            .name = "terminal-last-command",
+            .authority = "control",
+            .since = 12,
+            .capability = "terminal-last-command-v1",
         },
         request,
     );
@@ -11024,6 +11291,7 @@ pub const VtStateEvent = struct {
     cols: u16,
     data: Base64,
     event: []const u8,
+    history_rows_omitted: ?u64 = null,
     kitty_graphics_state: ?KittyGraphicsState = null,
     kitty_image_aliases: ?[]const KittyImageAlias = null,
     rows: u16,
@@ -11031,6 +11299,7 @@ pub const VtStateEvent = struct {
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "colors",
+        "history_rows_omitted",
         "kitty_graphics_state",
         "kitty_image_aliases",
     };
@@ -11725,7 +11994,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 288;
+pub const command_count: usize = 295;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -11748,6 +12017,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "browser-wheel", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "browser-wheel-guarded", .authority = "frontend", .since = 10, .capability = "browser-pointer-frame-guard-v1", .stream = null },
     .{ .name = "chief-inspect", .authority = "local-admin", .since = 12, .capability = "chief-inspect-v1", .stream = null },
+    .{ .name = "chief-work", .authority = "frontend", .since = 12, .capability = "chief-work-v1", .stream = null },
     .{ .name = "clear-history", .authority = "control", .since = 9, .capability = "clear-history-v1", .stream = null },
     .{ .name = "clear-window-title", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "client-focus", .authority = "control", .since = 12, .capability = "client-focus-v1", .stream = null },
@@ -11924,6 +12194,10 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "release-attached-view-size", .authority = "frontend", .since = 10, .capability = "view-attachment-lease-v1", .stream = null },
     .{ .name = "release-surface-size", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "reload-config", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "remote-host-app", .authority = "local-admin", .since = 12, .capability = "remote-host-v1", .stream = null },
+    .{ .name = "remote-host-call", .authority = "local-admin", .since = 12, .capability = "remote-host-v1", .stream = null },
+    .{ .name = "remote-host-config", .authority = "local-admin", .since = 12, .capability = "remote-host-v1", .stream = null },
+    .{ .name = "remote-host-status", .authority = "local-admin", .since = 12, .capability = "remote-host-v1", .stream = null },
     .{ .name = "remote-terminal-snapshot", .authority = "control", .since = 12, .capability = "remote-terminal-tabs-v1", .stream = null },
     .{ .name = "remove-screens-from-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
     .{ .name = "remove-tabs-from-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
@@ -11958,6 +12232,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "set-default-colors", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "set-frontend-browser-history", .authority = "control", .since = 12, .capability = "frontend-browser-history-v1", .stream = null },
     .{ .name = "set-host-size-policy", .authority = "control", .since = 12, .capability = "host-size-policy-v1", .stream = null },
+    .{ .name = "set-layout-sizes", .authority = "control", .since = 12, .capability = "layout-sizes-batch-v1", .stream = null },
     .{ .name = "set-personal-terminal", .authority = "control", .since = 12, .capability = "personal-terminals-v1", .stream = null },
     .{ .name = "set-personal-workspace", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "set-profile-follows", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
@@ -11987,6 +12262,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "terminal-clipboard-subscribe", .authority = "frontend", .since = 12, .capability = "terminal-clipboard-read-v1", .stream = "subscribe" },
     .{ .name = "terminal-events", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "terminal-history", .authority = "control", .since = 12, .capability = "terminal-snapshot-v1", .stream = null },
+    .{ .name = "terminal-last-command", .authority = "control", .since = 12, .capability = "terminal-last-command-v1", .stream = null },
     .{ .name = "terminal-ports", .authority = "control", .since = 12, .capability = "terminal-ports-v1", .stream = null },
     .{ .name = "terminal-read-range", .authority = "control", .since = 12, .capability = "terminal-snapshot-v1", .stream = null },
     .{ .name = "terminal-resources", .authority = "control", .since = 12, .capability = "terminal-resources-v1", .stream = null },

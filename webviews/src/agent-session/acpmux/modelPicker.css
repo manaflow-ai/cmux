@@ -26,7 +26,7 @@
 .ui-popup.ui-glass.acpmux-quick-menu,
 :root[data-glass-lens]:is([data-glass="lens"], [data-glass="spectrum"]) .ui-popup.ui-glass.acpmux-quick-menu {
   --glass-tint: color-mix(in srgb, var(--glass-surface) var(--surface-text-min, 92%), transparent);
-  --glass-backdrop: var(--ds-glass-menu-blur, blur(32px) saturate(1.6));
+  --glass-backdrop: var(--ds-glass-menu-blur);
 }
 .acpmux-mp-rail-scroll {
   flex: 0 0 auto;
@@ -544,7 +544,6 @@
   overflow-y: auto;
   scroll-padding-block: 0;
 }
-.acpmux-quick-body[data-scrolled] { mask-image: linear-gradient(to bottom, transparent, #000 6px); }
 .acpmux-quick-list { display: flex; flex-direction: column; min-height: 0; }
 .acpmux-quick-list > * { flex: none; }
 .acpmux-quick-list > .acpmux-quick-more-list { contain: inline-size; }

@@ -105,6 +105,20 @@
   background: var(--acpmux-context-segment, var(--agent-accent));
 }
 
+/* The prompt cache's line under the bar (ContextCard.tsx CacheLine): muted detail text, the
+   countdown on tabular figures so it does not jitter; the warning color in its last minute. */
+.acpmux-context-card-cache {
+  margin-top: var(--ds-space-2);
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-context-card-cache[data-state="soon"] {
+  color: var(--agent-warning);
+}
+
 .acpmux-context-card-parts {
   display: grid;
   gap: var(--ds-space-1);

@@ -11,6 +11,7 @@ import { UI_ANCHOR_GAP } from "./anchor";
 import { useNativeFinalFocus } from "./useNativeFinalFocus";
 import { popupCollision, type UiPopupFlip } from "./openSide";
 import { usePopupPadding } from "./popupInset";
+import { useScrollEdges } from "./scrollEdges";
 
 /** A point or box on the page to place a popover at (a caret's coordinates, for example). */
 export interface UiAnchorRect {
@@ -60,11 +61,15 @@ export interface PopoverProps {
   /** The accessible name of the popover (role dialog). */
   label: string;
   className?: string;
+  /** Fade a capped popup body when more content lies beyond its scroll edges. */
+  fade?: boolean;
   /** Which side of the anchor receives the popover. */
   side?: "top" | "bottom" | "inline-end" | "inline-start";
   /** False keeps `side` while open (`useOpenSide` chose it); "shift" keeps it and slides the popup
    *  along it to stay in the window (openSide.ts `UiPopupFlip`); default flips when there is no room. */
   flip?: UiPopupFlip;
+  /** Which edge of the anchor the popover lines up with (default: its start). */
+  align?: "start" | "end";
   /** Focus a field inside on open (default: the first focusable). */
   initialFocus?: React.RefObject<HTMLElement | null> | boolean;
   /** Where focus goes on close (default: back to where it was). */
@@ -85,13 +90,17 @@ export function Popover({
   anchor,
   label,
   className,
+  fade = false,
   side = "bottom",
   flip = true,
+  align = "start",
   initialFocus,
   finalFocus,
   native,
   children,
 }: PopoverProps) {
+  const popupClassName = cx("ui-popup ui-glass ui-popover", className);
+  const edges = useScrollEdges();
   const container = usePortalContainer();
   const positionMethod = useOverlayPosition();
   const padding = usePopupPadding();
@@ -127,13 +136,14 @@ export function Popover({
           side={side}
           collisionAvoidance={popupCollision(flip)}
           collisionPadding={padding}
-          align="start"
+          align={align}
           sideOffset={UI_ANCHOR_GAP}
         >
           <BasePopover.Popup
+            ref={fade ? edges : undefined}
             // A shifted popup may use the window's height, not only the room on its side (popupSurface.css).
             data-popup-shift={flip === "shift" ? "" : undefined}
-            className={cx("ui-popup ui-glass ui-popover", className)}
+            className={cx(popupClassName, fade && "ui-scroll-edge-fade")}
             aria-label={label}
             initialFocus={initialFocus}
             finalFocus={finalFocus}

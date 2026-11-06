@@ -60,8 +60,8 @@ const CHIEF_REGISTRY_REASON: &str = "The person's Chiefs are edited by the perso
 /// owner's; an MCP client is an agent and never mints, rotates or checks one.
 const CREDENTIAL_REASON: &str = "Launch credentials belong to the session host and the owner: acpmux and the owner's connection call them, never an agent.";
 
-/// The daemon settings owner (cx-9ce.10) has no CLI verb or MCP policy yet:
-/// `cmux settings` stays on the app socket with its user confirm sheet, and
+/// Settings writes with --confirm use the app socket and its native sheet.
+/// The daemon list is CLI-only until its MCP read policy is implemented;
 /// the CLI and MCP surfaces for the daemon ops come with cx-9ce.12 and the MCP
 /// policy decision cx-ncc.32.
 const SETTINGS_REASON: &str = "Settings go through cmux settings on the app socket with the user's confirm sheet until the daemon settings verbs and their MCP policy land (cx-9ce.12, cx-ncc.32).";
@@ -74,7 +74,6 @@ const KEYBINDINGS_REASON: &str = "Keybindings are the user's, edited from the Ke
 pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("agent.report", AGENT_REPORT_REASON),
     ("settings.schema", SETTINGS_REASON),
-    ("settings.list", SETTINGS_REASON),
     ("settings.get", SETTINGS_REASON),
     ("settings.snapshot", SETTINGS_REASON),
     ("settings.set", SETTINGS_REASON),
@@ -183,6 +182,8 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("stash.restore", STASH_REASON),
     ("stash.delete", STASH_REASON),
     ("stash.import", STASH_REASON),
+    ("conductor_import.plan", CONDUCTOR_IMPORT_REASON),
+    ("conductor_import.record", CONDUCTOR_IMPORT_REASON),
     ("workspace.ensure_home", HOME_REASON),
     ("workspace.ensure_app", APP_WORKSPACE_REASON),
     ("workspace.agent_folder.set", AGENT_FOLDER_REASON),
@@ -202,6 +203,10 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
 /// Operations the curated `cmux` CLI offers but MCP does not, with the
 /// reason. Unlike [`EXCLUDED`], the parity test lets `cmux` reach these.
 pub(super) const CLI_ONLY: &[(&str, &str)] = &[
+    (
+        "settings.list",
+        "The raw daemon listing stays CLI-only until its MCP read policy for credential-bearing values lands; agents use the schema-scoped settings_list tool.",
+    ),
     ("agent.message.release", AGENT_MESSAGE_RELEASE_REASON),
     ("agent.message.unsend", AGENT_MESSAGE_UNSEND_REASON),
     ("history.entries.list", HISTORY_MCP_PENDING_REASON),
@@ -246,6 +251,8 @@ const PALETTE_USAGE_REASON: &str = "The user's own palette usage history: the ap
      records and reads it; agents rank rows through palette.query, never read or write usage.";
 const STASH_REASON: &str = "The user's stashed web pages (stash-v1): the app's OneTab \
      list; agents close and open tabs through the tab and browser tools, never the stash.";
+const CONDUCTOR_IMPORT_REASON: &str = "The app's Import from Conductor drives these: it reads \
+     the dry-run plan and records what it made; agents never import.";
 const SIDEBAR_REASON: &str = "TUI sidebar plugin views in the cmux-tui-only scope.";
 const HOME_REASON: &str = "The hosting app creates its one home workspace on connect; the CLI \
      never offers it (workspace-kind-v1).";

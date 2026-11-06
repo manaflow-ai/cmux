@@ -159,7 +159,12 @@ const scripts = (dir: string) =>
 /// one whatever shape its JSX takes.
 const ENTRANCES: Record<string, { count: number; what: string }> = {
   "src/agent-session/acpmux/App.tsx": { count: 1, what: "the hand-off error line under the header" },
-  "src/agent-session/acpmux/DiffPanel.tsx": { count: 1, what: "the diff side panel, from the right" },
+  "src/agent-session/acpmux/ChatUnavailableState.tsx": {
+    count: 3,
+    what: "a paused chat's card, its one-line form above a missing chat's kept rows, and its resume spinner into a slot already there (afterDelay.ts)",
+  },
+  "src/agent-session/acpmux/CloudResumeDesigns.tsx": { count: 1, what: "the gallery's slow-resume note designs" },
+  "src/agent-session/acpmux/ComposerQueue.tsx": { count: 1, what: "the held prompt's waking line" },
   "src/agent-session/acpmux/Inspector.tsx": { count: 1, what: "the event inspector side panel, from the right" },
   "src/agent-session/acpmux/LiveChatChoice.tsx": { count: 1, what: "a banner at the top of the chat" },
   "src/agent-session/acpmux/MissingChat.tsx": { count: 1, what: "a banner at the top of the chat" },
@@ -183,7 +188,7 @@ const entranceCalls = (source: string) => source.match(/\bdata-enter\b["']?\s*[=
 /// webviews/src fails until it is listed here, so a popup cannot fade in from script, however its
 /// keyframes are built.
 const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
-  "src/agent-session/acpmux/App.tsx": {
+  "src/agent-session/acpmux/VirtualTranscript.tsx": {
     count: 4,
     what: "a cold-opened chat's transcript fades in; a bottom tool fold moves the transcript as one stack, holds the rows under the opened line and cuts what rises at it (#32943)",
   },
@@ -207,6 +212,15 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
   "src/files-panel-motion.ts": { count: 2, what: "the files panel slides in from its edge" },
   "src/motion/SyncTitle.tsx": { count: 3, what: "a title's new text cross-fades" },
   "src/motion/useSyncListMotion.ts": { count: 3, what: "list rows arrive, move and leave" },
+  "src/ui/motion/SlidingIndicator.tsx": {
+    count: 1,
+    what: "a tab bar's or segmented control's highlight travels to the selected item",
+  },
+  "src/ui/motion/ViewSwap.tsx": { count: 2, what: "a swapped view's content enters, or an accent band sweeps it" },
+  "src/ui/motion/useTextSwap.ts": {
+    count: 4,
+    what: "a running call's words on the Working and activity lines change: the old rise out, the new rise in, the clock slides",
+  },
 };
 
 /// How many times a script drives the Web Animations API.

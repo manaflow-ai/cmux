@@ -30,6 +30,7 @@ use crate::no_panic::JsonExt;
 use std::time::Duration;
 
 use super::*;
+use crate::hub::no_session::NO_SESSION_PREFIX;
 use crate::hub::outbox::{Delivery, RETRY_DELAYS_SECS, RETRY_FOR_MS, State};
 
 /// What an attempt that did not deliver leaves the delivery as.
@@ -44,6 +45,9 @@ pub(super) enum Next {
     Fail,
     /// The target holds it for a paused agent pair.
     Held,
+    /// The target's machine answered that it has no such session: failed at once, never tried
+    /// again (a name that is no session's stays so; `hub/no_session.rs`).
+    NoSession,
 }
 
 /// How long one attempt waits for the target's acceptance.
@@ -88,6 +92,7 @@ pub(super) async fn handle(
     if hub.resolve(&target).is_err()
         && hub.resolve_remote(&target).is_none()
         && hub.peer_down_for(&target).is_none()
+        && hub.no_session_is_final(&target)
     {
         // With the mesh relay on, the team hub may know a name nothing here or on a peer matches
         // (`mesh_send.rs`); a name several sessions here or on peers match stays this daemon's
@@ -97,14 +102,15 @@ pub(super) async fn handle(
         {
             return super::mesh_send::send(hub, conn, mesh, &request, &target).await;
         }
-        // The names it nearly matched, so the sender can pick one (`Hub::unknown_session`).
-        let close = hub.unknown_session(&target).data.and_then(|d| d.get("candidates").cloned());
-        let mut data = json!({"reason": "no_session", "session": target});
-        if let Some(close) = close {
-            data.set("candidates", close);
-        }
-        return Err(RpcError::invalid_params(format!("no session: {target}")).with_data(data));
+        // The machine is reachable and has no such session: refused now, never queued, with the
+        // closest names there so the sender can pick one (`hub/no_session.rs`).
+        let (text, data) = hub.no_session_text(&target);
+        return Err(
+            RpcError::invalid_params(format!("no session: {target} ({text})")).with_data(data)
+        );
     }
+    // A peer that is down now: queued and tried again, and the answer says so.
+    let host_unreachable = hub.host_unreachable_for(&target);
     // Over the caps it is refused now, never kept (`attach.rs`).
     crate::attach::check_wire(&request)?;
     let mux = request
@@ -165,7 +171,11 @@ pub(super) async fn handle(
         }
         drop_own_uploads(hub, &new, &delivery).await;
     }
-    Ok(delivery.status())
+    let mut status = delivery.status();
+    if host_unreachable {
+        status.set("hostUnreachable", json!(true));
+    }
+    Ok(status)
 }
 
 /// A direct peer send needs a durable projection intent: the peer may accept
@@ -607,6 +617,22 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 return;
             }
             Err((error, next)) => {
+                // No such session there: failed now, naming the closest names, unless its
+                // machine is down or has not listed its sessions since it came back (then the
+                // answer proves nothing; tried again).
+                let (error, next) = match next {
+                    Next::NoSession if hub.peer_down_for(&delivery.target).is_some() => {
+                        (error, Next::Unsent)
+                    }
+                    Next::NoSession if !hub.no_session_is_final(&delivery.target) => {
+                        (error, Next::Retry)
+                    }
+                    Next::NoSession => {
+                        let (text, _) = hub.no_session_text(&delivery.target);
+                        (format!("{NO_SESSION_PREFIX}{text}"), Next::NoSession)
+                    }
+                    next => (error, next),
+                };
                 let delay = matches!(next, Next::Retry | Next::Unsent)
                     .then(|| retry_delay(&mut delays, &delivery, crate::store::now_ms()))
                     .flatten();
@@ -637,14 +663,11 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 };
                 // A peer whose link is ready again ends the wait (`Outbox::peer_ready`): a message
                 // to a machine that was down goes the moment it is reachable. A projection intent
-                // keeps its bounded schedule: another peer's reconnects must not use it up. The
-                // wait never runs past the message's day.
-                let left = delivery
-                    .created_at
-                    .saturating_add(RETRY_FOR_MS)
-                    .saturating_sub(crate::store::now_ms());
+                // keeps its bounded schedule: another peer's reconnects must not use it up. A
+                // message's wait never runs past its day; an intent's delays are never cut, so an
+                // intent older than a day after a restart does not spend its retries at once.
                 let sleep =
-                    tokio::time::sleep(Duration::from_secs(secs).min(Duration::from_millis(left)));
+                    tokio::time::sleep(retry_sleep(&delivery, secs, crate::store::now_ms()));
                 let ready = hub.outbox.peer_ready.notified();
                 if delivery.projection_only() {
                     sleep.await;
@@ -657,6 +680,17 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
             }
         }
     }
+}
+
+/// How long `delivery` sleeps before its next attempt, given the schedule's `secs`: a message
+/// no longer than what is left of its day ([`RETRY_FOR_MS`]), a projection intent the whole delay.
+fn retry_sleep(delivery: &Delivery, secs: u64, now: u64) -> Duration {
+    let delay = Duration::from_secs(secs);
+    if delivery.projection_only() {
+        return delay;
+    }
+    let left = delivery.created_at.saturating_add(RETRY_FOR_MS).saturating_sub(now);
+    delay.min(Duration::from_millis(left))
 }
 
 /// Whether `delivery`, a message (not a projection intent, which keeps its own schedule), is
@@ -826,6 +860,13 @@ fn next(e: &RpcError) -> Next {
     if reason == "peer_unreachable" {
         return Next::Unsent;
     }
+    // No such session on the target's machine: a not-found answer (this daemon's for a peer
+    // that lists none, or the peer's own), which every later attempt would give again.
+    if reason == "no_session"
+        || (e.code == RpcError::not_found("").code && e.message.starts_with("no session matches"))
+    {
+        return Next::NoSession;
+    }
     let flagged = data.and_then(|d| d.get("retryable")).and_then(Value::as_bool);
     match flagged {
         _ if reason.starts_with("agent_pair.") => Next::Fail,
@@ -833,6 +874,24 @@ fn next(e: &RpcError) -> Next {
         Some(false) => Next::Fail,
         None if e.code != RpcError::invalid_params("").code => Next::Retry,
         None => Next::Fail,
+    }
+}
+
+#[cfg(test)]
+mod no_session_next_tests {
+    use super::*;
+
+    /// "No such session" from the target's machine is final; a peer that is down is not.
+    #[test]
+    fn a_no_session_answer_is_final_and_an_unreachable_peer_is_not() {
+        let e = RpcError::not_found("no session matches \"host/proc-title\"");
+        assert_eq!(next(&e), Next::NoSession);
+        let flagged =
+            RpcError::invalid_params("no session: x").with_data(json!({"reason": "no_session"}));
+        assert_eq!(next(&flagged), Next::NoSession);
+        let down = RpcError::internal("down").with_data(json!({"reason": "peer_unreachable"}));
+        assert_eq!(next(&down), Next::Unsent);
+        assert_eq!(next(&RpcError::internal("connection reset")), Next::Retry);
     }
 }
 
@@ -884,6 +943,20 @@ mod retry_delay_tests {
             assert!(retry_delay(&mut delays, &intent, 2_000).is_some());
         }
         assert_eq!(retry_delay(&mut delays, &intent, 2_000), None);
+    }
+
+    /// A message's wait stops at the end of its day; a projection intent's wait is never cut,
+    /// even when the intent is older than a day (a restart resumed it).
+    #[test]
+    fn only_a_messages_wait_is_cut_at_the_end_of_its_day() {
+        let day_end = 1_000 + RETRY_FOR_MS;
+        assert_eq!(retry_sleep(&delivery(1_000, false), 900, 2_000), Duration::from_secs(900));
+        assert_eq!(
+            retry_sleep(&delivery(1_000, false), 900, day_end - 5_000),
+            Duration::from_secs(5)
+        );
+        assert_eq!(retry_sleep(&delivery(1_000, false), 900, day_end + 1), Duration::ZERO);
+        assert_eq!(retry_sleep(&delivery(1_000, true), 900, day_end + 1), Duration::from_secs(900));
     }
 
     /// A message a day old is not sent (after a restart too); a projection intent is not timed.
@@ -1104,6 +1177,8 @@ mod forward_projection_tests {
         let before = receiver.meta().event_count;
         original.detach_child(&sender).await;
         original.store.flush().unwrap();
+        // The first daemon's shutdown seal: the journal's lock passes to the restarted one.
+        original.seal();
         // Reopen the source state as daemon startup does: the outbox resumes before the saved
         // sessions load (`daemon.rs`). No original callback survives.
         let restarted = Hub::new_loading(

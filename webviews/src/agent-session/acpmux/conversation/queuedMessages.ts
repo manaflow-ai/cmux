@@ -7,17 +7,24 @@
 // not the person's queue row's: Deliver now, Copy, Dismiss (QueuedMessageCard.tsx). Once acpmux
 // starts it, the queue drops it and the prompt's own row is its card, delivered. The composer's queue, its fold and its count, are the person's own
 // prompts alone (ComposerQueue.tsx).
+// acpmux's inbox notice (provenance `inbox_notice`) is no prompt of the person's either (Leo,
+// 2026-11-03, on one drawn as a queued prompt with Steer, × and a trash can: "have it be rendered
+// differently than just a regular queued message. we don't really wanna be cancelling agent back and
+// forth messages 99% of the time"): it joins the same group as its threads, each its sender's line
+// (laneNoticeBatches.ts `flattenInboxRows`), and goes in when the turn ends as the queue drains.
 // A guest's prompt is not the owner's either (design/chat-multiplayer.md, "Held message card"): it
 // draws here as a message from that person, held with Approve and Decline while it waits for the
 // owner (acpmux `awaitingOwner`), then with the queue's label once approved.
 import type { ComposerAttachment } from "../attachments";
 import { isGuest } from "../multiplayer/participants";
+import { inboxText } from "./inboxNotice";
 import { QUEUED_MESSAGE, type AcpmuxRow, type AcpmuxSnapshot, type QueuedPromptImage } from "../model";
 
 type QueuedEntry = AcpmuxSnapshot["queue"][number];
 
-/// Whether a queue entry is another agent's message (direct.ts `queuedMessage` named its sender).
-export const isAgentEntry = (entry: QueuedEntry) => entry.message !== undefined;
+/// Whether a queue entry is another agent's message (direct.ts `queuedMessage` named its sender),
+/// or acpmux's inbox notice of such messages (direct.ts `queuedInbox`).
+export const isAgentEntry = (entry: QueuedEntry) => entry.message !== undefined || entry.inbox !== undefined;
 
 /// Whether a queue entry is a guest's prompt: held for the owner, or a guest's the owner approved.
 /// A teammate's prompt stays a composer-queue row under their name (ComposerQueue.tsx).
@@ -48,7 +55,9 @@ export function queuedMessageRows(queue: AcpmuxSnapshot["queue"], last?: readonl
     const message = isHeldEntry(entry)
       ? { name: person?.name ?? "", text: entry.prompt, raw: entry.prompt, fromPerson: true as const }
       : entry.message;
-    if (!message) continue;
+    // An inbox notice draws as its threads, each another agent's line, never its text for the agent.
+    const notice = !message && !isHeldEntry(entry) ? entry.inbox : undefined;
+    if (!message && !notice) continue;
     // The first message may explain a Stop hold, once for the run.
     const lead = rows.length === 0;
     let row = rowsByEntry.get(entry);
@@ -58,8 +67,8 @@ export function queuedMessageRows(queue: AcpmuxSnapshot["queue"], last?: readonl
         version: ++version,
         at: 0,
         kind: QUEUED_MESSAGE,
-        text: message.text,
-        incoming: { kind: "message", message },
+        text: message ? message.text : inboxText(notice!),
+        incoming: message ? { kind: "message", message } : { kind: "inbox", notice: notice! },
         queuedMessage: {
           promptId: entry.id,
           ...(entry.next ? { next: true } : {}),

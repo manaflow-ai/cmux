@@ -14,8 +14,8 @@ import os
 /// - The list (``MobileHostPairedDevices``, a 0600 file per user) goes to hostd as its
 ///   `devices` line and, as approval keys, to acpmux (``MobileHostApproverSync``).
 /// - A phone that signs out asks to be forgotten (``MobileHostEvent/unpaired(phoneDeviceID:)``);
-///   Settings > Mobile removes one with ``revokePhone(id:)``; signing out of
-///   this Mac forgets them all.
+///   Settings > Mobile removes one with ``revokePhone(id:)``; the person's own sign-out
+///   of this Mac forgets them all (``signOutStarted()``), a session that ends by itself does not.
 extension IPhoneHostService {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.iphone.pairing")
     /// The pairing dialog: only the user answers it (a phone it admits reaches the
@@ -24,7 +24,7 @@ extension IPhoneHostService {
     static let allowButton = "allow"
     static let denyButton = "deny"
 
-    /// Loads the list of the signed-in user; a sign-out forgets that user's phones. The list is
+    /// Loads the list of the signed-in user (none while signed out; the stored list stays). The list is
     /// read off the main actor (its seal is a Keychain item), after every save already queued;
     /// until it is in, no phone is trusted and no pairing is decided (each needs `paired`).
     /// The store's one list file for `directory`, wired to the last quit's record and watched by the quit deadline.
@@ -47,6 +47,18 @@ extension IPhoneHostService {
         if approverSync == nil, let environment = dependencies?.acpmuxEnvironment {
             approverSync = makeApproverSync(environment)
         }
+        pushPaired()
+    }
+
+    /// The person signs out of this Mac (``CloudService/willSignOut``, while the account is still
+    /// selected): its phones are forgotten, so each asks again after a sign-in. A session that ends
+    /// by itself (a refused refresh token, a Keychain that would not hand back the tokens) keeps
+    /// them: signing in again must not ask the person to allow every phone again.
+    public func signOutStarted() {
+        pairedStore.forgetForSignOut()
+        // A prompt still open would allow its phone after the forget.
+        resetPrompts()
+        paired = nil
         pushPaired()
     }
 
@@ -144,9 +156,12 @@ extension IPhoneHostService {
             return
         }
         let name = Self.displayName(request)
-        var lines = [IPhoneHostStrings.pairBody(account?.email ?? account?.userID ?? "")]
+        let who = account?.email ?? account?.userID ?? ""
+        var lines = [request.isMachine ? IPhoneHostStrings.machinePairBody(who) : IPhoneHostStrings.pairBody(who)]
         if let registered = request.registeredAt { lines.append(IPhoneHostStrings.deviceRegistered(registered)) }
-        lines.append(IPhoneHostStrings.pairKey(MobileHostPairedDevices.fingerprint(request.approvalKey)))
+        // A machine has no approval key: its identity key is the one it proves at every link.
+        let key = request.isMachine ? request.identityKey : request.approvalKey
+        lines.append(IPhoneHostStrings.pairKey(MobileHostPairedDevices.fingerprint(key)))
         let spec = CmuxDialogSpec(
             title: IPhoneHostStrings.pairTitle(name, key: request.shortFingerprint), lines: lines,
             buttons: [CmuxDialogButton(id: Self.denyButton, title: IPhoneHostStrings.pairDeny, role: .cancel),

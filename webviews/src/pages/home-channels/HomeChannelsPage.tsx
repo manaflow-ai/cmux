@@ -51,6 +51,7 @@ import { useHomeKeys } from "./useHomeKeys";
 import { useWebSwapHold } from "../shared/useWebSwapHold";
 import { PresentationToggle, usePresentation } from "./presentation";
 import { sliceWhole } from "../../ui/wholeChars";
+import { ChiefWorkPane } from "./ChiefWorkPane";
 
 const NOTICE_MS = 1600;
 
@@ -87,14 +88,20 @@ export function HomeChannelsPage({
   const [notice, setNotice] = useState<string | undefined>();
   /** The run the run sheet shows (an agent turn's whole trajectory). */
   const [openRun, setOpenRun] = useState<{ conversation: string; author: string; id: string } | undefined>();
+  /** The conversation whose local Chief work panel is open. Switching conversations hides it. */
+  const [workConversation, setWorkConversation] = useState<string | undefined>();
+  const workOpen = workConversation !== undefined && workConversation === snap.selected;
   // WEB-SWAP: an open thread, run sheet, palette or edit lives only in this page's state, so a reload
   // would close it: the update waits until it closes (pages/shared/webSwap.ts).
-  useWebSwapHold(snap.thread || openRun || palette || editing || sheetState.route ? "home.sheet" : null);
+  useWebSwapHold(snap.thread || openRun || workOpen || palette || editing || sheetState.route ? "home.sheet" : null);
   const runs = useMemo<RunsContextValue>(
     () => ({
       book: store.runs,
       strings,
-      onOpen: (run: HomeRun) => setOpenRun({ conversation: run.conversation, author: run.author, id: run.id }),
+      onOpen: (run: HomeRun) => {
+        setWorkConversation(undefined);
+        setOpenRun({ conversation: run.conversation, author: run.author, id: run.id });
+      },
       onLoad: (run: HomeRun) => void store.loadRunSteps(run),
       live: store.live,
     }),
@@ -250,6 +257,7 @@ export function HomeChannelsPage({
     target?.focus({ preventScroll: true });
   }, [store, measured, narrow, listShown]);
   const openThread = (root: string | undefined) => {
+    if (root) setWorkConversation(undefined);
     setEditing(undefined);
     void store.openThread(root);
   };
@@ -316,6 +324,7 @@ export function HomeChannelsPage({
       else if (palette) setPalette(false);
       else if (listShown) return false;
       else if (editing) setEditing(undefined);
+      else if (workOpen) setWorkConversation(undefined);
       else if (openRun) setOpenRun(undefined);
       else if (snap.thread) openThread(undefined);
       else if (focused) setFocused(undefined);
@@ -588,6 +597,22 @@ export function HomeChannelsPage({
                       </p>
                       <span className="lg-spacer" />
                       <PresentationToggle conversation={open.id} strings={strings} />
+                      {caps.chiefWork && openChief && open.owner === "local" && (
+                        <button
+                          type="button"
+                          className="hc-icon-button hc-chief-work-toggle"
+                          aria-label={t("work.open")}
+                          title={t("work.open")}
+                          aria-pressed={workOpen}
+                          onClick={() => {
+                            setOpenRun(undefined);
+                            openThread(undefined);
+                            setWorkConversation(workOpen ? undefined : open.id);
+                          }}
+                        >
+                          <HomeIcon name="bulletList" size={16} />
+                        </button>
+                      )}
                       {offlineLasting && (
                         <output className="lg-connection">
                           {t(snap.connection === "connecting" ? "connection.connecting" : "connection.offline")}
@@ -743,6 +768,16 @@ export function HomeChannelsPage({
                             asked={askedLine(runSheet.run.answers[0], threadSource)}
                             onClose={() => setOpenRun(undefined)}
                             onLoad={runs.onLoad}
+                          />
+                        )}
+                        {workOpen && caps.chiefWork && openChief && open.owner === "local" && (
+                          <ChiefWorkPane
+                            key={openChief.id}
+                            book={store.chiefWork}
+                            chief={openChief.id}
+                            online={online}
+                            strings={strings}
+                            onClose={() => setWorkConversation(undefined)}
                           />
                         )}
                       </div>

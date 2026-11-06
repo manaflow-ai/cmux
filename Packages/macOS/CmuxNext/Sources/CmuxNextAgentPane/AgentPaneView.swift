@@ -36,7 +36,9 @@ public final class AgentPaneView: NSView {
     /// The `agent.sessionStatus` tunable (Debug Settings), followed live (``AgentPaneSessionStatus``).
     public internal(set) var sessionStatus = AgentPaneTunables.sessionStatus.value { didSet { if sessionStatus != oldValue { AgentPaneSessionStatus.push(to: self) } } }
     /// The newest device chats for the New Tab cards.
-    public var deviceChats: [AgentPaneDeviceChat] = [] { didSet { if deviceChats != oldValue { AgentPaneDeviceChat.push(deviceChats, to: self) } } }
+    public var deviceChats: [AgentPaneDeviceChat] = [] { didSet { if deviceChats != oldValue { AgentPaneDeviceChat.owe(to: self) } } }
+    /// App-wide state pushes held to one per turn, and while nobody sees the pane (``AgentPaneShownPushes``).
+    let shownPushes = AgentPaneShownPushes()
     /// The newest recently closed items for the New Tab page's Recently Closed section.
     public var recentlyClosed: AgentPaneClosedList = .empty { didSet { if recentlyClosed != oldValue { AgentPaneClosedItem.push(recentlyClosed, to: self) } } }
     public var editedFiles = AgentPaneEditedFilesSetting.fallback {
@@ -57,8 +59,14 @@ public final class AgentPaneView: NSView {
     var crashReloadCount = 0
     /// The automatic retries after the page's web content ended.
     let crashRetry = AgentPageCrashRetry()
+    /// Where the window's toasts rest (window coordinates), nil when none shows (AgentPaneView+ToastRoom.swift).
+    var toastsRect: NSRect?
+    /// The toast band the page last got, in CSS pixels.
+    var sentToastRoom: Double = 0
     /// The page ends of the app's agent panes, grouped by the termination that ended them.
     let terminations: AgentPageTerminations
+    /// The app's flicker ring file (``AgentPageFlickerLog``, made by the composition root); nil writes nothing (tests).
+    let flickerLog: AgentPageFlickerLog?
     /// The line that says the chat runs on another cmux install's acpmux (cx-fcaq).
     var otherInstallNotice: AgentPaneNotice?
     /// The pane's daemon is another cmux install's (cx-fcaq); the line shows only while a request waits.
@@ -100,6 +108,8 @@ public final class AgentPaneView: NSView {
         self?.evaluateScript($0)
     }
     private var uiScaleObservation: Task<Void, Never>?
+    /// The indicator while Computer use can act as me is on (``AgentPaneActAsMeBadge``); nil without the app's grant.
+    var actAsMeBadge: AgentPaneActAsMeBadge?
     public var zoom: Double = 1 {
         didSet { guard zoom != oldValue else { return }; applyZoom() }
     }
@@ -137,6 +147,9 @@ public final class AgentPaneView: NSView {
     /// Bounded reports from the app-owned webview UI picker.
     /// Receives a bounded element report while the debug UI pointer is active.
     public var uiPointerReport: (@MainActor (JSONValue) -> Void)?
+    /// Where (screen points) and when (system uptime) this page's context menu last opened:
+    /// Inspect Element starts the picker there, with no app-wide right-click monitor.
+    public internal(set) var lastContextMenu: (point: NSPoint, uptime: TimeInterval)?
     /// The pane's first frame until its page paints (`AgentPaneView+Loading`).
     public let loadingView = AgentPaneLoadingView()
     /// The page lies outside the window until it draws the chat a tab adopted it for
@@ -176,11 +189,14 @@ public final class AgentPaneView: NSView {
     ///   - openPanel: The app's made-ahead open panel (`AppServices.openPanel`) for Add Files, Attach and a page's
     ///     file input, warmed when the pane reaches a window; nil (tests) shows no file picker and warms none.
     ///   - eventSources: The app's table of processes that post input (`AppServices.personInput.sources`); tests get their own.
+    ///   - flickerLog: The app's flicker ring file (``AgentPaneShared/flickerLog``); nil (tests) writes none.
     public init?(model: AgentPaneModel, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
                  pageHost: Bool = false, testRoot: Bool = false, chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
+                 panelProvider: (any PageProvider)? = nil,
                  openPanel: MadeAheadOpenPanel? = nil, terminations: AgentPageTerminations? = nil,
-                 eventSources: EventSourceProcesses = EventSourceProcesses()) {
+                 eventSources: EventSourceProcesses = EventSourceProcesses(), flickerLog: AgentPageFlickerLog? = nil) {
         self.terminations = terminations ?? Self.processGroups.terminations
+        self.flickerLog = flickerLog
         guard let source = source ?? Self.bundledPage.map({ AgentPaneSource.bundled($0) }) else { return nil }
         self.openPanel = openPanel
         self.eventSources = eventSources
@@ -194,11 +210,14 @@ public final class AgentPaneView: NSView {
             let provider = AgentPageProvider { [weak model] _ in model }
             // Needs you reads the pane's own acpmux (a Chief chat's is the Chief home's), never another.
             provider.pendingAsksSocket = { [weak model] in model?.pendingAsksSocket }
+            provider.tailHost = model.host
+            provider.tabKey = { [weak model] in model?.tabKey() }
             guard let page = AgentPanePageHost.makePage(root: index.deletingLastPathComponent(), testRoot: testRoot, provider: provider, renderRate: renderRate,
-                                                                 chromium: chromium)
+                                                                 chromium: chromium, panelProvider: panelProvider)
             else { return nil }
             self.page = page
             pageEvents = provider
+            model.mediaOrigin = AgentPaneMediaGrants.pageOrigin
             webView = page.webKitView
             inputReadiness = page.inputReadiness
             dictation = AgentPaneDictation(send: { [weak provider] update in
@@ -257,6 +276,7 @@ public final class AgentPaneView: NSView {
             if let self { LinkRouter.shared.open(url, modifiers: modifiers, from: self) } else { Self.routedOpenURL(url, modifiers) }
         }
         inputReadiness.attach(webView)
+        flickerLog?.watchWindows()
         if let page {
             attachPage(page)
         } else {
@@ -289,6 +309,7 @@ public final class AgentPaneView: NSView {
             return await AgentPaneFilePicker(openPanel: openPanel).pickAttachments(window: window)
         }
         model.onFramePacing = { [weak self] _ in self?.framePacingSettings() ?? [:] }
+        model.onTabKeyChange = { [weak self] in self?.announceTab() }
         model.onRenderRate = { [weak self] full in
             guard let self, self.renderRate == .adaptive else { return }
             self.rendersAtFullRate = full
@@ -400,6 +421,7 @@ public final class AgentPaneView: NSView {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             uiScaleObservation?.cancel()
+            actAsMeBadge?.stop()
             sessionStatusObservation?.cancel()
             model.sessionInfo.hostObservation?.cancel()
         }
@@ -416,6 +438,8 @@ public final class AgentPaneView: NSView {
         placeChromiumMove(at: frame)
         if loadingView.superview === self { loadingView.frame = topBar.contentFrame(in: bounds) }
         layoutSessionInfo()
+        // A pane resized or moved under shown toasts: its band follows at once.
+        if toastsRect != nil || sentToastRoom != 0 { sendToastRoom(duration: 0) }
         redraw.laidOut(self)
     }
 
@@ -536,6 +560,8 @@ public final class AgentPaneView: NSView {
         } else {
             // The composer's + > Attach files or images opens without making a panel (PageOpenPanel).
             openPanel?.warmWhenIdle()
+            // The toasts may have come or gone while the pane was out of the window.
+            if let window { CmuxToastAvoidance.reservingViewMoved(self, to: window) }
         }
         applyTheme()
     }

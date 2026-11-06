@@ -154,22 +154,29 @@ describe("harnesses this machine does not have", () => {
     await act(async () => host.querySelector<HTMLButtonElement>("button")!.click());
     await settle();
     const doc = dom.window.document;
-    const tabs = [...doc.querySelectorAll<HTMLButtonElement>(".acpmux-quick-rail-tab")].map((tab) => tab.title);
-    // Installed first, then the rest in catalog order.
-    expect(tabs).toEqual(["Claude Code", "Gemini CLI · Not installed", "Pi · Not installed", "Add harness…"]);
-    const geminiTab = doc.querySelector<HTMLButtonElement>('.acpmux-quick-rail-tab[aria-label="Gemini CLI"]')!;
+    const tabs = [...doc.querySelectorAll<HTMLElement>(".acpmux-cols-tab")].map((tab) => tab.title);
+    // Starred always first, installed next, then the rest in catalog order.
+    expect(tabs).toEqual([
+      "Starred",
+      "Claude Code",
+      "Gemini CLI · Not installed",
+      "Pi · Not installed",
+      "Add harness…",
+    ]);
+    const geminiTab = doc.querySelector<HTMLElement>('.acpmux-cols-tab[role="tab"][aria-label="Gemini CLI"]')!;
     await act(async () => geminiTab.click());
     await settle();
-    const menu = doc.querySelector(".acpmux-quick-menu")!;
+    expect(geminiTab.getAttribute("aria-selected")).toBe("true");
+    const menu = doc.querySelector('.acpmux-cols [role="listbox"]')!;
     expect(menu.textContent).toContain("Gemini 3.1 Pro");
-    expect(menu.textContent).toContain("Not installed");
-    const row = [...menu.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find((item) =>
+    expect(menu.querySelector(".acpmux-cols-note")?.textContent).toBe("Not installed");
+    const row = [...menu.querySelectorAll<HTMLElement>('[role="option"]')].find((item) =>
       item.textContent?.includes("Gemini 3.1 Pro"),
     )!;
     expect(row.getAttribute("aria-disabled")).toBe("true");
     await act(async () => row.click());
     expect(picked).toEqual([]);
-    const install = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+    const install = [...menu.querySelectorAll<HTMLElement>('[role="button"]')].find(
       (item) => item.textContent === "Install…",
     )!;
     await act(async () => install.click());

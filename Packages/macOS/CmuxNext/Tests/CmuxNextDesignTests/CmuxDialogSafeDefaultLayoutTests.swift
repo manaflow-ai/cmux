@@ -25,6 +25,11 @@ struct CmuxDialogSafeDefaultLayoutTests {
         Dictionary(uniqueKeysWithValues: view.buttonViews.map { ($0.button.id, $0.convert($0.bounds, to: view)) })
     }
 
+    @Test func aDialogWithADestructiveChoiceTakesTheAlertLayout() {
+        #expect(CmuxDialogSpec.Layout(alertFor: Self.spec.buttons) == .safeDefault)
+        #expect(CmuxDialogSpec.Layout(alertFor: Self.spec.buttons.filter { $0.role != .destructive }) == .standard)
+    }
+
     @Test func cancelAndTheDefaultShareALineAndTheEndChoicesAreQuietUnderThem() throws {
         let view = CmuxDialogView(spec: Self.spec)
         view.layoutSubtreeIfNeeded()

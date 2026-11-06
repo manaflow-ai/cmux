@@ -29,7 +29,7 @@ extension CloudHandlers {
                 // now. An ended app link connects again on this gesture, and
                 // a paused machine resumes (idle auto-pause).
                 target?.attach(origin: connectOrigin(for: invocation))
-                let creation = creationFlow(context, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession,
+                let creation = creationFlow(context, startedByPerson: invocation.origin == .user, capCard: invocation.isPersonsOwnRun, askedBy: invocation.callerAgentSession,
                                             reveals: invocation.allowsViewChange).start(in: window, existing: target)
                 guard let target else {
                     // A CLI or agent hears the new machine's id and target once the server has it
@@ -72,26 +72,24 @@ extension CloudHandlers {
         runTracked("new Cloud workspace", context) {
             let cloud = context.services.cloud, services = context.services
             let userID = cloud.auth.user?.id, teamID = cloud.auth.teamID
+            // Release: read the remote switch now, so the offer below reflects it (DEV and NIGHTLY skip it).
+            if !DevTools.isEnabled { await cloud.readHarnessLoginCopySwitch() }
             let availability = CloudWorkspaceSetupWizard.CredentialAvailability.resolve(
-                teamID: cloud.auth.teamID, supportsFileRoute: AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: cloud.configuration.linkSource, isSignedIn: true, passesLogin: true),
-                passesLogin: CloudStartChat.passesHarnessLoginHere)
+                teamID: cloud.auth.teamID, supportsFileRoute: AgentTabStore.cloudCredentialTransferIsAvailable(isSignedIn: true, passesLogin: true),
+                passesLogin: CloudCredentialTransfer.passesHarnessLogin(isDogfoodBuild: DevTools.isEnabled, defaults: .standard, remoteSwitch: cloud.harnessLoginCopySwitch.current))
             let present: (CmuxDialogSpec) async -> CmuxDialogAnswer = { spec in
                 let scope: CmuxDialogScope = services.windows.active?.window.map(CmuxDialogScope.window) ?? .app
                 return await CmuxDialogCenter.shared.present(spec, in: scope)
             }
             let wizard = CloudWorkspaceSetupWizard(), pick = await CloudChatPick(services: services).read(folder: await chatFolder(chat, services), tab: chat)
-            // Environments live in the cmux-next backend's CloudDO: only its Cloud path lists them.
-            let supportsEnvironments = cloud.configuration.linkSource == .appServer
-            let environments = supportsEnvironments ? await cloud.appServerEnvironmentOptions() : []
-            // The plan's sizes, from the last machine list: only the `/api/vm` create takes a size
-            // (the app server's create refuses one for now), so its path shows no size choice.
-            let sizes = cloud.configuration.linkSource == .legacy
-                ? cloud.planSizes : []
+            // Environments live in the cmux-next backend's CloudDO.
+            let environments = await cloud.appServerEnvironmentOptions()
             guard let plan = try await wizard.choosePlan(availability: availability,
                 scopeIsCurrent: { cloud.auth.user?.id == userID && cloud.auth.teamID == teamID },
-                supportsRepository: cloud.configuration.linkSource == .legacy, suggested: pick?.repo,
-                environments: environments, supportsEnvironments: supportsEnvironments,
-                sizes: sizes, autosized: pick?.autosize != nil && pick?.repo != nil, present: present) else { return }
+                // The app server's create takes no repository and no size for now.
+                supportsRepository: false, suggested: pick?.repo,
+                environments: environments, supportsEnvironments: true,
+                sizes: [], autosized: pick?.autosize != nil && pick?.repo != nil, present: present) else { return }
             var request = CloudChatPick.request(plan, sizedFor: pick)
             if let new = plan.newEnvironment {
                 // Saved first, then booted: the first machine starts cold and runs the setup itself.
@@ -162,23 +160,29 @@ extension CloudHandlers {
                     throw CancellationError()
                 }
                 if provider == .codex {
+                    // The Release consent covers the Claude login only; the Codex broker stays DEV and NIGHTLY.
+                    guard DevTools.isEnabled else { return }
                     guard let windowID = window?.id, let originalWindow = services.windows.controller(for: windowID)?.window else {
                         throw CancellationError()
                     }
                     try await cloud.codexBroker.run(machineID: session.machineID,
                         scope: .init(userID: userID, teamID: teamID), confirmed: true,
+                        askLocalSignIn: { await CloudStartChat.askCodexSignIn(services, mayAsk: true, in: .window(originalWindow)) },
                         presentDeviceCode: { prompt in
                             await CloudPresenter.presentCodexDeviceCode(prompt, in: .window(originalWindow))
                         })
                     return
                 }
+                guard await CloudStartChat.loginCopyGate(services).copyAllowed() else { return } // the transfer checks it again last
                 let transfer = CloudCredentialTransfer(provider: .claude,
-                    machineID: session.machineID, teamID: teamID, userID: userID, openTerminal: { [weak services] line in
+                    machineID: session.machineID, teamID: teamID, userID: userID,
+                    otherTeams: CloudStartChat.loginScopes(cloud), openTerminal: { [weak services] line in
                         await services?.openLocalProviderLogin(line) ?? false
                     })
                 try await transfer.run(api: cloud.machineAPI, currentTeamID: { cloud.auth.teamID },
                                        currentUserID: { cloud.auth.user?.id }, confirmed: true,
-                                       callerOwnsVM: { [machineID = session.machineID] in try await cloud.callerOwnsVM(machineID) })
+                                       callerOwnsVM: { [machineID = session.machineID] in try await cloud.callerOwnsVM(machineID) },
+                                       stillAllowed: CloudStartChat.loginCopyGate(services).stillAllowed)
             }
         }
     }
@@ -367,20 +371,20 @@ extension CloudHandlers {
     }
 
     /// The New Cloud Workspace flow over this app's services (cx-lu8f).
-    /// `startedByPerson`: true only for an action invoked with origin user;
-    /// any other create (a Retry or Dismiss button of the progress view,
-    /// which carries no gesture origin) asks the person first.
+    /// `startedByPerson`: true only for an action invoked with origin user; any other create (a Retry or Dismiss
+    /// button of the progress view, which carries no gesture origin) asks the person first. `capCard`: a refusal at
+    /// the plan's cap shows its card; false for a CLI's or agent's run, which hears the refusal at once (cmux#32725).
     /// `reveals`: the run may change the view (a person's, or one with `--focus`): a machine made with no
     /// window showing its creation still opens its workspace in one. Without it the workspace waits,
     /// out of the sidebar, until the person opens the machine (`unopenedCloudWorkspaces`).
-    static func creationFlow(_ context: AppActionContext, startedByPerson: Bool = false, askedBy: String? = nil, reveals: Bool = false,
+    static func creationFlow(_ context: AppActionContext, startedByPerson: Bool = false, capCard: Bool = true, askedBy: String? = nil, reveals: Bool = false,
                              proceed: @escaping (CloudMachineCreation) throws -> Void = { _ in }) -> CloudCreationFlow {
         let cloud = context.services.cloud
         let windows = context.services.windows
         return CloudCreationFlow(
             creations: cloud.creations,
             create: { creation in
-                try await cloud.createMachine(name: nil, creation: creation, startedByPerson: startedByPerson, askedBy: askedBy,
+                try await cloud.createMachine(name: nil, creation: creation, startedByPerson: startedByPerson, capCard: capCard, askedBy: askedBy,
                                                request: creation.request, proceed: { try proceed(creation) })
             },
             open: { session in defer { RemoteGroupHandlers.mark(session: session.daemon.store.registryID, doc: context.services.sidebarDoc) }; return try await firstWorkspace(on: session, context) },
@@ -496,7 +500,7 @@ extension CloudHandlers {
         var rows: [CmuxNextSettings.JSONValue] = []
         for session in machines.cloud {
             var row = AppControl.cloudMachineRow(session, machines)
-            row["link_pid"] = .string(await session.link?.pid.map(String.init) ?? (session.appLink == nil ? "none" : "app server"))
+            row["link_pid"] = .string("app server")
             // The daemon's whole handshake (ghostty commit, capabilities, pid, registry id, generation).
             row.merge(CloudDiagnosticsReport.daemonDetails(session.daemon.store.connectionState, last: session.daemon.store.identity)) { kept, _ in kept }
             rows.append(.object(row))
@@ -534,8 +538,8 @@ extension CloudHandlers {
     /// can show its progress; otherwise asks for nothing and says why New Workspace stays here.
     static func startNewWorkspaceInCloud(_ invocation: ActionInvocation, cwd: String?, window: WindowState?, _ services: AppServices) -> CloudNewWorkspacePlan.Outcome {
         let cloud = services.cloud, setting = CloudNewWorkspaceSetting(), root = services.settings?.snapshot.root ?? .object([:])
-        let canCopy = cloud.move.cli != nil && cloud.configuration.linkSource == .legacy
-        guard let plan = CloudNewWorkspacePlan(inCloud: setting.inCloud(in: root), inheritsFolder: canCopy && setting.folder(in: root) == .inherit, cwd: cwd,
+        // The app server's create copies no folder: the workspace opens in the machine's empty folder.
+        guard let plan = CloudNewWorkspacePlan(inCloud: setting.inCloud(in: root), inheritsFolder: false, cwd: cwd,
                                                byPerson: invocation.isPersonsOwnRun, namesMachineOrCommand: invocation["machine"] != nil || invocation["command"] != nil)
         else { return .thisMac(notice: nil) }
         switch CloudNewWorkspacePlan.route(unavailableReason: cloud.unavailableReason, signedIn: cloud.isSignedIn, hasWindow: window != nil) {

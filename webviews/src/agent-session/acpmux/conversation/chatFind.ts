@@ -8,11 +8,19 @@ import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRe
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { commandFolder } from "./commandFolder";
 import { execParts, execText, execView, isCmuxExec } from "./cmuxExec";
-import { cleanText, mcpCall, mcpOutputResult, prettyOutput, prettyValue } from "./mcpCalls";
+import { cleanText, mcpCall, mcpOutputResult, prettyOutput, type McpCall } from "./mcpCalls";
+import { acpmuxMcpSends } from "./acpmuxMcpSends";
+import { agentMessage } from "./agentMessages";
+import { dispatchCall, dispatchDestination, type DispatchCall } from "./dispatchCalls";
+import { subsessionCall } from "./subsessionCalls";
+import { argsSource, fieldsText, inputFields, opensToFields, requestText } from "./toolInputFields";
+import { fileCard, fileCardText } from "./fileResults";
 import { plainText } from "./messageMenu";
 import { drawnThought } from "./thoughts";
-import { callOutput, shellOutput, toolFailure } from "./toolFailure";
+import { callOutput, rowFailed, shellOutput, toolFailure } from "./toolFailure";
+import { agentCall } from "./agentCalls";
 import { toolResult } from "./toolResult";
+import { withoutLinks } from "./webSourceList";
 import { stripsEnvelopeImages } from "../toolImages";
 import { foldFind } from "../../../find/fold";
 
@@ -57,6 +65,13 @@ function drawnText(item: AcpmuxActivity): string {
   const tool = item.tool;
   // A thought draws its headings without their marks (ThoughtRow.tsx, thoughts.ts thoughtParts).
   if (!tool) return item.kind === "thought" ? drawnThought(item.text) : item.text;
+  // A dispatch or message card draws its words, never its call's input (DispatchCard.tsx,
+  // MessageCard.tsx): Find reads those, from either harness's shape.
+  const dispatch = dispatchCall(item);
+  if (dispatch) return dispatchText(dispatch);
+  const message = !tool.command && !acpmuxMcpSends(tool) ? agentMessage(tool) : undefined;
+  // Its text draws as Markdown (AgentMessageBody.tsx), so Find reads its words, not its marks.
+  if (message) return [message.to, message.text && plainText(message.text)].filter(Boolean).join("\n");
   const call = mcpCall(tool);
   // A finished call's envelope images show in its strip, not its text (toolImages.ts).
   const strip = stripsEnvelopeImages(tool);
@@ -70,15 +85,32 @@ function drawnText(item: AcpmuxActivity): string {
     const output = failure?.kind === "hook" ? failure.output : tool.output;
     const result = mcpOutputResult(output, strip, call.tool);
     const text = result?.lang === "markdown" ? plainText(result.text) : result?.text;
-    return [prettyValue(call.args), text].filter(Boolean).join("\n");
+    // Arguments that open as labeled fields are read as their values (ToolDetail.tsx); any other
+    // shape, and a hook's refusal, as the pretty request.
+    const source = argsSource(tool);
+    const fields = failure?.kind === "hook" || drawnAsCard(item, call) ? undefined : inputFields(call.args, source);
+    return [fields ? fieldsText(fields, plainText) : requestText(call.args, source), text].filter(Boolean).join("\n");
   }
+  // A subagent's card draws its report, then its prompt (AgentCallCard.tsx); its line is a summary.
+  const agent = agentCall(tool);
+  if (agent)
+    return [agent.report, agent.prompt]
+      .filter(Boolean)
+      .map((text) => plainText(text!))
+      .join("\n");
   const shell = tool.kind === "execute" && Boolean(tool.command);
   // A shell draws its output without Claude Code's leading "Exit code N" line (toolFailure.ts), which
   // its Shell block says once, at its end. Other output reads as ToolRow draws it: out of its envelope,
   // without injected context (toolResult.ts), and Markdown as its words, without the marks
   // (messageMenu.ts plainText).
-  const raw = shell ? undefined : callOutput(tool);
+  // A search's links line is its sources chip's, not its body's (webSourceList.ts withoutLinks).
+  const called = shell ? undefined : callOutput(tool);
+  const raw = called && withoutLinks(tool, called);
   const result = shell || !raw ? undefined : toolResult(raw, cleanText, strip, tool);
+  // A finished read or file search draws its card: a read's lines, a search's files and matching
+  // lines, never its input fields (FileResultCard.tsx).
+  const card = shell || rowFailed(tool) ? undefined : fileCard(tool, result?.text);
+  if (card) return [tool.title, fileCardText(card)].filter(Boolean).join("\n");
   const output = shell
     ? shellOutput(tool)
     : !result
@@ -86,9 +118,40 @@ function drawnText(item: AcpmuxActivity): string {
       : result.lang === "markdown"
         ? plainText(result.text)
         : result.text;
+  // A call that is not a shell or an edit opens to its input's fields, over its output when it has
+  // any (ToolRow.tsx).
+  const fields =
+    !shell && opensToFields(tool, rowFailed(tool) ? toolFailure(tool) : undefined)
+      ? inputFields(tool.inputSummary)
+      : undefined;
   // The command as its rows draw it, without a leading `cd <folder> &&` (commandFolder).
-  return [(tool.command && commandFolder(tool.command).rest) || tool.title, output].filter(Boolean).join("\n");
+  return [
+    (tool.command && commandFolder(tool.command).rest) || tool.title,
+    fields && fieldsText(fields, plainText),
+    output,
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
+
+/** An MCP call a card draws instead of the MCP row (toolGroups.ts): a sub-session, a sent or
+ * another agent's message. Its Raw keeps the request as it came, which Find reads. */
+const drawnAsCard = (item: AcpmuxActivity, call: McpCall) =>
+  Boolean(acpmuxMcpSends(item.tool!) || agentMessage(item.tool!) || subsessionCall(item.tool!, call));
+
+/** A dispatch card's words, as DispatchCard.tsx draws them opened. */
+const dispatchText = (call: DispatchCall) =>
+  [
+    call.title ?? call.briefId,
+    call.text,
+    call.summary !== call.text && call.summary,
+    call.from,
+    dispatchDestination(call),
+    call.stopCondition,
+    call.briefId,
+  ]
+    .filter(Boolean)
+    .join("\n");
 
 /** A call's edits' new text, which draws in @pierre/diffs' shadow root, past the page's highlights. */
 const diffText = (item: AcpmuxActivity) => (item.tool?.diffs ?? []).map((diff) => diff.newText).join("\n");
@@ -344,6 +407,16 @@ export function clearFindHighlights() {
  * the active match's range when its row is mounted (its last match when the drawn text has fewer
  * than the row's text, such as a link's hidden address).
  */
+/// Whether text in `element` is outside Find: under a `data-find-skip`, unless a `data-find-keep`
+/// nearer to it brings it back (a tool's notice's title on its line, whose line is a summary that
+/// Find skips: IncomingMessageCard.tsx).
+export function findSkipped(element: Element | null | undefined): boolean {
+  const skip = element?.closest("[data-find-skip]");
+  if (!skip) return false;
+  const keep = element?.closest("[data-find-keep]");
+  return !keep || !skip.contains(keep);
+}
+
 export function paintFindHighlights(
   root: HTMLElement,
   query: string,
@@ -370,7 +443,7 @@ export function paintFindHighlights(
     const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT, {
       // A member row drawn inside this one (`data-find-member`) counts its own matches, never twice.
       acceptNode: (node) =>
-        node.parentElement?.closest("[data-find-skip]") ||
+        findSkipped(node.parentElement) ||
         node.parentElement
           ?.closest("[data-find-member][data-row-id]")
           ?.closest("[data-row-id]:not([data-find-member])") === row

@@ -106,11 +106,12 @@ impl super::ClientRegistry {
     /// A poisoned registry lock also gives `None`, which every caller treats
     /// as remote (fail closed).
     pub(super) fn transport_of(&self, client: u64) -> Option<ClientTransport> {
-        lock_checked(&self.state, RelayLock::Clients)
-            .ok()?
-            .clients
-            .get(&client)
-            .map(|record| record.transport)
+        if self.input_lane.on() {
+            // The published facts, never the registry lock (R-DAEMON-STATE S1); a poisoned registry still
+            // fails closed.
+            return self.state.load().ok()?.clients.get(&client).map(|facts| facts.transport);
+        }
+        self.state.lock().ok()?.clients.get(&client).map(|record| record.transport)
     }
 
     /// True for a connection that came through the remote entry (tests;
@@ -176,7 +177,7 @@ impl Mux {
         } else {
             None
         };
-        match lock_checked(&relay.peers, RelayLock::Peers) {
+        match relay.peers_checked() {
             Ok(mut peers) => {
                 peers.insert(client, peer.clone());
                 if let Some(clients) = cloud_clients.as_deref_mut() {

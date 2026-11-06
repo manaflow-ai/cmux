@@ -60,7 +60,7 @@ extension SettingsSchema {
         "sidebar.minimalMode", "sidebar.minimal", "sidebar.density", "sidebar.textSize", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.showColors",
         "sidebar.showLocalMachine", "workspaceColors.indicatorStyle",
         "sidebar.controlsOnHover", // sidebar control visibility (looks only)
-        "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount",
+        "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background",
         "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps",
         "sidebar.side", "sidebar.style",
         "sidebar.spacesPosition", "sidebar.spacesVisibility",
@@ -74,6 +74,7 @@ extension SettingsSchema {
         "app.showMenuBarIcon", // the menu bar item; looks only, ends no work
         "tabs.overflow",
         "tabs.verticalTabs", "tabs.verticalTabsExpandOnHover", // how tabs are listed (looks only)
+        "tabs.hideLoneChatTab", // whether a lone chat's tab draws (looks only)
         "tabs.swapCmdTAndCmdN",
         "tabs.commandDigits",
         "palette.scopes.tabs.prefix",
@@ -105,6 +106,7 @@ extension SettingsSchema {
         "appearance.accent",
         "appearance.highlightColor", // the app's one selected-text color (looks only)
         "appearance.themeEdits",
+        "appearance.themeFile", // the theme file whose look applies (looks only)
         "appearance.favoriteThemes", "appearance.rotateFavoriteThemes", // starred themes and their rotation (looks only)
         "appearance.machineColors", // the color of each machine's marks (looks only)
         "appearance.backdropArt",
@@ -162,6 +164,7 @@ extension SettingsSchema {
         "appearance.colorTransition.reduceMotion",
         "layout.panePadding",
         "layout.paneCornerRadius",
+        "layout.cornerPadding",
         "layout.paneBorder",
         "layout.paneSeparation",
         "sidebar.border",
@@ -186,6 +189,7 @@ extension SettingsSchema {
         "status.inferCommandBusyAfter",
         "terminal.fontFamily",
         "terminal.fontSize",
+        "terminal.term",
         "sidebar.sectionLook",
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
@@ -240,15 +244,20 @@ extension SettingsSchema {
         // cmux-browser mutes a workspace through settings.set as `script` (cmux-browser #614).
         "notifications.mutedWorkspaces",
         "labs.previewFeatures",
-        "labs.classicHome",
         // Which Home entries the sidebar shows (looks only; `cmux home enable-channels` runs as an agent writer).
         "home.channelsEnabled",
         // The floating Chief pet and its character: a display the person can hide again; its reply
         // box types only what the person writes.
         "home.chiefPetEnabled",
         "home.chiefPetMascot",
+        // Where the docked Chief sits and where its links open (layout choices, like pane placement).
+        "home.chiefDock.edge",
+        "home.chiefDock.openBeside",
         // Needs you in the agent chat header (an App Store item): a display the person can hide again.
         "agentPane.needsYou.enabled",
+        // Start New Chats In (This Mac or Cloud): the person asks an agent to set it (Leo, 2026-10-31);
+        // a new chat's composer can still change it for that chat.
+        "agentPane.newChatsIn",
         "updates.notify",
         "updates.showWhatsNew",
         // Feature tips: a display the person can turn on again.
@@ -261,6 +270,8 @@ extension SettingsSchema {
         .merging(refusedTable) { first, _ in first }
         // Which agents the Chief's subagents may run on (and so whose usage they spend): the person decides.
         .merging(ChiefRoutingSettingsSchema.keys.map { ($0, AgentRefusal.userOnly) }) { first, _ in first }
+        // Which subagents show in the sidebar is the person's to shape, not an agent's.
+        .merging(ChiefSidebarSettingsSchema.keys.map { ($0, AgentRefusal.userOnly) }) { first, _ in first }
         .merging(BrowserPasswordsSettingsSchema.refusedKeys) { first, _ in first }
         .merging(BrowserVerificationAutofillSettingsSchema.refusedKeys) { first, _ in first }
 
@@ -269,20 +280,32 @@ extension SettingsSchema {
         "freeModel.enabled": .privacy,
         // The Cloud toggle copies the person's folder off this Mac to a paid machine: theirs to set.
         "cloud.newWorkspacesInCloud": .privacy, "cloud.newWorkspaceFolder": .privacy,
+        // Whether an agent starts Cloud machines and sessions with no Start card: only the person delegates it.
+        "cloud.agentsStartWithoutAsking": .userOnly,
+        // The person's consent to copy their own Claude login to their own Cloud machines: only theirs to give.
+        "cloud.useMyClaudeLoginOnMyCloudMachines": .privacy,
+        "cloud.useMyCodexLoginOnMyCloudMachines": .privacy,
         "agents.chats.roots": .privacy,
         "agents.chats.discovery": .privacy,
         "agentPane.scrollToBottomOnSend": .userOnly,
         "agents.chats.enabled": .privacy,
+        // Each recap is an extra model call on the person's usage: theirs to turn on or off.
+        "agents.chats.sessionRecap": .userOnly,
         "picker.pinned": .userOnly,
         // Whether workspaces leave the sidebar on their own: the person decides (auto-archive-DESIGN.md).
         "workspaces.autoArchive.style": .userOnly, "workspaces.autoArchive.idleDays": .userOnly,
         "workspaces.hibernation.enabled": .userOnly, "workspaces.hibernation.idleMinutes": .userOnly,
         "workspaces.hibernation.hiddenSpaceMinutes": .userOnly,
+        // Freeing ends shells (sidebar-recents-and-freeing-DESIGN.md): an agent must not turn it on to end the person's work.
+        "workspaces.freeing.enabled": .destructive, "workspaces.freeing.idleMinutes": .destructive,
+        "workspaces.freeing.agents": .destructive, "workspaces.freeing.runningCommands": .destructive,
         // Which of the person's folders the Screenshots page reads.
         "screenshots.findTools": .privacy, "screenshots.folders": .privacy,
         // A pin leads the empty palette and an alias wins its word: an agent could put Close Window
         // under the user's Return.
         "palette.aliases": .userOnly, "palette.pins": .userOnly,
+        // Whether the palette records what the person runs.
+        "palette.searchHistory": .privacy,
         "history.terminalCommands": .privacy,
         "history.commandRetentionDays": .privacy,
         "history.closed.maxGroups": .privacy,
@@ -291,6 +314,8 @@ extension SettingsSchema {
         "feed.mirrorNotifications.terminal": .privacy,
         // An agent must not turn on sending its own prompts to the phone (cx-aocz).
         "feed.agentPermissionPrompts": .privacy,
+        // Whether Chief Home pins the Feed's requests over the person's chat is theirs to turn on.
+        "feed.needsYouInChief": .userOnly,
         "feed.github.enabled": .network,
         "feed.github.pollIntervalSeconds": .network,
         "browser.remoteLocalhost": .network,
@@ -314,6 +339,10 @@ extension SettingsSchema {
         "browser.enabled": .userOnly,
         // On, agents can ask to read another browser's cookies and data again (`browser.importCookies`, `import.suggest`).
         "browser.import.enabled": .privacy,
+        // Only the person's Connect click opts in to reading Messages.
+        "imessage.enabled": .privacy,
+        // A walkthrough choice, never permission to read Messages or send a reply.
+        "imessage.automationSkipped": .userOnly,
         "browser.openTerminalLinksInCmuxBrowser": .privacy,
         // The app that opens your files from a menu: an agent must not pick what runs them.
         "files.textEditor": .userOnly,
@@ -336,8 +365,6 @@ extension SettingsSchema {
         // A reply's file link outside the project, and a reply's web image (D4, D5).
         "agentPane.links.outsideRoots": .privacy,
         "agentPane.images.remote": .network,
-        // Whether a new chat starts on a Cloud machine, its project copied there: what leaves the machine.
-        "agentPane.newChatsIn": .privacy,
         "app.quitBehavior": .destructive,
         // Voice Room records mic and screen text and posts it to the configured room.
         "labs.voiceRoom": .privacy,
@@ -346,6 +373,8 @@ extension SettingsSchema {
         // On, Add Device mints a line that joins any machine to the team's machines: only the person
         // turns that on.
         "labs.machineJoin": .network,
+        // On, a live code build loads Swift patches into the running app: only the person turns that on.
+        "labs.liveCode": .userOnly,
         // On, a key is taken from every other app system-wide.
         "app.globalHotKey": .userOnly,
         "app.startAgentGlobalHotKey": .userOnly,
@@ -371,6 +400,8 @@ extension SettingsSchema {
         // On, cmux starts a helper that sees and controls other apps; only the person turns it on.
         // What a new chat may do without asking: an agent must not widen its own approvals.
         "agents.defaultPermissionMode": .userOnly,
+        // How long Claude Code chats keep their prompt cache: it moves the person's model bill.
+        "agents.promptCache": .userOnly,
         "computerUse.enabled": .userOnly,
         "computerUse.driver": .userOnly,
         // How hard cmux pulls the person back from another app: theirs to pick, not an agent's.
@@ -393,6 +424,12 @@ extension SettingsSchema {
         "agents.subsessions.maxChildren": .userOnly,
         "agents.subsessions.maxRunning": .userOnly,
         "agents.subsessions.maxDepth": .userOnly,
+        // What every agent is told, and which of the person's skills reach it, is the person's
+        // call: an agent must not switch off the guidance or the skills it was given.
+        "agents.guidance.claude": .userOnly,
+        "agents.guidance.codex": .userOnly,
+        "agents.guidance.otherAgents": .userOnly,
+        "agents.guidance.userSkills": .userOnly,
         // Whether and how often a failed turn is sent again spends the person's usage: their call,
         // as `sessions.resumeAgents` is.
         "agents.autoRetry.enabled": .userOnly,
@@ -419,12 +456,18 @@ extension SettingsSchema {
         "mobile.terminalSizing": .userOnly,
         "mobile.terminalSizingOrder": .userOnly,
         // On, a session event tap takes system chords from macOS for the other Mac; only the person turns it on.
-        "macScreen.systemShortcuts": .userOnly,
+        "macScreen.systemShortcuts": .userOnly, "remote.endSharingOnQuit": .userOnly, // cmux Remote: the person's call
         // Changes how this Mac's Mac Screen streams leave the network; only the person sets it.
         "macScreen.debug.relayOnly": .userOnly,
         // Chooses the server this Mac registers its device keys with; only the person sets it.
         "deviceHub.url": .userOnly,
         "updates.installOnQuit": .destructive,
+        // On, one click restarts cmux into an update: the person's call.
+        "updates.oneClickInstall": .userOnly,
+        // On, What's New offers Install, which restarts cmux into another build: the person's call.
+        "updates.whatsNewInstall": .userOnly,
+        // On, pages load from a loopback server the person runs: the person's call.
+        "updates.liveWebReload": .userOnly,
         "updates.keepPreviousVersions": .destructive,
     ]
 

@@ -80,7 +80,7 @@ public struct DaemonConnectionConfiguration: Sendable {
         healthyAfter: Duration = .seconds(10),
         retryWake: RetryWake? = nil,
         requestTimeout: Duration? = DaemonConnection.defaultRequestTimeout,
-        snapshotTimeout: Duration? = .seconds(10),
+        snapshotTimeout: Duration? = DaemonConnection.defaultRequestTimeout,
         spawnTimeout: Duration? = DaemonConnection.defaultSpawnTimeout,
         terminalEnvironment: (@Sendable () async -> [String: String])? = TerminalEnvironment.instance.shared(),
         resolvesShellIntegration: Bool = false,

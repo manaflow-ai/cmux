@@ -74,7 +74,13 @@ test("no rule declares a background other than transparent or the two interactio
   expect(fills.length).toBeGreaterThan(0);
   const htmlSurface = (item: { selector: string; value: string }) =>
     item.value === surface && selectors(item).every((part) => part === "html");
-  expect(fills.filter((item) => !allowedFills.has(item.value) && !htmlSurface(item))).toEqual([]);
+  // A progress bar's filled part is its value, not a surface (Settings > Updates' download bar, #33176).
+  const progressValue = (item: { selector: string; value: string }) =>
+    item.value === "var(--text)" &&
+    selectors(item).every((part) => /::-(?:webkit-progress-value|moz-progress-bar)$/.test(part));
+  expect(fills.filter((item) => !allowedFills.has(item.value) && !htmlSurface(item) && !progressValue(item))).toEqual(
+    [],
+  );
   // Containers never take a token fill; only controls and interaction states do.
   const containers =
     /^(body|#root|\.settings|\.sidebar|\.content|\.section|\.group|\.rows|\.row|\.row-main|\.result-section|\.domain-panel|\.notice|\.banner)$/;
@@ -83,24 +89,7 @@ test("no rule declares a background other than transparent or the two interactio
   ).toEqual([]);
 });
 
-test("theme colors read the one web theme first, then the page theme", () => {
-  const root = new Map(
-    declarations(stylesheet)
-      .filter((item) => item.selector === ":root")
-      .map((item) => [item.property, item.value.replace(/\s+/g, " ").replace(/\(\s/g, "(")]),
-  );
-  const expected: Array<[string, string, string]> = [
-    ["--text", "--cmux-text", "--app-text"],
-    ["--muted-text", "--cmux-text-secondary", "--app-muted-text"],
-    ["--soft-text", "--cmux-text-tertiary", "--app-soft-text"],
-    ["--border", "--cmux-separator", "--app-border"],
-    ["--input-bg", "--cmux-hover", "--app-input-bg"],
-    ["--accent-soft", "--cmux-selection", "--app-accent-soft"],
-  ];
-  for (const [name, cmux, app] of expected) {
-    expect(root.get(name)).toStartWith(`var(${cmux}, var(${app},`);
-  }
-});
+// Real host-theme propagation is exercised in settings-controls-browser.test.ts.
 
 test("the rendered page: html carries only the surface background, body and containers none", async () => {
   // Probe: the computed-style check sees stylesheet fills, so a pass below is meaningful.

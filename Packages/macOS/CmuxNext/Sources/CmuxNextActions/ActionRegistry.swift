@@ -153,6 +153,8 @@ public final class ActionRegistry {
     /// Each sees every handler run just before it runs, with the run's effective origin (a run
     /// nested in a CLI run is the CLI's): the sidebar animates only changes its user asked for.
     @ObservationIgnored public var willRunObservers: [@MainActor (ActionID, ActionOrigin) -> Void] = []
+    /// What the App's top pages mean for runs (``install(_:)``); nil: no top pages.
+    @ObservationIgnored public internal(set) var topPageRules: ActionTopPageRules?
     /// Sees every handler run after it ran (the tips card's local usage flags).
     @ObservationIgnored public var runObserver: (@MainActor (ActionID, ActionInvocation) -> Void)?
     /// The key window's claim on a run (``KeyWindowRoute``), asked first by `perform` and menu validation.

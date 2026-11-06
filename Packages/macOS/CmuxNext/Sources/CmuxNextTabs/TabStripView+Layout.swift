@@ -32,9 +32,12 @@ extension TabStripView {
     /// outside a gesture); otherwise they are there at once at full width (nx-cmdt-fix). `token` is the
     /// tween the tabs move on (open when tabs grow in, else this, else `tabMove`): Chrome moves every
     /// tab from where it is to its slot on one 200 ms ease-out, restarted only by a new target.
-    /// `keepsSelectedInView`: the strip scrolls to the selected tab.
-    func relayout(animated: Bool, added: Set<TabID> = [], growsAdded: Bool = false, token: MotionTween? = nil, keepsSelectedInView: Bool = false) {
+    /// `keepsSelectedInView`: the strip scrolls to the selected tab. `keepsClosing`: with no move, a closing tab still
+    /// goes when its own move ends (its pane's width changed while it closed).
+    func relayout(animated: Bool, added: Set<TabID> = [], growsAdded: Bool = false, token: MotionTween? = nil, keepsSelectedInView: Bool = false,
+                  keepsClosing: Bool = false) {
         let grows = growsAdded
+        rowPasses.layouts &+= 1
         result = TabLayoutEngine.layout(
             items: layoutItems(),
             availableWidth: viewportWidth,
@@ -85,7 +88,6 @@ extension TabStripView {
             if added.contains(slot.id), move != nil, starts[slot.id] == nil { starts[slot.id] = place }
             placed[slot.id] = place
         }
-        pinClosingTabs()
         updateCrowded()
         scrollOffset = TabScrollMath.clamp(scrollOffset, contentWidth: result.contentWidth, viewportWidth: viewportWidth)
         if keepsSelectedInView, drag == nil, let slot = model.selectedID.flatMap({ result.slot($0) }) {
@@ -94,7 +96,7 @@ extension TabStripView {
         }
         // No motion (not animated, a tab there at once, a window with no screen): a closing tab's room is
         // already given away, so it goes now too, one consistent frame.
-        if move == nil { for id in dying { removeTab(id) } }
+        if move == nil, !keepsClosing { for id in dying { removeTab(id) } }
         TabSeparatorVisibility.apply(to: self)
         // An opening tab first shows where it opens from; the move takes it to its slot.
         if !starts.isEmpty { place(starts, mapping: mappingBefore) }
@@ -112,39 +114,29 @@ extension TabStripView {
         onCrowdedChange?(crowded)
     }
 
-    /// A closing tab's left edge stays on the previous tab's right edge minus the close width (0: our
-    /// tabs do not overlap) while it shrinks to that width (Chrome StartRemoveTabAnimation), following
-    /// that tab as it resizes: both move on one tween from one frame. The previous tab is the one left
-    /// of it when it closed (by order, not by x: a tab opened meanwhile must not move it a slot); the
-    /// first tab keeps its x.
-    func pinClosingTabs() {
-        let closeWidth = metrics.chrome.closeEndWidth
-        for id in dying where id.chipGroupID == nil {
-            guard var place = placed[id] else { continue }
-            let previousMaxX: CGFloat?
-            if let anchor = closingAnchors[id] {
-                // The left neighbour's slot, or its own closing geometry when it is closing too.
-                previousMaxX = anchor.flatMap { a in result.slot(a)?.maxX ?? placed[a]?.maxX }
-            } else {
-                previousMaxX = result.slots.last { $0.id != Self.placeholderID && $0.x < place.x - 0.5 }?.maxX
-            }
-            place.x = previousMaxX.map { $0 - closeWidth } ?? place.x
-            placed[id] = place
-        }
-    }
-
     /// The motion of a strip change on `token`, or nil when it applies at once (the token does not
     /// animate, or the window has no screen, where Core Animation would never end it).
     func stripMove(_ token: MotionTween) -> TabStripMove? {
         guard let motion = MotionMove.tween(token, in: Motion.tabs), Motion.canAnimate(in: self) else { return nil }
         moveGeneration += 1
-        return TabStripMove(generation: moveGeneration, motion: motion, closing: token == .tabClose ? nil : MotionMove.tween(.tabClose, in: Motion.tabs))
+        return TabStripMove(generation: moveGeneration, motion: motion)
+    }
+
+    /// Runs `work` once no strip move is in flight (at once when none is): a tab's open has ended its motion.
+    public func whenStill(_ work: @escaping @MainActor () -> Void) {
+        guard !movesInFlight.isEmpty else { return work() }
+        stillWaiters.append(work)
     }
 
     /// Every move of `generation` ended: a closing tab or chip it carried goes, and the masks and
     /// clips that only that motion needed come off.
     func moveEnded(_ generation: Int) {
         movesInFlight.remove(generation)
+        if movesInFlight.isEmpty, !stillWaiters.isEmpty {
+            let waiting = stillWaiters
+            stillWaiters.removeAll()
+            waiting.forEach { $0() }
+        }
         let now = CACurrentMediaTime()
         // The move that ends last carries it; a little slack for the completion's own frame.
         for id in dying where (goesAt[id] ?? .infinity) <= now + 0.02 { removeTab(id) }
@@ -187,7 +179,7 @@ extension TabStripView {
         var move: TabStripMove?
         if animated, !reduceMotion, Motion.canAnimate(in: self), let motion = MotionMove.spring(.scroll, in: Motion.tabs) {
             moveGeneration += 1
-            move = TabStripMove(generation: moveGeneration, motion: motion, closing: nil, isScroll: true)
+            move = TabStripMove(generation: moveGeneration, motion: motion, isScroll: true)
         }
         applyFrames(move: move, scrollFrom: from)
     }
@@ -213,7 +205,7 @@ extension TabStripView {
     func noteClosing(_ id: TabID, moved: Bool, move: TabStripMove) {
         guard dying.contains(id) else { return }
         // A reveal's spring only scrolls it (it may be cut short by a wheel): the close decides when it goes.
-        let end = CACurrentMediaTime() + (moved && !move.isScroll ? move.duration(closing: id.chipGroupID == nil) : 0)
+        let end = CACurrentMediaTime() + (moved && !move.isScroll ? move.duration : 0)
         goesAt[id] = max(goesAt[id] ?? 0, end)
     }
 
@@ -259,6 +251,7 @@ extension TabStripView {
     /// Shows the cells and chips of `places` there at once, at `mapping`'s scroll (where a new tab
     /// opens from, or a new chip first shows); `placed` is unchanged.
     func place(_ places: [TabID: TabPlace], mapping: TabScrollMapping) {
+        framedCells = nil
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         for (id, place) in places {
@@ -326,7 +319,7 @@ extension TabStripView {
                 let resized = frame.size != cell.frame.size
                 cell.setFrame(frame, laysOut: false)
                 cell.layer.opacity = opacity
-                moved = move.animate(from: before, closing: dying.contains(id), scroll: scrollPart(isPinned: isPinned))
+                moved = move.animate(from: before, scroll: scrollPart(isPinned: isPinned))
                 if resized { cell.layoutLayers() }
             } else {
                 cell.frame = frame
@@ -339,11 +332,13 @@ extension TabStripView {
             trailing = max(trailing, place.maxX)
         }
         updateOcclusion()
+        layoutPinnedDivider(mapping: mapping, tabY: tabY, tabHeight: tabHeight, pixel: pixel)
         for group in groups.chips.keys {
             guard let place = placed[.groupChip(group)] else { continue }
             trailing = max(trailing, place.maxX)
         }
         applyGroupFrames(offset: offset, tabY: tabY, tabHeight: tabHeight, pixel: pixel, move: move, scroll: scrollPart(isPinned: false))
+        framedCells = FramedCells(basis: cellFrameBasis(mapping: mapping), trailing: trailing, count: cells.count)
         let buttonWidth = metrics.newTabButtonWidth
         let buttonX = tabsClip.frame.minX + min(trailing - offset, viewportWidth)
         // Square, centered on the tabs: it keeps its size when the tabs are shorter.

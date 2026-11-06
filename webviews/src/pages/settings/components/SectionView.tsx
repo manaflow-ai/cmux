@@ -24,6 +24,7 @@ import { DENSITY_ROWS } from "../density";
 import { DensityCard } from "./DensityCard";
 import { BrowserProfiles, MACHINE_COLORS_KEY, MachinesSection, SpacesSection } from "./HostSections";
 import { PlaceholderSection } from "./PlaceholderSection";
+import { AppUpdateCard } from "./AppUpdateCard";
 import { WebUpdatesCard } from "./WebUpdatesCard";
 import { VoiceInputCard } from "./VoiceInputCard";
 import { ContextMenusCard } from "./ContextMenusCard";
@@ -35,6 +36,7 @@ import {
   HIGHLIGHT_COLOR_KEY,
   ROTATE_FAVORITES_KEY,
   THEME_EDITS_KEY,
+  THEME_FILE_KEY,
   THEME_KEY,
   ThemeStudio,
 } from "./ThemeStudio";
@@ -66,6 +68,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   density: () => <DensityCard />,
   importSuggestions: () => <ImportSuggestionsCard />,
   channels: (focus) => <ChannelsCard focus={focus} />,
+  appUpdate: () => <AppUpdateCard />,
   webUpdates: () => <WebUpdatesCard />,
   voiceInput: () => <VoiceInputCard />,
   notices: () => <NoticesCard />,
@@ -86,11 +89,11 @@ export function SectionView({
 }) {
   const category = categoryById(section);
   // The theme studio draws appearance.theme, appearance.appTheme, appearance.accent,
-  // appearance.highlightColor and appearance.rotateFavoriteThemes itself; the schema's group for
-  // them would draw each a second time (a second "App Theme" card).
+  // appearance.highlightColor, appearance.rotateFavoriteThemes and appearance.themeFile itself; the
+  // schema's group for them would draw each a second time (a second "App Theme" card).
   const studio = category.lead.includes("themeStudio");
   const drawn = new Set(
-    studio ? [THEME_KEY, APP_THEME_KEY, ACCENT_KEY, HIGHLIGHT_COLOR_KEY, ROTATE_FAVORITES_KEY] : [],
+    studio ? [THEME_KEY, APP_THEME_KEY, ACCENT_KEY, HIGHLIGHT_COLOR_KEY, ROTATE_FAVORITES_KEY, THEME_FILE_KEY] : [],
   );
   // The background picker draws appearance.background and its Opacity while it shows.
   const picker = useBackdropsShown() && [...category.lead, ...category.trail].includes("backdrops");

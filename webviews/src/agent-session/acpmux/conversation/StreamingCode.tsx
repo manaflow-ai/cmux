@@ -21,6 +21,7 @@ import { entranceAllowed } from "../../shared/pageReveal";
 export function PlainCode({
   code,
   lang,
+  label,
   open = false,
   actions,
   artifactIdentity,
@@ -28,40 +29,57 @@ export function PlainCode({
 }: {
   code: string;
   lang: string;
+  label?: string;
   open?: boolean;
   actions?: ReactNode;
   artifactIdentity?: string;
   artifactRevision?: number;
 }) {
   const t = useT();
-  const look = useCodeHeaderLook(lang);
+  const look = useCodeHeaderLook(lang, label);
   // A tree drawn in box-drawing characters (├─ │) draws on lines that touch (conversation.css
   // `.cv-codeblock--diagram`); read once per code, not per render.
   const diagram = useMemo(() => isDiagram(code, lang), [code, lang]);
-  const lines = code.split("\n");
-  // An open fence's trailing empty line is the newline before a line still arriving; drawing it
-  // would make the card a line taller than the closed card it becomes.
-  if (open && lines.length > 1 && lines.at(-1) === "") lines.pop();
   return (
     <div
       className={`cv-codeblock cv-codeblock--plain${codeHeaderClass(look)}${diagram ? " cv-codeblock--diagram" : ""}`}
       ref={menuPartRef({ code })}
     >
-      <CodeHeader look={look} lang={lang}>
+      <CodeHeader look={look} lang={lang} label={label}>
         <OpenPreview code={code} lang={lang} identity={artifactIdentity} revision={artifactRevision} />
         <CopyButton text={code} label={t("code.copy")} />
         {actions}
       </CodeHeader>
       <div className="cv-codeblock__body">
-        <pre className="cv-code-plain selectable">
-          {lines.map((line, index) => (
-            <div key={index} className="cv-code-plain__line">
-              {line || "​"}
-            </div>
-          ))}
-        </pre>
+        <PlainCodeLines code={code} trimTrailingLine={open || !diagram} />
       </div>
     </div>
+  );
+}
+
+/// The same visible lines serve the lazy chunk and the worker wait. Pierre treats a final newline
+/// as the end of the last line, not an extra empty row.
+export function PlainCodeLines({
+  code,
+  trimTrailingLine = true,
+  wrap = false,
+}: {
+  code: string;
+  trimTrailingLine?: boolean;
+  wrap?: boolean;
+}) {
+  const lines = (trimTrailingLine ? code.replace(/\n$/, "") : code).split("\n");
+  return (
+    <pre
+      className="cv-code-plain selectable"
+      style={wrap ? { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } : undefined}
+    >
+      {lines.map((line, index) => (
+        <div key={index} className="cv-code-plain__line">
+          {line || "​"}
+        </div>
+      ))}
+    </pre>
   );
 }
 

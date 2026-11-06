@@ -27,8 +27,8 @@ public nonisolated enum MachineKind: String, Hashable, Sendable, CaseIterable {
     case ssh
     /// A paired cmux server.
     case server
-    /// A machine that joined with a one-line token and that the app reaches through the mesh alone
-    /// (Labs `labs.machineJoin`). A joined machine the app also connects to keeps that link's kind.
+    /// A machine that joined through the hub (a pair code or a one-line token) and that the app reaches
+    /// through the mesh alone. A joined machine the app also connects to keeps that link's kind.
     case joined
 
     /// The row's icon: the catalog icon whose meaning is this kind.
@@ -87,7 +87,7 @@ public nonisolated struct MachineSectionRow: Identifiable, Hashable, Sendable {
     public let health: HostHealth?
     /// The step the last check flagged (its first failure, else its first warning).
     public let healthStep: HostStep?
-    /// A machine that joined with a one-line token (Labs `labs.machineJoin`): reached through the
+    /// A machine that joined through the hub (a pair code or a one-line token): reached through the
     /// mesh, with Check, Rotate Credential and Revoke. Nil for a machine the app connects to.
     public let joined: JoinedMachine?
 
@@ -212,8 +212,8 @@ public nonisolated struct MachineSectionGroup: Identifiable, Hashable, Sendable 
 }
 
 /// The Machines section's rows (``MachineSectionView`` shows them): the App reads this Mac, every
-/// Cloud, SSH and server machine and the machines that joined with a one-line token (Labs
-/// `labs.machineJoin`) from its registries (`MachineSectionRow.rows`, CmuxNextApp).
+/// Cloud, SSH and server machine and the machines that joined through the hub from its registries
+/// (`MachineSectionRow.rows`, CmuxNextApp).
 extension MachineSectionRow {
     /// Sample machines, one of each kind and state, for the gallery and captures on a slot with no
     /// remote machine (`machines.section.fixture`). Names are made up.

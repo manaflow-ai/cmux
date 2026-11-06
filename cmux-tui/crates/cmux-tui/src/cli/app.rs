@@ -35,10 +35,12 @@ mod classic;
 mod events;
 mod group_create;
 mod keybinding;
+mod live;
 mod nightly;
 mod open;
 mod open_link;
 mod page;
+mod renderers;
 mod right;
 mod run;
 mod settings;
@@ -75,13 +77,16 @@ pub(super) const APP_SCOPES: &[&str] = &[
 /// network action the app bounds itself (`ActionDescriptor.resultDeadline`,
 /// 40 s, Connect to CodeRouter), so the CLI gives the app longer than that.
 pub(super) const READ_TIMEOUT: Duration = Duration::from_secs(5);
+/// The app method `cmux app remote-views` reads; the app registers it in every
+/// build (RemoteViewTabsControl.releaseMethods, whose test reads this line).
+pub(super) const REMOTE_VIEWS_METHOD: &str = "remote_view.state";
 pub(super) const WAITING_RUN_TIMEOUT: Duration = Duration::from_secs(45);
 /// `errors.list` reads the app's logs first (the app bounds it at 12 s).
 const ERRORS_TIMEOUT: Duration = Duration::from_secs(15);
 /// A run that waits for a person's answer in the app (an agent's cookie
 /// import shows a consent panel, then macOS asks for a password; Invite to
 /// Team waits for Send in its dialog; an agent's or script's Share Chat with
-/// Guest waits for the owner's Make Link, #30263): the app
+/// Guest or Invite People waits for the owner's Make Link or Invite, #30263): the app
 /// bounds it at 200 s (`ActionDescriptor.personDeadline`).
 pub(super) const PERSON_RUN_TIMEOUT: Duration = Duration::from_secs(210);
 /// The CLI names and ids of the actions the app marks `waitsForPerson` (the
@@ -104,6 +109,8 @@ const PERSON_ACTIONS: &[&str] = &[
     "workspace.importClassic",
     "share chat",
     "agent.share",
+    "share invite",
+    "agent.share.invite",
 ];
 
 /// How long the CLI or `cmux mcp` waits for a waiting `action.run` of `action`.
@@ -157,7 +164,11 @@ pub(super) enum AppCommand {
         params: Value,
         out: Option<String>,
     },
-    /// `settings list|schema|validate` (app/settings.rs).
+    /// `app renderers`: `renderers.list`, joined into one row per renderer pid (app/renderers.rs).
+    Renderers {
+        params: Value,
+    },
+    /// Local settings completion/schema/validation (`app/settings.rs`).
     Settings(settings::Command),
     /// `browser right <verb>` (app/right.rs): `browser.page.right` names the
     /// tab right of the Home chat, then `then` runs on it.
@@ -170,6 +181,8 @@ pub(super) enum AppCommand {
     Version,
     /// `cmux nightly list|install`: another recent nightly build (app/nightly.rs).
     Nightly(nightly::Command),
+    /// `cmux live start|stop|status`: edit cmux's web UI while it runs (app/live.rs).
+    Live(live::Command),
 }
 
 /// Parses an app scope. `Ok(None)` when `args` does not start with one.
@@ -208,6 +221,10 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     if scope == "nightly" {
         return nightly::parse(args.get(1..).unwrap_or_default())
             .map(|command| Some(AppCommand::Nightly(command)));
+    }
+    if scope == "live" {
+        return live::parse(args.get(1..).unwrap_or_default())
+            .map(|command| Some(AppCommand::Live(command)));
     }
     if !APP_SCOPES.contains(&scope.as_str()) {
         return Ok(None);
@@ -264,6 +281,18 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         ("app", Some("ping")) => call("system.ping", json!({})),
         ("app", Some("identify")) => call("system.identify", json!({})),
         ("app", Some("capabilities")) => call("system.capabilities", json!({})),
+        ("app", Some("renderers")) => renderers::parse(rest)?,
+        // The Cloud desktop tabs (`remote_view.state`, every build): per tab its
+        // viewer, whether it is connected and who has control; never a credential
+        // or a pixel of the screen.
+        ("app", Some("remote-views")) => {
+            let options = Options::parse(rest.get(1..).unwrap_or_default(), &["tab"], &[])?;
+            let mut params = Map::new();
+            if let Some(tab) = options.value("tab") {
+                params.insert("tab".into(), json!(tab));
+            }
+            call(REMOTE_VIEWS_METHOD, Value::Object(params))
+        }
         ("window", Some("list")) => AppCommand::Call {
             method: "snapshot.get",
             params: json!({}),
@@ -302,6 +331,9 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             } else {
                 run_action(id, tail, ActionName::Any)?
             }
+        }
+        ("settings" | "config", Some("list")) => {
+            return settings::parse_list(rest.get(1..).unwrap_or_default());
         }
         ("settings" | "config", Some(verb)) if settings::VERBS.contains(&verb) => {
             settings::parse(rest)?
@@ -447,7 +479,7 @@ pub(super) fn action_origin() -> &'static str {
 
 /// An action argument's name from its flag: the catalog names arguments in
 /// camelCase (`--keep-sessions` is `keepSessions`).
-fn argument_name(flag: &str) -> String {
+pub(super) fn argument_name(flag: &str) -> String {
     let mut name = String::with_capacity(flag.len());
     let mut upper = false;
     for character in flag.chars() {
@@ -533,7 +565,18 @@ pub(super) fn run_action(
                 continue;
             }
             "focus" => {
-                params.insert("focus".into(), json!(true));
+                // An action with its own `focus` argument (`open-remote`) takes the flag as that argument too,
+                // with an optional `true`/`false` after it; the run's own focus follows it.
+                let mut value = true;
+                if super::action_hint::action_takes_argument(action, "focus") {
+                    if let Some(word @ ("true" | "false")) = args.get(index + 1).map(String::as_str)
+                    {
+                        value = word == "true";
+                        index += 1;
+                    }
+                    arguments.insert("focus".into(), json!(value));
+                }
+                params.insert("focus".into(), json!(value));
                 index += 1;
                 continue;
             }
@@ -565,6 +608,24 @@ pub(super) fn run_action(
                     .split_once('=')
                     .ok_or_else(|| UsageError::new(messages.arg_shape.replace("{value}", text)))?;
                 arguments.insert(key.into(), json!(value));
+            }
+            // `--focus=false` for an action with a `focus` argument: the argument, and the run's own focus.
+            // Any other value is a usage error, never a silent `true`.
+            "focus" if super::action_hint::action_takes_argument(action, "focus") => {
+                let on = match value.as_str() {
+                    None | Some("true") => true,
+                    Some("false") => false,
+                    Some(text) => {
+                        return Err(UsageError::new(
+                            messages
+                                .flag_bool
+                                .replace("{flag}", "--focus")
+                                .replace("{value}", text),
+                        ));
+                    }
+                };
+                params.insert("focus".into(), json!(on));
+                arguments.insert("focus".into(), json!(on));
             }
             _ => {
                 let key = argument_name(&name);
@@ -685,6 +746,9 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
     if let AppCommand::Nightly(command) = &command {
         return Ran::Done(nightly::run(global, command));
     }
+    if let AppCommand::Live(command) = &command {
+        return Ran::Done(live::run(command));
+    }
     let mut stream = match connect_command(global) {
         Ok(stream) => stream,
         Err(error) => return Ran::Done(super::wire::print_local_error(&error, global.output, 3)),
@@ -774,10 +838,14 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::DebugCall { method, params } => {
             return Ran::Done(call::run(global, stream, &method, params));
         }
-        AppCommand::Settings(command) => return Ran::Done(command.run_on(global, stream)),
+        AppCommand::Renderers { params } => {
+            return Ran::Done(renderers::run(global, stream, params));
+        }
+        AppCommand::Settings(command) => return Ran::Done(command.run(global)),
         AppCommand::Right { params, then } => return right::run(global, stream, params, *then),
         AppCommand::Version => return Ran::Done(version::run(global)),
         AppCommand::Nightly(command) => return Ran::Done(nightly::run(global, &command)),
+        AppCommand::Live(command) => return Ran::Done(live::run(&command)),
         AppCommand::Open { requests, stop_on_failure } => {
             let mut status = 0;
             for request in requests {
@@ -863,6 +931,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
             }
             .unwrap_or(result);
             warn_unstable_handles(method, &value, global.output);
+            open_created(global, stream, &params, &value);
             if global.output == OutputMode::Human
                 && let Some(line) = super::share_cli::human_line(&params, &value)
                     .or_else(|| super::vm::created_line(&params, &value, global))
@@ -896,6 +965,47 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
             Ran::Done(code)
         }
     }
+}
+
+/// After a person's `cloud new-machine` (`cmux machine new`) made a machine, the app opens it
+/// (`cloud open-machine`): a workspace on the machine is shown, so the window's new-terminal
+/// button opens there (Leo, 2026-11-06: "the terminal I open on the top right button works thru
+/// that machine"). A JSON or quiet run (a script, an agent) leaves the window as it was, and so
+/// does a machine still starting. A failed open is a note: the machine is made either way.
+fn open_created(global: &GlobalArgs, stream: &mut UnixStream, params: &Value, value: &Value) {
+    let Some(target) = created_target(global.output, params, value) else { return };
+    let Ok(AppCommand::Call { method, mut params, timeout, .. }) = open_created_command(target)
+    else {
+        return;
+    };
+    let opened = insert_run_key(&mut params, None)
+        .map_err(|error| json!({ "message": error }))
+        .and_then(|_| wait::request(global, stream, method, &params, timeout));
+    if let Ok(Err(error)) | Err(error) = opened {
+        let reason = error.get("message").and_then(Value::as_str).unwrap_or("no answer");
+        eprintln!("cmux: the machine is made, but its workspace did not open: {reason}");
+    }
+}
+
+/// [`open_created`]'s `cloud open-machine` run. `--focus`: a CLI run changes the window only
+/// when it asks to (the app's `allowsViewChange`).
+fn open_created_command(target: String) -> Result<AppCommand, UsageError> {
+    let args = ["--target".to_owned(), target, "--focus".to_owned()];
+    run_action("cloud open-machine", &args, ActionName::Cli)
+}
+
+/// The machine a person's `cloud new-machine` made, for [`open_created`]; `None` otherwise.
+fn created_target(output: OutputMode, params: &Value, value: &Value) -> Option<String> {
+    if output != OutputMode::Human || params.get("action")?.as_str()? != "cloud new-machine" {
+        return None;
+    }
+    let result = value.get("result")?;
+    if result.get("pending").and_then(Value::as_bool) == Some(true) {
+        return None;
+    }
+    result.get("target").and_then(Value::as_str).map(str::to_owned).or_else(|| {
+        result.get("machine_id").and_then(Value::as_str).map(|id| format!("machine:{id}"))
+    })
 }
 
 /// Progress notes go to stderr for a person, never in JSON or quiet output.
@@ -1195,7 +1305,7 @@ fn timed_out(response: &Result<Value, Value>) -> bool {
 }
 
 /// One request with exactly `params` (no read barrier) and its response.
-fn exchange(
+pub(super) fn exchange(
     stream: &mut UnixStream,
     method: &str,
     params: Value,

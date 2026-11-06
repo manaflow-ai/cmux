@@ -274,6 +274,62 @@ export function mcpLabel(t: Translate, calls: readonly McpCall[], names: McpName
   return n > 1 ? `${line} ×${n}` : line;
 }
 
+/// What a call is for, in the caller's own few words: a condensed tool's optional `description`
+/// argument (acpmux's `pr_state`, `bg_start`, `run_wait`), as a shell call's Bash description. A
+/// described call is titled with it and draws as its own row, as Claude Code desktop draws each
+/// described call (Leo, 2026-11-03: "claude code desktop's summarization of tool calls/parsing of
+/// them seem kinda good? we should bea bel to do that AND have condensed tools that are callable in
+/// acpmux/cmux-next").
+export function mcpDescription(call: McpCall): string | undefined {
+  const value = isRecord(call.args) ? call.args.description : undefined;
+  if (typeof value !== "string") return undefined;
+  const line = value.replace(/\s+/g, " ").trim();
+  return line || undefined;
+}
+
+export type McpOutcome = {
+  /// The result's one-line outcome ("PR #33316 merged", "Background command completed").
+  summary?: string;
+  /// Whether the call failed by its own word (`status: "failed"`), though the call itself returned.
+  failed: boolean;
+};
+
+/// A condensed tool's outcome: `structuredContent.summary` and `.status` (`ok`, `failed`,
+/// `running`) when the result reaches the pane whole; else, for a described call, its text result's
+/// first line, which the same tools write as that summary.
+export function mcpOutcome(output: string | undefined, call: McpCall): McpOutcome | undefined {
+  if (!output?.trim()) return undefined;
+  const whole = parseJSON(output);
+  const result = isRecord(whole) ? (isRecord(whole.result) ? whole.result : whole) : undefined;
+  const structured = result && isRecord(result.structuredContent) ? result.structuredContent : undefined;
+  const failed = structured?.status === "failed";
+  const summary = typeof structured?.summary === "string" ? firstLine(structured.summary) : undefined;
+  if (summary || failed) return { summary, failed };
+  if (!mcpDescription(call)) return undefined;
+  if (result) {
+    const blocks = Array.isArray(result.content) ? result.content : undefined;
+    const text = blocks?.find(
+      (block): block is { text: string } => isRecord(block) && block.type === "text" && typeof block.text === "string",
+    )?.text;
+    const line = text === undefined ? undefined : firstLine(cleanText(text));
+    return line ? { summary: line, failed: false } : undefined;
+  }
+  // JSON that is not an envelope (a bare value) has no line to quote.
+  if (whole !== undefined) return undefined;
+  const line = firstLine(cleanText(output));
+  return line ? { summary: line, failed: false } : undefined;
+}
+
+/// A text's first non-empty line, or nil; a line of JSON is not a summary.
+function firstLine(text: string): string | undefined {
+  const line = text
+    .split("\n")
+    .map((part) => part.trim())
+    .find(Boolean);
+  if (!line || /^[[{]/.test(line)) return undefined;
+  return line.length > 200 ? `${line.slice(0, 199)}…` : line;
+}
+
 /// Tags of context a host injects into what an agent sees, never meant for the reader.
 const INTERNAL_TAGS = [
   "in-app-browser-context",

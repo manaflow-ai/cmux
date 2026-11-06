@@ -58,7 +58,7 @@ final class BrowserImportOfferService {
 
     /// Wires a new browser page's chrome (`TabContentCache.onBrowserEntryCreated`).
     func attach(_ entry: BrowserEntry) {
-        entry.chrome.onPageFinished = { [weak self, weak entry] _ in
+        entry.state.onPageFinished = { [weak self, weak entry] _ in
             guard let self, let entry else { return }
             pageFinished(in: entry)
         }
@@ -69,7 +69,7 @@ final class BrowserImportOfferService {
         findBrowsers { [weak self, weak entry] found in
             // Asked again: the person may have answered elsewhere, or another tab showed it, while the browsers were found.
             guard let self, let entry, enabled, !found.isEmpty, !shownThisLaunch, state.offers(page(entry)) else { return }
-            show(on: entry.chrome, browsers: found)
+            if let chrome = entry.chrome { show(on: chrome, browsers: found) }
         }
     }
 
@@ -78,7 +78,7 @@ final class BrowserImportOfferService {
         // No services (a test): an empty incognito set's answer, not off the record.
         let personal = !(services?.browserStores.offTheRecord.isOffTheRecord(tab.profileID) ?? false) && !tab.isAgentDriven
             && BrowserProfileRecord.wireID(for: tab.profileID) != AgentBrowserProfile.id
-        return BrowserImportOfferPage(isPersonal: personal, showsOtherNotice: entry.chrome.noticeText != nil)
+        return BrowserImportOfferPage(isPersonal: personal, showsOtherNotice: entry.state.noticeText != nil)
     }
 
     /// Shows the card on `chrome` (also `debug.browser_import_offer show`, which skips the checks).
@@ -121,9 +121,9 @@ final class BrowserImportOfferService {
     func showNow() {
         banner?.set(true)
         shownThisLaunch = false
-        guard let entry = services?.cache.browsers.values.first(where: { $0.chrome.window != nil && !$0.chrome.isHiddenOrHasHiddenAncestor }),
+        guard let entry = services?.cache.browsers.values.first(where: { $0.chrome.map { $0.window != nil && !$0.isHiddenOrHasHiddenAncestor } == true }),
               services?.browserImportEnabled == true, page(entry).isPersonal else { return }
-        findBrowsers { [weak self, weak entry] found in if let self, let entry { show(on: entry.chrome, browsers: found) } }
+        findBrowsers { [weak self, weak entry] found in if let self, let chrome = entry?.chrome { show(on: chrome, browsers: found) } }
     }
 
     /// Off, the card on screen goes; on again, the next finished page may offer it this launch.

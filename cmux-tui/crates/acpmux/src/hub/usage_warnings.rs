@@ -17,7 +17,7 @@
 //! unknown; one turns unknown only where acpmux can no longer vouch for it (a backlog it has not
 //! read), and then no warning stands on it.
 
-use crate::config::UsageLimits;
+use crate::config::{ContextLimit, FALLBACK_CONTEXT_TOKENS, UsageLimits};
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
@@ -125,11 +125,27 @@ fn rules_broken(summary: &Value, limits: &UsageLimits) -> Vec<Value> {
             json!({"rule": NO_AUTOCOMPACT_CAP, "value": context, "limit": null, "text": text}),
         );
     }
-    if let (Some(limit), Some(n)) = (limits.context_tokens, context)
+    let (limit, own) = match limits.context_tokens {
+        ContextLimit::Off => (None, false),
+        ContextLimit::Fixed(n) => (Some(n), false),
+        ContextLimit::SessionWindow => match session_window(stats) {
+            Some(window) => (Some(window), true),
+            None => (Some(FALLBACK_CONTEXT_TOKENS), false),
+        },
+    };
+    if let (Some(limit), Some(n)) = (limit, context)
         && n > limit
     {
-        let text =
-            format!("Context {} tokens, above the {} warning line", tokens(n), tokens(limit));
+        let text = match own {
+            true => format!(
+                "Context {} tokens, past its {} window: it did not compact",
+                tokens(n),
+                tokens(limit)
+            ),
+            false => {
+                format!("Context {} tokens, above the {} warning line", tokens(n), tokens(limit))
+            }
+        };
         out.push(json!({"rule": CONTEXT_TOKENS, "value": n, "limit": limit, "text": text}));
     }
     if let (Some(limit), Some(n)) = (limits.subagents_per_hour, at(stats, "subagents1h").as_u64())
@@ -139,6 +155,18 @@ fn rules_broken(summary: &Value, limits: &UsageLimits) -> Vec<Value> {
         out.push(json!({"rule": SUBAGENTS_PER_HOUR, "value": n, "limit": limit, "text": text}));
     }
     out
+}
+
+/// The window a session compacts at: its autocompact cap when that is known, else its model's
+/// window; the smaller when both are (a cap above the window compacts at the window). None when
+/// acpmux knows neither.
+fn session_window(stats: &Value) -> Option<u64> {
+    let known = |key| at(stats, key).as_u64().filter(|n| *n > 0);
+    let cap = (at(stats, "autocompact") == "capped").then(|| known("autocompactCap")).flatten();
+    match (cap, known("contextWindow")) {
+        (Some(cap), Some(window)) => Some(cap.min(window)),
+        (cap, window) => cap.or(window),
+    }
 }
 
 /// One short cell per warning for `acpmux ls`: `no-cap`, `ctx 955k`, `90 sub/h`; `?` for a number

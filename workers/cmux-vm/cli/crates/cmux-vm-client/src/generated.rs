@@ -13991,6 +13991,71 @@ pub mod types {
             Self(value)
         }
     }
+    ///`VmPublicEgress`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct VmPublicEgress {
+        ///a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        pub id: VmPublicEgressId,
+        ///True when a rule whose source is exactly this VM allows the public Internet on every port (the rule a create with initialNetwork.publicEgress makes, or this endpoint's).
+        #[serde(rename = "publicEgress")]
+        pub public_egress: bool,
+    }
+    ///a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct VmPublicEgressId(::std::string::String);
+    impl ::std::ops::Deref for VmPublicEgressId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<VmPublicEgressId> for ::std::string::String {
+        fn from(value: VmPublicEgressId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for VmPublicEgressId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for VmPublicEgressId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for VmPublicEgressId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for VmPublicEgressId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
     ///`VmReceiverPolicy`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub struct VmReceiverPolicy {
@@ -14005,6 +14070,12 @@ pub mod types {
         ///a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
         #[serde(rename = "meshId")]
         pub mesh_id: VmReceiverPolicyMeshId,
+        ///The earliest expiry of an API key that owns one of the listed peers' devices, or null when none expires. Also folded into expiresAt; the Cloud owner bounds the receiver's local admission horizon by it.
+        #[serde(
+            rename = "ownerExpiresAt",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        pub owner_expires_at: ::std::option::Option<u64>,
         ///an array of at most 128 item(s)
         pub peers: ::std::vec::Vec<VmReceiverPolicyPeersItem>,
         ///a string matching the pattern ^[0-9a-f]{64}$
@@ -14466,6 +14537,59 @@ pub mod types {
         pub memory_mib: f64,
         pub vcpus: f64,
     }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct VmsAllowVmPublicEgressXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for VmsAllowVmPublicEgressXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<VmsAllowVmPublicEgressXCmuxTeamId> for ::std::string::String {
+        fn from(value: VmsAllowVmPublicEgressXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for VmsAllowVmPublicEgressXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for VmsAllowVmPublicEgressXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for VmsAllowVmPublicEgressXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for VmsAllowVmPublicEgressXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
     ///a string at most 255 character(s) long
     #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     #[serde(transparent)]
@@ -14820,6 +14944,59 @@ pub mod types {
         }
     }
     impl<'de> ::serde::Deserialize<'de> for VmsGetVmInstanceIdentityXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct VmsGetVmPublicEgressXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for VmsGetVmPublicEgressXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<VmsGetVmPublicEgressXCmuxTeamId> for ::std::string::String {
+        fn from(value: VmsGetVmPublicEgressXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for VmsGetVmPublicEgressXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for VmsGetVmPublicEgressXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for VmsGetVmPublicEgressXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for VmsGetVmPublicEgressXCmuxTeamId {
         fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
         where
             D: ::serde::Deserializer<'de>,
@@ -19743,6 +19920,118 @@ impl Client {
             403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Read a VM's public egress
+
+    Read a VM's public egress. Requires the vm:network scope. Whether a rule whose source is exactly this VM allows the public Internet. A create without initialNetwork, or with publicEgress false, has none until allowVmPublicEgress. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+
+    Sends a `GET` request to `/v1/vms/{vmId}/public-egress`
+
+    Arguments:
+    - `vm_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn vms_get_vm_public_egress<'a>(
+        &'a self,
+        vm_id: &'a str,
+        x_cmux_team_id: Option<&'a types::VmsGetVmPublicEgressXCmuxTeamId>,
+    ) -> Result<ResponseValue<types::VmPublicEgress>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/vms/{}/public-egress",
+            self.baseurl,
+            encode_path(&vm_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .get(url)
+            .header(
+                ::reqwest::header::ACCEPT,
+                ::reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "vms_get_vm_public_egress",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => ResponseValue::from_response(response).await,
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Allow a VM's public egress
+
+    Allow a VM's public egress. Requires the vm:network scope. Lets an existing VM reach the public Internet, as a create with initialNetwork.publicEgress does: one rule whose source is exactly this VM, deleted with the VM. Idempotent: a VM that already has such a rule gets no second one. It never turns egress off and never changes HTTPS proxies or shared-network rules. For a VM created private (a copy that resumes another VM's memory, say) that must join the Internet only once its guest is ready. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+
+    Sends a `PUT` request to `/v1/vms/{vmId}/public-egress`
+
+    Arguments:
+    - `vm_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn vms_allow_vm_public_egress<'a>(
+        &'a self,
+        vm_id: &'a str,
+        x_cmux_team_id: Option<&'a types::VmsAllowVmPublicEgressXCmuxTeamId>,
+    ) -> Result<ResponseValue<types::VmPublicEgress>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/vms/{}/public-egress",
+            self.baseurl,
+            encode_path(&vm_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .put(url)
+            .header(
+                ::reqwest::header::ACCEPT,
+                ::reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "vms_allow_vm_public_egress",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => ResponseValue::from_response(response).await,
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             _ => Err(Error::UnexpectedResponse(response)),

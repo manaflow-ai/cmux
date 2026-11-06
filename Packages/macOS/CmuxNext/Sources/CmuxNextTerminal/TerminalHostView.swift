@@ -11,7 +11,7 @@ import Observation
 /// the first cell sits exactly Ghostty's padding inside the border
 /// (`TerminalPadding.cmuxDefault` unless the user set their own).
 public final class TerminalHostView: NSView {
-    private weak var current: TerminalSurfaceView?
+    private(set) weak var current: TerminalSurfaceView?
     /// The session's theme; nil paints the config background.
     /// Called with the App Theme's veil this terminal draws on, or nil (``paintBackground()``).
     var onVeil: ((ThemeRGB?) -> Void)?
@@ -302,7 +302,8 @@ public final class TerminalHostView: NSView {
     func install(_ surfaceView: TerminalSurfaceView) {
         let old = current
         surfaceView.autoresizingMask = []
-        surfaceView.frame = surfaceFrame
+        let placement = surfacePlacement
+        surfaceView.place(placement.frame, anchor: placement.anchor)
         // At the back: the scroller and the overlays stay over every swapped-in surface.
         addSubview(surfaceView, positioned: .below, relativeTo: nil)
         current = surfaceView
@@ -356,7 +357,7 @@ public final class TerminalHostView: NSView {
 
     /// The strip the scroller keeps free beside the surface: none, since it is pinned to the
     /// overlay style (``SystemScrollers/nativeStyle``), built or not.
-    private var scrollerWidth: CGFloat {
+    var scrollerWidth: CGFloat {
         scroller?.reservedWidth ?? TerminalScroller.reservedWidth(for: SystemScrollers.nativeStyle)
     }
 
@@ -368,16 +369,20 @@ public final class TerminalHostView: NSView {
         max(0, hostWidth - TerminalScroller.reservedWidth(for: SystemScrollers.nativeStyle))
     }
 
-    /// The surface's frame: the host, less a legacy scroller's strip (none: the scroller is overlay). While
-    /// a pane's layout spring runs, the surface keeps the size it will rest at (``holdSurface(size:anchor:)``),
-    /// pinned to the area's top or bottom edge; the host clips it and paints the terminal background beside it.
-    private var surfaceFrame: CGRect {
+    /// The surface's frame: the host, less a legacy scroller's strip (none: the scroller is overlay). While a split's,
+    /// a close's or a zoom's layout spring runs, the surface keeps the size it will rest at
+    /// (``holdSurface(size:anchor:)``), pinned to the hold's edge of the area; the host clips it and paints the terminal
+    /// background beside it. While the host follows its pane through a key resize, the surface takes the area in every
+    /// frame (``followedSurfaceFrame(in:)``, cmux-ad m18).
+    /// The edge is the one a frame kept while its new size is drawn rides (``TerminalSurfaceView/place(_:anchor:)``).
+    private var surfacePlacement: (frame: CGRect, anchor: PaneMotionAnchor) {
         let area = terminalBounds
+        if surfaceFollowsArea { return (followedSurfaceFrame(in: area), .top) }
         if let hold = surfaceHold {
             let y = hold.anchor == .bottom ? area.minY : area.maxY - hold.size.height
-            return CGRect(x: area.minX, y: y, width: hold.size.width, height: hold.size.height)
+            return (CGRect(x: area.minX, y: y, width: hold.size.width, height: hold.size.height), hold.anchor)
         }
-        return CGRect(x: area.minX, y: area.minY, width: max(0, area.width - scrollerWidth), height: area.height)
+        return (CGRect(x: area.minX, y: area.minY, width: max(0, area.width - scrollerWidth), height: area.height), .top)
     }
 
     /// The size the surface takes in a host of `hostSize` points: less the accessory's strip and a legacy
@@ -387,26 +392,47 @@ public final class TerminalHostView: NSView {
     }
 
     /// The surface's size and edge while its pane's layout spring runs; nil at rest.
-    private var surfaceHold: (size: CGSize, anchor: PaneMotionAnchor)?
+    private(set) var surfaceHold: (size: CGSize, anchor: PaneMotionAnchor)?
+    /// FRAME OWNER S3: the hold this host follows its pane through (``PaneMotionHoldFollowing``) and its size then; nil at rest.
+    var followedHold: (hold: PaneMotionHold, heldSize: CGSize)?
+    /// The followed hold ended: the host's next layout places the surface at its final frame, and a size drawn ahead that
+    /// this placement did not take goes (``TerminalSurfaceView/dropAhead()``).
+    var dropsAheadAtRest = false
+    /// A person drags a divider or edge of this host's pane (``PaneResizeGestureFollowing``): the surface it shows follows.
+    var followsResizeGesture = false
 
     /// Keeps the surface at `size`, the size it will have when its pane's layout spring lands (a split or a
     /// close, Lawrence 2026-10-23): the terminal draws its final grid on every frame of the spring and reflows
     /// once, not once per frame. `anchor`: the edge it rides (the bottom keeps a prompt on the last row in view).
     func holdSurface(size: CGSize, anchor: PaneMotionAnchor) {
         surfaceHold = (size, anchor)
-        if let current, current.frame != surfaceFrame { current.frame = surfaceFrame }
+        placeSurface()
     }
 
-    /// The spring landed: the surface takes the host's area again (the same size, unless the landing differs).
+    /// The hold ends (the spring landed, a drag caught it, or a key press whose terminal follows its pane: `restAt`): the surface takes the area again.
     func releaseSurfaceHold() {
         guard surfaceHold != nil else { return }
         surfaceHold = nil
-        if let current, current.frame != surfaceFrame { current.frame = surfaceFrame }
+        placeSurface()
     }
 
-    public override func layout() {
+    /// The current surface takes its frame (``surfacePlacement``).
+    private func placeSurface() { // perf-hot: 4ms motion-frame
+        guard let current else { return }
+        let placement = surfacePlacement
+        current.place(placement.frame, anchor: placement.anchor)
+        // B1 (diag bf2b674a): a size drawn ahead goes only when its hold ended, never on a timer (a spring's next refresh
+        // can come 2 display ticks later, and dropping it then made that refresh wait for its frame again). The final
+        // placement took it if it is the final size; else Ghostty goes back to the view's size.
+        if dropsAheadAtRest, !surfaceFollowsArea {
+            dropsAheadAtRest = false
+            current.dropAhead()
+        }
+    }
+
+    public override func layout() { // perf-hot: 4ms motion-frame (each frame of a key resize the host follows, FRAME OWNER S3)
         super.layout()
-        if let current, current.frame != surfaceFrame { current.frame = surfaceFrame }
+        placeSurface()
         if let scroller {
             let strip = scroller.strip(in: terminalBounds)
             if scroller.frame != strip { scroller.frame = strip }

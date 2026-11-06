@@ -11,6 +11,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
     private var caseName: String {
         switch self {
         case .ready: "ready"
+        case .imessage: "imessage"
         case .reconnect: "reconnect"
         case .uiPointerReport: "uiPointerReport"
         case .restartAcpmux: "restartAcpmux"
@@ -46,6 +47,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .browseProject: "browseProject"
         case .sandboxRun: "sandboxRun"
         case .cloudStartChat: "cloudStartChat"
+        case .cloudReservation: "cloudReservation"
         case .cloudRepickChat: "cloudRepickChat"
         case .sandboxState: "sandboxState"
         case .cloudHandoffTurn: "cloudHandoffTurn"
@@ -76,8 +78,9 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .cloudRepository: "cloudRepository"
         case .cloudEnvironment: "cloudEnvironment"
         case .cloudCredentialTransfer: "cloudCredentialTransfer"
+        case .tryAnotherApproach: "tryAnotherApproach"
         case .appAction: "appAction"
-        case .paneAction, .moveToMachine, .diffTurn: "paneAction"
+        case .paneAction, .moveToMachine, .diffTurn, .diffPatch: "paneAction"
         case .preview: "preview"
         case .setQuickActions: "setQuickActions"
         case .tabState: "tabState"

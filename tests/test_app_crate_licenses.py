@@ -83,7 +83,7 @@ class AppCrateLicenseGate(unittest.TestCase):
         self.assertFalse(gate.license_allowed("MIT AND GPL-2.0"))
         self.assertFalse(gate.license_allowed(None))
 
-    def test_the_twelve_first_party_gpl_crates_are_named_exactly(self):
+    def test_first_party_gpl_crates_are_named_exactly(self):
         self.assertEqual(
             sorted(gate.FIRST_PARTY_GPL),
             sorted(
@@ -96,11 +96,14 @@ class AppCrateLicenseGate(unittest.TestCase):
                     "cmux-layout-reducer-ffi",
                     # 83755ce18d22 (cmux-focus-core over the app FFI) named these three in the gate.
                     "cmux-focus-core",
+                    "cmux-imessage",
                     "cmux-tasks-core",
                     # The bookmark reducer the app links for its optimistic view (V-11).
                     "cmux-bookmarks-core",
                     # The Cloud start's harness login decision (cmux-cloud-start-core).
                     "cmux-cloud-start-core",
+                    # NEXT Cloud's configuration rules (cmux-cloud-config).
+                    "cmux-cloud-config",
                     "cmux-palette-ranker",
                     "cmux-remote-browser",
                 ]

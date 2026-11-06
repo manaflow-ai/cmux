@@ -3,7 +3,7 @@
 //! more, 67-90 subagents an hour) against an ordinary capped lane.
 
 use super::usage_warnings::{short, usage_warnings};
-use crate::config::{UsageLimits, UsageWarningsConfig};
+use crate::config::{ContextLimit, FALLBACK_CONTEXT_TOKENS, UsageLimits, UsageWarningsConfig};
 use serde_json::{Value, json};
 
 fn row(family: &str, stats: Value) -> Value {
@@ -83,6 +83,62 @@ fn the_limits_are_exclusive() {
     assert!(usage_warnings(&at, &UsageLimits::default()).is_empty());
 }
 
+/// Leo, 2026-11-03: "i think 400k events was arbitarry tho? i have everybody on 400k context
+/// window is all". The line is the session's own window, so it warns only when it did not compact.
+#[test]
+fn the_context_line_is_the_sessions_own_window() {
+    let limits = UsageLimits::default();
+    assert_eq!(limits.context_tokens, ContextLimit::SessionWindow);
+    // A 1M session at 500k is within its window.
+    let wide = row(
+        "claude",
+        json!({"autocompact": "none", "autocompactCap": null, "contextTokens": 500_000,
+               "contextWindow": 1_000_000}),
+    );
+    assert!(rules(&usage_warnings(&wide, &limits)).iter().all(|r| *r != "contextTokens"));
+    // A session capped at 400k that reached 410k did not compact.
+    let capped = row(
+        "claude",
+        json!({"autocompact": "capped", "autocompactCap": 400_000, "contextTokens": 410_000,
+               "contextWindow": 1_000_000}),
+    );
+    let w = usage_warnings(&capped, &limits);
+    assert_eq!(rules(&w), ["contextTokens"]);
+    assert_eq!(w[0]["limit"], 400_000);
+    assert_eq!(w[0]["finding"], "Context 410k tokens, past its 400k window: it did not compact");
+    // A 200k window with no cap warns past 200k, under the old fixed 400k line.
+    let small = row(
+        "codex",
+        json!({"autocompact": "none", "contextTokens": 210_000, "contextWindow": 200_000}),
+    );
+    assert_eq!(usage_warnings(&small, &limits)[0]["limit"], 200_000);
+    // A cap above the model's window compacts at the window.
+    let over = row(
+        "claude",
+        json!({"autocompact": "capped", "autocompactCap": 400_000, "contextTokens": 210_000,
+               "contextWindow": 200_000}),
+    );
+    assert_eq!(usage_warnings(&over, &limits)[0]["limit"], 200_000);
+    // An explicit contextTokens wins over the window; 0 turns the rule off.
+    let fixed: UsageWarningsConfig =
+        serde_json::from_value(json!({"contextTokens": 300_000})).unwrap();
+    assert_eq!(
+        rules(&usage_warnings(&wide, &fixed.limits())),
+        ["noAutocompactCap", "contextTokens"]
+    );
+    let off: UsageWarningsConfig = serde_json::from_value(json!({"contextTokens": 0})).unwrap();
+    assert!(usage_warnings(&capped, &off.limits()).is_empty());
+}
+
+/// With no window known, the line is the autocompact window acpmux starts Claude Code with.
+#[test]
+fn the_fallback_line_is_the_launch_autocompact_window() {
+    assert_eq!(
+        FALLBACK_CONTEXT_TOKENS.to_string(),
+        crate::harness_limits::CLAUDE_AUTOCOMPACT_WINDOW.1
+    );
+}
+
 #[test]
 fn only_claude_is_held_to_an_autocompact_cap() {
     let codex = row(
@@ -134,7 +190,7 @@ fn the_config_moves_or_turns_off_each_rule() {
     assert_eq!(
         limits,
         UsageLimits {
-            context_tokens: Some(1_000_000),
+            context_tokens: ContextLimit::Fixed(1_000_000),
             subagents_per_hour: None,
             autocompact_cap: false
         }

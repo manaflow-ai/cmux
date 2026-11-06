@@ -81,9 +81,10 @@ const received = () =>
     { isWorking: true },
   );
 const RECEIVED_LINE = ".cv-received > .cv-disclosure__line";
-/// Opens the group of waiting messages, which shows collapsed (PendingMessagesCard.tsx).
+/// Opens the group of waiting messages, which shows collapsed (PendingMessagesCard.tsx); one waiting
+/// message is its own line, with no group to open.
 const openWaiting: Play = async (ctx) => {
-  await ctx.click({ selector: ".cv-pending__toggle" });
+  if (ctx.document.querySelector(".cv-pending__toggle")) await ctx.click({ selector: ".cv-pending__toggle" });
   await ctx.waitFor(() => ctx.document.querySelector(RECEIVED_LINE));
 };
 

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBrowser
@@ -11,10 +12,10 @@ import os
 
 /// Owns the tool window (Import from Browser, Computer Use setup), the
 /// browser-data import offer, the default-app registry and the imported
-/// data, and feeds imported history to the omnibar at launch. Nothing opens
-/// at launch (Lawrence 2026-10-09: a launch goes straight to the main
-/// window); the one-time classic migration only adds classic's workspaces
-/// to the restored windows (Lawrence 2026-10-19, classic-migration-DESIGN.md).
+/// data, and feeds imported history to the omnibar at launch. Fresh installs
+/// also show the history-import page; existing installations go straight to
+/// the main window. The one-time classic migration adds classic's workspaces
+/// to the restored windows (classic-migration-DESIGN.md).
 @MainActor
 final class OnboardingService {
     unowned let services: AppServices
@@ -68,6 +69,12 @@ final class OnboardingService {
     /// Computer Use Setup: the helper's grants for the palette action, Settings and the tool window.
     private(set) lazy var computerUseSetup = ComputerUseSetup.app(services: services)
 
+    /// The Agents step's sign-ins: Settings > Agents > Harnesses' reader over this Mac's acpmux.
+    private(set) lazy var signInHarnesses = SettingsHarnesses(environment: { [weak services] in services.flatMap(QuitAgents.environment) },
+                                                              openTerminal: { [weak self] line in await self?.openSignIn(line) ?? false })
+    /// The top page a Sign In left (Bring your history at first run); it shows again once the tool window closes.
+    private var pageLeftForSignIn: TopPageRoute?
+
     init(services: AppServices) {
         self.services = services
         presenter = OnboardingWindowPresenter(activeLook: services.activeLook)
@@ -108,6 +115,11 @@ final class OnboardingService {
         presenter.makeModel = { [weak self] step in
             self.map { OnboardingModel(services: AppOnboardingServices(owner: $0), step: step) }
         }
+        presenter.onWindowClose = { [weak self] in
+            guard let self, let page = pageLeftForSignIn else { return }
+            pageLeftForSignIn = nil
+            _ = TopPages.show(page, services: services)
+        }
     }
 
     var isShowing: Bool { controller != nil }
@@ -133,7 +145,13 @@ final class OnboardingService {
     /// `importTarget` names the cmux browser profile they go into (the
     /// browser-data offer: into the tab's profile); without kinds the step
     /// makes one profile per source.
-    func show(step: OnboardingModel.Step, importKinds: Set<ImportDataKind>? = nil, importTarget: String? = nil) {
+    func show(step: OnboardingModel.Step, history: Bool = false, importKinds: Set<ImportDataKind>? = nil, importTarget: String? = nil) {
+        // The same single importData step hosts history as a web page. Browser import keeps
+        // its existing standalone tool; it is never substituted by the history action.
+        if step == .importData, history {
+            _ = services.registry.perform(ChiefMemoryImportHandlers.actionID, invocation: ActionInvocation(origin: .user))
+            return
+        }
         // `browser.import.enabled` off: the import window does not open, whoever asks.
         if step == .importData, !services.browserImportEnabled { return }
         presenter.show(step: step) { model, reused in
@@ -144,6 +162,37 @@ final class OnboardingService {
             }
         }
     }
+
+    /// First-run routing only, once per app channel (an upgrade is no first run). Never when ``AppEnvironment/skipsOnboarding``
+    /// (showcase, capture builds): their captures are fresh homes, and the page over Home parks the workspace their seed fills.
+    func showHistoryAtFirstRun(isFirstRun: Bool, defaults: UserDefaults = .standard) {
+        let key = "home.firstRun.historyImportShown"
+        guard !services.environment.skipsOnboarding, !defaults.bool(forKey: key) else { return }
+        if isFirstRun {
+            // On top: launch can replace its first Home pane. Consume only once shown. The
+            // mark tells the fresh-home launch smoke this page covers Home on purpose.
+            guard TopPages.show(.page(.importHistory), services: services) != nil else { return }
+            DebugTimings.markLaunch("first_run.history_import_shown")
+        }
+        defaults.set(true, forKey: key)
+    }
+
+    /// A Sign In's login in a local terminal tab (false: none opened). A top page covers it, so it shows once the page is left.
+    private func openSignIn(_ line: String) async -> Bool {
+        if let window = services.windows.active, let page = window.shownTopPage, window.leaveTopPage() { pageLeftForSignIn = pageLeftForSignIn ?? page }
+        return await services.openLocalProviderLogin(line)
+    }
+
+    /// The first-run Agents step over Bring your history (``OnboardingWindowPresenter/showAgentsAtFirstRun``); never when ``AppEnvironment/skipsOnboarding``.
+    func showAgentsAtFirstRun(isFirstRun: Bool) async {
+        guard !services.environment.skipsOnboarding else { return }
+        await presenter.showAgentsAtFirstRun(isFirstRun: isFirstRun, source: signInHarnesses)
+    }
+
+    func historyImportFinished() {
+        UserDefaults.standard.set(true, forKey: HomeHostView.memoryOfferUsedKey)
+    }
+
 }
 
 extension SavingImportDestination {

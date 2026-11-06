@@ -24,6 +24,7 @@
 //! - [`run_roles`]: `cmux host run` without a bind agent (macOS).
 //! - [`status`]: `cmux host status`.
 //! - [`cloud`]: the Cloud machine agent role (bind, status reports, events).
+//! - [`updater`]: the Cloud machine's self-update from the signed channel.
 //! - [`team_ssh`]: sshd trust files, fail-closed principals and revoked-session reaping.
 //! - [`cli`]: the verbs; also the standalone `cmux-host` binary.
 //! - `github_cli`: `cmux github credential|gh|setup` (git and gh with
@@ -47,6 +48,8 @@ pub mod config;
 pub mod daemon_spec;
 #[cfg(unix)]
 pub mod github_cli;
+#[cfg(unix)]
+pub mod github_cli_identity;
 pub mod identity;
 mod json;
 #[cfg(target_os = "linux")]
@@ -62,3 +65,4 @@ pub mod status;
 pub mod team_ssh;
 #[cfg(unix)]
 pub mod turn_scope;
+pub mod updater;

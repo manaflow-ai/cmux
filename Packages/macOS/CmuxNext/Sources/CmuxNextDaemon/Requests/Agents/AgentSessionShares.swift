@@ -2,7 +2,8 @@ import Foundation
 
 // Link shares of an agent chat (`agent-session-share-*`, cmux-tui-core
 // server/agent_session_shares.rs; design chat-multiplayer.md 4.2): the owner shares one chat with
-// a guest through a link that works a few times (once by default) and expires (24 h by default).
+// a guest through a link that works a few times (once by default) and expires (24 h by default),
+// and may invite cmux accounts to a share, who join after signing in.
 // The daemon answers these only on the owner's own local unix connection; a remote machine's
 // daemon refuses them (`share.not_trusted`).
 
@@ -96,6 +97,38 @@ public struct AgentSessionShareKickRequest: DaemonRequest {
     }
 }
 
+/// `agent-session-share-invite`: the cmux account `account` (an email or `@handle`) may join the share
+/// after signing in, as `role` (`view` watches, `talk` also sends held messages; the daemon's default
+/// is `talk`). The same role again changes nothing; another role is refused (`share.invited`).
+public struct AgentSessionShareInviteRequest: DaemonRequest {
+    public typealias Response = JSONValue
+    public static let command = "agent-session-share-invite"
+
+    public var shareId: String
+    public var account: String
+    public var role: String?
+
+    public init(shareId: String, account: String, role: String? = nil) {
+        self.shareId = shareId
+        self.account = account
+        self.role = role
+    }
+}
+
+/// `agent-session-share-uninvite`: the account joins no more, and every guest it joined as leaves.
+public struct AgentSessionShareUninviteRequest: DaemonRequest {
+    public typealias Response = JSONValue
+    public static let command = "agent-session-share-uninvite"
+
+    public var shareId: String
+    public var account: String
+
+    public init(shareId: String, account: String) {
+        self.shareId = shareId
+        self.account = account
+    }
+}
+
 /// What create answers. `url` is the guest link (`<room>/g/<share_id>#<secret>`), nil when the
 /// daemon has no hosted room; the secret travels only inside it and is not kept here.
 public struct AgentSessionShareCreated: Decodable, Sendable, Equatable {
@@ -145,19 +178,86 @@ public struct AgentSessionShare: Decodable, Sendable, Equatable, Identifiable {
     public var usesLeft: UInt32
     /// The hosted room's origin, nil without one.
     public var room: String?
+    /// The link invitees open (`<room>/i/<share_id>`, no secret in it); nil without a room, and from a
+    /// daemon older than invite links.
+    public var inviteUrl: String?
     public var guests: [AgentSessionShareGuest]
+    /// The cmux accounts invited to the share; empty from a daemon older than invites.
+    public var invitees: [AgentSessionShareInvitee]
 
     public var id: String { shareId }
     public var isLive: Bool { state == "active" || state == "provisioning" }
 
     enum CodingKeys: String, CodingKey {
-        case state, session, surface, room, guests
+        case state, session, surface, room, guests, invitees
         case shareId = "share_id"
         case createdAt = "created_at"
         case createId = "create_id"
         case expiresAt = "expires_at"
         case expiresInSecs = "expires_in_secs"
         case usesLeft = "uses_left"
+        case inviteUrl = "invite_url"
+    }
+
+    public init(shareId: String, state: String, session: String, surface: UInt64, createdAt: UInt64 = 0, createId: String? = nil,
+                expiresAt: UInt64 = 0, expiresInSecs: UInt64 = 0, usesLeft: UInt32 = 0, room: String? = nil, inviteUrl: String? = nil,
+                guests: [AgentSessionShareGuest] = [], invitees: [AgentSessionShareInvitee] = []) {
+        self.shareId = shareId
+        self.state = state
+        self.session = session
+        self.surface = surface
+        self.createdAt = createdAt
+        self.createId = createId
+        self.expiresAt = expiresAt
+        self.expiresInSecs = expiresInSecs
+        self.usesLeft = usesLeft
+        self.room = room
+        self.inviteUrl = inviteUrl
+        self.guests = guests
+        self.invitees = invitees
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        state = try c.decode(String.self, forKey: .state)
+        shareId = try c.decode(String.self, forKey: .shareId)
+        session = try c.decode(String.self, forKey: .session)
+        surface = try c.decode(UInt64.self, forKey: .surface)
+        createdAt = try c.decode(UInt64.self, forKey: .createdAt)
+        createId = try c.decodeIfPresent(String.self, forKey: .createId)
+        expiresAt = try c.decode(UInt64.self, forKey: .expiresAt)
+        expiresInSecs = try c.decode(UInt64.self, forKey: .expiresInSecs)
+        usesLeft = try c.decode(UInt32.self, forKey: .usesLeft)
+        room = try c.decodeIfPresent(String.self, forKey: .room)
+        inviteUrl = try c.decodeIfPresent(String.self, forKey: .inviteUrl)
+        guests = try c.decode([AgentSessionShareGuest].self, forKey: .guests)
+        invitees = try c.decodeIfPresent([AgentSessionShareInvitee].self, forKey: .invitees) ?? []
+    }
+}
+
+/// An account the owner invited to a share.
+public struct AgentSessionShareInvitee: Decodable, Sendable, Equatable, Identifiable {
+    /// Trimmed and lowercased by the daemon: an email address or a cmux `@handle`.
+    public var account: String
+    /// `view` or `talk`.
+    public var role: String
+    public var invitedAt: UInt64
+    /// `invited` or `removed`.
+    public var state: String
+
+    public var id: String { account }
+    public var isInvited: Bool { state == "invited" }
+
+    enum CodingKeys: String, CodingKey {
+        case account, role, state
+        case invitedAt = "invited_at"
+    }
+
+    public init(account: String, role: String, invitedAt: UInt64, state: String) {
+        self.account = account
+        self.role = role
+        self.invitedAt = invitedAt
+        self.state = state
     }
 }
 
@@ -168,19 +268,25 @@ public struct AgentSessionShareGuest: Decodable, Sendable, Equatable, Identifiab
     public var joinedAt: UInt64
     /// `active`, `kicked` or `left`.
     public var state: String
+    /// The invited account this guest joined as; nil for a link guest.
+    public var account: String?
+    /// The invited account's role (`view` or `talk`); nil for a link guest.
+    public var role: String?
 
     public var id: String { guestId }
 
     enum CodingKeys: String, CodingKey {
-        case name, state
+        case name, state, account, role
         case guestId = "guest_id"
         case joinedAt = "joined_at"
     }
 
-    public init(guestId: String, name: String, joinedAt: UInt64, state: String) {
+    public init(guestId: String, name: String, joinedAt: UInt64, state: String, account: String? = nil, role: String? = nil) {
         self.guestId = guestId
         self.name = name
         self.joinedAt = joinedAt
         self.state = state
+        self.account = account
+        self.role = role
     }
 }

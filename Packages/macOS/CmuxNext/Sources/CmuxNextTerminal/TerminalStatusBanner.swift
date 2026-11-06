@@ -11,7 +11,7 @@ final class TerminalStatusBanner: NSView {
     init() {
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = 8
+        layer?.cornerRadius = Metrics.surfaceCornerRadius
         layer?.borderWidth = Metrics.lineWidth(1)
         label.font = .systemFont(ofSize: 12, weight: .medium)
         label.ink = .secondary

@@ -207,6 +207,27 @@ impl PartialEq for Reuse {
     }
 }
 
+/// The kept session a turn ends (`TurnStart::retire`): at `end`, after the
+/// turn's prompt went out, or when the turn returns before that.
+struct Retire<'a> {
+    agents: &'a dyn AgentPort,
+    session: Option<String>,
+}
+
+impl Retire<'_> {
+    fn end(&mut self) {
+        if let Some(old) = self.session.take() {
+            let _ = self.agents.end_session(&old);
+        }
+    }
+}
+
+impl Drop for Retire<'_> {
+    fn drop(&mut self) {
+        self.end();
+    }
+}
+
 /// A turn session that kept running after its acpmux connection was lost:
 /// its later events are folded into the log, and it is removed, once acpmux
 /// is back (section 7: everything the agent does is logged).
@@ -234,6 +255,9 @@ pub struct TurnStats {
     pub start_ms: Option<u64>,
     /// The first request's time to first token (`fold::Request::ttft_ms`).
     pub ttft_ms: Option<u64>,
+    /// The first request's time to its `message_start`
+    /// (`fold::Request::headers_ms`): the model route's share of `ttft_ms`.
+    pub headers_ms: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -256,6 +280,10 @@ pub struct TurnOutcome {
     /// The session this turn left running for the next turn (`TurnStart::keep`
     /// and a clean end); None: the session was ended.
     pub kept: Option<Kept>,
+    /// The turn failed before its prompt reached a harness (its session did
+    /// not start, or its system prompt was not set): nothing ran, so running it again repeats nothing. Set only where that
+    /// holds; any other failure keeps false and is never rerun for it.
+    pub unstarted: bool,
 }
 
 /// The error of a turn whose acpmux connection was lost while it ran.
@@ -291,8 +319,32 @@ const TRANSIENT_SESSION_FAILURES: [&str; 13] = [
     "the CLI exited",
 ];
 
+/// How long a turn's session starts before the app says the machine is busy, and how often that
+/// count moves after.
+const START_NOTICE_AFTER: Duration = Duration::from_secs(30);
+const START_NOTICE_EVERY: u64 = 10;
+
+/// Whether an `unstarted` turn's error is a start that ran out of time or
+/// broke off, not one refused for a reason the person must fix (a refused env
+/// key, a missing preset, a sign-in): acpmux's `deadline_exceeded` errors
+/// ("<wait> did not finish within <t>", retryable by its own data), Chief's
+/// own waits on them, and a harness that closed as it started for no reason
+/// or a passing one (`subagents::is_transient_start_failure`: never one that
+/// is not signed in). Such a turn is rerun and its error never posted
+/// (`brain/turns.rs` `cut_kind`).
+pub fn is_start_stall(error: &str) -> bool {
+    crate::host::start_stall(error) || crate::subagents::is_transient_start_failure(error)
+}
+
+/// An error's words before acpmux's process detail ("; its agent process
+/// (pid 15023) ... ran 502 s ..."), whose numbers read as HTTP statuses.
+pub fn error_head(error: &str) -> &str {
+    error.split("; its agent process").next().unwrap_or(error)
+}
+
 /// Whether a turn's `session/new` error is worth a new try.
 pub fn is_transient_session_failure(error: &str) -> bool {
+    let error = error_head(error);
     TRANSIENT_SESSION_FAILURES.iter().any(|t| error.contains(t))
 }
 
@@ -304,11 +356,12 @@ fn new_session_with_retry(
     spec: &SessionSpec,
     interrupt: &Interrupt,
     deadline: Option<Instant>,
+    keep_waiting: &mut dyn FnMut(Duration) -> bool,
     note: &dyn Fn(&str, Duration),
 ) -> Result<String, String> {
     let mut waits = NEW_SESSION_BACKOFF.iter();
     loop {
-        let error = match agents.new_session(spec) {
+        let error = match agents.new_session_watching(spec, keep_waiting) {
             Ok(id) => return Ok(id),
             Err(e) => e,
         };
@@ -365,11 +418,12 @@ pub fn run(
         trace,
         &|_| {},
         &|_| {},
+        &|_| {},
     )
 }
 
-/// `run`, publishing drafts of the reply as it streams (`draft.rs`) and the
-/// turn's run record as it changes (`run.rs`).
+/// `run`, publishing drafts of the reply as it streams (`draft.rs`), the turn's run record as it
+/// changes (`run.rs`), and how long a slow session start has taken (`starting`; None once it ended).
 #[allow(clippy::too_many_arguments)]
 pub fn run_with_drafts(
     agents: &dyn AgentPort,
@@ -381,6 +435,7 @@ pub fn run_with_drafts(
     trace: &Trace,
     draft: &dyn Fn(crate::draft::Draft),
     run: &dyn Fn(crate::run::RunUpdate),
+    starting: &dyn Fn(Option<u64>),
 ) -> TurnOutcome {
     let scope = serde_json::json!({"turn": start.key});
     let began = Instant::now();
@@ -407,9 +462,16 @@ pub fn run_with_drafts(
         harness: admitted.profile.clone(),
         ..start.session.clone()
     };
-    if let Some(old) = &start.retire {
-        let _ = agents.end_session(old);
-    }
+    // The kept session this turn does not take is ended once the turn's
+    // prompt is out, not before its session starts: ending it (a cancel,
+    // then the process group's TERM grace) sat in front of every first turn
+    // after a host restart. It is a Claude Code session (only those are
+    // kept), so it never shares a CODEX_HOME with the new one (E18). Every
+    // early return below ends it too (`Retire`'s drop).
+    let mut retire = Retire {
+        agents,
+        session: start.retire.clone(),
+    };
     // The kept session, while acpmux still has it and nothing waits in it.
     let reused = start.reuse.as_ref().and_then(Reuse::take).and_then(|r| {
         use cmux_chief::acp::SessionStatus as S;
@@ -444,22 +506,60 @@ pub fn run_with_drafts(
                 if let Err(e) = set {
                     return TurnOutcome {
                         error: Some(format!("setting the turn's system prompt: {e}")),
+                        unstarted: true,
                         ..TurnOutcome::default()
                     };
                 }
             }
-            match new_session_with_retry(agents, &spec, interrupt, deadline, &|e, wait| {
-                log(&format!(
-                    "turn {}: {e}; the session starts again in {} ms",
-                    start.key,
-                    wait.as_millis()
-                ))
-            }) {
+            // acpmux keeps the start going while its harness works: the wait has no wall clock of
+            // its own. It says how long it has taken, and ends on a stop or the turn's limit.
+            let past_limit = || deadline.is_some_and(|d| Instant::now() >= d);
+            let mut stopped = false;
+            let mut said = 0;
+            let mut keep_waiting = |waited: Duration| {
+                let tens = waited.as_secs() / START_NOTICE_EVERY;
+                if waited >= START_NOTICE_AFTER && tens != said {
+                    said = tens;
+                    starting(Some(tens * START_NOTICE_EVERY));
+                }
+                stopped = interrupt.is_set() || past_limit();
+                !stopped
+            };
+            let created = new_session_with_retry(
+                agents,
+                &spec,
+                interrupt,
+                deadline,
+                &mut keep_waiting,
+                &|e, wait| {
+                    log(&format!(
+                        "turn {}: {e}; the session starts again in {} ms",
+                        start.key,
+                        wait.as_millis()
+                    ))
+                },
+            );
+            starting(None);
+            match created {
                 Ok(id) => id,
                 Err(e) => {
+                    // Its start still runs under the name: ending the session ends it.
+                    if stopped && let Ok(Some(old)) = agents.find(&start.session.name) {
+                        let _ = agents.end_session(&old);
+                    }
+                    let cancelled = stopped && interrupt.is_set();
+                    let error = match (stopped, cancelled) {
+                        (_, true) => None,
+                        (true, false) => {
+                            Some("the session did not start within the turn's limit".to_owned())
+                        }
+                        (false, false) => Some(e),
+                    };
                     return TurnOutcome {
-                        error: Some(e),
+                        error,
+                        cancelled,
                         harness: Some(Box::new(admitted)),
+                        unstarted: true,
                         ..TurnOutcome::default()
                     };
                 }
@@ -560,7 +660,11 @@ pub fn run_with_drafts(
     let (tx, rx) = channel();
     interrupt.wake_with(Some(tx.clone()));
     let blocks = reused.map_or_else(|| start.blocks.clone(), |r| r.blocks.clone());
-    if let Err(e) = agents.start_prompt(&session, blocks, &start.prompt_id, tx) {
+    let started = agents.start_prompt(&session, blocks, &start.prompt_id, tx);
+    // Before the old session's end, which overlaps the model's first byte.
+    let start_ms = Some(began.elapsed().as_millis() as u64);
+    retire.end();
+    if let Err(e) = started {
         interrupt.wake_with(None);
         let _ = agents.end_session(&session);
         if reused.is_some() {
@@ -569,16 +673,18 @@ pub fn run_with_drafts(
                 "turn {}: the kept session {session} refused the prompt ({e}); starting a new one",
                 start.key
             ));
+            // The kept session refused the prompt, so nothing ran on it: the
+            // fresh start's outcome stands as it is.
             return run_with_drafts(
-                agents, chat, start, interrupt, log, progress, trace, draft, run,
+                agents, chat, start, interrupt, log, progress, trace, draft, run, starting,
             );
         }
+        // Not `unstarted`: the prompt may have gone out before the error.
         return TurnOutcome {
             error: Some(e),
             ..TurnOutcome::default()
         };
     }
-    let start_ms = Some(began.elapsed().as_millis() as u64);
     let fetch = |fold: &mut TurnFold| -> Result<(), String> {
         let before = fold.seq();
         let mut entries = Vec::new();
@@ -871,6 +977,7 @@ pub fn run_with_drafts(
         reply: fold.final_text(),
         done_draft,
         cancelled,
+        unstarted: false,
         error,
         orphan,
         harness: Some(Box::new(admitted)),
@@ -885,6 +992,7 @@ pub fn run_with_drafts(
             tool_errors,
             start_ms,
             ttft_ms: requests.first().and_then(|r| r.ttft_ms),
+            headers_ms: requests.first().and_then(|r| r.headers_ms),
         },
     }
 }
@@ -1063,7 +1171,11 @@ pub fn run_after_capacity_waits(
         waited += wait;
         let mut next = start.clone();
         next.prompt_id = format!("{}:capacity{attempt}", start.prompt_id);
+        // A try that reached a harness may have done its work: the turn is
+        // not `unstarted` though a later try's start stalls.
+        let ran = !outcome.unstarted;
         outcome = again(&next);
+        outcome.unstarted &= !ran;
     }
 }
 

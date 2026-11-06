@@ -137,6 +137,9 @@ pub enum DomainKind {
     /// `appearance.customDensities`: a list of density objects, each with a
     /// lowercase id and a name (Swift `CustomDensitiesSetting.accepts`).
     CustomDensities,
+    /// `agentPane.display.commandLabels`: a list of preset names and command
+    /// label rules (Swift `CommandLabelsSetting.accepts`).
+    CommandLabels,
 }
 
 /// One descriptor row.
@@ -311,6 +314,7 @@ fn row(raw: Value) -> Result<Row, String> {
         "domain:chat_roots" => Validation::Domain(DomainKind::ChatRoots),
         "domain:search_template" => Validation::Domain(DomainKind::SearchTemplate),
         "domain:custom_densities" => Validation::Domain(DomainKind::CustomDensities),
+        "domain:command_labels" => Validation::Domain(DomainKind::CommandLabels),
         other => return Err(format!("{}: unknown validation {other}", parsed.key)),
     };
     Ok(Row {

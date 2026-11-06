@@ -14,6 +14,8 @@ public struct AgentShareActions {
     public static let list: ActionID = "agent.share.list"
     public static let revoke: ActionID = "agent.share.revoke"
     public static let kick: ActionID = "agent.share.kick"
+    public static let invite: ActionID = "agent.share.invite"
+    public static let uninvite: ActionID = "agent.share.uninvite"
 
     /// How long a create waits for the daemon: the room's 15 s provisioning budget and some margin.
     public static let createDeadline: Duration = .seconds(20)
@@ -43,26 +45,7 @@ public struct AgentShareActions {
                 // A link exposes the chat's whole transcript: only the owner's yes makes one (#30263).
                 // Asked before the owner's token is minted, so a declined run spends nothing.
                 if !person, !(await host.shareAskOwner(ask)) { throw AgentShareDeclined() }
-                // The token comes from the API the daemon's room takes (cmux#31372); a daemon too old to
-                // say leaves the build's default.
-                let room = try? await chat.connection?.request(AgentSessionShareRoomRequest())
-                let token = await host.shareOwnerToken(api: room?.ownerApi.flatMap { URL(string: $0) })
-                // The session pins the chat: the daemon refuses if the surface shows another one by now.
-                let createID = UUID().uuidString
-                let request = AgentSessionShareCreateRequest(surface: chat.surface, session: chat.session, createId: createID, ttlSecs: ttl,
-                                                             uses: uses, ownerToken: token)
-                // Create waits out the hosted room's provisioning (its request budget is 15 s,
-                // agent_session_share_room.rs): its answer is the only copy of the link's secret.
-                let connection = try Self.connected(chat.connection)
-                let created: AgentSessionShareCreated
-                do {
-                    created = try await connection.request(request, timeout: Self.createDeadline)
-                } catch DaemonError.timedOut(let what) {
-                    // The daemon may still have made the link, but its secret was only in the answer
-                    // that never came: no one can use it, so end it rather than leave it live.
-                    await Self.revokeUnanswered(createID: createID, on: connection)
-                    throw DaemonError.timedOut(what)
-                }
+                let created = try await Self.create(chat, ttl: ttl, uses: uses, host: host)
                 // A person's palette or menu run copies the link at once; a script gets it back.
                 if person { Self.announce(created, host: host) }
                 return AgentShareResults.created(created)
@@ -99,10 +82,34 @@ public struct AgentShareActions {
                 return AgentShareResults.ended(try await Self.connected(connection).request(request))
             }
         })
+        bindInvites(into: registry)
         // Only a started agent chat's tab offers Share with Guest…; a terminal's or a new chat's leaves it out.
         ActionTargetVisibility.hide(Self.share, in: registry) { invocation in
             guard let target = invocation.target, target.kind == .tab else { return false }
             return host.shareTab(id: target.id).flatMap(AgentShareChat.session(of:)) == nil
+        }
+    }
+
+    /// A new share of `chat` with the owner's token (asked for only now, after any consent).
+    static func create(_ chat: AgentShareChat, ttl: UInt64?, uses: UInt32?, host: any AgentShareHost) async throws -> AgentSessionShareCreated {
+        // The token comes from the API the daemon's room takes (cmux#31372); a daemon too old to
+        // say leaves the build's default.
+        let room = try? await chat.connection?.request(AgentSessionShareRoomRequest())
+        let token = await host.shareOwnerToken(api: room?.ownerApi.flatMap { URL(string: $0) })
+        // The session pins the chat: the daemon refuses if the surface shows another one by now.
+        let createID = UUID().uuidString
+        let request = AgentSessionShareCreateRequest(surface: chat.surface, session: chat.session, createId: createID, ttlSecs: ttl,
+                                                     uses: uses, ownerToken: token)
+        // Create waits out the hosted room's provisioning (its request budget is 15 s,
+        // agent_session_share_room.rs): its answer is the only copy of the link's secret.
+        let connection = try Self.connected(chat.connection)
+        do {
+            return try await connection.request(request, timeout: Self.createDeadline)
+        } catch DaemonError.timedOut(let what) {
+            // The daemon may still have made the link, but its secret was only in the answer
+            // that never came: no one can use it, so end it rather than leave it live.
+            await Self.revokeUnanswered(createID: createID, on: connection)
+            throw DaemonError.timedOut(what)
         }
     }
 
@@ -156,13 +163,13 @@ public struct AgentShareActions {
 
     /// A target that names nothing answers `not_found` (``ActionRegistry/refuseNotFound(_:)``); any
     /// other refusal answers `unavailable`.
-    private static func refused(_ refusal: AgentShareRefusal, _ registry: ActionRegistry) -> ActionEffect {
+    static func refused(_ refusal: AgentShareRefusal, _ registry: ActionRegistry) -> ActionEffect {
         guard refusal.isNotFound else { return .refused(refusal.reason) }
         registry.refuseNotFound(refusal.reason)
         return .done
     }
 
-    private static func argument(_ invocation: ActionInvocation, _ name: String) -> String? {
+    static func argument(_ invocation: ActionInvocation, _ name: String) -> String? {
         invocation[name]?.stringValue.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }
     }
 
@@ -176,14 +183,14 @@ public struct AgentShareActions {
         }
     }
 
-    private static func connected(_ connection: DaemonConnection?) throws -> DaemonConnection {
+    static func connected(_ connection: DaemonConnection?) throws -> DaemonConnection {
         guard let connection else { throw DaemonError.notConnected }
         return connection
     }
 
     /// The share's daemon work, answered to a waiting caller as `action.run` `result`; a person's
     /// run sees its failure as the registry's refusal notice.
-    private static func answer(_ registry: ActionRegistry,
+    static func answer(_ registry: ActionRegistry,
                                _ work: @escaping @MainActor () async throws -> [String: ActionResultValue]) -> ActionEffect {
         // task-owner: the action run (its `.waiting` work awaits it; a waiting caller gets its value)
         let task: ActionResultWork = Task { @MainActor in
@@ -227,8 +234,11 @@ struct AgentShareChat {
     }
 }
 
-/// The owner declined (or did not answer) the consent sheet of a run they did not start: no link.
-struct AgentShareDeclined: Error, Equatable {}
+/// The owner declined (or did not answer) the consent sheet of a run they did not start: no link
+/// (or, for an invite, nobody invited).
+struct AgentShareDeclined: Error, Equatable {
+    var invite = false
+}
 
 struct AgentShareRefusal: Error, Equatable {
     var reason: String

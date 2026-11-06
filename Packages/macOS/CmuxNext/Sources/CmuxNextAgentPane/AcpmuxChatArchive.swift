@@ -10,6 +10,6 @@ public nonisolated struct AcpmuxChatArchive: Sendable {
 
     @concurrent public func archive(sessionId: String) async throws {
         _ = try await AcpmuxStatusClient.call(socketPath: socketPath, method: "_acpmux/archive",
-                                              params: ["sessionId": sessionId, "archived": true], deadline: .seconds(2))
+                                              params: ["sessionId": sessionId, "archived": true], deadline: AcpmuxEnvironment.answerDeadline)
     }
 }

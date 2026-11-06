@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDesign
+import CmuxNextFeed
 import CmuxNextWakeups
 
 // Share with Guest (design chat-multiplayer.md 6): one-line forwards to the App's owners.
@@ -17,7 +18,8 @@ extension AppServices: AgentShareHost {
     func shareOwnerToken(api: URL?) async -> String? { await cloud.shareOwnerToken(api: api) }
     func shareCopy(_ text: String) { AppActionContext(services: self).copy(text) }
     func shareNotice(_ message: String) { BrowserFileImport.toast(self, id: "agent-share", message) }
-    func shareAskOwner(_ ask: AgentShareConsentAsk) async -> Bool { await AgentShareConsentSheet.ask(ask) }
+    func shareAskOwner(_ ask: AgentShareConsentAsk) async -> Bool { await AgentShareConsentSheet.ask(ask, feed: feed) }
+    func shareShowInvites(_ model: AgentShareInviteSheetModel) { AgentShareInviteSheetPresenter.present(model, services: self) }
 }
 
 /// The owner's consent sheet for a guest link a run they did not start asks for (#30263): a cmux
@@ -33,22 +35,47 @@ enum AgentShareConsentSheet {
     /// asking script approve its own link.
     static let identifier = "cmux.dialog.agentShareConsent"
 
+    /// The Feed request while the sheet waits: its "Show on Mac" brings the app forward, never allows.
+    static func feedRequest(_ ask: AgentShareConsentAsk) -> FeedPendingConfirm.Request {
+        .init(title: ask.title, statement: ask.lines.joined(separator: " "), confirmLabel: ask.showOnMacTitle, cancelLabel: ask.declineTitle)
+    }
+
     static func spec(_ ask: AgentShareConsentAsk) -> CmuxDialogSpec {
         CmuxDialogSpec(title: ask.title, lines: ask.lines,
                        buttons: [.cancel(ask.declineTitle), CmuxDialogButton(id: "allow", title: ask.allowTitle)],
                        identifier: identifier)
     }
 
-    static func ask(_ ask: AgentShareConsentAsk, center: CmuxDialogCenter = .shared, within limit: Duration = answerWithin) async -> Bool {
+    /// `feed`: while the sheet waits it is also an open Feed request (``FeedPendingConfirm``), which only
+    /// declines the sheet or brings the app forward.
+    static func ask(_ ask: AgentShareConsentAsk, center: CmuxDialogCenter = .shared, within limit: Duration = answerWithin,
+                    feed: FeedService? = nil) async -> Bool {
         let timeout = DemandTimer(owner: "AgentShareConsentSheet.ask")
+        let request = feed.flatMap { feed in feed.isSignedIn ? FeedPendingConfirm(owner: { try await feed.call($0, $1) }) : nil }
         return await withCheckedContinuation { continuation in
             // The center calls this once: the owner's press, or the dismissal below.
             let id = center.present(spec(ask), in: .app) { answer in
                 timeout.cancel()
+                // task-owner: AgentShareConsentSheet.ask: one feed.cancel when the sheet ends.
+                if let request { Task { await request.close() } }
                 continuation.resume(returning: answer.button == "allow")
             }
             // Cancelled by the answer; else ends the dialog at `limit` as a decline.
             timeout.schedule(after: limit) { @MainActor in center.dismiss(id) }
+            guard let feed, let request else { return }
+            // task-owner: AgentShareConsentSheet.ask: posts the Needs you request, then waits for a Feed
+            // answer at most until the sheet's own `limit`; ends with the sheet (close) or the deadline.
+            Task { @MainActor in
+                let deadline = ContinuousClock.now + limit
+                guard let item = await request.open(feedRequest(ask), key: "share-consent:\(UUID().uuidString)",
+                                                    expiresInMs: Int(limit.components.seconds) * 1000) else { return }
+                await feed.waitClosed(item, until: deadline)
+                switch feed.model.item(item).flatMap(FeedPendingConfirm.confirmed) {
+                case false?: center.dismiss(id)
+                case true?: NSApp.activate()
+                case nil: break
+                }
+            }
         }
     }
 }

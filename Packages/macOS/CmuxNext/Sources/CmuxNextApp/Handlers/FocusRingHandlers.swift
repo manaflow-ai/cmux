@@ -7,12 +7,10 @@ import CmuxNextSettings
 /// (`AppActionContext.writeSetting`); the watcher reapplies them.
 enum FocusRingHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        registry.bind("focusRing.toggle", run: { _ in
-            update(context, key: "enabled") { ring in
-                ring.enabled.toggle()
-                return .bool(ring.enabled)
-            }
-        })
+        // Every pane ring, not just the focus ring (`DesignSettings.togglePaneRings`).
+        registry.bind("focusRing.toggle", run: { _ in context.writeSettings("toggle pane rings", context.design.togglePaneRings()) })
+        let design = context.design
+        ActionTargetTitles.setPaletteState("focusRing.toggle", in: registry) { design.showsAnyPaneRing }
         registry.bind("focusRing.style.ring", run: { _ in setStyle(.ring, context) })
         registry.bind("focusRing.style.glow", run: { _ in setStyle(.glow, context) })
         registry.bind("focusRing.singlePane.toggle", run: { _ in
@@ -21,6 +19,7 @@ enum FocusRingHandlers {
                 return .bool(ring.showsForSinglePane)
             }
         })
+        ActionTargetTitles.setPaletteState("focusRing.singlePane.toggle", in: registry) { design.focusRing.showsForSinglePane }
     }
 
     /// Choosing a style also turns the ring on.

@@ -28,6 +28,7 @@ export const CATEGORY_CARDS = [
   "density",
   "importSuggestions",
   "channels",
+  "appUpdate",
   "webUpdates",
   "voiceInput",
   "notices",

@@ -64,7 +64,7 @@ changed `web/` files. `scripts/web-lint.sh --fix` autofixes what the tools can;
 commit the result. The hook comes with `scripts/install-git-hooks.sh` (run by
 `scripts/setup.sh`; one run covers every worktree of the clone). Skip it only with
 `CMUX_WEB_LINT_SKIP_REASON="<failing check> is red on base <sha>"`; the
-`web lint (fast)` job of cmux-next-web.yml still checks every feat-cmux-next push.
+`web lint (fast)` job of cmux-next-web-lint.yml still checks every feat-cmux-next push.
 A host that must not run heavy checks (a shared agent host) sets `CMUX_LOCAL_HEAVY_CHECKS=0`:
 the type-aware lint and type check (`vp lint`, `vp check`) are left to CI there; the rest still run.
 
@@ -193,7 +193,7 @@ staged, and committed. CI keeps the non-mutating lint as the backstop.
 Claude Code and Codex post-edit hooks (`.claude/settings.json`, `.codex/hooks.json`)
 run the same fixer on edited `Packages/**/*.swift` files; they print repairs and never fail an edit.
 They also warn, for the edited files only, about workflow YAML that does not parse or that
-actionlint rejects, a new `tests/test_*.py` missing from `tests/test-execution.toml`, and a
+actionlint rejects, a new `tests/test_*.py` missing from `tests/test-execution.d/`, and a
 CmuxNext Swift or cmux-tui Rust file grown past its god-file cap (`scripts/ci/check-post-edit.sh`).
 
 `scripts/ci/format-post-edit.sh` formats each edited file the way CI checks it:
@@ -270,6 +270,21 @@ such as `LINUX_RUNNER` or `MACOS_RUNNER_*`) to a nightly job; when owned
 capacity is short, fix the owned pool. `tests/test_ci_nightly_off_blacksmith.py`
 enforces this.
 
+**Nightlies run on one Mac mini, and nobody cancels them** (Lawrence, 2026-11-04).
+The whole nightly (build, sign, notarize, verify and publish, for cmux-next on
+`nightly-next` and classic on `main`) runs on the single nightly mini: cmux15, the
+signing-reserved mini (its runners carry `glaeda-trusted-next-signing` and the
+nightly-only labels). This applies to humans, Leo and every agent:
+
+- Never move a nightly job to Blacksmith, a GitHub-hosted runner or another mini,
+  and never split one nightly across minis, also not "only for this run".
+- Never cancel a nightly run, a nightly job or the nightly queue to make room or
+  to speed up a proof. A queued nightly waits its turn; the sign yield
+  (`scripts/ci/nightly_sign_yield.py`) hands an older build's slot to a newer
+  one without cancelling anything.
+- When the nightly mini is short of capacity or a nightly is slow, report it and
+  fix the mini or the workflow on that mini. Do not reroute the nightly.
+
 - Commit the failing behavioral regression before its fix; record the same
   focused command's red and green results ([testing policy](skills/cmux-testing/SKILL.md#reproduce-and-repair)).
   A bug-fix PR body names that command, its failure on the base and its pass on the head,
@@ -303,7 +318,9 @@ enforces this.
   `next_batch.py`), a new delete of user data, a new
   `pull_request_target` or `workflow_run` trigger) lands on an independent review receipt
   `Review (<reviewer>): SHIP at <full head sha>` on the exact head plus a green compile; agents
-  never need a label. A collaborator's approval of the head, or `risk:human-ok` from a maintainer,
+  never need a label. Agents post as the PR author's account, so an agent's PR body has one line
+  `Author-agent: <agent id>`, and a receipt from that account must read `Review (<reviewer agent id>,
+  started by <agent id>): SHIP at <sha>`, with neither id the author agent (`scripts/ci/risk_tier.py`). A collaborator's approval of the head, or `risk:human-ok` from a maintainer,
   also counts. Any tier is held while it takes back a change
   merged in the last week, until the description has `Takes back #N: <why>`. Ship
   user-visible high-tier behavior behind a default-off setting; revert with

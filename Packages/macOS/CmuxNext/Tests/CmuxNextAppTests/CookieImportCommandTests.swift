@@ -68,10 +68,19 @@ import Testing
     }
 
     @Test func onlyAPersonsRunInTheAppSkipsTheConsentPanel() {
-        #expect(!CookieImportService.needsConsent(ActionInvocation(origin: .user)))
+        #expect(!CookieImportService.needsConsent(ActionInvocation(origin: .user), byPerson: true))
+        #expect(CookieImportService.needsConsent(ActionInvocation(origin: .user), byPerson: false),
+                "a palette or card run that a posted click or key started asks too")
         for origin in [ActionOrigin.cli, .mcp, .script, .remote, .page] {
-            #expect(CookieImportService.needsConsent(ActionInvocation(origin: origin)), "\(origin) asks first")
+            #expect(CookieImportService.needsConsent(ActionInvocation(origin: origin), byPerson: true), "\(origin) asks first")
         }
+        // A cmux app's run during the person's gesture in it, or one the control socket carries, is not the person's own.
+        var app = ActionInvocation(origin: .user)
+        app.callerApp = "com.example.app"
+        #expect(CookieImportService.needsConsent(app, byPerson: true), "a cmux app asks first, even in the person's gesture")
+        var socket = ActionInvocation(origin: .user)
+        socket.viaControlSocket = true
+        #expect(CookieImportService.needsConsent(socket, byPerson: true), "a socket run that claims the user origin asks first")
     }
 
     @Test func agentsMustGiveAReason() {

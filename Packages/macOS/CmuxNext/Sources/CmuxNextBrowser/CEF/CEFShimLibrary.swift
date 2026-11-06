@@ -50,6 +50,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let browserSetLayerHosting: @convention(c) (Int32, Int32) -> UInt32
     /// Fork API 27: `cmux_shim_browser_set_resize_sync` (deadline in ms, 0 never holds the commit).
     let browserSetResizeSync: @convention(c) (Int32, Int32) -> Int32
+    /// Fork API 30: `cmux_shim_browser_set_detached_hosting` (1 when the fork took it); nil in an older shim.
+    let browserSetDetachedHosting: (@convention(c) (Int32, Int32) -> Int32)?
     let initialize: @convention(c) (
         UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
         UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
@@ -142,6 +144,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let liveBrowserCount: @convention(c) () -> Int32
     let windowCount: @convention(c) () -> Int32
     let shutdown: @convention(c) () -> Void
+    /// Quit: commits every profile's cookie store before CefShutdown; REPLY answers (reply id).
+    let flushCookieStores: @convention(c) (Int32) -> Int32
     /// Chromium never shows a window of its own (fork API 8; no-op before).
     let setWindowRequestHandler: @convention(c) (WindowRequestFn?) -> Void
     /// Chromium's own focus requests go through cmux (`CefFocusHandler`).
@@ -253,6 +257,16 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
                                                         UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
     /// Answers a PAGE_RESOURCE request: token, status, MIME, body, length; 1 when it was waiting.
     let pageResourceRespond: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, UnsafeRawPointer?, Int) -> Int32
+    /// The same for a byte range: token, status, MIME, `Content-Range` and `Accept-Ranges` lines, body, length.
+    let pageResourceRespondRanged: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
+                                                   UnsafeRawPointer?, Int) -> Int32
+    /// The same with the answer's CSP: token, status, MIME, range lines, CSP, body, length (nil in an
+    /// older shim, whose answers always carry the page's own CSP).
+    let pageResourceRespondPage: (@convention(c) (Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
+                                                  UnsafePointer<CChar>?, UnsafeRawPointer?, Int) -> Int32)?
+    /// Sends every first-party page request to the page host (1) or serves page folders (0): the live
+    /// web loop. Nil in an older shim, which always serves the folders.
+    let pageSchemeSetLive: (@convention(c) (Int32) -> Void)?
 
     // Extension UI the app draws (fork API 12; no-ops and 0/NULL before).
     let setNewTabPageURL: @convention(c) (UnsafePointer<CChar>?) -> Void
@@ -334,6 +348,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         fileDialogAnswer = try r("cmux_shim_file_dialog_answer")
         browserSetLayerHosting = try r("cmux_shim_browser_set_layer_hosting")
         browserSetResizeSync = try r("cmux_shim_browser_set_resize_sync")
+        browserSetDetachedHosting = r.optional("cmux_shim_browser_set_detached_hosting")
         initialize = try r("cmux_shim_initialize")
         doWork = try r("cmux_shim_do_work")
         createWindow = try r("cmux_shim_create_window")
@@ -395,6 +410,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         liveBrowserCount = try r("cmux_shim_live_browser_count")
         windowCount = try r("cmux_shim_window_count")
         shutdown = try r("cmux_shim_shutdown")
+        flushCookieStores = try r("cmux_shim_flush_cookie_stores")
         setWindowRequestHandler = try r("cmux_shim_set_window_request_handler")
         setFocusRequestHandler = try r("cmux_shim_set_focus_request_handler")
         foreignBrowserCount = try r("cmux_shim_foreign_browser_count")
@@ -452,6 +468,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         pageSchemeAddFirstParty = try r("cmux_shim_page_scheme_add_first_party")
         pageSchemeAddFirstPartyDynamic = try r("cmux_shim_page_scheme_add_first_party_dynamic")
         pageResourceRespond = try r("cmux_shim_page_resource_respond")
+        pageResourceRespondRanged = try r("cmux_shim_page_resource_respond_ranged")
+        pageResourceRespondPage = r.optional("cmux_shim_page_resource_respond_page")
+        pageSchemeSetLive = r.optional("cmux_shim_page_scheme_set_live")
         setNewTabPageURL = try r("cmux_shim_set_new_tab_page_url")
         addNativeMessagingDir = try r("cmux_shim_add_native_messaging_dir")
         installPromptReply = try r("cmux_shim_install_prompt_reply")

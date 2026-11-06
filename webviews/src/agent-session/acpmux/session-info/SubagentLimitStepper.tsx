@@ -24,7 +24,7 @@ const PLUS = "M12 5L12 19M5 12L19 12";
 
 function Glyph({ d }: { d: string }) {
   return (
-    <svg viewBox="0 0 24 24" width="11" height="11" aria-hidden="true" focusable="false">
+    <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" focusable="false">
       <path d={d} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
     </svg>
   );

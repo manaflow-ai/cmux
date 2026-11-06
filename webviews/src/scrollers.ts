@@ -29,6 +29,8 @@ export type ScrollerStyle = "overlay" | "legacy";
 
 /** The attribute a scrolling element carries until `SCROLLING_HIDE_MS` after its last scroll. */
 export const SCROLLING_ATTRIBUTE = "data-cmux-scrolling";
+/** On a scrolling element whose scrollbar is hidden, so it needs no reveal or fade timer. */
+export const HIDDEN_SCROLLER_ATTRIBUTE = "data-cmux-hidden-scroller";
 /** How long a scroller stays after the last scroll step (AppKit's overlay fade starts about here). */
 export const SCROLLING_HIDE_MS = 800;
 
@@ -161,6 +163,11 @@ const pending = new WeakMap<Element, unknown>();
 export function markScrolling(element: Element, timers: ScrollTimers = defaultTimers): void {
   const previous = pending.get(element);
   if (previous !== undefined) timers.clear(previous);
+  if (element.hasAttribute(HIDDEN_SCROLLER_ATTRIBUTE)) {
+    pending.delete(element);
+    element.removeAttribute(SCROLLING_ATTRIBUTE);
+    return;
+  }
   element.setAttribute(SCROLLING_ATTRIBUTE, "");
   pending.set(
     element,
@@ -649,6 +656,16 @@ export const CARD_SCROLLER_CSS = `
 [${CARD_SCROLL_ATTRIBUTE}][${NEAR_ATTRIBUTE}]::-webkit-scrollbar-thumb {
   border-width: 0.5px;
   background-color: var(--cmux-scroller-thumb-near);
+}
+/* Picker columns opt out of hover-only reveal: the thumb appears only during a scroll. */
+:root [${CARD_SCROLL_ATTRIBUTE}][data-cmux-scroll-only] {
+  --cmux-card-scroll-only-thumb: transparent;
+}
+:root [${CARD_SCROLL_ATTRIBUTE}][data-cmux-scroll-only][${SCROLLING_ATTRIBUTE}] {
+  --cmux-card-scroll-only-thumb: var(--cmux-scroller-thumb);
+}
+:root [${CARD_SCROLL_ATTRIBUTE}][data-cmux-scroll-only]::-webkit-scrollbar-thumb {
+  background-color: var(--cmux-card-scroll-only-thumb);
 }
 [${CARD_SCROLL_ATTRIBUTE}][${MORE_BELOW_ATTRIBUTE}] {
   --cmux-card-mask: linear-gradient(to bottom, #000 calc(100% - var(--cmux-card-fade)), transparent);

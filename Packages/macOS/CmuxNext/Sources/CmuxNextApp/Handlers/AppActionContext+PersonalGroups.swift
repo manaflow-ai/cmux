@@ -90,7 +90,7 @@ extension AppActionContext {
         }
         let ending = life.emptied(by: [placement], into: nil)
         life.commit("set-personal-workspace", ending: ending,
-                    recheck: { ending.filter(life.isEmptyUnpinned) }, failed: failed) {
+                    recheck: { ending.filter(life.isEmptyUnpinned) }, until: life.personal.writes.claim(workspaces: [(qualified.session, key.rawValue)]), failed: failed) {
             try await $0.state.placePersonalWorkspace(session: qualified.session, key: key, resource: resource, group: .clear)
         }
     }

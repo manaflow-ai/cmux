@@ -16,12 +16,12 @@
 import { useState, type ComponentProps, type CSSProperties } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play, PlayContext } from "../../../gallery/play";
-import { WAVE_CLASS, WAVE_KEYFRAMES } from "../../../ui/wave";
+import { WAVE_CLASS } from "../../../ui/wave";
 import { activity, assistant, chat, CONTEXT_BREAKDOWN, CWD, tool } from "../../../gallery/fixtures/acpmux";
 import type { StartedSession } from "../started/startedSessions";
 import type { Subagent } from "../subagents/subagentFold";
 import { createWorkflowAdapter } from "../summary/foldWorkflows";
-import { sessionSummary } from "../summary/sessionSummary";
+import { sessionSummary, type SummarySource, type SummaryWakeup } from "../summary/sessionSummary";
 import { workflowFixture, type WorkflowFixtureStage } from "../summary/workflowFixture";
 import { SessionInfo, SessionInfoPanel, type SessionInfoPlacement } from "./SessionInfo";
 import { SubagentBanner, SubagentTitle, type SubagentHeaderVariant } from "./SubagentScopeHeader";
@@ -290,45 +290,6 @@ const idleAgents: Subagent[] = [
   },
 ];
 
-/// Where the play holds every wave loop: one point on each loop's own timeline, past its delay (the
-/// delay is never positive, wave.css), so each icon's phase differs only by its index. At 840 ms
-/// the crest (20% of Session Info's 2.4 s period, SubagentsSection.css) is on the third line: the
-/// two before it fall from it, the two after it rise toward it, so a still reads dim, brighter,
-/// crest, brighter, dim.
-const WAVE_HOLD_MS = 840;
-
-/// The page's wave loops (CSS animations of `cmux-wave`).
-const waveLoops = (ctx: PlayContext) =>
-  ctx.document
-    .getAnimations()
-    .filter((animation) => (animation as CSSAnimation).animationName === WAVE_KEYFRAMES) as CSSAnimation[];
-
-/// Holds the wave mid-sweep for a still. A loop is held only once installWave has moved it onto the
-/// shared epoch (its start is a whole number of periods of Unix time): a loop paused before that is
-/// restarted by the realignment, which scrambled the wave. Then all of them pause at one point.
-const holdWave: Play = async (ctx) => {
-  const items = () => ctx.document.querySelectorAll(`.acpmux-session-info-subagents .${WAVE_CLASS}`);
-  await ctx.waitFor(() => items().length === RUNNING);
-  // Reduce Motion, the motion gate or static indicators run no wave: there is nothing to hold.
-  const view = ctx.document.defaultView!;
-  if (view.getComputedStyle(items()[0]!).animationName !== WAVE_KEYFRAMES) return;
-  const origin = view.performance.timeOrigin;
-  const aligned = (animation: CSSAnimation) => {
-    const period = Number(animation.effect?.getTiming().duration);
-    if (!(period > 0) || animation.startTime === null) return false;
-    const phase = (((Number(animation.startTime) + origin) % period) + period) % period;
-    return Math.min(phase, period - phase) < 1;
-  };
-  await ctx.waitFor(() => {
-    const loops = waveLoops(ctx);
-    return loops.length === RUNNING && loops.every((loop) => loop.playState === "running" && aligned(loop));
-  });
-  for (const loop of waveLoops(ctx)) {
-    loop.pause();
-    loop.currentTime = WAVE_HOLD_MS;
-  }
-};
-
 /// Chats the agent started: one waits on the person, one runs on a Cloud VM, one is done.
 const sessions: StartedSession[] = [
   { sessionId: "child-1", title: "Rename the settings keys", state: "waiting", createdAt: started - 600_000 },
@@ -367,6 +328,9 @@ const ownUsage = spent({
   subagents24h: 11,
   tokens24h: 38_400_000,
   costUsd24h: 61.2,
+  calls24h: 182,
+  cacheReadShare24h: 0.981,
+  costPerCallUsd24h: 0.3363,
 });
 const summary = {
   ...local.summary!,
@@ -445,10 +409,22 @@ const gripOnHeadHoverOnly: Play = async (ctx) => {
   const after = title.getBoundingClientRect();
   if (after.left !== before.left || after.width !== before.width)
     throw new Error("The title moved when the grip showed");
-  if (handle.getBoundingClientRect().right > after.left + 0.5) throw new Error("The grip is not left of the title");
-  const icon = head.querySelector(".acpmux-session-info-section__icon");
-  if (icon && handle.getBoundingClientRect().right > icon.getBoundingClientRect().left + 0.5)
-    throw new Error("The grip overlaps the head's icon");
+  // Lucas, 2026-11-05, Session Info lab: the grip inside the pill "looks strange and poorly positioned".
+  // Two dots across and three down, in the panel's left gutter beside the head, outside its pill, on the
+  // head's middle line.
+  const dots = handle.querySelector("svg")!.getBoundingClientRect();
+  const pill = head.getBoundingClientRect();
+  if (dots.right > after.left + 0.5) throw new Error("The grip is not left of the title");
+  if (!(dots.height > dots.width)) throw new Error(`The grip is ${dots.width}x${dots.height}, not taller than wide`);
+  if (dots.right > pill.left + 0.5) throw new Error("The grip is not in the gutter left of its head's pill");
+  if (Math.abs(dots.top + dots.height / 2 - (pill.top + pill.height / 2)) > 0.5)
+    throw new Error("The grip is not on its head's middle line");
+};
+
+/// Shows a compared grip placement: the pointer rests on the first foldable section head.
+const hoverFirstHead: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(FOLDABLE_HEAD));
+  await ctx.hover({ selector: FOLDABLE_HEAD });
 };
 
 /// Leo, 2026-11-03: "why dont we have the drag grabber to the left of the title". Every section's grip,
@@ -462,7 +438,8 @@ const gripLeftOfEveryTitle: Play = async (ctx) => {
   for (const section of sections()) {
     const handle = section.querySelector(":scope > .acpmux-session-info-section__handle");
     if (!handle || handle.getClientRects().length === 0) continue;
-    const grip = handle.getBoundingClientRect();
+    // The dots: the handle's hit box reaches over the icon box's empty margin.
+    const grip = handle.querySelector("svg")!.getBoundingClientRect();
     const first = section.querySelector(
       ":scope > .acpmux-session-info-section__disclosure > .ui-disclosure-trigger, :scope > .acpmux-session-info-section__head",
     );
@@ -534,33 +511,35 @@ const hairlineEdge: Play = async (ctx) => {
   if (!panel.hasAttribute("data-over-chat")) await noCardBehind(ctx);
 };
 
-// Every section title shares the Environment rows' text column, with or without an icon.
+// Every section title sits on the Environment rows' icon column: heads have no icon of their own
+// (Lucas, 2026-11-05, Session Info lab).
 const checkTopBlockAlignment: Play = async (ctx) => {
   const rect = (selector: string) => ctx.find({ selector }).getBoundingClientRect();
-  const environment = '[data-section="environment"] .acpmux-session-info-row__name';
+  const environment = '[data-section="environment"] .acpmux-session-info-row > svg';
   await ctx.waitFor(() => ctx.document.querySelector(environment));
-  const labelLeft = rect(environment).left;
-  for (const section of ["context", "usage", "connectors"]) {
+  const iconLeft = rect(environment).left;
+  for (const section of ["context", "subagents", "sources", "changes", "usage", "connectors"]) {
+    if (!ctx.document.querySelector(`[data-section="${section}"] .acpmux-session-info-section__title`)) continue;
     const title = rect(`[data-section="${section}"] .acpmux-session-info-section__title`);
-    if (Math.abs(title.left - labelLeft) > 0.5)
-      throw new Error(`${section} label starts ${title.left - labelLeft}px from the Environment text column`);
+    if (Math.abs(title.left - iconLeft) > 0.5)
+      throw new Error(`${section} title starts ${title.left - iconLeft}px from the Environment icon column`);
   }
-  const heading = rect('[data-section="changes"] .acpmux-session-info-section__title');
-  if (Math.abs(heading.left - labelLeft) > 0.5)
-    throw new Error("The Changes heading moved from the shared text column");
 };
 
-/// The default order, top to bottom (sectionOrder.ts DEFAULT_ORDER; Leo, 2026-11-03: "1. Machines showing
-/// up so I know if it's cloud or not 2. context 3. Subagents/background tasks running 4. Sources").
+/// The default order, top to bottom (sectionOrder.ts DEFAULT_ORDER): what it runs on, Context, what it
+/// runs, what it read and made, then the Show more line ("more") and the less-used sections under it.
 const DEFAULT_SECTION_ORDER = [
   "environment",
   "context",
-  "usage",
+  "progress",
   "subagents",
   "tasks",
+  "alsoHere",
   "sources",
-  "changes",
   "outputs",
+  "more",
+  "changes",
+  "usage",
   "connectors",
 ];
 const assertDefaultOrder: Play = async (ctx) => {
@@ -571,7 +550,7 @@ const assertDefaultOrder: Play = async (ctx) => {
   const expected = DEFAULT_SECTION_ORDER.filter((id) => drawn.includes(id));
   if (drawn.join(" ") !== expected.join(" "))
     throw new Error(`Session Info's default order is ${drawn.join(", ")}, not ${expected.join(", ")}`);
-  for (const id of ["environment", "context", "subagents", "sources"])
+  for (const id of ["environment", "context", "subagents", "sources", "outputs"])
     if (!drawn.includes(id)) throw new Error(`The full chat does not draw ${id}`);
 };
 
@@ -580,30 +559,35 @@ const drawnSlots = (ctx: PlayContext) =>
   [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-session-info-sections > [data-slot]")].map(
     (slot) => slot.dataset.slot!,
   );
-const LEO_FOUR = ["environment", "context", "subagents", "tasks", "sources"];
-const LESS_USED = ["usage", "changes", "outputs", "connectors"];
+/// The sections above the Show more line in the full chat, and the ones under it.
+const LEO_FOUR = ["environment", "context", "subagents", "tasks", "sources", "outputs"];
+const LESS_USED = ["changes", "usage", "connectors"];
+/// What the full chat draws in the default order: no plan (Progress) and no other chat here (Also
+/// working here).
+const FULL_ORDER = DEFAULT_SECTION_ORDER.filter((id) => id !== "progress" && id !== "alsoHere");
+/// The same without the Show more line: the looks that have none (all, capped).
+const ORDER_WITHOUT_LINE = FULL_ORDER.filter((id) => id !== "more");
 const expectDrawn = (ctx: PlayContext, expected: readonly string[]) => {
   const drawn = drawnSlots(ctx);
   if (drawn.join(" ") !== expected.join(" "))
     throw new Error(`Session Info draws ${drawn.join(", ")}, not ${expected.join(", ")}`);
 };
-/// The shipped default view: Leo's four in view, the less-used sections behind one Show more that
-/// names them; Show more draws every one in the default order, and Show less puts them back.
+/// The shipped default view: the sections above the Show more line in view, then the plain Show more
+/// line; opened, it reads Show less over every section in the default order, and closed again it puts
+/// them back.
 const compactByDefault: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector("[data-slot]"));
-  expectDrawn(ctx, LEO_FOUR);
+  expectDrawn(ctx, [...LEO_FOUR, "more"]);
   const more = ctx.find({ selector: ".acpmux-session-info-more" });
   if (more.getAttribute("aria-expanded") !== "false") throw new Error("Show more starts open");
-  const names = more.querySelector(".acpmux-session-info-more__names")?.textContent ?? "";
-  for (const title of ["Usage", "Changes", "Outputs", "Connectors"])
-    if (!names.includes(title)) throw new Error(`Show more does not name ${title}: "${names}"`);
+  if (!/Show more/.test(more.textContent ?? "")) throw new Error(`The line reads "${more.textContent}"`);
   await ctx.click({ selector: ".acpmux-session-info-more" });
-  await ctx.waitFor(() => drawnSlots(ctx).length === LEO_FOUR.length + LESS_USED.length);
-  expectDrawn(ctx, DEFAULT_SECTION_ORDER);
+  await ctx.waitFor(() => drawnSlots(ctx).length === LEO_FOUR.length + 1 + LESS_USED.length);
+  expectDrawn(ctx, FULL_ORDER);
   if (!/Show less/.test(ctx.find({ selector: ".acpmux-session-info-more" }).textContent ?? ""))
     throw new Error("Show more open does not offer Show less");
   await ctx.click({ selector: ".acpmux-session-info-more" });
-  await ctx.waitFor(() => drawnSlots(ctx).length === LEO_FOUR.length);
+  await ctx.waitFor(() => drawnSlots(ctx).length === LEO_FOUR.length + 1);
 };
 
 /// Every session acpmux lists, this Mac's and a peer's: the usage audit's deputies on a build box (no
@@ -683,11 +667,10 @@ const full: Props = {
       { label: "teamleaderleo/leo-workspace #1056", kind: "issue" },
     ],
   },
-  links: [
-    { url: "https://cmux.com/docs/session-info", label: "cmux.com/docs/session-info" },
-    { url: "https://claude.ai/artifact/session-info-plan", label: "claude.ai/artifact/session-info-plan" },
-  ],
   artifacts: 4,
+  // Environment's Changes row, under the branch: the chat's last edits.
+  edits: { additions: 311, deletions: 193 },
+  onOpenChanges: () => undefined,
   agents,
   statuses,
   processes,
@@ -696,7 +679,6 @@ const full: Props = {
   onOpenSession: () => undefined,
   onStopProcess: async () => undefined,
   onOpenUrl: () => undefined,
-  onOpenOutput: () => undefined,
   onOpenSourceFile: () => undefined,
   onOpenSubagent: () => undefined,
   onSaveEnvironment: () => undefined,
@@ -707,6 +689,84 @@ const full: Props = {
   // Every section in view: the variants below compare the sections themselves. The default view
   // (Show more closed) is `compact-more`.
   more: true,
+};
+
+/// Wakeups and cron jobs as a coordinator schedules them (Leo, 2026-11-03: "expired waits like 'Wake
+/// at ~03:37Z' stay listed forever ... one shows a raw cron string '17 * * * *'"): two waits still
+/// ahead, three whose time has passed, an hourly pass, a five-minute poll a CronDelete removed, a
+/// recurring job past its 7 days and a failed call. Times are relative to the gallery's load.
+const MINUTE = 60_000;
+const scheduledMix: SummaryWakeup[] = [
+  {
+    id: "w-ahead",
+    kind: "wakeup",
+    text: "Wake when the nightly finishes",
+    startedAt: started - 2 * MINUTE,
+    dueAt: started + 25 * MINUTE,
+  },
+  {
+    id: "w-merge",
+    kind: "wakeup",
+    text: "Waiting on the merge retries, then re-check",
+    startedAt: started - MINUTE,
+    dueAt: started + 40 * MINUTE,
+  },
+  {
+    id: "w-done-1",
+    kind: "wakeup",
+    text: "Wake at ~03:37Z when cmux#32865's checks land",
+    startedAt: started - 64 * MINUTE,
+    dueAt: started - 60 * MINUTE,
+  },
+  {
+    id: "w-done-2",
+    kind: "wakeup",
+    text: "Production promote: check the run",
+    startedAt: started - 30 * MINUTE,
+    dueAt: started - 18 * MINUTE,
+  },
+  {
+    id: "w-done-3",
+    kind: "wakeup",
+    text: "Waiting on the three stuck merges",
+    startedAt: started - 9 * MINUTE,
+    dueAt: started - 4 * MINUTE,
+  },
+  {
+    id: "c-hourly",
+    kind: "cron",
+    cron: "17 * * * *",
+    text: "Hourly coordinator pass",
+    startedAt: started - 90 * MINUTE,
+  },
+  {
+    id: "c-poll",
+    kind: "cron",
+    cron: "*/5 * * * *",
+    text: "Poll the webview verdicts",
+    startedAt: started - 50 * MINUTE,
+    cancelledAt: started - 12 * MINUTE,
+  },
+  {
+    id: "c-old",
+    kind: "cron",
+    cron: "0 9 * * 1-5",
+    text: "Morning stand-up summary",
+    startedAt: started - 8 * 24 * 60 * MINUTE,
+  },
+  {
+    id: "w-failed",
+    kind: "wakeup",
+    text: "Fallback heartbeat while pinned merges run",
+    startedAt: started - 3 * MINUTE,
+    failed: true,
+  },
+];
+const scheduledProps: Props = {
+  ...full,
+  processes: processes.filter((process) => process.state === "running" && !/vite|dev/.test(process.command)),
+  transcriptTasks: [],
+  made: { ...full.made!, scheduled: scheduledMix },
 };
 
 /// A busy coordinator, as in Leo's 2026-10-21 screenshot: twelve subagents and five chats it started
@@ -905,7 +965,6 @@ const subagentPanel: Props = {
   rows: subagentRows,
   agent: worktreeAgent,
   onOpenUrl: () => undefined,
-  onOpenOutput: () => undefined,
   onOpenSourceFile: () => undefined,
   onStopProcess: async () => undefined,
   scope: scopeOf(worktreeAgent),
@@ -934,10 +993,18 @@ const sharedRows = [
   assistant("fetchWithRetry has three callers: client.ts, upload.ts and the webhook relay.", 7),
 ];
 /// A Claude Code chat with its /context breakdown, Context open and the long sections folded so the
-/// card shows whole.
+/// card shows whole. It compacts at 400k (its acpmux cap and /context agree), so Context reads the
+/// window /context names: the smaller of the two (usageStats.ts `compactingUsage`, #32665), never
+/// the 200k cap of this file's other chat.
+const breakdownUsage: SessionUsageStats = { ...ownUsage, autocompactCap: 400_000 };
 const breakdownProps: Props = {
   ...full,
-  summary: { ...summary, usage: { used: 171_400, size: 400_000 }, contextBreakdown: CONTEXT_BREAKDOWN },
+  summary: {
+    ...summary,
+    usage: { used: 171_400, size: 400_000 },
+    usageStats: breakdownUsage,
+    contextBreakdown: CONTEXT_BREAKDOWN,
+  },
   sections: { ...DEFAULT_SECTIONS, environment: false, context: true, changes: false, subagents: false, tasks: false },
 };
 /// A gallery-only palette for the breakdown's used categories, largest first.
@@ -947,6 +1014,13 @@ const openMcpTools: Play = async (ctx) => {
   await ctx.click({ selector: '[data-list="mcpTools"] button' });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-context-breakdown__items") !== null);
 };
+
+/// A pasted image as acpmux keeps it: WebKit named it "image.png"; `source` is the app it came from.
+const pasted = (id: string, source?: string): SummarySource => ({
+  label: "image.png",
+  kind: "image",
+  image: { id: id.repeat(64), ...(source ? { source } : {}) },
+});
 
 const text = (ctx: Parameters<Play>[0]) => ctx.document.querySelector(".acpmux-session-info")?.textContent ?? "";
 
@@ -1002,7 +1076,7 @@ export default componentEntry<Props>({
       props: { ...full, more: false },
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-session-info-more" });
-        await ctx.waitFor(() => drawnSlots(ctx).length === LEO_FOUR.length + LESS_USED.length);
+        await ctx.waitFor(() => drawnSlots(ctx).length === LEO_FOUR.length + 1 + LESS_USED.length);
       },
     },
     "compact-folded": {
@@ -1015,7 +1089,7 @@ export default componentEntry<Props>({
       },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector("[data-slot]"));
-        expectDrawn(ctx, DEFAULT_SECTION_ORDER);
+        expectDrawn(ctx, ORDER_WITHOUT_LINE);
         for (const id of LESS_USED) {
           const trigger = ctx.document.querySelector(`[data-slot="${id}"] .ui-disclosure-trigger`);
           if (trigger?.getAttribute("aria-expanded") !== "false") throw new Error(`${id} is not folded`);
@@ -1027,7 +1101,7 @@ export default componentEntry<Props>({
       props: { ...full, more: undefined, compactLook: "capped" },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector("[data-slot]"));
-        expectDrawn(ctx, DEFAULT_SECTION_ORDER);
+        expectDrawn(ctx, ORDER_WITHOUT_LINE);
         if (ctx.document.querySelectorAll("[data-capped]").length < LEO_FOUR.length)
           throw new Error("the sections are not capped");
       },
@@ -1142,6 +1216,97 @@ export default componentEntry<Props>({
         },
       },
     },
+    "usage-cache-1h": {
+      note: 'Chosen: the prompt cache\'s numbers as two rows right after the 24h cost they explain. A chat on the hour-long cache: Cache reads 98.1%, Cost per call $0.34. Leo, 2026-11-03, on the 1h cache: "such a big win that cmux-next/acpmux can get"; the coordinator relayed: show the cache-read share and estimated cost per call, so users can see the win.',
+      props: {
+        ...full,
+        summary: { ...summary, usageStats: ownUsage },
+        sections: {
+          ...DEFAULT_SECTIONS,
+          environment: false,
+          usage: true,
+          changes: false,
+          subagents: false,
+          tasks: false,
+        },
+      },
+    },
+    "usage-cache-5m": {
+      note: "The same chat's numbers on the 5-minute cache, gaps between calls letting it go cold: Cache reads 94.3%, Cost per call $0.43. Set beside usage-cache-1h, the win reads at a glance.",
+      props: {
+        ...full,
+        summary: {
+          ...summary,
+          usageStats: { ...ownUsage, cacheReadShare24h: 0.943, costPerCallUsd24h: 0.4313, costUsd24h: 78.5 },
+        },
+        sections: {
+          ...DEFAULT_SECTIONS,
+          environment: false,
+          usage: true,
+          changes: false,
+          subagents: false,
+          tasks: false,
+        },
+      },
+    },
+    "usage-cache-combined": {
+      note: "Alternative: one Prompt cache row reading 98.1% read · $0.34/call. Shorter, but the cost per call hides inside a sentence and no longer lines up with the other dollar values in the value column, so the two rows ship.",
+      props: {
+        ...full,
+        usageCacheLayout: "combined" as const,
+        summary: { ...summary, usageStats: ownUsage },
+        sections: {
+          ...DEFAULT_SECTIONS,
+          environment: false,
+          usage: true,
+          changes: false,
+          subagents: false,
+          tasks: false,
+        },
+      },
+    },
+    "usage-cache-small": {
+      note: "A cheap chat whose calls cost under a cent: the cost keeps two significant digits ($0.0042), never a rounded $0.00.",
+      props: {
+        ...full,
+        summary: {
+          ...summary,
+          usageStats: {
+            ...ownUsage,
+            cacheReadShare24h: 0.72,
+            costPerCallUsd24h: 0.0042,
+            costUsd24h: 0.21,
+            calls24h: 50,
+          },
+        },
+        sections: {
+          ...DEFAULT_SECTIONS,
+          environment: false,
+          usage: true,
+          changes: false,
+          subagents: false,
+          tasks: false,
+        },
+      },
+    },
+    "usage-cache-unknown": {
+      note: "Before acpmux has read the whole day (or a chat with no calls yet): both rows read the em dash, never 0% or $0.00.",
+      props: {
+        ...full,
+        summary: {
+          ...summary,
+          usageStats: { ...ownUsage, calls24h: undefined, cacheReadShare24h: undefined, costPerCallUsd24h: undefined },
+        },
+        sections: {
+          ...DEFAULT_SECTIONS,
+          environment: false,
+          usage: true,
+          changes: false,
+          subagents: false,
+          tasks: false,
+        },
+      },
+    },
     "usage-no-cap": {
       note: "Usage for a chat acpmux says runs with no autocompact cap: Autocompact reads No cap, with Restart with cap beside it, disabled until acpmux can restart a session with a cap. A cap acpmux could not read reads as an em dash and offers nothing.",
       props: {
@@ -1209,13 +1374,14 @@ export default componentEntry<Props>({
       },
     },
     "reorder-dragging": {
-      note: 'Mid-drag (Leo, 2026-10-31: "THE CLICK DRAG" ... "WHERE IS MY FUCKING PARITY"): Outputs held by its six-dot handle and carried up into where it runs, over Context. The held section is lifted (a raised surface and a shadow, only while held) and follows the pointer; Usage and the sections under it have slid out of the way, and the hairlines follow the blocks now adjacent. Released, it settles there and the order is kept; Escape puts it back.',
+      note: 'Mid-drag (Leo, 2026-10-31: "THE CLICK DRAG" ... "WHERE IS MY FUCKING PARITY"): Outputs held by its six-dot handle and carried up into where it runs, over Context. The held section is lifted (the head hover tint over the glass and a shadow, only while held, never a near-opaque slab) and follows the pointer; a neighbour makes way once its leading edge passes the middle of that neighbour; Usage and the sections under it have slid out of the way, and the hairlines follow the blocks now adjacent. Released, it settles there and the order is kept; Escape puts it back.',
       props: full,
       play: dragOutputsOverContext,
     },
     "grid-expanded": {
       note: "All Session Info sections expanded for shared lead, text, trail and spacing measurements.",
-      props: { ...full, sections: { ...DEFAULT_SECTIONS, context: true, connectors: true } },
+      // Sources starts folded (Lucas, 2026-11-05): open here so its rows are measured too.
+      props: { ...full, sections: { ...DEFAULT_SECTIONS, context: true, connectors: true, sources: true } },
       play: async (ctx) => {
         await ctx.click({ role: "button", name: /4 finished/ });
       },
@@ -1321,7 +1487,12 @@ export default componentEntry<Props>({
       note: "Shipped (Leo, 2026-11-02: \"whatever a user set their compact window to it should be that instead of always showing the defautl (e.g. we should be seieng 400k)\"): a 1M model whose chat compacts at 400K reads 43% with 171.4K / 400K, the window Claude Code's /context names, not the model's 1M.",
       props: {
         ...breakdownProps,
-        summary: { ...summary, contextBreakdown: CONTEXT_BREAKDOWN, usage: { used: 171_400, size: 1_000_000 } },
+        summary: {
+          ...summary,
+          usageStats: breakdownUsage,
+          contextBreakdown: CONTEXT_BREAKDOWN,
+          usage: { used: 171_400, size: 1_000_000 },
+        },
       },
       play: async (ctx) => {
         await ctx.waitFor(() => /171\.4K\s*\/\s*400K/.test(text(ctx)));
@@ -1372,11 +1543,48 @@ export default componentEntry<Props>({
       },
     },
     "sources-hover": {
-      note: "The pointer on a Sources link's row: one faint tint over the row, the link inside it never tinting a second time. An MCP tool's row takes no click, so it never lights.",
-      props: full,
+      note: "The pointer on a Sources link's row (Sources unfolded): one faint tint over the row, the link inside it never tinting a second time. An MCP tool's row takes no click, so it never lights.",
+      props: { ...full, sections: { ...DEFAULT_SECTIONS, sources: true } },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector("a.acpmux-session-info-source__link") !== null);
         await ctx.hover({ selector: "a.acpmux-session-info-source__link" });
+      },
+    },
+    "sources-folders": {
+      note: "A chat started with two folders beside its own (acpmux additionalDirectories): Sources lists them first, by name with the path on hover, then what it read.",
+      props: {
+        ...full,
+        summary: { ...summary, additionalDirectories: ["/Users/you/notes", "/Users/you/design/specs"] },
+        sections: { ...DEFAULT_SECTIONS, sources: true },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector('[data-kind="folder"]') !== null);
+        ctx.document.querySelector('[data-section="sources"]')?.scrollIntoView({ block: "center" });
+      },
+    },
+    "sources-screenshots": {
+      note: 'Images pasted from the clipboard, each named "image.png" by WebKit, beside one real capture file (Leo, 2026-11-05: "instead of, like screenshot number one, two, three, four, or whatever"): Sources (unfolded) reads them Screenshot 1, 2, ... in chat order, "Safari screenshot 3" for the one copied from Safari, and the file by its own name. Four rows show; the numbers count the whole list, so Show 3 more shows Screenshot 4 and 5 next.',
+      props: {
+        ...full,
+        made: {
+          ...made,
+          pullRequests,
+          sources: [
+            pasted("1"),
+            pasted("2"),
+            { label: "cmux.com/docs/session-info", url: "https://cmux.com/docs/session-info", kind: "url" },
+            { label: "Screenshot 2026-11-05 at 10.12.04.png", kind: "image", image: { id: "6".repeat(64) } },
+            pasted("3", "Safari"),
+            pasted("4"),
+            pasted("5"),
+          ],
+        },
+        sections: { ...DEFAULT_SECTIONS, sources: true },
+      },
+      play: async (ctx) => {
+        // Four rows (SOURCES_SHOWN), then Show 3 more.
+        await ctx.waitFor(() => ctx.document.querySelectorAll('[data-section="sources"] li').length === 4);
+        ctx.document.querySelector('[data-section="sources"]')?.scrollIntoView({ block: "center" });
       },
     },
     "subagents-open": {
@@ -1430,7 +1638,7 @@ export default componentEntry<Props>({
       },
     },
     "subagents-idle": {
-      note: 'Subagents that stopped and wait on background work of their own read Idle, not Running for two hours, and the head counts them as idle ("3 running · 2 idle · 1 done"). Every line is named by its task, never its id. The limit line says it caps the chats this one started: "Started chats: 0 of 1000 at once".',
+      note: 'Subagents that stopped and wait on background work of their own read Idle, not Running for two hours, and the head counts them as idle ("3 running · 2 idle · 1 done"). Every line is named by its task, never its id. With no started chat running or waiting, no limit line shows.',
       props: {
         ...full,
         agents: idleAgents,
@@ -1442,13 +1650,20 @@ export default componentEntry<Props>({
         },
       },
       play: async (ctx) => {
-        await ctx.waitFor(() => /2 idle/.test(text(ctx)) && /Started chats: 0 of 1000 at once/.test(text(ctx)));
+        await ctx.waitFor(() => /2 idle/.test(text(ctx)));
+        if (/Started chats:/.test(text(ctx))) throw new Error("A limit line shows with no started chat running");
       },
     },
     "subagents-wave": {
-      note: "Five running subagents, one per line, share one shimmer that sweeps down their icons, held mid-sweep for the still: dim, brighter, the crest, brighter, dim. The row of the done and the failed one under them stays at full strength.",
+      note: 'Five running subagents, one per line: each line is its mark, name and time, with no shimmer over the marks (Lucas, 2026-11-05, Session Info lab: "remove the green spinning circle"). The done and the failed one fold into one plain row under them.',
       props: { ...full, agents: waveAgents, sessions: [] },
-      play: holdWave,
+      play: async (ctx) => {
+        const lines = () =>
+          ctx.document.querySelectorAll('[data-section="subagents"] button.acpmux-agent-line__button');
+        await ctx.waitFor(() => lines().length >= RUNNING);
+        if (ctx.document.querySelector(`[data-section="subagents"] .${WAVE_CLASS}`))
+          throw new Error("A Subagents line still runs the wave");
+      },
     },
     "tasks-finished": {
       note: "Background tasks: the running watcher with how long it has run and Stop, the transcript's pytest without Stop, then the four finished commands, open.",
@@ -1456,6 +1671,14 @@ export default componentEntry<Props>({
       play: async (ctx) => {
         await ctx.click({ role: "button", name: /4 finished/ });
         await ctx.waitFor(() => /cargo build/.test(text(ctx)));
+      },
+    },
+    "tasks-scheduled": {
+      note: "Background tasks with mixed kinds: the running command (terminal), the two waits still ahead (clock, with the time each wakes) and the hourly pass (repeat, 'hourly at :17', not '17 * * * *'). The waits whose time passed, the removed poll, the job past its 7 days and the failed call fold into 6 finished, latest first: Failed, Done · 5m, Cancelled, Done · 12m, Done · 4m, Expired.",
+      props: scheduledProps,
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /6 finished/ });
+        await ctx.waitFor(() => /Expired/.test(text(ctx)));
       },
     },
     "cloud-empty": {
@@ -1473,7 +1696,7 @@ export default componentEntry<Props>({
       },
     },
     "outputs-artifacts": {
-      note: "Outputs as Claude Code desktop lists them: each artifact by its title with an Artifact tag (each opens in the side panel), the gallery, the files with their line counts, the links with a Link tag.",
+      note: "Outputs as Claude Code desktop lists them: each artifact by its title with an Artifact tag (each opens in the side panel), the gallery, the files with their line counts. No links: what the replies cited is not something the chat made.",
       props: {
         ...full,
         documents: outputArtifacts(producedRows),
@@ -1528,9 +1751,24 @@ export default componentEntry<Props>({
       play: chevronOnHoverAfterTitle,
     },
     "header-grip-hover": {
-      note: "A section head under the pointer: the six-dot grip shows left of the title, in the head's leading padding (Leo, 2026-11-03: \"why dont we have the drag grabber to the left of the title\"). The title does not move. At rest no grip draws, and a pointer over the section's other rows shows none.",
+      note: "A section head under the pointer: the six-dot grip, two across and three down, shows in the panel's left gutter beside the head's pill, on its middle line (Lucas, 2026-11-05, Session Info lab: inside the pill it \"looks strange and poorly positioned\"). The title does not move. At rest no grip draws, and a pointer over the section's other rows shows none.",
       props: { ...full, placement: "push" },
       play: gripOnHeadHoverOnly,
+    },
+    "header-grip-edge": {
+      note: 'Before, for comparison: the grip centred on the head\'s left edge, half on and half off its pill, as cmux#34269 drew it (Leo, 2026-11-04: "this is off").',
+      props: { ...full, placement: "push", edge: "--acpmux-session-info-grip-center:0px" },
+      play: hoverFirstHead,
+    },
+    "header-grip-gutter": {
+      note: "Compared, not chosen: the wide grip wholly in the gutter left of the pill. It reads as detached from its row and runs into the panel's resize edge.",
+      props: { ...full, placement: "push", edge: "--acpmux-session-info-grip-center:calc(-1 * var(--grid-base))" },
+      play: hoverFirstHead,
+    },
+    "header-grip-tall": {
+      note: "Before, for comparison: the grip turned upright (two across, three down), as cmux#32930 drew it.",
+      props: { ...full, placement: "push", edge: "--acpmux-session-info-grip-turn:rotate(90deg)" },
+      play: hoverFirstHead,
     },
     "header-grip-left": {
       note: "Every section's grip, icon heads and the bare Environment rows included, sits left of its head's icon or title, away from the scrollbar's thumb on the right.",

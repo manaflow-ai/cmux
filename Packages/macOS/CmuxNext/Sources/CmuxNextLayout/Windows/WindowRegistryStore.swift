@@ -9,8 +9,12 @@ public final class WindowRegistryStore {
     public private(set) var value = WindowRegistry()
     /// Membership of windows drawn from the daemon's launch snapshot before
     /// the live registry is restored (`LaunchSnapshotWindow`);
-    /// cleared by the restore.
-    public var provisional: [String: [String]] = [:]
+    /// cleared by the restore (`clearProvisional`). Observed one window at a time: a write of window A's
+    /// entry notifies only the readers of A's (`members(of: A)`), and a clear of an entry already empty
+    /// notifies nobody. A plain dictionary property was one observed value: the restore's clear cancelled every
+    /// tracker that had read any window's members since launch, 2.4-2.6 s of main thread on the launch after an update
+    /// (cmuxterm-hq#6338, stack 2).
+    public let provisional = ObservedMap<String, [String]>()
     /// True from the launch window until the saved windows are restored
     /// from the live tree: meanwhile sidebars show their saved rows
     /// (`SidebarSeed`).
@@ -35,6 +39,11 @@ public final class WindowRegistryStore {
             refreshIncognitoAnswers()
         }
         return changes
+    }
+
+    /// Drops every launch-snapshot membership (the restore): each window's readers hear only their own window's entry.
+    public func clearProvisional() {
+        for id in provisional.keys { provisional[id] = nil }
     }
 
     /// Workspaces window `id` lists, in order.

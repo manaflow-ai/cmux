@@ -54,11 +54,11 @@ test("a toggle, a drag or a fold in one pane leaves the other pane as it was", a
 
   left.setSessionInfoOpen(false);
   left.setSessionInfoWidth(480);
-  left.setSessionInfoSection("context", false);
+  left.setSessionInfoSection("context", true);
   for (const key of Object.keys(localStorage)) storageEvent(key);
 
-  expect(left.sessionInfoState()).toMatchObject({ open: false, width: 480, sections: { context: false } });
-  expect(right.sessionInfoState()).toMatchObject({ open: true, width: 320, sections: { context: true } });
+  expect(left.sessionInfoState()).toMatchObject({ open: false, width: 480, sections: { context: true } });
+  expect(right.sessionInfoState()).toMatchObject({ open: true, width: 320, sections: { context: false } });
 });
 
 test("after a relaunch each pane shows its own state again", async () => {
@@ -72,6 +72,20 @@ test("after a relaunch each pane shows its own state again", async () => {
   expect((await page("chat-right")).sessionInfoState()).toMatchObject({ open: true, width: 400 });
 });
 
+test("iMessage reveals Connect once across remounts, new panes and relaunches", async () => {
+  const first = await page("chat-first");
+  expect(first.claimSessionInfoIMessageReveal()).toBe(true);
+  first.setSessionInfoSection("connectors", true);
+  first.setSessionInfoSection("connectors", false);
+  expect(first.claimSessionInfoIMessageReveal()).toBe(false);
+  const relaunched = await page("chat-first");
+  expect(relaunched.claimSessionInfoIMessageReveal()).toBe(false);
+  expect(relaunched.sessionInfoState().sections.connectors).toBe(false);
+  const next = await page("chat-next");
+  expect(next.claimSessionInfoIMessageReveal()).toBe(false);
+  expect(next.sessionInfoState().sections.connectors).toBe(false);
+});
+
 test("Sources View all persists with the pane's chat", async () => {
   const left = await page("chat-left");
   left.setSessionInfoSourcesAll(true);
@@ -81,14 +95,17 @@ test("Sources View all persists with the pane's chat", async () => {
   expect(other.sessionInfoState().sourcesAll).toBe(false);
 });
 
-test("a pane with no state of its own starts from the last choice, and the old shared key migrates", async () => {
-  // The single key every pane shared before: an old install's closed Session Info stays closed.
+test("a new chat opens Session Info whatever another chat chose; the old shared width migrates", async () => {
+  // Lucas, 2026-11-06: "If you close it: that choice is remembered per chat. New chats still default
+  // to open." The old shared open key no longer closes a new chat; the shared width still applies.
   localStorage.setItem("cmux.agentPane.inspector.open", "0");
   localStorage.setItem("cmux.agentPane.inspector.width", "420");
-  expect((await page("chat-old")).sessionInfoState()).toMatchObject({ open: false, width: 420 });
+  expect((await page("chat-old")).sessionInfoState()).toMatchObject({ open: true, width: 420 });
 
-  (await page("chat-a")).setSessionInfoOpen(true);
+  const closed = await page("chat-a");
+  closed.setSessionInfoOpen(false);
   expect((await page("chat-new")).sessionInfoState().open).toBe(true);
+  expect((await page("chat-a")).sessionInfoState().open).toBe(false);
 });
 
 test("the same chat in two panes: a toggle in one does not move the other", async () => {
@@ -286,24 +303,24 @@ for (const [name, savedByB] of [
     expect(localStorage.getItem(SESSION_INFO_INDEX_KEY)).toContain('"chat-x"');
   });
 
-test("Context opens by default, even in a chat saved before that, and a fold made since stays", async () => {
-  // Leo, 2026-11-01: "context tho is pretty good i think to keep expanded by default? it seemed like it
-  // was collapsed initially". Every chat saved its whole state, Context folded by default, before
-  // the change; that saved fold gives way, and a fold saved since (version 2) is kept.
-  const folded = { environment: true, context: false, connectors: false, changes: true };
+test("Context starts folded to its line, even in a chat saved open before that, and an unfold made since stays", async () => {
+  // Lucas, 2026-11-06: Context is one line, its meter and tokens; a click unfolds the breakdown. Every
+  // chat saved its whole state, Context open by default (versions 2 to 4), before the change; that
+  // saved open state gives way, and an unfold saved since (version 5) is kept.
+  const opened = { environment: true, context: true, connectors: false, changes: true };
   localStorage.setItem(
     `${PREFIX}chat-old`,
-    JSON.stringify({ open: true, width: 320, sections: folded, at: Date.now() }),
+    JSON.stringify({ open: true, width: 320, sections: { ...opened, v: 4 }, at: Date.now() }),
   );
-  localStorage.setItem("cmux.agentPane.inspector.sections", JSON.stringify(folded));
+  localStorage.setItem("cmux.agentPane.inspector.sections", JSON.stringify({ ...opened, v: 4 }));
   const old = await page("chat-old");
-  expect(old.sessionInfoState().sections).toMatchObject({ context: true, connectors: false });
+  expect(old.sessionInfoState().sections).toMatchObject({ context: false, connectors: false });
   const fresh = await page("chat-new");
-  expect(fresh.sessionInfoState().sections.context).toBe(true);
+  expect(fresh.sessionInfoState().sections.context).toBe(false);
 
-  fresh.setSessionInfoSection("context", false);
+  fresh.setSessionInfoSection("context", true);
   const again = await page("chat-new");
-  expect(again.sessionInfoState().sections.context).toBe(false);
+  expect(again.sessionInfoState().sections.context).toBe(true);
   const next = await page("chat-next");
-  expect(next.sessionInfoState().sections.context).toBe(false);
+  expect(next.sessionInfoState().sections.context).toBe(true);
 });

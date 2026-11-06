@@ -49,6 +49,10 @@ pub trait Http {
     fn get(&self, _url: &str, _bearer: Option<&str>) -> Result<(u16, Value), String> {
         Err("GET is not supported by this transport".to_owned())
     }
+
+    /// Drops any pooled connection, so the next request dials a fresh one (after a pause, a pooled connection is
+    /// dead and nothing says so). A transport with no pool does nothing.
+    fn reset(&self) {}
 }
 
 #[derive(Deserialize)]
@@ -317,6 +321,11 @@ impl<H: Http> CloudClient<H> {
         &self.bound
     }
 
+    /// The next request (a bearer mint included) goes on a fresh connection: see [`Http::reset`].
+    pub fn reset_transport(&self) {
+        self.http.reset();
+    }
+
     pub(super) fn url(&self, path: &str) -> String {
         format!("{}{path}", self.bound.api_origin)
     }
@@ -497,6 +506,13 @@ impl<H: Http> CloudClient<H> {
     pub fn github_repos(&mut self, ask: &super::github_repos::ReposAsk, now_wall_ms: u64) -> Value {
         let team = self.bound.team.clone();
         super::github_repos::answer(ask, &team, |path| self.github_repos_get(path, now_wall_ms))
+    }
+
+    /// The person's connected GitHub account (`GET /v1/me/github` as this
+    /// machine), checked so the reply never holds a token.
+    pub fn github_status(&mut self, now_wall_ms: u64) -> Value {
+        let answer = self.github_repos_get(super::github_status::STATUS_PATH, now_wall_ms);
+        super::github_status::reply_for(&answer)
     }
 
     /// A GitHub token for this machine (`POST /v1/integrations/github/token`

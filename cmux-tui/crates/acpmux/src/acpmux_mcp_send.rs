@@ -29,13 +29,11 @@ pub(super) const MAX_MESSAGES: usize = 32;
 pub(super) const MAX_TAG_SESSIONS: usize = 32;
 /// Most recipients of one call, tags expanded. Over it nothing is sent.
 pub(super) const MAX_RECIPIENTS: usize = 64;
-/// Largest message file, in bytes. A message lands whole in the receiver's context: 256 KiB is
-/// about 64k tokens, a third of a 200k-token context and more than any brief. A file past it is an
-/// attachment (`acpmux send --attach`), which the receiver opens when it needs it.
-pub(super) const MAX_FILE_BYTES: u64 = 256 << 10;
+/// Files past this inline threshold are streamed as attachments, never refused.
+const INLINE_FILE_BYTES: u64 = 256 << 10;
 /// How long a batch gives each session name to resolve to its id ([`aliases`]), before its
 /// own wait for the deliveries.
-const RESOLVE_WAIT: Duration = Duration::from_secs(2);
+const RESOLVE_WAIT: Duration = crate::rpc::ANSWER_WAIT;
 
 pub(super) fn tool() -> Value {
     json!({
@@ -50,7 +48,7 @@ pub(super) fn tool() -> Value {
                 "class": {"type": "string", "enum": ["block", "question", "result", "fyi", "blocker", "action"], "description": "What the message asks of the receiver: block or blocker (you cannot go on until it acts; wakes an idle receiver), question (you wait for its answer; wakes it too), result or action (work you finished or work for it; the default; wakes an idle receiver only when you started it or gave it its first work) or fyi (wakes no one)."},
                 "pr": {"type": "integer", "description": "The pull request this message is about: the receiver's inbox threads it with the others about it."},
                 "thread": {"type": "string", "description": "The thread this message goes in, a topic or a threadId from inbox_read (default: your messages about the PR its first line names, else all your messages)."},
-                "file": {"type": "string", "description": "Instead of text: a file of yours whose contents are the message (UTF-8, at most 256 KiB). Best an absolute path; a relative one is read from the folder your agent runs in."},
+                "file": {"type": "string", "description": "Instead of text: a file of yours containing the message. Small UTF-8 text is sent inline; larger files are uploaded automatically as attachments for the receiver to open. Any size. Best an absolute path; a relative one is read from the folder your agent runs in."},
                 "tag": {"type": "string", "description": "Instead of to: every live session carrying this tag, key or key=value (as acpmux send --tag), at most 32, not yourself."},
                 "supersede": {"type": "string", "description": "A key: your message still queued at the receiver under the same key is replaced by this one, so a correction is never read after the order it corrects."},
                 "notice": notice_schema("Send it as a tool's or reconciler's notice: the receiver's chat draws a notice row (severity mark, sender, title, links) and the agent reads `[notice from SENDER on HOST · FIRE] TITLE`, the body (text, optional here), then the links."),
@@ -165,7 +163,21 @@ pub(super) struct Target {
     pub key: String,
     pub tag: Option<String>,
     pub text: String,
+    /// The validated descriptor, shared until every recipient has uploaded it.
+    pub file: Option<Arc<MessageFile>>,
     pub item: Item,
+}
+
+/// Keep the opened file: replacing its path cannot substitute another user's bytes.
+#[derive(Debug)]
+pub(super) struct MessageFile {
+    path: std::path::PathBuf,
+    size: u64,
+    /// Only inline text needs spooling; file inputs keep their original descriptor.
+    _spool: Option<tempfile::TempDir>,
+    // try_clone shares a cursor. Hold this lock through an upload so batch recipients
+    // cannot move each other's cursor; unrelated message files still upload in parallel.
+    file: tokio::sync::Mutex<std::fs::File>,
 }
 
 impl Target {
@@ -263,29 +275,91 @@ fn pick<'v>(own: &'v Value, defaults: Option<&'v Value>, a: &str, b: &str) -> &'
     }
 }
 
-/// The message: its text, or its file's contents; for a notice, the rendered notice over it.
-pub(super) fn body(item: &Item) -> Result<String, String> {
-    let text = match (&item.text, &item.file) {
-        (Some(text), _) => text.clone(),
-        (None, Some(path)) => read_message_file(path)?,
+/// The message and optional upload; a notice renders over the inline text or file instruction.
+pub(super) async fn body(item: &mut Item) -> Result<(String, Option<Arc<MessageFile>>), String> {
+    let (text, file) = match (item.text.take(), &item.file) {
+        (Some(text), _) => (text, None),
+        (None, Some(path)) => {
+            let path = path.clone();
+            tokio::task::spawn_blocking(move || read_message_file(&path))
+                .await
+                .map_err(|e| format!("cannot read message file: {e}"))??
+        }
         (None, None) => return Err("text (or file) is required".to_owned()),
     };
+    // Spool a large notice body before rendering its header, so rendering does not
+    // allocate another full copy. Its metadata and read instruction stay inline.
+    let (mut text, file) = if item.notice.is_some() && file.is_none() && text_needs_file(&text) {
+        tokio::task::spawn_blocking(move || spool_message(text))
+            .await
+            .map_err(|e| format!("cannot prepare message: {e}"))??
+    } else {
+        (text, file)
+    };
     if let Some(notice) = &item.notice {
-        return Ok(crate::prompt_provenance::notice_text(notice, &text));
-    }
-    if text.trim().is_empty() {
+        text = crate::prompt_provenance::notice_text(notice, &text);
+    } else if text.trim().is_empty() {
         return Err(
             if item.file.is_some() { "the file is empty" } else { "text is empty" }.to_owned()
         );
     }
-    Ok(text)
+    if file.is_none() && text_needs_file(&text) {
+        return tokio::task::spawn_blocking(move || spool_message(text))
+            .await
+            .map_err(|e| format!("cannot prepare message: {e}"))?;
+    }
+    Ok((text, file))
 }
 
-/// A message file: a regular file of this user's, UTF-8, at most [`MAX_FILE_BYTES`]. A relative
+/// Count JSON string bytes without allocating an escaped copy. Leave room for the
+/// prompt's fields and provenance on each RPC hop, including the durable outbox.
+pub(super) fn text_needs_file(text: &str) -> bool {
+    let budget = crate::rpc::MAX_MESSAGE_BYTES.saturating_sub(128 << 10);
+    text.bytes()
+        .try_fold(2usize, |n, b| {
+            let escaped = match b {
+                b'"' | b'\\' | 8 | 9 | 10 | 12 | 13 => 2,
+                0..=31 => 6,
+                _ => 1,
+            };
+            n.checked_add(escaped).filter(|&n| n <= budget)
+        })
+        .is_none()
+}
+
+fn spool_message(text: String) -> Result<(String, Option<Arc<MessageFile>>), String> {
+    use std::io::Write;
+    let spool = tempfile::Builder::new()
+        .prefix("acpmux-message-")
+        .tempdir()
+        .map_err(|e| format!("cannot spool message: {e}"))?;
+    let path = spool.path().join("message.txt");
+    let mut open = std::fs::OpenOptions::new();
+    open.read(true).write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut open, 0o600);
+    let mut file = open.open(&path).map_err(|e| format!("cannot spool message: {e}"))?;
+    // The MCP parser already owns text. Move it here, without another full copy,
+    // then release it as soon as the spool is ready for the chunked uploader.
+    for chunk in text.as_bytes().chunks(crate::hub::file_uploads::CHUNK_BYTES) {
+        file.write_all(chunk).map_err(|e| format!("cannot spool message: {e}"))?;
+    }
+    Ok((
+        "Read the complete message in the attached file before acting.".into(),
+        Some(Arc::new(MessageFile {
+            path,
+            size: text.len() as u64,
+            _spool: Some(spool),
+            file: tokio::sync::Mutex::new(file),
+        })),
+    ))
+}
+
+/// A message file: a regular file of this user's. A relative
 /// path is from this server's folder, which it inherits from the chat's agent. Another user's
 /// file is refused even when it is readable: a message goes to other sessions and peers, so it
 /// carries only the sender's own files.
-pub(super) fn read_message_file(path: &str) -> Result<String, String> {
+pub(super) fn read_message_file(path: &str) -> Result<(String, Option<Arc<MessageFile>>), String> {
     use std::io::Read;
     let path = std::path::Path::new(path);
     let shown = path.display();
@@ -294,7 +368,7 @@ pub(super) fn read_message_file(path: &str) -> Result<String, String> {
     // Non-blocking, so a FIFO at the path is refused below instead of waiting for a writer.
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::custom_flags(&mut open, libc::O_NONBLOCK);
-    let file = open.open(path).map_err(|e| format!("cannot read {shown}: {e}"))?;
+    let mut file = open.open(path).map_err(|e| format!("cannot read {shown}: {e}"))?;
     // The open file's own metadata, so what is checked is what is read.
     let meta = file.metadata().map_err(|e| format!("cannot read {shown}: {e}"))?;
     if !meta.is_file() {
@@ -309,24 +383,32 @@ pub(super) fn read_message_file(path: &str) -> Result<String, String> {
             return Err(format!("{shown} is not your file: send only files you own"));
         }
     }
-    if meta.len() > MAX_FILE_BYTES {
-        return Err(format!(
-            "{shown} is {} KiB, more than {} KiB: send it with acpmux send --attach",
-            meta.len() / 1024,
-            MAX_FILE_BYTES / 1024
-        ));
-    }
     let mut bytes = Vec::new();
-    // A file that grew after the check is still read only to the bound.
-    file.take(MAX_FILE_BYTES.saturating_add(1))
+    // Probe the open descriptor, so growth after metadata also takes the upload path.
+    (&mut file)
+        .take(INLINE_FILE_BYTES + 1)
         .read_to_end(&mut bytes)
         .map_err(|e| format!("cannot read {shown}: {e}"))?;
-    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > MAX_FILE_BYTES {
-        return Err(format!("{shown} grew past {} KiB while it was read", MAX_FILE_BYTES / 1024));
+    if bytes.len() as u64 > INLINE_FILE_BYTES {
+        return Ok((
+            "Read the complete message in the attached file before acting.".into(),
+            Some(Arc::new(MessageFile {
+                path: path.to_owned(),
+                size: meta.len().max(bytes.len() as u64),
+                _spool: None,
+                file: tokio::sync::Mutex::new(file),
+            })),
+        ));
     }
-    String::from_utf8(bytes).map_err(|_| {
+    if bytes.len() as u64 != meta.len() {
+        return Err(format!(
+            "{shown} changed while it was read; send it again once writing finishes"
+        ));
+    }
+    let text = String::from_utf8(bytes).map_err(|_| {
         format!("{shown} is not UTF-8 text: send a binary file with acpmux send --attach")
-    })
+    })?;
+    Ok((text, None))
 }
 
 /// `send` with one session (the first shape): its result fields, text and errors are the ones
@@ -339,12 +421,12 @@ async fn send_one(daemon: &Arc<Client>, args: &Value) -> Value {
     {
         return error_result("to and text are required".to_owned());
     }
-    let item = match item_of(args, None) {
+    let mut item = match item_of(args, None) {
         Ok(item) => item,
         Err(e) => return error_result(e),
     };
-    let text = match body(&item) {
-        Ok(text) => text,
+    let (text, file) = match body(&mut item).await {
+        Ok(body) => body,
         Err(e) => return error_result(e),
     };
     let to = item.to.clone().unwrap_or_default();
@@ -352,10 +434,29 @@ async fn send_one(daemon: &Arc<Client>, args: &Value) -> Value {
         Ok(key) => key,
         Err(e) => return refusal(e),
     };
-    let target = Target { index: 0, to: to.clone(), key: key.clone(), tag: None, text, item };
+    let target = Target { index: 0, to: to.clone(), key: key.clone(), tag: None, text, file, item };
     let (prompt, queued) = match queue(daemon, &target).await {
         Ok(sent) => sent,
-        Err(e) => return refusal(e),
+        Err(e) => {
+            return match relay(&target, &e).await {
+                Some(row) if row_ok(&row) => {
+                    let text_of = |k: &str| row.get(k).and_then(Value::as_str).unwrap_or_default();
+                    ok(
+                        format!(
+                            "Sent to {to} through the send relay (no session here or on a peer): {}",
+                            text_of("deliveryId")
+                        ),
+                        json!({"deliveryId": text_of("deliveryId"), "target": key, "status": "relayed",
+                               "delivery": "relayed"}),
+                    )
+                }
+                Some(row) => error_result(format!(
+                    "Not sent to {to}: {}",
+                    row.get("error").and_then(Value::as_str).unwrap_or("the send relay refused it")
+                )),
+                None => refusal(e),
+            };
+        }
     };
     let row = settle(daemon, &target, &prompt, queued, STATUS_WAIT).await;
     let field = |k: &str| row.get(k).cloned().unwrap_or(Value::Null);
@@ -390,7 +491,7 @@ async fn send_batch(daemon: &Arc<Client>, args: &Value) -> Value {
             json!({"index": index, "to": to, "tag": tag, "ok": false, "promptId": null,
                 "deliveryId": null, "status": "failed", "error": error})
         };
-        let item = match item {
+        let mut item = match item {
             Ok(item) => item,
             Err(e) => {
                 rows.insert((index, 0), failed("", None, e));
@@ -398,8 +499,8 @@ async fn send_batch(daemon: &Arc<Client>, args: &Value) -> Value {
             }
         };
         let (to, tag) = (item.to.clone().unwrap_or_default(), item.tag.clone());
-        let text = match body(&item) {
-            Ok(text) => text,
+        let (text, file) = match body(&mut item).await {
+            Ok(body) => body,
             Err(e) => {
                 rows.insert((index, 0), failed(&to, tag.as_deref(), e));
                 continue;
@@ -418,6 +519,7 @@ async fn send_batch(daemon: &Arc<Client>, args: &Value) -> Value {
                 key,
                 tag: tag.clone(),
                 text: text.clone(),
+                file: file.clone(),
                 item: item.clone(),
             })),
             Err(e) => {
@@ -438,7 +540,10 @@ async fn send_batch(daemon: &Arc<Client>, args: &Value) -> Value {
         in_order(&targets, chain, deadline, move |target, wait| async move {
             match queue(daemon, target).await {
                 Ok((prompt, queued)) => settle(daemon, target, &prompt, queued, wait).await,
-                Err(e) => target.row(false, "failed", Some(format!("{e:#}"))),
+                Err(e) => match relay(target, &e).await {
+                    Some(row) => row,
+                    None => target.row(false, "failed", Some(format!("{e:#}"))),
+                },
             }
         })
     }))
@@ -606,6 +711,63 @@ async fn tag_recipients(
     Ok(found)
 }
 
+/// How long a relayed send may take (`relay`).
+const RELAY_WAIT: Duration = Duration::from_secs(45);
+
+/// A message the outbox refused because its target names no session here and no peer lists it,
+/// handed to the configured send relay as `acpmux send` does (`cli/send_relay.rs`): its row, or
+/// None when there is no relay, the refusal was another one, or it carries a file (the relay
+/// carries text only). The relay's sender is the session this tool runs for, and the send is a
+/// line in the cross-host audit log. Leo, 2026-11-05, on sends between lane machines: "Just do
+/// what's expected. Just do the magic."
+async fn relay(target: &Target, e: &anyhow::Error) -> Option<Value> {
+    if target.file.is_some() || !format!("{e:#}").to_lowercase().contains("no session") {
+        return None;
+    }
+    let relay = crate::cli::send_relay::configured()?;
+    // The session's name when its environment has one, else its id (an MCP server's environment
+    // carries ACPMUX_SESSION_ID alone), so the relay always names the sender.
+    let from = crate::cli::send_relay::sender(None, |k| std::env::var(k).ok()).or_else(|| {
+        std::env::var(SESSION_ENV).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty())
+    });
+    let (session, text) = (target.key.clone(), target.text.clone());
+    let deadline = tokio::time::Instant::now() + RELAY_WAIT;
+    let done = tokio::task::spawn_blocking(move || {
+        let done = crate::cli::send_relay::relay_with_deadline(
+            &relay,
+            &session,
+            &text,
+            from.as_deref(),
+            true,
+            Some(deadline),
+        );
+        if let Ok(done) = &done {
+            crate::cli::send_relay::audit_sent(&session, &text, from.as_deref(), done);
+        }
+        done
+    })
+    .await;
+    Some(match done {
+        Ok(Ok(done)) if done.status == 0 => {
+            let mut row = target.row(true, "relayed", None);
+            row.set("deliveryId", json!(done.output.unwrap_or_default().trim()));
+            row.set("delivery", json!("relayed"));
+            row
+        }
+        Ok(Ok(done)) => {
+            let why = done.stderr.filter(|s| !s.is_empty()).unwrap_or_default();
+            let why = why.lines().last().unwrap_or("").to_owned();
+            target.row(
+                false,
+                "failed",
+                Some(format!("the send relay refused it (exit {}): {why}", done.status)),
+            )
+        }
+        Ok(Err(e)) => target.row(false, "failed", Some(format!("the send relay: {e:#}"))),
+        Err(e) => target.row(false, "failed", Some(format!("the send relay: {e}"))),
+    })
+}
+
 /// Hand one message to the outbox (`_acpmux/send_queue`).
 async fn queue(daemon: &Arc<Client>, target: &Target) -> Result<(PromptId, Value)> {
     let mut prompt = PromptId::new(None);
@@ -614,6 +776,18 @@ async fn queue(daemon: &Arc<Client>, target: &Target) -> Result<(PromptId, Value
     prompt.thread = target.item.thread.clone();
     prompt.supersede = target.item.supersede.clone();
     prompt.notice = target.item.notice.clone();
+    if let Some(file) = &target.file {
+        let held = file.file.lock().await;
+        prompt.attachments = crate::attach::reference_for(
+            daemon,
+            &target.key,
+            &file.path,
+            held.try_clone()?,
+            file.size,
+            &|line| eprintln!("{line}"),
+        )
+        .await?;
+    }
     let request = prompt.params(&target.key, &target.text, target.item.steer, None);
     let queued = daemon.request(method::MUX_SEND_QUEUE, json!({"request": request})).await?;
     Ok((prompt, queued))
@@ -689,6 +863,11 @@ fn sent_line(row: &Value) -> String {
         "next_step" => "steered into its running turn: it reads it at its next tool step",
         "queued" => "queued behind its running turn: it reads it when that turn ends",
         "started" => "it started a turn with it",
+        "relayed" => {
+            return format!(
+                "Sent to {to} through the send relay (no session here or on a peer): delivery {delivery}."
+            );
+        }
         _ => {
             return format!(
                 "On its way to {to} (delivery {delivery}, promptId {prompt_id}): this daemon keeps \

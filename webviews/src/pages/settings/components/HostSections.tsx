@@ -1,6 +1,8 @@
 // The parts of Spaces & Profiles and Machines that are not schema rows (R82 commit 2): the app's
 // live lists (`cmux.settings.host.lists`, updated by `cmux.settings.host.changed`) and the browser
 // profile editor, whose every edit runs a `browserProfile.*` catalog action (the palette's path).
+import { Input } from "../../../ui/Input";
+import { Button } from "../../../ui/Button";
 import { useState, type ReactNode } from "react";
 import { useRowState, useSettingsState, useStore } from "../context";
 import { Switch } from "../editors/ToggleEditor";
@@ -120,14 +122,14 @@ export function MachinesSection({ title }: { title: string }) {
         <div className="host-footer">
           {/* One entry for every new device (add-device-DESIGN.md): Add Device opens the card; it hands
             off to Add Machine or Add Server, and the page passes nothing, so it never approves. */}
-          <button
+          <Button
             type="button"
             className="button"
             data-add-device=""
             onClick={() => void store.runAction("device.add")}
           >
             {host.devices?.add_title ?? t("action.device.add")}
-          </button>
+          </Button>
         </div>
       </section>
       {host.devices && <DevicesSection devices={host.devices} />}
@@ -176,7 +178,7 @@ function DevicesSection({ devices }: { devices: DevicesHostState }) {
                   {confirming === row.id && <div className="row-help">{devices.remove_help}</div>}
                 </div>
                 {row.removable && (
-                  <button
+                  <Button
                     type="button"
                     className="button"
                     data-remove-device={row.id}
@@ -188,7 +190,7 @@ function DevicesSection({ devices }: { devices: DevicesHostState }) {
                     onBlur={() => setConfirming((current) => (current === row.id ? null : current))}
                   >
                     {confirming === row.id ? devices.remove_confirm_title : devices.remove_title}
-                  </button>
+                  </Button>
                 )}
               </div>
               {typeof row.full_access === "boolean" && (
@@ -343,7 +345,7 @@ function MachineColor({
         disabled={disabled}
       />
       {pick !== undefined && (
-        <button
+        <Button
           type="button"
           className="button"
           data-machine-color-reset=""
@@ -351,7 +353,7 @@ function MachineColor({
           onClick={() => write(rest)}
         >
           {t("settingsPage.automatic")}
-        </button>
+        </Button>
       )}
     </span>
   );
@@ -375,14 +377,14 @@ function BrowserProfilesSection({ host }: { host: HostLists }) {
         ))}
       </div>
       <div className="host-footer">
-        <button
+        <Button
           type="button"
           className="button"
           data-new-profile=""
           onClick={() => void store.runAction("browserProfile.new")}
         >
           {t("settingsWindow.newBrowserProfile")}
-        </button>
+        </Button>
       </div>
     </section>
   );
@@ -430,7 +432,7 @@ function ProfileRow({
         <div className="host-form">
           <label className="host-field">
             <span className="row-help">{t("settingsWindow.profileName")}</span>
-            <input
+            <Input
               className="field"
               aria-label={t("settingsWindow.profileName")}
               value={name}
@@ -464,7 +466,7 @@ function ProfileRow({
           </div>
           <label className="host-field">
             <span className="row-help">{t("settingsWindow.profileIcon")}</span>
-            <input
+            <Input
               className="field"
               aria-label={t("settingsWindow.profileIcon")}
               value={icon}
@@ -478,18 +480,19 @@ function ProfileRow({
           </label>
           <ClearBrowsingData target={target} />
           <div className="host-actions">
-            <button type="button" className="button" onClick={() => run("browserProfile.manageExtensions")}>
+            <Button type="button" className="button" onClick={() => run("browserProfile.manageExtensions")}>
               {t("action.browserProfile.manageExtensions").replace(/…$/, "")}
-            </button>
+            </Button>
             {!profile.is_default && (
-              <button
+              <Button
+                danger
                 type="button"
                 className="button danger"
                 data-delete-profile=""
                 onClick={() => run("browserProfile.delete")}
               >
                 {t("settingsWindow.deleteProfile")}
-              </button>
+              </Button>
             )}
           </div>
         </div>
@@ -566,7 +569,8 @@ function ClearBrowsingData({ target }: { target: string }) {
         </label>
       ))}
       <span className="host-actions">
-        <button
+        <Button
+          danger
           type="button"
           className="button danger"
           data-clear=""
@@ -574,7 +578,7 @@ function ClearBrowsingData({ target }: { target: string }) {
           onClick={() => void clear()}
         >
           {title}
-        </button>
+        </Button>
         {cleared && (
           <output className="row-help" data-cleared="">
             {t("settingsWindow.browsingDataCleared")}

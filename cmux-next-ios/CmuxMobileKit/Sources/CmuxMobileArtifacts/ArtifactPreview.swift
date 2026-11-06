@@ -82,7 +82,7 @@ public struct ArtifactPreview: View {
                     headline: artifact.kind == .directory ? "Can't open this folder" : "Can't open this file",
                     systemImage: "exclamationmark.triangle", name: artifact.name, message: error.localizedDescription
                 ) {
-                    Button("Try Again") {
+                    RetryButton("Try Again") {
                         content = nil
                         attempt += 1
                     }
