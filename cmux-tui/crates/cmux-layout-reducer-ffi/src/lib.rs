@@ -37,6 +37,7 @@ pub mod agent_cursor;
 pub mod close_focus;
 pub mod closing_panes;
 mod cloud_config;
+mod cloud_move;
 pub mod focus;
 mod imessage;
 pub mod input;
@@ -367,6 +368,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if cloud_config::handles(operation) => {
                 cloud_config::respond(operation, request)?
             }
+            operation if cloud_move::handles(operation) => cloud_move::respond(operation, request)?,
             _ => return Err(ERR_INVALID),
         };
         Ok(response)
