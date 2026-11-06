@@ -144,6 +144,9 @@ function devServerToken(): Plugin {
   return {
     name: "cmux-dev-server-token",
     apply: "serve",
+    // Before every other plugin's middleware: the agent pane's host is `enforce: "pre"` too, and
+    // Vite runs pre plugins first, so without this its /agent-pane/ answer left before the proof.
+    enforce: "pre",
     configureServer(server) {
       server.middlewares.use((request, response, next) => {
         const nonce = request.headers[DEV_NONCE_HEADER];
