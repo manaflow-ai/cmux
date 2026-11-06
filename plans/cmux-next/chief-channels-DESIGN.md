@@ -39,7 +39,7 @@ Builds on group chats with Chief (`chief-group-chats-DESIGN.md`), the Invite Peo
 | Who customizes the channel Chief | the channel creator and the creator's Chiefs (`chiefs` tool update) | the record lives in the creator's UserDO; other admins ask the creator |
 | When the channel Chief replies | wake policy `auto` (same as groups); `mentions` / `all` via Chiefs Reply | two people talking should not get a reply to every line |
 | Whose word it acts on | its owner's (CHIEF-DONE B3, 5a of group chats); others' messages are context | it holds the owner's tools |
-| Tools of a channel Chief | a Cloud Chief's tools only (the `chiefs` grant on, so it can invite to its own channel on its owner's word); no Mac tools (`spawn`, `workspaces`, `cloud_vms`, `browser` are this Mac's daemon's, and a channel Chief is never a local Chief: gap 2) | a Chief seen by many people should not drive its owner's machines |
+| Tools of a channel Chief | a Cloud Chief's tools only (the `chiefs` grant on, so it can invite to its own channel on its owner's word); no Mac tools (`spawn`, `workspaces`, `cloud_vms`, `browser` are this Mac's daemon's, and a channel Chief is never a local Chief: gap 2) | a Chief seen by many people should not drive its owner's machines. Enforced: `chief-brain/channel-scope.ts` keeps memory and `chiefs` only (hands, `agent`, `spawn`, `teleport` are left out and refuse if they run), the scope is read from the owner's Chief record when the Chief is turned on, and `chiefs` takes only `invite` into its own channel (`chief_channel_scope`) |
 | Archive the channel Chief | archives the record; the channel stays (a group without a Chief) | no data loss |
 | Channel limit | the 20-Chief cap counts channel Chiefs | bounded per user |
 

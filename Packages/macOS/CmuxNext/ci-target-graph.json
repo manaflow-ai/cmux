@@ -1243,8 +1243,10 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHibernation",
       "targets": [
         "CmuxNextBridge",
+        "CmuxNextBrowserCore",
         "CmuxNextCompat",
-        "CmuxNextSettings"
+        "CmuxNextSettings",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },
