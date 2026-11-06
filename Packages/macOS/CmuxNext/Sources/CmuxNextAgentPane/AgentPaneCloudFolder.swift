@@ -13,7 +13,8 @@ public nonisolated enum AgentPaneCloudFolderRefusal: Error, Equatable {
     /// Home's folders of keys and credentials, relative to home, that a Cloud copy never takes, nor a
     /// folder holding one (`~/.config` holds gcloud's, `~/Library` Keychains). cmux-tui's
     /// `link/access_cli.rs` `SECRET_FOLDERS` keeps the like list for a shared folder's files, and
-    /// `link/sync_cli/skips.rs` `credential` for a copy's files at any depth. Never all of `~/Library`:
+    /// `link/sync_cli/skips.rs` `CREDENTIAL_FOLDERS` is this same list, left out of a copy at any depth (its
+    /// test reads this one: keep it one string per name, in `[...]`). Never all of `~/Library`:
     /// iCloud Drive and the cloud-storage folders (Dropbox, Google Drive) hold projects there. gh's OAuth
     /// tokens are in `~/.config/gh/hosts.yml`, Cargo's registry token in `~/.cargo/credentials.toml`.
     public static let secretFolders = [".ssh", ".aws", ".gnupg", ".config/gcloud", ".config/gh", ".kube", ".docker", ".secrets", ".azure",

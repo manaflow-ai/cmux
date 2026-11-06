@@ -180,33 +180,41 @@ pub(super) fn secret(name: &str) -> Option<Why> {
     key.then_some(Why::KeyFile)
 }
 
-/// Folders of keys and logins by name (lower case), at any depth (as
-/// `link/access_cli.rs` `SECRET_FOLDERS`; the App's
-/// `AgentPaneCloudFolderRefusal.secretFolders` refuses home's as a whole).
+/// Folders of keys and logins, as paths of one or more names, left out at
+/// any depth (by case too). The same list, in the same order, as the App's
+/// `AgentPaneCloudFolderRefusal.secretFolders`, which refuses home's as a
+/// selected folder (a test reads that list and compares): one list for both.
+/// A project's own `.cargo/` and `.docker/` stay here too.
 const CREDENTIAL_FOLDERS: &[&str] = &[
     ".ssh",
     ".aws",
     ".gnupg",
+    ".config/gcloud",
+    ".config/gh",
     ".kube",
+    ".docker",
+    ".secrets",
     ".azure",
-    "gcloud",
+    ".cargo",
     ".gem",
     ".terraform.d",
     ".password-store",
+    "Library/Keychains",
 ];
 
-/// Folders of logins only in their parent: `(parent, name)`, gh's tokens
-/// (`.config/gh/hosts.yml`).
-const CREDENTIAL_SUBFOLDERS: &[(&str, &str)] = &[(".config", "gh")];
-
-/// Files of tokens or passwords by name, anywhere.
+/// Files of tokens or passwords by name, anywhere. Home's own sit in home,
+/// which the App refuses as a whole, so only a copy needs them by name.
 const CREDENTIAL_NAMES: &[&str] =
     &[".netrc", "_netrc", ".npmrc", ".pypirc", ".git-credentials", ".pgpass"];
 
-/// Files of tokens only in their folder: `(folder, name prefix)`. A
-/// project's `.cargo/config.toml` and `.docker/` files go.
-const CREDENTIAL_FILES: &[(&str, &str)] =
-    &[(".cargo", "credentials"), (".docker", "config.json"), (".config", "hub")];
+/// Files of tokens by path (`.config/hub`: hub's GitHub token).
+const CREDENTIAL_FILES: &[&str] = &[".config/hub"];
+
+/// Whether the names of `names` that end at `end` (exclusive) are `path`.
+fn ends_with(names: &[String], end: usize, path: &str) -> bool {
+    let parts: Vec<String> = path.split('/').map(str::to_ascii_lowercase).collect();
+    end >= parts.len() && names[end - parts.len()..end] == parts[..]
+}
 
 /// Whether `relative` (a folder when `folder`) is, or is in, a folder of
 /// keys and logins, or is a file of tokens or passwords: never copied
@@ -214,21 +222,18 @@ const CREDENTIAL_FILES: &[(&str, &str)] =
 pub(super) fn credential(relative: &str, folder: bool) -> Option<Why> {
     let names: Vec<String> = relative.split('/').map(str::to_ascii_lowercase).collect();
     let folders = if folder { names.len() } else { names.len().saturating_sub(1) };
-    for (index, name) in names.iter().enumerate() {
-        let parent = index.checked_sub(1).map(|at| names[at].as_str());
-        if index < folders {
-            if CREDENTIAL_FOLDERS.contains(&name.as_str())
-                || CREDENTIAL_SUBFOLDERS.iter().any(|(p, n)| parent == Some(*p) && name == n)
-            {
-                return Some(Why::CredentialFolder);
-            }
-        } else if CREDENTIAL_NAMES.contains(&name.as_str())
-            || CREDENTIAL_FILES.iter().any(|(p, n)| parent == Some(*p) && name.starts_with(n))
-        {
-            return Some(Why::CredentialFile);
+    for end in 1..=folders {
+        if CREDENTIAL_FOLDERS.iter().any(|path| ends_with(&names, end, path)) {
+            return Some(Why::CredentialFolder);
         }
     }
-    None
+    if folder {
+        return None;
+    }
+    let last = names.last().map_or("", String::as_str);
+    (CREDENTIAL_NAMES.contains(&last)
+        || CREDENTIAL_FILES.iter().any(|path| ends_with(&names, names.len(), path)))
+    .then_some(Why::CredentialFile)
 }
 
 /// Whether the folder `name` in `dir` is a dependency or build folder its
