@@ -55,12 +55,13 @@ extension DiffPageProvider {
     /// The pre-opened answer when the page asks for the same source and the same Hide white space
     /// choice, else nil and the pre-opened session is closed. A pre-open that found no changes for that
     /// source answers with that, so the page gets it without a second run; any other failure (a busy
-    /// or missing sidecar) opens again. A page call cancelled while it waited, or a tab closed since,
-    /// opens nothing: its session is closed and the call ends as cancelled.
+    /// or missing sidecar) opens again. A page call cancelled while it waits cancels the preopen, so it
+    /// ends as soon as the sidecar stops instead of when the open would have finished; a call cancelled
+    /// that way, or a tab closed since, opens nothing: its session is closed and the call ends as cancelled.
     func takePreopened(matching params: [String: JSONValue], grant: DiffSessionGrant) async throws -> JSONValue? {
         guard let task = preopen else { return nil }
         preopen = nil
-        let opened = await task.value
+        let opened = await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
         if Task.isCancelled || isClosed {
             if case .success(let result) = opened.result, let id = Self.openedSession(result) {
                 await closeQuietly(id, grant: grant)

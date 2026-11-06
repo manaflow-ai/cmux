@@ -273,7 +273,8 @@ public final class DiffPageProvider: PageProvider {
         }
         opening = (id, task)
         defer { if opening?.session == id { opening = nil } }
-        let result = try await task.value
+        // A cancelled caller (a page call, a cancelled preopen) stops the open, as stopOpening does.
+        let result = try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
         // A patch session (Last turn) gets the sidecar's own id, which the page then closes.
         if let opened = Self.openedSession(result) { sessions.insert(opened) }
         return result

@@ -92,7 +92,7 @@ import {
   useDiffFileOpen,
   type DiffLineClick,
 } from "./diff-viewer/openFile";
-import { diffFingerprintReader, useDiffFreshness } from "./diff-viewer/freshness";
+import { diffFingerprintReader, useDiffFreshness, usePrecomputedFingerprint } from "./diff-viewer/freshness";
 import { diffPageClient, type DiffPageConfig } from "./diff/page";
 import { reportFirstHunk } from "./diff-viewer/openTiming";
 import { GitToolbarButtons, GitWriteBar } from "./agent-session/acpmux/changes/GitActions";
@@ -430,9 +430,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   // A diff the host precomputed (an agent's turn ended): its fingerprint is the freshness baseline,
   // and when the files changed since, the new diff replaces it with the reader kept in place.
   // Each precompute gets its own id, so a later one with the same fingerprint still gets its first check.
-  const [precomputed, setPrecomputed] = useState<{ fingerprint: string; id: number }>();
-  // Counts across cleared state: a render with no precompute must not restart the ids.
-  const precomputeCount = useRef(0);
+  const [precomputed, setPrecomputed] = usePrecomputedFingerprint();
   const replaceAnchor = useRef<ReturnType<KindOrderHandlers["anchor"]>>(null);
   // The session on screen while a reconcile streams its replacement: kept open (previews and full
   // files read it) until the new diff commits, and the one shown again if the reconcile fails.
@@ -440,8 +438,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   const renderHooks = useRef<RenderDiffHooks>({});
   renderHooks.current = {
     retained: retainedSessionRef,
-    prepared: (fingerprint) =>
-      setPrecomputed(fingerprint === undefined ? undefined : { fingerprint, id: (precomputeCount.current += 1) }),
+    prepared: setPrecomputed,
     beforeReplace: () => {
       replaceAnchor.current = kindOrderHandlers.current.anchor();
     },

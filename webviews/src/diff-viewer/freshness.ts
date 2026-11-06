@@ -4,7 +4,7 @@
 // so no diff crosses the bridge); the page takes one per load and compares while it is visible.
 // Coming back to the viewer refreshes it when nothing would be lost; while the reader is in it, an
 // inline notice offers Refresh, since a refresh starts the diff from the top.
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSyncedRef } from "./useSyncedRef";
 import type { DiffSource } from "../diff/generated/protocol";
 import { isPageError, type PageClient } from "../pages/shared/pageClient";
@@ -38,6 +38,21 @@ export function diffFingerprintReader(
       const fingerprint = (value as { fingerprint?: unknown } | null)?.fingerprint;
       return typeof fingerprint === "string" ? fingerprint : undefined;
     });
+}
+
+/// The fingerprint of the diff the host precomputed (`prepared`, from the render), with an id that only
+/// grows: a render with none clears it but never restarts the count, so two precomputes of the same
+/// tree are two ids and each gets its own first check in `useDiffFreshness`.
+export function usePrecomputedFingerprint(): [
+  { fingerprint: string; id: number } | undefined,
+  (fingerprint: string | undefined) => void,
+] {
+  const [precomputed, setPrecomputed] = useState<{ fingerprint: string; id: number }>();
+  const count = useRef(0);
+  const prepared = useCallback((fingerprint: string | undefined) => {
+    setPrecomputed(fingerprint === undefined ? undefined : { fingerprint, id: (count.current += 1) });
+  }, []);
+  return [precomputed, prepared];
 }
 
 /// True once the files changed since load `generation` while the reader was in the viewer. A
