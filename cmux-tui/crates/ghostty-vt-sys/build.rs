@@ -25,6 +25,7 @@ fn main() {
 
     println!("cargo:rerun-if-env-changed=CMUX_GHOSTTY_SRC");
     println!("cargo:rerun-if-env-changed=ZIG");
+    println!("cargo:rerun-if-env-changed=CMUX_ZIG");
     println!("cargo:rerun-if-env-changed=CMUX_GHOSTTY_VT_ZIG_CPU");
     emit_cargo_path_directive("rerun-if-changed", &ghostty_dir.join("include"));
     // Keep the generated binding fingerprint tied to the public terminal API.

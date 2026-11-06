@@ -116,10 +116,15 @@ pub fn zon_version(path: &Path) -> Option<String> {
     })
 }
 
-/// The zig program the build runs: `ZIG` when set, else `zig` on PATH.
+/// The zig program the build runs: `ZIG` when set, else the pinned zig that
+/// `scripts/install-zig-ci.sh` publishes as `CMUX_ZIG`, else `zig` on PATH.
+/// PATH comes last because a runner may hold an older zig ahead of the pin.
 pub fn zig_program(zig: Option<String>, cmux_zig: Option<String>) -> String {
-    let _ = cmux_zig;
-    zig.filter(|path| !path.is_empty()).unwrap_or_else(|| "zig".to_string())
+    [zig, cmux_zig]
+        .into_iter()
+        .flatten()
+        .find(|path| !path.is_empty())
+        .unwrap_or_else(|| "zig".to_string())
 }
 
 #[cfg(test)]
