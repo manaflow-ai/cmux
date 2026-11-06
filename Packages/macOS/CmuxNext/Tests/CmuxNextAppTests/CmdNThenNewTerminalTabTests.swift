@@ -78,18 +78,34 @@ struct CmdNThenNewTerminalTabTests {
     /// own New Tab page, taking that page's view from the daemon's pane (the terminal tab selected over an empty pane for
     /// 20 s). The order here is fixed: the Ctrl-`'s create waits for a gate this test opens only after the daemon's pane
     /// mounted, so no daemon terminal and no focus expectation can show the terminal there before the hand-over is read.
-    @Test func theDaemonsPaneThatTakesCmdNsStandInOverShowsTheTerminalTheStandInShowed() async throws {
+    /// `reserved`: the window built Cmd-N's workspace view before the key (#36962, `WindowController.reservedContent`), and
+    /// the key shows that view, whose stand-in pane controller was made on the reserved model before any index held it.
+    @Test(arguments: [false, true])
+    func theDaemonsPaneThatTakesCmdNsStandInOverShowsTheTerminalTheStandInShowed(reserved: Bool) async throws {
         try await PasswordManagerRouteTests.withApp { services, _ in
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-cmdn-ctrlbt-handover")
             try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
             let pid = try #require(services.daemon.identity?.pid)
             let store = services.daemon.store
+            let window = try #require(services.windows.active, "no window")
+            var reservedView: NSView?
+            if reserved {
+                window.reservedContent.fill()
+                try await PasswordManagerRouteTests.until({ window.reservedContent.ready != nil && store.reservedWorkspace != nil },
+                                                          within: .seconds(20), report: { "the window built no next Cmd-N view" })
+                reservedView = window.reservedContent.ready?.contentView
+            }
             let before = Set(store.workspaces.map(\.id))
 
             // Cmd-N with the daemon stopped: the window shows its stand-in workspace and pane.
             #expect(kill(pid, SIGSTOP) == 0)
             var resumed = false
             defer { if !resumed { kill(pid, SIGCONT) } }
+            // Without the reservation (`reserved` false), none is made before the key: nothing here awaits until the key ran.
+            if !reserved {
+                window.reservedContent.drop()
+                store.releaseReservedWorkspace(.unshown)
+            }
             var work = services.registry.capturingWork {
                 _ = services.registry.perform("newTab", invocation: ActionInvocation(origin: .user))
             }
@@ -99,6 +115,7 @@ struct CmdNThenNewTerminalTabTests {
                     && services.windows.active?.workspaceContent?.focusedPane != nil
             }, within: .seconds(2), report: { "the window does not show Cmd-N's workspace" })
             let content = try #require(services.windows.active?.workspaceContent)
+            if let reservedView { try #require(content.contentView === reservedView, "Cmd-N did not show the view the window built before the key") }
             let standIn = try #require(content.focusedPane, "Cmd-N's workspace has no focused pane")
             try #require(ProvisionalPane.isStandIn(standIn.pane.handle), "Cmd-N's pane already confirmed: the hand-over was not reached")
 
