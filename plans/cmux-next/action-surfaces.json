@@ -13385,6 +13385,51 @@
       "args" : [
         {
           "kind" : "string",
+          "name" : "title",
+          "required" : true
+        },
+        {
+          "kind" : "string",
+          "name" : "members",
+          "required" : false
+        },
+        {
+          "kind" : "string",
+          "name" : "chief",
+          "required" : false
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "chat channel create",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.createChannel",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "New Channel…",
+      "title_key" : "action.home.createChannel",
+      "title_table" : "HomeActions"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
           "name" : "conversation",
           "required" : false
         },
@@ -24443,6 +24488,46 @@
     {
       "args" : [
         {
+          "kind" : "string",
+          "name" : "url",
+          "required" : false
+        },
+        {
+          "kind" : "string",
+          "name" : "name",
+          "required" : false
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "browser-profile open-link-in-new",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browserProfile.openLinkInNew",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Open Link in New Browser Profile…",
+      "title_key" : "action.browserProfile.openLinkInNew",
+      "title_table" : "BrowserProfileActions"
+    },
+    {
+      "args" : [
+        {
           "kind" : "target",
           "name" : "browserProfile",
           "required" : true,
@@ -27364,12 +27449,7 @@
           ]
         }
       ],
-      "default_shortcut" : {
-        "key" : "i",
-        "modifiers" : [
-          "cmd"
-        ]
-      },
+      "default_shortcut" : null,
       "id" : "palette.newAgentChat",
       "main_menu" : "file",
       "mcp" : "offered",
@@ -32580,9 +32660,9 @@
           "name" : "viewer",
           "required" : false,
           "values" : [
+            "rd",
             "web",
-            "native",
-            "rd"
+            "native"
           ]
         }
       ],
@@ -37179,6 +37259,37 @@
     },
     {
       "args" : [
+
+      ],
+      "cli" : "devOnly",
+      "cli_name" : "action debug-view-window",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "debug.viewWindow",
+      "main_menu" : "debug",
+      "mcp" : "devOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Open View Window",
+      "title_key" : "action.debug.viewWindow",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
         {
           "kind" : "string",
           "name" : "server",
@@ -40757,6 +40868,290 @@
       "palette_suggested" : null,
       "title" : "Toggle Dock Corners",
       "title_key" : "action.window.toggleDockOrientation",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "home open-chief-dock",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "i",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "id" : "home.openChiefDock",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Open Chief Dock",
+      "title_key" : "action.home.openChiefDock",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "pane move-to-dock",
+      "context_menu" : "pointerMenuTrim",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "window.movePaneToDock",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.pane",
+        "order" : 102,
+        "title" : "Panes",
+        "title_key" : "category.pane",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move Pane to Dock",
+      "title_key" : "action.window.movePaneToDock",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "window toggle-dock",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "window.toggleDock",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show or Hide Dock",
+      "title_key" : "action.window.toggleDock",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "window toggle-dock-tab-bar",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "window.toggleDockTabBar",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show or Hide Dock Tab Bar",
+      "title_key" : "action.window.toggleDockTabBar",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "window focus-dock",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "window.focusDock",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Focus Dock",
+      "title_key" : "action.window.focusDock",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "window dock-edge-left",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "window.dockEdgeLeft",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move Dock to Left",
+      "title_key" : "action.window.dockEdgeLeft",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "window dock-edge-right",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "window.dockEdgeRight",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move Dock to Right",
+      "title_key" : "action.window.dockEdgeRight",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "window dock-edge-top",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "window.dockEdgeTop",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move Dock to Top",
+      "title_key" : "action.window.dockEdgeTop",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "window dock-edge-bottom",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "window.dockEdgeBottom",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move Dock to Bottom",
+      "title_key" : "action.window.dockEdgeBottom",
       "title_table" : "LayoutActions"
     },
     {
@@ -47893,6 +48288,37 @@
       "title" : "View Hang Report",
       "title_key" : "action.diagnostics.viewHangReport",
       "title_table" : "HangReportsActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "settings clear-palette-history",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "palette.clearSearchHistory",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Clear Palette Search History",
+      "title_key" : "action.palette.clearSearchHistory",
+      "title_table" : "SettingsActions"
     }
   ],
   "context_menu_rules" : [

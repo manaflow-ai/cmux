@@ -70,22 +70,18 @@ public final class RemoteViewPageTab: BrowserTab {
             session = nil
             contentView = RemoteViewUnavailableView(content: .unavailable(reason))
         }
-        #if DEBUG
         Self.live.add(self)
-        #endif
     }
 
-    #if DEBUG
-    /// Every live remote view tab, for `debug.remote_view` (weak).
-    // singleton-allow: a DEBUG-only weak registry the debug socket method reads; moved from CmuxNextApp as is, only public for the move.
+    /// Every live remote view tab, for `remote_view.*` and `debug.remote_view` (weak).
+    // singleton-allow: a weak registry the control socket's remote view methods read; it holds no tab alive.
     public static let live = NSHashTable<RemoteViewPageTab>.weakObjects()
 
     /// The Connect button of a tab that asks first; nil for any other tab.
     public var debugConnect: (() -> Void)? { (contentView as? RemoteViewUnavailableView)?.onConnect }
 
-    /// The tab's session, when it streams (development path or mock).
+    /// The tab's session, when it streams.
     public var debugSession: RemoteViewPageSession? { session }
-    #endif
 
     public func load(_ url: URL) {
         if RemoteViewTabRecord.matches(url) { return }

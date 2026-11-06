@@ -23,6 +23,8 @@ nonisolated extension ActionSurfaceCatalog {
         .noObject: [
             "window.toggleDockLeft", "window.toggleDockRight", "window.toggleDockTop", "window.toggleDockBottom",
             "window.toggleDockOrientation",
+            "home.openChiefDock", "window.toggleDock", "window.toggleDockTabBar", "window.focusDock",
+            "window.dockEdgeLeft", "window.dockEdgeRight", "window.dockEdgeTop", "window.dockEdgeBottom",
             "palette.openFilesPane", "palette.openFindPane",
             "sidebar.profileMenu", "browser.downloads.showFolder",
             "home.show",
@@ -158,7 +160,7 @@ nonisolated extension ActionSurfaceCatalog {
             // Docked workspaces are a default-off prototype (`window.dockedWorkspaces`): palette, CLI and MCP only,
             // so the workspace row's Move menu does not grow six rows nobody can use yet.
             "workspace.dockLeft", "workspace.dockRight", "workspace.dockTop", "workspace.dockBottom", "workspace.undock",
-            "workspace.toggleDockFloating","workspace.setTint", "workspace.copyPath", "copyWorkspaceSSHError", "revealWorkspaceInFinder",
+            "workspace.toggleDockFloating", "window.movePaneToDock", "workspace.setTint", "workspace.copyPath", "copyWorkspaceSSHError", "revealWorkspaceInFinder",
             "palette.copyWorkspaceIDAndRef", "workspace.showResources", "palette.openWorkspacePullRequests",
             "workspace.setRemoteLocalhost",
             // The tab menu's Move folder already holds Move Tab to Workspace…; a space list there would bloat it.

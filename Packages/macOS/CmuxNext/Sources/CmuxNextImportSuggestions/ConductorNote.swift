@@ -9,10 +9,11 @@ extension ImportSuggestionState {
     public static let conductorDeadline = Date(timeIntervalSince1970: 1_795_161_600)
 
     /// The sidebar note shows while this Mac has Conductor, before the deadline, until the person
-    /// closes it, starts the import (any job, running or done) or hides the Conductor card in
-    /// Settings › Import (its Done after an import does too).
+    /// closes it, starts the import (any job, running or done), the import finished once (kept
+    /// here, since the ledger prunes finished jobs) or hides the Conductor card in Settings ›
+    /// Import (its Done after an import does too).
     public func showsConductorNote(findings: [ImportFinding], jobs: ImportJobLedger, now: Date) -> Bool {
-        guard now < Self.conductorDeadline, conductorNoteClosed != true,
+        guard now < Self.conductorDeadline, conductorNoteClosed != true, conductorImportRan != true,
               let finding = findings.first(where: { $0.kind == .conductor }) else { return false }
         return jobs.job(finding.id) == nil && !hides(finding)
     }
@@ -29,5 +30,11 @@ extension ImportScanner {
     public func conductorOnboardingLine(now: Date) -> String? {
         guard now < ImportSuggestionState.conductorDeadline, conductor() != nil else { return nil }
         return ConductorImportStrings.onboardingLine
+    }
+
+    /// ``conductorOnboardingLine(now:)`` with the moment it ends (the deadline), so a page left
+    /// open past it drops the line by itself.
+    public func conductorOnboardingNotice(now: Date) -> (text: String, until: Date)? {
+        conductorOnboardingLine(now: now).map { ($0, ImportSuggestionState.conductorDeadline) }
     }
 }

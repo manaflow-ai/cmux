@@ -6,9 +6,10 @@ enum OnboardingMetrics {
     static let windowSize = NSSize(width: 640, height: 520)
     /// Margin around everything.
     static let margin: CGFloat = 40
-    static var titleFont: NSFont { Typography.system(size: 22, weight: .semibold) }
-    static var bodyFont: NSFont { Typography.system(size: 13) }
-    static var captionFont: NSFont { Typography.system(size: 11) }
+    /// The type scale's steps, so every screen follows Interface Size.
+    static var titleFont: NSFont { Typography.system(size: TypeScale.heading, weight: TypeScale.emphasis) }
+    static var bodyFont: NSFont { Typography.system(size: TypeScale.body) }
+    static var captionFont: NSFont { Typography.system(size: TypeScale.caption) }
 }
 
 /// Label factory: non-editable, theme colors, wraps when `lines` is not 1.

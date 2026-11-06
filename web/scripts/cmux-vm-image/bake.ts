@@ -833,7 +833,8 @@ async function baseSteps(ctx: Ctx): Promise<void> {
   if (options.teamVm) ctx.result.teamFilesRoot = (await L.step(ctx.vm, "team-files-root", teamVmDirsCommand())).trim();
   await configureRoles(ctx);
   if (options.agentTools) await installAgentTools(ctx);
-  await prefillDepCaches(ctx);
+  // A layered bake fills it in the agents layer (overlaySteps), not twice.
+  if (!options.layered) await prefillDepCaches(ctx);
   if (options.devTree) await installDevTree(ctx);
   await installMachineHealth(ctx);
   await installHostConfig(ctx);

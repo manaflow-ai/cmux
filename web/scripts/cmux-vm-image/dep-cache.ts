@@ -23,7 +23,10 @@ export const NPM_CACHE_DIR = `${DEVBOX_WORK_HOME}/.npm/_cacache`;
 /** The most the baked npm cache may take on disk. */
 export const NPM_CACHE_CAP_MB = 300;
 
-/** Fill the work user's npm cache with one install of PREFILL_NODE_DEPS; print `npm-cache-mb N`; fail over the cap. */
+/**
+ * Fill the work user's npm cache with one install of PREFILL_NODE_DEPS; print `npm-cache-mb N`; fail over the cap.
+ * POSIX sh: the guest runs a step with /bin/sh (dash), which has no pipefail (run 42104967506).
+ */
 export function npmCachePrefillCommand(): string {
   const dir = "/tmp/cmux-npm-prefill";
   const install = [
@@ -33,7 +36,7 @@ export function npmCachePrefillCommand(): string {
     `cd / && rm -rf ${dir}`,
   ].join(" && ");
   return [
-    "set -euo pipefail",
+    "set -eu",
     `runuser -u ${DEVBOX_WORK_USER} -- bash -lc ${sq(install)}`,
     `mb=$(${npmCacheSizeCommand()})`,
     'echo "npm-cache-mb $mb"',
