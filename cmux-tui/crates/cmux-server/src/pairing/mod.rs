@@ -110,16 +110,20 @@ pub fn status(path: &Path) -> Result<Value> {
 pub fn app_view(path: &Path, now_ms: u64) -> Result<Value> {
     let status = status(path)?;
     let Some(identity) = identity::read(path)? else { return Ok(json!({"state": "unpaired"})) };
-    Ok(match status["state"].as_str() {
-        Some("paired") => json!({"state": "paired", "host": status["host"], "team": status["team"],
-            "owner": status["user"]}),
+    Ok(match status.get("state").and_then(Value::as_str) {
+        Some("paired") => {
+            json!({"state": "paired", "host": status.get("host"), "team": status.get("team"),
+            "owner": status.get("user")})
+        }
         Some("network_pending" | "indeterminate") => json!({"state": "pairing"}),
         Some("pending") => {
             let thumbprint = enrollment::jwk_thumbprint(&identity.public_jwk)
                 .map_err(|_| Error::verification("server.pair.invalid_identity"))?;
             let begun = identity
                 .begin_response()?
-                .filter(|v| v["expires_at"].as_u64().is_some_and(|at| at > now_ms))
+                .filter(|v| {
+                    v.get("expires_at").and_then(Value::as_u64).is_some_and(|at| at > now_ms)
+                })
                 .map(|v| Begun::parse(&v, &thumbprint, now_ms))
                 .transpose()
                 .map_err(|_| Error::verification("server.pair.invalid_begin"))?;
@@ -135,8 +139,8 @@ pub fn app_view(path: &Path, now_ms: u64) -> Result<Value> {
 /// The app's shape of a code that waits for approval (`PairingOffer`).
 fn offer_view(begun: &Begun) -> Value {
     let progress = begun.public_progress();
-    json!({"state": "unpaired", "code": progress["code"], "expires_at_ms": begun.expires_at,
-        "words": progress["words"], "fingerprint": begun.thumbprint})
+    json!({"state": "unpaired", "code": progress.get("code"), "expires_at_ms": begun.expires_at,
+        "words": progress.get("words"), "fingerprint": begun.thumbprint})
 }
 
 /// Whether the backend may still accept a code expiring at `expires_at` (its clock): it allows
