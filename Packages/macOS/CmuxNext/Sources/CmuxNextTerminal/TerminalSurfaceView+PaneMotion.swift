@@ -76,8 +76,10 @@ extension TerminalSurfaceView: PaneMotionTargeting {
         guard pixels.width >= 1, pixels.height >= 1,
               ghostty_surface_fit_grid(surface, UInt32(pixels.width), UInt32(pixels.height), &columns, &rows)
         else { return .top }
-        reportFinalGrid(TerminalGridSize(columns: Int(columns), rows: Int(rows)))
+        // Read before the report: the owner's resize to the final grid can land in this call, and the edge is the one
+        // the text keeps from the rows it shows now.
         let anchor = motionAnchor(finalRows: Int(rows))
+        reportFinalGrid(TerminalGridSize(columns: Int(columns), rows: Int(rows)))
         host?.holdSurface(size: size, anchor: anchor)
         return anchor
     }
