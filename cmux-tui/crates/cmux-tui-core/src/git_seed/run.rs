@@ -70,6 +70,9 @@ pub struct Seed {
     credentials: Vec<Credential>,
     /// The path that worked last (the first one until one has).
     chosen: Credential,
+    /// The path the last network step succeeded with; None when no step
+    /// reached the remote (a delta seed, a fetch that failed).
+    reached: Option<Credential>,
 }
 
 impl Seed {
@@ -83,7 +86,7 @@ impl Seed {
         credentials: Vec<Credential>,
     ) -> Self {
         let chosen = credentials.first().cloned().unwrap_or(Credential::Anonymous);
-        Self { job, params, folder, bundle, roots, git, credentials, chosen }
+        Self { job, params, folder, bundle, roots, git, credentials, chosen, reached: None }
     }
 
     pub fn run(mut self) -> Result<(), Failed> {
@@ -96,13 +99,15 @@ impl Seed {
     /// The checkout keeps the GitHub path its clone or fetch used, so the
     /// agent's own `git push` and `git pull` there work too: the checkout's
     /// config asks `cmux github credential` (a token minted per git
-    /// process, never stored). Only when that path was the one used: the
+    /// process, never stored). Only when a network step of this seed went
+    /// through that path (a delta seed reaches no remote, so it keeps
+    /// nothing): the
     /// lane helper is global already, and anonymous needs none. A checkout
     /// with a github.com helper of its own keeps it. A failure is not the
     /// seed's: the clone is there, its status says
     /// `push_credential_not_kept`, and `cmux github setup` still wires git.
     fn keep_credential(&self) {
-        let Credential::CmuxGithub(helper) = &self.chosen else { return };
+        let Some(Credential::CmuxGithub(helper)) = &self.reached else { return };
         if self.git(&["config", "--local", "--get-all", HELPER_KEY]).is_ok() {
             return;
         }
@@ -244,6 +249,7 @@ impl Seed {
             let job = self.job.clone();
             match self.git.run(cwd, &credential, args, &mut |line| job.progress(line)) {
                 Ok(_) => {
+                    self.reached = Some(credential.clone());
                     self.chosen = credential;
                     return Ok(());
                 }
