@@ -33,7 +33,7 @@ final class AgentCursorOverlay {
     /// list this process. With it, a display capture that leaves out this process's windows
     /// (`ScreenCapture`) always finds the process, and so also leaves out a cursor or approval
     /// panel that first appears during the capture.
-    private let anchor = AgentCursorOverlay.makePanel(root: CALayer())
+    private let anchor = SessionCursor.makePanel(root: CALayer())
 
     init(reduceMotion: @escaping () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }) {
         self.reduceMotion = reduceMotion
