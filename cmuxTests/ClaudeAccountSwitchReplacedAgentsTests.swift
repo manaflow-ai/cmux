@@ -114,18 +114,29 @@ struct ClaudeAccountSwitchReplacedAgentsTests {
         #expect(agents.processes.isEmpty)
     }
 
+    /// The pane's own Claude is running, and a second Claude runs the same session in another
+    /// terminal. Restarting the pane stops only the first, so the resumed one would be a second
+    /// writer: the switch refuses.
     @Test
-    func aRunningRecordedClaudeIsCheckedWithoutTheSessionOwner() {
-        var ownerLookups = 0
-        let recorded = agents([claude.pid: paneTTY])
-        let checked = recorded.fallingBack(toLiveSessionOwner: {
-            ownerLookups += 1
-            return sessionOwner
-        }())
+    func aSecondClaudeOnTheSessionInAnotherTerminalIsNotOwnedByThePane() {
+        let owner = sessionOwner
+        let recorded = ClaudeAccountSwitchReplacedAgents(
+            processes: [claude],
+            currentIdentity: { pid in [claude, owner].first { $0.pid == pid } },
+            controllingTTYDevice: { pid in pid == owner.pid ? tmuxTTY : paneTTY }
+        )
+        let checked = recorded.fallingBack(toLiveSessionOwner: owner)
+
+        #expect(checked.ownership(paneTTYDevice: paneTTY) == .notOwnedByPane)
+    }
+
+    /// The index names the pane's own Claude as the session's owner: nothing is added.
+    @Test
+    func theRecordedClaudeAsTheSessionOwnerIsCountedOnce() {
+        let checked = agents([claude.pid: paneTTY]).fallingBack(toLiveSessionOwner: claude)
 
         #expect(checked.processes == [claude])
         #expect(checked.ownership(paneTTYDevice: paneTTY) == .ownedByPane)
-        #expect(ownerLookups == 0)
     }
 
     // MARK: A Claude that started during the switch
