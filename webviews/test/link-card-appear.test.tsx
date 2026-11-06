@@ -163,6 +163,21 @@ test("a chip's cache-only ask that found nothing still opens the card with its r
   }
 });
 
+test("a settled answer stays settled when a later cache-only ask finds nothing (review of #37192, F3)", async () => {
+  const opened = await openCard(() => ({ pullRequest: null, reading: false }));
+  try {
+    const { askPullRequest, pullRequestAnswer } = await import("../src/agent-session/acpmux/chips/pullRequestStore");
+    await opened.act(async () => {
+      askPullRequest(PR_URL);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(pullRequestAnswer(PR_URL)?.cacheOnly).toBeUndefined();
+    expect(opened.card()!.querySelector("[data-placeholder]")).toBeNull();
+  } finally {
+    await opened.done();
+  }
+});
+
 test("a host with nothing to say and not reading leaves no placeholder behind", async () => {
   const opened = await openCard(() => ({ pullRequest: null, reading: false }));
   try {

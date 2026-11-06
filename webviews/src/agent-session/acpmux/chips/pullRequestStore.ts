@@ -134,7 +134,8 @@ function ask(url: string, cached = false) {
         // When that answer's read began goes with the answer: a reply with no new one keeps ours.
         ...readFromOf(value, answers.get(url)),
         reading: value.reading === true,
-        ...(cached ? { cacheOnly: true } : {}),
+        // Cache-only until a full ask answers: a later cache poll never reopens a settled answer.
+        ...(cached && (answers.get(url)?.cacheOnly ?? !answers.has(url)) ? { cacheOnly: true } : {}),
       };
       if (same(answers.get(url), answer)) return;
       if (!answers.has(url) && answers.size >= MAX_KEPT) answers.delete(answers.keys().next().value!);

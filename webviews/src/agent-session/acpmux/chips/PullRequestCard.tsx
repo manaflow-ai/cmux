@@ -88,8 +88,8 @@ export function PullRequestCardBody({
   // chip's cache-only one): its rows are held at their size, so the card opens at about the size
   // it ends at and no row pops in under the pointer (Leo 2026-11-06). A reader that is never asked
   // (read only) or a host with nothing to say draws none.
-  const waiting =
-    !read && !useTranscriptReadOnly() && (answer === undefined || answer.reading || answer.cacheOnly === true);
+  const readOnly = useTranscriptReadOnly();
+  const waiting = !read && !readOnly && (answer === undefined || answer.reading || answer.cacheOnly === true);
   const title = read?.title || known.title;
   const state = read?.state || known.state;
   const now = Date.now();
