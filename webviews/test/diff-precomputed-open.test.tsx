@@ -240,6 +240,32 @@ test("a precompute cleared by a render with none, then made again at the same ha
   expect(reconciled).toBe(2);
 });
 
+test("a stale notice for one source is not shown for the next at the same generation", async () => {
+  // Codex review of #36808 at 135615af (BLOCK F1): a failed reconcile marked the generation stale, and
+  // switching sources (reset-diff) keeps the generation, so the new source inherited the notice.
+  const render = (read: () => Promise<string | undefined>, failedGeneration: number | null) =>
+    act(async () =>
+      root.render(
+        <Viewer
+          key="source-switch"
+          generation={1}
+          failedGeneration={failedGeneration}
+          read={read}
+          fingerprint="when-the-turn-ended"
+          refresh={() => {}}
+          reconcile={() => {}}
+        />,
+      ),
+    );
+  await render(async () => "edited", 1);
+  await settle();
+  expect(host.querySelector("output")?.textContent).toBe("stale");
+  // Another source: a new reader (memoized per source), the failure forgotten, the same generation.
+  await render(async () => "other-source", null);
+  await settle();
+  expect(host.querySelector("output")?.textContent).toBe("fresh");
+});
+
 test("another source ends a reconcile and forgets its failure", () => {
   // Codex review of #36808 (follow-up F1): reset-diff kept `reconciling`, so the new source's render
   // took the reconcile path.
