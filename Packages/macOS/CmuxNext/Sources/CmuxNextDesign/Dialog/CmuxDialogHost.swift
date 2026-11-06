@@ -16,7 +16,9 @@ public protocol CmuxDialogHosting: AnyObject {
 public protocol CmuxDialogDrawing: AnyObject {
     /// The view that draws `dialog` in `window` (nil: the app host); nil when none can.
     func attach(_ dialog: CmuxDialogPresentation, in window: NSWindow?) -> NSView?
-    /// `dialog` left the screen: its view may draw the next one.
+    /// Gives the keyboard to what draws `dialog` (the page inside its view), once it is on screen.
+    func focus(_ dialog: CmuxDialogPresentation)
+    /// `dialog` ended: its view may draw the next one.
     func detach(_ dialog: CmuxDialogPresentation)
 }
 
@@ -125,7 +127,8 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
         guard let host else { return detach(entry) }
         if let handle = entry.handle, !handle.isDismissed, handle.host === host { return }
         detach(entry)
-        guard let view = drawing?.attach(entry.dialog, in: scope.window) else { return }
+        // A tab's dialog shown again after a tab switch keeps its view: only its end gives the view back.
+        guard let view = entry.dialog.view ?? drawing?.attach(entry.dialog, in: scope.window) else { return }
         let options = Self.options(for: scope)
         view.frame = NSRect(origin: .zero, size: options.anchor?.size ?? Self.appRegion)
         entry.dialog.view = view
@@ -141,7 +144,7 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
             }
         }
         entry.handle = handle
-        view.window?.makeFirstResponder(view)
+        drawing?.focus(entry.dialog)
     }
 
     private func detach(_ entry: Shown) {

@@ -22,6 +22,7 @@ public final class OverlayDialogDrawing: CmuxDialogDrawing {
     }
 
     public func attach(_ dialog: CmuxDialogPresentation, in window: NSWindow?) -> NSView? {
+        if let shown = views[ObjectIdentifier(dialog)] { return shown.container }
         guard let (page, provider) = pool.claim() else { return nil }
         let container = OverlayDialogView(page: page, activeLook: dialog.activeLook)
         container.setAccessibilityIdentifier(dialog.spec.identifier ?? "cmux.dialog")
@@ -30,6 +31,10 @@ public final class OverlayDialogDrawing: CmuxDialogDrawing {
         provider.container = container
         provider.show(dialog)
         return container
+    }
+
+    public func focus(_ dialog: CmuxDialogPresentation) {
+        views[ObjectIdentifier(dialog)]?.page.focusPage()
     }
 
     public func detach(_ dialog: CmuxDialogPresentation) {
