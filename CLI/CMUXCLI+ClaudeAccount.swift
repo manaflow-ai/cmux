@@ -36,7 +36,8 @@ extension CMUXCLI {
     }
 
     /// `cmux claude-account [list]`: the accounts from the user `cmux.json` and the nearest
-    /// project `.cmux/cmux.json` above the current directory, default account first.
+    /// project `.cmux/cmux.json` above the current directory, in registry order (the default
+    /// account first unless `~/.claude` is declared).
     func runClaudeAccountList(commandArgs: [String], jsonOutput: Bool) throws {
         guard commandArgs.count <= 1, commandArgs.first.map({ $0.lowercased() == "list" }) ?? true else {
             throw CLIError(message: Self.claudeAccountUsage)
