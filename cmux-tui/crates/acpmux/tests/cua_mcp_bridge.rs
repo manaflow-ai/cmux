@@ -338,3 +338,44 @@ async fn missing_failed_or_malformed_host_consent_never_forwards_a_tool() {
         peer.await.unwrap();
     }
 }
+
+/// A locked screen (design/lock-bridge.md, item 3): every tool call waits with the typed
+/// `mac_locked` result and never reaches the helper, which is not even connected.
+#[tokio::test]
+async fn a_tool_call_while_the_mac_is_locked_answers_mac_locked_and_never_reaches_the_helper() {
+    use acpmux::cua_v2::{Helper, serve_gated};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let connects = AtomicUsize::new(0);
+    let input = [
+        json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"click","arguments":{"x":1,"y":2}}}),
+        json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"screenshot","arguments":{}}}),
+    ]
+    .iter()
+    .map(|m| format!("{m}\n"))
+    .collect::<String>();
+    let mut output = Vec::new();
+    serve_gated(
+        tokio::io::BufReader::new(input.as_bytes()),
+        &mut output,
+        || {
+            connects.fetch_add(1, Ordering::SeqCst);
+            async { Err::<Helper<tokio::io::DuplexStream>, _>(anyhow::anyhow!("no helper")) }
+        },
+        || true,
+    )
+    .await
+    .unwrap();
+    let replies: Vec<Value> = String::from_utf8(output)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(replies.len(), 2, "{replies:?}");
+    for (reply, id) in replies.iter().zip([1, 2]) {
+        assert_eq!(reply["id"], id);
+        assert_eq!(reply["result"]["isError"], true);
+        assert_eq!(reply["result"]["structuredContent"]["error"], "mac_locked", "{reply}");
+    }
+    assert_eq!(connects.load(Ordering::SeqCst), 0, "a locked Mac never connects to the helper");
+}
