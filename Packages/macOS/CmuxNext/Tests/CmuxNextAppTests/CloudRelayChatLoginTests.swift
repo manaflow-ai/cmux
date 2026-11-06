@@ -72,10 +72,11 @@ struct CloudRelayChatLoginTests {
     }
 
     /// A Claude login decision on a machine the person owns, as the login step leaves it on the machine's row.
-    static func decision(requested: CloudHarnessLoginDecision.Choice? = .pass, harness: String = "claude", outcome: String?) -> CloudHarnessLoginDecision {
+    static func decision(requested: CloudHarnessLoginDecision.Choice? = .pass, harness: String = "claude", outcome: String?,
+                         callerOwns: Bool = true) -> CloudHarnessLoginDecision {
         var decision = CloudHarnessLoginDecision(dogfood: true, setting: nil, harness: harness, signedIn: true)
         (decision.requested, decision.requestedByPerson, decision.headless) = (requested, requested != nil, true)
-        (decision.callerOwns, decision.guestStdout) = (true, "vm-kind:owner\n")
+        (decision.callerOwns, decision.guestStdout) = (callerOwns, "vm-kind:owner\n")
         decision.machineProbe = .init(exitCode: 0, stdout: "none\n")
         decision.outcome = outcome
         return decision
@@ -83,7 +84,7 @@ struct CloudRelayChatLoginTests {
 
     /// Runs the relay chat bound with a login step that leaves `decision`, and answers its result and the steps' order.
     static func relayChat(_ decision: CloudHarnessLoginDecision, origin: ActionOrigin = .cli, loginTakes: Duration = .zero,
-                          loginWithin: Duration = CloudStartSession.loginWithin, accountChanges: Bool = false) async throws
+                          loginWithin: Duration = CloudStartSession.loginWithin, accountChanges: Bool = false, linked: Bool = false) async throws
         -> (result: Result<[String: ActionResultValue], ActionWorkFailure>?, work: ActionWorkFailure??, steps: [String]) {
         let f = fixture()
         _ = Steps.shared.take()
@@ -95,6 +96,7 @@ struct CloudRelayChatLoginTests {
                                             if accountChanges { throw ActionFailure(message: "account changed") }
                                             try still()
                                         }, relay: { Self.relay }, loginWithin: loginWithin))
+        if linked { _ = try await f.machine.appLink.connect(origin: .script) }
         let invoke = try #require(f.services.registry.action(for: "cloudRelayChat")?.invoke)
         var run: (work: [ActionWork], results: [ActionResultWork]) = ([], [])
         _ = f.services.registry.capturingRefusal { run = f.services.registry.capturingRun { invoke(Self.invocation(f.machine, origin: origin)) } }
@@ -201,6 +203,40 @@ struct CloudRelayChatLoginTests {
         #expect(run.steps == ["login"])
         let fields = try Self.fields(run.result)
         #expect(fields["delivered"] == .bool(false) && fields["error_code"] == .string("cloud.relay.login_account_changed"))
+    }
+
+    /// The composed candidate's capture (HQ run 42133312336): with no link, the owner answer was never asked, the step
+    /// skipped (`caller-not-owner`) and the relay sent to a machine with no login. A skip is never ready: nothing is sent,
+    /// and the code sends the caller to start-session, which connects and asks the owner answer.
+    @Test func aSkippedLoginWithNoLinkSendsNothing() async throws {
+        let skipped = Self.decision(outcome: nil, callerOwns: false)
+        try #require(skipped.step == .skip && skipped.reason == .callerNotOwner && skipped.provider == .claude)
+        let run = try await Self.relayChat(skipped)
+        #expect(run.steps == ["login"], "a skipped login was sent")
+        let fields = try Self.fields(run.result)
+        #expect(fields["delivered"] == .bool(false) && fields["error_code"] == .string("cloud.relay.login_unverified"))
+        #expect(fields["login_reason"] == .string("caller-not-owner"))
+    }
+
+    /// A link whose answer says the caller doesn't own the machine: the same skip is final (start-session would skip too).
+    @Test func aSkippedLoginOnALinkedMachineIsFinal() async throws {
+        let run = try await Self.relayChat(Self.decision(outcome: nil, callerOwns: false), linked: true)
+        #expect(run.steps == ["login"])
+        let fields = try Self.fields(run.result)
+        #expect(fields["delivered"] == .bool(false) && fields["error_code"] == .string("cloud.relay.login_skipped"))
+    }
+
+    /// A machine this app made for the signed-in caller passes the ownership check once its link is up; a teammate's or
+    /// an unlinked one does not. The check is the link's owner answer, never a guess.
+    @Test func anOwnedMachinePassesTheOwnershipCheckOverItsLink() async throws {
+        let f = Self.fixture()
+        #expect(try await f.services.cloud.callerOwnsVM(f.machine.machineID) == false, "no link: no owner answer")
+        _ = try await f.machine.appLink.connect(origin: .script)
+        #expect(try await f.services.cloud.callerOwnsVM(f.machine.machineID) == true)
+        let theirs = CloudTestLink.session(id: "vm_" + String(repeating: "t", count: 20), name: "Theirs", owns: false, mainWork: f.services.mainWork)
+        f.services.machines.add(theirs)
+        _ = try await theirs.appLink.connect(origin: .script)
+        #expect(try await f.services.cloud.callerOwnsVM(theirs.machineID) == false)
     }
 
     /// The person's own run (the palette) sees the same refusal, and nothing is sent.
