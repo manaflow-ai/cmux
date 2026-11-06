@@ -1342,29 +1342,70 @@
   margin-bottom: 0;
 }
 
-/* The table may be wider than the column; it scrolls instead of widening the row. */
-/* A reply's table (TableBlock.tsx): as wide as the table, with Open and Copy at its top-right
-   corner, shown on hover or keyboard focus like the message rows'. The pair shares the compact
-   control height and icon rhythm with the rest of the agent pane. It sits just outside the cells,
-   in space the block leaves free at the column's edge (a wider table scrolls), so it never covers
-   a header's text or catches a click meant for a cell. */
+/* A reply's table (TableBlock.tsx): as wide as its text needs and never wider than the column.
+   Its columns share the width by how much text each holds (the engine's auto table layout), and
+   a cell wraps at word ends, so prose columns fold into lines instead of running past the edge
+   (Leo 2026-11-05, on a status table clipped mid-word with Open and Copy far off to the right).
+   Only words that cannot break (a path, a hash) can make it wider than the column: then its own
+   box scrolls sideways with the transcript's thin thumb, and the edge fades while more lies past
+   it (sideways.ts MORE_RIGHT), so nothing reads as cut.
+   Open and Copy belong to the table's box, not the column: they show on hover or keyboard focus
+   with the transcript's shared hover fade, at the table's top-right corner wherever the table
+   ends (tableActions.experiment.ts arms: `corner` ships). */
 .cv-table-block {
-  --cv-table-tools-width: calc(var(--cmux-control-height, 24px) * 2 + var(--cv-action-gap, 4px) * 2);
+  --cv-table-tools-pad: 2px;
+  --cv-table-tools-width: calc(
+    var(--cmux-control-height, 24px) * 2 + var(--cv-action-gap, 4px) + var(--cv-table-tools-pad) * 2
+  );
   position: relative;
   width: fit-content;
-  max-width: calc(100% - var(--cv-table-tools-width));
+  max-width: 100%;
   margin: var(--cv-table-before, 6.5px) 0 14px;
+}
+/* Beside: the pair sits just past the table's right edge, so the block leaves room for it. */
+.cv-table-block[data-actions="beside"] {
+  max-width: calc(100% - var(--cv-table-tools-width) - var(--cv-action-gap, 4px));
 }
 .cv-table-tools {
   position: absolute;
   z-index: var(--layer-raised);
   top: 0;
-  left: 100%;
+  right: 0;
   display: flex;
   align-items: center;
   gap: var(--cv-action-gap, 4px);
-  padding-left: var(--cv-action-gap, 4px);
+  padding: var(--cv-table-tools-pad);
+  border-radius: calc(var(--ds-radius-control) + var(--cv-table-tools-pad));
   opacity: 0;
+  pointer-events: none;
+}
+/* The glass pill (corner, above): the transcript's quiet glass, tinted with the text colour at a
+   low strength, with the shared hairline rim, so it reads over a header or a line of prose. */
+.cv-table-tools.ui-glass {
+  --glass-tint: color-mix(in srgb, var(--cv-fg) 8%, transparent);
+  /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
+  --glass-opaque: color-mix(in srgb, var(--cv-fg) 8%, var(--glass-surface));
+}
+/* Corner: inside the table's top-right corner, on the header row, which keeps the pill's room
+   after its last heading so the pill never covers a heading's words. A table with no header row
+   keeps the room on its first row instead. */
+.cv-table-block[data-actions="corner"] .cv-table-tools {
+  top: calc((var(--cv-th-pad-top, 11px) - var(--cv-th-pad-bottom, 1.75px)) / 2 - var(--cv-table-tools-pad));
+}
+.cv-table-block[data-actions="corner"] .cv-table thead th:last-child,
+.cv-table-block[data-actions="corner"] .cv-table:not(:has(thead)) tr:first-child td:last-child {
+  padding-right: calc(var(--cv-table-tools-width) + var(--cv-action-gap, 4px));
+}
+/* Above: the pill rises just over the table's top-right corner, over the end of the line before. */
+.cv-table-block[data-actions="above"] .cv-table-tools {
+  top: auto;
+  bottom: calc(100% + 2px);
+}
+.cv-table-block[data-actions="beside"] .cv-table-tools {
+  right: auto;
+  left: 100%;
+  margin-left: var(--cv-action-gap, 4px);
+  padding: 0;
 }
 .cv-table-tools .cv-iconbtn--compact {
   width: var(--cmux-control-height, 24px);
@@ -1384,31 +1425,39 @@
 .cv-table-block:hover .cv-table-tools,
 .cv-table-tools:focus-within {
   opacity: 1;
+  pointer-events: auto;
 }
 .cv-table-wrap {
   overflow-x: auto;
+  overflow-y: hidden;
+}
+.cv-table-wrap[data-more-right] {
+  mask-image: linear-gradient(to left, transparent, #000 32px);
 }
 /* Columns fit their text (Leo, 2026-10-20: stretching the table to the column left a wide gap
-   between a label and its value); long-text columns are 256px at least (TableBlock.tsx). */
+   between a label and its value): the table is no wider than its text, and no wider than the
+   column until an unbreakable word forces it. */
 .cv-table {
   border-collapse: collapse;
   font-size: var(--cv-table-size, calc(var(--cv-font-size) * 0.875));
   letter-spacing: var(--cv-table-tracking, 0px);
   line-height: var(--cv-table-line-height, calc(var(--cv-font-size) * 23 / 14));
-  width: max-content;
+  width: auto;
 }
 .cv-table th,
 .cv-table td {
   box-sizing: border-box;
   padding: var(--cv-td-pad-y, 8.5px) 22px var(--cv-td-pad-y, 8.5px) 0;
   vertical-align: top;
+  /* Wrap at word ends; a word longer than the whole column breaks only when nothing else fits. */
+  white-space: normal;
+  overflow-wrap: break-word;
 }
 .cv-table th {
   font-weight: 600;
   padding-top: var(--cv-th-pad-top, 11px);
   padding-bottom: var(--cv-th-pad-bottom, 1.75px);
   border-bottom: 1px solid var(--cv-strong-rule);
-  white-space: nowrap;
 }
 /* Row rules a step over the faint rule (4.5%) and the first column, which names each row, in the
    label weight, so the table reads distinctly at a glance (Leo, 2026-10-31: "at least the left side
