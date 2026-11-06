@@ -104,14 +104,14 @@ public final class MachineSectionPageProvider: PageProvider {
     public func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
                    onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
         guard stream == Self.changesStream else { throw PageError.unknownOp(stream) }
-        // The last snapshot the page has (from this stream or its own read); a show sends a newer one.
-        var sent: JSONValue?
+        // The last snapshot the page has: the state now, which it reads with `snapshot` as it subscribes,
+        // shown or hidden; then each one this stream sent. Only a newer one is an event, and a show sends it.
+        var sent = snapshot()
         let send: @MainActor () -> Void = { [weak self] in
             guard let self, isShown else { return }
             let next = snapshot()
             guard next != sent else { return }
-            // The first value is the state the page reads with `snapshot`; only changes are events.
-            if sent != nil { onEvent(next) }
+            onEvent(next)
             sent = next
         }
         // task-owner: lives as long as the page's subscription; event-driven (Observation), no timer.
