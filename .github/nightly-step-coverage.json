@@ -359,7 +359,11 @@
         "Upload revised appcasts to R2": {"nightly_only": "uploads revised appcasts to R2"},
         "Upload revised nightly-next appcasts to R2": {"nightly_only": "uploads nightly-next appcasts to R2"}},
       "dispatch-published-in": {
-        "Ask for this build's published-in run": {"nightly_only": "dispatches nightly.yml with nightly_next_post_publish (tests/test_nightly_next_post_publish.py)"}},
+        "Ask for this build's post-publication run": {"nightly_only": "dispatches nightly.yml with nightly_next_post_publish and the published build's record (scripts/ci/nightly_published_build.py pack; tests/test_nightly_next_tail_off_push_group.py)"}},
+      "published-build": {
+        "Read the published build": {"nightly_only": "reads a published build's record, which only a publication or its dispatched post-publish run has (tests/test_nightly_next_tail_off_push_group.py round-trips the script)"}},
+      "build-nightly-deltas": {
+        "Build the deltas without the key": {"nightly_only": "diffs the published DMG against earlier releases' DMGs with BinaryDelta (tests/test_nightly_deltas_keyless_prebuild.py)"}},
       "published-in": {
         "Add the workflow commit's new step scripts to an older build tree": {"plumbing": true, "note": "only runs when the build tree predates the step scripts it calls"},
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},

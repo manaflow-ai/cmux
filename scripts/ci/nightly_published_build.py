@@ -28,7 +28,7 @@ import sys
 
 # job -> (output prefix, outputs the post-publication jobs read)
 FIELDS = {
-    "decide": ("", ("track", "environment", "release_name", "release_tag", "channel", "dmg_prefix", "feeds",
+    "decide": ("", ("track", "release_name", "release_tag", "channel", "dmg_prefix", "feeds",
                     "fast_build", "should_publish", "variants", "feed_base", "no_publish", "published_sha",
                     "head_sha", "app_name", "notary_test")),
     "publish-nightly": ("publish_", ("already_published", "behind", "behind_hours", "build", "build_sha",
@@ -37,14 +37,18 @@ FIELDS = {
     "build-nightly-app": ("", ("daemon_build", "daemon_version")),
     "resolve-nightly-cmux-tui-client": ("resolve_", ("build_sha",)),
 }
-RUN_FIELDS = ("source_run", "source_attempt", "source_sha", "publish_result")
+# push_clean: no job this one needs failed or was cancelled. In the dispatched run, close-nightly-failure-issue
+# cannot see the run that published, whose own failed build (a recovered build published after it) reports.
+RUN_FIELDS = ("source_run", "source_attempt", "source_sha", "publish_result", "push_clean")
 NAMES = RUN_FIELDS + tuple(prefix + name for prefix, names in FIELDS.values() for name in names)
 SHA = re.compile(r"[0-9a-f]{40}")
 
 
 def record(needs: dict, run_id: str, attempt: str, sha: str) -> dict[str, str]:
     out = {"source_run": run_id, "source_attempt": attempt, "source_sha": sha,
-           "publish_result": str((needs.get("publish-nightly") or {}).get("result") or "")}
+           "publish_result": str((needs.get("publish-nightly") or {}).get("result") or ""),
+           "push_clean": "false" if any((job or {}).get("result") in ("failure", "cancelled")
+                                        for job in needs.values()) else "true"}
     for job, (prefix, names) in FIELDS.items():
         outputs = (needs.get(job) or {}).get("outputs") or {}
         for name in names:
@@ -84,8 +88,9 @@ def write_outputs() -> int:
         tail = json.loads(source).get("tail")
         if tail is None:
             rec, cross_run, comment = {}, "", True
-        elif not valid(tail):
-            print("published-build: the dispatch input's tail record is malformed", file=sys.stderr)
+        elif not valid(tail) or tail["track"] != "nightly-next":
+            # Only nightly-next dispatches this run; its environment is release-next (decide's, by ref).
+            print("published-build: the dispatch input's tail record is malformed or not nightly-next", file=sys.stderr)
             return 1
         else:
             rec, cross_run, comment = tail, "true", comments(tail)

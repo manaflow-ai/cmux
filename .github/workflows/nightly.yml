@@ -5601,80 +5601,16 @@ jobs:
   # uploads are ever replaced, and they may wait out GitHub's rate limits as long as they need. Then,
   # only while this build is the live feed's newest, it writes the release's mutable state: the rolling
   # DMG name, the feed copy, the body with the cmux-published-sha marker and the nightly-next tag. Each
-  # of those writes runs still-newest just before it writes, and a nightly-next push run starts only
-  # after the one before it ended (the push group), so no older build moves them back. They were a job
+  # of those writes runs still-newest just before it writes, inside the release names lease (one writer at a
+  # time across runs: on nightly-next this job runs in run-scoped post-publish runs that may overlap), so no
+  # older build moves them back. They were a job
   # of their own until run 42018687632: its second whole-Mac claim, set-up and variant download let the
   # deltas job take cmux15 first, and the names moved 40 min after the feed.
-  # The published build that every job below describes (scripts/ci/nightly_published_build.py). On
-  # nightly-next it runs in the dispatched post-publication run (dispatch-published-in), reading the record
-  # the push run sent, so none of the jobs below holds the push group. Main's nightly and RC run those jobs
-  # in their own run: there it passes this run's own jobs through. It skips in a nightly-next build run.
-  published-build:
-    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly]
-    if: "always() && (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/nightly-next' && inputs.nightly_next_post_publish != '' || needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track != 'nightly-next' && needs.publish-nightly.result == 'success')"
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    outputs:
-      source_run: ${{ steps.record.outputs.source_run }}
-      source_attempt: ${{ steps.record.outputs.source_attempt }}
-      source_sha: ${{ steps.record.outputs.source_sha }}
-      publish_result: ${{ steps.record.outputs.publish_result }}
-      track: ${{ steps.record.outputs.track }}
-      environment: ${{ steps.record.outputs.environment }}
-      release_name: ${{ steps.record.outputs.release_name }}
-      release_tag: ${{ steps.record.outputs.release_tag }}
-      channel: ${{ steps.record.outputs.channel }}
-      dmg_prefix: ${{ steps.record.outputs.dmg_prefix }}
-      feeds: ${{ steps.record.outputs.feeds }}
-      fast_build: ${{ steps.record.outputs.fast_build }}
-      should_publish: ${{ steps.record.outputs.should_publish }}
-      variants: ${{ steps.record.outputs.variants }}
-      feed_base: ${{ steps.record.outputs.feed_base }}
-      no_publish: ${{ steps.record.outputs.no_publish }}
-      published_sha: ${{ steps.record.outputs.published_sha }}
-      head_sha: ${{ steps.record.outputs.head_sha }}
-      app_name: ${{ steps.record.outputs.app_name }}
-      notary_test: ${{ steps.record.outputs.notary_test }}
-      publish_already_published: ${{ steps.record.outputs.publish_already_published }}
-      publish_behind: ${{ steps.record.outputs.publish_behind }}
-      publish_behind_hours: ${{ steps.record.outputs.publish_behind_hours }}
-      publish_build: ${{ steps.record.outputs.publish_build }}
-      publish_build_sha: ${{ steps.record.outputs.publish_build_sha }}
-      publish_downloads: ${{ steps.record.outputs.publish_downloads }}
-      publish_refused: ${{ steps.record.outputs.publish_refused }}
-      publish_source: ${{ steps.record.outputs.publish_source }}
-      publish_source_archive: ${{ steps.record.outputs.publish_source_archive }}
-      publish_tag_status: ${{ steps.record.outputs.publish_tag_status }}
-      publish_tested_pattern: ${{ steps.record.outputs.publish_tested_pattern }}
-      publish_tip_sha: ${{ steps.record.outputs.publish_tip_sha }}
-      publish_variant_pattern: ${{ steps.record.outputs.publish_variant_pattern }}
-      daemon_build: ${{ steps.record.outputs.daemon_build }}
-      daemon_version: ${{ steps.record.outputs.daemon_version }}
-      resolve_build_sha: ${{ steps.record.outputs.resolve_build_sha }}
-      cross_run: ${{ steps.record.outputs.cross_run }}
-      comment: ${{ steps.record.outputs.comment }}
-    env:
-      SOURCE: ${{ inputs.nightly_next_post_publish }}
-      NEEDS: ${{ toJSON(needs) }}
-      RUN_ID: ${{ github.run_id }}
-      RUN_ATTEMPT: ${{ github.run_attempt }}
-      SHA: ${{ github.sha }}
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          sparse-checkout: scripts/ci
-      - name: Read the published build
-        id: record
-        run: python3 scripts/ci/nightly_published_build.py outputs
-
   publish-nightly-next-github:
     needs: [published-build, pick-nightly-sign-runner]
     if: "always() && !cancelled() && needs.published-build.outputs.track == 'nightly-next' && needs.published-build.outputs.publish_result == 'success' && needs.published-build.outputs.publish_already_published != 'true' && needs.published-build.outputs.publish_refused != 'true' && needs.published-build.outputs.publish_tag_status == 'updated'"
     # Nothing on the feed's path needs this job, so a failure shows red and holds nothing.
-    environment: ${{ needs.published-build.outputs.environment }}
+    environment: ${{ github.ref == 'refs/heads/nightly-next' && 'release-next' || 'release' }}
     permissions:
       contents: write
       actions: read # The published build's artifacts, from the run that published.
@@ -5910,7 +5846,7 @@ jobs:
   keep-published-dsyms:
     needs: [published-build, pick-nightly-sign-runner]
     if: "always() && !cancelled() && needs.published-build.outputs.track == 'nightly-next' && needs.published-build.outputs.publish_result == 'success' && needs.published-build.outputs.publish_refused != 'true' && (needs.published-build.outputs.publish_tag_status == 'updated' || needs.published-build.outputs.publish_tag_status == 'stale' || needs.published-build.outputs.publish_already_published == 'true') && needs.published-build.outputs.publish_build_sha != ''"
-    environment: ${{ needs.published-build.outputs.environment }}
+    environment: ${{ github.ref == 'refs/heads/nightly-next' && 'release-next' || 'release' }}
     continue-on-error: true
     permissions:
       contents: read
@@ -6006,14 +5942,15 @@ jobs:
       # BinaryDelta peaks near 6 GB a delta; two at a time leave the mini's light work its memory.
       SPARKLE_DELTA_JOBS: 2
     steps:
-      # The workflow commit's scripts: it has the keyless mode even when the build commit predates it.
+      # Publication tooling at the workflow commit: it has the keyless mode even when the build commit predates
+      # it, and it ships no source (only scripts/, into .publish-tooling).
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          ref: ${{ github.sha }}
           filter: blob:none
-          sparse-checkout: |
-            scripts
+          ref: ${{ github.sha }}
+          path: .publish-tooling
+          sparse-checkout: scripts
       - name: Download published variant
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -6030,7 +5967,7 @@ jobs:
           if [ "$NIGHTLY_VARIANT" != "universal" ]; then
             feed="appcast-${NIGHTLY_VARIANT}.xml"
           fi
-          ./scripts/ci/generate-nightly-deltas.sh \
+          ./.publish-tooling/scripts/ci/generate-nightly-deltas.sh \
             "nightly-delta/input/${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-${NIGHTLY_BUILD}.dmg" \
             "nightly-delta/input/$feed" nightly-delta/prebuilt
           rm -f nightly-delta/prebuilt/*.xml
@@ -6048,7 +5985,7 @@ jobs:
     # BinaryDelta process therefore cannot extend the user's wait for a full
     # DMG and signed appcast. The nightly-next track signs in release-next
     # with its own key, as build-sign-notarize-nightly does.
-    environment: ${{ needs.published-build.outputs.environment }}
+    environment: ${{ github.ref == 'refs/heads/nightly-next' && 'release-next' || 'release' }}
     needs: [published-build, build-nightly-deltas, pick-nightly-sign-runner]
     if: always() && needs.published-build.outputs.should_publish == 'true' && needs.published-build.outputs.fast_build != 'true' && needs.published-build.outputs.publish_result == 'success' && needs.published-build.outputs.publish_source != 'recovered' && needs.published-build.outputs.publish_refused != 'true' && vars.NIGHTLY_DELTAS != 'off'
     permissions:
@@ -6180,7 +6117,7 @@ jobs:
     # Optional, as generate-nightly-deltas: the full DMG is already on the feed, so a missing or failed delta
     # never fails the run.
     continue-on-error: true
-    environment: ${{ needs.published-build.outputs.environment }}
+    environment: ${{ github.ref == 'refs/heads/nightly-next' && 'release-next' || 'release' }}
     concurrency:
       group: release-${{ needs.published-build.outputs.track == 'nightly-next' && 'deltas' || 'publish' }}-${{ needs.published-build.outputs.release_tag }}
       cancel-in-progress: false
@@ -6359,6 +6296,71 @@ jobs:
   # this build's), first-parent, so main's PRs arriving through a sync merge
   # are not claimed. No secrets; a comment failure never fails the nightly.
   #
+  # The published build that the jobs after the feed describe (scripts/ci/nightly_published_build.py). On
+  # nightly-next it runs in the dispatched post-publication run (dispatch-published-in), reading the record
+  # the push run sent, so none of the jobs below holds the push group. Main's nightly and RC run those jobs
+  # in their own run: there it passes this run's own jobs through. It skips in a nightly-next build run.
+  published-build:
+    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly]
+    if: "always() && (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/nightly-next' && inputs.nightly_next_post_publish != '' || needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track != 'nightly-next' && needs.publish-nightly.result == 'success')"
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      source_run: ${{ steps.record.outputs.source_run }}
+      source_attempt: ${{ steps.record.outputs.source_attempt }}
+      source_sha: ${{ steps.record.outputs.source_sha }}
+      publish_result: ${{ steps.record.outputs.publish_result }}
+      push_clean: ${{ steps.record.outputs.push_clean }}
+      track: ${{ steps.record.outputs.track }}
+      release_name: ${{ steps.record.outputs.release_name }}
+      release_tag: ${{ steps.record.outputs.release_tag }}
+      channel: ${{ steps.record.outputs.channel }}
+      dmg_prefix: ${{ steps.record.outputs.dmg_prefix }}
+      feeds: ${{ steps.record.outputs.feeds }}
+      fast_build: ${{ steps.record.outputs.fast_build }}
+      should_publish: ${{ steps.record.outputs.should_publish }}
+      variants: ${{ steps.record.outputs.variants }}
+      feed_base: ${{ steps.record.outputs.feed_base }}
+      no_publish: ${{ steps.record.outputs.no_publish }}
+      published_sha: ${{ steps.record.outputs.published_sha }}
+      head_sha: ${{ steps.record.outputs.head_sha }}
+      app_name: ${{ steps.record.outputs.app_name }}
+      notary_test: ${{ steps.record.outputs.notary_test }}
+      publish_already_published: ${{ steps.record.outputs.publish_already_published }}
+      publish_behind: ${{ steps.record.outputs.publish_behind }}
+      publish_behind_hours: ${{ steps.record.outputs.publish_behind_hours }}
+      publish_build: ${{ steps.record.outputs.publish_build }}
+      publish_build_sha: ${{ steps.record.outputs.publish_build_sha }}
+      publish_downloads: ${{ steps.record.outputs.publish_downloads }}
+      publish_refused: ${{ steps.record.outputs.publish_refused }}
+      publish_source: ${{ steps.record.outputs.publish_source }}
+      publish_source_archive: ${{ steps.record.outputs.publish_source_archive }}
+      publish_tag_status: ${{ steps.record.outputs.publish_tag_status }}
+      publish_tested_pattern: ${{ steps.record.outputs.publish_tested_pattern }}
+      publish_tip_sha: ${{ steps.record.outputs.publish_tip_sha }}
+      publish_variant_pattern: ${{ steps.record.outputs.publish_variant_pattern }}
+      daemon_build: ${{ steps.record.outputs.daemon_build }}
+      daemon_version: ${{ steps.record.outputs.daemon_version }}
+      resolve_build_sha: ${{ steps.record.outputs.resolve_build_sha }}
+      cross_run: ${{ steps.record.outputs.cross_run }}
+      comment: ${{ steps.record.outputs.comment }}
+    env:
+      SOURCE: ${{ inputs.nightly_next_post_publish }}
+      NEEDS: ${{ toJSON(needs) }}
+      RUN_ID: ${{ github.run_id }}
+      RUN_ATTEMPT: ${{ github.run_attempt }}
+      SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+      - name: Read the published build
+        id: record
+        run: python3 scripts/ci/nightly_published_build.py outputs
+
   # Everything after the feed runs in a dispatched run of this workflow (nightly_next_post_publish), not
   # in the push run. A nightly-next push run holds the one push group until its last job ends (#36111):
   # the PR comments held it 17-40 min (run 41982716550, 247 PRs), and then the GitHub release, deltas,
@@ -6367,7 +6369,8 @@ jobs:
   # is published, with the published build's record (scripts/ci/nightly_published_build.py), so the push
   # run ends at publish-nightly. In the dispatched run, published-build hands the record to those jobs.
   dispatch-published-in:
-    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly]
+    # The build jobs too: the record says whether any of them failed (push_clean).
+    needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, build-sign-notarize-nightly, resolve-nightly-cmux-tui-client, publish-nightly]
     if: "!cancelled() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true'"
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     timeout-minutes: 10
@@ -6496,7 +6499,7 @@ jobs:
     # (run 41436891188). nightly-next only (if:), so no group at all.
     needs: [published-build, sign-release-notes, pick-nightly-sign-runner]
     if: "!cancelled() && needs.published-build.outputs.track == 'nightly-next' && needs.published-build.outputs.publish_result == 'success' && needs.published-build.outputs.publish_already_published != 'true' && needs.published-build.outputs.publish_refused != 'true' && needs.sign-release-notes.result == 'success'"
-    environment: ${{ needs.published-build.outputs.environment }}
+    environment: ${{ github.ref == 'refs/heads/nightly-next' && 'release-next' || 'release' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}
     # 70 for the work (an hour of it for API rate-limit waits) plus the lease's 60-minute wait.
     timeout-minutes: 130
@@ -6729,7 +6732,8 @@ jobs:
     # unless it published a recovered build, which has none (cx-urd.69). A
     # recovered build can follow this run's own failed build, which reports.
     # It closes in the run that ran the notes and deltas (published-build): on nightly-next, the dispatched one.
-    if: always() && needs.published-build.result == 'success' && needs.published-build.outputs.should_publish == 'true' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && needs.published-build.outputs.publish_result == 'success' && needs.published-build.outputs.publish_refused != 'true' && needs.published-build.outputs.publish_tag_status == 'updated' && (needs.generate-nightly-deltas.result == 'success' || needs.generate-nightly-deltas.result == 'skipped') && (needs.republish-nightly-deltas.result == 'success' || needs.republish-nightly-deltas.result == 'skipped') && (needs.published-build.outputs.track != 'nightly-next' || needs.published-build.outputs.publish_source == 'recovered' || (needs.sign-release-notes.result == 'success' && needs.publish-release-notes.result == 'success'))
+    # There it cannot see the run that published, so push_clean says none of that run's jobs failed.
+    if: always() && needs.published-build.result == 'success' && needs.published-build.outputs.should_publish == 'true' && needs.published-build.outputs.push_clean == 'true' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && needs.published-build.outputs.publish_result == 'success' && needs.published-build.outputs.publish_refused != 'true' && needs.published-build.outputs.publish_tag_status == 'updated' && (needs.generate-nightly-deltas.result == 'success' || needs.generate-nightly-deltas.result == 'skipped') && (needs.republish-nightly-deltas.result == 'success' || needs.republish-nightly-deltas.result == 'skipped') && (needs.published-build.outputs.track != 'nightly-next' || needs.published-build.outputs.publish_source == 'recovered' || (needs.sign-release-notes.result == 'success' && needs.publish-release-notes.result == 'success'))
     # The declared nightly-only mini is enabled after live admission is verified.
     # Keep the existing fallback; never reuse the stale builder-only placement.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
