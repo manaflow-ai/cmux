@@ -267,6 +267,8 @@ extension SettingsSchema {
         .merging(refusedTable) { first, _ in first }
         // Which agents the Chief's subagents may run on (and so whose usage they spend): the person decides.
         .merging(ChiefRoutingSettingsSchema.keys.map { ($0, AgentRefusal.userOnly) }) { first, _ in first }
+        // Which subagents show in the sidebar is the person's to shape, not an agent's.
+        .merging(ChiefSidebarSettingsSchema.keys.map { ($0, AgentRefusal.userOnly) }) { first, _ in first }
         .merging(BrowserPasswordsSettingsSchema.refusedKeys) { first, _ in first }
         .merging(BrowserVerificationAutofillSettingsSchema.refusedKeys) { first, _ in first }
 

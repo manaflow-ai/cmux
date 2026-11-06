@@ -8,9 +8,9 @@ use crate::prompt::{
     CLOUD_WORKSPACE_DESCRIPTION, CONTROL_DESCRIPTION, DATE_DESCRIPTION, ESCALATE_AUTH_DESCRIPTION,
     PEER_TELL_DESCRIPTION, PEERS_DESCRIPTION, REACT_DESCRIPTION, REMEMBER_DESCRIPTION,
     REPLY_DESCRIPTION, SEND_DESCRIPTION, SLEEP_DESCRIPTION, SPAWN_CWD_DESCRIPTION,
-    SPAWN_DESCRIPTION, SPAWN_HARNESS_DESCRIPTION, SPAWN_MODEL_DESCRIPTION, STOP_DESCRIPTION,
-    TELL_DESCRIPTION, TRANSCRIPT_DESCRIPTION, VERSION_DESCRIPTION, WATCH_DESCRIPTION,
-    ZOOM_AGENT_DESCRIPTION, ZOOM_DESCRIPTION,
+    SPAWN_DESCRIPTION, SPAWN_HARNESS_DESCRIPTION, SPAWN_MODEL_DESCRIPTION,
+    SPAWN_SIDEBAR_DESCRIPTION, STOP_DESCRIPTION, TELL_DESCRIPTION, TRANSCRIPT_DESCRIPTION,
+    VERSION_DESCRIPTION, WATCH_DESCRIPTION, ZOOM_AGENT_DESCRIPTION, ZOOM_DESCRIPTION,
 };
 
 /// Shortest `sleep` (a turn costs more than a shorter wait saves).
@@ -142,7 +142,7 @@ pub fn tool_list(subagent: bool, allows: &dyn Fn(&str) -> bool) -> Value {
     }
     if !subagent && allows("spawn") {
         list.push(json!({"name": "spawn", "description": SPAWN_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {"tasks": {"type": "array", "items": text, "minItems": 1}, "cwd": {"type": "string", "minLength": 1, "description": SPAWN_CWD_DESCRIPTION}, "effort": {"type": "string", "enum": EFFORTS, "description": "How hard they think; by default, as hard as you."}, "place": {"type": "string", "minLength": 1, "description": "Override automatic placement with here/local/mac (this Mac), cloud (also cloud:small|medium|large), or a paired machine name."}, "harness": {"type": "string", "minLength": 1, "description": SPAWN_HARNESS_DESCRIPTION}, "model": {"type": "string", "minLength": 1, "description": SPAWN_MODEL_DESCRIPTION}}, "required": ["tasks"], "additionalProperties": false}}));
+         "inputSchema": {"type": "object", "properties": {"tasks": {"type": "array", "items": text, "minItems": 1}, "cwd": {"type": "string", "minLength": 1, "description": SPAWN_CWD_DESCRIPTION}, "effort": {"type": "string", "enum": EFFORTS, "description": "How hard they think; by default, as hard as you."}, "place": {"type": "string", "minLength": 1, "description": "Override automatic placement with here/local/mac (this Mac), cloud (also cloud:small|medium|large), or a paired machine name."}, "harness": {"type": "string", "minLength": 1, "description": SPAWN_HARNESS_DESCRIPTION}, "model": {"type": "string", "minLength": 1, "description": SPAWN_MODEL_DESCRIPTION}, "sidebar": {"type": "string", "enum": ["auto", "shown", "hidden"], "description": SPAWN_SIDEBAR_DESCRIPTION}}, "required": ["tasks"], "additionalProperties": false}}));
     }
     if !subagent && allows("tell") {
         list.push(json!({"name": "tell", "description": TELL_DESCRIPTION,

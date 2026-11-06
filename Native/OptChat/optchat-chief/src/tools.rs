@@ -938,6 +938,28 @@ impl Call {
                     .map(str::trim)
                     .filter(|m| !m.is_empty())
                     .map(str::to_owned);
+                // The Chief's sidebar choice (a1018) rides on each task as its
+                // `Sidebar:` line; a task that has its own keeps it.
+                let tasks = match args.get("sidebar").and_then(Value::as_str).map(str::trim) {
+                    None | Some("") => tasks,
+                    Some(v) => {
+                        let Some(choice) = crate::sidebar_choice::Requested::parse(v) else {
+                            return Err(format!(
+                                "spawn: no sidebar {v}; one of auto, shown, hidden"
+                            ));
+                        };
+                        tasks
+                            .into_iter()
+                            .map(|t| {
+                                if crate::workspaces::header(&t, "sidebar").is_some() {
+                                    t
+                                } else {
+                                    format!("Sidebar: {}\n{t}", choice.as_str())
+                                }
+                            })
+                            .collect()
+                    }
+                };
                 Ok(Call::Spawn {
                     tasks,
                     cwd,
