@@ -4,10 +4,9 @@ use super::*;
 use crate::session_identity::SessionReceipt;
 use cmux_json::JsonSet as _;
 
-// Lock order for paths that need more than one shared hub lock:
-// per-peer cache writer gate → peer_leases → peers → remote_sessions. Prefer taking a snapshot
-// under one lock and releasing it before taking the next; no disk or JSON work runs under any of
-// these locks.
+// Shared-lock rule: take `peers` only for a brief Arc lookup, then release it before taking
+// `peer_leases`, `remote_sessions`, or a per-peer writer gate. No path nests `peers` with another
+// shared hub lock, and no disk or JSON work runs under any shared lock.
 
 #[cfg(test)]
 pub(crate) struct PeerNoticeProjectionHook {
@@ -550,17 +549,6 @@ impl Hub {
             .count()
     }
 
-    /// Whether `generation` is the peer instance registered under `name`.
-    /// Called with the rows lock held (lock order: `remote_sessions`, then
-    /// `peers`).
-    fn is_current(&self, name: &str, generation: u64) -> bool {
-        self.peers
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(name)
-            .is_some_and(|p| p.generation == generation)
-    }
-
     pub fn peer_by_name(&self, name: &str) -> Option<Arc<crate::peer::Peer>> {
         self.peer(name)
     }
@@ -720,11 +708,12 @@ impl Hub {
                 PeerNotice::Restarting => {
                     // A planned restart never enters the disconnect/flap-grace path. Keep
                     // every row unchanged, but retire the old link's purge tombstones.
-                    let _rows = self.remote_sessions.lock().unwrap();
-                    if !self.is_current(&peer, generation) {
+                    let Some(current) = self.peer(&peer).filter(|p| p.generation == generation)
+                    else {
                         return;
-                    }
-                    self.with_tombstones(&peer, generation, |t| t.link_ended());
+                    };
+                    let _rows = self.remote_sessions.lock().unwrap();
+                    current.purge_tombstones.link_ended();
                     drop(_rows);
                     self.peer_snapshots.flush(Some(&peer));
                     tracing::info!(peer = %peer, "peer restarting");
@@ -756,9 +745,7 @@ impl Hub {
                             let epoch = current
                                 .remote_rows_epoch
                                 .load(std::sync::atomic::Ordering::Acquire);
-                            let mut purged = self
-                                .with_tombstones(&peer, generation, |t| t.peek())
-                                .unwrap_or_default();
+                            let mut purged = current.purge_tombstones.peek();
                             purged.extend(
                                 current
                                     .remote_purge_fences
@@ -846,9 +833,7 @@ impl Hub {
                         }
                         // The tombstones are consumed only after the version fence wins, so a
                         // retry cannot accidentally revive a purge seen during projection.
-                        self.with_tombstones(&peer, generation, |t| {
-                            let _ = t.take();
-                        });
+                        let _ = current.purge_tombstones.take();
                         current
                             .remote_purge_fences
                             .lock()
@@ -877,15 +862,14 @@ impl Hub {
                     };
                     if kind == "purged" {
                         let removed = {
-                            let peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
                             let Some(current) =
-                                peers.get(&peer).filter(|p| p.generation == generation).cloned()
+                                self.peer(&peer).filter(|p| p.generation == generation)
                             else {
                                 return;
                             };
                             let mut map = self.remote_sessions.lock().unwrap();
                             // An older list of this link must not bring it back.
-                            self.with_tombstones(&peer, generation, |t| t.purged(&mux_id));
+                            current.purge_tombstones.purged(&mux_id);
                             let key = map.find_mux(&peer, &mux_id).map(|(key, _)| key.clone());
                             let removed = key.and_then(|key| map.remove(&key).map(|r| r.summary));
                             // The generation the purge names (else the row's) goes from the
@@ -921,14 +905,12 @@ impl Hub {
                     let Some(receipt) = session_receipt(&summary) else { return };
                     let id = receipt.qualified_id();
                     {
-                        let peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
-                        let Some(current) =
-                            peers.get(&peer).filter(|p| p.generation == generation).cloned()
+                        let Some(current) = self.peer(&peer).filter(|p| p.generation == generation)
                         else {
                             return;
                         };
                         let mut map = self.remote_sessions.lock().unwrap();
-                        self.with_tombstones(&peer, generation, |t| t.changed(&mux_id));
+                        current.purge_tombstones.changed(&mux_id);
                         let old_id = map.find_mux(&peer, &mux_id).map(|(key, _)| key.clone());
                         let previous = old_id.as_ref().and_then(|key| map.take(key));
                         summary = Self::retain_summary_tools(
@@ -1963,6 +1945,49 @@ mod tests {
         hook.release();
         applying.join().unwrap();
         assert!(hub.remote_sessions().is_empty(), "the purged row was reinserted after retry");
+    }
+
+    #[test]
+    fn a_forget_remote_and_full_list_notice_complete_without_lock_order_deadlock() {
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(cfg, store);
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let peer = crate::peer::Peer::new("builder", "ws://127.0.0.1:9", None, None, tx);
+        hub.peers.lock().unwrap().insert("builder".into(), peer.clone());
+        let row = json!({
+            "sessionId": "x", "name": "lane-x", "status": "idle", "createdAt": 1,
+            "updatedAt": 2
+        });
+        hub.apply_peer_notice(
+            "builder",
+            peer.generation,
+            crate::peer::PeerNotice::Sessions(vec![row.clone()]),
+        );
+        let hook = PeerNoticeProjectionHook::new();
+        *hub.peer_notice_projection_hook.lock().unwrap() = Some(hook.clone());
+        let applying = {
+            let hub = hub.clone();
+            let generation = peer.generation;
+            std::thread::spawn(move || {
+                hub.apply_peer_notice(
+                    "builder",
+                    generation,
+                    crate::peer::PeerNotice::Sessions(vec![row]),
+                );
+            })
+        };
+        hook.wait_reached();
+        let forgetting = {
+            let hub = hub.clone();
+            let generation = peer.generation;
+            std::thread::spawn(move || hub.forget_remote(("builder", generation), "x", Some(1)))
+        };
+        forgetting.join().unwrap();
+        hook.release();
+        applying.join().unwrap();
+        assert!(hub.remote_sessions().is_empty(), "the forgotten row was reinserted");
     }
 }
 

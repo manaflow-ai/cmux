@@ -39,7 +39,7 @@ impl Hub {
             } else {
                 tracing::debug!(peer, attempts = link.attempts, "peer still unreachable: {reason}");
             }
-            self.with_tombstones(peer, generation, |t| t.link_ended());
+            current.purge_tombstones.link_ended();
         }
         self.peer_snapshots.flush(Some(peer));
     }

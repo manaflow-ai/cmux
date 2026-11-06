@@ -1420,13 +1420,14 @@ impl Hub {
     /// Whether `link` is still the link of peer `peer` while `generation` is the instance
     /// registered under the name (the store checks again, in order: `Store::fresh_link`).
     /// Sends a capture's op when it is of instance `generation` and link `link` still, checked
-    /// and sent under the rows lock (lock order: `remote_sessions`, then `peers`): an instance that
-    /// replaces it registers under that lock (`spawn_peer`), so its listing comes after this op.
+    /// and sent after the peer Arc is looked up, before the rows snapshot: an instance that
+    /// replaces it cannot be reintroduced by a rows→peers lock inversion.
     fn capture_on(&self, peer: &str, (generation, link): (u64, u64), send: impl FnOnce()) {
+        let Some(current) = self.peer(peer).filter(|p| p.generation == generation) else {
+            return;
+        };
         let _rows = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
-        if self.peer_snapshots.allows(generation)
-            && self.peer(peer).is_some_and(|p| p.generation == generation && p.link_epoch() == link)
-        {
+        if self.peer_snapshots.allows(generation) && current.link_epoch() == link {
             send();
         }
     }
