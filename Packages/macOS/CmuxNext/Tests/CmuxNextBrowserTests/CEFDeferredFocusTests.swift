@@ -602,6 +602,47 @@ import Testing
         #expect(log.items == ["detach", "attach", "grant"], "the landing has nothing to attach")
     }
 
+    /// SWITCH STALL 5: Cmd-N's page (built before the key, hidden) is unhidden in the key's turn. The fork orders its
+    /// input window in (addChildWindow, then the overlay panel's re-add above it) from a run-loop observer it means for
+    /// after the commit, but on macOS 27 that observer fires on the key pass's exit, before the commit: 7.6 ms of
+    /// window-server work before the first frame on every press (Time Profiler, cmux22, macOS 27.0, 60 Hz, 2a93dae4).
+    /// A hosted page shown in a turn stays detached for that turn (its pixels show from the hosted context, no window is
+    /// ordered), attaches after the turn's commit, and a focus ask in the turn is granted only after the attach.
+    @Test func aHostedPageShownInThisTurnOrdersItsWindowInOnlyAfterTheCommit() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (tab, host) = try createdTab(runtime, browser: 19)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
+        let workspace = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        workspace.addSubview(tab.contentView)
+        try #require(window.contentView).addSubview(workspace)
+        Self.endTurn()
+        let log = CallLog()
+        let fork = CEFLayerHosting.Fork(setLayerHosting: { _, on in on ? 7 : 0 }, setResizeSync: { _, _ in true },
+                                        setDetachedHosting: { _, on in log.items.append(on ? "detach" : "attach"); return true })
+        let hosting = host.hostView.layerHosting
+        hosting.holdsFocus = { false }
+        hosting.pageWindowCreated(browser: 19, fork: fork)
+        let hosted = Date().addingTimeInterval(2)
+        while hosting.page == nil, Date() < hosted { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+        try #require(hosting.page != nil)
+        workspace.isHidden = true
+        Self.endTurn()
+        FocusSpyShim.granted = []
+        FocusSpyShim.onGrant = { log.items.append("grant") }
+        defer { FocusSpyShim.onGrant = nil }
+
+        // The key's turn: the workspace shows and the focus applier asks for the page.
+        workspace.isHidden = false
+        tab.setFocused(true)
+        #expect(log.items == ["detach"], "a hosted page shown in this turn must stay out of the window until its frame commits: \(log.items)")
+        let deadline = Date().addingTimeInterval(2)
+        while FocusSpyShim.granted.isEmpty, Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
+        #expect(log.items == ["detach", "attach", "grant"], "the page attaches after the commit and takes the focus after the attach: \(log.items)")
+        #expect(!hosting.isDetached)
+    }
+
     private func createdTab(_ runtime: CEFRuntime, browser: Int32) throws -> (CEFTab, CEFPaneHost) {
         let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
         let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
