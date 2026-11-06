@@ -174,11 +174,12 @@ fn copy_dir(from: &Path, to: &Path) {
     }
 }
 
-/// Serves `hub` as the machine on a new port, with the machine's peer credential.
-async fn serve(hub: Arc<Hub>, auth: &Path) -> u16 {
+/// Serves `hub` as the machine on a new port, proving the owner's peer link with `auth` (one
+/// credential for both machines: the owner's link reaches the fresh one as it did the old).
+async fn serve(hub: Arc<Hub>, auth: &Arc<PeerAuth>) -> u16 {
     let l = bind_ws("127.0.0.1:0").await.unwrap();
     let port = l.local_addr().unwrap().port();
-    let ws = WsAuth { local_app: None, peer: Some(Arc::new(PeerAuth::create(auth).unwrap())) };
+    let ws = WsAuth { local_app: None, peer: Some(auth.clone()) };
     tokio::spawn(serve_ws_with(hub, l, "tok".into(), ws));
     port
 }
@@ -242,10 +243,10 @@ async fn a_session_moved_to_a_fresh_machine_from_an_older_disk_loses_no_prompt_a
     let b_cfg = config(StoreMode::Local);
     let b = Hub::new(b_cfg.clone(), acpmux::store::open(&b_cfg.store, &b_disk).unwrap());
     b.resume_queues();
-    let peer_token = {
-        PeerAuth::create(&auth).unwrap();
-        std::fs::read_to_string(acpmux::server::peer_auth::token_path(&auth)).unwrap()
-    };
+    let auth_dir = auth;
+    let auth = Arc::new(PeerAuth::create(&auth_dir).unwrap());
+    let peer_token =
+        std::fs::read_to_string(acpmux::server::peer_auth::token_path(&auth_dir)).unwrap();
     let relay = Relay::to(serve(b.clone(), &auth).await).await;
     let mut cb = plain_client(b.clone()).await;
     let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [],
