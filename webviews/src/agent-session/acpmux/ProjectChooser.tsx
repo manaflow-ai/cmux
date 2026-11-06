@@ -68,6 +68,8 @@ export function ProjectChooser({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [browseError, setBrowseError] = useState<string>();
+  // Counts picks: a folder panel's late answer (or failure) after one is dropped.
+  const picks = useRef(0);
   const trigger = useRef<HTMLButtonElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const currentKey = current
@@ -102,6 +104,7 @@ export function ProjectChooser({
   };
   const press = usePopoverTrigger(open, (next) => (next ? show() : close(true)), show);
   const pick = (row: Row | undefined) => {
+    picks.current += 1;
     setBrowseError(undefined);
     if (row && !row.project) {
       // No folder: a change unless the chat is in no project already.
@@ -139,13 +142,20 @@ export function ProjectChooser({
         : key;
   };
 
-  // The host's folder panel picks the folder. A refused or failed panel says why beside a Retry, as
-  // Add project's dialog did before the menu dropped it.
+  // The host's folder panel only answers (deferPick) and the pick commits here, as Add project's
+  // dialog did: a folder picked while the panel was open wins over its late answer. A refused or
+  // failed panel says why beside a Retry.
   const browse = () => {
+    const before = picks.current;
     setBrowseError(undefined);
     void Promise.resolve()
-      .then(() => onBrowse?.())
-      .catch((error: unknown) => setBrowseError(browseFailureMessage(error)));
+      .then(() => onBrowse?.({ deferPick: true }))
+      .then((cwd) => {
+        if (before === picks.current && typeof cwd === "string" && cwd) onPick(cwd);
+      })
+      .catch((error: unknown) => {
+        if (before === picks.current) setBrowseError(browseFailureMessage(error));
+      });
   };
   const label = currentLabel ?? t("composer.chooseFolder");
   return (

@@ -1142,7 +1142,8 @@ test("Add folder… is the host's folder panel: a second one while it is open as
         pageWidgets={new Set(["projects"])}
         projects={[{ cwd: "/Users/you/src/cmux", label: "cmux" }]}
         onBrowseProject={(request) => {
-          expect(request?.deferPick).toBeUndefined();
+          // The folder menu commits the pick itself (deferPick), so a folder picked meanwhile wins.
+          expect(request?.deferPick).toBe(true);
           calls += 1;
           return new Promise<string | undefined>((resolve) => {
             resolveBrowse = resolve;

@@ -366,6 +366,8 @@ export function ComposerContext({
   const [browseError, setBrowseError] = useState<string>();
   // The browse that failed, so Retry runs the same one.
   const browseRetry = useRef<() => void>(undefined);
+  // Counts folder picks: a folder panel's late answer (or failure) after one is dropped.
+  const folderPicks = useRef(0);
   const browseRequest = useRef(0);
   useEffect(
     () => () => {
@@ -508,16 +510,21 @@ export function ComposerContext({
             });
         }
       : undefined;
-  // A new chat's Add folder…: the host's folder panel, then the chat's folder. A refused or failed
-  // panel says why beside a Retry, as Add project's dialog did before the menu dropped it.
+  // A new chat's Add folder…: the host's folder panel, then the chat's folder. As Add project's dialog
+  // did, the panel only answers (deferPick) and the pick commits here, so a folder picked while the
+  // panel was open wins over its late answer; a refused or failed panel says why beside a Retry.
   const browseProject = onBrowseProject
-    ? (request?: BrowseRequest): Promise<BrowseResult> => {
-        const id = ++browseRequest.current;
+    ? (): Promise<BrowseResult> => {
+        const picks = folderPicks.current;
         setBrowseError(undefined);
         return Promise.resolve()
-          .then(() => onBrowseProject(request) ?? undefined)
+          .then(() => onBrowseProject({ deferPick: true }) ?? undefined)
+          .then((cwd) => {
+            if (picks === folderPicks.current && typeof cwd === "string" && cwd) pickFolder(cwd);
+            return cwd;
+          })
           .catch((error: unknown) => {
-            if (id === browseRequest.current) {
+            if (picks === folderPicks.current) {
               browseRetry.current = () => void browseProject?.();
               setBrowseError(browseFailureMessage(error));
             }
@@ -545,6 +552,9 @@ export function ComposerContext({
     onCloudMachinePicked?.(undefined);
     if (waiting) setWaiting(undefined);
     if (!readOnly && id !== selectedComputer) {
+      // Another machine: a folder panel's answer or failure for the last one no longer applies.
+      folderPicks.current += 1;
+      setBrowseError(undefined);
       // Folders are the machine's: another machine starts with none.
       if (extraFolders?.draft && extraFolders.draft.machine !== id) extraFolders.onChange(undefined);
       setSelectedComputer(id);
@@ -577,6 +587,7 @@ export function ComposerContext({
   // A folder pick is always the folder (the page's project, which Cloud sends and recent projects
   // record), then the saved environment that is only that folder, if there is one.
   const pickFolder = (cwd: string) => {
+    folderPicks.current += 1;
     setBrowseError(undefined);
     onCloudMachinePicked?.(undefined);
     onProject?.(cwd);
@@ -615,6 +626,26 @@ export function ComposerContext({
     extraFolders && !readOnly && !cloudPicked && !sandboxPicked
       ? draftFolders(extraFolders.draft, selectedComputer)
       : undefined;
+  // Add another folder…'s Add folder…: a refused or failed panel says why beside a Retry, which adds
+  // the folder it picks.
+  const browseExtra = extraFolders?.onBrowse
+    ? (): Promise<string | undefined> => {
+        const picks = folderPicks.current;
+        setBrowseError(undefined);
+        return Promise.resolve()
+          .then(() => extraFolders.onBrowse?.() ?? undefined)
+          .catch((error: unknown) => {
+            if (picks === folderPicks.current) {
+              browseRetry.current = () =>
+                void browseExtra?.().then((path) => {
+                  if (path) extra?.onAdd(path);
+                });
+              setBrowseError(browseFailureMessage(error));
+            }
+            return undefined;
+          });
+      }
+    : undefined;
   const extra: ExtraFolderRows | undefined =
     extraFolders && extraShown
       ? {
@@ -628,7 +659,7 @@ export function ComposerContext({
             if (next !== extraShown)
               extraFolders.onChange(next.length > 0 ? { machine: selectedComputer, folders: next } : undefined);
           },
-          ...(selectedComputer === "local" && extraFolders.onBrowse ? { onBrowse: extraFolders.onBrowse } : {}),
+          ...(selectedComputer === "local" && browseExtra ? { onBrowse: browseExtra } : {}),
         }
       : undefined;
   // The folder control says how many more folders the chat sees: "cmux +2".
@@ -820,6 +851,7 @@ export function ComposerContext({
               onNoProject={
                 onNoProject &&
                 (() => {
+                  folderPicks.current += 1;
                   setBrowseError(undefined);
                   onNoProject();
                 })
