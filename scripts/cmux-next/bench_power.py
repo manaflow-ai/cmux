@@ -737,7 +737,7 @@ def main():
     parser.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",
                         help="extra app environment, e.g. CMUX_NEXT_CEF_EXTRA_SWITCHES=... (repeatable)")
     parser.add_argument("--tunable", action="append", default=[], metavar="KEY=JSON",
-                        help="a Debug Settings value for this run (repeatable), e.g. browserPage.sparePage=true: the arms of an A/B")
+                        help="a Debug Settings value for this run (repeatable), e.g. browserPage.loadingBackground=false: the arms of an A/B")
     parser.add_argument("--neighbor-gap", type=float, default=7, help="seconds before each neighbors-scenario switch")
     parser.add_argument("--neighbor-rounds", type=int, default=10)
     parser.add_argument("--sample-idle", action="store_true",
