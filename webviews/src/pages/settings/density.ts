@@ -6,8 +6,12 @@
 export const DENSITY_KEY = "appearance.density";
 export const CUSTOM_DENSITY_KEY = "appearance.customDensity";
 export const CUSTOM_DENSITIES_KEY = "appearance.customDensities";
+/** Text Size: the chrome body size in points, over any density's. The density card draws its row. */
+export const TEXT_SIZE_KEY = "appearance.metrics.chromeFontSize";
 /** The rows the density card draws, left out of their group. */
 export const DENSITY_ROWS: ReadonlySet<string> = new Set([DENSITY_KEY, CUSTOM_DENSITY_KEY, CUSTOM_DENSITIES_KEY]);
+/** Every row the density card holds: DENSITY_ROWS, and Text Size as a normal row inside it. */
+export const DENSITY_CARD_ROWS: ReadonlySet<string> = new Set([...DENSITY_ROWS, TEXT_SIZE_KEY]);
 
 export type Density = {
   id: string;

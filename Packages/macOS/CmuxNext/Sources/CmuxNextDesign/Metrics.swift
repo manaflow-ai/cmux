@@ -314,6 +314,14 @@ public struct Typography {
     /// Interface Size is not overridden). Surfaces with their own type scale
     /// (the Home transcript's `textScale`) follow it.
     public static var userScale: CGFloat { scale }
+    /// The text scale app web pages draw at (`--cmux-interface-scale`): the chrome body size (Text
+    /// Size, else the density's) over Compact's, so pages follow Density as native chrome does.
+    /// It is 1 at Compact with no Text Size, which is the size the pages are drawn for.
+    public static var pageScale: CGFloat {
+        let interfaceScale = DesignSettings.shared.interfaceScaleEnabled ? DesignSettings.shared.interfaceScale : 1
+        let body = DesignSettings.shared.overrides[.chromeFontSize] ?? Metrics.tokens.bodySize
+        return body / DensityTokens.compact.bodySize * interfaceScale
+    }
     /// A style's size: the density's (`DensityTokens.textSize`, which follows its level and its
     /// own font size), times the user's text scale.
     private static func size(_ compactSize: CGFloat, _ comfortableSize: CGFloat) -> CGFloat {

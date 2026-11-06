@@ -3,11 +3,13 @@
 // drawing a sidebar row, a tab and caption text at its sizes; Duplicate, Import and Export; and,
 // for a custom density, an editor with a large live preview. Built-ins write appearance.density
 // (the app then drops appearance.customDensity); a custom one writes appearance.customDensity;
-// the list is appearance.customDensities.
+// the list is appearance.customDensities. Text Size (appearance.metrics.chromeFontSize, once the
+// separate Interface Size) is a normal row in the card: a custom size in points over any density.
 import { useMemo, useState, type CSSProperties } from "react";
 import { Button } from "../../../ui/Button";
 import { Input } from "../../../ui/Input";
 import { useSettingsState, useStore } from "../context";
+import { rowsByKey } from "../schema";
 import {
   CUSTOM_DENSITIES_KEY,
   CUSTOM_DENSITY_KEY,
@@ -17,6 +19,7 @@ import {
   PAIRS,
   PRESETS,
   SPACING_RANGE,
+  TEXT_SIZE_KEY,
   customDensities,
   duplicate,
   parseExport,
@@ -25,6 +28,7 @@ import {
   type Density,
 } from "../density";
 import { t } from "../strings";
+import { SettingRow } from "./SettingRow";
 
 const EXACT: ReadonlyArray<keyof typeof PAIRS> = ["sidebarRowHeight", "tabHeight", "itemCornerRadius", "iconSize"];
 
@@ -109,7 +113,7 @@ function Slider({
   );
 }
 
-export function DensityCard() {
+export function DensityCard({ focus = null }: { focus?: string | null }) {
   const store = useStore();
   const { rows, readable } = useSettingsState();
   const customs = useMemo(() => customDensities(rows.get(CUSTOM_DENSITIES_KEY)?.value), [rows]);
@@ -124,6 +128,11 @@ export function DensityCard() {
   const [importText, setImportText] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const editing = draft ?? customs.find((item) => item.id === current) ?? null;
+  // Text Size wins over each density's own text size in the app, so the tiles draw it too.
+  const textSize = rows.get(TEXT_SIZE_KEY)?.value;
+  const shown = (density: Density): Density =>
+    typeof textSize === "number" ? { ...density, fontSize: textSize } : density;
+  const textSizeRow = rowsByKey.get(TEXT_SIZE_KEY);
 
   const choose = (density: Density) => {
     setDraft(null);
@@ -203,7 +212,7 @@ export function DensityCard() {
               disabled={!readable}
               onClick={() => choose(density)}
             >
-              <DensityPreview density={draft && draft.id === density.id ? draft : density} />
+              <DensityPreview density={shown(draft && draft.id === density.id ? draft : density)} />
               <span className="density-name">
                 {displayName(density)}
                 <small>
@@ -214,6 +223,11 @@ export function DensityCard() {
           );
         })}
       </div>
+      {textSizeRow && (
+        <div className="rows density-rows">
+          <SettingRow row={textSizeRow} focused={focus === TEXT_SIZE_KEY} />
+        </div>
+      )}
       <div className="density-actions">
         <Button
           type="button"

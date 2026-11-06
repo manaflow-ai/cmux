@@ -255,18 +255,21 @@ nonisolated enum AppearanceSettingsSchema {
             ).hiddenFromPalette("the Density card edits them: a list of density objects"),
             SettingDescriptor(
                 uiScale.configPath, section: .appearance, group: look,
-                title: SettingsText.keyed("settings.appearance.uiScale", "Interface Scale"),
+                title: SettingsText.keyed("settings.appearance.uiScale", "App Zoom"),
+                help: SettingsText.keyed("settings.appearance.uiScale.help",
+                                        "Zoom for chat, Settings and other app pages. Density and Text Size set the rest of the app."),
                 kind: .number(SettingNumber(uiScale.range, step: uiScale.step, unit: .fraction, placeholder: uiScale.fallback)),
                 default: .number(uiScale.fallback),
-                keywords: ["scale", "zoom", "size", "chrome", "web", "bigger", "smaller"]
+                keywords: ["scale", "zoom", "size", "chrome", "web", "bigger", "smaller", "interface scale"]
             ),
             SettingDescriptor(
                 ["appearance", "metrics", "chromeFontSize"], section: .appearance, group: look,
-                title: SettingsText.keyed("settings.appearance.interfaceSize", "Interface Size"),
-                help: SettingsText.keyed("settings.appearance.interfaceSize.help", "Text size of tabs, the sidebar and other controls. Terminal text has its own size."),
+                title: SettingsText.keyed("settings.appearance.textSize", "Text Size"),
+                help: SettingsText.keyed("settings.appearance.textSize.help",
+                                        "Text size of tabs, the sidebar, chat and other controls, over the density's. Terminal text has its own size."),
                 kind: .number(SettingNumber(10...16, step: 1, unit: .points, placeholder: 12)),
                 default: nil, defaultLabel: densityDefault,
-                keywords: ["font", "text", "size", "chromeFontSize"]
+                keywords: ["font", "text", "size", "density", "interface size", "chromeFontSize"]
             ),
             SettingDescriptor(
                 InterfaceScaleSetting().configPath, section: .appearance, group: look,

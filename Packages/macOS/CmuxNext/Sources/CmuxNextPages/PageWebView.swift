@@ -460,7 +460,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     private func observeUIScale() {
         uiScaleObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.userScale) }) {
+            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.pageScale) }) {
                 guard let self else { return }
                 self.applyUIScale()
             }
