@@ -66,17 +66,18 @@ public final class ResizeCoordinator {
         frames.activate()
     }
 
-    /// Sends the grid a terminal will have when its pane's layout spring lands, now, in the caller's
-    /// turn (Lawrence 2026-10-23: Cmd-D and Cmd-W resize the program in the terminal at the start of
-    /// the spring, not after it). The one-in-flight rule still applies: while the terminal's last grid
-    /// has not echoed, this grid waits as the newest one and goes the frame the echo comes, and so does
-    /// a grid whose window is in a full screen transition, at its end.
+    /// Sends a grid its view reported (and already coalesced) now, in the caller's turn: a layout
+    /// spring's final grid (Lawrence 2026-10-23: Cmd-D and Cmd-W resize the program in the terminal at
+    /// the start of the spring, not after it) and every grid of a key resize or a drag, which a wait for
+    /// the next frame made one refresh later (T-KEYS 4). The one-in-flight rule still applies: while the
+    /// terminal's last grid has not echoed, this grid waits as the newest one and goes the frame the echo
+    /// comes, and so does a grid whose window is in a full screen transition, at its end.
     ///
     /// - Parameters:
     ///   - io: The terminal's PTY owner.
-    ///   - size: The final grid.
+    ///   - size: The grid.
     ///   - window: The terminal's window, for its full screen hold; nil holds nothing.
-    public func submitFinal(_ io: any ResizeTarget, size: CellSize, window: NSWindow? = nil) {
+    public func submitNow(_ io: any ResizeTarget, size: CellSize, window: NSWindow? = nil) {
         guard holds(window) || io.awaitsEcho else {
             let key = ObjectIdentifier(io)
             settle.cancel(key)

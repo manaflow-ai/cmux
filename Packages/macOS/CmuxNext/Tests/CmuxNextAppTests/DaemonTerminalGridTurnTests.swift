@@ -23,7 +23,7 @@ import Testing
         var sent: [CellSize] = []
         resizes.onSend = { _, size in sent.append(size) }
         let io = Self.io(resizes)
-        #expect(io.resizeOnMain(cols: 100, rows: 30, final: false, window: nil))
+        #expect(io.resizeOnMain(cols: 100, rows: 30, window: nil))
         #expect(sent == [CellSize(cols: 100, rows: 30)],
                 "the grid waited for the coordinator's next frame (sent in the report's turn: \(sent)): one refresh more per grid")
         _ = resizes.tick()
@@ -37,7 +37,7 @@ import Testing
         var sent: [CellSize] = []
         resizes.onSend = { _, size in sent.append(size) }
         let io = Self.io(resizes)
-        #expect(io.resizeOnMain(cols: 100, rows: 30, final: false, window: nil))
+        #expect(io.resizeOnMain(cols: 100, rows: 30, window: nil))
         #expect(resizes.tick(), "the frames stop while the transition holds the grid")
         #expect(sent.isEmpty, "a grid went mid-transition: \(sent)")
         transitioning = false
