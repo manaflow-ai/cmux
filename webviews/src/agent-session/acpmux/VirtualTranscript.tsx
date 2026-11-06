@@ -117,7 +117,7 @@ import {
   type ChatFind,
 } from "./conversation/chatFind";
 import { ChatFindBar } from "./conversation/ChatFindBar";
-import { THINKING, WORKED, turnFooterFrom, WORKING, retryTargetIn } from "./conversation/turns";
+import { ACTIVITY_LINE, THINKING, WORKED, turnFooterFrom, WORKING, retryTargetIn } from "./conversation/turns";
 import { ArrowDown } from "./conversation/icons";
 import { installWheelGlide } from "./wheelGlide";
 import { installDockWheelHold, installWheelPassThrough } from "./wheelPassThrough";
@@ -275,10 +275,11 @@ function sameFields(previous: AcpmuxRow, next: AcpmuxRow): boolean {
 /// an unchanged row (snapshot rebuilding clones them when a prompt is sent) draws the same. The
 /// frame's own flags (`below`, `ended`) are compared too, as they are read outside the renderer.
 function sameRowDraw(before: AcpmuxRow, after: AcpmuxRow): boolean {
-  // The running turn's live and working lines are drawn by turns.ts on every snapshot with a
-  // fixed version: what they say (the call in flight, its time, the clock offset) is in their
-  // fields, so they redraw whenever a field changes.
-  if (after.kind === THINKING || after.kind === WORKING) return sameFields(before, after);
+  // The running turn's live, working and activity lines are drawn by turns.ts on every snapshot
+  // with a version that does not cover all they say (the call in flight, who a send goes to, its
+  // time, the clock offset): those are in their fields, so they redraw whenever a field changes.
+  if (after.kind === THINKING || after.kind === WORKING || after.kind === ACTIVITY_LINE)
+    return sameFields(before, after);
   return (
     before.id === after.id &&
     before.version === after.version &&
@@ -316,7 +317,12 @@ type RowContentProps = { Component: React.ComponentType<RowProps> } & RowProps;
 /// roving tab stop follows the first row in view; with the content drawn inside the frame, each such
 /// change drew every mounted row's whole content again (Leo, 2026-11-06: "Still seeing the flicker
 /// re-render. Sometimes when I scroll up").
-const RowContent = React.memo(
+///
+/// The row is compared by object, not by `sameRowDraw`: a renderer may draw from fields its row's
+/// version does not cover (ActivityLineRow's `doingSendTo`), and only its own comparator knows
+/// which. A new row object reaches the renderer, whose memo decides; a history row keeps its object
+/// across snapshots, so a scroll still draws none of them again.
+export const RowContent = React.memo(
   function RowContent({ Component, ...props }: RowContentProps) {
     // Counted when committed: a render React set aside (an interrupted concurrent pass) drew nothing.
     useLayoutEffect(() => {
@@ -327,9 +333,7 @@ const RowContent = React.memo(
   (previous, next) => {
     const keys = Object.keys(next) as (keyof RowContentProps)[];
     if (keys.length !== Object.keys(previous).length) return false;
-    return keys.every((key) =>
-      key === "row" ? sameRowDraw(previous.row, next.row) : Object.is(previous[key], next[key]),
-    );
+    return keys.every((key) => Object.is(previous[key], next[key]));
   },
 );
 
