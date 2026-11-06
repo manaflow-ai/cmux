@@ -9,8 +9,9 @@
 //! B's disk taken before either was sent, and the relay now reaches B2 (the same address, a
 //! fresh machine). A's copy of the chat goes back to B2 (`hub/peer_snapshot/restore.rs`,
 //! `hub/journal_restore.rs`) and what B had accepted is delivered again under its own prompt
-//! ids (`server/outbox.rs` `redeliver_open`): every prompt A sent runs exactly once, and B2's
-//! journal holds every record A saw of B.
+//! ids (`server/outbox.rs` `redeliver_open`): every prompt A sent runs exactly once, B2's
+//! journal holds every record A saw of B, and the agent, which resumed its own older session,
+//! is told the turns it missed (`hub/transcript.rs` `catch_up`).
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
@@ -337,4 +338,40 @@ async fn a_session_moved_to_a_fresh_machine_from_an_older_disk_loses_no_prompt_a
     }
     let replies = events.iter().filter(|e| says(e, "echo: second")).count();
     assert_eq!(replies, 1, "p2 answered {replies} times: {events:#?}");
+    // The agent resumed its own session from the older disk, which ended after p0: the first
+    // prompt it ran there (the cut turn's continuation) carried what it missed, p1's turn, and
+    // nothing it had (p0) nor what it runs itself next (p2). The agent echoes its prompt.
+    let replays: Vec<&Value> = events.iter().filter(|e| says(e, "restored_transcript")).collect();
+    assert_eq!(replays.len(), 1, "one prompt carries the missed turns: {replays:#?}");
+    let replay = replays[0]["msg"].to_string();
+    assert!(replay.contains("user: until-cancel") && replay.contains("running"), "{replay}");
+    assert!(!replay.contains("user: first") && !replay.contains("second"), "{replay}");
+}
+
+/// A daemon restart whose agent session is as far as its journal: no prompt carries a replay.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_restart_with_an_agent_as_far_as_its_journal_replays_nothing() {
+    let _ = HERMETIC;
+    let home = tempfile::tempdir().unwrap();
+    let cfg = config(StoreMode::Local);
+    let hub = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, home.path()).unwrap());
+    hub.resume_queues();
+    let mut c = plain_client(hub.clone()).await;
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+                     "_meta": {"acpmux": {"name": "restarted"}}});
+    let id = c.call(method::SESSION_NEW, new).await["sessionId"].as_str().unwrap().to_owned();
+    let prompt = |text: &str| json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]});
+    c.call(method::SESSION_PROMPT, prompt("before")).await;
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+
+    let hub = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, home.path()).unwrap());
+    hub.resume_queues();
+    let mut c = plain_client(hub.clone()).await;
+    c.call(method::SESSION_PROMPT, prompt("after")).await;
+    let events = journal(&hub, &id);
+    assert!(events.iter().any(|e| says(e, "echo: after")), "{events:#?}");
+    let replays = events.iter().filter(|e| says(e, "restored_transcript")).count();
+    assert_eq!(replays, 0, "a restart replayed turns its agent had: {events:#?}");
 }

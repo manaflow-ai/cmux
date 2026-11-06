@@ -12,7 +12,9 @@
 //! `lastSeq`. Once they are in, the chat's log is read again as after a restart (`log_load.rs`
 //! `settle_restored`): a turn the old machine was running when it went away is settled as cut
 //! and continued, and a prompt it had queued waits in this queue again, under its own id, so a
-//! resend of that id joins it instead of running it twice.
+//! resend of that id joins it instead of running it twice. The agent resumes its own session
+//! from that older disk too, so its next prompt carries the turns after where the journal ended
+//! (`SessionMeta::agent_behind_seq`, `transcript.rs` `catch_up`).
 
 use super::*;
 
@@ -118,6 +120,11 @@ impl Hub {
                 meta.last_seq = last;
                 // The restored log may end in transcript records.
                 meta.transcript_seq = last;
+                // The agent's own session came from the same disk as this journal: it ends where
+                // the journal did, and its next prompt carries the turns after (`transcript.rs`).
+                if last > at {
+                    meta.agent_behind_seq = Some(meta.agent_behind_seq.map_or(at, |s| s.min(at)));
+                }
             }
             last > at
         };
