@@ -155,6 +155,24 @@ extension SidebarViewComponents {
             .max { $0.y < $1.y }
     }
 
+    /// The middle of workspace `id`'s drawn row in window coordinates (bottom-left origin), read now, for a
+    /// synthetic pointer (`debug.pointer_hover {row}`, `debug.pointer_sweep`); nil when the row has no shown view.
+    /// `id` is the workspace's id, or its daemon id when the list qualifies it by machine.
+    public func debugRowCenterInWindow(workspace id: String) -> CGPoint? {
+        let view = list.rowViews[.workspace(WorkspaceID(id))] ?? list.rowViews.first { key, _ in
+            if case let .workspace(row) = key { return row.rawValue.hasSuffix(id) }
+            return false
+        }?.value
+        guard let view, view.window != nil, !view.isHiddenOrHasHiddenAncestor else { return nil }
+        return view.convert(CGPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+    }
+
+    /// The workspace whose row the list shows hovered now; nil for none or another kind of row.
+    public var debugHoveredWorkspace: String? {
+        guard case let .workspace(id)? = list.hoveredKey else { return nil }
+        return id.rawValue
+    }
+
     /// The new-workspace button (+) in window points from the top-left, so a
     /// proof clicks it (`debug.mouse`); nil while it is hidden.
     public func debugNewButtonFrame() -> CGRect? {
