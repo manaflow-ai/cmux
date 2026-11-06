@@ -73,6 +73,30 @@ public struct WorkspaceSpawn: Sendable {
         opensNewTabPage = invocation.origin == .user && command == nil
     }
 
+    /// A plain Cmd-N: the New Tab page with nothing of its own (no key, chat, session, command, browser profile or
+    /// folder), which may show the workspace reserved before the key (``DaemonStore/reservedWorkspaceUse(plain:home:)``).
+    public var isPlainNewTabPage: Bool {
+        opensNewTabPage && key == nil && firstChat == nil && firstSession == nil && command == nil && browserProfile == nil && cwd == nil
+    }
+
+    /// The folder the workspace starts in: its own, else (on this Mac) its room's default and then the folder it
+    /// inherited, else the daemon's default.
+    public func startFolder(roomFolder: String?, local: Bool, daemonDefault: String?) -> String? {
+        cwd ?? (local ? roomFolder : nil).flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath }
+            ?? (local ? inheritedCwd : nil) ?? daemonDefault
+    }
+
+    /// The first terminal's environment: `app` (this Mac's launch identity; empty on a Cloud machine), then the room's
+    /// `room`, then the caller's ``env``, then the placement keys hooks read (`CMUX_WORKSPACE_ID`, `CMUX_SURFACE_ID`);
+    /// a later one wins.
+    public func terminalEnvironment(app: [String: String], room: [String: String]?, workspace: WorkspaceKey, terminal: TerminalID) -> [String: String] {
+        var vars = app
+        vars.merge(room ?? [:]) { _, profile in profile }
+        vars.merge(env) { _, caller in caller }
+        vars.merge(DaemonConnection.placementEnvironment(workspace: workspace, terminal: terminal)) { _, placement in placement }
+        return vars
+    }
+
     public static func folderName(_ directory: String) -> String? {
         let name = URL(fileURLWithPath: directory).standardizedFileURL.lastPathComponent
             .trimmingCharacters(in: .whitespacesAndNewlines)
