@@ -65,7 +65,6 @@
   "focus.indicator": {"case": "keep", "why": "A look choice for what marks the focused pane, and it overrides cmux.json; the default is the chosen one."},
   "glass.lens": {"case": "keep", "why": "A look comparison for window glass; plain is the default and the Toggle Liquid Glass Lens action uses this choice."},
   "history.menuLayout": {"case": "keep", "why": "A look comparison for the Back and Forward menu; the default scope-then-window is the shipped layout."},
-  "history.surface": {"case": "keep", "why": "Chooses the Swift or React History page; the code says the switch goes when the React page becomes the default."},
   "home.chatHeader": {"case": "keep", "why": "Leo turned the header off on 10-21 and Lawrence turned it back on 10-23; both looks were wanted, so the choice stays until settled."},
   "home.chiefViewGallery": {"case": "keep", "why": "Dev and nightly only: offers experimental Chief views for trying out, not a shipped feature."},
   "home.firstRun.hero": {"case": "delete", "why": "On by default (Leo 10-19); deleting the off switch keeps the Chief hero and drops the old rows-only panel."},

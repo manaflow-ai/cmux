@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures (sample history), not shipped UI.
 import { minutesAgo } from "../../gallery/clock";
 import { historyPageEntry } from "../../gallery/format";
-import type { HistoryEntry } from "./types";
+import type { CookieBackup, HistoryEntry } from "./types";
 
 const ago = (hours: number) => minutesAgo(hours * 60);
 
@@ -97,6 +97,12 @@ const many = Array.from({ length: 48 }, (_, index): HistoryEntry => ({
   available: index % 4 !== 0,
 }));
 
+const backups: CookieBackup[] = [
+  { id: "app:0001", site: "accounts.example.test", created_at_ms: ago(0.5) },
+  { id: "app:0002", site: "shop.example.test", created_at_ms: ago(30) },
+  { id: "app:0003", created_at_ms: ago(80) },
+];
+
 export default historyPageEntry({
   id: "pages.history",
   title: "History",
@@ -113,7 +119,12 @@ export default historyPageEntry({
       reason: "A history mutation refusal should announce its result within a quarter second.",
     },
   },
-  covers: ["page:cmux.history", "pages/history/HistoryPage.tsx#HistoryPage", "pages/history/KindIcon.tsx#KindIcon"],
+  covers: [
+    "page:cmux.history",
+    "pages/history/HistoryPage.tsx#HistoryPage",
+    "pages/history/KindIcon.tsx#KindIcon",
+    "pages/history/CookieBackups.tsx#CookieBackupsPanel",
+  ],
   variants: {
     empty: { note: "No history entries have been recorded.", entries: [] },
     loading: {
@@ -180,6 +191,30 @@ export default historyPageEntry({
         await ctx.waitFor(() => ctx.document.querySelectorAll(".page-menu-item").length === 5);
         await ctx.click({ role: "menuitem", name: "All Time" });
         await ctx.waitFor(() => rows() === 0);
+      },
+    },
+    "cookie-backups": {
+      note: "Cookie Backups over the timeline: two sites an agent cleared and one backup this Mac can no longer open.",
+      entries,
+      cookieBackups: backups,
+      query: { cookieBackups: true },
+    },
+    "cookie-backups-empty": {
+      note: "Cookie Backups with nothing kept: Delete All is off.",
+      entries,
+      cookieBackups: [],
+      query: { cookieBackups: true },
+    },
+    "cookie-backups-delete": {
+      note: "Delete on one backup asks in the app's dialog (the gallery answers Delete); the row goes.",
+      entries,
+      cookieBackups: backups,
+      query: { cookieBackups: true },
+      play: async (ctx) => {
+        const rows = () => ctx.document.querySelectorAll(".history-sheet-row").length;
+        await ctx.waitFor(() => rows() === 3);
+        await ctx.click({ selector: ".history-sheet-row .history-menu-button" });
+        await ctx.waitFor(() => rows() === 2);
       },
     },
     "not-found-error": {

@@ -302,3 +302,31 @@ test("Reduce Motion: the page has no motion outside a no-preference guard", () =
   );
   expect(motion).toEqual([]);
 });
+
+test("Cookie Backups lists the app's backups and deletes one only after the app's confirmation", async () => {
+  const provider = new RecordingProvider();
+  await mount(["en"], provider);
+  await click(button("Cookie Backups…"));
+  const sheet = () => host.querySelector<HTMLElement>("dialog");
+  const sheetRows = () => [...host.querySelectorAll<HTMLElement>(".history-sheet-row")];
+  expect(sheet()).not.toBeNull();
+  expect(sheetRows().map((row) => row.querySelector(".history-row-title")?.textContent)).toEqual([
+    "accounts.example.com",
+    "Backup this Mac can no longer open",
+  ]);
+  // The person cancels the app's dialog: nothing goes.
+  provider.confirmDelete = false;
+  await click(sheetRows()[0]!.querySelector("button")!);
+  expect(provider.last(HistoryOps.cookieBackupsDelete)).toEqual({ ids: ["app:mock1"] });
+  expect(sheetRows().length).toBe(2);
+  // Delete All, confirmed: the panel reads again and says so.
+  provider.confirmDelete = true;
+  await click(button("Delete All…"));
+  expect(provider.last(HistoryOps.cookieBackupsDelete)).toEqual({ ids: ["app:mock1", "app:mock2"] });
+  expect(sheetRows().length).toBe(0);
+  expect(host.querySelector(".history-sheet-empty")?.textContent).toBe("No cookie backups");
+  // Escape closes it; the timeline under it never moved.
+  await key(sheet()!, "Escape");
+  expect(sheet()).toBeNull();
+  expect(rows().length).toBeGreaterThan(0);
+});

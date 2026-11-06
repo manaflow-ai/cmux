@@ -68,6 +68,15 @@ export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
       "workspace.open_url"
     ],
     "confirm": []
+  },
+  "stash": {
+    "read": [
+      "stash.list"
+    ],
+    "gesture": [
+      "stash.import"
+    ],
+    "confirm": []
   }
 };
 

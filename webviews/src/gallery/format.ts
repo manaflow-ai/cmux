@@ -20,7 +20,7 @@ import type { ReleaseNotes } from "../pages/changelog/types";
 import type { PickerSession } from "../pages/icon-picker/host";
 import type { EditorFile, ReadOnlyReason } from "../pages/editor/host";
 import type { HistoryFilter, HistoryGrouping } from "../pages/history/model";
-import type { HistoryEntry } from "../pages/history/types";
+import type { CookieBackup, HistoryEntry } from "../pages/history/types";
 import type { Binding } from "../pages/keybindings/types";
 import type { WidthName } from "./env";
 import { checkReasons, type Play, type PlayChecks, type PlayTarget } from "./play";
@@ -350,6 +350,8 @@ export type EditorPageVariant = VariantBase & {
 /** The history page (src/pages/history) on a cmuxPage host with timeline entries. */
 export type HistoryPageVariant = VariantBase & {
   entries?: HistoryEntry[];
+  /** The app's cookie backups (the Cookie Backups panel). */
+  cookieBackups?: CookieBackup[];
   loading?: boolean;
   error?: "network" | "permission" | "not-found";
   query?: {
@@ -358,6 +360,8 @@ export type HistoryPageVariant = VariantBase & {
     grouping?: HistoryGrouping;
     selectIndex?: number;
     menuIndex?: number;
+    /** Opens the Cookie Backups panel. */
+    cookieBackups?: boolean;
   };
 };
 

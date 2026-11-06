@@ -18,6 +18,8 @@ import {
   ACTION_RUN,
   CLIPBOARD_WRITE,
   HistoryOps,
+  type CookieBackup,
+  type CookieBackupsDeleted,
   type HistoryChanged,
   type HistoryEntry,
   type HistoryListParams,
@@ -39,6 +41,8 @@ export interface HistorySnapshot {
   connection: Connection;
   /** The last failed intent's message, cleared by the next success. */
   error?: string;
+  /** The Cookie Backups panel: open, and its rows once read (newest first). */
+  cookieBackups: { open: boolean; loading: boolean; backups: CookieBackup[]; error?: string };
 }
 
 export interface HistoryStoreOptions {
@@ -68,7 +72,54 @@ export class HistoryStore {
       groups: [],
       loading: client !== null,
       connection: client ? "connecting" : "disconnected",
+      cookieBackups: { open: false, loading: false, backups: [] },
     };
+  }
+
+  private backupsGeneration = 0;
+
+  /** Opens the Cookie Backups panel and reads its rows. */
+  showCookieBackups(): Promise<void> {
+    this.set({ cookieBackups: { ...this.snapshot.cookieBackups, open: true } });
+    return this.readCookieBackups();
+  }
+
+  hideCookieBackups(): void {
+    ++this.backupsGeneration;
+    this.set({ cookieBackups: { open: false, loading: false, backups: [] } });
+  }
+
+  /** Reads the backups; an older read that lost to a newer one (a delete starts one) is dropped. */
+  private async readCookieBackups(): Promise<void> {
+    if (!this.client) return;
+    const generation = ++this.backupsGeneration;
+    this.set({ cookieBackups: { ...this.snapshot.cookieBackups, loading: true } });
+    try {
+      const result = await this.client.call<{ backups: CookieBackup[] }>(HistoryOps.cookieBackupsList, {});
+      if (generation !== this.backupsGeneration) return;
+      const backups = (result?.backups ?? []).map((backup) => ({
+        ...backup,
+        created_at_ms: Number(backup.created_at_ms),
+      }));
+      this.set({ cookieBackups: { open: true, loading: false, backups } });
+    } catch (error) {
+      if (generation !== this.backupsGeneration) return;
+      this.set({ cookieBackups: { ...this.snapshot.cookieBackups, loading: false, error: message(error) } });
+    }
+  }
+
+  /** Deletes backups for good: the app asks the person first (an agent can no longer undo those
+   * clears); a cancelled question changes nothing. */
+  async deleteCookieBackups(ids: string[]): Promise<void> {
+    if (!this.client || ids.length === 0) return;
+    try {
+      const result = await this.client.call<CookieBackupsDeleted>(HistoryOps.cookieBackupsDelete, { ids });
+      if (!result?.confirmed || !this.snapshot.cookieBackups.open) return;
+    } catch (error) {
+      this.set({ cookieBackups: { ...this.snapshot.cookieBackups, error: message(error) } });
+      return;
+    }
+    await this.readCookieBackups();
   }
 
   getSnapshot = (): HistorySnapshot => this.snapshot;

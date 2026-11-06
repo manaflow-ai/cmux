@@ -197,3 +197,88 @@
   padding: 24px;
   text-align: center;
 }
+
+/* Cookie Backups: a panel over the page, so the timeline under it never moves. */
+.history-sheet-scrim {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: color-mix(in srgb, var(--page-text) 12%, transparent);
+}
+
+.history-sheet {
+  position: static;
+  margin: 0;
+  border: 0;
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(480px, 100%);
+  max-height: 100%;
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--page-elevated);
+  box-shadow: 0 8px 28px color-mix(in srgb, black 24%, transparent);
+}
+
+.history-sheet-title {
+  margin: 0;
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
+  font-weight: var(--weight-emphasis);
+}
+
+.history-sheet-text {
+  margin: 0;
+  color: var(--page-text-2);
+  overflow-wrap: anywhere;
+}
+
+.history-sheet-empty {
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: var(--page-text-3);
+}
+
+.history-sheet-list {
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.history-sheet-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.history-row-title.unreadable {
+  color: var(--page-text-2);
+}
+
+.history-sheet-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.history-menu-button.destructive:not(:disabled) {
+  color: var(--cmux-app-danger, var(--page-text-2));
+}
+
+.history-sheet-done {
+  border: 0;
+  border-radius: 6px;
+  padding: 4px 12px;
+  background: var(--page-selection);
+  color: var(--page-text);
+  font-weight: var(--weight-emphasis);
+  cursor: default;
+}

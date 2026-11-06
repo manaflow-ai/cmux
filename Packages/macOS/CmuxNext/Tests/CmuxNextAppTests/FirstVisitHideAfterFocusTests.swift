@@ -53,7 +53,7 @@ import Testing
         let model = try #require(store.workspaces.first?.screens.first?.panes.first)
         let historyTab = try #require(store.tab(surface: SurfaceID(rawValue: 2)))
         // The History page the person looks at (the real page tab: its conceal hides its view).
-        let page = HistoryPageTab(id: BrowserTabID(rawValue: historyTab.id), engine: .webkit, profile: .default, source: services.historyPage)
+        let page = HistoryPageTab(id: BrowserTabID(rawValue: historyTab.id), engine: .webkit, profile: .default, webPage: nil)
         _ = services.cache.install(page, for: historyTab.id)
         defer { services.cache.browsers[historyTab.id] = nil }
 

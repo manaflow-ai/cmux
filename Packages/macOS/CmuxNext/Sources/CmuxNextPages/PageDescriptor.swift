@@ -251,8 +251,15 @@ public extension PageDescriptor {
     static let files = PageDescriptor(
         id: "cmux.files", resource: "files", namespaces: ["cmux.files."], nativeOps: [PageNativeOp.clipboardWrite])
 
-    /// The History page (react-pages.md 2).
+    /// The History page (react-pages.md 2). Its `cmux.history.cookie_backups.` ops are the app's
+    /// (the Keychain-encrypted cookie backups); the rest are the daemon's history module.
     static let history = PageDescriptor(
         id: "cmux.history", resource: "history", namespaces: ["cmux.history."],
         nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite], actions: ["history.open"])
+
+    /// The Stashed Tabs page (`cmux://stashed`, a top page): the daemon's stashes (`stash-v1`). The
+    /// command `open` with text `import` opens its OneTab paste box (Import from OneTab…).
+    static let stash = PageDescriptor(
+        id: "cmux.stash", resource: "stash", namespaces: ["cmux.stash."],
+        commands: PageNativeOp.commands.union(["open"]), ownsSearchField: true)
 }
