@@ -129,6 +129,71 @@ struct TerminalWindowFrameSyncTests {
                 "frame check (b) failed in \(found.frameTurns) of \(turns.count) committed turns of the spring (the shown frame is not the layer's size): \(found.frame.prefix(8))")
     }
 
+    /// Case 2b (review of 5840aea3a603, P1 #1): at the app's cadence, one commit per refresh and no extra main turns, the
+    /// spring keeps drawing ahead after a late frame. Before the fix, one frame not drawn by its commit made the landing
+    /// ask for the wanted size before this turn's size drawn ahead went to Ghostty (`landed` -> `requestWantedFrame`
+    /// before `applyAheads`), so each later frame waited and showed the previous size. From the spring's third frame on,
+    /// each committed turn shows each terminal at its pane's area (check (a)) with its own frame (check (b)).
+    @Test func atTheAppsCadenceAKeySpringShowsEachTerminalAtItsPaneSizeFromItsThirdFrame() async throws {
+        let screen = try await Screen()
+        defer { screen.close() }
+        let recorder = TurnRecorder(screen)
+        defer { recorder.stop() }
+        try await Self.warmUp(screen)
+
+        let motion = await Self.spring(screen, recorder: recorder, oneCommitPerRefresh: true)
+        let turns = recorder.take()
+        try #require(motion.moved && motion.steps >= 6, "the press did not spring (moved \(motion.moved), \(motion.steps) frames)")
+        let third = try #require(motion.stepMs.dropFirst(2).first, "the spring had no third frame")
+        let found = Self.check(turns, keepAllowedUntilMs: third)
+        print("S4 m26 app cadence: \(motion.steps) spring frames, \(turns.count) committed turns; bounds (a) failed in \(found.boundsTurns) turns after the third frame, frame (b) in \(found.frameTurns); presenter \(TerminalFramePresenter.forWindow(screen.window).stats)")
+        #expect(found.bounds.isEmpty,
+                "at one commit per refresh, bounds check (a) failed in \(found.boundsTurns) committed turns after the spring's third frame (a terminal shows the previous size): \(found.bounds.prefix(8))")
+        #expect(found.frame.isEmpty, "frame check (b) failed in \(found.frameTurns) committed turns: \(found.frame.prefix(8))")
+    }
+
+    /// Case 2c (review of 5840aea3a603, P2 #3): a hide and show inside a key spring never presents a frame drawn ahead
+    /// without its bounds. p2 is hidden after the spring's third frame (a size is drawn ahead for it) and shown in the next
+    /// turn; the show's present request must not show the frame drawn at the next refresh's size in the current bounds. In
+    /// every committed turn of the spring each shown frame has its layer's size (check (b)).
+    @Test func aHideAndShowInsideAKeySpringNeverShowsAFrameDrawnAheadInTheOldBounds() async throws {
+        let screen = try await Screen()
+        defer { screen.close() }
+        let recorder = TurnRecorder(screen)
+        defer { recorder.stop() }
+        try await Self.warmUp(screen)
+        screen.root.context.reduceMotionOverride = false
+        let refresh = Duration.milliseconds(Self.refreshMs(of: screen.window))
+        recorder.start()
+        try #require(PaneResize.press("p2", .right, model: screen.model, view: screen.root), "Ctrl-Shift-L on p2 moved nothing")
+        var moving = true, steps = 0, hidAndShown = false
+        while moving, steps < 240 {
+            let stepped = ContinuousClock.now
+            moving = screen.root.advanceFrame(1.0 / 120)
+            screen.root.layoutSubtreeIfNeeded() // sync-layout: the stepped frame's own layout pass, as the frame tick runs it
+            await TerminalKeyResizeFrameTests.commit()
+            if steps == 3 {
+                // A size is drawn ahead for p2 now (the pass ran): hide it, commit, show it.
+                screen.sessions[1].view.isHidden = true
+                await TerminalKeyResizeFrameTests.commit()
+                screen.sessions[1].view.isHidden = false
+                await TerminalKeyResizeFrameTests.commit()
+                hidAndShown = true
+            }
+            while stepped.duration(to: .now) < refresh { await TerminalKeyResizeFrameTests.commit() }
+            steps += 1
+        }
+        await Self.rest(screen)
+        recorder.pause()
+        let turns = recorder.take()
+        try #require(hidAndShown && steps >= 6, "the spring ran \(steps) frames: p2 was not hidden and shown inside it")
+        // Check (b) only: a hidden and shown p2 may keep its bounds a refresh, never show another size's frame in them.
+        let found = Self.check(turns, keepAllowedUntilMs: .infinity)
+        print("S4 m26 hide/show in a key spring: \(steps) frames, \(turns.count) turns; frame (b) failed in \(found.frameTurns)")
+        #expect(found.frame.isEmpty,
+                "after a hide and show inside a key spring, a commit showed a frame of another size than its layer (a frame drawn ahead in the old bounds): \(found.frame.prefix(8))")
+    }
+
     /// Case 4, the spring's end (m26): the last 3 spring frames and the commit after the landing each present a frame at
     /// their bounds, with no terminal waiting at the landing (the size drawn ahead for the landing is the one presented,
     /// and no repeated `set_size` at that size dropped it). Program output comes in every spring frame; after the landing
@@ -370,8 +435,11 @@ struct TerminalWindowFrameSyncTests {
     /// moved, the frames stepped, and when (ms after the press) the spring's second frame was stepped.
     /// `presses`: a held key, that many presses `framesBetweenPresses` spring frames apart (a key repeat), retargeting the
     /// one spring.
+    /// `oneCommitPerRefresh`: the app's cadence (review of 5840aea3a603, P1 #1): after the step and its layout, EXACTLY
+    /// one commit, then a sleep to the next refresh with no extra main turns (the renderer draws meanwhile). With
+    /// `pacedByRefresh` the extra commits of the wait hid a draw-ahead that stopped after one late frame.
     static func spring(_ screen: Screen, recorder: TurnRecorder, direction: LayoutDirection = .right,
-                       pacedByRefresh: Bool = false, presses: Int = 1,
+                       pacedByRefresh: Bool = false, oneCommitPerRefresh: Bool = false, presses: Int = 1,
                        framesBetweenPresses: Int = 4) async -> (moved: Bool, steps: Int, firstFrameMs: Double, stepMs: [Double]) {
         screen.root.context.reduceMotionOverride = false
         let frame = screen.root.context.hosts["p2"]?.frame
@@ -393,6 +461,10 @@ struct TerminalWindowFrameSyncTests {
             if pacedByRefresh {
                 for io in screen.ios { io.send(.output(Data("\r\nframe \(steps)".utf8))) }
                 while stepped.duration(to: .now) < refresh { await TerminalKeyResizeFrameTests.commit() }
+            } else if oneCommitPerRefresh {
+                for io in screen.ios { io.send(.output(Data("\r\nframe \(steps)".utf8))) }
+                let left = refresh - stepped.duration(to: .now)
+                if left > .zero { try? await Task.sleep(for: left) }
             }
             steps += 1
         }

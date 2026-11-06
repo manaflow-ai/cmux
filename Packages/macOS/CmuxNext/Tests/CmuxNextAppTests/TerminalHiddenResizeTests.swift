@@ -168,4 +168,65 @@ import Testing
         #expect(last == fit, "the PTY's last grid is \(String(describing: last)), not the view's fit \(fit): an older grid went after a newer one")
         #expect(shown.count <= 1, "the show sent \(shown.count) grids: \(shown)")
     }
+
+    /// Review of 5840aea3a603, P1 #2: a grid a hide drops is not lost when the view shows again during a spring. During a
+    /// key spring G1 waits in the coalescer's window while the PTY has G0; the view is hidden (the hide drops G1), shown
+    /// again while it is still in its pane's motion, and the spring lands at G1. Before the fix the geometry counted G1 as
+    /// reported, so neither the show nor the landing sent it, and the PTY stayed at G0.
+    /// A pane on its layout spring while `onSpring` (``RestingPlacement``): what the app's pane host is during a key spring.
+    @MainActor final class SpringPlacement: NSView, RestingPlacement {
+        var onSpring = false
+        var restOffset: CGVector { .zero }
+        var isOnLayoutSpring: Bool { onSpring }
+        var restContentSizeChange: CGSize? { nil }
+    }
+
+    @Test func aGridAHideDropsReachesThePTYWhenTheViewShowsDuringASpringAndLands() async throws {
+        _ = NSApplication.shared
+        _ = GhosttyRuntime.shared
+        let io = GridRecordingTerminalIO()
+        let session = TerminalSession(io: io)
+        try #require(session.surfaceView.surface != nil, "libghostty created no surface")
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let workspace = SpringPlacement(frame: NSRect(x: 0, y: 0, width: 900, height: 600))
+        window.contentView = workspace
+        session.view.frame = workspace.bounds
+        workspace.addSubview(session.view)
+        defer {
+            io.finish()
+            window.close()
+        }
+        workspace.layoutSubtreeIfNeeded()
+        func grids() async -> [TerminalGridSize] {
+            session.surfaceView.bridge.takeUnretainedValue().input.focusGained()
+            return await io.gridsUntilMarker()
+        }
+        let start = await grids()
+        let g0 = try #require(start.last ?? session.surfaceView.fittedGrid, "SETUP: no grid at rest")
+
+        // The key spring: the host follows its pane; the new size's grid G1 waits in the 25 ms window.
+        let surface = session.surfaceView
+        workspace.onSpring = true
+        session.view.followPaneMotion(PaneMotionHold(trailing: false, bottom: false), heldSize: session.view.bounds.size)
+        session.view.frame = NSRect(x: 0, y: 0, width: 700, height: 480)
+        workspace.layoutSubtreeIfNeeded()
+        let g1 = try #require(surface.fittedGrid)
+        try #require(g1 != g0 && surface.gridReports.coalescer.pending == g1,
+                     "SETUP: G1 \(g1) does not wait in the window (pending \(String(describing: surface.gridReports.coalescer.pending)), G0 \(g0))")
+        // Hidden: G1 is dropped. Shown again while still in the spring.
+        workspace.isHidden = true
+        workspace.isHidden = false
+        workspace.layoutSubtreeIfNeeded()
+        try #require(surface.isInPaneMotion, "SETUP: the view is not in its pane's motion at the show")
+        // The spring lands at G1.
+        session.view.followPaneMotion(nil, heldSize: nil)
+        workspace.onSpring = false
+        surface.paneMotionDidSettle()
+        workspace.layoutSubtreeIfNeeded()
+        let after = await grids()
+        print("hide during a spring: G0 \(g0), G1 \(g1), grids after the hide \(after)")
+        #expect(after.last == g1, "the PTY ends at \(String(describing: after.last ?? start.last)), not G1 \(g1): the grid the hide dropped was lost")
+    }
 }
