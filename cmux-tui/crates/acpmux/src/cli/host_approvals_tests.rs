@@ -17,6 +17,10 @@ struct Fake {
     /// This Mac's paired phones (`thisMacPhones`) and the device id they are under.
     phones: RefCell<Vec<Value>>,
     device: &'static str,
+    /// The remote's `host approvals` listing answers this text instead (a broken listing).
+    listing: RefCell<Option<&'static str>>,
+    /// The app has not sent its device id: no `thisMacPhonePrefix`.
+    no_device: std::cell::Cell<bool>,
     scripts: RefCell<Vec<String>>,
 }
 
@@ -31,6 +35,8 @@ impl Fake {
             remote: RefCell::new(remote),
             phones: RefCell::new(Vec::new()),
             device: "mac-device-1",
+            listing: RefCell::new(None),
+            no_device: std::cell::Cell::new(false),
             scripts: RefCell::new(Vec::new()),
         }
     }
@@ -88,7 +94,8 @@ impl Io for Fake {
         assert_eq!(method, "_acpmux/mac_approvers");
         Ok(json!({
             "macs": [], "thisMac": self.own, "thisMacPhones": *self.phones.borrow(),
-            "thisMacPhonePrefix": crate::hub::approvers::peer_phone_prefix(self.device),
+            "thisMacPhonePrefix": (!self.no_device.get())
+                .then(|| crate::hub::approvers::peer_phone_prefix(self.device)),
         }))
     }
 
@@ -105,6 +112,9 @@ impl Io for Fake {
             };
         };
         if script.ends_with("host approvals") {
+            if let Some(text) = *self.listing.borrow() {
+                return Ran { ok: true, stdout: text.into(), stderr: String::new() };
+            }
             return Ran {
                 ok: true,
                 stdout: json!({"macs": macs}).to_string(),
@@ -334,4 +344,42 @@ fn enroll_leaves_another_macs_phones_and_unenroll_takes_only_this_macs() {
     assert_eq!(fake.remote_ids().len(), 3);
     assert_eq!(block(unenroll_with(&fake, &target())).state, StepState::Fixed);
     assert_eq!(fake.remote_ids(), [other.as_str()]);
+}
+
+#[test]
+fn unenroll_changes_nothing_when_the_peers_list_cannot_be_read() {
+    let fake = Fake::new(true, Some(Vec::new()));
+    fake.pair("iphone-1", PHONE_KEY);
+    assert_eq!(run(&fake, true).state, StepState::Fixed);
+    for broken in ["not json", "{}", r#"{"macs":"x"}"#] {
+        *fake.listing.borrow_mut() = Some(broken);
+        let before = fake.scripts.borrow().len();
+        let r = block(unenroll_with(&fake, &target()));
+        assert_eq!(r.state, StepState::Warn, "{broken}: {r:?}");
+        assert!(r.detail.contains("nothing was unenrolled"), "{r:?}");
+        // Only the listing ran: no rm, the Mac and its phone are still there.
+        assert_eq!(fake.scripts.borrow().len(), before + 1);
+        assert_eq!(fake.remote_ids().len(), 2);
+    }
+    *fake.listing.borrow_mut() = None;
+    assert_eq!(block(unenroll_with(&fake, &target())).state, StepState::Fixed);
+    assert!(fake.remote_ids().is_empty());
+}
+
+#[test]
+fn unenroll_refuses_while_phones_are_there_and_the_app_gave_no_device_id() {
+    let fake = Fake::new(true, Some(Vec::new()));
+    fake.pair("iphone-1", PHONE_KEY);
+    assert_eq!(run(&fake, true).state, StepState::Fixed);
+    fake.no_device.set(true);
+    let r = block(unenroll_with(&fake, &target()));
+    assert_eq!(r.state, StepState::Warn, "{r:?}");
+    assert_eq!(fake.remote_ids().len(), 2);
+    // With no phone there, the Mac's own key goes as before.
+    fake.no_device.set(false);
+    fake.unpair("iphone-1");
+    assert_eq!(run(&fake, true).state, StepState::Fixed);
+    fake.no_device.set(true);
+    assert_eq!(block(unenroll_with(&fake, &target())).state, StepState::Fixed);
+    assert!(fake.remote_ids().is_empty());
 }

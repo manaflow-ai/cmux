@@ -913,7 +913,7 @@ The trust rule:
   since a phone raises none on its own Mac.
 - **Removal.** Unpairing a phone here takes it off a peer at the next `host enroll`
   or `machine doctor --fix` (doctor warns until then); `host approvals rm ID` on
-  the peer removes it at once, and `host approvals unenroll PEER` takes this Mac's phones with it.
+  the peer removes it at once, and `host approvals unenroll PEER` takes this Mac's phones with it. Unenroll first reads the peer's list. If it can't (or it can't tell this Mac's phones from another Mac's), it changes nothing and says so.
 - **Unowned objects and local state.** The peer counts the signature only for its
   own pending prompt; the phone reads nothing new, and the Mac forwards the answer
   unchanged.

@@ -144,25 +144,40 @@ pub(crate) async fn unenroll_with(io: &impl Io, t: &PeerTarget<'_>) -> StepResul
         return step(StepState::Skip, "no cmux app on this machine gave an approver key");
     };
     let ssh = |tail: &str| ssh_argv(host, &remote_cli(tail)).map(|argv| io.ssh(&argv));
-    // This Mac's phones there go with it: every id under its prefix.
-    let prefix = text(&view, "thisMacPhonePrefix");
-    let mut ids = vec![id.to_owned()];
-    if !prefix.is_empty()
-        && let Ok(r) = ssh("host approvals")
-        && r.ok
-        && let Ok(listed) = serde_json::from_str::<Value>(&r.stdout)
-    {
-        ids.extend(
-            listed["macs"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .map(|m| text(m, "id"))
-                .filter(|m| m.starts_with(prefix) && crate::hub::approvers::valid_id(m))
-                .map(str::to_owned),
+    // This Mac's phones there go with it: every id under its prefix. Nothing changes until the
+    // list is read, so an unenroll never leaves a phone of this Mac allowing there unsaid.
+    let listed = match ssh("host approvals") {
+        Ok(r) if r.ok => serde_json::from_str::<Value>(&r.stdout).ok().filter(|v| v["macs"].is_array()),
+        _ => None,
+    };
+    let Some(listed) = listed else {
+        return step(
+            StepState::Warn,
+            format!("could not read {host}'s enrolled Macs: nothing was unenrolled"),
         );
+    };
+    let there: Vec<&str> = listed["macs"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|m| text(m, "id"))
+        .filter(|m| crate::hub::approvers::valid_id(m))
+        .collect();
+    let prefix = text(&view, "thisMacPhonePrefix");
+    if prefix.is_empty() && there.iter().any(|m| m.starts_with(crate::hub::approvers::PEER_PHONE)) {
+        // Without the app's device id this Mac cannot tell its phones from another Mac's.
+        return step(
+            StepState::Warn,
+            format!("{host} has paired phones enrolled, and this Mac's app has not said which are its own: nothing was unenrolled"),
+        )
+        .with_fix("Open cmux on this Mac, then run `acpmux host approvals unenroll` again.");
     }
-    for id in &ids {
+    let mut ids: Vec<&str> =
+        there.iter().copied().filter(|m| !prefix.is_empty() && m.starts_with(prefix)).collect();
+    if there.contains(&id) {
+        ids.push(id);
+    }
+    for id in ids {
         match ssh(&format!("host approvals rm {}", shell_quote(id))) {
             Ok(r) if r.ok => {}
             Ok(r) => {
