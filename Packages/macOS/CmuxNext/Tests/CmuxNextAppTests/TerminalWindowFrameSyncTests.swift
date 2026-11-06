@@ -194,6 +194,53 @@ struct TerminalWindowFrameSyncTests {
                 "after a hide and show inside a key spring, a commit showed a frame of another size than its layer (a frame drawn ahead in the old bounds): \(found.frame.prefix(8))")
     }
 
+    /// Case 2d (review of 5840aea3a603, P1 #1, made deterministic): a frame that comes late in a key spring costs the refresh
+    /// it is late for, not the rest of the spring. Both programs hold their frames (synchronized output, mode 2026, which a
+    /// locked grid's resize keeps) for spring frames 2 to 5, so each terminal's frame of that time lands late, with a newer
+    /// size wanted. Before the fix the landing asked for the size wanted at it (`landed` -> `requestWantedFrame`) before
+    /// that turn's size drawn ahead went to Ghostty, so every later frame was drawn a refresh late and showed the previous
+    /// size until the spring ended. At the app's cadence (one commit per refresh), from spring frame 11 on (the release's
+    /// frame lands by frame 8 and the size drawn ahead with it shows a refresh later; 2 refreshes spare), each committed turn
+    /// shows each terminal at its pane's area (check (a)), with its own frame in every turn (check (b)).
+    @Test func aLateFrameInAKeySpringCostsItsOwnRefreshesNotTheRestOfTheSpring() async throws {
+        let screen = try await Screen()
+        defer { screen.close() }
+        let recorder = TurnRecorder(screen)
+        defer { recorder.stop() }
+        try await Self.warmUp(screen)
+        screen.root.context.reduceMotionOverride = false
+        let refresh = Duration.milliseconds(Self.refreshMs(of: screen.window))
+        recorder.start()
+        let pressed = ContinuousClock.now
+        try #require(PaneResize.press("p2", .right, model: screen.model, view: screen.root), "Ctrl-Shift-L on p2 moved nothing")
+        var moving = true, steps = 0, recoverMs = Double.infinity
+        let presenter = TerminalFramePresenter.forWindow(screen.window)
+        let longKeepsBefore = presenter.stats.longKeeps
+        while moving, steps < 240 {
+            let stepped = ContinuousClock.now
+            if steps == 2 { for io in screen.ios { io.send(.output(Data("\u{1B}[?2026h".utf8))) } }
+            if steps == 6 { for io in screen.ios { io.send(.output(Data("\u{1B}[?2026l".utf8))) } }
+            if steps == 11 { recoverMs = TurnRecorder.ms(pressed.duration(to: stepped)) }
+            moving = screen.root.advanceFrame(1.0 / 120)
+            screen.root.layoutSubtreeIfNeeded() // sync-layout: the stepped frame's own layout pass, as the frame tick runs it
+            await TerminalKeyResizeFrameTests.commit()
+            let left = refresh - stepped.duration(to: .now)
+            if left > .zero { try? await Task.sleep(for: left) }
+            steps += 1
+        }
+        await Self.rest(screen)
+        recorder.pause()
+        let turns = recorder.take()
+        try #require(steps >= 16, "the spring ran \(steps) frames: too few after the held frames to see it recover")
+        // SETUP: the hold made a frame late (a pass kept a request past the 2-refresh allowance).
+        try #require(presenter.stats.longKeeps > longKeepsBefore, "SETUP: no frame came late while the programs held their frames: \(presenter.stats)")
+        let found = Self.check(turns, keepAllowedUntilMs: recoverMs)
+        print("S4 m26 late frame in a key spring: \(steps) frames, \(turns.count) turns; after frame 11 bounds (a) failed in \(found.boundsTurns) turns, frame (b) in \(found.frameTurns); presenter \(presenter.stats)")
+        #expect(found.bounds.isEmpty,
+                "after a late frame, bounds check (a) failed in \(found.boundsTurns) committed turns from spring frame 11 on (a terminal stays a refresh behind its pane): \(found.bounds.prefix(8))")
+        #expect(found.frame.isEmpty, "frame check (b) failed in \(found.frameTurns) committed turns: \(found.frame.prefix(8))")
+    }
+
     /// Case 4, the spring's end (m26): the last 3 spring frames and the commit after the landing each present a frame at
     /// their bounds, with no terminal waiting at the landing (the size drawn ahead for the landing is the one presented,
     /// and no repeated `set_size` at that size dropped it). Program output comes in every spring frame; after the landing
