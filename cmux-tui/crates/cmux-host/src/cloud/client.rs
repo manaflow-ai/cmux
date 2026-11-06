@@ -280,6 +280,7 @@ pub fn bind_machine(
             route,
             team: bound.team.clone(),
             issuer: bound.env.grant_issuer(),
+            keyset: bound.keyset.clone(),
         };
         let text = format!("{}\n", carrier.to_json());
         if let Err(e) = store.write(crate::carrier_entry::CARRIER_FILE, &text, 0o600) {

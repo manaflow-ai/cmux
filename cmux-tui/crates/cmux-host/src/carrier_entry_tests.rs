@@ -28,7 +28,7 @@ fn a_carrier_section_names_the_relay_slot_and_its_ticket_command() {
         }
     );
     assert_eq!(
-        route.args(Path::new("/home/cmux/.cmux/bin/cmux-tui")),
+        route.args(Path::new("/home/cmux/.cmux/bin/cmux-tui"), Path::new(GRANT_CONFIG_FILE)),
         [
             "--relay",
             "relay+do://relay.cmux.dev",
@@ -42,6 +42,8 @@ fn a_carrier_section_names_the_relay_slot_and_its_ticket_command() {
             "cloud",
             "--relay-ticket-command-arg",
             "carrier-ticket",
+            "--carrier-grant-config",
+            "/run/cmux/carrier-grant.json",
         ]
     );
 }
@@ -122,6 +124,16 @@ fn the_relay_host_and_port_are_checked_strictly() {
     }
 }
 
+fn keyset() -> Value {
+    serde_json::json!({
+        "version": "0123456789abcdef",
+        "keys": {"k1": {
+            "kty": "OKP", "crv": "Ed25519", "alg": "EdDSA", "kid": "k1",
+            "x": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        }},
+    })
+}
+
 fn route() -> CarrierRoute {
     CarrierRoute {
         relay: "relay+do://relay.cmux.dev".into(),
@@ -136,10 +148,16 @@ fn the_carrier_file_round_trips_and_no_file_is_off() {
         route: route(),
         team: "team_0123456789abcdefghij".into(),
         issuer: "cmux:cloud:production".into(),
+        keyset: keyset(),
     };
     let text = file.to_json().to_string();
-    assert_eq!(parse_file(Some(&text)), Ok(Some(file)));
+    assert_eq!(parse_file(Some(&text)), Ok(Some(file.clone())));
     assert_eq!(parse_file(None), Ok(None));
+    // The session host's copy holds only the public fields.
+    let mut public: Vec<String> =
+        file.grant_config().as_object().unwrap().keys().cloned().collect();
+    public.sort();
+    assert_eq!(public, ["issuer", "keyset", "machine", "team"]);
 }
 
 #[test]
@@ -148,6 +166,7 @@ fn a_malformed_carrier_file_is_refused() {
         route: route(),
         team: "team_0123456789abcdefghij".into(),
         issuer: "cmux:cloud:staging".into(),
+        keyset: keyset(),
     }
     .to_json();
     let mut cases = vec!["not json".to_owned(), "[]".to_owned(), "{}".to_owned()];
@@ -156,12 +175,13 @@ fn a_malformed_carrier_file_is_refused() {
         ("issuer", Value::from("stg")),
         ("slot", Value::from("short")),
         ("ticket", Value::from("x")),
+        ("keyset", serde_json::json!({"version": "0123456789abcdef", "keys": {}})),
     ] {
         let mut value = good.clone();
         value[field] = bad;
         cases.push(value.to_string());
     }
-    for field in ["relay", "machine", "slot", "team", "issuer"] {
+    for field in ["relay", "machine", "slot", "team", "issuer", "keyset"] {
         let mut value = good.clone();
         value.as_object_mut().unwrap().remove(field);
         cases.push(value.to_string());
@@ -177,6 +197,7 @@ fn the_route_flags_of_a_running_session_host_are_read_back() {
     let mut argv: Vec<String> =
         ["cmux-tui", "server", "--remote-ws", "127.0.0.1:1337"].map(String::from).to_vec();
     assert!(args_in(&argv).is_empty());
-    argv.extend(route().args(bin));
-    assert_eq!(args_in(&argv), route().args(bin));
+    let grant = Path::new(GRANT_CONFIG_FILE);
+    argv.extend(route().args(bin, grant));
+    assert_eq!(args_in(&argv), route().args(bin, grant));
 }

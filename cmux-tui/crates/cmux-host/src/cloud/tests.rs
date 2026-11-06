@@ -165,10 +165,11 @@ fn bind_with_carrier(machine: &str) -> String {
 }
 
 /// A bind with a `carrier` section sends the daemon's Noise key and keeps
-/// the route as carrier.json (0600) with the team and the grant issuer.
+/// the route as carrier.json (0600) with the team, the grant issuer and the
+/// bind answer's keyset.
 #[test]
 fn a_carrier_bind_sends_the_noise_key_and_keeps_carrier_json() {
-    use crate::carrier_entry::{CARRIER_FILE, CarrierFile, CarrierRoute, parse_file};
+    use crate::carrier_entry::CARRIER_FILE;
     let fake = Fake::new();
     let rng = SystemRandom::new();
     let mut store = MemoryStore::default();
@@ -181,17 +182,17 @@ fn a_carrier_bind_sends_the_noise_key_and_keeps_carrier_json() {
     assert_eq!(seen.body["daemon_noise_key"], noise);
     assert!(seen.body.get("carrier").is_none(), "the route is not sent back");
     assert_eq!(store.mode_of(CARRIER_FILE), Some(0o600));
+    let kept: Value = serde_json::from_str(&store.read(CARRIER_FILE).unwrap()).unwrap();
     assert_eq!(
-        parse_file(store.read(CARRIER_FILE).as_deref()),
-        Ok(Some(CarrierFile {
-            route: CarrierRoute {
-                relay: "relay+do://relay.cmux.dev".into(),
-                machine: MACHINE.into(),
-                slot: SLOT.into(),
-            },
-            team: TEAM.into(),
-            issuer: "cmux:cloud:development".into(),
-        }))
+        kept,
+        json!({
+            "relay": "relay+do://relay.cmux.dev",
+            "machine": MACHINE,
+            "slot": SLOT,
+            "team": TEAM,
+            "issuer": "cmux:cloud:development",
+            "keyset": { "version": "0123456789abcdef", "keys": {} },
+        })
     );
 }
 

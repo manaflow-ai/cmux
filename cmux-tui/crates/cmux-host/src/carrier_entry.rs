@@ -10,13 +10,18 @@
 //! ```
 //!
 //! At the bind commit the Cloud role keeps it in [`CARRIER_FILE`] (root,
-//! 0600), with the team and the grant issuer the session host's carrier
-//! grant verifier needs:
+//! 0600), with the team, the grant issuer and the bind's keyset that the
+//! session host's carrier grant verifier needs:
 //!
 //! ```json
 //! {"relay": "relay+do://…", "machine": "vm_…", "slot": "…",
-//!  "team": "team_…", "issuer": "cmux:cloud:production"}
+//!  "team": "team_…", "issuer": "cmux:cloud:production",
+//!  "keyset": {"version": "…", "keys": {"<kid>": "…"}}}
 //! ```
+//!
+//! cmux-host copies the public part (issuer, machine, team, keyset) to
+//! [`GRANT_CONFIG_FILE`] (0644), which the session host, running as the work
+//! user, loads with `--carrier-grant-config` (cmux-remote `GrantConfig`).
 //!
 //! A machine without the file has no carrier. With it, the session host also
 //! registers on the machine's relay slot: `--relay <relay> --relay-slot
@@ -52,20 +57,30 @@ pub struct CarrierRoute {
 /// The machine's carrier, kept by the Cloud role at the bind commit.
 pub const CARRIER_FILE: &str = "/var/lib/cmux/carrier.json";
 
+/// The session host's carrier grant config, written by cmux-host.
+pub const GRANT_CONFIG_FILE: &str = "/run/cmux/carrier-grant.json";
+
 /// [`CARRIER_FILE`]'s name in its directory.
 pub const CARRIER_FILE_NAME: &str = "carrier.json";
 
 /// The session host's flags that carry the route.
-const ROUTE_FLAGS: [&str; 4] =
-    ["--relay", "--relay-slot", "--relay-ticket-command", "--relay-ticket-command-arg"];
+const ROUTE_FLAGS: [&str; 5] = [
+    "--relay",
+    "--relay-slot",
+    "--relay-ticket-command",
+    "--relay-ticket-command-arg",
+    "--carrier-grant-config",
+];
 
-/// [`CARRIER_FILE`]: the route, plus the team and the carrier grant issuer
-/// (`cmux:cloud:<environment>`) of the bind.
+/// [`CARRIER_FILE`]: the route, plus the team, the carrier grant issuer
+/// (`cmux:cloud:<environment>`) and the keyset (`{version, keys}`) of the
+/// bind.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CarrierFile {
     pub route: CarrierRoute,
     pub team: String,
     pub issuer: String,
+    pub keyset: Value,
 }
 
 impl CarrierFile {
@@ -76,6 +91,17 @@ impl CarrierFile {
             "slot": self.route.slot,
             "team": self.team,
             "issuer": self.issuer,
+            "keyset": self.keyset,
+        })
+    }
+
+    /// [`GRANT_CONFIG_FILE`]'s text: only public fields.
+    pub fn grant_config(&self) -> Value {
+        serde_json::json!({
+            "issuer": self.issuer,
+            "machine": self.route.machine,
+            "team": self.team,
+            "keyset": self.keyset,
         })
     }
 }
@@ -86,7 +112,7 @@ pub const TICKET_VERB: [&str; 3] = ["host", "cloud", "carrier-ticket"];
 impl CarrierRoute {
     /// The session host's extra arguments. `bin` is the session host's own
     /// binary, which serves the `host` verbs too.
-    pub fn args(&self, bin: &Path) -> Vec<String> {
+    pub fn args(&self, bin: &Path, grant_config: &Path) -> Vec<String> {
         let mut args = vec![
             "--relay".to_owned(),
             self.relay.clone(),
@@ -99,6 +125,8 @@ impl CarrierRoute {
             args.push("--relay-ticket-command-arg".to_owned());
             args.push(arg.to_owned());
         }
+        args.push("--carrier-grant-config".to_owned());
+        args.push(grant_config.display().to_string());
         args
     }
 }
@@ -125,10 +153,9 @@ pub fn parse_file(text: Option<&str>) -> Result<Option<CarrierFile>, String> {
     let Value::Object(root) = root else {
         return Err("carrier.json is not an object".to_owned());
     };
-    if let Some(key) = root
-        .keys()
-        .find(|k| !matches!(k.as_str(), "relay" | "machine" | "slot" | "team" | "issuer"))
-    {
+    if let Some(key) = root.keys().find(|k| {
+        !matches!(k.as_str(), "relay" | "machine" | "slot" | "team" | "issuer" | "keyset")
+    }) {
         return Err(format!("`carrier` has an unknown key {key:?}"));
     }
     let route = route(&root)?;
@@ -137,7 +164,10 @@ pub fn parse_file(text: Option<&str>) -> Result<Option<CarrierFile>, String> {
     if !team.starts_with("team_") || !issuer.starts_with("cmux:cloud:") {
         return Err("`carrier` has no valid team or issuer".to_owned());
     }
-    Ok(Some(CarrierFile { route, team, issuer }))
+    let keyset = root.get("keyset").cloned().unwrap_or(Value::Null);
+    cmux_link::keyset::read_keyset(&keyset)
+        .map_err(|refused| format!("`carrier.keyset` refused: {}", refused.as_str()))?;
+    Ok(Some(CarrierFile { route, team, issuer, keyset }))
 }
 
 /// The route flags in a session host's `argv` (`/proc/<pid>/cmdline`), in

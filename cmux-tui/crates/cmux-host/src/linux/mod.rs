@@ -783,14 +783,24 @@ fn remote_entry(paths: &crate::config::Paths) -> crate::remote_entry::RemoteEntr
 /// The session host's relay carrier flags from `carrier.json`
 /// (`carrier_entry.rs`), read only when root owns it and neither group nor
 /// others may write it. Empty without the file; a refused file is logged
-/// and gives no carrier.
+/// and gives no carrier. With it, the session host's grant config
+/// ([`crate::carrier_entry::GRANT_CONFIG_FILE`], 0644, public fields only)
+/// is written first, so a session host started with these flags finds it;
+/// a newer keyset in it is picked up by the running host at its next
+/// unknown kid.
 fn carrier_args(paths: &crate::config::Paths, bin: &std::path::Path) -> Vec<String> {
-    carrier_route(paths).map(|route| route.args(bin)).unwrap_or_default()
+    use crate::carrier_entry::GRANT_CONFIG_FILE;
+    let Some(file) = carrier_file(paths) else { return Vec::new() };
+    let grant_config = paths.at(GRANT_CONFIG_FILE);
+    let text = format!("{}\n", file.grant_config());
+    if let Err(e) = identity::write_atomic(&grant_config, text.as_bytes(), 0o644) {
+        eprintln!("cmux-host: {}: {e}; carrier off", grant_config.display());
+        return Vec::new();
+    }
+    file.route.args(bin, &grant_config)
 }
 
-pub(crate) fn carrier_route(
-    paths: &crate::config::Paths,
-) -> Option<crate::carrier_entry::CarrierRoute> {
+fn carrier_file(paths: &crate::config::Paths) -> Option<crate::carrier_entry::CarrierFile> {
     use crate::carrier_entry::{CARRIER_FILE, parse_file};
     // SAFETY: geteuid has no preconditions.
     let euid = unsafe { libc::geteuid() };
@@ -799,7 +809,6 @@ pub(crate) fn carrier_route(
         .inspect_err(|why| eprintln!("cmux-host: carrier.json refused ({why}); carrier off"))
         .ok()
         .flatten()
-        .map(|file| file.route)
 }
 
 /// The directory of `carrier.json`, made (0700) when missing; `None` when
@@ -852,7 +861,52 @@ pub(crate) fn trusted_text(
 mod carrier_file_tests {
     use std::os::unix::fs::PermissionsExt;
 
-    use super::trusted_text;
+    use super::{carrier_args, trusted_text};
+    use crate::carrier_entry::{CARRIER_FILE, GRANT_CONFIG_FILE};
+    use crate::config::Paths;
+
+    /// With carrier.json, the session host's flags name its grant config,
+    /// written first with only the public fields (0644); without it, no
+    /// flags and no file.
+    #[test]
+    fn the_carrier_flags_come_with_a_public_grant_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::new(dir.path());
+        let bin = std::path::Path::new("/home/cmux/.cmux/bin/cmux-tui");
+        assert!(carrier_args(&paths, bin).is_empty());
+        assert!(!paths.at(GRANT_CONFIG_FILE).exists());
+        let carrier = serde_json::json!({
+            "relay": "relay+do://relay.cmux.dev",
+            "machine": "vm_0123456789abcdefghij",
+            "slot": "AAAAAAAAAAAAAAAAAAAAAA",
+            "team": "team_0123456789abcdefghij",
+            "issuer": "cmux:cloud:production",
+            "keyset": {"version": "0123456789abcdef", "keys": {"k1": {
+                "kty": "OKP", "crv": "Ed25519", "alg": "EdDSA", "kid": "k1",
+                "x": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            }}},
+        });
+        let file = paths.at(CARRIER_FILE);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, carrier.to_string()).unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let args = carrier_args(&paths, bin);
+        let grant = paths.at(GRANT_CONFIG_FILE);
+        assert_eq!(
+            args[args.len() - 2..],
+            ["--carrier-grant-config".to_owned(), grant.display().to_string()]
+        );
+        let written: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&grant).unwrap()).unwrap();
+        assert_eq!(
+            written,
+            serde_json::json!({
+                "issuer": carrier["issuer"], "machine": carrier["machine"],
+                "team": carrier["team"], "keyset": carrier["keyset"],
+            })
+        );
+        assert_eq!(std::fs::metadata(&grant).unwrap().permissions().mode() & 0o777, 0o644);
+    }
 
     /// carrier.json counts only as a regular file owned by the agent's uid
     /// that neither group nor others may write.
