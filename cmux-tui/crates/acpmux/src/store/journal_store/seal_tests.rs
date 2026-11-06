@@ -8,7 +8,7 @@ use serde_json::json;
 const CHAT: &str = "chat-a";
 
 fn config() -> StoreConfig {
-    StoreConfig { journal: true, ..StoreConfig::default() }
+    StoreConfig::default()
 }
 
 fn open_store(home: &Path) -> Result<Box<dyn Store>> {

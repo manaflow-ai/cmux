@@ -24,7 +24,6 @@ const SYNC: Duration = Duration::from_millis(400);
 fn hub(home: &Path, journal: &SimStorage) -> Arc<crate::hub::Hub> {
     let mut config = Config::default();
     config.store.mode = StoreMode::Local;
-    config.store.journal = true;
     let journal_config = cmux_journal::Config {
         retry_min: Duration::from_millis(1),
         retry_max: Duration::from_millis(5),
@@ -305,7 +304,6 @@ async fn a_replay_during_another_catch_up_sends_the_tail_past_the_saved_last_seq
         store.flush().unwrap_or_else(|e| panic!("{e:#}"));
     }
     // A new daemon with the journal on, its logs read later (`Hub::new_deferred`).
-    config.store.journal = true;
     let journal = SimStorage::new(64);
     let journal_config = cmux_journal::Config {
         retry_min: Duration::from_millis(1),
