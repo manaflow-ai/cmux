@@ -278,15 +278,40 @@ import Testing
             spare.enqueue { steps.append("build") }
         }
         frame(after: 16.7)
+        #expect(steps.isEmpty, "background work ran in the link's first tick")
+        frame(after: 16.7)
         #expect(steps == ["reserve"], "an on-time frame runs background work")
         frame(after: 55)
         #expect(steps == ["reserve"], "the spare's build ran in a frame 55 ms late")
         frame(after: 28)
         #expect(steps == ["reserve"], "the spare's build ran in a frame 28 ms late")
-        #expect(shown == 3, "visible work waited in a late frame")
+        #expect(shown == 4, "visible work waited in a late frame")
         frame(after: 16.7)
         #expect(steps == ["reserve", "build"], "the build did not run once the frames came on time")
-        #expect(shown == 4)
+        #expect(shown == 5)
+    }
+
+    /// SWITCH STALL 2 (cmux22, macOS 27, 60 Hz, xctrace of f6bf74d8d73): the display link is stopped
+    /// before a Cmd-N; its first tick 21 to 46 ms after the key renders the new workspace, and the New
+    /// Tab palette list and the idle spare (background, 4 to 5 ms) still ran in that tick, as it had no
+    /// tick before it to be late after. The first tick after the link starts renders what started it: it
+    /// has no idle time. The next on-time tick has.
+    @Test func backgroundWorkWaitsOutTheFirstTickAfterTheLinkStarts() {
+        let clock = BudgetClock()
+        let budget = MainFrameBudget(uptimeNanos: clock.read)
+        let scheduler = MainWorkScheduler.testing(budget: budget) { _ in FakeFrameLink() }
+        let palette = FrameBatchQueue(owner: "NewTab.paletteActions", budgeted: .background, on: scheduler)
+        let rows = FrameBatchQueue(owner: "SidebarRows", budgeted: .visible, on: scheduler)
+        var listed = 0, shown = 0
+        palette.enqueue { listed += 1 }
+        rows.enqueue { shown += 1 }
+        clock.advance(ms: 30)
+        scheduler.frameDidFire(timestamp: 10, refreshInterval: 1.0 / 60)
+        #expect(shown == 1, "the first tick did not render the visible work")
+        #expect(listed == 0, "background work ran in the first tick after the link started")
+        clock.advance(ms: 16.7)
+        scheduler.frameDidFire(timestamp: 10 + 1.0 / 60, refreshInterval: 1.0 / 60)
+        #expect(listed == 1, "background work did not run in the on-time tick after it")
     }
 
     /// An on-time frame after a long render pass (layout, display and commit past half a refresh) has no
