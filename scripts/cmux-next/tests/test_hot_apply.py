@@ -236,6 +236,31 @@ class FindSocket(unittest.TestCase):
         self.stub(lambda argv: subprocess.CompletedProcess(argv, 0, '{"pid": 4242}', ""), argv0="cmux-tui")
         self.assertEqual(self.hot.find_socket(self.app, Path("cmux")), "/tmp/s.sock")
 
+    @unittest.skipUnless(Path("/proc/self/exe").exists(), "Linux /proc")
+    def test_a_linux_daemon_with_only_its_basename_in_ps_is_found_by_proc_exe(self):
+        # A real process whose executable is in the app: a copy of sleep at APP/Contents/Resources/bin.
+        tmp = Path(tempfile.mkdtemp(prefix="hot-apply-proc-"))
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(tmp)])
+        self.app = tmp / "cmux NIGHTLY.app"
+        bin_dir = self.app / self.hot.BIN
+        bin_dir.mkdir(parents=True)
+        sleeper = bin_dir / "cmux-tui"
+        sleeper.write_bytes(Path(subprocess.run(["sh", "-c", "command -v sleep"], capture_output=True,
+                                                text=True).stdout.strip()).resolve().read_bytes())
+        sleeper.chmod(0o755)
+        child = subprocess.Popen(["cmux-tui", "30"], executable=str(sleeper))
+        self.addCleanup(child.wait)
+        self.addCleanup(child.kill)
+
+        def run(argv, **kwargs):
+            if argv[0] == "ps":  # basename only, as /proc/self/exe re-runs show
+                return subprocess.CompletedProcess(argv, 0, f"{child.pid} cmux-tui\n", "")
+            if argv[0] == "lsof":
+                return subprocess.CompletedProcess(argv, 0, f"p{child.pid}\nn/tmp/s.sock\n", "")
+            return subprocess.CompletedProcess(argv, 0, f'{{"pid": {child.pid}}}', "")
+        self.hot.subprocess.run = run
+        self.assertEqual(self.hot.find_socket(self.app, Path("cmux")), "/tmp/s.sock")
+
     def test_a_status_that_never_answers_is_not_taken_for_no_daemon(self):
         def hang(argv):
             raise subprocess.TimeoutExpired(argv, 10)

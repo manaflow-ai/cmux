@@ -246,6 +246,48 @@ fn a_new_chat_starts_on_a_new_machine_sends_waits_and_answers_the_reply() {
 }
 
 #[test]
+fn the_answer_times_each_step_it_ran() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x", "--name", "dev"]))
+    else {
+        panic!()
+    };
+    // Each fake step takes 5 s.
+    let stages = &answer["stages_ms"];
+    assert_eq!(stages["total"], 15_000);
+    assert_eq!(stages["more_steps"], 0);
+    let steps: Vec<(&str, u64, u64)> = stages["steps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| {
+            (s["step"].as_str().unwrap(), s["at"].as_u64().unwrap(), s["ms"].as_u64().unwrap())
+        })
+        .collect();
+    assert_eq!(
+        steps,
+        [
+            ("cloud list-machines", 0, 5_000),
+            ("cloud start-session", 5_000, 5_000),
+            ("cloud exec", 10_000, 5_000)
+        ]
+    );
+}
+
+#[test]
+fn a_failure_carries_the_steps_it_ran() {
+    let mut fake = Fake::new(vec![ok(json!({"account": {"signed_in": false}, "machines": []}))]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &request(&["--prompt", "x"])) else {
+        panic!()
+    };
+    assert_eq!(error["details"]["stages_ms"]["steps"][0]["step"], "cloud list-machines");
+}
+
+#[test]
 fn without_wait_it_answers_once_the_prompt_is_sent() {
     let mut fake = Fake::new(vec![
         signed_in(),
@@ -727,7 +769,8 @@ fn the_relay_answers_a_new_chat_with_no_link_to_the_machine() {
         signed_in(),
         made(),
         relayed(json!({"session_id": "relay-1", "reply": "4", "stop_reason": "end_turn",
-                       "first_text_ms": 2100, "total_ms": 2500})),
+                       "first_text_ms": 2100, "total_ms": 2500, "link_login_ms": 300, "sent_ms": 900,
+                       "platform_stages_ms": {"socket": 700}})),
     ]);
     let asked = request(&["--prompt", "What is 2+2?", "--cwd", "/home/cmux/w", "--wait"]);
     let Outcome::Done(answer) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
@@ -735,6 +778,10 @@ fn the_relay_answers_a_new_chat_with_no_link_to_the_machine() {
     assert_eq!(answer["path"], "relay");
     assert_eq!(answer["session_id"], "relay-1");
     assert_eq!(answer["first_text_ms"], 2100);
+    // The app's stage times pass on; one it did not report is left out.
+    assert_eq!((&answer["link_login_ms"], &answer["sent_ms"]), (&json!(300), &json!(900)));
+    assert_eq!(answer["platform_stages_ms"], json!({"socket": 700}));
+    assert!(answer.get("queued_ms").is_none());
     assert_eq!(answer["stop_reason"], "end_turn");
     assert!(answer["follow_up"]["wait"].as_str().unwrap().contains("acp wait relay-1"));
     assert_eq!(
