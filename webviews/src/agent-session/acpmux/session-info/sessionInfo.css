@@ -169,6 +169,12 @@
   ) {
   margin-right: var(--cv-inset-end);
 }
+/* A new chat's hero question and the lists under it center on the composer's column, not the whole
+   pane, so they move left with it while the panel pushes. */
+.acpmux-shell[data-session-info-chat-placement="push"] > .acpmux-main :is(.acpmux-empty, .acpmux-home-area) {
+  padding-left: var(--cv-inset);
+  padding-right: var(--cv-inset-end);
+}
 .acpmux-shell .acpmux-header {
   width: calc(
     100% + var(--acpmux-summary-push, 0px) + var(--acpmux-session-info-push, 0px) +
@@ -186,17 +192,18 @@
   margin-right: var(--acpmux-session-info-inset);
 }
 /* The composer's glass (composerStates.css, cmux #24566; Leo, 2026-10-24: "the composer itself also
-   being a little bit glassy and stuff, as well as the session rail"): on an opaque window the composer
-   surface at 70% under a 24px blur, over art or a see-through window 50% under the shared blur. Lens and
+   being a little bit glassy and stuff, as well as the session rail"): the popover glass level, on an
+   opaque window the composer surface at 70% under a 24px blur, over art or a see-through window at the
+   level's art tint (50%) under the same blur. Lens and
    Spectrum keep the liquid glass's own tint and Reduce Transparency the solid surface (glass.css). It
    blurs its own box only, the same cost as the composer's card over the scrolling transcript. */
 :root:not([data-cmux-see-through]) .acpmux-session-info.ui-glass {
-  --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid, var(--glass-surface)) 70%, transparent);
-  --glass-backdrop: blur(24px) saturate(1.25);
+  --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid, var(--glass-surface)) var(--ds-glass-popover-tint), transparent);
+  --glass-backdrop: var(--ds-glass-popover-blur);
 }
 :root[data-cmux-see-through]:not([data-glass="lens"], [data-glass="spectrum"]) .acpmux-session-info.ui-glass {
-  --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid, var(--glass-surface)) 50%, transparent);
-  --glass-backdrop: var(--surface-blur);
+  --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid, var(--glass-surface)) var(--ds-glass-popover-art-tint), transparent);
+  --glass-backdrop: var(--ds-glass-popover-blur);
 }
 .acpmux-session-info.ui-glass {
   /* glass-opaque-allow: the Reduce Transparency fill only, the composer's (glass.css applies it under that setting) */
@@ -1278,6 +1285,11 @@ button.acpmux-session-info-port:focus-visible {
   position: relative;
   padding: 0;
 }
+/* A wakeup or cron job whose call the transcript holds is a button too (it shows the call): the
+   button carries the row's padding, so it lights edge to edge as a command's row does. */
+.acpmux-session-info-task--opens {
+  padding: 0;
+}
 .acpmux-session-info-task--command > .acpmux-session-info-stop {
   position: absolute;
   top: 50%;
@@ -1674,4 +1686,14 @@ button.acpmux-session-info-scope__parent:focus-visible {
       background-color var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out),
       border-color var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out);
   }
+}
+
+/* The room held for a long list's rows not drawn yet (WindowedRows.tsx): its height alone, set from
+   the drawn rows' pitch. */
+ul > li.acpmux-session-info-rows-rest {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  pointer-events: none;
 }

@@ -559,7 +559,13 @@ async fn forward_inner(
             obj.remove("name");
             obj.insert("sessionId".into(), Value::String(id.clone()));
         }
-        super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut p);
+        super::remote_guard::mark_forwarded_with_person(
+            conn.origin,
+            conn.auth,
+            params,
+            &mut p,
+            conn.is_person(),
+        );
         // A held prompt names its hold to the peer: a link guest's waits with `approval` left
         // off here, which a peer that reads only `approval` would run unapproved.
         if held

@@ -890,12 +890,26 @@ impl Hub {
             let started = Box::pin(self.cold_start(session, profile, stops, off));
             // The person's start has no deadline, one that asked to wait on its harness ends when
             // the harness stops working (`waiting_start`); an agent's or a lane's has a deadline.
-            let started = if session.person.load(Ordering::SeqCst) {
-                self.waiting_start(session, budget, started, None).await
-            } else if session.wait_start.load(Ordering::SeqCst) {
-                self.waiting_start(session, budget, started, Some(StartWatch::default())).await
-            } else {
-                tokio::time::timeout(budget, started).await.ok()
+            let waited = async {
+                if session.person.load(Ordering::SeqCst) {
+                    self.waiting_start(session, budget, started, None).await
+                } else if session.wait_start.load(Ordering::SeqCst) {
+                    self.waiting_start(session, budget, started, Some(StartWatch::default())).await
+                } else {
+                    tokio::time::timeout(budget, started).await.ok()
+                }
+            };
+            // A retry's start ends at its turn's Stop (`start_retry.rs`), however it waits (the
+            // person may have taken the chat since its first try), as any start ends at a stop
+            // of the chat: what it started is ended, and nothing runs after it.
+            let raced = tokio::select! {
+                started = waited => Some(started),
+                () = super::start_retry::stopped_during_retry(session) => None,
+            };
+            let Some(started) = raced else {
+                self.end_cold_start(session).await;
+                self.append(session, "mux", "agent_start_stopped", json!({}));
+                return Err(super::turns::stopped_before_prompt());
             };
             let failed = match started {
                 Some(Ok(child)) => return Ok(self.keep_account_home(session, profile, child)),
@@ -1124,7 +1138,12 @@ impl Hub {
                 .as_ref()
                 .and_then(|m| m.get("currentModeId"))
                 .and_then(Value::as_str)
-                .unwrap_or("default")
+                // A Web start begins in Manual until the remote guard settles it.
+                .unwrap_or(if meta.remote_origin {
+                    "default"
+                } else {
+                    crate::claude_stdio::OWN_MODE
+                })
                 .to_owned();
             // A remote chain never runs in full access (remote_sandbox.rs),
             // even when a transfer moved a full-access chat here.
@@ -1865,7 +1884,7 @@ tokio::task_local! {
 }
 
 /// An agent start that a stop (`acpmux session stop`) came after the request for.
-fn stopped_while_starting() -> RpcError {
+pub(super) fn stopped_while_starting() -> RpcError {
     RpcError::invalid_params("the session was stopped while its agent started")
 }
 

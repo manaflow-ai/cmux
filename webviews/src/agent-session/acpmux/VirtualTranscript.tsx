@@ -117,7 +117,7 @@ import {
   type ChatFind,
 } from "./conversation/chatFind";
 import { ChatFindBar } from "./conversation/ChatFindBar";
-import { THINKING, WORKED, turnFooterFrom, WORKING, retryTargetIn } from "./conversation/turns";
+import { ACTIVITY_LINE, THINKING, WORKED, turnFooterFrom, WORKING, retryTargetIn } from "./conversation/turns";
 import { ArrowDown } from "./conversation/icons";
 import { installWheelGlide } from "./wheelGlide";
 import { installDockWheelHold, installWheelPassThrough } from "./wheelPassThrough";
@@ -139,7 +139,7 @@ import { holdWebSwap, WEB_SWAP_KEPT_SCROLL } from "../../pages/shared/webSwap";
 import { playChatSwitch, type ChatSwitchPlay } from "./chatSwitch";
 import { chatSwitchMotion } from "./chatSwitch.experiment";
 import { callNative } from "./callNative";
-import { type NativeRegistry, type OpenDiff } from "./rows/rowProps";
+import { type NativeRegistry, type OpenDiff, type RowProps } from "./rows/rowProps";
 import { NoticeRow } from "./rows/NoticeRow";
 import { defaultRegistry, readOnlyRegistry } from "./rows/registry";
 import { workEnds } from "./conversation/waterfallSpans";
@@ -271,32 +271,34 @@ function sameFields(previous: AcpmuxRow, next: AcpmuxRow): boolean {
   return keys.length === Object.keys(before).length && keys.every((key) => Object.is(before[key], after[key]));
 }
 
+/// Whether a row draws the same: renderers use id and version as their draw identity, so a clone of
+/// an unchanged row (snapshot rebuilding clones them when a prompt is sent) draws the same. The
+/// frame's own flags (`below`, `ended`) are compared too, as they are read outside the renderer.
+function sameRowDraw(before: AcpmuxRow, after: AcpmuxRow): boolean {
+  // The running turn's live, working and activity lines are drawn by turns.ts on every snapshot
+  // with a version that does not cover all they say (the call in flight, who a send goes to, its
+  // time, the clock offset): those are in their fields, so they redraw whenever a field changes.
+  if (after.kind === THINKING || after.kind === WORKING || after.kind === ACTIVITY_LINE)
+    return sameFields(before, after);
+  return (
+    before.id === after.id &&
+    before.version === after.version &&
+    before.below === after.below &&
+    before.ended === after.ended &&
+    // A turn footer's Timeline also redraws when a background shell ends after the turn, which
+    // leaves its version as it was (conversation/waterfallSpans.ts workEnds, cached per array).
+    (after.kind !== "turnSummary" || workEnds(before.turnWork) === workEnds(after.turnWork))
+  );
+}
+
 export function sameRowFrame(previous: Record<string, unknown>, next: Record<string, unknown>): boolean {
   const keys = Object.keys(next);
   if (keys.length !== Object.keys(previous).length) return false;
   return keys.every((key) => {
     if (key === "children") return true;
-    if (key === "row") {
-      // Snapshot rebuilding can clone unchanged rows when a prompt is sent. Row renderers already
-      // use id/version as their draw identity; comparing the object here made every mounted frame
-      // repaint on that send even though its content had not changed. Keep the frame's own flags in
-      // the comparison because they are read outside the child renderer.
-      const before = previous.row as AcpmuxRow;
-      const after = next.row as AcpmuxRow;
-      // The running turn's live and working lines are drawn by turns.ts on every snapshot with a
-      // fixed version: what they say (the call in flight, its time, the clock offset) is in their
-      // fields, so they redraw whenever a field changes.
-      if (after.kind === THINKING || after.kind === WORKING) return sameFields(before, after);
-      return (
-        before.id === after.id &&
-        before.version === after.version &&
-        before.below === after.below &&
-        before.ended === after.ended &&
-        // A turn footer's Timeline also redraws when a background shell ends after the turn, which
-        // leaves its version as it was (conversation/waterfallSpans.ts workEnds, cached per array).
-        (after.kind !== "turnSummary" || workEnds(before.turnWork) === workEnds(after.turnWork))
-      );
-    }
+    // Snapshot rebuilding can clone unchanged rows when a prompt is sent; comparing the object here
+    // made every mounted frame repaint on that send even though its content had not changed.
+    if (key === "row") return sameRowDraw(previous.row as AcpmuxRow, next.row as AcpmuxRow);
     if (key === "referenceScope")
       return sameReferenceScope(
         previous.referenceScope as ReferenceScope | undefined,
@@ -305,6 +307,35 @@ export function sameRowFrame(previous: Record<string, unknown>, next: Record<str
     return Object.is(previous[key], next[key]);
   });
 }
+
+/// What a row's content draws from (the registry component's props, and the component).
+type RowContentProps = { Component: React.ComponentType<RowProps> } & RowProps;
+
+/// A row's content, drawn again only when what it draws from changes: never for its frame's place
+/// (`top`, `index`, `gapBelow`), focus (`tabStop`, `active`, `selected`) or entrance flags. A scroll
+/// moves every mounted frame each time a row above is measured or an older page lands, and the
+/// roving tab stop follows the first row in view; with the content drawn inside the frame, each such
+/// change drew every mounted row's whole content again (Leo, 2026-11-06: "Still seeing the flicker
+/// re-render. Sometimes when I scroll up").
+///
+/// The row is compared by object, not by `sameRowDraw`: a renderer may draw from fields its row's
+/// version does not cover (ActivityLineRow's `doingSendTo`), and only its own comparator knows
+/// which. A new row object reaches the renderer, whose memo decides; a history row keeps its object
+/// across snapshots, so a scroll still draws none of them again.
+export const RowContent = React.memo(
+  function RowContent({ Component, ...props }: RowContentProps) {
+    // Counted when committed: a render React set aside (an interrupted concurrent pass) drew nothing.
+    useLayoutEffect(() => {
+      if (acpmuxPerf.enabled) acpmuxPerf.render(`content:${props.row.id}`);
+    });
+    return <Component {...props} />;
+  },
+  (previous, next) => {
+    const keys = Object.keys(next) as (keyof RowContentProps)[];
+    if (keys.length !== Object.keys(previous).length) return false;
+    return keys.every((key) => Object.is(previous[key], next[key]));
+  },
+);
 
 /// One transcript row. It reports its drawn height before the frame paints whenever it mounts or
 /// its content, width or expansion changes; the transcript's ResizeObserver reports later changes
@@ -420,9 +451,22 @@ const RowFrame = React.memo(function RowFrame({
     [index, onRowKeyDown],
   );
   const rowTabStop = rovingTabStopProps(tabStop, handleKeyDown);
-  const content = (
-    <ReferenceScopeContext.Provider value={referenceScope ?? null}>{children}</ReferenceScopeContext.Provider>
-  );
+  // A frame drawn again for its place hands down the scope object it had while that names the same
+  // repositories (sameRowFrame compares it so): a new object would redraw its content's chips.
+  const [scope, setScope] = useState(referenceScope);
+  if (scope !== referenceScope && !sameReferenceScope(scope, referenceScope)) setScope(referenceScope);
+  const content = <ReferenceScopeContext.Provider value={scope ?? null}>{children}</ReferenceScopeContext.Provider>;
+  useLayoutEffect(() => {
+    if (acpmuxPerf.enabled) acpmuxPerf.render(`frame:${row.id}`);
+  });
+  useLayoutEffect(() => {
+    // Mounts and same-commit remounts, counted only while measuring (loadDebug.ts `loadTick`).
+    const id = row.id;
+    acpmuxPerf.rowMounted(id);
+    return () => acpmuxPerf.rowUnmounted(id);
+    // A row keeps its id for its whole mount (its key).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useLayoutEffect(() => {
     if (entering) onEntered(row.id);
     // Only the first mount enters.
@@ -2676,8 +2720,12 @@ export function VirtualTranscript({
             holdUnderStack(host, stack, effect.getTiming(), stack.animation.currentTime);
           }
         } else {
-          stack.from = delta;
-          const frames = [{ translate: `0 ${delta}px` }, { translate: "0 0" }];
+          // Only what this pass added slides: what the fold's own frames already moved is drawn where
+          // it is. A call that joined the group after its fold ended slid the whole fold again
+          // from the row's first height, and the row jumped back and moved a second time
+          // (Leo, 2026-11-06: "things clash with other things with animations going haywire").
+          stack.from = delta - stack.delta;
+          const frames = [{ translate: `0 ${stack.from}px` }, { translate: "0 0" }];
           const duration = foldMs(host);
           if (duration > 0) {
             const timing = { duration, easing: foldMotion.easing(host) };
@@ -3916,8 +3964,13 @@ export function VirtualTranscript({
   };
   // Jump to latest remains shown once the reader is far behind, avoiding flicker near the threshold.
   const below = layout.totalHeight - height - (renderScroll.top - origin);
+  // A fold the reader closed at the very bottom keeps the view at its end on each of its frames
+  // (`beginBottomStackFold`; an open there grows down and stops following): a render mid-fold that
+  // lays out ahead of that pin (a call that joins the group) is not the reader falling behind, and
+  // never brings the arrow up (Leo, 2026-11-06: "way too discontinuous", the arrow came up mid-fold
+  // under load).
   if (renderFollowing || below <= FOLLOW_BOTTOM_DEADBAND_PX) jumpShown.current = false;
-  else if (below > JUMP_LATEST_DISTANCE) jumpShown.current = true;
+  else if (below > JUMP_LATEST_DISTANCE && !bottomStackFold.current) jumpShown.current = true;
   const behind = jumpShown.current;
   // CHAT SWITCH PLAY: the last layout effect, so the new chat's rows are placed and scrolled to where
   // they will be drawn when the play picks the visible ones (CHAT SWITCH MOTION above).
@@ -4102,7 +4155,8 @@ export function VirtualTranscript({
                         githubRepository={githubRepository ?? rowRepositories?.[absoluteIndex]}
                         referenceScope={scopeAt(absoluteIndex)}
                       >
-                        <Component
+                        <RowContent
+                          Component={Component}
                           row={row}
                           replyActions={actions}
                           sessionId={sessionId}

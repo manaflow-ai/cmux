@@ -10,6 +10,8 @@ final class WorkspaceRowView: SidebarRowView {
     /// Fades a clipped title and scrolls it while the pointer rests on the
     /// row (TitleFade); NSTextField would end it in an ellipsis instead.
     let title = MarqueeLabel(gate: Motion.sidebar)
+    /// A hover asked for the title's marquee: it starts at the end of the row's next `layout()` (WorkspaceRowView+Rendering).
+    var marqueeOnLayout = false
     let subtitle = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     /// Expanded rows (`sidebar.density`, cx-13w3; WorkspaceRowView+Expanded): the age and the meta line.
     let timeLabel = SidebarRowView.label(font: SidebarStyle.subtitleFont), metaLabel = SidebarRowView.label(font: SidebarStyle.subtitleFont)
@@ -176,6 +178,9 @@ final class WorkspaceRowView: SidebarRowView {
     override var interactiveSubviews: [NSView] {
         ([closeSlot.made, moreSlot.made, pinSlot.made, treeFoldSlot.made, audioSlot.made] as [NSView?]).compactMap(\.self)
     }
+    override var hoverPaintedControls: [NSView] {
+        ([closeSlot.made, moreSlot.made, pinSlot.made, treeFoldSlot.made] as [NSView?]).compactMap(\.self)
+    }
     override var debugArchived: Bool { isArchived }
     override var debugIcon: String? {
         switch iconKind {
@@ -290,7 +295,7 @@ final class WorkspaceRowView: SidebarRowView {
             animateTitleChange(from: priorTitle, to: shownTitle, variant: tunables.workspaceTitleMotion,
                                placeholder: isShowingPlaceholder || isPlaceholderRow)
         }
-        title.font = ws.titleWeight.map { NSFont.systemFont(ofSize: SidebarStyle.titleFont.pointSize, weight: $0.font) } ?? SidebarStyle.titleFont
+        title.font = ws.titleWeight.map { SidebarStyle.titleFont(weight: $0.font) } ?? SidebarStyle.titleFont
         subtitle.setFont(SidebarStyle.subtitleFont)
         subtitle.setString(shown.now.map(Strings.rowNow) ?? row.detail ?? "")
         hasSubtitle = row.detail != nil

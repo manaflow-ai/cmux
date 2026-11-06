@@ -168,7 +168,9 @@ export function markScrolling(element: Element, timers: ScrollTimers = defaultTi
     element.removeAttribute(SCROLLING_ATTRIBUTE);
     return;
   }
-  element.setAttribute(SCROLLING_ATTRIBUTE, "");
+  // Set once per scroll, not on every step: each set is a DOM change that restyles the scroller and
+  // wakes every observer of the mark (Session Info's body took one per frame while it scrolled).
+  if (!element.hasAttribute(SCROLLING_ATTRIBUTE)) element.setAttribute(SCROLLING_ATTRIBUTE, "");
   pending.set(
     element,
     timers.set(() => {

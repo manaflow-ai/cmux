@@ -67,18 +67,53 @@ test("the background command hint has no delayed entrance animation", () => {
   }
 });
 
-// Leo, 2026-10-24: "if the command is too long, hide it under the run in background? ... hide it
-// when hovering in that area". Hidden, the hint takes no room on the live line, so a long command
-// runs to its end; on hover it takes its room back and the command's tail goes under it.
-test("the hidden background command hint takes no room on the live line", () => {
+// Leo, 2026-11-06, hovering the chat's right edge over "8s · 2m5 1.4K toke": "this flickers". The hint
+// keeps its room while it is offered (backgroundHintRoom.experiment.ts), so pointing at the line
+// changes its opacity alone: no rule under the pointer moves it or gives it room it lacked at rest.
+test("pointing at the live line changes only the background command hint's opacity", () => {
   const hidden = rules.find(
     ({ rule, media }) => !media.length && rule.selectorText === ":is(.cv-worked, .cv-activity) .cv-command__bg",
   );
-  expect(hidden?.rule.style.position).toBe("absolute");
+  expect(hidden?.rule.style.position).toBe("");
+  expect(hidden?.rule.style.flexShrink).toBe("0");
   expect(hidden?.rule.style.opacity).toBe("0");
-  const hovered = rules.find(
-    ({ rule, media }) => !media.length && rule.selectorText === ":is(.cv-worked, .cv-activity):hover .cv-command__bg",
+  const pointed = rules.filter(
+    ({ rule }) => rule.selectorText.includes(".cv-command__bg") && /:hover|:focus-visible/.test(rule.selectorText),
   );
-  expect(hovered?.rule.style.position).toBe("static");
-  expect(hovered?.rule.style.opacity).toBe("1");
+  expect(pointed.length).toBeGreaterThan(0);
+  // Paint may change under the pointer (its own lift); nothing that lays it out may.
+  const layout =
+    /^(position|display|inset|top|right|bottom|left|width|height|min-|max-|margin|padding|flex|gap|font|letter-spacing)/;
+  for (const { rule } of pointed)
+    for (let index = 0; index < rule.style.length; index++)
+      expect({
+        rule: rule.selectorText,
+        layout: layout.test(rule.style.item(index)) && rule.style.item(index),
+      }).toEqual({
+        rule: rule.selectorText,
+        layout: false,
+      });
+});
+
+// Leo, 2026-11-06, on a dark box behind a received line's "just now": "this just now has this weird
+// background". The line's action slot lay over the preview's tail on a fill of the pane's own ground,
+// which a translucent window shows as a plate. It keeps its room at the line's end instead, and no
+// rule paints under it, the held line's (multiplayer.css) included.
+test("a received line's action slot keeps its room and paints no plate", () => {
+  const slot = rules.find(({ rule, media }) => !media.length && rule.selectorText === ".cv-received__hover");
+  expect(slot?.rule.style.position).toBe("");
+  expect(slot?.rule.style.flexShrink).toBe("0");
+  const held = new JSDOM("<!doctype html>").window.document;
+  const sheet = held.createElement("style");
+  sheet.textContent = readFileSync(
+    new URL("../src/agent-session/acpmux/multiplayer/multiplayer.css", import.meta.url),
+    "utf8",
+  );
+  held.head.append(sheet);
+  const heldRules = Array.from(sheet.sheet!.cssRules).filter((rule): rule is CSSStyleRule => "selectorText" in rule);
+  for (const { rule } of [...rules, ...heldRules.map((rule) => ({ rule }))])
+    if (rule.selectorText.includes(".cv-received__hover")) {
+      expect(rule.style.getPropertyValue("background")).toBe("");
+      expect(rule.style.getPropertyValue("background-image")).toBe("");
+    }
 });
