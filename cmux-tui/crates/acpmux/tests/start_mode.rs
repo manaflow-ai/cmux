@@ -224,13 +224,17 @@ async fn a_pick_in_a_chat_holds_for_that_chat_and_new_chats_start_in_the_default
     assert_eq!(answer["source"], "config", "{answer}");
     assert_eq!(app.chat(&dir, "claude").await.1, "bypassPermissions");
 
-    // A unix socket client (an agent, a script) cannot widen a chat to full
-    // access.
+    // A unix socket client (an agent, a script) may move a chat to Claude Code's own Auto under
+    // the person's full-access start level (`start_mode.rs` `may_move_without_person`), but to
+    // no other mode that does not ask.
     let mut agent = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
     let (chat, _) = agent.chat(&dir, "claude").await;
     let r = agent.call("session/set_mode", json!({"sessionId": chat, "modeId": "default"})).await;
     assert!(r.get("error").is_none(), "{r}");
     let r = agent.call("session/set_mode", json!({"sessionId": chat, "modeId": "auto"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let r =
+        agent.call("session/set_mode", json!({"sessionId": chat, "modeId": "acceptEdits"})).await;
     assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{r}");
     assert_eq!(last_pick(&dir), Value::Null);
     let _ = std::fs::remove_dir_all(&dir);
