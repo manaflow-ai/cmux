@@ -10,11 +10,15 @@ export interface AcpmuxRequestMeta {
   author?: unknown;
   beforePromptId?: unknown;
   callerSession?: unknown;
+  class?: unknown;
   cliHost?: unknown;
+  compression?: unknown;
   context?: unknown;
   cwd?: unknown;
   decisionNonce?: unknown;
+  disallowedTools?: unknown;
   dispatchSource?: unknown;
+  effort?: unknown;
   env?: unknown;
   ephemeral?: unknown;
   forceAdmit?: unknown;
@@ -62,13 +66,16 @@ export interface AcpmuxRequestMeta {
   steerOnly?: unknown;
   supersede?: unknown;
   surface?: unknown;
+  tags?: unknown;
   teamMessage?: unknown;
   throughSeq?: unknown;
+  topic?: unknown;
   via?: unknown;
   vmBoundary?: unknown;
   waitStart?: unknown;
   workflowAllowedTools?: unknown;
   workspaceId?: unknown;
+  worktree?: unknown;
 }
 
 export interface AgentHoldParams {
