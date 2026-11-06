@@ -1,0 +1,43 @@
+import Foundation
+import Testing
+@testable import CmuxNextBrowser
+
+/// The Page Info bubble's wire to its React page (webviews/src/pages/page-info).
+@MainActor
+struct PageInfoWireTests {
+    @Test func everyCommandThePageSendsParses() {
+        #expect(PageInfoCommand(wire: ["type": "show", "page": ["kind": "security"]]) == .show(.security))
+        #expect(PageInfoCommand(wire: ["type": "show", "page": ["kind": "permission", "permission": "camera"]]) == .show(.permission(.camera)))
+        #expect(PageInfoCommand(wire: ["type": "setPermission", "permission": "camera", "setting": "block"]) == .setPermission(.camera, .block))
+        #expect(PageInfoCommand(wire: ["type": "deleteSiteData", "domain": "a.com"]) == .deleteSiteData(domain: "a.com"))
+        #expect(PageInfoCommand(wire: ["type": "deleteSiteData"]) == .deleteSiteData(domain: nil))
+        for type in ["showCertificate", "resetPermissions", "siteSettings", "manageSiteData", "aboutThisPage", "reenableCertificateWarnings", "reload", "close"] {
+            #expect(PageInfoCommand(wire: ["type": type]) != nil)
+        }
+    }
+
+    @Test func aCommandOutsideTheBubblesChoicesIsRefused() {
+        #expect(PageInfoCommand(wire: ["type": "setPermission", "permission": "camera", "setting": "nonsense"]) == nil)
+        #expect(PageInfoCommand(wire: ["type": "setPermission", "permission": "nonsense", "setting": "allow"]) == nil)
+        #expect(PageInfoCommand(wire: ["type": "show", "page": ["kind": "permission"]]) == nil)
+        #expect(PageInfoCommand(wire: ["type": "runScript"]) == nil)
+    }
+
+    @Test func theStateCarriesThePageSiteAndRows() throws {
+        let model = PageInfoModel()
+        model.site = PageInfoSite(url: URL(string: "https://example.com/a"), kind: .web(.secure))
+        model.page = .permission(.camera)
+        model.permissions = [SitePermissionState(kind: .camera, setting: .block, isDefault: false, isInUse: false)]
+        let state = model.wireState
+        let data = try JSONSerialization.data(withJSONObject: state)
+        let decoded = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect((decoded["page"] as? [String: String]) == ["kind": "permission", "permission": "camera"])
+        let site = try #require(decoded["site"] as? [String: Any])
+        #expect(site["kind"] as? String == "web")
+        #expect(site["connection"] as? String == "secure")
+        #expect(site["host"] as? String == "example.com")
+        let rows = try #require(decoded["permissions"] as? [[String: Any]])
+        #expect(rows.first?["setting"] as? String == "block")
+        #expect(decoded["siteData"] == nil)
+    }
+}

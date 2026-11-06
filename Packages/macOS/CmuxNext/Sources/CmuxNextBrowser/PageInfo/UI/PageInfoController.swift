@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextPages
 
 /// Owns one browser pane's page info bubble (Chromium's `PageInfoBubbleView`)
 /// and the windows it opens (certificate viewer, site settings, on-device
@@ -8,6 +9,9 @@ import CmuxNextDesign
 /// (the App runs the action, whose handler calls `perform`), so a click and
 /// `cmux browser page-info ...` take one path.
 public final class PageInfoController {
+    /// Makes the bubble's React page (webviews/src/pages/page-info); tests pass their own.
+    var makeWebContent: @MainActor () -> (any BrowserChromeWebContent)? = { BrowserChromeWebHost(.pageInfo) }
+
     /// Returns true when the App ran the command through the action registry.
     public var commandRouter: ((PageInfoCommand) -> Bool)?
     /// The bubble closed; the page had keyboard focus when it opened.
@@ -32,8 +36,13 @@ public final class PageInfoController {
     var livePermissions: [SitePermissionKind: SitePermissionSetting] = [:]
     var openedURL: URL?
     private var pageHadFocus = false
-    /// Card size for the rendered page.
+    /// Card size the page last reported for its content (zero before its first report).
     private var cardSize = CGSize.zero
+    /// The React page, made on the first open and kept between opens.
+    private var content: (any BrowserChromeWebContent)?
+    /// The bubble opens once the page reported the size of the state it was given, so it never
+    /// shows a frame of the old page or grows after it appeared.
+    private var presentsOnSize = false
     var windows = PageInfoWindows()
 
     init(tab: @escaping () -> (any BrowserTab)?, anchor: @escaping () -> NSView?) {
@@ -116,19 +125,21 @@ public final class PageInfoController {
             loadAsyncData()
         }
         model.page = page
+        if !isShown { presentsOnSize = true }
         render()
-        present(in: window, anchor: anchor)
     }
 
     public func close() {
-        guard isShown else { return }
-        popup.hide()
+        guard isShown || presentsOnSize else { return }
+        if isShown { popup.hide() }
         closed()
     }
 
     /// Closes the bubble's panel for good (its page is closing): ``close()`` only orders it out.
     func closePanel() {
         isRetired = true
+        content?.close()
+        content = nil
         certificateTask?.cancel()
         certificateTask = nil
         close()
@@ -139,41 +150,57 @@ public final class PageInfoController {
     /// The bubble closed (``close()`` or a host dismiss rule): live data stops, the page gets
     /// the keys back.
     private func closed() {
+        presentsOnSize = false
         observation?.cancel()
         observation = nil
         loadTask?.cancel()
         if pageHadFocus { onReturnFocus?() }
     }
 
-    private func present(in window: NSWindow, anchor: NSView) {
-        guard let panel else { return }
+    private func present() {
+        guard let panel, let anchor = anchorSource(), let window = anchor.window else { return }
         // The rows' icon column lines up with the omnibar button.
         anchorRect = window.convertToScreen(anchor.convert(anchor.bounds, to: nil)).offsetBy(dx: -PageInfoStyle.rowInset, dy: 0)
         // The bubble takes the omnibar's theme scope (its room or workspace).
         panel.adoptThemeScope(of: anchor)
         guard let placed = popup.show(size: cardSize, anchor: anchorRect, in: window, preferred: anchor.toolbarPopupSide, makeKey: true) else { return }
         side = placed.side
-        panel.makeFirstResponder(card)
+        content?.focus()
     }
 
-    /// Rebuilds the current page, keeping keyboard focus on the same row.
+    /// Sends the model to the page; its size report places the bubble.
     func render() {
-        let focused = (panel?.firstResponder as? NSView)?.identifier
-        let content = PageInfoPages(model: model, send: { [weak self] in self?.send($0) }).build()
-        let size = card.setContent(content)
-        // An open bubble takes the new page's size at its place (the host keeps it open).
-        if size != cardSize, isShown, let window = panel?.parent {
-            cardSize = size
-            popup.show(size: size, anchor: anchorRect, in: window, preferred: side)
-        }
-        cardSize = size
-        if let focused, let row = Self.find(focused, in: content) { panel?.makeFirstResponder(row) }
+        guard let content = content ?? makeContent() else { return }
+        content.push(model.wireState)
     }
 
-    private static func find(_ identifier: NSUserInterfaceItemIdentifier, in view: NSView) -> NSView? {
-        if view.identifier == identifier { return view }
-        for child in view.subviews { if let hit = find(identifier, in: child) { return hit } }
-        return nil
+    private func makeContent() -> (any BrowserChromeWebContent)? {
+        guard let made = makeWebContent() else { return nil }
+        made.onMessage = { [weak self] kind, params in self?.received(kind, params) }
+        card.setContent(made.view)
+        content = made
+        return made
+    }
+
+    private func received(_ kind: String, _ params: [String: Any]) {
+        switch kind {
+        case "command":
+            if let command = PageInfoCommand(wire: params) { send(command) }
+        case "size":
+            guard let height = (params["height"] as? NSNumber)?.doubleValue, height > 0 else { return }
+            let size = CGSize(width: PageInfoStyle.bubbleWidth, height: ceil(height))
+            let changed = size != cardSize
+            cardSize = size
+            if presentsOnSize {
+                presentsOnSize = false
+                present()
+            } else if changed, isShown, let window = panel?.parent {
+                // An open bubble takes the new page's size at its place (the host keeps it open).
+                popup.show(size: size, anchor: anchorRect, in: window, preferred: side)
+            }
+        default:
+            break
+        }
     }
 
     private static func pageHasFocus(_ tab: any BrowserTab, in window: NSWindow) -> Bool {
@@ -184,23 +211,10 @@ public final class PageInfoController {
 
     // MARK: Keyboard
 
-    /// Escape closes; Up and Down move between rows like Tab.
+    /// Escape closes from anywhere in the bubble; the page moves between its rows itself.
     private func handleKey(_ event: NSEvent) -> Bool {
-        switch event.keyCode {
-        case 53:
-            close()
-            return true
-        case 125:
-            panel?.selectNextKeyView(nil)
-            return true
-        case 126:
-            panel?.selectPreviousKeyView(nil)
-            return true
-        case 123 where model.page != .main:
-            send(.show(.main))
-            return true
-        default:
-            return false
-        }
+        guard event.keyCode == 53 else { return false }
+        close()
+        return true
     }
 }
