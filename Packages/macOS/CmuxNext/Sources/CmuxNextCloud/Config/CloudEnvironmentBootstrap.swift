@@ -10,14 +10,16 @@ public struct CloudEnvironmentBootstrap: Sendable {
     public init(work: BackgroundWork) { self.work = work }
 
     /// The launch's read, with no network read when it can (`resolve(cacheFirst:)`): the fetch held every launch's
-    /// first window up to 1.5 s (cmuxterm-hq#7289). `refresh`, run once the window is up, fetches the backend's
-    /// client-config into the cache for the next launch; it does nothing when this read already fetched it.
-    public func resolveAtLaunch() async throws -> (selection: CloudRuntimeSelection, refresh: @MainActor () -> Void) {
+    /// first window up to 1.5 s (cmuxterm-hq#7289). `refresh`, awaited once the window is up by the task that owns
+    /// the launch read, fetches the backend's client-config into the cache for the next launch; it does nothing when
+    /// this read already fetched it. Cancelling that task (Quit) kills the CLI (ProcessRunner), and the CLI's cache
+    /// write is fenced by when its fetch started, so an older fetch never replaces a newer one's cache.
+    public func resolveAtLaunch() async throws -> (selection: CloudRuntimeSelection, refresh: @Sendable () async -> Void) {
         let selection = try await resolve(cacheFirst: true)
         guard selection.configSource != "backend" else { return (selection, {}) }
         return (selection, { [self] in
-            // task-owner: none needed; one bounded CLI fetch (ProcessRunner's 30 s timeout) that only rewrites the cache.
-            Task.detached(priority: .utility) { _ = try? await self.resolve() }
+            guard !Task.isCancelled else { return }
+            _ = try? await resolve()
         })
     }
 
