@@ -100,6 +100,7 @@ enum RemoteStrings {
 
     // MARK: Status details (sidebar header tooltip, remote.machines)
 
+    static var staticInstallStaged: String { String(localized: "remote.status.staticInstallStaged", defaultValue: "A newer cmux build is staged for ~/.cmux/bin/cmux on this machine. It is installed the next time its session server starts; nothing running there was stopped.", table: "Remote", bundle: .module) }
     /// Why the machine is in its state, or nil when nothing needs saying.
     static func detail(_ session: SSHMachineSession) -> String? {
         switch session.linkStatus {
