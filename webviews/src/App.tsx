@@ -431,6 +431,8 @@ export function App({ config, initialStatus }: ConfigProps) {
   // and when the files changed since, the new diff replaces it with the reader kept in place.
   // Each precompute gets its own id, so a later one with the same fingerprint still gets its first check.
   const [precomputed, setPrecomputed] = useState<{ fingerprint: string; id: number }>();
+  // Counts across cleared state: a render with no precompute must not restart the ids.
+  const precomputeCount = useRef(0);
   const replaceAnchor = useRef<ReturnType<KindOrderHandlers["anchor"]>>(null);
   // The session on screen while a reconcile streams its replacement: kept open (previews and full
   // files read it) until the new diff commits, and the one shown again if the reconcile fails.
@@ -439,9 +441,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   renderHooks.current = {
     retained: retainedSessionRef,
     prepared: (fingerprint) =>
-      setPrecomputed((previous) =>
-        fingerprint === undefined ? undefined : { fingerprint, id: (previous?.id ?? 0) + 1 },
-      ),
+      setPrecomputed(fingerprint === undefined ? undefined : { fingerprint, id: (precomputeCount.current += 1) }),
     beforeReplace: () => {
       replaceAnchor.current = kindOrderHandlers.current.anchor();
     },
