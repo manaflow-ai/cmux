@@ -7,6 +7,7 @@ import importlib.util
 import json
 import random
 import string
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -18,8 +19,12 @@ assert SPEC and SPEC.loader
 receipt = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(receipt)
 
-MACHINE = "vm_ab12cd34ef56ab12cd34"
+MACHINE = "vm_q7x2m9k4p1z8w3n6r5t0"
 OTHER_MACHINE = "vm_ffff0000ffff0000ffff"
+# A receipt run_probe (cmuxterm-hq tools/cloud-golden-path/golden_path.py, #7402 at fc606b38) wrote, with
+# CliBackend-shaped evidence: lease and auth fail auth.not_observable, so its outcome is "failed".
+CLI_FIXTURE = ROOT / "tests" / "fixtures" / "cloud_golden_path_cli_receipt.json"
+WRITER_DIR = Path("/home/cmux/Projects/checkouts/cmuxterm-hq/lane--golden-path-matrix/tools/cloud-golden-path")
 CLI_PROBE = "11111111-2222-4333-8444-555555555555"
 PLATFORM_PROBE = "66666666-7777-4888-9999-aaaaaaaaaaaa"
 ALL_STAGES = ("machine", "folder", "readiness", "lease", "auth", "chat", "reconnect")
@@ -64,7 +69,8 @@ def golden_receipt(probe: str, stages: list[dict[str, object]], machine: str = M
 def cli_receipt(chat: dict | None = None, reconnect: dict | None = None) -> dict[str, object]:
     chat_value = {"events": 2, "final": "done", "session_id": "sess_acp_1", "session_discovered": True}
     chat_value.update(chat or {})
-    reconnect_value = {"events": 3, "final": "done", "paused": True, "resumed": True, "reconnected": True}
+    reconnect_value = {"pause": {"state": "paused", "ms": 10}, "resume": {"state": "running", "ms": 20},
+                       "reconnected": True, "second_reply": {"ok": True, "ms": 30}}
     reconnect_value.update(reconnect or {})
     return golden_receipt(CLI_PROBE, [
         stage("machine", 1, 120, value={"machineId": MACHINE, "workspace": "golden-path", "created": True}),
@@ -187,7 +193,7 @@ class GoldenPathReceiptTests(unittest.TestCase):
         result = receipt.normalize([cli_receipt(), platform, provider()])
 
         self.assertEqual(result["status"], "blocked")
-        self.assertEqual(result["golden_path_stages"]["lease"], "missing")
+        self.assertEqual(result["golden_path_stages"]["lease"], "ok")
         self.assertEqual(result["golden_path_stages"]["auth"], "not_observable")
 
     def test_receipt_level_failure_beside_passed_outcome_proves_nothing(self) -> None:
@@ -248,12 +254,15 @@ class GoldenPathReceiptTests(unittest.TestCase):
         self.assertIn("receipt_reports_failure", result["blockers"])
 
     def test_continuity_evidence(self) -> None:
-        for key in ("paused", "resumed", "reconnected"):
+        for key in ("pause", "resume", "reconnected", "second_reply"):
             result = receipt.normalize([cli_receipt(reconnect={key: None}), platform_receipt(), provider()])
             self.assertEqual(result["status"], "blocked", key)
             self.assertIn("missing_pause_resume_reconnect", result["blockers"], key)
-            result = receipt.normalize([cli_receipt(reconnect={key: False}), platform_receipt(), provider()])
-            self.assertEqual(result["status"], "fail", key)
+        for change in ({"pause": {"state": "running"}}, {"resume": {"state": "paused"}}, {"reconnected": False},
+                       {"second_reply": {"ok": False, "ms": 3}}):
+            result = receipt.normalize([cli_receipt(reconnect=change), platform_receipt(), provider()])
+            self.assertEqual(result["status"], "fail", change)
+            self.assertIn("receipt_reports_failure", result["blockers"], change)
 
     # Strict schema: any deviation makes the record unsupported and evidence-free.
 
@@ -282,7 +291,7 @@ class GoldenPathReceiptTests(unittest.TestCase):
             "version 2": (0, put("version", 2)),
             "version True": (0, put("version", True)),
             "outcome word": (0, put("outcome", "ok")),
-            "non-hex machineId": (0, put("machineId", "vm_zz99zz99")),
+            "uppercase machineId": (0, put("machineId", "vm_ZZ99zz99")),
             "machineId too long": (0, put("machineId", "vm_" + "a" * 65)),
             "probeId not a string": (0, put("probeId", 7)),
             "startedAt not a timestamp": (0, put("startedAt", "yesterday")),
@@ -299,13 +308,16 @@ class GoldenPathReceiptTests(unittest.TestCase):
             "stage failure missing retryable": (0, stage_put(0, "failure", {"code": "machine.x", "message": "m"})),
             "stage failure extra key": (0, stage_put(0, "failure", {**failure("machine.x"), "extra": 1})),
             "session_discovered string": (0, value_put(3, "session_discovered", "true")),
-            "paused string": (0, value_put(4, "paused", "ok")),
+            "pause not an object": (0, value_put(4, "pause", "paused")),
+            "pause state not a string": (0, value_put(4, "pause", {"state": True})),
+            "reconnected string": (0, value_put(4, "reconnected", "true")),
+            "second_reply ok string": (0, value_put(4, "second_reply", {"ok": "true"})),
             "session_id not a string": (0, value_put(3, "session_id", 7)),
             "providerVerified alias": (2, lambda r: r.__setitem__("providerVerified", r.pop("provider_verified"))),
             "provider machine_id alias": (2, lambda r: r.__setitem__("machine_id", r.pop("machineId"))),
             "provider extra key": (2, put("source", "cli")),
             "provider_verified string": (2, put("provider_verified", "ok")),
-            "provider non-hex machine": (2, put("machineId", "vm_xyz")),
+            "provider bad machine": (2, put("machineId", "vm_X-1")),
         }
         for label, (index, change) in cases.items():
             self.assertUnsupported(mutate(index, change), label)
@@ -435,9 +447,94 @@ class GoldenPathReceiptTests(unittest.TestCase):
                     yield from strings(child)
 
         for text in strings(result):
-            self.assertRegex(text, r"^(?:[a-z_]+|cmux\.cloud-golden-path-receipt/v1|vm_[0-9a-f]+|[0-9a-f-]{36})$")
+            self.assertRegex(text, r"^(?:[a-z_]+|cmux\.cloud-golden-path-receipt/v1|vm_[0-9a-z]+|[0-9a-f-]{36})$")
             if text not in allowed_words:
                 self.assertRegex(text, r"^[a-z_]+$")
+
+    # The join with the real CLI row (#7402).
+
+    def cli_from_writer(self) -> dict[str, object]:
+        return json.loads(CLI_FIXTURE.read_text(encoding="utf-8"))
+
+    def platform_for(self, machine: str) -> dict[str, object]:
+        return golden_receipt(PLATFORM_PROBE, [
+            stage("lease", 10, 40, probe=PLATFORM_PROBE,
+                  value={"machineId": machine, "connectionMachine": machine, "generation": 7}),
+            stage("auth", 11, 30, probe=PLATFORM_PROBE, value={"allowed": True}),
+        ], machine=machine)
+
+    def test_writer_fixture_is_what_the_writer_writes(self) -> None:
+        if not (WRITER_DIR / "golden_path.py").is_file():
+            self.skipTest("cmuxterm-hq golden-path writer not checked out here")
+        spec = importlib.util.spec_from_file_location("golden_path_writer", WRITER_DIR / "golden_path.py")
+        writer = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = writer  # its dataclasses look their module up
+        self.addCleanup(sys.modules.pop, spec.name, None)
+        spec.loader.exec_module(writer)
+        fixture = self.cli_from_writer()
+        evidence = {item["stage"]: item for item in fixture["stages"]}
+
+        def call(item):
+            def run(_request_id):
+                if not item["ok"]:
+                    failure_value = item["failure"]
+                    details = {k: v for k, v in failure_value["details"].items() if k != "ms"}
+                    raise writer.GoldenPathFailure(failure_value["code"], item["stage"], failure_value["message"],
+                                                   retryable=failure_value["retryable"], details=details)
+                return {k: v for k, v in item["value"].items() if k != "ms"}
+            return run
+
+        ticks = iter(range(1_793_000_000, 1_800_000_000))
+        rebuilt = writer.run_probe(
+            [writer.ProbeStage(name, call(item)) for name, item in evidence.items()],
+            probe_id=fixture["probeId"], now=lambda: float(next(ticks)),
+        )
+        self.assertEqual(rebuilt, fixture)
+
+    def test_cli_writer_receipt_alone_never_passes(self) -> None:
+        result = receipt.normalize([self.cli_from_writer(), provider()])
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertNotIn("receipt_shape_unsupported", result["blockers"])
+        self.assertEqual(result["golden_path_stages"]["lease"], "not_observable")
+        self.assertEqual(result["golden_path_stages"]["auth"], "not_observable")
+        self.assertIn("stage_not_observable_lease", result["blockers"])
+        self.assertTrue(result["checks"]["acpmux_session_discovery"])
+        self.assertTrue(result["checks"]["pause_resume_reconnect"])
+
+    def test_cli_writer_receipt_plus_platform_and_provider_passes(self) -> None:
+        result = receipt.normalize([self.cli_from_writer(), self.platform_for(MACHINE), provider()])
+
+        self.assertEqual(result["status"], "pass", result["blockers"])
+        self.assertEqual(result["golden_path_stages"], {name: "ok" for name in ALL_STAGES})
+        self.assertEqual(result["stage_ms"]["chat"], 1000)
+        self.assertEqual(result["stage_ms"]["lease"], 40)
+
+    def test_cli_writer_receipt_plus_platform_for_another_machine_blocks(self) -> None:
+        result = receipt.normalize([self.cli_from_writer(), self.platform_for(OTHER_MACHINE), provider()])
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertIn("machine_id_mismatch", result["blockers"])
+
+    def test_not_observable_stage_is_not_cleared_by_its_own_receipt(self) -> None:
+        cli = self.cli_from_writer()
+        cli["stages"].append(stage("lease", 40, 5, value={"machineId": MACHINE}))
+        cli["stages"].append(stage("auth", 41, 5, value={"allowed": True}))
+        result = receipt.normalize([cli, provider()])
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["golden_path_stages"]["lease"], "not_observable")
+
+    def test_a_non_gap_failure_beside_gaps_makes_the_receipt_prove_nothing(self) -> None:
+        cli = self.cli_from_writer()
+        cli["stages"][3] = {**cli["stages"][3], "ok": False}
+        cli["stages"][3].pop("value")
+        cli["stages"][3]["failure"] = failure("folder.no_route")
+        result = receipt.normalize([cli, self.platform_for(MACHINE), provider()])
+
+        self.assertEqual(result["status"], "fail")
+        self.assertEqual(result["golden_path_stages"]["folder"], "failed")
+        self.assertEqual(result["golden_path_stages"]["chat"], "missing")
 
 
 if __name__ == "__main__":
