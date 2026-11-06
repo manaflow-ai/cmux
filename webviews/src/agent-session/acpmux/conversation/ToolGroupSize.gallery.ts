@@ -30,7 +30,7 @@ const earlier = Array.from({ length: 4 }, (_, index) => {
   ];
 }).flat();
 
-const GROUP = '[data-row-id="tool-group-size-run"] button.cv-tool.is-toggle[aria-expanded]';
+const GROUP = '[data-row-id="tool-group-size-run"] button[data-tool-group]';
 
 const rows = (n: number) => [
   ...earlier,

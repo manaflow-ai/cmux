@@ -50,7 +50,7 @@ await requireBrowserLane("tool-group-expand-cost.test.ts", async () => {
   });
 
   const ROW = '[data-row-id="tool-group-size-run"]';
-  const GROUP = `${ROW} button.cv-tool.is-toggle[aria-expanded]`;
+  const GROUP = `${ROW} button[data-tool-group]`;
 
   /// Every finite animation over, then the scroller's offset and height the same over 8 painted frames.
   const settled = (page: Page) =>
