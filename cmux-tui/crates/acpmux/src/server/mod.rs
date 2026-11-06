@@ -1992,7 +1992,7 @@ pub(crate) mod outbox;
 mod pairing;
 pub mod peer_auth;
 mod peer_forward;
-mod peer_status;
+pub(crate) mod peer_status;
 pub mod peer_text;
 mod pending;
 mod place;
@@ -2199,6 +2199,10 @@ mod list_fit_tests;
 #[cfg(test)]
 #[path = "list_pending_tests.rs"]
 mod list_pending_tests;
+
+#[cfg(test)]
+#[path = "list_web_page_tests.rs"]
+mod list_web_page_tests;
 
 #[cfg(test)]
 #[path = "session_list_pages_tests.rs"]

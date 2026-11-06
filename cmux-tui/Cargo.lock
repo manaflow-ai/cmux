@@ -1567,7 +1567,7 @@ dependencies = [
 
 [[package]]
 name = "cmux-rd-host"
-version = "0.1.0"
+version = "0.2.2"
 dependencies = [
  "cc",
  "cmux-encode",
@@ -1652,6 +1652,7 @@ dependencies = [
  "iroh",
  "libc",
  "rcgen",
+ "ring",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -1706,6 +1707,7 @@ name = "cmux-server"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-cloud-environment",
  "cmux-cloud-wire",
  "cmux-json",
  "cmux-link",
@@ -1853,8 +1855,8 @@ dependencies = [
  "cmux-automations",
  "cmux-build-identity",
  "cmux-chat-index",
- "cmux-cloud-config",
  "cmux-cloud-client",
+ "cmux-cloud-config",
  "cmux-cloud-environment",
  "cmux-config",
  "cmux-conversation",
@@ -1958,6 +1960,7 @@ dependencies = [
  "cmux-app-host",
  "cmux-app-manifest",
  "cmux-bookmarks-core",
+ "cmux-conductor-import",
  "cmux-config",
  "cmux-conversation",
  "cmux-feed-core",

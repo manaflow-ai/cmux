@@ -82,7 +82,7 @@ struct SidebarBottomCardSlot {
         case .update: (update.card.map(SidebarUpdateCardView.height(for:)) ?? 0) + 2 * Metrics.space2
         case .nowPlaying: (nowPlaying.nowPlaying.map(SidebarNowPlayingCardView.height(for:)) ?? 0) + 2 * Metrics.space2
         case .updated: updated.height + 2 * Metrics.space2
-        case .notice: (notice.notice.map(SidebarNoticeCardView.height(for:)) ?? 0) + 2 * Metrics.space2
+        case .notice: (notice.notice.map { notice.height(for: $0, width: Self.cardWidth(in: sidebarWidth)) } ?? 0) + 2 * Metrics.space2
         case nil: 0
         }
     }
@@ -105,7 +105,7 @@ struct SidebarBottomCardSlot {
         }
         notice.presence.setShown(shown == .notice)
         if shown == .notice || !notice.isLeaving {
-            notice.frame = frame(.notice, height: notice.notice.map(SidebarNoticeCardView.height(for:)) ?? 0)
+            notice.frame = frame(.notice, height: notice.notice.map { notice.height(for: $0, width: width) } ?? 0)
         }
     }
 }

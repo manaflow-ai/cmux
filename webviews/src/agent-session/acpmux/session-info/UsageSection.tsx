@@ -12,7 +12,7 @@ import { agentTone } from "../subagents/agentTones";
 import { TonedIcon } from "../subagents/TonedIcon";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
-import type { AcpmuxSessionEntry } from "../sessionList";
+import type { UsageEntry } from "./usageEntries";
 import {
   byUsage,
   cacheUsageRows,
@@ -127,15 +127,16 @@ export const UsageSection = memo(function UsageSection({
   locale,
   sort: initialSort = "cost",
   expanded: initialExpanded = false,
-  ownRowLayout = "slot",
+  ownRowLayout = "flush",
   cacheLayout = "rows",
   planLimits,
   now,
 }: {
   /// This chat's (`summary.usageStats`).
   own?: SessionUsageStats;
-  /// Every session acpmux lists, this Mac's and its peers' (the snapshot's `sessions`).
-  sessions: readonly AcpmuxSessionEntry[];
+  /// Every session acpmux lists, this Mac's and its peers' (the snapshot's `sessions`), or only what
+  /// this section reads of them (usageEntries.ts).
+  sessions: readonly UsageEntry[];
   chatId?: string;
   /// Opens a listed chat, this Mac's or a peer's; without it the rows are plain text.
   onOpen?: (sessionId: string) => void;

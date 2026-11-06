@@ -172,7 +172,7 @@ def prompt_text(params):
 # The hidden guidance blocks (`context_inventory::override_block`), and only those: the
 # forum's rules, a side question's chat and a message's attachments are cmux-*-context
 # blocks too, and the agent must read them, so their tests read them in the echo.
-GUIDANCE_TAGS = ("<cmux-default-context>", "<cmux-user-context>", "<cmux-project-context>")
+GUIDANCE_TAGS = ("<cmux-default-context>", "<cmux-user-context>", "<cmux-project-context>", "<cmux-guidance-context>")
 
 
 def guidance_text(text):
@@ -185,7 +185,7 @@ def is_cmux_guidance(block):
     if not isinstance(block, dict):
         return False
     source = (block.get("_meta") or {}).get("acpmux", {}).get("contextSource")
-    if source in {"cmux-default", "cmux-user", "cmux-project"}:
+    if source in {"cmux-default", "cmux-user", "cmux-project", "cmux-guidance"}:
         return True
     return guidance_text(block.get("text", ""))
 
@@ -1188,13 +1188,16 @@ def handle_prompt(rid, params):
     # its number and this process's pid, until it ends its turn by itself 60 s later.
     # "works-through-cancel-beside-background" does the same after starting background subagent
     # bg-1, which outlives the turn (a Claude Agent call with run_in_background).
-    if text in ("works-through-cancel", "works-through-cancel-beside-background"):
-        if text == "works-through-cancel-beside-background":
+    # The silent variants emit only the initial call, then ignore both cancels.
+    if text in ("works-through-cancel", "works-through-cancel-beside-background",
+                "silent-through-cancel", "silent-through-cancel-beside-background"):
+        if text.endswith("-beside-background"):
             update(sid, {"sessionUpdate": "subagent_spawned", "subagentSessionId": "bg-1", "name": "Background",
                          "task": "Background audit", "background": True, "capabilities": {}})
         for n in range(600):
-            update(sid, {"sessionUpdate": "tool_call", "toolCallId": f"work-{os.getpid()}-{n}",
-                         "title": f"step {n} pid {os.getpid()}", "kind": "execute", "status": "in_progress"})
+            if n == 0 or not text.startswith("silent-"):
+                update(sid, {"sessionUpdate": "tool_call", "toolCallId": f"work-{os.getpid()}-{n}",
+                             "title": f"step {n} pid {os.getpid()}", "kind": "execute", "status": "in_progress"})
             time.sleep(0.1)
         cancelled.discard(sid)
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})

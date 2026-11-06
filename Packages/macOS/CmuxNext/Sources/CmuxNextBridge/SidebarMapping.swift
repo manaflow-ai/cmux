@@ -46,8 +46,17 @@ public struct SidebarMapping {
               tab.agent == nil, tab.agentSession == nil else { return false }
         return label == URL(fileURLWithPath: cwd).lastPathComponent || Self.trimmingSlash(label) == cwd
     }
+
+    /// `title` when `workspace` is unnamed and `label`, the name its face tab `face` gives it, is only its shell's home
+    /// (`namesHome`), else nil: the one rule the sidebar row and the titlebar, palette and rename prompt
+    /// (`WorkspaceAutoNameReader.titlebarName`) both read, so a Cloud home shell reads "Terminal" on all of them.
+    public static func homeShellName(_ title: String?, workspace: WorkspaceModel, label: String?, face: TabModel?) -> String? {
+        title.flatMap { workspace.isUnnamed && namesHome(label, tab: face) ? $0 : nil }
+    }
     /// Supplies a row in place of mapping it now: the workspace, its machine, and the mapping to run later.
     public typealias RowSource = (WorkspaceModel, MachineID, @escaping SidebarRowFeed.Make) -> SidebarWorkspace
+    /// Answers whether a workspace lists in place of running its rule in the structural pass (``SidebarRowFeed/lists(_:rule:)``).
+    public typealias ListingSource = (WorkspaceModel, @escaping () -> Bool) -> Bool
 
     /// What a browser workspace's row shows of its front tab's page
     /// (cx-e32b): the title in place of a name the user never gave, and the
@@ -84,6 +93,8 @@ public struct SidebarMapping {
     /// so a structural pass reads no row's status.
     /// `workspaceFilter` drops workspaces that are no longer valid sidebar rows
     /// (for example, an acpmux session that was purged while its tab lingers).
+    /// `listing`, when given, answers whether each workspace lists (the Home rule and `workspaceFilter`) from its own
+    /// observation, so the pass reads no workspace's tabs (`SidebarRowFeed`).
     /// `terminalTitle` (localized by the App) names a Cloud machine's unnamed workspace whose shell idles at its home.
     public func sections(_ daemonSections: [DaemonSidebarSection], machine: SidebarMachine,
                                 collapsedGroups: Set<String> = [],
@@ -98,7 +109,8 @@ public struct SidebarMapping {
                                 iconAsset: @escaping (String) -> SidebarFavicon? = { _ in nil },
                                 groupIconAsset: ((String) -> SidebarFavicon?)? = nil,
                                 rowSource: RowSource? = nil,
-                                workspaceFilter: (WorkspaceModel) -> Bool = { _ in true },
+                                listing: ListingSource? = nil,
+                                workspaceFilter: @escaping (WorkspaceModel) -> Bool = { _ in true },
                                 terminalTitle: String? = nil,
                                 harnessIcons: @escaping () -> HarnessIconLookup = { .none }) -> [SidebarRowSection] {
         // A personal group's icon lives on the home daemon, whichever machine's section shows it.
@@ -108,7 +120,10 @@ public struct SidebarMapping {
             // The home workspace (`kind` "home") and a window's own Home (cmux#27880) are what
             // the Home item in the top section shows; neither is also a workspace row (nxdog28)
             // while that item is in the layout (`hidesHomeWorkspace`).
-            let rows = section.workspaces.filter { (!hidesHomeWorkspace || !$0.isAnyHome) && workspaceFilter($0) }
+            let rows = section.workspaces.filter { workspace in
+                let lists = { (!hidesHomeWorkspace || !workspace.isAnyHome) && workspaceFilter(workspace) }
+                return listing?(workspace, lists) ?? lists()
+            }
                 .map { workspace in
                     let make = { row(workspace, machine: machine.id, status: statusLine(workspace.id), showsUnread: showsUnread,
                                      muted: muted.contains(workspace.id), selectedTab: selectedTab,
@@ -155,12 +170,14 @@ public struct SidebarMapping {
     /// text of a tab's unread notification (`DaemonStore.notificationText(for:)`).
     /// `iconAsset` draws a stored image or SVG icon, as in `sections`.
     /// `homeShellTitle` titles an unnamed workspace whose shell idles at its home (a Cloud machine's, `sections`).
+    /// `foldersLabel`: a caller whose `pageFace` gives no title (a pinned tile, `SidebarWorkspaceItems`) has its shell's
+    /// folder read as the label `homeShellTitle` checks; the list's rows read the label their `pageFace` gives.
     public func row(_ workspace: WorkspaceModel, machine: MachineID, status: String? = nil, showsUnread: Bool = true,
                     muted: Bool = false, selectedTab: (PaneModel) -> String? = { _ in nil }, newTabPages: Set<String> = [],
                     newTabTitle: String = "", pageFace: (WorkspaceModel, TabModel, TabModel?) -> PageFace? = { _, _, _ in nil },
                     tabTitle: ((WorkspaceModel, TabModel) -> String)? = nil, notificationText: (TabModel) -> String? = { _ in nil },
                     iconAsset: (String) -> SidebarFavicon? = { _ in nil },
-                    harnessIcons: HarnessIconLookup = .none, homeShellTitle: String? = nil) -> SidebarWorkspace {
+                    harnessIcons: HarnessIconLookup = .none, homeShellTitle: String? = nil, foldersLabel: Bool = false) -> SidebarWorkspace {
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
         let unread = showsUnread ? workspace.unreadCount : 0
         let statuses = StatusMapping.shared.summaries(tabs: tabs, status: workspace.status)
@@ -186,8 +203,9 @@ public struct SidebarMapping {
         // An unnamed Cloud workspace whose shell idles at its home read its account's home folder, "cmux", on every
         // machine; it reads "Terminal" (`homeShellTitle`), its header naming the machine (Leo 2026-10-30: "JUST DEPICT
         // IT SIMILARLY TO EVERYTHING ELSE").
-        let homeShell = homeShellTitle.flatMap { workspace.isUnnamed && Self.namesHome(page?.title, tab: face) ? $0 : nil }
-        let title = homeShell ?? Self.sidebarTitle(workspace, page: page)
+        let label = foldersLabel ? face?.cwd.map { URL(fileURLWithPath: $0).lastPathComponent } : page?.title
+        let title = Self.homeShellName(homeShellTitle, workspace: workspace, label: label, face: face)
+            ?? Self.sidebarTitle(workspace, page: page)
         let rowAgent = agentMark(tabs, harnessIcons: harnessIcons)
         var row = SidebarWorkspace(
             id: SidebarWorkspaceID(workspace.id),
@@ -238,6 +256,7 @@ public struct SidebarMapping {
                                   lastActivity: lastActivity([tab]))
                 // Its chat's running subagents and commands, which the tab row counts.
                 (listed.subagentsRunning, listed.commandsRunning) = Self.running(tab)
+                listed.isFreed = tab.kind == .pty && tab.dead && tab.relaunch?.onShow == true
                 // What the tab row's line says beyond its folder (Leo 2026-11-01: "not much metadata"):
                 // a page's path, a chat's model, a terminal's running program, a remote terminal's machine.
                 if !isNewTabPage { Self.listedFacts(&listed, of: tab, process: process(tab)) }
@@ -633,5 +652,10 @@ extension SidebarRowFeed {
     /// This feed as the mapping's row source (`SidebarMapping.sections(rowSource:)`).
     public var rowSource: SidebarMapping.RowSource {
         { workspace, machine, make in self.row(SidebarWorkspaceID(workspace.id), machine: machine, make: make) }
+    }
+
+    /// This feed as the mapping's listing source (`SidebarMapping.sections(listing:)`).
+    public var listingSource: SidebarMapping.ListingSource {
+        { workspace, rule in self.lists(SidebarWorkspaceID(workspace.id), rule: rule) }
     }
 }

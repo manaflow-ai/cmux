@@ -134,7 +134,7 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
     /// A row of the sidebar's Priority view: mark read, pin, snooze and archive its chat.
     case priorityRow
     /// A machine joined with a one-line token, in the right sidebar's Machines section (its "…"
-    /// button; Labs `labs.machineJoin`): Check, Rotate Credential and Revoke.
+    /// button): Check, Rotate Credential and Revoke.
     case joinedMachine
     /// A tab bar's empty area: the strip's or the vertical tab list's (Edge's and Chrome's
     /// vertical-tab menus: New Tab, the vertical tabs rows, Task Manager).

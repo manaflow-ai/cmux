@@ -519,15 +519,17 @@
   height: 16px;
   padding: 0;
   border: 0;
-  border-radius: 8px;
+  border-radius: 50%;
   display: grid;
   place-items: center;
   opacity: 0;
-  transition: opacity 120ms ease-out;
-  /* The composer's own surface, so the badge reads as a cut-out in the thumbnail in every theme. */
-  background: color-mix(in srgb, var(--acpmux-composer-bg) 82%, transparent);
-  box-shadow: 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
-  color: var(--agent-text);
+  /* Solid and inverted (RemoveGlyph.tsx): the text's own colour as the fill and the page's opaque
+     base as the ×, so it reads over a thumbnail or a text card's lines in every theme. Never the
+     composer's glass (13% of the text over a see-through page) and never a fade: both left a faint
+     × floating over the label (Leo, 2026-11-06: "Also this close button, this is bad clarity."). */
+  background: var(--agent-text);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--acpmux-base, Canvas) 72%, transparent);
+  color: var(--acpmux-base, Canvas);
   cursor: default;
 }
 .acpmux-attachment-file .acpmux-attachment-remove {
@@ -538,11 +540,11 @@
   opacity: 1;
 }
 :is(.acpmux-composer, .nt-box) .acpmux-attachment-remove:hover {
-  background: color-mix(in srgb, var(--agent-text) 22%, var(--acpmux-composer-bg));
+  background: color-mix(in srgb, var(--agent-text) 82%, var(--acpmux-base, Canvas));
 }
 :is(.acpmux-composer, .nt-box) .acpmux-attachment-remove:focus-visible {
   outline: 1.5px solid var(--agent-text);
-  outline-offset: -1.5px;
+  outline-offset: 1.5px;
 }
 .acpmux-attachment-note {
   color: var(--agent-muted);
@@ -760,6 +762,7 @@ button.acpmux-attachment-pasted-open:hover {
      tall as an unsourced one. */
   display: flex;
   flex: none;
+  max-width: 100%;
 }
 .cv-user__sourced > .acpmux-source-badge {
   top: 6px;

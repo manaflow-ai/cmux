@@ -22,11 +22,13 @@ public struct ConversationSummary: Codable, Sendable, Hashable, Identifiable {
     public var memberCount: Int?
     /// Cloud: the head's `settings.wake_policy` (`auto`, `mentions`, `all`): when the Chiefs answer.
     public var wakePolicy: String?
+    /// Cloud: a channel's own Chief (`channel_chief`, plans/cmux-next/chief-channels-DESIGN.md); nil elsewhere.
+    public var channelChief: String?
 
     public init(id: String, owner: String = "local", title: String, participants: [ConversationParticipant], lastSeq: UInt64,
                 rev: UInt64, createdAt: String, updatedAt: String, lastMessage: ConversationMessage? = nil,
                 readCursors: [String: UInt64] = [:], kind: String? = nil, state: String? = nil, memberCount: Int? = nil,
-                wakePolicy: String? = nil) {
+                wakePolicy: String? = nil, channelChief: String? = nil) {
         self.id = id
         self.owner = owner
         self.title = title
@@ -41,6 +43,7 @@ public struct ConversationSummary: Codable, Sendable, Hashable, Identifiable {
         self.state = state
         self.memberCount = memberCount
         self.wakePolicy = wakePolicy
+        self.channelChief = channelChief
     }
 
     enum CodingKeys: String, CodingKey {
@@ -51,6 +54,7 @@ public struct ConversationSummary: Codable, Sendable, Hashable, Identifiable {
         case lastMessage = "last_message"
         case readCursors = "read_cursors"
         case memberCount = "member_count"
+        case channelChief = "channel_chief"
         case settings
     }
 
@@ -76,6 +80,7 @@ public struct ConversationSummary: Codable, Sendable, Hashable, Identifiable {
         state = try c.decodeIfPresent(String.self, forKey: .state)
         memberCount = try c.decodeIfPresent(Int.self, forKey: .memberCount)
         wakePolicy = (try? c.decodeIfPresent(Settings.self, forKey: .settings))?.wakePolicy
+        channelChief = try c.decodeIfPresent(String.self, forKey: .channelChief)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -94,6 +99,7 @@ public struct ConversationSummary: Codable, Sendable, Hashable, Identifiable {
         try c.encodeIfPresent(state, forKey: .state)
         try c.encodeIfPresent(memberCount, forKey: .memberCount)
         try c.encodeIfPresent(wakePolicy.map { Settings(wakePolicy: $0) }, forKey: .settings)
+        try c.encodeIfPresent(channelChief, forKey: .channelChief)
     }
 
     /// Messages after `participant`'s read cursor.

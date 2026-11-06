@@ -7,6 +7,10 @@
 # OUT gets xcodebuild.log (the full build's log, which scripts/live-code/patch.py compiles patches
 # from), interposable.txt and app-path; the last line printed is the app's path. TAG defaults to
 # live-code, CONFIG to Debug (bench for the fleet's measurement); ENV=VALUE pairs go to reload.sh.
+# CMUX_LIVE_CODE_KEEP_APP=PATH (live mode, scripts/live-code/live-mode.py) builds with
+# `--build-only --keep-app PATH`: the running app of TAG keeps running and the live code build waits
+# at PATH for the swap. CMUX_LIVE_CODE_DERIVED_DATA=DIR builds in its own derived data, so the
+# normal build's stays as it is and the patches' intermediates stay the live build's.
 set -euo pipefail
 out="$(mkdir -p "${1:?usage: build.sh OUT [TAG [CONFIG]] [ENV=VALUE...]}" && cd "$1" && pwd)"; shift
 tag="live-code"; config="debug"
@@ -17,7 +21,10 @@ build_start=$SECONDS
 reload() { # LOG [ENV=VALUE...]: one live code build; prints the app path
   local log="$1"; shift
   # A failed build is reported below, from its log, so the pipeline's status is not the step's.
-  env "$@" CMUX_LIVE_CODE_BUILD=1 ./scripts/reload.sh --tag "$tag" --config "$config" 2>&1 | tee "$log" >&2 || true
+  local keep=()
+  [[ -n "${CMUX_LIVE_CODE_KEEP_APP:-}" ]] && keep=(--build-only --keep-app "$CMUX_LIVE_CODE_KEEP_APP")
+  [[ -n "${CMUX_LIVE_CODE_DERIVED_DATA:-}" ]] && keep+=(--derived-data "$CMUX_LIVE_CODE_DERIVED_DATA")
+  env "$@" CMUX_LIVE_CODE_BUILD=1 ./scripts/reload.sh --tag "$tag" --config "$config" ${keep[@]+"${keep[@]}"} 2>&1 | tee "$log" >&2 || true
   sed -n '/^App path:/{n;s/^ *//;p;}' "$log" | tail -n 1
 }
 fail_build() {
@@ -54,8 +61,10 @@ while IFS= read -r module; do
   wmo="$(grep -c -- "-whole-module-optimization" <<<"$commands" || true)"
   onone="$(grep -c -- "-Onone" <<<"$commands" || true)"
   testing="$(grep -c -- "-enable-testing" <<<"$commands" || true)"
-  if [[ "$module" == CmuxNextApp || "$wmo" != 0 || "$onone" != "$total" || "$testing" != "$total" ]]; then
-    echo "live-code build: $module frontend commands: $total, whole-module: $wmo, -Onone: $onone, -enable-testing: $testing" >&2
+  # The engine's `#if DEBUG || CMUX_BENCH_HOOKS || CMUX_LIVE_CODE`: without one, it compiles to nothing.
+  defined="$(grep -cE -- "-D (DEBUG|CMUX_BENCH_HOOKS|CMUX_LIVE_CODE)( |$)|-D(DEBUG|CMUX_BENCH_HOOKS|CMUX_LIVE_CODE)( |$)" <<<"$commands" || true)"
+  if [[ "$module" == CmuxNextApp || "$module" == CmuxNextLiveCode || "$wmo" != 0 || "$onone" != "$total" || "$testing" != "$total" ]]; then
+    echo "live-code build: $module frontend commands: $total, whole-module: $wmo, -Onone: $onone, -enable-testing: $testing, live code defined: $defined" >&2
   fi
 done < <(live_code_targets)
 live_code_check "$bin" "$out" || exit 1

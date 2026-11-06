@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
-"""The cmux NEXT DEV Release compile builds the browser-data import out, as
-nightly-next does, so the tip app can be notarized; and only that step does.
+"""The cmux NEXT DEV Release compile builds the browser-data import the way
+published nightly-next builds do, and only that step sets it.
+
+Apple held the import with status 7000 on 2026-10-09, so both compiled it out
+(cx-f58x). Apple accepted it again in run 42176643049, and nightly-next ships
+it in since run 42205166616 (nightly.yml NIGHTLY_NEXT_BROWSER_DATA_IMPORT=full).
+The DEV app is the tip app (Leo, 2026-10-24), so it carries the import too;
+`compiled-out` in both files is the switch back.
 
 The step runs no proof: check-browser-data-import-absent.sh fails on the
 bundled cmux CLI (Contents/Resources/bin/cmux), which every notarized
 nightly-next build also ships, and a failed proof there stopped every DEV
-publish (run 40133576073; reverted in #25050). The tip job in
-cmux-next-dev-daily.yml proves the app before it notarizes instead.
+publish (run 40133576073; reverted in #25050).
 """
 
 from __future__ import annotations
@@ -18,6 +23,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = yaml.safe_load((ROOT / ".github/workflows/cmux-next.yml").read_text())
+NIGHTLY = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text())
 SCRIPT = (ROOT / "scripts/cmux-next/check-cmux-scheme-compile.sh").read_text()
 DEV_STEP = "Compile the cmux NEXT DEV Release app"
 
@@ -35,9 +41,19 @@ class DevReleaseImportOut(unittest.TestCase):
         self.assertEqual(sorted(found), ["cmux-scheme-compile", "dev-landing-compile"])
         return list(found.values())
 
-    def test_only_the_dev_release_step_compiles_the_import_out(self):
+    def test_the_dev_app_carries_the_import_as_published_nightly_next_builds_do(self):
+        nightly = NIGHTLY["env"]["NIGHTLY_NEXT_BROWSER_DATA_IMPORT"]
+        self.assertEqual(nightly, "full")
         for step in self.dev_steps():
-            self.assertEqual(step["env"].get("CMUX_NEXT_BROWSER_DATA_IMPORT"), "compiled-out")
+            self.assertEqual(step["env"].get("CMUX_NEXT_BROWSER_DATA_IMPORT"), nightly)
+        # The REF capture steps key the DEV build on the compile's settings, one NAME=VALUE a line.
+        captures = [step["env"]["HYBRID_REF_SETTINGS"] for _, step in steps()
+                    if "HYBRID_REF_SETTINGS" in (step.get("env") or {})]
+        self.assertEqual(len(captures), 2)
+        for settings in captures:
+            self.assertIn(f"CMUX_NEXT_BROWSER_DATA_IMPORT={nightly}\n", settings)
+
+    def test_only_the_dev_release_step_sets_the_import(self):
         others = [step.get("name") for _, step in steps()
                   if step.get("name") != DEV_STEP
                   and "CMUX_NEXT_BROWSER_DATA_IMPORT" in (step.get("env") or {})]

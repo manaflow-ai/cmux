@@ -9,6 +9,17 @@
 //! say the model cannot be reached instead. The model's next sign logs
 //! `turn_heard` (`silent_turn.rs`), which ends it; a retry that runs out ends
 //! the turn failed, as before.
+//!
+//! A retry of a request the model API refused for its sign-in (Claude's 401,
+//! `authentication_failed`) does not wait that long. Claude Code retries it on
+//! its whole backoff, about 160 s over 10 retries, and only then fails the turn
+//! with the 401 the person needs to see (cloud-chaos staging run 42292894478:
+//! seven retries, then the relay gave up, and no sign-in error ever showed).
+//! Its first retry lets an OAuth refresh or a token that is a moment late
+//! (cmux#28111) go through. At the third, acpmux ends the turn as the stalled
+//! end does (`stalled_turn.rs`): the agent gets the cancel, the turn ends
+//! failed with the 401 (`sign_in_refused_error`), and `finish_turn` gives it
+//! the sign-in's kind and recovery text (`claude_auth.rs`, `recovery.rs`).
 
 use super::*;
 use cmux_json::JsonSet as _;
@@ -91,7 +102,70 @@ fn http_status(info: &Value) -> Option<u64> {
     }
 }
 
+/// The retry at which a model request refused for its sign-in ends the turn (module docs).
+const SIGN_IN_REFUSED_END_ATTEMPT: u64 = 3;
+
+/// Whether `retry` ([`claude_retry`]'s fields) is Claude Code retrying a request the model API
+/// refused for its sign-in: a 401, or Claude's `authentication_failed`.
+fn sign_in_refused(retry: &Value) -> bool {
+    retry["source"] == "claude"
+        && (retry["errorStatus"] == 401 || retry["error"] == "authentication_failed")
+}
+
 impl Hub {
+    /// Claude Code retries a model request the API refused for its sign-in (module docs): at the
+    /// [`SIGN_IN_REFUSED_END_ATTEMPT`]th retry, `session`'s turn ends failed with that refusal.
+    pub(super) fn end_sign_in_refused(&self, session: &Arc<Session>, retry: &Value) {
+        let attempt = retry["attempt"].as_u64().unwrap_or(0);
+        if !sign_in_refused(retry) || attempt < SIGN_IN_REFUSED_END_ATTEMPT {
+            return;
+        }
+        let Some(turn) = session.turn() else { return };
+        // A later retry of a turn already ending, or one a Stop ends: nothing more to end.
+        if super::cancel::is_stopping(session, &turn.turn_id) {
+            return;
+        }
+        tracing::warn!(session = %session.id, turn = %turn.turn_id, attempt, "the model API refused the agent's sign-in: ending its turn");
+        let answer = json!({"stopReason": "cancelled", "_meta": {"acpmux": {"signInRefused": {
+            "attempt": attempt, "errorStatus": retry.get("errorStatus"), "error": retry.get("error")}}}});
+        let session = session.clone();
+        let turn_id = turn.turn_id;
+        // Off the tap, as the stalled end: the agent gets the cancel (bounded), then the turn
+        // ends whether it answered or not, while it is still this turn.
+        tokio::spawn(async move {
+            let ours = |s: &Session| s.turn().is_some_and(|t| t.turn_id == turn_id);
+            let _ = tokio::time::timeout(super::stalled_turn::CANCEL_SEND, async {
+                let child = session.child.lock().await.clone();
+                if ours(&session)
+                    && let (Some(child), Some(sid)) = (child, session.meta().agent_session_id)
+                {
+                    let _ = child.notify(method::SESSION_CANCEL, json!({"sessionId": sid})).await;
+                }
+            })
+            .await;
+            if ours(&session) {
+                session.steer_end.send_replace(Some((turn_id, answer)));
+            }
+        });
+    }
+
+    /// The error a turn ended for a refused sign-in fails with (`finish_turn`), from its forced
+    /// answer: Claude's own 401 words, which `claude_auth` explains and `recovery` types.
+    pub(super) fn sign_in_refused_error(answer: &Value) -> Option<RpcError> {
+        let refused = answer.pointer("/_meta/acpmux/signInRefused")?;
+        let attempt = refused["attempt"].as_u64().unwrap_or(0);
+        let status = refused["errorStatus"].as_u64().unwrap_or(401);
+        let text = format!(
+            "Failed to authenticate. API Error: {status} authentication_error (the model API \
+             refused the agent's sign-in {attempt} times; acpmux ended the turn instead of waiting \
+             out the agent's retries)"
+        );
+        Some(
+            RpcError::new(-32000, text)
+                .with_data(json!({"detail": "sign_in_refused", "attempt": attempt})),
+        )
+    }
+
     /// `session`'s harness retries its turn's model request (module docs): logs `turn_retrying`
     /// and marks the turn silent, so its model's next sign logs `turn_heard`.
     pub(super) fn turn_retrying(&self, session: &Session, mut retry: Value) {
@@ -108,6 +182,35 @@ impl Hub {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_claude_retry_of_a_refused_sign_in_ends_its_turn() {
+        let claude = |status: u64, error: &str| {
+            claude_retry(&json!({"attempt": 3, "max_retries": 10,
+            "error_status": status, "error": error}))
+        };
+        assert!(sign_in_refused(&claude(401, "authentication_failed")));
+        assert!(sign_in_refused(&claude(403, "authentication_failed")));
+        assert!(!sign_in_refused(&claude(503, "server_error")));
+        assert!(!sign_in_refused(&claude(429, "rate_limit")));
+        let codex = codex_retry(&json!({"message": "Reconnecting... 3/5",
+            "codexErrorInfo": {"responseStreamDisconnected": {"httpStatusCode": 401}}}));
+        assert!(!sign_in_refused(&codex), "Codex's own retries are its to end");
+    }
+
+    #[test]
+    fn a_refused_sign_in_fails_typed_as_signed_out() {
+        let answer = json!({"stopReason": "cancelled", "_meta": {"acpmux": {"signInRefused":
+            {"attempt": 3, "errorStatus": 401, "error": "authentication_failed"}}}});
+        let mut e = Hub::sign_in_refused_error(&answer).unwrap();
+        crate::recovery::annotate(&mut e, None);
+        assert_eq!(
+            e.data.as_ref().unwrap()["errorKind"],
+            crate::recovery::kind::AUTH_SIGNED_OUT,
+            "{e:?}"
+        );
+        assert!(Hub::sign_in_refused_error(&json!({"stopReason": "cancelled"})).is_none());
+    }
 
     #[test]
     fn claude_line_keeps_what_a_client_shows() {

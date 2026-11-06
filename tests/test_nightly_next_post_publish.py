@@ -59,8 +59,8 @@ if ("    concurrency:\n" in notes_publish
     failures.append("publish-release-notes must hold publish-nightly's R2 lease, in no concurrency group")
 for writer, group in (
     # nightly-next: its own group (the feed write is a compare-and-swap); classic and RC keep the publish lock.
-    ("republish-nightly-deltas", "release-${{ needs.decide.outputs.track == 'nightly-next' && 'deltas' || 'publish' }}-"
-                                 "${{ needs.decide.outputs.release_tag }}"),
+    ("republish-nightly-deltas", "release-${{ needs.published-build.outputs.track == 'nightly-next' && 'deltas' || 'publish' }}-"
+                                 "${{ needs.published-build.outputs.release_tag }}"),
 ):
     writer_text = job(writer)
     if "    concurrency:\n" not in writer_text:
@@ -72,13 +72,14 @@ if "write-feed --feed \"$feed\" --same-build" not in job("republish-nightly-delt
     failures.append("republish-nightly-deltas must write the nightly-next feed only by compare-and-swap (--same-build)")
     if "cancel-in-progress: false" not in writer_text:
         failures.append(f"{writer} must let an in-flight publication finish")
-if "publish-nightly.result == 'success'" not in notes_publish:
+if "needs.published-build.outputs.publish_result == 'success'" not in notes_publish:
     failures.append("publish-release-notes must require a successful NEXT publication")
 
-# The PR comments run in their own dispatched run (nightly_next_post_publish), so they never hold the one
-# nightly-next push group (#36111) or the mini's whole-Mac publish jobs: run 41982716550 published at 08:42Z
-# and its comments (247 PRs, 40 min) kept the next push waiting. In that run decide skips, and the only job
-# that can start is published-in; every other job is skipped because a job it needs was.
+# What follows the feed runs in its own dispatched run (nightly_next_post_publish), so it never holds the one
+# nightly-next push group (#36111): run 41982716550 published at 08:42Z and its comments (247 PRs, 40 min) kept
+# the next push waiting, and the release, deltas and notes held it 17-35 min more
+# (tests/test_nightly_next_tail_off_push_group.py). In that run decide skips, and only published-build and the
+# jobs after the feed can start; every build, sign and publish job is skipped because a job it needs was.
 def post_publish_runnable() -> list[str]:
     import yaml
 
@@ -147,20 +148,90 @@ def post_publish_runnable() -> list[str]:
     return runnable
 
 
+POST_PUBLISH_JOBS = ["published-build", "publish-nightly-next-github", "keep-published-dsyms", "build-nightly-deltas", "generate-nightly-deltas",
+                     "republish-nightly-deltas", "published-in", "sign-release-notes", "publish-release-notes",
+                     "publish-nightly-reel", "report-nightly-failure", "close-nightly-failure-issue"]
 runnable = post_publish_runnable()
-if runnable != ["published-in"]:
-    failures.append(f"a nightly_next_post_publish run must start only published-in, not {runnable}")
+if sorted(runnable) != sorted(POST_PUBLISH_JOBS):
+    failures.append(f"a nightly_next_post_publish run must start only {POST_PUBLISH_JOBS}, not {runnable}")
 published_in = job("published-in")
-if "inputs.nightly_next_post_publish != ''" not in published_in or "\n    needs:" in published_in:
-    failures.append("published-in must run only in the dispatched post-publish run, needing no push-run job")
-dispatch = job("dispatch-published-in")
-for trusted in ("publish-nightly-next-github", "publish-nightly-next-github-names", "generate-nightly-deltas",
-                "republish-nightly-deltas"):
-    if trusted not in needs(dispatch):
-        failures.append(f"dispatch-published-in must wait for {trusted}: the comments must not hold the mini "
-                        "while the push run's own whole-Mac publishing waits")
-if "-f nightly_next_post_publish=" not in dispatch or "actions: write" not in dispatch:
-    failures.append("dispatch-published-in must dispatch nightly.yml with nightly_next_post_publish")
+if "needs.published-build.outputs.comment == 'true'" not in published_in:
+    failures.append("published-in must comment only on a new build of the run that published (comment)")
+# The comments must not hold the mini while the whole-Mac publish jobs of the same run wait.
+for trusted in ("publish-nightly-next-github", "generate-nightly-deltas", "republish-nightly-deltas"):
+    if trusted not in needs(published_in):
+        failures.append(f"published-in must wait for {trusted}: the comments must not hold the mini "
+                        "while the whole-Mac publishing waits")
+if "\n  dispatch-published-in:\n" in TEXT or "-f nightly_next_post_publish=" in TEXT:
+    failures.append("no job may dispatch a separate post-publish run: the tail runs in the loop's own run")
+
+# The release's mutable names (rolling DMG, feed copy, body, tag) are steps of the upload job, not a job of their
+# own: a second whole-Mac claim cost run 42018687632 a second set-up, token and variant download, and let the
+# 12-min deltas job take cmux15 first, so the names moved 40 min after the feed. The writes keep what the names
+# job's group gave: one writer at a time across runs, push or dispatch (an R2 lease of their own, which never
+# cancels a waiter), and each write first runs still-newest, so no older build writes over a newer one's names.
+def publish_steps() -> list[dict]:
+    import yaml
+
+    return yaml.safe_load(WORKFLOW.read_text())["jobs"]["publish-nightly-next-github"]["steps"]
+
+
+if "\n  publish-nightly-next-github-names:\n" in TEXT:
+    failures.append("the rolling names must be steps of publish-nightly-next-github, not a second whole-Mac job")
+else:
+    steps = publish_steps()
+    names = [str(step.get("name", "")) for step in steps]
+
+    def at(name: str) -> int:
+        return names.index(name) if name in names else -1
+
+    upload, order = at("Publish nightly-next release assets"), at("Check this build is still the feed's newest")
+    writes = {
+        "Take the release names lease": "steps.order.outputs.newest == 'true'",
+        "Take the published feed": "steps.names_lease.outcome == 'success'",
+        "Install the feed order check": "steps.names_lease.outcome == 'success'",
+        "Publish the rolling DMG name and the feed copy": "steps.names_lease.outcome == 'success'",
+        "Record the published build in the release body": "steps.publish_names.outputs.newest == 'true'",
+        "Move the nightly-next tag to the published build": "steps.publish_names.outputs.newest == 'true'",
+    }
+    for name, gate in writes.items():
+        index = at(name)
+        if not 0 <= upload < order < index:
+            failures.append(f"{name!r} must follow the immutable upload and the still-newest check")
+            continue
+        step = steps[index]
+        if gate not in str(step.get("if", "")):
+            failures.append(f"{name!r} must run only when {gate}")
+        # A failed names write never turns the immutable publication red.
+        if step.get("continue-on-error") is not True:
+            failures.append(f"{name!r} must continue on error: the immutable assets are already published")
+    lock, unlock = at("Take the release names lease"), at("Release the release names lease")
+    lease_runs = [str(steps[i].get("run", "")) if i >= 0 else "" for i in (lock, unlock)]
+    if not (0 <= lock < at("Take the published feed") and at("Move the nightly-next tag to the published build") < unlock
+            and lease_runs[0].endswith("publish-lease.sh lock") and lease_runs[1].endswith("publish-lease.sh unlock")):
+        failures.append("the names writes must run inside their own R2 lease (publish-lease.sh lock ... unlock)")
+    else:
+        key = steps[lock].get("env", {}).get("LEASE_KEY")
+        if key != "nightly-next/locks/github-names.json" or steps[unlock].get("env") != steps[lock].get("env"):
+            failures.append(f"the names lease must take and release nightly-next/locks/github-names.json, not {key}")
+        if steps[unlock].get("if") != "always() && steps.names_lease.outcome != 'skipped'":
+            failures.append("the names lease must be released whatever the writes did")
+    for script in ("github-names-publish-rolling-name", "github-names-record-release-body", "github-names-move-tag"):
+        body = (ROOT / "scripts" / "ci" / "nightly-steps" / f"{script}.sh").read_text()
+        check_at = body.find('"$RUNNER_TEMP/still-newest"')
+        writers = [body.find(writer) for writer in ("publish-release-assets.py", "finalize-release.py",
+                                                     "update-release-tag.py")]
+        write_at = min((i for i in writers if i >= 0), default=-1)
+        if not 0 <= check_at < write_at:
+            failures.append(f"{script}.sh must run still-newest before it writes")
+    if "    concurrency:\n" in job("publish-nightly-next-github"):
+        failures.append("publish-nightly-next-github takes no group: a newer run must never replace its uploads")
+    # Only the source archive reads the build's tree; the 2-min full checkout runs only for it.
+    archive_if = next((str(step.get("if", "")) for step in steps
+                       if step.get("name") == "Publish the cmux-next source archive"), None)
+    checkout_if = next((str(step.get("if", "")) for step in steps if step.get("name") == "Checkout publish ref"), "")
+    if not archive_if or checkout_if != archive_if:
+        failures.append("Checkout publish ref must run only when the source archive step runs")
 
 if failures:
     print("FAIL: NEXT post-publication dependency contract\n  " + "\n  ".join(failures))
