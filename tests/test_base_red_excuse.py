@@ -1586,6 +1586,23 @@ class StatusOnlyChecks(unittest.TestCase):
         self.assertTrue(any(line.startswith(f"excused '{self.CONTEXT}'") for line in lines), lines)
         self.assertTrue(any(line.startswith(f"excused '{self.DAEMON}'") for line in lines), lines)
 
+    def test_every_status_judged_by_one_job_is_named(self):
+        # Two contexts whose verdict is the same job: a later one must not drop the earlier one's name.
+        other = dict(self.status, context=self.DAEMON)
+        original = self.gh.json
+
+        def json(route, *, paginate=False):
+            found = original(route, paginate=paginate)
+            if route.endswith(f"commits/{HEAD}/status?per_page=100"):
+                found["statuses"].append(copy.deepcopy(other))
+            return found
+
+        self.gh.json = json
+        lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[self.CONTEXT, self.DAEMON])
+        for context in (self.CONTEXT, self.DAEMON):
+            self.assertTrue(any(line.startswith(f"excused '{context}': its status") for line in lines),
+                            (context, lines))
+
     def test_a_status_red_not_on_the_base_blocks_per_test(self):
         self.gh.logs[1] = log(self.DAEMON, self.STEP, OTHER.replace("palettePages", "somethingNew"))
         with self.assertRaisesRegex(excuse.Refused, "somethingNew"):
