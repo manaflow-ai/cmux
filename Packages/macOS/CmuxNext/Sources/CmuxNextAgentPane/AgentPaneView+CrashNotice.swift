@@ -82,6 +82,8 @@ extension AgentPaneView {
     func pageLoadedAgain() {
         // A new document starts with no toast band: it gets the current one (AgentPaneView+ToastRoom.swift).
         sendToastRoom(duration: 0, force: true)
+        // Every host's load lands here: a start's card is gone with the old document, so its question moves to a dialog.
+        model.cloudAsks.pageReloaded()
         // A page that came back before its owed retry ran needs none.
         crashRetry.cancel()
         guard let notice = crashNotice else { return }

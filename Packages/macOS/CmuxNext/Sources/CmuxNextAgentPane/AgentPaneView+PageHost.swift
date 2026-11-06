@@ -58,7 +58,6 @@ extension AgentPaneView {
             self.questionKeyBinding = nil
             self.refreshQuestionKeyBinding()
             self.runPageHostRegistry()
-            self.model.cloudAsks.pageReloaded()
             let events = AgentPanePageHost.currentEvents(self)
             // The theme it gets here is the one it has now, whatever was pushed before.
             self.deliveredThemeEvent = events.first { $0.kind == "theme" }
