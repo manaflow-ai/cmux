@@ -25,7 +25,8 @@ with live_apply.py's rules:
          terminals and every acpmux daemon started after it run SHA's build. A running acpmux
          daemon keeps its build until it restarts: --acpmux-home H restarts the one of H.
   left   what needs a new app: Swift, resources and manifests, Rust the app links, a web ABI
-         change, and the helpers the app bundles from cmux-tui crates (cmux-mobile-host)
+         change, and the helpers the app bundles from cmux-tui crates (cmux-mobile-host; these
+         keep the app's build while the daemon part still applies)
 
 SHA must be at or after the app's commit on its history: the swapped parts carry every change
 between the two, not only SHA's own. A SHA the app already contains is a no-op.
@@ -35,7 +36,8 @@ the app's bin/cmux hashes to the published sha256, a new daemon owner answers fr
 overlay's manifest names SHA. A failed check puts back what was there before (exit 1). The last
 line on stdout is the receipt, as JSON; it is also kept in the state folder (last.json and
 history.jsonl), which `rollback` reads to put back the build and overlay that ran before the last
-apply, checked the same way. `status` prints the last receipt.
+apply, checked the same way, and the acpmux daemons --acpmux-home restarted. A part that does not
+go back stays in the receipt's `undo`, and `rollback` tries it again. `status` prints the last receipt.
 
 The daemon is found from the app: the process running from APP's bin folder whose socket answers
 `server status` with its own pid (--socket names it instead). For a side instance, run
@@ -213,7 +215,8 @@ def plan(repo: Path, app: Path, sha: str) -> dict:
             out["parts"].append("rust")
             helpers = helper_rust(repo, rust)
             if helpers:
-                out["notes"].append("bundled helpers built from these keep the app's build: " + ", ".join(helpers))
+                # The daemon part still applies; the helpers built from these files keep the app's build.
+                out["left"]["bundled helpers (cmux-mobile-host, ...)"] = helpers
     return out
 
 
@@ -269,8 +272,11 @@ def find_socket(app: Path, cli: Path) -> str | None:
             continue
         lsof = subprocess.run(["lsof", "-a", "-p", pid, "-U", "-Fn"], capture_output=True, text=True).stdout
         for name in {entry[1:] for entry in lsof.splitlines() if entry.startswith("n/")}:
-            status = subprocess.run([str(cli), "--socket", name, "--json", "server", "status"],
-                                    capture_output=True, text=True, timeout=10)
+            try:
+                status = subprocess.run([str(cli), "--socket", name, "--json", "server", "status"],
+                                        capture_output=True, text=True, timeout=10)
+            except subprocess.TimeoutExpired:
+                continue
             if re.search(rf'"pid"\s*:\s*{pid}\b', status.stdout):
                 return name
     return None
@@ -430,6 +436,7 @@ def command_apply(args) -> int:
             receipt["steps"]["rust"]["from"] = prior_sha
             receipt["applied"].append("rust")
             if args.acpmux_home:
+                undo["rust"]["acpmux_homes"] = args.acpmux_home
                 receipt["steps"]["acpmux"] = restart_acpmux(app, args.acpmux_home)
         if "web" in parts:
             undo["web"] = overlay_snapshot(live)
@@ -439,6 +446,8 @@ def command_apply(args) -> int:
         receipt["error"] = str(error)
         receipt["rolled_back"] = True
         receipt["rollback"] = put_back(app, undo, args.socket, state, live)
+        # A part that did not go back stays in `undo`, so `rollback` can try it again.
+        receipt["undo"] = {part: undo[part] for part, step in receipt["rollback"].items() if not step.get("ok")}
         receipt["seconds"] = round(time.monotonic() - t0, 3)
         record(state, receipt)
         return 1
@@ -464,6 +473,9 @@ def put_back(app: Path, undo: dict, socket: str | None, state: Path, live) -> di
                 out["rust"] = {"ok": True, "running_sha256": undo["rust"]["sha256"], "daemon": "unchanged"}
             else:
                 out["rust"] = {"ok": True, **swap_cmux(app, Path(undo["rust"]["copy"]), undo["rust"]["sha256"], socket, state)}
+            # The acpmux daemons the apply restarted run the applied build: restart them on the prior one.
+            if undo["rust"].get("acpmux_homes"):
+                out["rust"]["acpmux"] = restart_acpmux(app, undo["rust"]["acpmux_homes"])
         except Exception as error:  # noqa: BLE001
             out["rust"] = {"ok": False, "error": str(error)}
     return out
@@ -476,13 +488,16 @@ def command_rollback(args) -> int:
     except (OSError, ValueError):
         print("hot-apply: nothing applied here", file=sys.stderr)
         return 3
-    if last.get("action") != "apply" or not last.get("undo"):
+    if last.get("action") == "rollback" and not last.get("ok") and last.get("undo"):
+        last = {**last, "sha": last["of"]}  # a rollback that did not finish: try its parts again
+    elif last.get("action") != "apply" or not last.get("undo"):
         print("hot-apply: the last apply left nothing to put back", file=sys.stderr)
         return 3
     app = Path(args.app or last["app"])
     t0 = time.monotonic()
     done = put_back(app, last["undo"], args.socket, state, load("live_apply_loop", "live-apply.py"))
     receipt = {"action": "rollback", "of": last["sha"], "app": str(app), "steps": done,
+               "undo": {part: last["undo"][part] for part, step in done.items() if not step.get("ok")},
                "ok": all(step.get("ok") for step in done.values()), "seconds": round(time.monotonic() - t0, 3),
                "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     record(state, receipt)

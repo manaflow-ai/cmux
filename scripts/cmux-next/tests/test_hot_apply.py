@@ -80,7 +80,8 @@ class HotApplyRust(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         plan = json.loads(done.stdout)
         self.assertEqual(plan["parts"], ["rust"])
-        self.assertEqual(plan["left"], {})
+        # cmux-mobile-host builds from cmux-wg too: it keeps the nightly's build, and says so.
+        self.assertEqual(list(plan["left"]), ["bundled helpers (cmux-mobile-host, ...)"])
         self.assertEqual(plan["tree_key"], self.key)
 
     def test_apply_then_rollback_restores_the_prior_sha(self):
@@ -95,6 +96,22 @@ class HotApplyRust(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertTrue(receipt["ok"])
         self.assertEqual(receipt["steps"]["rust"]["running_sha256"], self.old)
+        self.assertEqual(self.sha(), self.old)
+
+    def test_a_rollback_that_fails_can_be_tried_again(self):
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app))
+        self.assertEqual(code, 0, err)
+        kept = self.tmp / "state/builds" / self.old / "cmux"
+        good = kept.read_bytes()
+        kept.write_bytes(b"#!/bin/sh\necho damaged\n")
+        code, receipt, _ = self.hot("rollback")
+        self.assertEqual(code, 1)
+        self.assertFalse(receipt["ok"])
+        self.assertIn("rust", receipt["undo"])
+        kept.write_bytes(good)
+        code, receipt, err = self.hot("rollback")
+        self.assertEqual(code, 0, err)
+        self.assertTrue(receipt["ok"])
         self.assertEqual(self.sha(), self.old)
 
     def test_a_binary_that_does_not_hash_to_its_published_sha_changes_nothing(self):
