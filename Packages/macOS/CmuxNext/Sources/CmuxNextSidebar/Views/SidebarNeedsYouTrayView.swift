@@ -174,7 +174,7 @@ private final class TrayLine: NSView {
 
     func tint() {
         let color = failed ? Palette.danger : Palette.attention
-        glyph.backgroundColor = color.cgColor
+        glyph.backgroundColor = (failed ? Palette.danger : Palette.statusAttention).cgColor // the needs-input dot
         title.setColor(quiet ? Palette.textTertiary : Palette.textPrimary)
         reason.setColor(color)
         detail.setColor(Palette.textTertiary)

@@ -74,7 +74,7 @@ import Testing
 
     static func notice(_ card: SidebarNoticeCard, dark: Bool) throws -> CGImage {
         let view = SidebarNoticeCardView(motionPolicy: { MotionPolicy(speed: .fast, reduceMotion: true) })
-        view.frame = NSRect(x: 0, y: 0, width: width, height: SidebarNoticeCardView.height(for: card))
+        view.frame = NSRect(x: 0, y: 0, width: width, height: SidebarNoticeCardView.height(for: card, width: width))
         view.configure(card)
         return try render(view, dark: dark)
     }

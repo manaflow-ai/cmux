@@ -8,9 +8,13 @@ name: Pairing machine join check
 #    status, never a header, body or token): dispatch the pairing probe meanwhile and the line says which it is
 #    (no_platform_token: the secret is missing; refused 401: it differs from the platform's; 403: role; 404:
 #    no join registry).
-# Dispatch-only, from feat-cmux-next. Reads only the Cloudflare secrets, in cmux-next-production as
-# platform-prod-secrets.yml does.
+# Dispatch from feat-cmux-next. The push trigger (this file only) registers the workflow, since a dispatch needs it on
+# the default branch or already known (as platform-prod-secrets.yml did, #32470), and runs it once with the default
+# tail. Reads only the Cloudflare secrets, in cmux-next-production as platform-prod-secrets.yml does.
 on:
+  push:
+    branches: [feat-cmux-next]
+    paths: [.github/workflows/pair-machine-join-check.yml]
   workflow_dispatch:
     inputs:
       tail_minutes:

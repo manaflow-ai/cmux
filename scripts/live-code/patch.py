@@ -120,8 +120,10 @@ def from_tree(files, tree, root):
     missing = [rel for rel in rels.values() if not os.path.exists(os.path.join(tree, rel))]
     ignored = set()
     if missing:
-        listed = subprocess.run(["git", "-C", tree, "check-ignore", "--no-index", "--stdin"], input="\n".join(missing),
-                                capture_output=True, text=True)
+        # Only the repository's own rules: a person's global or system excludes could name a deleted source.
+        env = dict(os.environ, GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+        listed = subprocess.run(["git", "-C", tree, "-c", "core.excludesFile=" + os.devnull, "check-ignore", "--no-index",
+                                 "--stdin"], input="\n".join(missing), capture_output=True, text=True, env=env)
         ignored = set(listed.stdout.splitlines())
     moved = []
     for path in files:
@@ -292,7 +294,7 @@ def main():
             sys.exit(f"patch.py: every file of {next(iter(modules))} holds state; nothing to patch")
     target = argv[argv.index("-target") + 1]
     sdk = argv[argv.index("-sdk") + 1] if "-sdk" in argv else None
-    name = f"patch-{int(time.time())}-{os.getpid()}.dylib"
+    name = f"patch-{time.time_ns()}-{os.getpid()}.dylib"  # unique and in order, even for two saves in a second
     dylib = os.path.join(work, name)
     # The swiftc beside the build's frontend: the same toolchain compiles and links.
     swiftc = os.path.join(os.path.dirname(frontend[0]), "swiftc")

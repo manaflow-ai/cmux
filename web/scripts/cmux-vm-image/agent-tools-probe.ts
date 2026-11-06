@@ -60,6 +60,15 @@ export const REQUIRED_TOOLS = ["mcp__cmux-cua__get_desktop_state", "mcp__cmux-cu
 export const REQUIRED_SKILLS = ["cmux:cmux-browser"] as const;
 /** The same tools by server, as an MCP client lists them. */
 const REQUIRED_BY_SERVER: Record<string, string[]> = { "cmux-cua": ["get_desktop_state", "click"], cmux: ["browser_repl_eval", "browser_repl_open"] };
+/**
+ * The tools server NAME must list, as acpmux launched it (`args`). In code mode (no `--all-tools`, acpmux
+ * agent_tools.rs `listing`) the cmux server lists only cmux_exec and cmux_workflow; its tools still answer a
+ * direct call, which mcp-cmux-calls checks.
+ */
+export function requiredTools(name: string, args: readonly string[]): string[] {
+  if (name === "cmux" && !args.includes("--all-tools")) return ["cmux_exec"];
+  return REQUIRED_BY_SERVER[name] ?? [];
+}
 
 /** Problems in the agent's tool list reply. */
 export function toolListProblems(reply: string): string[] {
@@ -360,8 +369,9 @@ async function callServers(vm: Vm, check: Checker, result: ProbeResult, outDir: 
       continue;
     }
     writeFileSync(path.join(outDir, `mcp-${name}.json`), JSON.stringify(report, null, 2));
-    const missing = REQUIRED_BY_SERVER[name].filter((t) => !report.tools.includes(t));
-    check(`mcp-${name}-tools`, report.initialize === "ok" && missing.length === 0, missing.length ? `missing ${missing.join(", ")}` : `${report.tools.length} tools, including ${REQUIRED_BY_SERVER[name].join(", ")}`);
+    const required = requiredTools(name, servers.find((s) => s.name === name)?.args ?? []);
+    const missing = required.filter((t) => !report.tools.includes(t));
+    check(`mcp-${name}-tools`, report.initialize === "ok" && missing.length === 0, missing.length ? `missing ${missing.join(", ")} (listed: ${report.tools.slice(0, 12).join(", ")})` : `${report.tools.length} tools, including ${required.join(", ")}`);
     const failed = report.calls.filter((c) => c.isError !== (c.expect_error === true));
     check(`mcp-${name}-calls`, report.calls.length > 0 && failed.length === 0, report.calls.map((c) => `${c.name}: ${c.isError ? "error " : ""}${c.text.slice(0, 160)}`).join(" | "));
   }

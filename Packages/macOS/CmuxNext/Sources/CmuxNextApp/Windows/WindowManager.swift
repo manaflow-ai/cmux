@@ -317,7 +317,9 @@ final class WindowManager {
         let onboarding = AppOnboardingServices(owner: services.onboarding)
         Task {
             await onboarding.migrateClassicAtLaunch(firstWorkspace: firstWorkspace)
-            services.onboarding.showHistoryAtFirstRun(isFirstRun: firstWorkspace != nil && document.windows.isEmpty)
+            let isFirstRun = firstWorkspace != nil && document.windows.isEmpty
+            // One step at a time: Agents, then Bring your history once its window closed.
+            await services.onboarding.showFirstRunSteps(isFirstRun: isFirstRun)
         }
         savedWindowsUnread = false
         recordSaver.scheduleSave()

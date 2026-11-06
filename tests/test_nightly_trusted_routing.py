@@ -487,7 +487,8 @@ class NightlyTrustedRouting(unittest.TestCase):
     def test_next_runs_do_not_hold_the_workflow_lock_for_post_publication_checks(self):
         group = DOC["concurrency"]["group"]
         self.assertIn(
-            "github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' && 'push' || "
+            "github.ref == 'refs/heads/nightly-next' && ((github.event_name == 'push' || "
+            "github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry != '') && 'push' || "
             "format('run-{0}', github.run_id))",
             group,
         )

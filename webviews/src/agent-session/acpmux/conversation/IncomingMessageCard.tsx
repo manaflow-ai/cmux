@@ -71,6 +71,7 @@ import { noticeMarkdown } from "./agentNotice";
 import { useNoticeLook, type NoticeLook } from "./noticeLook";
 import { openSessionAttributes } from "./menuParts";
 import { useSessionRef } from "./SessionRef";
+import { useSessionHover } from "../started/SessionHoverCard";
 import { resolveSessionRef, sessionRefsResolve, whenIdle } from "./sessionRefs";
 
 /// A family sender's label, its relation before its name ("Parent · coordinator").
@@ -206,6 +207,9 @@ export function SenderName({
     [query, resolved],
   );
   const sessionId = listed ?? resolved?.sessionId;
+  // The chat the name opens shows its hover card, as any reference to a chat does; the card opens it
+  // as the name does, as a sender.
+  const { trigger: hover, card } = useSessionHover(sessionId ?? "", onOpen);
   const openAsked = () => {
     if (!query) return;
     void resolveSessionRef(query).then((target) =>
@@ -237,6 +241,7 @@ export function SenderName({
           title={openTitle}
           ariaLabel={open}
           attributes={openSessionAttributes(sessionId, true)}
+          hover={hover}
           onClick={() => (listed ? onOpen(listed) : openAsked())}
         />
       ) : query ? (
@@ -256,6 +261,7 @@ export function SenderName({
           even if they're from another machine, what's going on here?"). This Mac's chats name none. */}
       {host &&
         (readOnly ? <span className="cv-received__host">{host}</span> : <MachineMenu host={host} onOpen={onOpen} />)}
+      {sessionId && card}
     </span>
   );
 }
