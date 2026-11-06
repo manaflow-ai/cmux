@@ -96,6 +96,6 @@ mod tests {
         assert_eq!(parent_path("/a/b/ghostty"), "/a/b");
         assert_eq!(parent_path("/ghostty"), "/");
         assert_eq!(parent_path("ghostty"), "");
-        assert_eq!(join("/s/", "cmux/tags/x/tui"), "/s/cmux/tags/x/tui");
+        assert_eq!(join("/s/", "a/b/"), "/s/a/b");
     }
 }
