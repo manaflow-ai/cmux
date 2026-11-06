@@ -122,14 +122,19 @@ final class CEFLayerHosting {
     typealias Scheduler = (_ block: @escaping @MainActor @Sendable () -> Void) -> Void
     /// Runs a block after this run-loop pass's frame commit (``AfterFrameCommit``); tests run it when they choose.
     private let afterCommit: Scheduler
+    /// Runs a block once the window's next display frame came (a ``FrameClient`` tick on the view's window), after
+    /// that pass's commit; nil uses the view's ``FrameScheduler``. Tests run it when they choose.
+    private let afterFrameShown: Scheduler?
+    /// The one-tick client of ``afterFrameShown`` while it waits.
+    private var shownFrame: FrameClient?
 
     /// A page shown in this turn whose input window was out of the window (``pageAppeared(windowInWindow:then:)``).
     enum FirstFrameHold: Equatable {
         case none
-        /// Detached for the turn it showed in: its pixels show from the hosted context and no window is ordered.
+        /// Detached until the frame it showed in came: its pixels show from the hosted context and no window is ordered.
         case detached
-        /// Attached after that turn's commit: the fork orders the window in at its next run-loop observer, so a focus
-        /// grant waits until after that.
+        /// Attached after that frame: the fork orders the window in at its next run-loop observer, so a focus grant
+        /// waits until after that.
         case attaching
     }
 
@@ -153,9 +158,11 @@ final class CEFLayerHosting {
          dragResizeDeadlineMs: @escaping () -> Int32 = { 0 },
          refreshIntervals: @escaping () -> [Double] = { NSScreen.screens.map(\.minimumRefreshInterval) },
          holdsFocus: (() -> Bool)? = nil,
-         afterCommit: @escaping Scheduler = { AfterFrameCommit().run($0) }) {
+         afterCommit: @escaping Scheduler = { AfterFrameCommit().run($0) },
+         afterFrameShown: Scheduler? = nil) {
         self.holdsFocus = holdsFocus ?? { false }
         self.afterCommit = afterCommit
+        self.afterFrameShown = afterFrameShown
         self.isEnabled = isEnabled
         self.resizeDeadlineMs = resizeDeadlineMs
         self.liveResizeDeadlineMs = liveResizeDeadlineMs
@@ -365,13 +372,28 @@ final class CEFLayerHosting {
     /// for after the commit, but on macOS 27 the commit runs later (the update cycle) and that observer fires first, 7.6
     /// ms before the first frame on every Cmd-N (Time Profiler, cmux22, macOS 27.0, 60 Hz). Chrome shows the frame
     /// first and wires input after it. So the page is detached for this turn (the fork shows it from its hosted context
-    /// with no window order) and attached after this turn's commit; `grant` runs once the fork ordered the window in.
+    /// with no window order) and attached once the window's next display frame came, after that pass's commit: right
+    /// after the key's commit was too soon (v1: the order-in and its commit then ran before that frame's display tick,
+    /// which came 30 to 40 ms after the key in half the presses). `grant` runs once the fork ordered the window in.
     /// A page in a resize motion, already detached, or not hosted is left as it is.
     func pageAppeared(windowInWindow: Bool, then grant: @escaping @MainActor () -> Void) {
         guard !windowInWindow, firstFrameHold == .none, !isDetached, !inResizeMotion, setDetached(true) else { return }
         firstFrameHold = .detached
         afterFirstFrame = grant
         afterCommit { [weak self] in self?.attachAfterFirstFrame() }
+    }
+
+    private func runAfterFrameShown(_ block: @escaping @MainActor @Sendable () -> Void) {
+        if let afterFrameShown { return afterFrameShown(block) }
+        shownFrame?.deactivate()
+        let client = FrameClient(owner: "cef.first-frame-attach", isAnimation: false,
+                                 scheduler: { [weak view] in view.map(FrameScheduler.forView) ?? .app }) { [weak self] _ in
+            self?.shownFrame = nil
+            self?.afterCommit(block)
+            return false
+        }
+        shownFrame = client
+        client.activate()
     }
 
     private func attachAfterFirstFrame() {
@@ -508,6 +530,8 @@ final class CEFLayerHosting {
         attachOwed = false
         firstFrameHold = .none
         afterFirstFrame = nil
+        shownFrame?.deactivate()
+        shownFrame = nil
         guard let page else { return }
         page.removeFromSuperview()
         self.page = nil
