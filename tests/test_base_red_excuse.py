@@ -24,6 +24,10 @@ def setUpModule():
     patch = unittest.mock.patch.object(excuse, "git_text", lambda repo, ref, path: None, create=True)
     patch.start()
     unittest.addModuleCleanup(patch.stop)
+    # The fakes reuse run ids with other jobs from test to test: no base job list is kept on disk unless a test asks.
+    env = unittest.mock.patch.dict(os.environ, {"BASE_RED_EXCUSE_JOBS_CACHE": "off"})
+    env.start()
+    unittest.addModuleCleanup(env.stop)
 
 REPO = "manaflow-ai/cmux"
 HEAD = "a" * 40
@@ -3272,3 +3276,135 @@ class WsCheckPerTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SweepGitHub(FakeGitHub):
+    """A head like cmux#36958's (2026-11-06): N red jobs, each in its own workflow whose 35 newest base runs cancelled
+    the job, and a 'next-autoland / verdict' status with no run link among 32 head runs, none of which has that job.
+    Counts the job reads glaeda-gh's sweep limit counts: distinct runs whose jobs, or jobs, were read."""
+
+    STATUS = "next-autoland / verdict"
+    SAID = "its own red: cmux-next defaults guard / defaults guard"
+    SWEEP = __import__("re").compile(r"^repos/[^/]+/[^/]+/actions/(?:runs/(\d+)/jobs|jobs/(\d+))/?(?:\?.*)?$")
+
+    def __init__(self, reds, *, suites=True, base_logs=None):
+        super().__init__()
+        self.suites, self.targets, self.graphql = suites, set(), 0
+        self.jobs, self.logs, self.runs, self.listed = {}, {}, {}, []
+        for k in range(reds):
+            name, workflow = f"suite {k}", 70 + k
+            self.add_run(1000 + k, workflow, HEAD, "pull_request")
+            self.jobs[1000 + k] = failed_job(1000 + k, 1000 + k, HEAD, name=name)
+            self.logs[1000 + k] = log(name, TEST_STEP, ISSUE)
+            for n in range(36):
+                run = 10000 * (k + 1) + n
+                self.add_run(run, workflow, BASE_SHA, "push", created=f"2026-11-06T{23 - n // 3:02d}:{59 - n:02d}:00Z")
+                self.jobs[run] = dict(failed_job(run, run, BASE_SHA, name=name),
+                                      conclusion="cancelled" if n < 35 else "failure")
+                self.logs[run] = log(name, TEST_STEP, *(base_logs or (ISSUE, OTHER)))
+        for n in range(32):
+            self.add_run(500 + n, 99, HEAD, "pull_request")
+            self.jobs[500 + n] = dict(failed_job(500 + n, 500 + n, HEAD, name=f"green {n}"), conclusion="success")
+            self.listed.append(self.runs[500 + n])
+
+    def add_run(self, run, workflow, sha, event, created="2026-11-06T00:00:00Z"):
+        self.runs[run] = {"id": run, "workflow_id": workflow, "head_sha": sha, "event": event, "status": "completed",
+                          "conclusion": "failure", "created_at": created, "run_attempt": 1,
+                          "updated_at": created, "head_branch": "feat-cmux-next"}
+        if self.suites:
+            self.runs[run]["check_suite_node_id"] = f"CS_{run}"
+
+    def json(self, route, *, paginate=False):
+        self.routes.append(route)
+        if match := self.SWEEP.match(route):
+            self.targets.add(match.group(0).split("?")[0].replace("/jobs", ""))
+        if route.endswith(f"commits/{HEAD}/check-runs?filter=all&per_page=100"):
+            return [{"check_runs": []}]
+        if route.endswith(f"commits/{HEAD}/status?per_page=100"):
+            return {"statuses": [{"context": self.STATUS, "state": "failure", "target_url": "",
+                                  "description": self.SAID}]}
+        if route.endswith(f"actions/runs?head_sha={HEAD}&per_page=100"):
+            return {"workflow_runs": copy.deepcopy(self.listed)}
+        if route.endswith(f"commits?sha=feat-cmux-next&per_page={excuse.BASE_STATUS_COMMITS}"):
+            return [{"sha": BASE_SHA}]
+        if route.endswith(f"commits/{BASE_SHA}/status?per_page=100"):
+            return {"statuses": [{"context": self.STATUS, "state": "failure", "description": self.SAID}]}
+        if "/actions/workflows/" in route:
+            workflow = int(route.split("/actions/workflows/", 1)[1].split("/", 1)[0])
+            return {"workflow_runs": [copy.deepcopy(run) for run in self.runs.values()
+                                      if run["workflow_id"] == workflow and run["head_sha"] == BASE_SHA]}
+        if "/jobs?" in route:
+            run = int(route.split("/actions/runs/", 1)[1].split("/", 1)[0])
+            return [{"jobs": [copy.deepcopy(job) for job in self.jobs.values() if job["run_id"] == run]}]
+        if "/actions/runs/" in route:
+            return copy.deepcopy(self.runs[int(route.rsplit("/", 1)[1])])
+        return super().json(route, paginate=paginate)
+
+    def run(self, args):
+        assert args[:2] == ["api", "graphql"], args
+        self.graphql += 1
+        query = next(arg for arg in args if arg.startswith("query="))
+        name = next(arg for arg in args if arg.startswith("name="))[len("name="):]
+        suites = __import__("re").findall(r'"CS_(\d+)"', query)
+        assert 0 < len(suites) <= excuse.SUITES_PER_QUERY, suites
+        return json.dumps({"data": {"nodes": [
+            {"id": f"CS_{run}", "checkRuns": {"pageInfo": {"hasNextPage": False}, "nodes": [
+                {"conclusion": (job["conclusion"] or "").upper() or None}
+                for job in self.jobs.values() if job["run_id"] == int(run) and job["name"] == name]}}
+            for run in suites]}})
+
+    def judge(self, reds):
+        try:
+            return excuse.judge(REPO, "feat-cmux-next", HEAD, [1000 + k for k in range(reds)], self,
+                                checks=[self.STATUS])
+        except excuse.Refused as why:
+            return f"refused: {why}"
+
+
+class SweepLimit(unittest.TestCase):
+    """glaeda-gh refuses a caller past 30 distinct job reads in ten minutes; merge_hold judges every red of a head in
+    one call. Which runs can answer is read from their check suites over GraphQL, and the verdicts do not change."""
+
+    def test_the_same_inputs_give_the_same_verdicts_with_and_without_the_suite_reads(self):
+        for reds, base_logs in ((1, None), (4, None), (4, (OTHER,))):
+            with self.subTest(reds=reds, base_logs=base_logs):
+                read = SweepGitHub(reds, base_logs=base_logs).judge(reds)
+                rest = SweepGitHub(reds, suites=False, base_logs=base_logs).judge(reds)
+                self.assertEqual(read, rest)
+                self.assertTrue(read)
+        self.assertIn("excused 'suite 3'", "\n".join(SweepGitHub(4).judge(4)))
+        self.assertIn("refused: 'suite 0'", SweepGitHub(4, base_logs=(OTHER,)).judge(4))
+
+    def test_n_reds_stay_under_the_sweep_limit(self):
+        limit = 30  # glaeda-gh's GH_SWEEP_MAX
+        for reds in (1, 4, 8, 12):
+            with self.subTest(reds=reds):
+                gh = SweepGitHub(reds)
+                self.assertIn(f"excused 'suite {reds - 1}'", "\n".join(gh.judge(reds)))
+                # One head run and one base run per red, and none of the 32 head runs the status was looked for in.
+                self.assertEqual(len(gh.targets), 2 * reds)
+                self.assertLess(len(gh.targets), limit)
+                self.assertEqual(gh.graphql, 2 + 2 * reds)  # 32 head runs and 36 base runs each: two requests apiece
+        rest = SweepGitHub(1, suites=False)
+        rest.judge(1)
+        self.assertGreater(len(rest.targets), limit)  # what merge_hold hit on cmux#36958
+
+    def test_a_suite_read_that_fails_reads_every_run_as_before(self):
+        gh = SweepGitHub(1)
+        gh.run = lambda args: json.dumps({"errors": [{"message": "Something went wrong"}]})
+        self.assertEqual(gh.judge(1), SweepGitHub(1, suites=False).judge(1))
+        self.assertGreater(len(gh.targets), 30)
+
+    def test_a_completed_base_runs_job_list_is_kept_by_run_attempt_and_update(self):
+        with tempfile.TemporaryDirectory() as kept, \
+                unittest.mock.patch.dict(os.environ, {"BASE_RED_EXCUSE_JOBS_CACHE": kept}):
+            first = SweepGitHub(2)
+            first.judge(2)
+            second = SweepGitHub(2)
+            self.assertEqual(second.judge(2), first.judge(2))
+            self.assertEqual(sorted(second.targets), [f"repos/{REPO}/actions/runs/{1000 + k}" for k in range(2)])
+            third = SweepGitHub(2)
+            third.runs[10035]["updated_at"] = "2026-11-06T23:59:59Z"  # re-run since: read again
+            third.judge(2)
+            self.assertIn(f"repos/{REPO}/actions/runs/10035", third.targets)
+            self.assertNotIn(f"repos/{REPO}/actions/runs/20035", third.targets)
