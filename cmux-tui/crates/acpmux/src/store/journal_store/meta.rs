@@ -265,10 +265,14 @@ fn session_json(meta: &SessionMeta, lsn: Lsn, journal: u64) -> Result<Vec<u8>> {
     Ok(text.into_bytes())
 }
 
-/// Writes `meta` (the image of LSN `lsn`) to `dir`'s `session.json` durably: a new file, synced,
-/// renamed into place, then the folder synced. A failed sync of either is a [`SyncFailed`]
-/// (review of #35483, F3): what it was to make durable may be lost, and a later sync of the same
-/// file may report success without it.
+/// Writes `meta` (the image of LSN `lsn`) to `dir`'s `session.json`: whole under a temporary
+/// name (owner-only, never through a symlink), synced in write order, renamed into place, the
+/// folder synced in write order. The checkpoint that writes it (or recovery's, which ends the
+/// open) flushes the drive once afterward (`write_checkpoint`), so a power loss keeps it too:
+/// one drive flush per checkpoint, not two per chat (29 ms per replayed chat on macOS before,
+/// fleet ead05e82). A failed sync of either is a [`SyncFailed`] (review of #35483, F3): what it
+/// was to make durable may be lost, and a later sync of the same file may report success
+/// without it.
 #[cfg(unix)]
 fn write_session_json(dir: &Path, meta: &SessionMeta, lsn: Lsn, journal: u64) -> Result<()> {
     use std::os::unix::fs::OpenOptionsExt;
@@ -288,10 +292,12 @@ fn write_session_json(dir: &Path, meta: &SessionMeta, lsn: Lsn, journal: u64) ->
             .with_context(|| format!("write {}", tmp.display()))?;
         file.write_all(&session_json(meta, lsn, journal)?)
             .with_context(|| format!("write {}", tmp.display()))?;
-        file.sync_all().map_err(SyncFailed).with_context(|| format!("sync {}", tmp.display()))?;
+        log_sync::sync_segment_ordered(&file)
+            .map_err(SyncFailed)
+            .with_context(|| format!("sync {}", tmp.display()))?;
         drop(file);
         std::fs::rename(&tmp, &path).with_context(|| format!("rename to {}", path.display()))?;
-        sync_directory(dir).with_context(|| format!("sync {}", dir.display()))
+        log_sync::sync_directory_ordered(dir).with_context(|| format!("sync {}", dir.display()))
     })();
     if written.is_err() {
         let _ = std::fs::remove_file(&tmp);
@@ -433,10 +439,11 @@ impl Inner {
         #[cfg(test)]
         hold_settle(id);
         // Durable first (E13: an image names only lines the journal holds). The journal syncs in
-        // write order without flushing the drive's cache (macOS `F_BARRIERFSYNC`); the image's
-        // own `sync_all` (`F_FULLFSYNC`) flushes it, so after a power loss an image never holds
-        // a `journalLsn` the journal lost (review of #35483, refuted item). A weaker sync of
-        // `session.json` must first wait for `Journal::full_durable_lsn`.
+        // write order (macOS `F_BARRIERFSYNC`, a barrier on the drive), and so does the image,
+        // after the record's sync: a power loss that keeps the image keeps the record, so an
+        // image never holds a `journalLsn` the journal lost (review of #35483, refuted item). A
+        // sync of `session.json` that orders nothing must first wait for
+        // `Journal::full_durable_lsn`.
         self.journal
             .wait_durable(pending.lsn, SEAL_WAIT)
             .map_err(|error| anyhow::anyhow!("the event journal: {error}"))?;
@@ -497,11 +504,12 @@ impl Inner {
         Ok(())
     }
 
-    /// The replay's part: each chat's newest image to its `session.json` when its folder is the
-    /// one the image was saved for and the file holds an older image the journal wrote, a file
-    /// one of its records saw, or none. The image goes aside when the folder is gone (removed:
-    /// never made again, [module docs](self)) or replaced, or when its `session.json` moved on
-    /// without the journal (F1 of the review of #35483).
+    /// The replay's part: each chat's newest image into the overlay (the checkpoint, on its own
+    /// thread, writes it to `session.json`: no sync per replayed chat before the daemon serves)
+    /// when its folder is the one the image was saved for and the file holds an older image the
+    /// journal wrote, a file one of its records saw, or none. The image goes aside when the
+    /// folder is gone (removed: never made again, [module docs](self)) or replaced, or when its
+    /// `session.json` moved on without the journal (F1 of the review of #35483).
     pub(super) fn apply_metas(&self, metas: BTreeMap<String, Replayed>) -> Result<()> {
         for (chat, replayed) in metas {
             let dir = self.local.dir(&chat);
@@ -534,12 +542,10 @@ impl Inner {
                 tracing::error!(session = %chat, kept = %kept.display(), "journaled metadata of a chat not written again: {why}");
                 continue;
             }
-            if let Err(error) =
-                write_session_json(&dir, &meta, replayed.lsn, self.journal.journal_id())
-            {
-                let kept = self.keep_aside_meta(&chat, replayed.lsn, &replayed.image)?;
-                tracing::error!(session = %chat, kept = %kept.display(), "the chat's metadata could not be written: {error:#}");
-            }
+            self.order
+                .lock_or_recover()
+                .metas
+                .insert(chat, Pending { lsn: replayed.lsn, meta, folder: replayed.folder });
         }
         Ok(())
     }

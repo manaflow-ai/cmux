@@ -42,7 +42,12 @@ How it is enforced:
   `thread-doc` (a new thread, queue or `BlockingAllowance` whose literal label this page's "Registered threads
   and queues" does not list; a label that is a variable is not judged). A `.wait(` with `await` before it in its
   statement is an async wait and is not refused. Escape: `// blocking-allow: <why>` (to be counted by the arch
-  ratchet's `blocking_allow_escapes` row: to come, PL-arch).
+  ratchet's `blocking_allow_escapes` row: to come, PL-arch). It also refuses `main-hop` (cmux-ad m35): a new
+  direct hop onto the main actor (`Task { @MainActor in`, `MainActor.run {`) in a UI target, which runs outside
+  the main-thread scheduler; use `FrameBatchQueue.enqueue`, `MainDelivery().run`, `AfterFrameCommit().run` or an
+  `await` of an `@MainActor` function. Escape: `// main-hop-allow: <why no scheduler path fits and what bounds
+  the work>`. Old hops are not refused; the count only goes down. `guardrails.py --main-thread-counts [REV]`
+  prints the hop, scheduler-entry, raw-blocking and checked-seam counts.
 
 ## Threads and queues
 
@@ -154,6 +159,9 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   one thread per call: its pipe write blocks only it; it ends when the child has read the request or closed its
   stdin, and a kill at the call's deadline or a cancel closes it, so it never outlives the child; CloudMachineIO),
   `com.cmuxterm.next.remote-fetch`, `cmux.remote-view.render`, `cmux.remote-view.rd-transport`,
+  `cmux.daemon-bridge.stream` (one Cloud desktop session's `link dial --service desktop` bridge socket,
+  user-initiated, serial: DispatchIO delivers the stream's bytes here and it blocks on nothing; the rd transport
+  reads them in order, a few MB/s of H.264 at most, and the session's end closes it; DaemonBridgeStream),
   `com.cmuxterm.mac-screen.rd-stdin` (one Mac Screen session's JSON lines into its bundled `cmux rd`
   process, user-initiated, serial: its pipe writes block only it; a few lines per session, candidates and
   stop, so no back-pressure; MacScreenRdProcess), `com.cmuxterm.mac-screen.rd-socket` (the viewer's
@@ -173,7 +181,11 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
 - Design: `com.cmuxterm.next.desktop-picture` (the desktop wallpaper watch's reads, utility, serial: its
   `NSWorkspace.desktopImageURL(for:)` WindowServer round trip and file stat block this queue, never main
   (#26394); one read at a time, and events during it fold into one more read, so no back-pressure)
-- Agents: `com.cmuxterm.app.next.agent-pane.prompt-journal`, `com.cmuxterm.app.next.agent-pane.inbound`,
+- Agents: `com.cmuxterm.app.next.agent-pane.tail-disk` (each chat's kept tail on disk, AgentPaneTailDisk, utility,
+  serial: its file reads and writes block this queue, never main; saves of one chat coalesce to the newest, at most
+  20 files of 1 MiB, and a read waits only behind the saves queued before it; the quit awaits its saves with the
+  state files', holding no thread, under the quit deadline),
+  `com.cmuxterm.app.next.agent-pane.prompt-journal`, `com.cmuxterm.app.next.agent-pane.inbound`,
   `cmux.next.agent-pane.acpmux-exit.<pid>`, `cmux.next.agent-pane.acpmux-log-progress`,
   `cmux.next.agent-pane.acpmux-launch-reap.<pid>`, `cmux.next.agent-pane.acpmux-status`, `cmux.acpmux.checked-line`,
   `cmux.next.agent-pane.acpmux-socket-wait` (one person-socket exchange's readiness wait, userInitiated, serial, one

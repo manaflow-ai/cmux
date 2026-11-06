@@ -8,12 +8,12 @@
 // terminal beside the chat (processTerminal.ts); a peer's (SSH) or Cloud chat has none, so there
 // it shows the Bash call that started it in the transcript, and a row with neither is no button
 // and says why. A command the registry lists also has Stop.
-// Dev servers are listed under Servers instead (ServersSection.tsx). The list scrolls inside the
-// section; nothing is cut to a few rows. A command that starts while the list is drawn drops in at
-// the top (ui/presence.ts `useArrivals`); the ones the list is drawn with are simply there.
+// Dev servers head the section in rows of their own (ServersSection.tsx). A running row's time ends
+// it, and on the row's hover or focus Stop takes the time's place (sessionInfo.css). The panel's body
+// scrolls, not the section; nothing is cut to a few rows. A command that starts while the list is drawn
+// drops in at the top (ui/presence.ts `useArrivals`); the ones the list is drawn with are simply there.
 import { useState } from "react";
 import { useArrivals } from "../../../ui/presence";
-import { useScrollEdges } from "../../../ui/scrollEdges";
 import { formatDuration } from "../conversation/turns";
 import { usePaneLanguage, useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -62,7 +62,6 @@ export function TasksSection({
   const t = useT();
   const language = usePaneLanguage();
   const [showFinished, setShowFinished] = useState(false);
-  const listEdges = useScrollEdges();
   const { running, finished } = splitCommands(commands);
   const now = useNow(running.length > 0);
   // Moves once, when the earliest wakeup or cron job still ahead ends (no per-second poll).
@@ -140,7 +139,7 @@ export function TasksSection({
     ...ended.map((entry) => ({ at: entry.status.endedAt, entry })),
   ].sort((a, b) => (b.at ?? -Infinity) - (a.at ?? -Infinity));
   return (
-    <div ref={listEdges} className="acpmux-session-info-scroll ui-scroll-edge-fade" data-section="tasks">
+    <div data-section="tasks">
       {(running.length > 0 || active.length > 0) && (
         <ul className="acpmux-session-info-list">
           {running.map((command) =>

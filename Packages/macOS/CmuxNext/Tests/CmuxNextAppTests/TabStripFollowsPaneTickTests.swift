@@ -393,11 +393,11 @@ struct TabStripFollowsPaneTickTests {
         return found
     }
 
-    /// A tab closes on its own tween (`ui.animations.newTab` on), and while it closes the pane narrows (a split, a close
+    /// A tab opens on its own tween (`ui.animations.newTab` on), and while it opens the pane narrows (a split, a close
     /// or a key resize moves its edge): only the strip's width changed. The width change starts no strip move: the tabs
-    /// take the new width in the frame the pane does, and the close keeps its own move and its closing tab
-    /// (cx-y2uf5: the closing tab never vanishes when the strip's width changes).
-    @Test func aPaneWidthChangeStartsNoStripMoveWhileATabCloses() throws {
+    /// take the new width in the frame the pane does, and the open keeps its own move. (A tab close is instant, msg
+    /// 2833: `TabCloseInstantTests`.)
+    @Test func aPaneWidthChangeStartsNoStripMoveWhileATabOpens() throws {
         // Synchronous from here to the resets: the overrides are process-wide.
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
@@ -407,7 +407,7 @@ struct TabStripFollowsPaneTickTests {
         try #require(Motion.tabs.animatesMovement, "animation speed is off on this host")
         let reveal = LaunchReveal()
         reveal.markAllReady()
-        let tabs = (0..<4).map { TabItem(id: TabID("tab\($0)"), title: "python3 /tmp/sigwinch.py --seed 100\($0)") }
+        let tabs = (0..<2).map { TabItem(id: TabID("tab\($0)"), title: "python3 /tmp/sigwinch.py --seed 100\($0)") }
         let model = TabStripModel(tabs: tabs, selectedID: tabs[0].id)
         // The app's pane content in no window: Core Animation moves a strip only in a window on a screen
         // (`Motion.canAnimate`), a view in no window animates as one on screen does, so the close moves on any host.
@@ -416,11 +416,11 @@ struct TabStripFollowsPaneTickTests {
         let strip = pane.stripView
         strip.sync(fromModel: true)
         pane.layoutSubtreeIfNeeded()
-        model.tabs.removeLast()
+        model.tabs.append(TabItem(id: TabID("tab2"), title: "python3 /tmp/sigwinch.py --seed 1002"))
         strip.sync(fromModel: true)
-        try #require(strip.dying.contains(TabID("tab3")), "the close did not animate")
+        try #require(strip.cells[TabID("tab2")] != nil, "the new tab has no cell")
         let closing = Self.moveGenerations(strip)
-        try #require(!closing.isEmpty, "the close started no strip move")
+        try #require(!closing.isEmpty, "the open started no strip move")
         // The three tabs left share the row between their minimum and maximum widths: their widths follow the strip's.
         try #require(!strip.result.isOverflowing && strip.result.standardWidth < strip.metrics.maxTabWidth - 0.5,
                      "the tabs' widths do not follow the strip's: \(strip.result.standardWidth) pt, overflowing \(strip.result.isOverflowing)")
@@ -431,8 +431,7 @@ struct TabStripFollowsPaneTickTests {
         try #require(strip.viewportWidth < viewport && strip.lastViewportWidth == strip.viewportWidth, "the strip did not lay out at the pane's new width")
         try #require(strip.result.slots.map(\.width) != widths, "the tabs kept their widths: \(widths)")
         let started = Self.moveGenerations(strip).subtracting(closing)
-        #expect(started.isEmpty, "the pane's width change started strip moves \(started.sorted()) beside the close's \(closing.sorted())")
-        #expect(!Self.moveGenerations(strip).isDisjoint(with: closing), "the close's own move ended when the pane narrowed")
-        #expect(strip.cells[TabID("tab3")] != nil, "the closing tab vanished when the pane narrowed")
+        #expect(started.isEmpty, "the pane's width change started strip moves \(started.sorted()) beside the open's \(closing.sorted())")
+        #expect(!Self.moveGenerations(strip).isDisjoint(with: closing), "the open's own move ended when the pane narrowed")
     }
 }

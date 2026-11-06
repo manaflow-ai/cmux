@@ -42,3 +42,15 @@ test("the raw names the brief listed are each labelled or never drawn", () => {
 test("any other name keeps its title", () => {
   expect(label("Frobnicate", "completed")).toBe("Frobnicate");
 });
+
+// The 11-05 audit (leo-workspace research/2026-11-05-where-we-stand.md, "Rendering") found the Skill
+// tool still drawn as a bare "Skill" row.
+test("a Skill call reads with the skill it loads", () => {
+  const skill = (status: Tool["status"], inputSummary?: string) =>
+    toolLabel({ id: "t", title: "Skill", kind: "other", status, inputSummary } as Tool, "Skill", (line) => line);
+  expect(skill("in_progress", '{"skill":"code-review","args":"--fix"}')).toBe("Using the code-review skill");
+  expect(skill("completed", '{"skill":"cmux:acpmux"}')).toBe("Used the cmux:acpmux skill");
+  expect(skill("completed", '{"skill":"/loop"}')).toBe("Used the loop skill");
+  expect(skill("pending")).toBe("Using a skill");
+  expect(skill("completed", "not json")).toBe("Used a skill");
+});
