@@ -94,16 +94,16 @@ struct WorkspaceSpawner {
     private func shown(_ key: WorkspaceKey, name: String, window windowID: String,
                        rule: NewWorkspaceDefaultSlot?) -> (() async throws -> String)? {
         let services = windows.services, daemon = daemon
-        guard spawn.showsBeforeDaemon(local: daemon.isLocal) else { return nil }
+        guard spawn.showsBeforeDaemon(local: daemon.isLocal), services.agentTabs.showsWorkspaceAtOnce(on: daemon) else { return nil }
         let repair: EmptyWorkspaceRepair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
         let room = services.machines.local.store.profile(spawn.profile ?? profile)
         let cwd = spawn.startFolder(roomFolder: room?.defaults?.cwd, local: daemon.isLocal, daemonDefault: daemon.defaultCwd)
-        guard services.agentTabs.showsWorkspaceAtOnce(on: daemon) else { return nil }
-        // Claimed at the press (`start`), so the reconcile the intent runs places and selects it in this window in
-        // this turn; its slot is placed in the turn the daemon's workspace takes the stand-in over.
+        // Claimed at the press (`start`), so the intent's reconcile selects it in this window in this turn, and the window swaps to it below
+        // (on the observation hop, a frame between showed the old one: SWITCH STALL 4); its slot is placed once the daemon's workspace takes over.
         NewWorkspacePlacements.expect(key.rawValue, in: windowID, slot: spawn.slot, byDefault: rule, then: spawn.onListed, windows: windows)
         guard let shown = services.agentTabs.showWorkspace(key, name: name, index: nil, cwd: cwd, token: spawn.inputToken, chat: spawn.firstChat,
                                                            session: spawn.firstSession.map { ($0, nil, false) }, on: daemon, repair: repair) else { return nil }
+        if let controller = windows.controller(for: windowID), controller.state.workspaceID == key.rawValue { controller.showWorkspace(requested: key.rawValue) }
         // The keys held since the press may go to its page's field once that reports ready.
         services.keyRouter.newTabInputCoordinator.flushAll()
         let windows = windows
