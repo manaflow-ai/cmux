@@ -118,7 +118,7 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
     // A working chat of an agent that forks only at its end forks as it is now.
     if live || (working && !can_cut) {
         let mut out = json!({"sessionId": session.id});
-        let mut mux = serde_json::Map::new();
+        let mut mux = cancel_token(params);
         for key in ["via", "requireFullAccess"] {
             if let Some(value) = params.pointer(&format!("/_meta/acpmux/{key}")) {
                 mux.insert(key.into(), value.clone());
@@ -163,7 +163,7 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
     }
     // A working chat moved past its latest finished turn: a fork through it cuts there too.
     let earlier = earlier || working;
-    let mut mux = serde_json::Map::new();
+    let mut mux = cancel_token(params);
     for key in ["via", "requireFullAccess"] {
         if let Some(value) = params.pointer(&format!("/_meta/acpmux/{key}")) {
             mux.insert(key.into(), value.clone());
@@ -176,6 +176,16 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
     let mut out = json!({"sessionId": session.id});
     out.set("_meta", json!({"acpmux": mux}));
     Ok(out)
+}
+
+/// The `_meta.acpmux` a Fork Conversation's `session/fork` starts from: its `cancelToken`, which
+/// Cancel names it by (`hub/fork_cancel.rs`).
+fn cancel_token(params: &Value) -> serde_json::Map<String, Value> {
+    let mut mux = serde_json::Map::new();
+    if let Some(token) = params.get("cancelToken").filter(|t| t.is_string()) {
+        mux.insert("cancelToken".into(), token.clone());
+    }
+    mux
 }
 
 #[cfg(test)]

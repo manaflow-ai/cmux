@@ -2223,6 +2223,9 @@ export class AcpmuxDirectClient {
   private forkPendingSince?: number;
   /// The chat that fork is of: only its snapshot shows the pending line and its Cancel.
   private forkPendingFrom?: string;
+  /// The name that fork's request gives it, which its Cancel stops it by (acpmux
+  /// hub/fork_cancel.rs).
+  private forkCancelToken?: string;
   private streamingAssistant?: string;
   private streamingAssistantMessageId?: string;
   /// A prompt, steer or notice came while the streaming row's message was still being written: only
@@ -9853,16 +9856,16 @@ export class AcpmuxDirectClient {
     this.forkCancelled = false;
     const generation = this.selectionGeneration;
     const sessionId = from ?? this.actingSessionId;
+    const cancelToken = stay ? crypto.randomUUID() : undefined;
     if (stay) {
       this.forkPendingSince = Date.now();
       this.forkPendingFrom = sessionId;
+      this.forkCancelToken = cancelToken;
       this.emit();
     }
     try {
-      const result = await this.request(
-        FORK_OP,
-        throughSeq === "live" ? { sessionId, live: true } : { sessionId, throughSeq },
-      );
+      const boundary = throughSeq === "live" ? { sessionId, live: true } : { sessionId, throughSeq };
+      const result = await this.request(FORK_OP, cancelToken ? { ...boundary, cancelToken } : boundary);
       if (this.forkCancelled) {
         if (result?.sessionId) this.takeBackFork(String(result.sessionId));
         return undefined;
@@ -9889,19 +9892,27 @@ export class AcpmuxDirectClient {
       this.forking = false;
       this.forkCancelled = false;
       this.forkPendingFrom = undefined;
+      this.forkCancelToken = undefined;
       if (this.forkPendingSince !== undefined) {
         this.forkPendingSince = undefined;
         this.emit();
       }
     }
   }
-  /// Cancel on the pending fork: acpmux makes it all the same, and its answer takes it back whole
-  /// (`takeBackFork`) and opens nothing. "i shuold be able to cancel a fork probably" (Leo,
-  /// 2026-11-06).
+  /// Cancel on the pending fork: acpmux stops it where it is, by the token its request named it
+  /// with, and leaves nothing of it; one already made is taken back whole. Its answer opens
+  /// nothing either way, and an answer with a fork takes that back too (`takeBackFork`). "i shuold
+  /// be able to cancel a fork probably" (Leo, 2026-11-06).
   cancelFork(): void {
     if (!this.forking || this.forkCancelled) return;
     this.forkCancelled = true;
     this.forkPendingSince = undefined;
+    const cancelToken = this.forkCancelToken;
+    if (cancelToken && this.forkPendingFrom) {
+      void this.request("_acpmux/kill", { sessionId: this.forkPendingFrom, cancelFork: true, cancelToken }).catch(
+        () => undefined,
+      );
+    }
     this.emit();
   }
   /// Removes a fork nobody used: its chat, and the conversation copy its agent made (acpmux

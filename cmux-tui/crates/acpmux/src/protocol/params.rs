@@ -85,6 +85,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "author",
     "beforePromptId",
     "callerSession",
+    "cancelToken",
     "cliHost",
     "context",
     "cwd",
@@ -200,7 +201,7 @@ keyed! {
     /// `initialize`.
     InitializeParams: ["protocolVersion", "clientCapabilities", "clientInfo"];
     /// `_acpmux/kill`.
-    KillParams: ["sessionId", "purge", "cancelFork"];
+    KillParams: ["sessionId", "purge", "cancelFork", "cancelToken"];
     /// `_acpmux/mcp/reconnect`.
     McpReconnectParams: ["sessionId", "server"];
     /// `_acpmux/models`.

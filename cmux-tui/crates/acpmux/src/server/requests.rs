@@ -1873,9 +1873,10 @@ async fn dispatch_request_with_identity(
                 Box::pin(hub.fork_before(&s, prompt, request, ask(conn, &params, &who))).await?
             } else {
                 let admitted = hub.admit_new(ask(conn, &params, &who)).await?;
-                let new = admitted
-                    .run(hub.fork(&s, name, cwd, env, workspace_id, through, start_later))
-                    .await?;
+                // Fork Conversation's Cancel names the fork by this token (`hub/fork_cancel.rs`).
+                let token = params.pointer("/_meta/acpmux/cancelToken").and_then(Value::as_str);
+                let fork = hub.fork(&s, name, cwd, env, workspace_id, through, start_later);
+                let new = admitted.run(hub.fork_cancellable(token, fork)).await?;
                 (new, admitted.warning.clone())
             };
             attach(hub, conn, &new.id);
@@ -2696,6 +2697,13 @@ async fn dispatch_request_with_identity(
             Ok(json!({"sessionId": id, "ephemeral": false}))
         }
         method::MUX_KILL => {
+            // Cancel on a fork still being made, or made and not yet answered: its request's
+            // token names it (`hub/fork_cancel.rs`).
+            if params.get("cancelFork").and_then(Value::as_bool) == Some(true)
+                && let Some(token) = params.get("cancelToken").and_then(Value::as_str)
+            {
+                return Ok(json!({"cancelled": hub.cancel_pending_fork(token).await}));
+            }
             let s = hub.resolve(session_key(&params)?)?;
             // A Fork Conversation the person cancelled before using it (`hub/fork_cancel.rs`).
             if params.get("cancelFork").and_then(Value::as_bool) == Some(true) {

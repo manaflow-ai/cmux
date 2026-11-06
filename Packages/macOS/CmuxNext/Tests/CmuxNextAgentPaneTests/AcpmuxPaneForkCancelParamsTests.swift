@@ -16,6 +16,16 @@ struct AcpmuxPaneForkCancelParamsTests {
         #expect(!AcpmuxPaneMethods.breaksParamsRule(cancel, modeFields: nil))
     }
 
+    @Test func cancelWhileTheForkIsMadePassesTheParamsRule() {
+        let cancel = Self.kill(["sessionId": "chat-1", "cancelFork": true, "cancelToken": "t-1"])
+        #expect(!AcpmuxPaneMethods.breaksParamsRule(cancel, modeFields: nil))
+        let fork: [String: Any] = [
+            "jsonrpc": "2.0", "id": 2, "method": "acp.session.fork",
+            "params": ["sessionId": "chat-1", "live": true, "cancelToken": "t-1"],
+        ]
+        #expect(!AcpmuxPaneMethods.breaksParamsRule(fork, modeFields: nil))
+    }
+
     @Test func anotherKeyOnKillIsStillRefused() {
         let other = Self.kill(["sessionId": "fork-1", "purge": true, "ifIdle": true])
         #expect(AcpmuxPaneMethods.breaksParamsRule(other, modeFields: nil))

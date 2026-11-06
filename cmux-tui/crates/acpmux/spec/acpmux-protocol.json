@@ -1988,6 +1988,7 @@
         "author": true,
         "beforePromptId": true,
         "callerSession": true,
+        "cancelToken": true,
         "cliHost": true,
         "context": true,
         "cwd": true,
@@ -2862,6 +2863,13 @@
             "null"
           ]
         },
+        "cancelToken": {
+          "description": "The caller's name for this fork while it is made, at most 128 bytes: `_acpmux/kill` with\n`cancelFork` and this token stops it, or takes it back once made (`hub/fork_cancel.rs`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "live": {
           "type": [
             "boolean",
@@ -3074,6 +3082,7 @@
           "$ref": "#/types/RequestMeta"
         },
         "cancelFork": true,
+        "cancelToken": true,
         "purge": true,
         "sessionId": true
       },

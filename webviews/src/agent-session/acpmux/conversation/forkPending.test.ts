@@ -104,11 +104,17 @@ test("Cancel on a pending fork opens nothing and takes the fork back", async () 
   try {
     const forked = client.fork("live", undefined, true);
     await Promise.resolve();
+    const token = sent[0]!.params.cancelToken;
+    expect(token).toBeString();
     client.cancelFork();
     expect(shown.forkPending).toBeUndefined();
+    // Sent at once, while acpmux still makes the fork: it stops there (review of #36979).
+    const stop = sent.filter((call) => call.method === "_acpmux/kill");
+    expect(stop.map((call) => call.params)).toEqual([{ sessionId: "chat-1", cancelFork: true, cancelToken: token }]);
     answers[0]!.resolve({ sessionId: "fork-1" });
     expect(await forked).toBeUndefined();
-    const kill = sent.find((call) => call.method === "_acpmux/kill");
+    // A fork it answered with all the same is taken back.
+    const kill = sent.filter((call) => call.method === "_acpmux/kill").at(-1);
     expect(kill?.params).toEqual({ sessionId: "fork-1", purge: true, cancelFork: true });
     // The next fork is a fork again.
     const again = client.fork("live", undefined, true);

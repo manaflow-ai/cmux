@@ -50,8 +50,9 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/typing": (["sessionId", "on"], []),
         "_acpmux/warm": (["sessionIds", "limit"], []),
         // `cancelFork`: Fork Conversation's Cancel takes back a fork nobody used, with the transcript
-        // copy its agent made (direct.ts `takeBackFork`, acpmux hub/fork_cancel.rs).
-        "_acpmux/kill": (["sessionId", "purge", "cancelFork"], []),
+        // copy its agent made (direct.ts `takeBackFork`, acpmux hub/fork_cancel.rs); with
+        // `cancelToken`, it stops the fork that token names while it is still being made.
+        "_acpmux/kill": (["sessionId", "purge", "cancelFork", "cancelToken"], []),
         // `ifLive`: `fork` or `open` once the person chose, for a chat still live in its own app.
         "_acpmux/watch_take_over": (["sessionId", "ifLive"], []),
         // Background processes (direct.ts listProcesses, tailProcess, killProcess, backgroundWork):
@@ -136,7 +137,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/agent_login/api_key": (["agent", "key", "sessionId"], []),
         "_acpmux/agent_login/cancel": (["loginId", "sessionId"], []),
         // `live`: Fork Conversation's fork of the whole chat as it is now (acpmux `fork_through.rs`).
-        "acp.session.fork": (["sessionId", "throughSeq", "live"], []),
+        // `cancelToken`: the name its Cancel stops it by (acpmux hub/fork_cancel.rs).
+        "acp.session.fork": (["sessionId", "throughSeq", "live", "cancelToken"], []),
         // `peer` names the machine that owns `cwd`; its folder is checked for shape only and
         // never canonicalized against this Mac's filesystem (the owning daemon checks it).
         "acp.trust.get": (["cwd", "sessionId", "peer"], []),

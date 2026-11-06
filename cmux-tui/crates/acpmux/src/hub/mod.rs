@@ -67,8 +67,8 @@ mod shutdown_tests;
 mod transcript_seq_tests;
 pub(crate) use fork::offers_fork;
 mod fork_at;
-mod fork_cancel;
 pub(crate) mod fork_before;
+mod fork_cancel;
 mod fork_transcript_auth;
 pub mod forum;
 pub(crate) mod full_access_bound;
@@ -644,6 +644,8 @@ pub struct Hub {
     pub(super) login_env_requested: AtomicBool,
     /// Session ids an `import` is writing right now.
     pub(super) importing: StdMutex<std::collections::HashSet<String>>,
+    /// Forks being made under a caller's cancel token (`fork_cancel.rs`).
+    pub(super) pending_forks: StdMutex<HashMap<String, Arc<fork_cancel::PendingFork>>>,
     /// A log retention pass runs (`hub/retention.rs`): one at a time per hub.
     pub(super) retention_running: Arc<AtomicBool>,
     pub(super) handoffs: handoff::Handoffs,
@@ -945,6 +947,7 @@ impl Hub {
             catalog_ready: tokio::sync::watch::channel(true).0,
             login_env_requested: AtomicBool::new(false),
             importing: StdMutex::new(std::collections::HashSet::new()),
+            pending_forks: StdMutex::new(HashMap::new()),
             retention_running: Arc::new(AtomicBool::new(false)),
             handoffs,
             agent_hosts: AtomicBool::new(false),

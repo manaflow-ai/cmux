@@ -537,11 +537,17 @@ impl Hub {
         // The running turn's tool calls not settled yet, and its start's seq in the fork.
         let mut open_tools: Vec<(String, String)> = Vec::new();
         let mut running_turn_seq: Option<u64> = None;
+        // Cancel stops the copy where it is; the fork is then discarded whole (`fork_cancel.rs`).
+        let mut cancelled = false;
         {
             let order = new.append_lock.lock().unwrap_or_else(|e| e.into_inner());
             self.catch_up_locked(&new);
             let copied = self.store.scan_kinds(&session.id, COPIED, &mut |e: EventRecord| {
                 if empty || e.seq > fork_seq {
+                    return false;
+                }
+                if super::fork_cancel::cancelled() {
+                    cancelled = true;
                     return false;
                 }
                 if running.is_some() {
@@ -600,6 +606,9 @@ impl Hub {
                 true
             });
             drop(order);
+            if cancelled {
+                return Err(super::fork_cancel::cancelled_refusal());
+            }
             if before.is_some() {
                 copied
                     .map_err(|e| super::fork_before::refused("fork.incomplete", &e.to_string()))?;
@@ -672,6 +681,10 @@ impl Hub {
         // history are all in its meta and log by now, a harness start takes
         // seconds, and the fork's first prompt waits for this start (`child_for`
         // holds the spawn lock). A start that fails says why at that prompt.
+        // Cancelled once the copy was done: still discarded whole, before its agent starts.
+        if super::fork_cancel::cancelled() {
+            return Err(super::fork_cancel::cancelled_refusal());
+        }
         self.save_meta(&new);
         creation_guard.disarm();
         if let Some(checked) = checked {

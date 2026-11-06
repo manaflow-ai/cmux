@@ -80,3 +80,92 @@ impl Hub {
         Ok(used)
     }
 }
+
+/// A fork being made for a caller that named it with a cancel token (`acp.session.fork`'s
+/// `cancelToken`). Cancel can come while the history is copied, after the fork is made but
+/// before its answer reaches the caller, or never: the token reaches the fork in each case.
+#[derive(Default)]
+pub(crate) struct PendingFork {
+    cancelled: AtomicBool,
+    /// The fork's id once it is made.
+    made: StdMutex<Option<String>>,
+    /// When its request ended: a cancel that comes later still finds it for a while.
+    ended: StdMutex<Option<std::time::Instant>>,
+}
+
+tokio::task_local! {
+    static PENDING: Arc<PendingFork>;
+}
+
+/// How long a made fork's token still takes it back: a cancel sent as its answer came.
+const KEPT_AFTER_END: std::time::Duration = std::time::Duration::from_secs(60);
+const MAX_TOKEN_BYTES: usize = 128;
+
+/// Whether the fork the running task makes was cancelled (`hub/fork.rs` checks it as it copies).
+pub(super) fn cancelled() -> bool {
+    PENDING.try_with(|p| p.cancelled.load(Ordering::SeqCst)).unwrap_or(false)
+}
+
+/// The refusal a cancelled fork's request gets: nothing of the fork is left.
+pub(super) fn cancelled_refusal() -> RpcError {
+    super::fork_before::refused("fork.cancelled", "the fork was cancelled")
+}
+
+impl Hub {
+    /// Runs `fork` as the fork `token` names, when the caller gave one: cancelled while it runs,
+    /// it stops and leaves nothing (an error before the fork is published discards it whole), and
+    /// cancelled after it is made, it is taken back before it is answered.
+    pub(crate) async fn fork_cancellable(
+        &self,
+        token: Option<&str>,
+        fork: impl std::future::Future<Output = Result<Arc<Session>, RpcError>>,
+    ) -> Result<Arc<Session>, RpcError> {
+        let Some(token) = token else { return fork.await };
+        if token.is_empty() || token.len() > MAX_TOKEN_BYTES {
+            return Err(RpcError::invalid_params("cancelToken must be 1 to 128 bytes"));
+        }
+        let pending = Arc::new(PendingFork::default());
+        {
+            let mut forks = self.pending_forks.lock().unwrap_or_else(|e| e.into_inner());
+            let now = std::time::Instant::now();
+            forks.retain(|_, p| {
+                p.ended
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .is_none_or(|at| now.duration_since(at) < KEPT_AFTER_END)
+            });
+            if forks.contains_key(token) {
+                return Err(RpcError::invalid_params("cancelToken names another fork"));
+            }
+            forks.insert(token.to_owned(), pending.clone());
+        }
+        let result = PENDING.scope(pending.clone(), fork).await;
+        *pending.ended.lock().unwrap_or_else(|e| e.into_inner()) = Some(std::time::Instant::now());
+        let fork = match result {
+            Ok(fork) => fork,
+            Err(_) if pending.cancelled.load(Ordering::SeqCst) => return Err(cancelled_refusal()),
+            Err(e) => return Err(e),
+        };
+        // Named before the flag is read: a cancel that sets it after finds the fork's id.
+        *pending.made.lock().unwrap_or_else(|e| e.into_inner()) = Some(fork.id.clone());
+        if pending.cancelled.load(Ordering::SeqCst) {
+            let _ = self.cancel_fork(&fork).await;
+            return Err(cancelled_refusal());
+        }
+        Ok(fork)
+    }
+
+    /// Cancel for the fork `token` names: stops it while it is made, or takes it back once made.
+    /// False for a token no fork has (any more).
+    pub(crate) async fn cancel_pending_fork(&self, token: &str) -> bool {
+        let pending =
+            self.pending_forks.lock().unwrap_or_else(|e| e.into_inner()).get(token).cloned();
+        let Some(pending) = pending else { return false };
+        pending.cancelled.store(true, Ordering::SeqCst);
+        let made = pending.made.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if let Some(fork) = made.and_then(|id| self.resolve(&id).ok()) {
+            let _ = self.cancel_fork(&fork).await;
+        }
+        true
+    }
+}
