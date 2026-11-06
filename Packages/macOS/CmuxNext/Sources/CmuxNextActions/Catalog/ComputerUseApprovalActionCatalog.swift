@@ -7,7 +7,7 @@
 nonisolated enum ComputerUseApprovalActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
         let plan = ActionSurfacePlan(palette: .exempt(.noObject), cli: .offered, contextMenuExemption: .noObject)
-        let app = ActionArgument(name: "app_id", title: t("argument.computerUse.approval.appID", "App"), kind: .string)
+        let app = ActionArgument(name: "appId", title: t("argument.computerUse.approval.appID", "App"), kind: .string)
         let forget = ActionDescriptor(
             id: "computerUse.approval.forget", title: t("action.computerUse.approval.forget", "Forget a Computer Use Approval"),
             keywords: ["computer use", "approval", "forget", "app", "agent"], category: .agents, symbol: "xmark.circle",

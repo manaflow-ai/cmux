@@ -39,7 +39,8 @@ import Testing
         }
         let phase = object["phase"]?.stringValue
         #expect(phase != "off", "Computer Use is on, but the first read said off: \(status)")
-        #expect(phase == "starting", "\(status)")
+        // A test bundle embeds no cmux Remote: on, its grants are unknown and nothing can start.
+        #expect(phase == "unavailable", "\(status)")
         #expect(object["accessibility"] == .null, "\(status)")
         #expect(object["screen_recording"] == .null, "\(status)")
         // Read-only: the status read did not change cmux.json.

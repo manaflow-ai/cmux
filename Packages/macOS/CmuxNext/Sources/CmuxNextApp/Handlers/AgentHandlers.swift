@@ -118,7 +118,7 @@ enum AgentHandlers {
         // approvals, through the daemon's `computer-use-approvals` on this verified app's connection.
         for id in ["computerUse.approval.forget", "computerUse.approval.set"] as [ActionID] {
             registry.bindEffect(id, effect: { invocation in
-                guard let app = invocation["app_id"]?.stringValue, !app.isEmpty else { return .refused(ComputerUseSessionStrings.noApp) }
+                guard let app = (invocation["appId"] ?? invocation["app_id"])?.stringValue, !app.isEmpty else { return .refused(ComputerUseSessionStrings.noApp) }
                 let decision = invocation["decision"]?.stringValue
                 if id == "computerUse.approval.set", decision != "always", decision != "never" {
                     return .refused(ComputerUseSessionStrings.noDecision)
