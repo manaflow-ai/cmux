@@ -148,7 +148,7 @@ def post_publish_runnable() -> list[str]:
     return runnable
 
 
-POST_PUBLISH_JOBS = ["published-build", "publish-nightly-next-github", "keep-published-dsyms", "generate-nightly-deltas",
+POST_PUBLISH_JOBS = ["published-build", "publish-nightly-next-github", "keep-published-dsyms", "build-nightly-deltas", "generate-nightly-deltas",
                      "republish-nightly-deltas", "published-in", "sign-release-notes", "publish-release-notes",
                      "publish-nightly-reel", "report-nightly-failure", "close-nightly-failure-issue"]
 runnable = post_publish_runnable()

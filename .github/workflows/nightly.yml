@@ -5980,13 +5980,76 @@ jobs:
           SENTRY_PROJECT: cmuxterm-macos
         run: bash .publish-tooling/scripts/upload-sentry-dsyms.sh "$RUNNER_TEMP/dsyms"
 
+  # The deltas' slow part, BinaryDelta (494 s of generate-nightly-deltas' 15-min whole-Mac hold on run
+  # 42149108998), needs no key. This job builds the delta files with no secret, on a light nightly-only
+  # runner of the nightly mini, so the keyed job below only reuses and signs them. Optional like the deltas:
+  # a failure leaves every delta to the keyed job, which builds what it lacks as before.
+  build-nightly-deltas:
+    needs: [published-build]
+    if: always() && needs.published-build.outputs.should_publish == 'true' && needs.published-build.outputs.fast_build != 'true' && needs.published-build.outputs.publish_result == 'success' && needs.published-build.outputs.publish_source != 'recovered' && needs.published-build.outputs.publish_refused != 'true' && vars.NIGHTLY_DELTAS != 'off'
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: ${{ fromJSON(needs.published-build.outputs.variants) }}
+    timeout-minutes: 60
+    env:
+      NIGHTLY_VARIANT: ${{ matrix.variant }}
+      NIGHTLY_BUILD: ${{ needs.published-build.outputs.daemon_build }}
+      CHANNEL_DMG_PREFIX: ${{ needs.published-build.outputs.dmg_prefix }}
+      CHANNEL_RELEASE_TAG: ${{ needs.published-build.outputs.release_tag }}
+      NIGHTLY_DELTAS_PREBUILD_ONLY: 1
+      # BinaryDelta peaks near 6 GB a delta; two at a time leave the mini's light work its memory.
+      SPARKLE_DELTA_JOBS: 2
+    steps:
+      # The workflow commit's scripts: it has the keyless mode even when the build commit predates it.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          filter: blob:none
+          sparse-checkout: |
+            scripts
+      - name: Download published variant
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          run-id: ${{ needs.published-build.outputs.source_run || github.run_id }}
+          github-token: ${{ needs.published-build.outputs.cross_run == 'true' && github.token || '' }}
+          name: cmux-nightly-variant-${{ matrix.variant }}
+          path: nightly-delta/input
+      - name: Build the deltas without the key
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          feed="appcast.xml"
+          if [ "$NIGHTLY_VARIANT" != "universal" ]; then
+            feed="appcast-${NIGHTLY_VARIANT}.xml"
+          fi
+          ./scripts/ci/generate-nightly-deltas.sh \
+            "nightly-delta/input/${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-${NIGHTLY_BUILD}.dmg" \
+            "nightly-delta/input/$feed" nightly-delta/prebuilt
+          rm -f nightly-delta/prebuilt/*.xml
+          ls -l nightly-delta/prebuilt
+      - name: Upload the prebuilt deltas
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-prebuilt-deltas-${{ matrix.variant }}
+          path: nightly-delta/prebuilt/*.delta
+          if-no-files-found: ignore
+          retention-days: 1
+
   generate-nightly-deltas:
     # Delta work is deliberately downstream of the first publication. A slow
     # BinaryDelta process therefore cannot extend the user's wait for a full
     # DMG and signed appcast. The nightly-next track signs in release-next
     # with its own key, as build-sign-notarize-nightly does.
     environment: ${{ needs.published-build.outputs.environment }}
-    needs: [published-build, pick-nightly-sign-runner]
+    needs: [published-build, build-nightly-deltas, pick-nightly-sign-runner]
     if: always() && needs.published-build.outputs.should_publish == 'true' && needs.published-build.outputs.fast_build != 'true' && needs.published-build.outputs.publish_result == 'success' && needs.published-build.outputs.publish_source != 'recovered' && needs.published-build.outputs.publish_refused != 'true' && vars.NIGHTLY_DELTAS != 'off'
     permissions:
       contents: read
@@ -6067,9 +6130,18 @@ jobs:
           name: cmux-nightly-variant-${{ matrix.variant }}
           path: nightly-delta/input
 
+      # build-nightly-deltas' files; a missing one is built below, as before.
+      - name: Download the prebuilt deltas
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cmux-nightly-prebuilt-deltas-${{ matrix.variant }}
+          path: nightly-delta/prebuilt
+
       - name: Generate deltas and revised appcast
         env:
           GH_TOKEN: ${{ github.token }}
+          SPARKLE_PREBUILT_DELTAS_DIR: nightly-delta/prebuilt
           # The nightly-next track gets only its own key; the others never see it.
           SHARED_SPARKLE_PRIVATE_KEY: ${{ needs.published-build.outputs.track != 'nightly-next' && secrets.SPARKLE_PRIVATE_KEY || '' }}
           NIGHTLY_SPARKLE_PRIVATE_KEY: ${{ needs.published-build.outputs.track != 'nightly-next' && secrets.NIGHTLY_SPARKLE_PRIVATE_KEY || '' }}

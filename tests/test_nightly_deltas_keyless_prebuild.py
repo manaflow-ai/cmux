@@ -64,11 +64,10 @@ if "SPARKLE_PREBUILT_DELTAS_DIR" not in job_text("generate-nightly-deltas"):
     failures.append("generate-nightly-deltas must hand the prebuilt deltas to generate_appcast")
 
 # The keyless mode never reads the key and stops before generate_appcast signs anything.
-mode = GENERATE.find("NIGHTLY_DELTAS_PREBUILD_ONLY")
-if not 0 <= mode < GENERATE.find("nightly-sparkle-key.sh"):
+mode = GENERATE.find('if [[ "${NIGHTLY_DELTAS_PREBUILD_ONLY:-}" == 1 ]]')
+if not 0 <= mode < GENERATE.find('"$scripts_dir/ci/nightly-sparkle-key.sh"'):
     failures.append("generate-nightly-deltas.sh must leave before reading the key in its keyless mode")
-only = APPCAST.find("SPARKLE_PREBUILD_ONLY_DIR")
-if not 0 <= only < APPCAST.find('if [[ -z "${SPARKLE_PRIVATE_KEY:-}" ]]'):
+if 'if [[ -z "$PREBUILD_ONLY_DIR" && -z "${SPARKLE_PRIVATE_KEY:-}" ]]' not in APPCAST:
     failures.append("sparkle_generate_appcast.sh must not require the key in its prebuild-only mode")
 exit_at = APPCAST.find("prebuild-only: ")
 if not 0 <= exit_at < APPCAST.find('key_file="$work_dir/sparkle_ed_key"'):

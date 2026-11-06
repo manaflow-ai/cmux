@@ -26,7 +26,7 @@ WORKFLOW = ROOT / ".github" / "workflows" / "nightly.yml"
 SCRIPT = ROOT / "scripts" / "ci" / "nightly_published_build.py"
 TEXT = WORKFLOW.read_text()
 JOBS = yaml.safe_load(TEXT)["jobs"]
-TAIL = ("publish-nightly-next-github", "keep-published-dsyms", "generate-nightly-deltas", "republish-nightly-deltas",
+TAIL = ("publish-nightly-next-github", "keep-published-dsyms", "build-nightly-deltas", "generate-nightly-deltas", "republish-nightly-deltas",
         "sign-release-notes", "publish-release-notes", "publish-nightly-reel", "published-in")
 PUSH_RUN_JOBS = ("decide", "publish-nightly", "build-nightly-app", "resolve-nightly-cmux-tui-client")
 # Artifacts the tail reads from the run that published (the tail run makes the deltas and the notes itself).
