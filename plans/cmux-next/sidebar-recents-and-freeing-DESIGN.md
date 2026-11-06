@@ -124,7 +124,7 @@ default-off setting first). Flip it on once a week of dogfood shows no lost stat
 2. Freeing policy (shells): `WorkspaceFreeingPlanner` (pure) and the coordinator's freeing pass after each
    hibernation pass; the App host reads this Mac's daemon store (prompt, command, output, OSC 7501, agent record,
    remote) and parks through `park-tabs`; `workspaces.freeing.enabled` / `idleMinutes` rows. Agent TUIs stay
-   running in this slice (an agent record keeps a terminal); they free in slice 4 with their resume.
+   running in this slice (an agent record keeps a terminal); they free in slice 4 with their resume (done).
    Tests: `WorkspaceFreeingTests` (eligibility table, settings, coordinator with a fake host).
 3. Daemon: parked snapshots trim by tier, budget, free-space guard (`output_store/parked_trim.rs`), run with the
    store's prune and once a day from the writer; only a terminal whose shell ended (its tab stays) trims. Byte keys
@@ -139,7 +139,13 @@ default-off setting first). Flip it on once a week of dogfood shows no lost stat
    terminal), and the respawn marker reads it: "session restored · last: `npm test` · exit 1" (en, ja in the
    daemon catalog). 4b, done: the restored shell's prompt gets that command typed without Return (one line only,
    on a marked, empty prompt with the shell in the foreground; a person's own resume command and an agent resume
-   win), so the person runs it again with Return (`Prefilled::LastCommand` in the respawn log). Still to do (4b):
-   a palette/tab-menu "Run Last Command Again" for live shells, `runningCommands: relaunch`, and freeing idle agent
-   TUIs with their resume.
+   win), so the person runs it again with Return (`Prefilled::LastCommand` in the respawn log). Also done (4b):
+   "Run Last Command Again" (palette, terminal menu Tools ▸; `terminal-last-command-v1` reads a live shell's
+   newest finished command, typed as a paste without Return only while the shell itself is in front);
+   `workspaces.freeing.runningCommands: relaunch` (the park keeps the running command line, which the freed shell
+   offers again; `never`, the default, keeps every terminal of a workspace that runs a command); and
+   `workspaces.freeing.agents` (default on): an agent TUI that is idle, has a harness session id and asks the
+   person nothing frees, and the respawn's agent prefill resumes it (without an agent record the shell offers the
+   agent's command line instead). Tests: `WorkspaceFreeingTests`, `a_parked_running_command_is_kept_as_its_last_command`,
+   `a_live_shell_reports_its_last_command`, `TerminalLastCommandRequestTests`.
 5. Hover card "Freed 2d ago · restores on open", `debug.surfaces` counts, docs.
