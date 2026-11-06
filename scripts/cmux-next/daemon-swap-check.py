@@ -158,21 +158,38 @@ def start_resolution() -> float:
 UNCLAIMED: dict[int, str] = {}
 
 
-def claim(owned: dict[int, float], pid: int | None, written: float) -> None:
+def names_root(pid: int, root: Path) -> bool:
+    """Whether a process's executable or command line names ROOT, this run's
+    own work dir (made by mkdtemp): a pid reused by any other process does not."""
+    needle = str(root)
+    if LINUX_PROC:
+        try:
+            if os.readlink(f"/proc/{pid}/exe").startswith(needle):
+                return True
+            return needle.encode() in Path(f"/proc/{pid}/cmdline").read_bytes()
+        except OSError:
+            return False
+    out = subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True, timeout=10)
+    return needle in out.stdout
+
+
+def claim(owned: dict[int, float], pid: int | None, written: float, root: Path) -> None:
     """Remember a recorded host process with its start time. A process that
     started after its record was written holds a reused pid, not ours. A start
     is rounded down to process_start's resolution, so a process that started
-    within that much after the write could look earlier than it was: a pid is
-    claimed only when its start is a whole resolution before the write. A host
-    that wrote its record sooner is claimed at a later pass, once its record
-    is rewritten (the new daemon adopts it), or is reported, never signalled."""
+    within that much after the write could look earlier than it was: inside
+    that window a pid is claimed only when its executable or command line
+    names this run's work dir ROOT (a host writes its record right after it
+    starts, so most fall inside it). Anything else is reported, never signalled."""
     if not pid or pid in owned:
         return
     start = process_start(pid)
     if start is None:
         UNCLAIMED[pid] = "gone or unreadable"
-    elif start + start_resolution() > written:
-        UNCLAIMED[pid] = "not started clearly before its record was written"
+    elif start > written:
+        UNCLAIMED[pid] = "started after its record was written"
+    elif start + start_resolution() > written and not names_root(pid, root):
+        UNCLAIMED[pid] = "not clearly older than its record, and not this run's process"
     else:
         owned[pid] = start
         UNCLAIMED.pop(pid, None)
@@ -184,10 +201,10 @@ def kill_owned(owned: dict[int, float]) -> None:
     only while its start time is unchanged. Without pidfds (macOS) nothing is
     signalled: a check and a kill by pid could race a reuse, so a host still
     alive here is reported instead (the graceful shutdowns end them). Every
-    recorded pid left unclaimed is reported too."""
+    recorded pid left unclaimed that still runs is reported too."""
     for pid, why in sorted(UNCLAIMED.items()):
-        if pid not in owned:
-            print(f"daemon-swap-check: left pid {pid}: {why}", file=sys.stderr)
+        if pid not in owned and pid_alive(pid):
+            print(f"daemon-swap-check: left pid {pid} alive: {why}", file=sys.stderr)
     UNCLAIMED.clear()
     for pid, start in owned.items():
         if not hasattr(os, "pidfd_open"):
@@ -196,8 +213,13 @@ def kill_owned(owned: dict[int, float]) -> None:
             continue
         try:
             pidfd = os.pidfd_open(pid)
-        except OSError:
+        except ProcessLookupError:
             continue  # gone
+        except OSError as error:
+            # No pidfd syscall here (ENOSYS) or another refusal: as without pidfds.
+            if process_start(pid) == start:
+                print(f"daemon-swap-check: left pid {pid} alive: no pidfd ({error.strerror})", file=sys.stderr)
+            continue
         try:
             if process_start(pid) != start:
                 print(f"daemon-swap-check: left pid {pid}: not the recorded process", file=sys.stderr)
@@ -370,16 +392,40 @@ class Daemon:
     def screen(self, surface: int) -> str:
         return data(self.socket, {"cmd": "read-screen", "surface": surface}).get("text") or ""
 
-    def shutdown_with_terminals(self, hosts: dict[int, float]) -> None:
-        """End the daemon and every terminal this check started."""
-        try:
-            ident = data(self.socket, {"cmd": "identify"})
-            data(self.socket, {"cmd": "shutdown-daemon", "pid": ident.get("pid"),
-                               "generation": ident.get("generation"), "end_terminals": True})
-            if self.proc.poll() is None:
-                self.proc.wait(timeout=20)
-        except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired):
-            stop(self.proc)
+    def shutdown_with_terminals(self, hosts: dict[int, float], fallback: Path) -> None:
+        """End the daemon and every terminal this check started. When no daemon
+        answers (the new one never came up), a daemon of FALLBACK, the old
+        build, adopts the hosts and ends them: the one way that needs no
+        signal by pid, which macOS cleanup never sends."""
+        for binary in (None, fallback):
+            if binary is not None:
+                if self.proc is not None and self.proc.poll() is None:
+                    stop(self.proc)
+                try:
+                    self.socket.unlink()
+                except FileNotFoundError:
+                    pass
+                self.start(binary)
+                try:
+                    self.wait_ready(now() + 30)
+                    # Its end_terminals ends only the terminals it has adopted.
+                    wait_until("terminals adopted for cleanup", now() + 15, lambda: all(
+                        data(self.socket, {"cmd": "resolve-terminal", "terminal_id": terminal})
+                        .get("lifecycle") == "running" for terminal in host_pids(self.state)))
+                except TimeoutError:
+                    pass
+                if self.proc.poll() is not None:
+                    break
+            try:
+                ident = data(self.socket, {"cmd": "identify"})
+                data(self.socket, {"cmd": "shutdown-daemon", "pid": ident.get("pid"),
+                                   "generation": ident.get("generation"), "end_terminals": True})
+                if self.proc.poll() is None:
+                    self.proc.wait(timeout=20)
+                break
+            except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired):
+                if self.proc.poll() is None:
+                    stop(self.proc)
         # Only the hosts this check started (claimed from their records above).
         kill_owned(hosts)
 
@@ -403,7 +449,7 @@ def claim_hosts(state: Path, owned: dict[int, float]) -> None:
         try:
             record = json.loads(path.read_text())
             if isinstance(record, dict) and "host_pid" in record:
-                claim(owned, int(record["host_pid"]), recorded_at(path))
+                claim(owned, int(record["host_pid"]), recorded_at(path), state.parent)
         except (OSError, ValueError, TypeError):
             continue
 
@@ -424,7 +470,7 @@ def terminal_phase(old: Path, new: Path, count: int, work: Path) -> dict:
     finally:
         if daemon.proc is not None:
             claim_hosts(daemon.state, started)
-            daemon.shutdown_with_terminals(started)
+            daemon.shutdown_with_terminals(started, old)
 
 
 def terminal_swap(daemon: Daemon, old: Path, new: Path, count: int, started: dict[int, float]) -> dict:
@@ -581,7 +627,7 @@ class Acpmux:
                 continue
             for key in ("host_pid", "harness_pid"):
                 if isinstance(record.get(key), int):
-                    claim(owned, record[key], written)
+                    claim(owned, record[key], written, self.root)
 
     def host_records(self) -> list[dict]:
         records = []
@@ -612,7 +658,7 @@ def agent_phase(old: Path, new: Path, work: Path) -> dict:
         pids = [p for r in hosts for p in (r.get("host_pid"), r.get("harness_pid")) if p]
         mux.claim_hosts(owned)
         # The harness that just answered (it runs now, so it started before now).
-        claim(owned, before_pid, clock_now())
+        claim(owned, before_pid, clock_now(), mux.root)
 
         t0 = now()
         stop_secs = stop(mux.proc)
@@ -635,11 +681,24 @@ def agent_phase(old: Path, new: Path, work: Path) -> dict:
         # A CLI call can start its own daemon in this isolated home when the
         # one started here died: ask whichever answers there to shut down
         # with its agents (`daemon shutdown` never starts one).
-        for binary in (new, old):
+        def shut_down() -> bool:
+            for binary in (new, old):
+                try:
+                    mux.run(binary, "daemon", "shutdown", "--end-agents", timeout=20)
+                    return True
+                except (RuntimeError, subprocess.TimeoutExpired):
+                    pass
+            return False
+        if not shut_down():
+            # None answers (the new daemon never came up): the old build's
+            # daemon adopts the agent hosts and ends them, with no signal by pid.
+            if mux.proc and mux.proc.poll() is None:
+                stop(mux.proc)
+            mux.start(old)
             try:
-                mux.run(binary, "daemon", "shutdown", "--end-agents", timeout=20)
-                break
-            except (RuntimeError, subprocess.TimeoutExpired):
+                wait_until("acpmux daemon for cleanup", now() + 30, lambda: mux.status(old))
+                shut_down()
+            except TimeoutError:
                 pass
         if mux.proc and mux.proc.poll() is None:
             stop(mux.proc)
