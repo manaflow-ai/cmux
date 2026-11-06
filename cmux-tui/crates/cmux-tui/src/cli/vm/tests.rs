@@ -657,3 +657,14 @@ fn machine_new_help_does_not_say_a_default_machine_pauses() {
     assert!(!NEW_HELP.contains("pauses when idle"), "{NEW_HELP}");
     assert!(NEW_HELP.contains("keeps running when idle"), "{NEW_HELP}");
 }
+
+/// A `--socket` that is a daemon's, not the app's, is no app for `machine new`: it takes the VM API
+/// instead of failing on the app action (review of #37024).
+#[test]
+fn a_daemon_socket_is_no_app_for_machine_new() {
+    assert!(app_present(true, false, || false, || false));
+    assert!(app_present(false, true, || true, || false));
+    assert!(!app_present(false, true, || false, || true), "a daemon socket, though the app runs");
+    assert!(app_present(false, false, || false, || true));
+    assert!(!app_present(false, false, || false, || false));
+}

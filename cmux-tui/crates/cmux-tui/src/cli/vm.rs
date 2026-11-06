@@ -435,6 +435,21 @@ pub(super) fn new_route(scope: Scope, tail: &[String], app_present: bool) -> New
     if app_present { NewRoute::App } else { NewRoute::VmApi }
 }
 
+/// Whether `cmux machine new` has an app to make the machine: an `--app-socket`, a `--socket`
+/// that answers as the app (`socket_is_app`; a daemon's does not), or, with no socket named, the
+/// app found on this Mac.
+pub(super) fn app_present(
+    app_socket: bool,
+    socket: bool,
+    socket_is_app: impl FnOnce() -> bool,
+    app_found: impl FnOnce() -> bool,
+) -> bool {
+    if app_socket {
+        return true;
+    }
+    if socket { socket_is_app() } else { app_found() }
+}
+
 /// `cmux machine new --help`: both routes, the app's first.
 const NEW_HELP: &str = "\
 usage: cmux machine new [--name NAME] [--size small|medium|large|xlarge] [--persistent]
@@ -559,11 +574,14 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             print!("{NEW_HELP}");
             return Some(0);
         }
-        // A named socket that is not the app's makes `run_cli_action` answer
-        // `None`, and the VM API takes it as before.
-        let app_present = global.app_socket.is_some()
-            || global.socket.is_some()
-            || super::cloud_machines::app_found();
+        // A `--socket` counts only when it answers as the app: a daemon's socket would refuse
+        // the app action (`socket.wrong_kind`), so the VM API takes it as before.
+        let app_present = app_present(
+            global.app_socket.is_some(),
+            global.socket.is_some(),
+            || super::app::connect_command(&global).is_ok(),
+            super::cloud_machines::app_found,
+        );
         if new_route(scope, tail, app_present) == NewRoute::App
             && let Some(code) = super::app::run_cli_action(&global, "cloud new-machine", tail)
         {
