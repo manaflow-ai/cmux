@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import CoreGraphics
+import CmuxNextCompat
 import Darwin
 import Foundation
 import ImageIO
