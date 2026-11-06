@@ -1423,7 +1423,20 @@ impl Hub {
     /// Arc is looked up before the rows snapshot, so the current link check fences a stale call;
     /// replacement itself remains serialized by the peer's generation and row checks.
     fn capture_on(&self, peer: &str, (generation, link): (u64, u64), send: impl FnOnce()) {
-        let Some(current) = self.peer(peer).filter(|p| p.generation == generation) else {
+        let Some(_current) = self.peer(peer).filter(|p| p.generation == generation) else {
+            return;
+        };
+        #[cfg(test)]
+        if let Some(hook) = self
+            .peer_notice_projection_hook
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+        {
+            hook.pause();
+        }
+        let peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(current) = peers.get(peer).filter(|p| p.generation == generation).cloned() else {
             return;
         };
         let _rows = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());

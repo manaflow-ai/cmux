@@ -35,7 +35,7 @@ impl PeerNoticeProjectionHook {
         self.released.1.notify_all();
     }
 
-    fn pause(&self) {
+    pub(crate) fn pause(&self) {
         *self.reached.0.lock().unwrap_or_else(|e| e.into_inner()) = true;
         self.reached.1.notify_all();
         let mut released = self.released.0.lock().unwrap_or_else(|e| e.into_inner());
