@@ -298,33 +298,6 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "Truyền --cwd là đường dẫn tuyệt đối tới thư mục trên máy, ví dụ `cmux cloud start-session --target machine:<id> --agent claude --cwd /home/cmux/FOLDER`."}}
       }
     },
-    "cloud.startSession.fromFolderAgent": {
-      "comment": "cmux cloud start-session or start-chat with --from-folder, refused because the run is not the person's own in the app (an agent, a script, a terminal command). \"Cloud start\" is the composer's button.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Only the person copies a folder from this Mac to a Cloud machine, with the composer's Cloud start. A command (an agent's, a script's or one typed in a terminal) cannot show it is theirs, so cmux refuses it."}},
-        "ja": {"stringUnit": {"state": "translated", "value": "この Mac から Cloud マシンへフォルダをコピーできるのは本人だけで、コンポーザーの Cloud 開始から行います。コマンド（エージェント、スクリプト、ターミナルで入力したもの）は本人の操作だと示せないため、cmux は拒否します。"}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "Nur die Person selbst kopiert einen Ordner von diesem Mac auf eine Cloud-Maschine, über den Cloud-Start im Composer. Ein Befehl (eines Agenten, eines Skripts oder im Terminal eingegeben) kann nicht zeigen, dass er von ihr stammt, daher lehnt cmux ihn ab."}},
-        "fr": {"stringUnit": {"state": "needs_review", "value": "Seule la personne copie un dossier de ce Mac vers une machine Cloud, via le démarrage Cloud du compositeur. Une commande (d'un agent, d'un script ou saisie dans un terminal) ne peut pas prouver qu'elle vient d'elle : cmux la refuse."}},
-        "es": {"stringUnit": {"state": "needs_review", "value": "Solo la propia persona copia una carpeta de este Mac a una máquina Cloud, desde el inicio en Cloud del compositor. Un comando (de un agente, de un script o escrito en una terminal) no puede demostrar que es suyo, así que cmux lo rechaza."}},
-        "ar": {"stringUnit": {"state": "needs_review", "value": "لا ينسخ مجلدًا من هذا الـ Mac إلى جهاز Cloud إلا الشخص نفسه، من بدء Cloud في محرر الرسائل. لا يستطيع الأمر (من وكيل أو برنامج نصي أو مكتوب في طرفية) إثبات أنه منه، لذا يرفضه cmux."}},
-        "ko": {"stringUnit": {"state": "needs_review", "value": "이 Mac의 폴더를 Cloud 머신으로 복사하는 것은 사용자 본인만 작성기의 Cloud 시작으로 할 수 있습니다. 명령(에이전트, 스크립트 또는 터미널에 입력한 명령)은 본인의 것임을 보여줄 수 없으므로 cmux가 거부합니다."}},
-        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "只有本人才能通过编辑器的 Cloud 启动将此 Mac 上的文件夹复制到 Cloud 机器。命令（代理的、脚本的或在终端中输入的）无法证明来自本人，因此 cmux 会拒绝。"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "只有本人才能透過編輯器的 Cloud 啟動將這台 Mac 上的資料夾複製到 Cloud 機器。命令（代理程式的、指令碼的或在終端機中輸入的）無法證明來自本人，因此 cmux 會拒絕。"}},
-        "bs": {"stringUnit": {"state": "needs_review", "value": "Samo osoba kopira folder s ovog Maca na Cloud mašinu, Cloud pokretanjem u composeru. Naredba (agenta, skripte ili upisana u terminal) ne može pokazati da je njena, pa je cmux odbija."}},
-        "da": {"stringUnit": {"state": "needs_review", "value": "Kun personen selv kopierer en mappe fra denne Mac til en Cloud-maskine, med composerens Cloud-start. En kommando (fra en agent, et script eller skrevet i en terminal) kan ikke vise, at den er personens, så cmux afviser den."}},
-        "it": {"stringUnit": {"state": "needs_review", "value": "Solo la persona copia una cartella da questo Mac a una macchina Cloud, con l'avvio Cloud del compositore. Un comando (di un agente, di uno script o digitato in un terminale) non può dimostrare di essere suo, quindi cmux lo rifiuta."}},
-        "km": {"stringUnit": {"state": "needs_review", "value": "មានតែមនុស្សនោះផ្ទាល់ទេដែលចម្លងថតពី Mac នេះទៅម៉ាស៊ីន Cloud តាមរយៈការចាប់ផ្តើម Cloud របស់កម្មវិធីសរសេរ។ ពាក្យបញ្ជា (របស់ភ្នាក់ងារ ស្គ្រីប ឬវាយក្នុងទែមីណាល់) មិនអាចបង្ហាញថាជារបស់ពួកគេបានទេ ដូច្នេះ cmux បដិសេធវា។"}},
-        "nb": {"stringUnit": {"state": "needs_review", "value": "Bare personen selv kopierer en mappe fra denne Macen til en Cloud-maskin, med Cloud-start i composeren. En kommando (fra en agent, et skript eller skrevet i en terminal) kan ikke vise at den er personens, så cmux avviser den."}},
-        "pl": {"stringUnit": {"state": "needs_review", "value": "Tylko sama osoba kopiuje folder z tego Maca na maszynę Cloud, przez start Cloud w edytorze wiadomości. Polecenie (agenta, skryptu lub wpisane w terminalu) nie może wykazać, że pochodzi od niej, więc cmux je odrzuca."}},
-        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Só a própria pessoa copia uma pasta deste Mac para uma máquina Cloud, pelo início no Cloud do compositor. Um comando (de um agente, de um script ou digitado em um terminal) não consegue mostrar que é dela, então o cmux o recusa."}},
-        "ru": {"stringUnit": {"state": "needs_review", "value": "Скопировать папку с этого Mac на машину Cloud может только сам человек, через запуск Cloud в редакторе сообщений. Команда (агента, скрипта или введённая в терминале) не может показать, что она от него, поэтому cmux её отклоняет."}},
-        "th": {"stringUnit": {"state": "needs_review", "value": "มีเพียงผู้ใช้เองที่คัดลอกโฟลเดอร์จาก Mac นี้ไปยังเครื่อง Cloud ได้ ผ่านการเริ่ม Cloud ในช่องเขียนข้อความ คำสั่ง (ของเอเจนต์ สคริปต์ หรือที่พิมพ์ในเทอร์มินัล) แสดงไม่ได้ว่าเป็นของผู้ใช้ cmux จึงปฏิเสธ"}},
-        "tr": {"stringUnit": {"state": "needs_review", "value": "Bu Mac'ten bir Cloud makinesine klasörü yalnızca kişinin kendisi, oluşturucunun Cloud başlatmasıyla kopyalar. Bir komut (bir ajanın, bir betiğin veya terminale yazılan) kişiye ait olduğunu gösteremez, bu yüzden cmux onu reddeder."}},
-        "uk": {"stringUnit": {"state": "needs_review", "value": "Скопіювати папку з цього Mac на машину Cloud може лише сама людина, через запуск Cloud у редакторі повідомлень. Команда (агента, скрипта чи введена в терміналі) не може показати, що вона від неї, тому cmux її відхиляє."}},
-        "vi": {"stringUnit": {"state": "needs_review", "value": "Chỉ chính người dùng mới sao chép thư mục từ máy Mac này lên máy Cloud, bằng nút khởi động Cloud trong khung soạn. Một lệnh (của tác tử, của script hay gõ trong terminal) không thể cho thấy đó là của họ, nên cmux từ chối."}}
-      }
-    },
     "cloud.startSession.fromFolderNotOwned": {
       "comment": "cmux cloud start-session --from-folder on a machine this account does not own (a teammate's). %@ is the machine name.",
       "extractionState": "manual",

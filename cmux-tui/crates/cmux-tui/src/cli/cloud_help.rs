@@ -534,9 +534,7 @@ The chat opens as a tab in the machine's workspace in the cmux app.
                      the composer's Cloud start copies one; the chat starts
                      in the copy. Never home, the disk's root or a credential
                      folder; not with --cwd. The same command again on the
-                     same machine reuses the finished copy. For now the app
-                     refuses it: a command cannot show the person ran it, so
-                     only the composer's Cloud start copies a Mac folder.
+                     same machine reuses the finished copy.
   --name MACHINE     Use the machine with this name, or create it
   --target machine:MACHINE_ID
                      Use this machine (`cmux cloud list-machines`)

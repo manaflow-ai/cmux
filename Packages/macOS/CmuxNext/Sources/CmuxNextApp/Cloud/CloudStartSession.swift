@@ -442,10 +442,9 @@ struct CloudStartSession {
         _ = await CloudStartChat(services: services).passHarnessLogin(harness: agent, machine: session, codexPrompt: false, ask: login) // a scripted run never waits on a device code
         try still()
     }
-    /// `--from-folder`, checked before anything starts: absolute, no `--cwd`, never home or a credential folder; only the person's own run (``isPersons(_:)``).
+    /// `--from-folder`, checked before anything starts: absolute, no `--cwd`, never home or a credential folder. Any origin, as `cloudFileWrite` (which writes any file there) takes any.
     static func fromFolder(_ invocation: ActionInvocation, cwd: String?, home: String = NSHomeDirectory()) throws -> String? {
         guard let text = invocation["fromFolder"]?.stringValue?.trimmingCharacters(in: .whitespaces), !text.isEmpty else { return nil }
-        guard !isAgent(invocation), isPersons(invocation) else { throw ActionFailure(message: CloudStartSessionStrings.fromFolderAgent) }
         guard cwd == nil else { throw ActionFailure(message: CloudStartSessionStrings.fromFolderWithCwd) }
         guard text.utf8.count <= 4096, !text.unicodeScalars.contains(where: { $0.properties.generalCategory == .control }), let folder = CloudMoveFolder.normalized(text) else { throw ActionFailure(message: CloudStartSessionStrings.fromFolderInvalid) }
         if let refusal = AgentPaneCloudFolderRefusal.written(folder, home: home) { throw ActionFailure(message: Self.message(refusal, folder: folder)) }
