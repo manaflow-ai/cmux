@@ -97,9 +97,15 @@ fn which_on_path(program: &str) -> Option<PathBuf> {
 }
 
 /// A file someone may run: a stale or non-executable `claude` is no installed CLI.
+#[cfg(unix)]
 fn is_executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt as _;
     path.metadata().is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+}
+
+#[cfg(not(unix))]
+fn is_executable(path: &Path) -> bool {
+    path.is_file()
 }
 
 async fn fetch(url: &str) -> Result<String> {
@@ -115,6 +121,12 @@ async fn fetch(url: &str) -> Result<String> {
 /// The installer script on bash's stdin, with no terminal: its own output is kept for the error.
 /// It runs in a process group of its own, and the limit covers the whole run: past it, the
 /// group (bash and anything the installer started) is killed, so nothing outlives the command.
+#[cfg(not(unix))]
+async fn run_installer(_script: &str) -> Result<()> {
+    bail!("Claude Code's installer is a shell script for macOS and Linux")
+}
+
+#[cfg(unix)]
 async fn run_installer(script: &str) -> Result<()> {
     use tokio::io::AsyncWriteExt as _;
     let mut child = tokio::process::Command::new("/bin/bash")
@@ -163,6 +175,7 @@ mod tests {
         assert!(err.contains("installs claude, codex"), "{err}");
     }
 
+    #[cfg(unix)]
     #[test]
     fn only_an_executable_file_counts_as_installed() {
         use std::os::unix::fs::PermissionsExt as _;
