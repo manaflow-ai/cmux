@@ -3,6 +3,7 @@ import { address, invites } from "@cmux/home-core"
 import type { Env } from "./env.ts"
 import type { Fetch } from "./home-send.ts"
 import type { SendblueMessage } from "./home-text.ts"
+import { declared } from "./do-stub.ts"
 
 /**
  * Texting Chief (home-messaging.md section 19; Lawrence 2026-11-02): one shared SendBlue line, each
@@ -35,16 +36,6 @@ interface ChiefRecord {
   readonly rev: number
 }
 
-type UserStub = {
-  readOp(entity: string, p: Principal, op: string, params: unknown): Promise<{ ok: true; value: unknown } | { ok: false; code: string; message: string }>
-  submit(entity: string, p: Principal, frame: { t: "op"; op: string; params: unknown; idempotency_key: string; origin: "remote" }): Promise<{ frames: ReadonlyArray<OwnerFrame> }>
-}
-type ConversationStub = {
-  submit(entity: string, p: Principal, frame: { t: "op"; op: string; params: unknown; idempotency_key: string; origin: "remote" }): Promise<{ frames: ReadonlyArray<OwnerFrame> }>
-  textBridge(entity: string, bridge: TextBridge | null): Promise<void>
-}
-type AddressStub = { linkedUser(address: string): Promise<string | null> }
-
 /** What a conversation keeps to send its Chief's replies back as texts (no raw number: the AddressDO id). */
 export interface TextBridge {
   readonly address: string
@@ -73,8 +64,8 @@ export interface TextChiefDeps {
 }
 
 const ownerPrincipal = (user: string, addr: string): Principal => ({ identity: `text:${addr}`, kind: "session", user })
-const userStub = (env: Env, user: string) => env.USER_DO.get(env.USER_DO.idFromName(user)) as unknown as UserStub
-const conversationStub = (env: Env, id: string) => env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(id)) as unknown as ConversationStub
+const userStub = (env: Env, user: string) => declared(env.USER_DO.get(env.USER_DO.idFromName(user)))
+const conversationStub = (env: Env, id: string) => declared(env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(id)))
 
 export const textChiefTables = (sql: SqlStore) => {
   // One row per SendBlue handle ever routed (dedupe of SendBlue's retries and of a repeated webhook), 7 days.
@@ -119,7 +110,7 @@ export const ownerOf = async (d: TextChiefDeps): Promise<string | null> => {
   const email = invites.normalizeEmail(person)
   if (!invites.isAddress(email) || !d.env.HOME_ADDRESS_KEY) return null
   const id = invites.addressId(d.env.HOME_ADDRESS_KEY, email)
-  return (d.env.ADDRESS_DO.get(d.env.ADDRESS_DO.idFromName(id)) as unknown as AddressStub).linkedUser(id)
+  return d.env.ADDRESS_DO.get(d.env.ADDRESS_DO.idFromName(id)).linkedUser(id)
 }
 
 const chiefsOf = async (env: Env, owner: string, addr: string): Promise<Array<address.TextChief & { rev: number }>> => {

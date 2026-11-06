@@ -1,4 +1,4 @@
-//! `cmux link dial --host ID [--service daemon|ssh|owner_session] [--socket PATH]`: a
+//! `cmux link dial --host ID [--service daemon|ssh|owner_session|desktop] [--socket PATH]`: a
 //! stdio bridge to a
 //! service of a paired install or a Cloud host, for callers that cannot use
 //! the link socket themselves (cmux-cloud's carrier, an ssh ProxyCommand).
@@ -97,7 +97,7 @@ pub(super) struct DialArgs {
     pub socket: Option<PathBuf>,
 }
 
-/// `--host ID [--service daemon|ssh] [--socket ABSOLUTE_PATH]`, each once,
+/// `--host ID [--service daemon|ssh|owner_session|desktop] [--socket ABSOLUTE_PATH]`, each once,
 /// nothing else.
 pub(super) fn parse(args: &[String]) -> Result<DialArgs, Failure> {
     let (mut host, mut service, mut socket) = (None, None, None);
@@ -120,6 +120,7 @@ pub(super) fn parse(args: &[String]) -> Result<DialArgs, Failure> {
         None | Some("daemon") => Service::Daemon,
         Some("ssh") => Service::Ssh,
         Some("owner_session") => Service::OwnerSession,
+        Some("desktop") => Service::Desktop,
         Some(_) => return Err(Failure::BadUsage),
     };
     let socket = socket.map(PathBuf::from);

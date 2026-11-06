@@ -73,6 +73,9 @@ export function AgentLine({
   progressAt = "below",
   latest,
   latestAt = "below",
+  latestCode = false,
+  via,
+  nameLink,
 }: {
   name: string;
   /// What it does now, or the kind of agent it is; dim after the name.
@@ -133,6 +136,12 @@ export function AgentLine({
   /// 2026-11-03: "Tray only, richer" (trayLatest.experiment.ts).
   latest?: string;
   latestAt?: "below" | "inline";
+  /// The activity is a shell command; keep its raw text in the tray's monospace face.
+  latestCode?: boolean;
+  /// The parent title for nested work.
+  via?: string;
+  /// A separate link for the visible name when the row itself opens a command.
+  nameLink?: { href: string; open: () => void };
 }) {
   const liveProgress = useAgentProgress(progressAgent);
   progress = liveProgress ?? progress;
@@ -186,14 +195,40 @@ export function AgentLine({
         ) : (
           kind && <span className="acpmux-agent-line__kind">{kind}</span>
         )}
-        <span className="acpmux-summary-agent__name">{name}</span>
+        {nameLink ? (
+          <span
+            // It sits inside the row's toggle button, where an anchor or a nested button would be
+            // invalid; the deeplink opens through the pane navigation callback.
+            className="acpmux-summary-agent__name acpmux-agent-line__name-link"
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- nested inside the row toggle
+            role="link"
+            tabIndex={0}
+            data-deeplink={nameLink.href}
+            onClick={(event) => {
+              event.stopPropagation();
+              nameLink.open();
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                event.stopPropagation();
+                nameLink.open();
+              }
+            }}
+          >
+            {name}
+          </span>
+        ) : (
+          <span className="acpmux-summary-agent__name">{name}</span>
+        )}
         {detail && detail !== name && <span className="acpmux-summary-agent__kind">{detail}</span>}
         {latest && latest !== name && latestAt === "inline" && (
-          <span className="acpmux-agent-line__latest-inline">{latest}</span>
+          <span className={`acpmux-agent-line__latest-inline${latestCode ? " is-code" : ""}`}>{latest}</span>
         )}
         {latest && latest !== name && latestAt === "below" && (
-          <span className="acpmux-agent-line__latest">{latest}</span>
+          <span className={`acpmux-agent-line__latest${latestCode ? " is-code" : ""}`}>{latest}</span>
         )}
+        {via && <span className="acpmux-agent-line__via">via {via}</span>}
         {progress && trayColumns && progressAt === "meta" && (
           <span className="acpmux-agent-line__stats">{progress}</span>
         )}

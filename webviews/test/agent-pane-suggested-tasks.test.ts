@@ -366,8 +366,9 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
     test("Do it here answers the offer here and sends its prompt to this chat", async () => {
       const page = await openChat({ offered: [single] });
       await card(page).getByText(single.title).waitFor({ timeout: 10_000 });
-      // A lone offer's card is headed with the list's own word, no noun (cg-ui-coord, 10-15).
-      expect(await card(page).getByText("Suggested", { exact: true }).count()).toBe(1);
+      // A lone offer's card is headed "New session", as Claude desktop's suggested-session card is
+      // (Leo, 2026-11-05: "I want to be able to, like, recommend Claude to be able to do that as well").
+      expect(await card(page).getByText("New session", { exact: true }).count()).toBe(1);
       await card(page).getByRole("button", { name: "Do it here" }).click();
       await waitUntil(() => calls.some((c) => c.method === "session/prompt"));
       const respondAt = calls.findIndex((c) => c.method === "_acpmux/offer_respond");

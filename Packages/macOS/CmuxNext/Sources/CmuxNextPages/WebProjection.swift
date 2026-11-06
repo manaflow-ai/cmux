@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextWakeups
 public import Foundation
+import os
 public import WebKit
 
 /// Projection windows (manaflow-ai/cmuxterm-hq#7149 L10): one window of the running app whose pages
@@ -31,6 +32,8 @@ public final class WebProjection {
     public static let runTestID = "debug.projection.runTest"
     /// The port `web-overlay.sh server` uses; `projection.sh` passes its own.
     public static let defaultServer = "http://127.0.0.1:4200/"
+    /// Where each document load read from and each reload, for a check that sees only the app's log.
+    private let log = Logger(subsystem: "com.cmuxterm.app.next", category: "projection")
 
     public struct Projection: Sendable, Equatable {
         public let windowID: String
@@ -59,13 +62,30 @@ public final class WebProjection {
 
     public init() {}
 
+    /// Projection windows seen open, so one that closes ends its projection for good (a window reopened
+    /// under the same id is an ordinary window).
+    private var shown: Set<String> = []
+
     /// Whether any open window is a projection now.
-    public var isActive: Bool { projections.contains { isOpen($0.windowID) } }
+    public var isActive: Bool {
+        prune()
+        return !shown.isEmpty
+    }
 
     /// The server `webView` loads from: its window's projection server, nil for none.
     public func server(for webView: WKWebView?) -> PageDevServer? {
         guard !projections.isEmpty, let window = webView?.window, let id = windowID(window) else { return nil }
+        prune()
         return projections.last { $0.windowID == id }?.server
+    }
+
+    /// Drops the projections whose window showed and has closed since.
+    private func prune() {
+        for projection in projections where isOpen(projection.windowID) { shown.insert(projection.windowID) }
+        let closed = shown.filter { !isOpen($0) }
+        guard !closed.isEmpty else { return }
+        projections.removeAll { closed.contains($0.windowID) }
+        shown.subtract(closed)
     }
 
     /// The override in force for `webView`: ``WebDevOverride/current`` with its window's projection
@@ -86,12 +106,14 @@ public final class WebProjection {
                                     worktree: worktree.flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath },
                                     test: test.flatMap { $0.isEmpty ? nil : $0 })
         projections.append(projection)
+        log.notice("open \(projection.windowID, privacy: .public) \(root.absoluteString, privacy: .public)")
         return projection
     }
 
     /// The projection a test run goes to: the one whose window is `windowID` (the active window), else
     /// the newest open one. A non-empty `test` replaces its test command.
     public func testRun(in windowID: String?, test: String?) throws(Refusal) -> Projection {
+        prune()
         guard let index = projections.lastIndex(where: { $0.windowID == windowID })
             ?? projections.lastIndex(where: { isOpen($0.windowID) })
         else { throw Refusal(message: Self.noProjection) }
@@ -106,7 +128,12 @@ public final class WebProjection {
     /// window reloads from its server.
     public func served(_ webView: WKWebView, isDocument: Bool) {
         guard !projections.isEmpty, isDocument else { return }
-        servedFrom.setObject(server(for: webView).map { $0.root as NSURL } ?? unbound, forKey: webView)
+        let from = server(for: webView)
+        let url = webView.url?.absoluteString ?? "-", window = webView.window.flatMap(windowID) ?? "none"
+        let read = from?.root.absoluteString ?? "bundle"
+        let open = projections.map { "\($0.windowID):\(isOpen($0.windowID))" }.joined(separator: ",")
+        log.notice("document \(url, privacy: .public) window \(window, privacy: .public) from \(read, privacy: .public) projections \(open, privacy: .public)")
+        servedFrom.setObject(from.map { $0.root as NSURL } ?? unbound, forKey: webView)
         guard webView.window == nil else { return }
         windowlessChecks = 0
         scheduleRecheck()
@@ -136,6 +163,7 @@ public final class WebProjection {
             stale.append(webView)
         }
         for webView in stale { webView.reload() }
+        if !stale.isEmpty { log.notice("reloaded \(stale.count) page(s) for their window's server") }
         return stale.count
     }
 

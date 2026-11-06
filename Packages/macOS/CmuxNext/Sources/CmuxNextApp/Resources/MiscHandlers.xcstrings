@@ -1448,127 +1448,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The cmux-tui daemon is not connected."
+            "value": "cmux's background service isn't connected."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui デーモンに接続されていません。"
+            "value": "cmux のバックグラウンドサービスに接続されていません。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "خدمة cmux-tui غير متصلة."
+            "value": "خدمة cmux في الخلفية غير متصلة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui daemon nije povezan."
+            "value": "Pozadinski servis cmuxa nije povezan."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui-dæmonen er ikke forbundet."
+            "value": "cmux’ baggrundstjeneste er ikke forbundet."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Der cmux-tui-Daemon ist nicht verbunden."
+            "value": "Der Hintergrunddienst von cmux ist nicht verbunden."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "El daemon de cmux-tui no está conectado."
+            "value": "El servicio en segundo plano de cmux no está conectado."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le daemon cmux-tui n’est pas connecté."
+            "value": "Le service d’arrière-plan de cmux n’est pas connecté."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Il daemon cmux-tui non è connesso."
+            "value": "Il servizio in background di cmux non è connesso."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "daemon cmux-tui មិនបានភ្ជាប់ទេ។"
+            "value": "សេវាផ្ទៃខាងក្រោយរបស់ cmux មិនបានភ្ជាប់ទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui 데몬이 연결되어 있지 않습니다."
+            "value": "cmux 백그라운드 서비스가 연결되어 있지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui-daemonen er ikke tilkoblet."
+            "value": "Bakgrunnstjenesten til cmux er ikke tilkoblet."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Demon cmux-tui nie jest połączony."
+            "value": "Usługa w tle cmux nie jest połączona."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O daemon cmux-tui não está conectado."
+            "value": "O serviço em segundo plano do cmux não está conectado."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Демон cmux-tui не подключен."
+            "value": "Фоновая служба cmux не подключена."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "daemon ของ cmux-tui ไม่ได้เชื่อมต่อ"
+            "value": "บริการเบื้องหลังของ cmux ไม่ได้เชื่อมต่อ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui arka plan hizmeti bağlı değil."
+            "value": "cmux arka plan hizmeti bağlı değil."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Демон cmux-tui не підключено."
+            "value": "Фонова служба cmux не підключена."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Daemon cmux-tui chưa được kết nối."
+            "value": "Dịch vụ nền của cmux chưa kết nối."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui 守护进程未连接。"
+            "value": "cmux 的后台服务未连接。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui 背景程式未連線。"
+            "value": "cmux 的背景服務未連線。"
           }
         }
       }

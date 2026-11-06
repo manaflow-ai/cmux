@@ -391,6 +391,7 @@ impl Translator {
                             "request": {"subtype": "side_question", "question": RECAP_PROMPT},
                         })])
                     }
+                    RENAME => self.rename(id, &p).await,
                     method::MUX_SUBAGENT_STOP => self.subagent_stop(id, &p).await,
                     method::MUX_STEER_WITHDRAW => self.withdraw_steer(id, &p).await,
                     // Send now on a steer Claude Code has not read: its step stops, so it

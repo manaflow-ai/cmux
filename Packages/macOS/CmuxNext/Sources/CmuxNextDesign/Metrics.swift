@@ -206,9 +206,10 @@ public struct Metrics {
         return corners.radius(fitting: size, radius: corners.nested(in: pane, inset: inset))
     }
     /// The density's outer corner radius, used when `layout.paneCornerRadius` is unset:
-    /// 10 pt compact and 11 pt comfortable, so the tab pills nested 2 and 3 pt inside
-    /// keep Helium's 8 pt (``heliumTabCornerRadius``), and the compact main pane is
-    /// concentric with the 16 pt window across its 6 pt gutter.
+    /// the omnibar's 8 pt in every density (Lawrence 2026-11-05: "default roundness is too
+    /// round now", "default roundness should be omnibar roundness"). The tab pills and the
+    /// sidebar's rows nest the corner padding inside it; the main pane is less round than
+    /// the 16 pt window across its 6 pt gutter, never rounder.
     public static var densityPaneCornerRadius: CGFloat { MetricTunables.densityPaneCornerRadius.value }
     /// How panes are told apart (`layout.paneSeparation`, else the legacy
     /// `layout.paneBorder` and padding).
@@ -235,10 +236,49 @@ public struct Metrics {
     /// device pixel.
     public static var paneBorderWidth: CGFloat? { DesignSettings.shared.paneChrome.borderWidth.map(scale) }
 
-    /// Corner radius for floating glass panels (sidebar, palette).
-    public static var panelCornerRadius: CGFloat { MetricTunables.panelCornerRadius.value }
-    /// Corner radius for tabs and rows.
-    public static var itemCornerRadius: CGFloat { MetricTunables.itemCornerRadius.value }
+    // MARK: Corner levels (one radius, concentric everywhere)
+
+    /// The radius of every top-level rounded surface: panes, floating glass panels (sidebar,
+    /// palette), popovers, menus, hover cards, cards, toasts, dialogs and sheets. It is the one
+    /// outer radius (``corners``, `layout.paneCornerRadius`); a surface is a pane-like shape, so
+    /// it shares the pane's corner (Lawrence 2026-11-04, "all nested radius everywhere ... must be
+    /// concentric"). An explicit `appearance.metrics.panelCornerRadius` still wins for floating panels.
+    public static var surfaceCornerRadius: CGFloat { corners.outer }
+    /// A shape one level inside a surface (``ConcentricCorners/inner``): a tab pill, a row or
+    /// selection fill in a list that pads it from the surface's edge, a menu highlight.
+    public static var insetCornerRadius: CGFloat { corners.inner }
+    /// A shape two levels inside a surface (`radius(depth: 2)`): a button, field, badge or
+    /// thumbnail inside a row or pill.
+    public static var controlCornerRadius: CGFloat { corners.radius(depth: 2) }
+    /// The concentric radius of a shape `inset` points inside a shape of radius `outer`
+    /// (`outer - inset`, at least 0), at most half the shorter side of `size` when given.
+    public static func cornerRadius(nestedIn outer: CGFloat, inset: CGFloat, size: CGSize? = nil) -> CGFloat {
+        let radius = corners.nested(in: outer, inset: inset)
+        return size.map { corners.radius(fitting: $0, radius: radius) } ?? radius
+    }
+    /// The concentric radius of a shape `inset` points inside a top-level surface
+    /// (``surfaceCornerRadius``), at most half the shorter side of `size` when given.
+    public static func cornerRadius(insetFromSurface inset: CGFloat, size: CGSize? = nil) -> CGFloat {
+        cornerRadius(nestedIn: surfaceCornerRadius, inset: inset, size: size)
+    }
+    /// The radius that makes a rect of `size` a capsule (half its shorter side): a shape choice
+    /// (a slider track, a pill-shaped tag), not a radius level.
+    public static func capsuleRadius(_ size: CGSize) -> CGFloat { corners.radius(fitting: size, radius: .greatestFiniteMagnitude) }
+
+    /// Corner radius for floating glass panels (sidebar, palette): ``surfaceCornerRadius``, or an
+    /// explicit `appearance.metrics.panelCornerRadius`.
+    public static var panelCornerRadius: CGFloat {
+        legacyRadius(.panelCornerRadius, token: "panelCornerRadius") ?? surfaceCornerRadius
+    }
+    /// Corner radius for tabs' controls, rows' buttons and other items: ``controlCornerRadius``, or
+    /// an explicit `itemCornerRadius` token of a custom density.
+    public static var itemCornerRadius: CGFloat { legacyRadius(nil, token: "itemCornerRadius") ?? controlCornerRadius }
+    /// A radius the user set by its old name (an `appearance.metrics` override or a custom
+    /// density's token), scaled; nil when unset, so the corner follows ``corners``.
+    private static func legacyRadius(_ key: MetricKey?, token: String) -> CGFloat? {
+        if let key, let value = DesignSettings.shared.overrides[key] { return scale(value) }
+        return tokens.tokens[token].map { scale(CGFloat($0)) }
+    }
     /// Corner radius for a small labeled surface (a note, toast or count
     /// badge) of `height`: the item radius, never a capsule.
     public static func chipCornerRadius(height: CGFloat) -> CGFloat {
@@ -303,6 +343,8 @@ public struct Typography {
     public static var bodyEmphasized: NSFont { system(.default, size: size(12, 13), weight: .medium) }
     /// Subtitles, shortcut hints, counts.
     public static var caption: NSFont { system(.default, size: size(10.5, 11), weight: .regular) }
+    /// `caption` with tabular digits: a count that ticks (a download's bytes) keeps its width.
+    public static var captionDigits: NSFont { system(.monospacedDigit, size: size(10.5, 11), weight: .regular) }
     /// Section headers (uppercase is not used; weight and color carry hierarchy).
     public static var header: NSFont { system(.default, size: size(11, 12), weight: .semibold) }
     /// Palette search field.

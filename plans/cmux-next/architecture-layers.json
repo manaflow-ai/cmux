@@ -107,6 +107,7 @@
     "CmuxNextAgentQuestion": {"layer": "ui"},
     "CmuxNextAgentPermissions": {"layer": "ui"},
     "CmuxNextChiefViews": {"layer": "ui"},
+    "CmuxNextGitHubViewer": {"layer": "ui"},
     "CmuxNextChiefPetWiring": {"layer": "ui"},
     "CmuxNextAccounts": {"layer": "ui"},
     "CmuxNextScreenshots": {"layer": "ui"},

@@ -629,6 +629,22 @@ export default componentEntry<GalleryProps>({
     "relevant-many": { props: relevantMany, play: openColumns },
     "reported-claude-menu": { props: reportedClaude, play: openColumns },
     "reported-codex-menu": { props: reportedCodex, play: openColumns },
+    "long-model-name": {
+      props: {
+        ...reportedCodex,
+        catalog: [
+          {
+            ...reportedCodex.catalog[0]!,
+            top: ["long-name", ...(reportedCodex.catalog[0]!.top ?? [])],
+            models: [
+              { id: "long-name", name: "A model with a very long name that must stay inside the model column" },
+              ...reportedCodex.catalog[0]!.models,
+            ],
+          },
+        ],
+      },
+      play: openColumns,
+    },
     // A short window with many accounts (Lawrence: "model picker too tall"): the account card
     // stays inside the window and its list scrolls to the final row.
     "quick-menu-many-profiles": {

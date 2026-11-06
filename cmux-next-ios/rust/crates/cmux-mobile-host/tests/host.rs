@@ -35,6 +35,8 @@ struct Fixture {
     mac_id: String,
     /// Pairing on: this Mac's identity key (`mac_identity`).
     mac_key: Option<String>,
+    /// Pairing on: what machines did here (`activity.rs`).
+    activity: Option<Arc<cmux_mobile_host::activity::Activity>>,
     root: std::path::PathBuf,
     outside: std::path::PathBuf,
     uploads: std::path::PathBuf,
@@ -218,7 +220,7 @@ async fn fixture_trust(fake: FakeOptions, pairing: bool, loaded: bool) -> Fixtur
     };
     let mut services = services;
     let mac_id = uuid::Uuid::new_v4().to_string();
-    let (mut trust, mut events, mut mac_key) = (None, None, None);
+    let (mut trust, mut events, mut mac_key, mut activity) = (None, None, None, None);
     if pairing {
         let (trust_tx, trust_rx) = tokio::sync::watch::channel(loaded.then(DeviceTrust::default));
         let (events_tx, events_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -232,7 +234,12 @@ async fn fixture_trust(fake: FakeOptions, pairing: bool, loaded: bool) -> Fixtur
                     let _ = events_tx.send(event);
                 }),
             )
-            .with_identity(tokio::sync::watch::channel(Some(identity)).1),
+            .with_identity(tokio::sync::watch::channel(Some(identity)).1)
+            .with_activity({
+                let log = Arc::new(cmux_mobile_host::activity::Activity::memory());
+                activity = Some(Arc::clone(&log));
+                log
+            }),
         );
         trust = Some(trust_tx);
         events = Some(tokio::sync::Mutex::new(events_rx));
@@ -260,6 +267,7 @@ async fn fixture_trust(fake: FakeOptions, pairing: bool, loaded: bool) -> Fixtur
         events,
         mac_id,
         mac_key,
+        activity,
         root: root.path().to_path_buf(),
         outside: outside.path().to_path_buf(),
         uploads: uploads.path().to_path_buf(),
@@ -1067,14 +1075,26 @@ async fn auth_presenting(
     action: &str,
     pair_token: Option<&str>,
 ) -> Channel {
-    let mut channel = link
-        .open(
-            "auth",
-            serde_json::json!({"identityKey": keys.identity_hex, "approvalKey": keys.approval_hex,
-                               "name": "Test iPhone", "action": action}),
-        )
-        .await
-        .unwrap();
+    auth_as(link, fixture, keys, signer, action, pair_token, "").await
+}
+
+/// `auth` as a device of `kind` (`""` is a phone, as every phone app sends it).
+async fn auth_as(
+    link: &cmux_mobile_link::Link,
+    fixture: &Fixture,
+    keys: &PhoneKeys,
+    signer: &ring::signature::EcdsaKeyPair,
+    action: &str,
+    pair_token: Option<&str>,
+    kind: &str,
+) -> Channel {
+    let mut args = serde_json::json!({"identityKey": keys.identity_hex, "approvalKey": keys.approval_hex,
+                                      "name": "Test iPhone", "action": action});
+    if !kind.is_empty() {
+        args["kind"] = serde_json::json!(kind);
+        args["name"] = serde_json::json!("Studio");
+    }
+    let mut channel = link.open("auth", args).await.unwrap();
     let challenge = json_frame(channel.recv().await);
     assert_eq!(challenge["mac"], fixture.mac_id);
     let message = challenge_message(
@@ -1121,6 +1141,7 @@ async fn a_scanned_pairing_code_reaches_the_app_with_the_request() {
             approval_key: keys.approval_hex.clone(),
             registered_at_ms: None,
             pair_token: Some(token.into()),
+            kind: cmux_mobile_host::peer::PeerKind::Phone,
         }
     );
     // The app allowed it (as it does for a live token): the phone is served.
@@ -1158,6 +1179,7 @@ async fn a_token_alone_never_reaches_a_service_and_the_mac_approves_each_phone()
             approval_key: keys.approval_hex.clone(),
             registered_at_ms: None,
             pair_token: None,
+            kind: cmux_mobile_host::peer::PeerKind::Phone,
         }
     );
     fixture.trust.as_ref().unwrap().send_replace(Some(DeviceTrust {
@@ -1165,6 +1187,7 @@ async fn a_token_alone_never_reaches_a_service_and_the_mac_approves_each_phone()
             id: fixture.phone_id.clone(),
             identity_key: keys.identity_hex.clone(),
             approval_key: keys.approval_hex.clone(),
+            ..Default::default()
         }],
         denied: vec![],
     }));
@@ -1203,6 +1226,111 @@ async fn a_token_alone_never_reaches_a_service_and_the_mac_approves_each_phone()
         fixture.events.as_ref().unwrap().lock().await.recv().await,
         Some(Event::Unpaired { phone_device_id: fixture.phone_id.clone() })
     );
+}
+
+/// Another of the person's Macs pairs through the same `auth`, is asked about as a Mac (never
+/// pre-approved by a pairing code, never matched by a phone's record), and then opens only what
+/// the app granted it; a removed machine loses its link's services at the next open.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_mac_opens_only_what_this_mac_granted_it() {
+    use cmux_mobile_host::peer::{Grant, PeerKind};
+    let fixture = fixture_with(FakeOptions::default(), true).await;
+    let phone = phone_keys();
+    let keys = PhoneKeys { approval_hex: String::new(), ..phone };
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let link = &connected.link;
+
+    // An unknown kind is refused before anything is asked.
+    let mut odd = link
+        .open("auth", serde_json::json!({"identityKey": keys.identity_hex, "kind": "server"}))
+        .await
+        .unwrap();
+    assert_eq!(drain(&mut odd).await.1, "bad_request");
+
+    // A phone's record for the same device and key does not admit it as a Mac.
+    fixture.trust.as_ref().unwrap().send_replace(Some(DeviceTrust {
+        devices: vec![TrustedDevice {
+            id: fixture.phone_id.clone(),
+            identity_key: keys.identity_hex.clone(),
+            approval_key: String::new(),
+            ..Default::default()
+        }],
+        denied: vec![],
+    }));
+    let token = "Zm9vYmFyLWJhel9xdXV4";
+    let mut channel = auth_as(link, &fixture, &keys, &keys.identity, "pair", Some(token), "mac").await;
+    assert_eq!(json_frame(channel.recv().await), serde_json::json!({"pending": true}));
+    let request = fixture.events.as_ref().unwrap().lock().await.recv().await.unwrap();
+    assert_eq!(
+        request,
+        Event::PairRequest {
+            phone_device_id: fixture.phone_id.clone(),
+            name: "Studio".into(),
+            identity_key: keys.identity_hex.clone(),
+            approval_key: String::new(),
+            registered_at_ms: None,
+            // A pairing code never pre-approves a machine.
+            pair_token: None,
+            kind: PeerKind::Mac,
+        }
+    );
+    // The app allows it as a Mac, granting nothing yet (the person chooses grants after).
+    let granting = |grants: Vec<Grant>| DeviceTrust {
+        devices: vec![TrustedDevice {
+            id: fixture.phone_id.clone(),
+            identity_key: keys.identity_hex.clone(),
+            approval_key: String::new(),
+            kind: PeerKind::Mac,
+            grants,
+        }],
+        denied: vec![],
+    };
+    fixture.trust.as_ref().unwrap().send_replace(Some(granting(vec![])));
+    assert_eq!(json_frame(channel.recv().await), serde_json::json!({"ok": true}));
+
+    let mut machine = link.open("machine", serde_json::json!({})).await.unwrap();
+    let described = json_frame(machine.recv().await);
+    assert_eq!(described["grants"], serde_json::json!([]));
+    assert!(described.get("os").is_some());
+    let mut preview = link.open("file-preview", serde_json::json!({})).await.unwrap();
+    assert_eq!(drain(&mut preview).await.1, "not_granted", "pairing alone reads no files");
+
+    // Granted view, it still may not type or reach agents.
+    fixture.trust.as_ref().unwrap().send_replace(Some(granting(vec![Grant::View])));
+    let mut machine = link.open("machine", serde_json::json!({})).await.unwrap();
+    assert_eq!(json_frame(machine.recv().await)["grants"], serde_json::json!(["view"]));
+    for (service, code) in
+        [("daemon", "not_granted"), ("acpmux", "not_granted"), ("cloud-acpmux", "not_offered")]
+    {
+        let mut refused = link.open(service, serde_json::json!({})).await.unwrap();
+        assert_eq!(drain(&mut refused).await.1, code, "{service}");
+    }
+
+    // Granted control, the same link opens `daemon` at once (read at every open).
+    fixture.trust.as_ref().unwrap().send_replace(Some(granting(vec![Grant::View, Grant::Control])));
+    let mut echo = link.open("echo", serde_json::json!({})).await.unwrap();
+    echo.send(Bytes::from_static(b"hi")).await.unwrap();
+    assert_eq!(echo.recv().await, Some(ChannelEvent::Data(Bytes::from_static(b"hi"))));
+
+    // Removed: nothing opens any more on the live link.
+    fixture.trust.as_ref().unwrap().send_replace(Some(DeviceTrust::default()));
+    let mut gone = link.open("machine", serde_json::json!({})).await.unwrap();
+    assert_eq!(drain(&mut gone).await.1, "revoked");
+
+    // Activity has every pairing attempt and every request, allowed or refused.
+    let logged: Vec<(String, String)> = fixture
+        .activity
+        .as_ref()
+        .unwrap()
+        .recent()
+        .into_iter()
+        .map(|entry| (entry.service, entry.decision))
+        .collect();
+    let has = |service: &str, decision: &str| logged.contains(&(service.to_owned(), decision.to_owned()));
+    assert!(has("auth", "allowed"), "{logged:?}");
+    assert!(has("file-preview", "not_granted"), "{logged:?}");
+    assert!(has("machine", "allowed"), "{logged:?}");
+    assert!(has("machine", "revoked"), "{logged:?}");
 }
 
 fn keys_like(keys: &PhoneKeys) -> PhoneKeys {
@@ -1269,6 +1397,7 @@ async fn channels_opened_after_auth_wait_for_it() {
             id: fixture.phone_id.clone(),
             identity_key: keys.identity_hex.clone(),
             approval_key: keys.approval_hex.clone(),
+            ..Default::default()
         }],
         denied: vec![],
     }));
@@ -1309,6 +1438,7 @@ fn trusting(fixture: &Fixture, keys: &PhoneKeys) -> DeviceTrust {
             id: fixture.phone_id.clone(),
             identity_key: keys.identity_hex.clone(),
             approval_key: keys.approval_hex.clone(),
+            ..Default::default()
         }],
         denied: vec![],
     }

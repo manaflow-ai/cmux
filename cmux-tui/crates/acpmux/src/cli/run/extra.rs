@@ -764,6 +764,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 .into())
             }
         }
+        Command::Host(PeerCmd::Leave { local_only }) => {
+            crate::cli::cloud_join::leave(local_only, json_out).await
+        }
         Command::Host(PeerCmd::Vault { cmd }) => match cmd {
             crate::cli::command_host::VaultCmd::Pull => {
                 crate::cli::host_vault::pull_cmd(json_out).await
@@ -1034,11 +1037,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     return crate::cli::pairing::ticket(client, cmd, json_out).await;
                 }
                 PeerCmd::Join { .. }
+                | PeerCmd::Leave { .. }
                 | PeerCmd::Consent { .. }
                 | PeerCmd::Vault { .. }
                 | PeerCmd::Deps { .. } => {
                     return Err(anyhow!(
-                        "host join, consent, vault and deps are handled before daemon connection"
+                        "host join, leave, consent, vault and deps are handled before daemon connection"
                     ));
                 }
             };

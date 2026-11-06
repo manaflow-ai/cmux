@@ -11,7 +11,7 @@
 //   (a DOM mutation arms a frame watch that stops a second after the last one), never in a loop.
 //
 // No text of the chat goes out: kinds, numbers and short words. Events are sent in batches at
-// most once a second, through the pane's own WebKit handler only (gallery and tests send nothing).
+// most once a second, through the app's own WebKit handler only: the gallery's stand-in and tests send nothing.
 
 export type FlickerEvent = { kind: string; at: number } & Record<string, string | number | boolean>;
 type Send = (events: FlickerEvent[]) => void;
@@ -140,7 +140,8 @@ export function startFlickerLog(win: Window = window): void {
 
 function install(win: Window): void {
   const handler = win.webkit?.messageHandlers?.agentSession;
-  if (log || !handler) return;
+  // The gallery's stand-in for the app's handler (gallery/frame/agentPane.ts) gets no events.
+  if (log || !handler || (handler as { standIn?: boolean }).standIn) return;
   const send: Send = (events) => {
     try {
       void Promise.resolve(

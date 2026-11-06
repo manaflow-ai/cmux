@@ -141,7 +141,159 @@ struct UpdatedCardFirstFrameTests {
         let wideAgain = Self.launch(FakeSurfaces(), width: 312)
         #expect(narrowAgain.updatedCardView.height == 77, "the narrow card took the wide card's height")
         #expect(narrowAgain.updatedCardView.frame == narrow.updatedCardView.frame)
+        // The wide launch before had no height of its own yet: its first frame took the narrow card's
+        // 77 pt and held it (no move after the first frame). The relaunch starts at its real 64 pt.
         #expect(wideAgain.updatedCardView.height == 64)
-        #expect(wideAgain.updatedCardView.frame == wide.updatedCardView.frame)
+        #expect(wideAgain.updatedCardView.frame.height < wide.updatedCardView.frame.height)
+    }
+
+    /// The relaunch bench at 3f6fa2890d2, and any real update whose index on disk does not list the new
+    /// build yet (fetched by the old app, offline, a slow network): the page waits 1.5 s for the span's
+    /// notes, reports the host's items (64 pt), then the notes (77 pt). The card stood at its remembered
+    /// 77 pt in its first frame, so it went 77 -> 64 -> 77 and the list moved twice. The card now keeps
+    /// its first frame's height until its words are final, and stays there.
+    @Test func aLateNotesLoadNeverResizesTheCardAfterItsFirstFrame() throws {
+        Self.forget()
+        defer { Self.forget() }
+        let before = FakeSurfaces()
+        let first = Self.launch(before)
+        try #require(before.islands.first).report(77)
+        first.layoutSubtreeIfNeeded()
+
+        let after = FakeSurfaces()
+        let relaunched = Self.launch(after)
+        let window = NSWindow(contentRect: relaunched.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = relaunched
+        relaunched.layoutSubtreeIfNeeded()
+        let firstFrame = relaunched.updatedCardView.frame, listBottom = relaunched.scrollView.frame.minY
+        #expect(relaunched.updatedCardView.height == 77)
+        let island = try #require(after.islands.first)
+
+        // The 1.5 s settle: the host's items, one line shorter.
+        island.report(64)
+        relaunched.layoutSubtreeIfNeeded()
+        #expect(relaunched.updatedCardView.height == 77, "the card shrank to the host's items after its first frame")
+        #expect(relaunched.updatedCardView.frame == firstFrame)
+        #expect(relaunched.scrollView.frame.minY == listBottom, "the list moved when the host's items drew")
+
+        // The span's notes, late: the words the card had room for.
+        island.report(77)
+        relaunched.layoutSubtreeIfNeeded()
+        #expect(!relaunched.cardSlotMotion.isMoving, "the list moved on a spring when the notes arrived")
+        #expect(relaunched.updatedCardView.frame == firstFrame, "the card moved when its notes arrived")
+        #expect(relaunched.scrollView.frame.minY == listBottom, "the list moved when the notes arrived")
+    }
+
+    /// A card whose final words are shorter than last launch's keeps its first frame's height for this
+    /// launch (no move after the first frame) and remembers its real height for the next one.
+    @Test func shorterFinalWordsKeepTheFirstFrameAndAreRememberedForTheNextLaunch() throws {
+        Self.forget()
+        defer { Self.forget() }
+        let before = FakeSurfaces()
+        let first = Self.launch(before)
+        try #require(before.islands.first).report(77)
+        first.layoutSubtreeIfNeeded()
+
+        let after = FakeSurfaces()
+        let relaunched = Self.launch(after)
+        let firstFrame = relaunched.updatedCardView.frame
+        try #require(after.islands.first).report(64)
+        relaunched.layoutSubtreeIfNeeded()
+        #expect(relaunched.updatedCardView.frame == firstFrame, "the card shrank after its first frame")
+
+        let next = Self.launch(FakeSurfaces())
+        #expect(next.updatedCardView.height == 64, "the next launch did not take this launch's real height")
+    }
+
+    /// Review of #36045 (F1): the index on disk lists the update, but its notes are not on disk (never
+    /// fetched, or their signature no longer verifies), so the page asks the network for them, settles at
+    /// 1.5 s on the host's items and reports again when (or if) the notes come. Both sequences keep the
+    /// card at its first frame's height: the notes late, and the notes never.
+    @Test func aCachedIndexWithNotesMissingOnDiskKeepsTheCardsHeight() throws {
+        for notesArrive in [true, false] {
+            Self.forget()
+            defer { Self.forget() }
+            let before = FakeSurfaces()
+            let first = Self.launch(before)
+            try #require(before.islands.first).report(77)
+            first.layoutSubtreeIfNeeded()
+
+            let after = FakeSurfaces()
+            let relaunched = Self.launch(after)
+            let firstFrame = relaunched.updatedCardView.frame, listBottom = relaunched.scrollView.frame.minY
+            let island = try #require(after.islands.first)
+            island.report(64)
+            relaunched.layoutSubtreeIfNeeded()
+            if notesArrive {
+                island.report(77)
+                relaunched.layoutSubtreeIfNeeded()
+            }
+            #expect(relaunched.updatedCardView.frame == firstFrame, "the card moved (notes arrive: \(notesArrive))")
+            #expect(relaunched.scrollView.frame.minY == listBottom, "the list moved (notes arrive: \(notesArrive))")
+        }
+    }
+
+    /// Review of #36248 (F1, #36267): the page can report a height before the sidebar's first layout
+    /// (a window laid out late, a page that answers fast). That report set `pageReported` before the slot
+    /// armed the hold, so the first frame used the page's short height (the host's items) and the late
+    /// notes grew the card. The hold is armed at the first layout whatever has reported, and the early
+    /// report is remembered at the card's width once it is known.
+    @Test func aPageReportBeforeTheFirstLayoutStillHoldsTheFirstFrame() throws {
+        Self.forget()
+        defer { Self.forget() }
+        let before = FakeSurfaces()
+        let first = Self.launch(before)
+        try #require(before.islands.first).report(77)
+        first.layoutSubtreeIfNeeded()
+        let drawn = first.updatedCardView.frame
+
+        // The relaunch: the page reports the host's items before the sidebar has laid out once.
+        let after = FakeSurfaces()
+        let relaunched = Self.unlaidLaunch(after)
+        let island = try #require(after.islands.first)
+        island.report(64)
+        relaunched.layoutSubtreeIfNeeded()
+        #expect(relaunched.updatedCardView.height == 77, "an early report skipped the first frame's hold")
+        #expect(relaunched.updatedCardView.frame == drawn, "the card's first frame is not its final one")
+        let listBottom = relaunched.scrollView.frame.minY
+
+        // The notes, late: nothing moves.
+        island.report(77)
+        relaunched.layoutSubtreeIfNeeded()
+        #expect(relaunched.updatedCardView.frame == drawn, "the card moved when its notes arrived")
+        #expect(relaunched.scrollView.frame.minY == listBottom, "the list moved when the notes arrived")
+    }
+
+    /// One launch whose sidebar has not laid out yet when the page reports.
+    static func unlaidLaunch(_ surfaces: FakeSurfaces, width: CGFloat = 260) -> SidebarView {
+        let model = SidebarModel(sections: [])
+        model.updatedCard = card
+        let sidebar = SidebarView(model: model, design: DesignSettings())
+        sidebar.frame = NSRect(x: 0, y: 0, width: width, height: 600)
+        sidebar.updateSurfaces = surfaces
+        sidebar.updatedCardView.configure(card)
+        return sidebar
+    }
+
+    /// F1 of #36248: a page's only report lands before the first layout. Its real height is remembered
+    /// at the card's width (the width is not known when it lands), so the next launch starts at it.
+    @Test func anEarlyReportIsRememberedAtTheCardsWidth() throws {
+        Self.forget()
+        defer { Self.forget() }
+        let before = FakeSurfaces()
+        let first = Self.launch(before)
+        try #require(before.islands.first).report(77)
+        first.layoutSubtreeIfNeeded()
+
+        let surfaces = FakeSurfaces()
+        let early = Self.unlaidLaunch(surfaces)
+        try #require(surfaces.islands.first).report(64)
+        early.layoutSubtreeIfNeeded()
+
+        let next = Self.launch(FakeSurfaces())
+        #expect(next.updatedCardView.height == 64, "the early report was not remembered at the card's width")
     }
 }
+

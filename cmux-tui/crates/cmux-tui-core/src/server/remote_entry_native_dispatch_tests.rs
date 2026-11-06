@@ -169,6 +169,10 @@ fn team_missing_role_and_legacy_stamps_cannot_enter_native_owner_dispatch() {
             json!({"cmd":"agent-session-attach", "surface":1}),
             json!({"cmd":"agent-transfer-receive", "cwd":"/tmp", "manifest":{}, "vm_kind":"owner"}),
             json!({"cmd":"agent-transfer-finish", "receive_id":"fake", "vm_kind":"owner"}),
+            json!({"cmd":"set-default-colors", "fg":"#ffffff"}),
+            json!({"cmd":"new-tab", "pane":1}),
+            json!({"cmd":"close-surface", "surface":1}),
+            json!({"cmd":"send-key", "surface":1, "key":"enter"}),
         ] {
             assert_eq!(call(&mut stream, &mut reader, frame)["error_code"], json!(REMOTE_DENIED));
         }
@@ -254,3 +258,230 @@ fn native_data_frames_reach_only_the_owner() {
 
 #[path = "remote_entry_native_terminal_tests.rs"]
 mod terminal;
+
+/// Every command the app sends on connect and chat start reaches the owner: the terminal theme
+/// (`set-default-colors`) was refused with remote_denied over the Native owner link (2026-11-05).
+#[test]
+fn native_owner_takes_the_apps_connect_commands() {
+    assert!(native_owner::commands().contains(&"set-default-colors"));
+    let fake = FakeAcpmux::start("native-colors");
+    let entry = entry_with(true, Arc::new(FsGate), Some(true));
+    entry.mux.set_acpmux_socket(Some(fake.socket.clone()));
+    entry.mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
+    let (mut stream, mut reader) = connect_as_link(&entry);
+    send(&mut stream, &native_stamp(Some(VmKind::Owner)));
+    let reply = call(
+        &mut stream,
+        &mut reader,
+        json!({"cmd":"set-default-colors", "fg":"#ffffff", "bg":"#000000"}),
+    );
+    assert_ne!(reply["error_code"], json!(REMOTE_DENIED), "{reply}");
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+}
+
+/// `cmux cloud ssh` on the owner's machine: new-tab opens a terminal, and typing into it reaches it
+/// (2026-11-05: "open Cloud SSH terminal: new-tab failed: remote_denied").
+#[test]
+fn native_owner_opens_a_terminal_tab_and_types_into_it() {
+    let fake = FakeAcpmux::start("native-terminal-tab");
+    let entry = entry_with(true, Arc::new(FsGate), Some(true));
+    entry.mux.set_acpmux_socket(Some(fake.socket.clone()));
+    entry.mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
+    let (mut stream, mut reader) = connect_as_link(&entry);
+    send(&mut stream, &native_stamp(Some(VmKind::Owner)));
+    let workspace = ok(&mut stream, &mut reader, json!({"cmd":"create-workspace", "name":"ssh"}));
+    let terminal = ok(
+        &mut stream,
+        &mut reader,
+        json!({"cmd":"create-terminal", "workspace":workspace["workspace"], "cols":80, "rows":24}),
+    );
+    let tab = call(&mut stream, &mut reader, json!({"cmd":"new-tab", "pane":terminal["pane"]}));
+    assert_ne!(tab["error_code"], json!(REMOTE_DENIED), "{tab}");
+    assert_eq!(tab["ok"], json!(true), "{tab}");
+    let listed = call(&mut stream, &mut reader, json!({"cmd":"list-terminals"}));
+    assert_ne!(listed["error_code"], json!(REMOTE_DENIED), "{listed}");
+}
+
+/// The app's commands that the Native owner carrier does not take: each one is a decision, not an
+/// omission. A command the app adds must land in `native_owner::COMMANDS` or here, else
+/// `every_app_command_is_decided_for_the_owner_link` fails (2026-11-05: new-tab and
+/// set-default-colors were simply missing, and `cmux cloud ssh` met remote_denied).
+const NOT_OVER_NATIVE_OWNER: &[&str] = &[
+    "ack-tab-notifications",
+    "add-screens-to-screen-group",
+    "add-tabs-to-tab-group",
+    "agent-cli-update-job",
+    "agent-session-share-create",
+    "agent-session-share-invite",
+    "agent-session-share-kick",
+    "agent-session-share-list",
+    "agent-session-share-revoke",
+    "agent-session-share-room",
+    "agent-session-share-uninvite",
+    "apps-agent-inventory-changed",
+    "apps-dispatch",
+    "apps-link-changed",
+    "apps-list",
+    "apps-logs",
+    "apps-mount",
+    "apps-provider-register",
+    "apps-provider-result",
+    "apps-run",
+    "apps-set",
+    "apps-store",
+    "apps-team-event",
+    "apps-terminal-links",
+    "apps-unmount",
+    "browser-host-provider",
+    "client-hello",
+    "close-screen",
+    "close-screen-group",
+    "close-tab-group",
+    "close-workspace",
+    "create-bookmark",
+    "create-browser-profile",
+    "create-personal-group",
+    "create-profile",
+    "create-screen-group",
+    "create-tab-group",
+    "delete-bookmark",
+    "delete-browser-profile",
+    "delete-personal-group",
+    "delete-profile",
+    "delete-saved-screen-group",
+    "delete-saved-tab-group",
+    "delete-terminal-commands",
+    "feed-local-handoff-abort",
+    "feed-local-handoff-begin",
+    "feed-local-handoff-done",
+    "feed-local-list",
+    "forget-session",
+    "get-blob",
+    "get-frontend-browser-history",
+    "get-frontend-projection",
+    "import-bookmarks",
+    "import-session-organization",
+    "list-agents",
+    "list-bookmarks",
+    "list-notifications",
+    "list-personal",
+    "list-saved-screen-groups",
+    "list-saved-tab-groups",
+    "list-tab-groups",
+    "list-terminal-commands",
+    "machine-catalog-publish",
+    "machine-listening-tcp",
+    "mobile-chat-history",
+    "mobile-chat-send",
+    "mobile-chat-sessions",
+    "move-bookmark",
+    "move-browser-profile",
+    "move-column",
+    "move-personal-group",
+    "move-profile",
+    "move-screen",
+    "move-screen-group",
+    "move-tab-group",
+    "move-tab-group-to-column",
+    "move-tab-group-to-new-workspace",
+    "move-tab-group-to-split",
+    "move-tab-to-column",
+    "move-tab-to-new-workspace",
+    "move-tab-to-split",
+    "move-tab-to-workspace",
+    "move-workspace",
+    "new-frontend-browser-tab",
+    "new-remote-terminal-tab",
+    "new-screen",
+    "notify",
+    "page-credential",
+    "pairing-response",
+    "park-tabs",
+    "pin-workspace",
+    "process-info",
+    "put-blob",
+    "put-frontend-projection",
+    "put-session",
+    "remote-host-app",
+    "remote-host-call",
+    "remote-host-config",
+    "remote-host-status",
+    "remote-terminal-snapshot",
+    "remove-screens-from-screen-group",
+    "remove-tabs-from-tab-group",
+    "rename-screen",
+    "reopen-saved-screen-group",
+    "reopen-saved-tab-group",
+    "report-agent",
+    "save-screen-group",
+    "save-tab-group",
+    "set-column-dock",
+    "set-frontend-browser-history",
+    "set-personal-workspace",
+    "set-profile-follows",
+    "set-screen-metadata",
+    "set-screen-pinned",
+    "set-session-icon",
+    "set-terminal-command-history",
+    "set-terminal-keep",
+    "set-workspace-metadata",
+    "shutdown-daemon",
+    "terminal-resources",
+    "terminal-resume-command",
+    "ungroup-screen-group",
+    "ungroup-tab-group",
+    "unpin-workspace",
+    "unsave-screen-group",
+    "unsave-tab-group",
+    "update-bookmark",
+    "update-browser-profile",
+    "update-frontend-browser-tab",
+    "update-personal-group",
+    "update-profile",
+    "update-remote-terminal-tab",
+    "update-screen-group",
+    "update-tab-group",
+    "wait-for",
+    "ws-listen",
+];
+
+/// Contract: every command the app's daemon client declares (`static let command = "..."` under
+/// CmuxNextDaemon/Requests) is either taken by the owner carrier or listed above.
+#[test]
+fn every_app_command_is_decided_for_the_owner_link() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests");
+    if !root.is_dir() {
+        eprintln!("skipped: {} is not in this checkout", root.display());
+        return;
+    }
+    let mut stack = vec![root];
+    let mut undecided = Vec::new();
+    let mut seen = 0;
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).unwrap().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            if path.extension().is_none_or(|ext| ext != "swift") {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).unwrap();
+            for line in text.lines() {
+                let Some((_, rest)) = line.split_once("static let command = \"") else { continue };
+                let Some((command, _)) = rest.split_once('"') else { continue };
+                seen += 1;
+                let decided = native_owner::commands().contains(&command)
+                    || NOT_OVER_NATIVE_OWNER.contains(&command)
+                    || command.starts_with("fs.");
+                if !decided {
+                    undecided.push(format!("{command} ({})", path.display()));
+                }
+            }
+        }
+    }
+    assert!(seen > 100, "read only {seen} app commands");
+    assert!(undecided.is_empty(), "decide each for the owner link: {undecided:?}");
+}
