@@ -34,7 +34,7 @@ CROSS_RUN = {
     "publish-nightly-next-github": ("Download nightly variant artifacts", "Download verified DMG digests",
                                     "Download SSH daemon assets for publication", "Download the published feed",
                                     "Download the cmux-next source archive"),
-    "generate-nightly-deltas": ("Download nightly variant",),
+    "generate-nightly-deltas": ("Download published variant",),
 }
 
 failures: list[str] = []
