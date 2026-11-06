@@ -2,9 +2,9 @@
 """Execute nightly runner selectors for pooled native work and Linux control work.
 
 Nightlies never run on Blacksmith (Lawrence, 2026-10-30). Every nightly.yml route ends on our own runners:
-a job holding a signing or publication secret on GitHub-hosted Ubuntu (the ephemeral runner the signing-secret
-rules allow), the light placed controls and decide on hosted Ubuntu, the early native jobs on the owned nightly
-slot, build-nightly-app and every other job on the nightly-only Mac pool.
+a job holding a signing or publication secret on the trusted signing runner (the whole Mac, glaeda's exclusive
+class), the early native jobs on the owned nightly slot, build-nightly-app and every other job on the nightly-only
+Mac pool. None takes GitHub-hosted Ubuntu.
 """
 import json
 import os
@@ -45,12 +45,6 @@ NIGHTLY_SLOT = 'glaeda-nightly-std-xcode-26.6'
 SIGNING_SLOT = 'glaeda-trusted-next-signing'
 HOSTED = 'ubuntu-24.04'
 OUR_LABELS = {NIGHTLY_ONLY, NIGHTLY_SLOT, SIGNING_SLOT, HOSTED}
-# Secret jobs that stay on GitHub-hosted Ubuntu until glaeda gives them the whole mini (its SIGNING_JOBS; the
-# glaeda signing-jobs patch), never Blacksmith. Every other nightly job runs on our own minis
-# (test_nightly_owned_minis_only.py).
-HOSTED_SECRET_JOBS = ('promote-nightly-next-acked', 'keep-published-dsyms', 'sentry-dsyms-nightly',
-                      'sign-release-notes', 'publish-release-notes', 'publish-nightly-reel',
-                      'republish-nightly-deltas')
 
 DEFAULT_POOL_MEMBERS = {
     'linux_2': 'blacksmith-2vcpu-ubuntu-2404',
@@ -427,7 +421,7 @@ class NightlyTrustedRouting(unittest.TestCase):
         # Nightlies never use Blacksmith (Lawrence, 2026-10-30). Every job whose route can name Ubuntu (a
         # Linux control, or a fork's fallback) resolves, with no placement or pick, to GitHub-hosted Ubuntu,
         # the owned nightly slot or the nightly-only Mac pool, whatever LINUX_RUNNER or RUNNER_POOLS hold.
-        # Only a secret job glaeda does not give the whole mini yet takes hosted Ubuntu.
+        # None takes hosted Ubuntu (Lawrence, 2026-11-04: never a GitHub-hosted runner).
         checked = 0
         for name, job in DOC['jobs'].items():
             runs_on = job.get('runs-on', '')
@@ -448,7 +442,7 @@ class NightlyTrustedRouting(unittest.TestCase):
                                    'needs.decide.outputs.track': 'nightly-next',
                                    'vars.CI_CLOUD_OVERFLOW_SAVED': '{"probe":"x"}',
                                    'needs.prepare-nightly-variant-primary.result': primary}
-                        allowed = {HOSTED} if name in HOSTED_SECRET_JOBS else OUR_LABELS - {HOSTED}
+                        allowed = OUR_LABELS - {HOSTED}
                         with self.subTest(job=name, runner=runner, attempt=attempt, primary=primary):
                             self.assertIn(evaluate(parse_expression(source), context), allowed)
         self.assertGreater(checked, 20)

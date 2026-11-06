@@ -8,19 +8,22 @@ and the release-signer pool (signer-build, signer-app, signer-dmg-image, signer-
 legacy-identity copies) on Linux.
 
 1. Each job's runs-on, evaluated for manaflow-ai over sampled attempts, refs, events and picker
-   outputs, names a glaeda label (or a variable that holds one). PENDING_GLAEDA lists the jobs that
-   hold a release secret and that glaeda's exclusive class does not admit yet
-   (teamleaderleo/glaeda scripts/glaeda-cmux-runner-hook SIGNING_JOBS): until glaeda gives them the
-   whole mini they stay on hosted Ubuntu, and this list may only shrink.
+   outputs, names a glaeda label (or a variable that holds one), with no exemption: a GitHub-hosted
+   label is refused for every job. Lawrence, 2026-11-04: "The whole nightly (build, sign, notarize,
+   verify and publish, for cmux-next on nightly-next and classic on main) runs on the single nightly
+   mini ... Never move a nightly job to Blacksmith, a GitHub-hosted runner or another mini". Runs
+   42149108998 and 42145338313 still ran the short secret jobs below on GitHub-hosted Ubuntu until
+   glaeda's SIGNING_JOBS took them (glaeda #1862).
 2. The Linux release-signer pool is gone: the jobs, the sign_pool input and the
    CI_NIGHTLY_NEXT_SIGN_POOL switch. The Mac signers sign every nightly.
 3. The fleet-Linux early admission is gone from decide: no step starts or reads it.
-4. The secret-holding jobs glaeda already admits as exclusive hold the whole mini as the Mac
-   signing jobs do: the claim gate first, the claim before any secret, a clean workdir, and an
-   always() step that wipes this job's credentials and files.
+4. The secret-holding jobs glaeda admits as exclusive (its SIGNING_JOBS) hold the whole mini as the Mac
+   signing jobs do: the trusted signing runner's label, the claim gate first, the claim before any
+   secret, a clean workdir, and an always() step that wipes this job's credentials and files.
 5. The notarization recovery takes an owned pick of its own (signing_runner.py owned, held to its
    attempt), not the side lane.
-6. ensure-gh.sh and reel-install-ffmpeg.sh work on a Mac (Homebrew), with no apt-get or sudo.
+6. ensure-gh.sh, reel-install-ffmpeg.sh and the OpenSSL 3 step work on a Mac (Homebrew), with no apt-get
+   or sudo: macOS's own openssl is LibreSSL, whose pkeyutl has no -rawin for release-notes.py's Ed25519.
 """
 
 from __future__ import annotations
@@ -48,14 +51,17 @@ import yaml  # noqa: E402
 WORKFLOW_TEXT = (ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8")
 RAW = yaml.safe_load(WORKFLOW_TEXT)
 
-# Secret jobs glaeda does not admit as exclusive yet (signing-jobs.patch adds them); they keep hosted Ubuntu.
-PENDING_GLAEDA = {
-    "promote-nightly-next-acked", "keep-published-dsyms", "sentry-dsyms-nightly", "sign-release-notes",
-    "publish-release-notes", "publish-nightly-reel", "publish-nightly-identity-legacy", "republish-nightly-deltas",
-    "legacy-identity-target",
-}
-# Secret jobs glaeda's SIGNING_JOBS already gives the whole mini, that hold no signing keychain.
-EXCLUSIVE_PUBLISHERS = ("promote-nightly-next", "publish-nightly", "publish-nightly-next-github")
+# Secret jobs glaeda's SIGNING_JOBS gives the whole mini, that hold no signing keychain. The ones after the first
+# three ran on GitHub-hosted Ubuntu until glaeda #1862 admitted them on the trusted signing runner.
+EXCLUSIVE_PUBLISHERS = ("promote-nightly-next", "publish-nightly", "publish-nightly-next-github",
+                        "keep-published-dsyms", "sign-release-notes", "publish-release-notes", "publish-nightly-reel",
+                        "republish-nightly-deltas", "promote-nightly-next-acked", "sentry-dsyms-nightly")
+# Of those, the two that need no sign pick (sentry-dsyms-nightly runs beside the signing, promote-nightly-next-acked
+# is retired): the signer's label alone.
+SIGNER_LABEL_ONLY = ("promote-nightly-next-acked", "sentry-dsyms-nightly")
+SIGNER = "glaeda-trusted-next-signing"
+# The jobs that verify or sign content with release-notes.py, which needs OpenSSL 3 on a Mac.
+CONTENT_KEY_JOBS = ("sign-release-notes", "publish-nightly-reel")
 SIGNER_POOL = ("launch-smoke-nightly", "signer-build", "signer-app", "signer-dmg-image", "signer-dmg",
                "legacy-signer-app", "legacy-signer-dmg-image", "legacy-signer-dmg",
                "verify-nightly-identity-legacy-pool")
@@ -84,7 +90,7 @@ class EveryJobOnOurMinis(unittest.TestCase):
         rng = random.Random(41751864551)
         failures = {}
         for name, job in JOBS.items():
-            if name in PENDING_GLAEDA or job.get("uses"):
+            if job.get("uses"):
                 continue
             runs_on = str(job.get("runs-on", ""))
             if runs_on == "${{ needs.route-visual-gate-nightly.outputs.runs_on }}":
@@ -109,12 +115,11 @@ class EveryJobOnOurMinis(unittest.TestCase):
                     break
         self.assertEqual(sorted(failures), [], "\n".join(f"{k}: {v}" for k, v in sorted(failures.items())))
 
-    def test_pending_glaeda_jobs_are_only_those_that_still_need_it(self) -> None:
-        hosted = {name for name in JOBS if NOT_OURS.search(manaflow_route(name))}
-        self.assertLessEqual(hosted, PENDING_GLAEDA, "only the jobs glaeda does not admit yet may stay hosted")
-        for name in PENDING_GLAEDA & set(JOBS):
-            with self.subTest(job=name):
-                self.assertIn("secrets.", json.dumps(JOBS[name]), "a pending job without a secret moves to the minis now")
+    def test_no_job_names_a_hosted_label_for_manaflow(self) -> None:
+        # Any path of the expression, sampled or not: no hosted, Blacksmith or fleet Linux label past the fork route.
+        hosted = {name: manaflow_route(name) for name in JOBS
+                  if not JOBS[name].get("uses") and NOT_OURS.search(manaflow_route(name))}
+        self.assertEqual(hosted, {}, "a nightly job may not reach a GitHub-hosted runner")
 
 
 class NoLinuxSignerPool(unittest.TestCase):
@@ -163,9 +168,13 @@ class PublishersHoldTheWholeMini(unittest.TestCase):
         for name in EXCLUSIVE_PUBLISHERS:
             with self.subTest(job=name):
                 route = manaflow_route(name)
+                if name in SIGNER_LABEL_ONLY:
+                    self.assertEqual(route, f"${{{{  '{SIGNER}' }}}}")
+                    continue
                 if name != "promote-nightly-next":
                     self.assertIn("needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && "
                                   "needs.pick-nightly-sign-runner.outputs.sign_owned_pool", route)
+                    self.assertIn(f"vars.CI_NIGHTLY_MINI != '' && '{SIGNER}'", route)
                 self.assertNotRegex(route, NOT_OURS)
                 self.assertNotIn("CI_NIGHTLY_ONLY_RUNNER", route)
                 self.assertNotIn("glaeda-nightly-only-m4pro", route)
@@ -259,50 +268,123 @@ def stub(directory: Path, name: str, body: str) -> None:
     path.chmod(path.stat().st_mode | stat.S_IEXEC)
 
 
+def run_on_a_mac(script: str, present: tuple[str, ...], kegs: tuple[str, ...] = (),
+                 system: str = "Darwin", inline: bool = False) -> tuple[subprocess.CompletedProcess, str, str]:
+    """Run `script` (a path, or with inline=True a step's run body) on a stubbed Mac. `kegs` are the tools
+    Homebrew has under its prefix but off PATH. Returns the result, the brew/apt calls and GITHUB_PATH."""
+    with tempfile.TemporaryDirectory() as temp:
+        bin_dir, log, github_path = Path(temp) / "bin", Path(temp) / "calls.log", Path(temp) / "github_path"
+        prefix = Path(temp) / "homebrew"
+        bin_dir.mkdir()
+        (prefix / "bin").mkdir(parents=True)
+        (prefix / "opt/openssl@3/bin").mkdir(parents=True)
+        for tool in ("bash", "cat", "chmod", "dirname", "mkdir", "grep", "tr", "head"):
+            real = subprocess.run(["/usr/bin/which", tool], capture_output=True, text=True).stdout.strip()
+            if real:
+                os.symlink(real, bin_dir / tool)
+        stub(bin_dir, "uname", f'echo {system}')
+        for tool in ("sudo", "apt-get", "dpkg"):
+            stub(bin_dir, tool, f'echo "{tool} $*" >> "{log}"; exit 1')
+        # brew install puts a formula's tools under the prefix (openssl@3 in its keg), as Homebrew does when
+        # its bin is not on the runner's PATH; brew --prefix [formula] prints where.
+        stub(bin_dir, "brew", f'echo "brew $*" >> "{log}"\n'
+                              f'if [ "$1" = --prefix ]; then [ -n "${{2:-}}" ] && echo "{prefix}/opt/$2" || echo "{prefix}"; exit 0; fi\n'
+                              f'if [ "$1" = install ]; then shift; for t in "$@"; do '
+                              f'd="{prefix}/bin"; [ "$t" = fontconfig ] && t=fc-match; '
+                              f'[ "$t" = openssl@3 ] && d="{prefix}/opt/openssl@3/bin" && t=openssl; '
+                              f'printf "#!/bin/bash\\n" > "$d/$t"; chmod +x "$d/$t"; done; fi')
+        for tool in present:
+            stub(bin_dir, tool, "exit 0")
+        for tool in kegs:
+            stub(prefix / ("opt/openssl@3/bin" if tool == "openssl" else "bin"), tool, "exit 0")
+        argv = ["/bin/bash", "-e", "-c", script] if inline else ["/bin/bash", str(ROOT / script)]
+        result = subprocess.run(argv, capture_output=True, text=True,
+                                env={"PATH": str(bin_dir), "HOME": temp, "HOMEBREW_PREFIX": str(prefix),
+                                     "GITHUB_PATH": str(github_path)})
+        calls = log.read_text() if log.exists() else ""
+        added = github_path.read_text().replace(str(prefix), "$HOMEBREW_PREFIX") if github_path.exists() else ""
+        return result, calls, added
+
+
 class ToolInstallersWorkOnAMac(unittest.TestCase):
-    def run_script(self, script: str, present: tuple[str, ...]) -> tuple[subprocess.CompletedProcess, str]:
-        with tempfile.TemporaryDirectory() as temp:
-            bin_dir, log = Path(temp) / "bin", Path(temp) / "calls.log"
-            bin_dir.mkdir()
-            for tool in ("bash", "cat", "chmod", "dirname", "mkdir", "grep", "tr", "head"):
-                real = subprocess.run(["/usr/bin/which", tool], capture_output=True, text=True).stdout.strip()
-                if real:
-                    os.symlink(real, bin_dir / tool)
-            stub(bin_dir, "uname", 'echo Darwin')
-            for tool in ("sudo", "apt-get", "dpkg"):
-                stub(bin_dir, tool, f'echo "{tool} $*" >> "{log}"; exit 1')
-            stub(bin_dir, "brew", f'echo "brew $*" >> "{log}"\n'
-                                  f'if [ "$1" = install ]; then shift; for t in "$@"; do '
-                                  f'[ "$t" = fontconfig ] && t=fc-match; '
-                                  f'printf "#!/bin/bash\\n" > "{bin_dir}/$t"; chmod +x "{bin_dir}/$t"; done; fi')
-            for tool in present:
-                stub(bin_dir, tool, "exit 0")
-            result = subprocess.run(["/bin/bash", str(ROOT / script)], capture_output=True, text=True,
-                                    env={"PATH": str(bin_dir), "HOME": temp})
-            return result, log.read_text() if log.exists() else ""
+    def run_script(self, script: str, present: tuple[str, ...], **kwargs) -> tuple[subprocess.CompletedProcess, str, str]:
+        return run_on_a_mac(script, present, **kwargs)
 
     def test_ensure_gh_installs_with_brew(self) -> None:
-        result, calls = self.run_script("scripts/ci/nightly-steps/ensure-gh.sh", ())
+        result, calls, _ = self.run_script("scripts/ci/nightly-steps/ensure-gh.sh", ())
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("brew install gh", calls)
         self.assertNotRegex(calls, r"sudo|apt-get")
 
     def test_ensure_gh_keeps_an_installed_gh(self) -> None:
-        result, calls = self.run_script("scripts/ci/nightly-steps/ensure-gh.sh", ("gh",))
+        result, calls, _ = self.run_script("scripts/ci/nightly-steps/ensure-gh.sh", ("gh",))
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(calls, "")
 
+    REEL = "scripts/ci/nightly-steps/reel-install-ffmpeg.sh"
+
     def test_reel_ffmpeg_installs_with_brew(self) -> None:
-        result, calls = self.run_script("scripts/ci/nightly-steps/reel-install-ffmpeg.sh", ())
+        result, calls, added = self.run_script(self.REEL, ())
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("brew install", calls)
         self.assertIn("ffmpeg", calls)
         self.assertNotRegex(calls, r"sudo|apt-get")
+        # The reel step runs ffmpeg and fc-match by name: Homebrew's bin joins PATH for the steps after.
+        self.assertEqual(added, "$HOMEBREW_PREFIX/bin\n")
 
     def test_reel_ffmpeg_keeps_installed_tools(self) -> None:
-        result, calls = self.run_script("scripts/ci/nightly-steps/reel-install-ffmpeg.sh", ("ffmpeg", "fc-match"))
+        result, calls, added = self.run_script(self.REEL, ("ffmpeg", "fc-match"))
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(calls, "")
+        self.assertEqual((calls, added), ("", ""))
+
+    def test_reel_ffmpeg_off_path_in_homebrew_is_used_not_reinstalled(self) -> None:
+        # The nightly mini's Homebrew already has them; a runner whose PATH lacks /opt/homebrew/bin installs nothing.
+        result, calls, added = self.run_script(self.REEL, (), kegs=("ffmpeg", "fc-match"))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("install", calls)
+        self.assertEqual(added, "$HOMEBREW_PREFIX/bin\n")
+
+
+class ContentKeyJobsUseOpenSsl3OnAMac(unittest.TestCase):
+    """release-notes.py signs and verifies Ed25519 with `openssl pkeyutl -rawin`, which macOS's LibreSSL lacks."""
+
+    def openssl_step(self, name: str) -> dict:
+        found = [step for step in steps(name) if step.get("id") == "openssl3"]
+        self.assertEqual(len(found), 1, f"{name} has no OpenSSL 3 step (id openssl3)")
+        return found[0]
+
+    def test_the_step_comes_before_any_release_notes_call(self) -> None:
+        for name in CONTENT_KEY_JOBS:
+            with self.subTest(job=name):
+                step = self.openssl_step(name)
+                job_steps = steps(name)
+                index = job_steps.index(step)
+                first = next(i for i, s in enumerate(job_steps)
+                             if re.search(r"release-notes|reel\.py", json.dumps(s)) and s is not step)
+                self.assertLess(index, first)
+                self.assertNotIn("secrets.", json.dumps(step))
+                self.assertGreaterEqual(int(step.get("timeout-minutes", 0)), 1)
+
+    def run_step(self, **kwargs) -> tuple[subprocess.CompletedProcess, str, str]:
+        body = str(self.openssl_step("sign-release-notes")["run"])
+        return run_on_a_mac(body, (), inline=True, **kwargs)
+
+    def test_a_mac_puts_homebrews_openssl3_first(self) -> None:
+        result, calls, added = self.run_step(kegs=("openssl",))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("install", calls)
+        self.assertEqual(added, "$HOMEBREW_PREFIX/opt/openssl@3/bin\n")
+
+    def test_a_mac_without_it_installs_it(self) -> None:
+        result, calls, added = self.run_step()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("brew install openssl@3", calls)
+        self.assertEqual(added, "$HOMEBREW_PREFIX/opt/openssl@3/bin\n")
+
+    def test_linux_keeps_its_openssl(self) -> None:
+        result, calls, added = self.run_step(system="Linux")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((calls, added), ("", ""))
 
 
 if __name__ == "__main__":

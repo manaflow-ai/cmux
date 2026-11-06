@@ -1085,34 +1085,12 @@ check_no_github_hosted_runners() {
   local hosted='(^|[^A-Za-z0-9_-])(ubuntu-(latest|slim|[0-9]{2}[.][0-9]{2}(-arm)?)|macos-(latest|[0-9]+(-intel|-large|-xlarge|-arm64)?)|windows-(latest|[0-9]{4}(-arm)?|11-arm))([^A-Za-z0-9_.-]|$)'
   local fork_branch="github[.]repository_owner != 'manaflow-ai' [&][&] ('[A-Za-z0-9._-]+'|matrix[.]hosted_runner)"
   local trusted_list='fromJSON[(]'"'"'[[]"ubuntu-24[.]04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"[]]'"'"'[)], vars[.]CI_TRUSTED_RUNNER'
-  # The signer route's exact runs-on line (its exception below): GitHub-hosted Ubuntu on every attempt.
-  # Nightlies never run on Blacksmith (Lawrence, 2026-10-30), so a re-run or a slow hosted start
-  # (run 41684606067's signer-app queued 9.3 min) waits for hosted Ubuntu instead of moving to Blacksmith.
-  # The nightly's secret-holding Linux jobs (signer-*, legacy-*, publish-*, promote-*, release notes,
-  # dSYMs, deltas, publish-nightly-reel, await-release-surface-ack), its sign pick and decide share this line.
-  local signer_route
-  signer_route=$(cat <<'SIGNER_ROUTE'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}
-SIGNER_ROUTE
-)
-  # publish-nightly carries the same route under its YAML anchor (later publication jobs alias it).
-  local publish_route
-  publish_route=$(cat <<'PUBLISH_ROUTE'
-    runs-on: &pub-runner ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}
-PUBLISH_ROUTE
-)
   # The pick holds no signing material, so its re-run reads the declared Linux 4 vCPU pool
   # (cmux-next-dev-daily.yml; not a nightly).
   local signer_pick_route
   signer_pick_route=$(cat <<'SIGNER_PICK_ROUTE'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && fromJSON(vars.RUNNER_POOLS).linux_4 || 'ubuntu-24.04' }}
 SIGNER_PICK_ROUTE
-)
-  # signer-build takes the nightly's early fleet placement (#29864) first, then hosted Ubuntu.
-  local signer_build_route
-  signer_build_route=$(cat <<'SIGNER_BUILD_ROUTE'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && contains(needs.decide.outputs.early_linux_jobs, ' signer-build ') && needs.decide.outputs.early_linux_runner || 'ubuntu-24.04' }}
-SIGNER_BUILD_ROUTE
 )
   # "<workflow>:<line content>" -> why it stays GitHub-hosted. Exact lines only.
   # This is the whole allowlist: every other Linux job takes a Blacksmith label
@@ -1138,22 +1116,10 @@ SIGNER_BUILD_ROUTE
     # pull_request_target write token on fork pull requests (trust policy).
     "cla.yml:    runs-on: ubuntu-24.04 # github-hosted-required: write token on fork pull requests"
     "cla-policy-guard.yml:    runs-on: ubuntu-24.04"
-    # The signer jobs and their picks, a measured exception: notarization-bound, not CPU-bound (HQ
-    # build-fleet summary, W44 p50 on Blacksmith 32 vCPU: signer-app 240 s, signer-dmg 199 s, signer-build
-    # 7 s, the pick 11 s; 74 picks already ran hosted, p50 9 s). Hosted Ubuntu is trusted like Blacksmith and
-    # free on this public repository; a pool signer GitHub drops unstarted hands the nightly to the macOS
-    # signer. Leo, 2026-11-01: "surely we measured the signign we dont need 32/16 just for signing", then
-    # "surely github has linux hosted we can just use". Nightlies never use Blacksmith (Lawrence,
-    # 2026-10-30), so the nightly's other secret-holding Linux jobs (publication, promotion, release notes,
-    # dSYMs incl. sentry-dsyms-nightly, deltas) take this ephemeral route too: the signing-secret rules
-    # (tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py rule 7) keep them off reused minis.
-    "nightly.yml:$signer_route"
-    "nightly.yml:$publish_route"
-    "nightly.yml:$signer_build_route"
+    # No nightly.yml job is GitHub-hosted (Lawrence, 2026-11-04: "Never move a nightly job to Blacksmith, a
+    # GitHub-hosted runner or another mini"): its secret-holding jobs take the trusted signing runner with
+    # the whole-Mac claim (tests/test_nightly_owned_minis_only.py), so nightly.yml has no exception here.
     "cmux-next-dev-daily.yml:$signer_pick_route"
-    # The visual gate's runner pick holds secrets and has no claim gate: the reserved nightly-only mini on a
-    # nightly-next first attempt (the guarded bootstrap selector), else hosted Ubuntu, never Blacksmith.
-    "nightly.yml:    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || 'ubuntu-24.04' }}"
     # Called only by nightly.yml (a nightly job, never Blacksmith); it holds contents: write and OIDC.
     "nightly-tag-permission-probe.yml:    runs-on: ubuntu-24.04"
     # Dispatch-only Intel compatibility leg; Blacksmith has no Intel macOS image.

@@ -82,6 +82,11 @@ SIGNING_JOBS = {
     ("nightly.yml", "build-sign-notarize-nightly"), ("nightly.yml", "recover-nightly-next-notarization"),
     ("nightly.yml", "generate-nightly-deltas"),
     ("nightly.yml", "publish-nightly"), ("nightly.yml", "publish-nightly-next-github"),
+    # glaeda #1862: the short secret jobs that ran on GitHub-hosted Ubuntu until then.
+    ("nightly.yml", "promote-nightly-next-acked"), ("nightly.yml", "keep-published-dsyms"),
+    ("nightly.yml", "sentry-dsyms-nightly"), ("nightly.yml", "sign-release-notes"),
+    ("nightly.yml", "publish-release-notes"), ("nightly.yml", "publish-nightly-reel"),
+    ("nightly.yml", "republish-nightly-deltas"),
     ("release.yml", "build-sign-notarize"), ("repair-v0-64-25-helper-rpaths.yml", "repair"),
     ("cmux-next-dev-daily.yml", "sign"),
 }
