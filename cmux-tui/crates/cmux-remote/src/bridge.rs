@@ -207,6 +207,37 @@ pub async fn serve_mux_bridge(
     connections.shutdown().await;
 }
 
+/// Carry one local `cmux.protocol/2` line stream (`reader`, `writer`) over a
+/// new mux control stream: the same bytes the Mac's bridge socket carries,
+/// for a caller that has the stream on its own pipes (`cmux carrier dial`).
+/// Returns when either side ends.
+pub async fn bridge_mux_control<R, W>(
+    multiplexer: &Arc<ServiceMultiplexer>,
+    reader: R,
+    writer: W,
+) -> Result<(), BridgeError>
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    let stream = multiplexer.open(Service::MuxControl, BTreeMap::new()).await?;
+    let opened = match await_opened(&stream).await {
+        Ok(opened) => opened,
+        Err(error) => {
+            let _ = stream.close().await;
+            return Err(error);
+        }
+    };
+    pump_mux_client_buffered(
+        Arc::new(stream),
+        reader,
+        writer,
+        opened.features.mux_input_v1,
+        opened.buffered,
+    )
+    .await
+}
+
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct ServiceOpenFeatures {
     pub(crate) mux_input_v1: bool,

@@ -22,6 +22,8 @@ mod app_identity;
 mod browser_input;
 #[cfg(unix)]
 mod build_adopt;
+#[cfg(unix)]
+mod carrier;
 mod classic_hooks;
 #[cfg(unix)]
 mod claude_wrapper;
