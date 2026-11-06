@@ -56,11 +56,9 @@ struct WorkspaceSpawner {
         let key = spawn.key ?? use?.key ?? WorkspaceKey.generate(), daemon = daemon, services = windows.services, machine = MachineID(daemon.machineID)
         if let windowID { windows.claimNew(workspaceID: key.rawValue, window: windowID, frame: frame) }
         guard daemon.connection != nil else { return { [windows] in throw windows.createFailed(key.rawValue, DaemonError.notConnected) } }
-        var row = spawn.slot == nil ? NewWorkspacePlacements.rule(for: windowID, in: windows) : nil
-        if !spawn.placesFromCurrent || !spawn.placesBySetting, row?.placement != .afterCurrent { row?.current = nil }
-        let rule = spawn.placesBySetting ? row : nil
+        let (row, rule) = spawn.placement(byDefault: spawn.slot == nil ? NewWorkspacePlacements.rule(for: windowID, in: windows) : nil)
         // Only a create with a row names itself here; another keeps the daemon's own numbering.
-        let name = spawn.name ?? windowID.map { _ in
+        let name = spawn.rowName(inWindow: windowID != nil) {
             SidebarMapping.nextWorkspaceName(in: daemon.store, reserved: PendingWorkspaceRows.shared.reservedNames(on: machine) { services.workspace(id: $0) != nil })
         }
         let named = renamed(name)
@@ -96,8 +94,7 @@ struct WorkspaceSpawner {
     private func shown(_ key: WorkspaceKey, name: String, window windowID: String,
                        rule: NewWorkspaceDefaultSlot?) -> (() async throws -> String)? {
         let services = windows.services, daemon = daemon
-        guard spawn.opensNewTabPage || spawn.firstChat != nil || spawn.firstSession != nil, spawn.command == nil,
-              spawn.browserProfile == nil, spawn.cwd == nil || daemon.isLocal else { return nil }
+        guard spawn.showsBeforeDaemon(local: daemon.isLocal) else { return nil }
         let repair: EmptyWorkspaceRepair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
         let room = services.machines.local.store.profile(spawn.profile ?? profile)
         let cwd = spawn.startFolder(roomFolder: room?.defaults?.cwd, local: daemon.isLocal, daemonDefault: daemon.defaultCwd)
@@ -119,8 +116,7 @@ struct WorkspaceSpawner {
                 }, settle: { await daemon.settledCheck() }) {
                     // One late-reply budget for the pin, the create and the first tab.
                     let giveUp = DaemonConnection.lateReplyDeadline()
-                    if let room, let session = daemon.store.registryID, let home = services.machines.local.connection {
-                        try await home.pinWorkspaceBeforeCreate(session: session, key: key, to: room.id, until: giveUp)
+                    if try await services.machines.local.connection?.pinWorkspaceBeforeCreate(session: daemon.store.registryID, key: key, to: room?.id, until: giveUp) == true {
                         BenchSpans.mark("cmdN.pinWorkspace.returned")
                     }
                     return try await shown.confirm(giveUp)
@@ -157,30 +153,26 @@ struct WorkspaceSpawner {
         // room's terminal defaults (data-model.md 3.2, 3.3).
         let home = services.machines.local
         let room = home.store.profile(spawn.profile ?? profile)
-        if let room, let session = daemon.store.registryID, let homeConnection = home.connection {
-            try await homeConnection.pinWorkspaceBeforeCreate(session: session, key: key, to: room.id)
+        if try await home.connection?.pinWorkspaceBeforeCreate(session: daemon.store.registryID, key: key, to: room?.id) == true {
             BenchSpans.mark("cmdN.pinWorkspace.returned")
         }
         if let browserProfile = spawn.browserProfile {
             let qualified = BrowserProfileService.QualifiedWorkspace(session: daemon.store.registryID ?? daemon.machineID, key: key.rawValue)
             try services.browserProfiles.setWorkspaceDefault(browserProfile, for: qualified)
         }
-        let defaults = daemon.isLocal ? room?.defaults : nil
         // Local terminals get the app's environment; a Cloud terminal only
         // the caller's keys. Both get the placement keys hooks read.
-        let vars = spawn.terminalEnvironment(app: daemon.isLocal ? await services.environment.terminalEnvironmentProvider()() : [:], room: defaults?.env, workspace: key, terminal: terminal)
-        let env: [String: String]? = daemon.supports(DaemonCapability.terminalEnv.rawValue) ? vars : nil
-        let keep: Bool? = spawn.keep && daemon.supports(DaemonCapability.terminalReap.rawValue) ? true : nil
+        let start = spawn.terminalStart(app: daemon.isLocal ? await services.environment.terminalEnvironmentProvider()() : [:], room: room?.defaults, local: daemon.isLocal, daemonDefault: daemon.defaultCwd,
+                                        workspace: key, terminal: terminal, sendsEnv: daemon.supports(DaemonCapability.terminalEnv.rawValue), reaps: daemon.supports(DaemonCapability.terminalReap.rawValue))
         let repair: EmptyWorkspaceRepair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
-        let cwd = spawn.startFolder(roomFolder: defaults?.cwd, local: daemon.isLocal, daemonDefault: daemon.defaultCwd)
         BenchSpans.mark("cmdN.create.sending")
-        if let page = try await FirstTabHold.creating(key.rawValue, windows: windows, { try await WorkspaceCreation.newTabPage(spawn, key, cwd: cwd, on: daemon, repair: repair, tabs: services.agentTabs) }) { return page }
+        if let page = try await FirstTabHold.creating(key.rawValue, windows: windows, { try await WorkspaceCreation.newTabPage(spawn, key, cwd: start.cwd, on: daemon, repair: repair, tabs: services.agentTabs) }) { return page }
         let command = spawn.command, onFirstTerminal = spawn.onFirstTerminal
         return try await WorkspaceCreation.create(key, name: spawn.name, on: connection, repair: repair) { created in
             // Keyed (terminal id, mutation): a late start is waited for, never taken back (P0 2026-10-30).
             let started = try await connection.createTerminalWaitingForStart(CreateTerminalRequest(
-                workspace: .key(created), command: command, cwd: cwd,
-                terminalID: terminal, env: env, keep: keep, mutation: connection.mutation()))
+                workspace: .key(created), command: command, cwd: start.cwd,
+                terminalID: terminal, env: start.env, keep: start.keep, mutation: connection.mutation()))
             try await onFirstTerminal?(connection, started)
             return created.rawValue
         }

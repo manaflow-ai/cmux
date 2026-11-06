@@ -97,9 +97,85 @@ public struct WorkspaceSpawn: Sendable {
         return vars
     }
 
+    /// The name this create's row shows from the press: its own, else (only for a create into a window, which shows a
+    /// row) the daemon's next default name `next()`; nil keeps the daemon's own numbering.
+    public func rowName(inWindow: Bool, next: () -> String) -> String? {
+        name ?? (inWindow ? next() : nil)
+    }
+
+    /// Whether the store can show this create's workspace before the daemon answers (`WorkspaceSpawner.shown`): the New
+    /// Tab page, a chat or a session, with no command and no browser profile, and a folder of its own only on this Mac.
+    public func showsBeforeDaemon(local: Bool) -> Bool {
+        (opensNewTabPage || firstChat != nil || firstSession != nil) && command == nil && browserProfile == nil && (cwd == nil || local)
+    }
+
+    /// The default slot of this create's sidebar row and the rule its daemon places it by, from the window's
+    /// `workspaces.newPlacement` rule `byDefault` (nil for a create with a slot of its own): a create that does not
+    /// place itself from the window's current workspace loses that anchor (except `afterCurrent`), and only a create
+    /// placed by the setting gives the daemon a rule.
+    public func placement(byDefault: NewWorkspaceDefaultSlot?) -> (row: NewWorkspaceDefaultSlot?, rule: NewWorkspaceDefaultSlot?) {
+        let row = byDefault?.anchored(fromCurrent: placesFromCurrent && placesBySetting)
+        return (row, placesBySetting ? row : nil)
+    }
+
+    /// What a new workspace's first terminal starts with (``TerminalStart``). On this Mac (`local`) it gets the app's
+    /// environment `app` and the room's defaults `room`; on another machine only the caller's keys and that machine's
+    /// default folder. The environment goes only to a daemon that takes one (`sendsEnv`), and `keep` only to one that
+    /// reaps terminals (`reaps`).
+    public func terminalStart(app: [String: String], room: ProfileDefaults?, local: Bool, daemonDefault: String?,
+                              workspace: WorkspaceKey, terminal: TerminalID, sendsEnv: Bool, reaps: Bool) -> TerminalStart {
+        let room = local ? room : nil
+        return TerminalStart(env: sendsEnv ? terminalEnvironment(app: app, room: room?.env, workspace: workspace, terminal: terminal) : nil,
+                             keep: keep && reaps ? true : nil, cwd: startFolder(roomFolder: room?.cwd, local: local, daemonDefault: daemonDefault))
+    }
+
     public static func folderName(_ directory: String) -> String? {
         let name = URL(fileURLWithPath: directory).standardizedFileURL.lastPathComponent
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return name.isEmpty || name == "/" ? nil : name
+    }
+}
+
+/// What a new workspace's first terminal starts with (``WorkspaceSpawn/terminalStart(app:room:local:daemonDefault:workspace:terminal:sendsEnv:reaps:)``).
+public struct TerminalStart: Sendable, Equatable {
+    /// Its environment; nil for a daemon that takes none.
+    public var env: [String: String]?
+    /// True keeps it after its program exits; nil leaves the daemon's default.
+    public var keep: Bool?
+    /// The folder it starts in.
+    public var cwd: String?
+
+    public init(env: [String: String]?, keep: Bool?, cwd: String?) {
+        self.env = env
+        self.keep = keep
+        self.cwd = cwd
+    }
+}
+
+/// Whether a window that asks for a workspace of a Cloud machine waits for it (a relaunch: the machine list or its
+/// daemon still loading) instead of replacing the request (`WindowController.showWorkspace`).
+public struct CloudWorkspaceWait: Sendable, Equatable {
+    /// Signed in to Cloud, or the sign-in is still restoring.
+    public var signedIn: Bool
+    /// The account's machine list has loaded.
+    public var machinesLoaded: Bool
+    /// Whether the machine runs (or starts); nil when it has no session.
+    public var machineLive: Bool?
+    /// Its daemon's tree is mirrored.
+    public var mirrored: Bool
+
+    public init(signedIn: Bool, machinesLoaded: Bool, machineLive: Bool?, mirrored: Bool) {
+        self.signedIn = signedIn
+        self.machinesLoaded = machinesLoaded
+        self.machineLive = machineLive
+        self.mirrored = mirrored
+    }
+
+    /// Waits while signed in and the list has not loaded, or while the machine runs and its tree is not mirrored yet.
+    public var waits: Bool {
+        guard signedIn else { return false }
+        guard machinesLoaded else { return true }
+        guard let machineLive else { return false }
+        return machineLive && !mirrored
     }
 }

@@ -284,10 +284,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func isWaiting(for machineID: String) -> Bool {
-        guard services.cloud.isSignedIn || services.cloud.auth.isRestoring else { return false }
-        guard services.cloud.hasLoadedMachines else { return true }
-        guard let session = services.machines.session(machineID) else { return false }
-        return session.machine.status.isLive && !session.daemon.store.isLoaded
+        let cloud = services.cloud, session = services.machines.session(machineID)
+        return CloudWorkspaceWait(signedIn: cloud.isSignedIn || cloud.auth.isRestoring, machinesLoaded: cloud.hasLoadedMachines, machineLive: session?.machine.status.isLive, mirrored: session?.daemon.store.isLoaded == true).waits
     }
 
     private func show(_ workspace: WorkspaceModel, on daemon: DaemonService) {
@@ -458,24 +456,17 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 /// windows (`WindowOverlayLayer`).
 final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionProviding, TitlebarAccessoryHosting, WindowChromeHosting,
     CursorRectHoldHosting, TrafficLightsResting, ContentAreaMotionHosting, WindowZoomFinishing, WindowControlsAvoidanceHosting {
-    /// The traffic lights' last windowed place: their left edge, their top's
-    /// distance from the window's top, and their size (the window may come
-    /// back from full screen at another height).
-    private var windowedLights: (x: CGFloat, fromTop: CGFloat, size: CGSize)?
+    /// The traffic lights' last windowed place (``WindowedTrafficLights``).
+    private var windowedLights = WindowedTrafficLights()
     /// Between `willExitFullScreen` and its end (WindowController+FullScreen).
     var isLeavingFullScreen = false
 
     /// Where the lights come back to while the window leaves full screen.
-    var restingTrafficLights: CGRect? {
-        guard isLeavingFullScreen, let windowedLights else { return nil }
-        return CGRect(x: windowedLights.x, y: frame.height - windowedLights.fromTop - windowedLights.size.height,
-                      width: windowedLights.size.width, height: windowedLights.size.height)
-    }
+    var restingTrafficLights: CGRect? { isLeavingFullScreen ? windowedLights.resting(windowHeight: frame.height) : nil }
 
     /// The root's layout reports the lights it found (window coordinates).
     func noteTrafficLights(_ lights: CGRect) {
-        guard !styleMask.contains(.fullScreen), !isLeavingFullScreen else { return }
-        windowedLights = (lights.minX, frame.height - lights.maxY, lights.size)
+        windowedLights.note(lights, windowHeight: frame.height, windowed: !styleMask.contains(.fullScreen) && !isLeavingFullScreen)
     }
 
     /// A pane policy that may hold cursor-rect invalidations (ShellWindow+Events.swift).

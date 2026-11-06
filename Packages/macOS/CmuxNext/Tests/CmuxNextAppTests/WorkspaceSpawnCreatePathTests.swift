@@ -1,5 +1,6 @@
 import CmuxNextAgentPane
 import CmuxNextAppCore
+import CmuxNextBridge
 import CmuxNextDaemon
 import Foundation
 import Testing
@@ -42,5 +43,67 @@ import Testing
         for (name, value) in DaemonConnection.placementEnvironment(workspace: key, terminal: terminal) { #expect(vars[name] == value) }
         #expect(WorkspaceSpawn().terminalEnvironment(app: [:], room: nil, workspace: key, terminal: terminal)
                 == DaemonConnection.placementEnvironment(workspace: key, terminal: terminal))
+    }
+
+    /// `WorkspaceSpawner.shown`'s guard, moved with the same answers.
+    @Test func whichCreatesShowBeforeTheDaemon() {
+        #expect(WorkspaceSpawn(newTabPage: true).showsBeforeDaemon(local: false))
+        var chat = WorkspaceSpawn(); chat.firstChat = AgentPaneSeed(cwd: nil)
+        #expect(chat.showsBeforeDaemon(local: false))
+        var session = WorkspaceSpawn(); session.firstSession = "s"
+        #expect(session.showsBeforeDaemon(local: true))
+        #expect(!WorkspaceSpawn().showsBeforeDaemon(local: true), "a terminal waits for the daemon")
+        var command = WorkspaceSpawn(newTabPage: true); command.command = "ls"
+        #expect(!command.showsBeforeDaemon(local: true))
+        var profile = WorkspaceSpawn(newTabPage: true); profile.browserProfile = "p"
+        #expect(!profile.showsBeforeDaemon(local: true))
+        let folder = WorkspaceSpawn(cwd: "/x", newTabPage: true)
+        #expect(folder.showsBeforeDaemon(local: true))
+        #expect(!folder.showsBeforeDaemon(local: false), "a folder of its own only on this Mac")
+    }
+
+    /// `WorkspaceSpawner.start`'s row rule, moved with the same answers.
+    @Test func theRowRuleKeepsTheCurrentAnchorOnlyWhenPlacedFromIt() {
+        let top = NewWorkspaceDefaultSlot(placement: .top, current: "w1"), after = NewWorkspaceDefaultSlot(placement: .afterCurrent, current: "w1")
+        let plain = WorkspaceSpawn(newTabPage: true)
+        #expect(plain.placement(byDefault: top).row == top && plain.placement(byDefault: top).rule == top)
+        #expect(plain.placement(byDefault: nil).row == nil && plain.placement(byDefault: nil).rule == nil)
+        var notFromCurrent = plain; notFromCurrent.placesFromCurrent = false
+        #expect(notFromCurrent.placement(byDefault: top).row?.current == nil)
+        #expect(notFromCurrent.placement(byDefault: after).row?.current == "w1", "afterCurrent always places after it")
+        var notBySetting = plain; notBySetting.placesBySetting = false
+        #expect(notBySetting.placement(byDefault: top).row?.current == nil)
+        #expect(notBySetting.placement(byDefault: top).rule == nil, "only a create placed by the setting gives the daemon a rule")
+    }
+
+    /// `WorkspaceSpawner.create`'s first terminal options, moved with the same answers.
+    @Test func theFirstTerminalStartsWithTheRoomOnlyOnThisMac() {
+        var spawn = WorkspaceSpawn(); spawn.keep = true; spawn.inheritedCwd = "/work"
+        let key = WorkspaceKey(rawValue: "00000000-0000-4000-8000-00000000000a"), terminal = TerminalID.generate()
+        let room = ProfileDefaults(cwd: "/room", env: ["R": "room"])
+        let local = spawn.terminalStart(app: ["A": "app"], room: room, local: true, daemonDefault: "/home", workspace: key, terminal: terminal, sendsEnv: true, reaps: true)
+        #expect(local.cwd == "/room" && local.keep == true)
+        #expect(local.env == spawn.terminalEnvironment(app: ["A": "app"], room: ["R": "room"], workspace: key, terminal: terminal))
+        let remote = spawn.terminalStart(app: [:], room: room, local: false, daemonDefault: nil, workspace: key, terminal: terminal, sendsEnv: true, reaps: false)
+        #expect(remote.cwd == nil && remote.keep == nil, "another machine: no room, no inherited folder; keep only where the daemon reaps")
+        #expect(remote.env?["R"] == nil)
+        #expect(spawn.terminalStart(app: [:], room: nil, local: true, daemonDefault: "/home", workspace: key, terminal: terminal, sendsEnv: false, reaps: true).env == nil)
+        #expect(WorkspaceSpawn().terminalStart(app: [:], room: nil, local: true, daemonDefault: "/home", workspace: key, terminal: terminal, sendsEnv: true, reaps: true).keep == nil)
+    }
+
+    @Test func onlyACreateIntoAWindowNamesItsRow() {
+        #expect(WorkspaceSpawn().rowName(inWindow: true) { "3" } == "3")
+        #expect(WorkspaceSpawn().rowName(inWindow: false) { "3" } == nil)
+        #expect(WorkspaceSpawn(name: "mine").rowName(inWindow: false) { "3" } == "mine")
+    }
+
+    /// `WindowController.isWaiting(for:)`, moved with the same answers.
+    @Test func aWindowWaitsForACloudMachineOnlyWhileItLoads() {
+        #expect(!CloudWorkspaceWait(signedIn: false, machinesLoaded: false, machineLive: true, mirrored: false).waits)
+        #expect(CloudWorkspaceWait(signedIn: true, machinesLoaded: false, machineLive: nil, mirrored: false).waits)
+        #expect(!CloudWorkspaceWait(signedIn: true, machinesLoaded: true, machineLive: nil, mirrored: false).waits)
+        #expect(CloudWorkspaceWait(signedIn: true, machinesLoaded: true, machineLive: true, mirrored: false).waits)
+        #expect(!CloudWorkspaceWait(signedIn: true, machinesLoaded: true, machineLive: true, mirrored: true).waits)
+        #expect(!CloudWorkspaceWait(signedIn: true, machinesLoaded: true, machineLive: false, mirrored: false).waits)
     }
 }

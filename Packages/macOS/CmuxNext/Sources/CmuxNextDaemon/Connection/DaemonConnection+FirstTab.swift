@@ -23,9 +23,22 @@ extension DaemonConnection {
         try await Self.retryingLateReplies(NewConversationTabRequest.command, until: giveUp) { try await self.request(request) }
     }
 
-    /// Pins workspace `key` of session `session` to room `room` in this home connection before the workspace's create,
-    /// asking again on a late reply until `giveUp` (nil: the default budget), so no snapshot shows it in another room.
-    public func pinWorkspaceBeforeCreate(session: String, key: WorkspaceKey, to room: ProfileID, until giveUp: ContinuousClock.Instant? = nil) async throws {
-        try await Self.retryingLateReplies(PinWorkspaceRequest.command, until: giveUp) { try await self.pinWorkspace(session: session, key: key, to: room) }
+    /// Pins workspace `key` of session `session` to room `room` in this home connection before the workspace's create
+    /// (``PinWorkspaceRequest/beforeCreate(session:key:room:)``), asking again on a late reply until `giveUp` (nil: the
+    /// default budget), so no snapshot shows it in another room. False when there was nothing to pin.
+    @discardableResult
+    public func pinWorkspaceBeforeCreate(session: String?, key: WorkspaceKey, to room: ProfileID?, until giveUp: ContinuousClock.Instant? = nil) async throws -> Bool {
+        guard let pin = PinWorkspaceRequest.beforeCreate(session: session, key: key, room: room) else { return false }
+        try await Self.retryingLateReplies(PinWorkspaceRequest.command, until: giveUp) { try await self.pinWorkspace(session: pin.sessionID, key: key, to: pin.profile) }
+        return true
+    }
+}
+
+extension PinWorkspaceRequest {
+    /// A new workspace's pin to its room before its create: none when it is born in no room or its daemon has no
+    /// session id yet (the workspace then stays where its daemon lists it).
+    public static func beforeCreate(session: String?, key: WorkspaceKey, room: ProfileID?) -> PinWorkspaceRequest? {
+        guard let session, let room else { return nil }
+        return PinWorkspaceRequest(sessionID: session, workspaceKey: key, profile: room)
     }
 }

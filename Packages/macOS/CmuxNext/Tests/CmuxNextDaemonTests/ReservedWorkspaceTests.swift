@@ -120,4 +120,13 @@ struct ReservedWorkspaceTests {
         #expect(try response(#"{"surface": 12, "replayed": false, "tab_resource_id": "tab_9"}"#).tabKey == "tab_9")
         #expect(try response(#"{"surface": 12, "replayed": false}"#).tabKey == "surface:12")
     }
+
+    /// The pin before a create, moved out of `WorkspaceSpawner` with the same answer: only with a room and a session.
+    @Test func aCreatePinsOnlyWithARoomAndASession() {
+        let key = WorkspaceKey(rawValue: "00000000-0000-4000-8000-00000000000b"), room = ProfileID(rawValue: "work")
+        let pin = PinWorkspaceRequest.beforeCreate(session: "s-1", key: key, room: room)
+        #expect(pin?.sessionID == "s-1" && pin?.workspaceKey == key && pin?.profile == room)
+        #expect(PinWorkspaceRequest.beforeCreate(session: nil, key: key, room: room) == nil)
+        #expect(PinWorkspaceRequest.beforeCreate(session: "s-1", key: key, room: nil) == nil)
+    }
 }
