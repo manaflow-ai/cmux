@@ -2149,9 +2149,12 @@ pre.cv-math-source {
    from what comes before it, as from what follows it: the margin takes back the line's own gap,
    which had left a wide hole before every "·" (Leo, 2026-11-04, on "2s · 15s total": "same here
    it's annoying to look at"). */
+/* A time or a token count keeps its width: squeezed, its words spilled over the next count's
+   ("2m5 1.4K toke"; Leo, 2026-11-06). The label gives way first, behind its ellipsis; only a count
+   that opens something (`.cv-worked__open`, which clips) may shrink. */
 .cv-worked__count {
   display: inline-flex;
-  flex: 0 1 auto;
+  flex: none;
   min-width: 0;
   gap: 4px;
   margin-left: calc(4px - var(--grid-gap));
@@ -2180,6 +2183,9 @@ pre.cv-math-source {
 .cv-worked__own {
   color: var(--cv-text-dim);
   font-variant-numeric: tabular-nums;
+}
+.cv-worked__count:has(> .cv-worked__open) {
+  flex: 0 1 auto;
 }
 .cv-worked__open {
   all: unset;
@@ -2268,39 +2274,48 @@ pre.cv-math-source {
 .acpmux-row--below.acpmux-row--after-step > .cv-worked.is-below {
   height: var(--cv-tool-row-height);
 }
-.acpmux-row--below.acpmux-row--after-step > .cv-worked.is-below .cv-command__bg {
-  top: 0;
-}
-/* Its "⌃B to run in background" shows only while the pointer is on the line, on every live line.
-   Hidden, it takes no room, so a long command runs to the line's end; on hover it takes its room
-   back and the command's tail goes under it, behind the ellipsis (Leo, 2026-10-24: "if the
-   command is too long, hide it under the run in background? ... hide it when hovering in that
-   area"). Hidden, it waits at the same spot, so the fade out does not move it. */
+/* Its "⌃B to run in background" keeps its room while it is offered, and pointing at the line changes
+   only its opacity, on every live line (backgroundHintRoom.experiment.ts). It used to take its room
+   on hover alone: the times and tokens were squeezed over each other ("8s · 2m5 1.4K toke") and moved
+   under the pointer, which left and came back, and the line flickered (Leo, 2026-11-06: "this
+   flickers", hovering the chat's right edge). A long command's words give way to it, behind their
+   ellipsis, as they did on hover (Leo, 2026-10-24: "if the command is too long, hide it under the run
+   in background"). */
 .cv-activity {
   position: relative;
 }
 :is(.cv-worked, .cv-activity) .cv-command__bg {
-  position: absolute;
-  inset-block: 0;
-  right: 0;
   display: flex;
+  flex: none;
   align-items: center;
   animation: none;
   opacity: 0;
   pointer-events: none;
 }
-/* The bottom line's words sit under its top padding (.cv-worked.is-below). */
-.cv-worked.is-below .cv-command__bg {
-  top: calc(var(--cv-live-gap) + 2px);
+/* `end`, the default: at the line's right end. */
+:is(.cv-worked, .cv-activity) .cv-command__bg[data-room="end"] {
+  margin-inline-start: auto;
 }
-:is(.cv-worked, .cv-activity):hover .cv-command__bg {
-  position: static;
+/* `inline`: right after the tokens, a dot before it as before each count. */
+:is(.cv-worked, .cv-activity) .cv-command__bg[data-room="inline"] {
+  margin-inline-start: calc(4px - var(--grid-gap));
+}
+:is(.cv-worked, .cv-activity) .cv-command__bg[data-room="inline"]::before {
+  content: "·";
+  padding-inline-end: 4px;
+  color: var(--cv-text-dim);
+}
+:is(.cv-worked, .cv-activity) .cv-command__bg[data-room="always"] {
+  margin-inline-start: auto;
   opacity: 1;
   pointer-events: auto;
 }
-/* A button now (BackgroundHint.tsx): reached by Tab, it shows as on hover. */
+:is(.cv-worked, .cv-activity):hover .cv-command__bg {
+  opacity: 1;
+  pointer-events: auto;
+}
+/* A button (BackgroundHint.tsx): reached by Tab, it shows as on hover. */
 :is(.cv-worked, .cv-activity) .cv-command__bg:focus-visible {
-  position: static;
   opacity: 1;
   pointer-events: auto;
 }
@@ -3947,16 +3962,20 @@ button.cv-video-frames__frame:focus-visible {
   gap: calc(var(--ds-space-1) + 2px);
   font-weight: 400;
 }
+/* At the line's end, its room kept: the preview stops before it behind its ellipsis, so pointing at
+   the line shows the actions and moves nothing. It used to lie over the preview's tail on a fill of
+   the pane's own ground, which a translucent window shows as a dark plate behind "just now" (Leo,
+   2026-11-06: "this just now has this weird background"; a received line has no hover plate,
+   design/chat-transcript.md). */
 .cv-received__hover {
-  position: absolute;
-  inset-block: 0;
-  /* At the line's end: the chevron follows the words, so nothing else sits there. */
-  inset-inline-end: 0;
   display: inline-flex;
+  flex: none;
   align-items: center;
-  padding-inline-start: var(--ds-space-2);
-  /* The pane's own ground, with no plate under the line, so the actions cover the preview's tail. */
-  background: linear-gradient(to right, transparent, var(--acpmux-base, var(--cv-bg)) var(--ds-space-2));
+  /* The line's height, as the overlay's inset was: its 24px footer row centers in it, never standing
+     out of the 22px line (transcript-row-pitch-browser.test.ts). */
+  align-self: stretch;
+  max-height: 100%;
+  margin-inline-start: auto;
   opacity: 0;
   pointer-events: none;
 }
@@ -4720,10 +4739,13 @@ a.cv-sha:focus-visible {
 /* Continue on a stopped last turn (TurnRows.tsx): a quiet text button with the footer's icon-button
    hover pill, its label then an arrow. */
 .cv-turn-actions .cv-iconbtn.cv-turn-continue {
+  height: var(--cv-footer-button);
   width: auto;
-  gap: 4px;
-  padding-inline: 6px;
+  gap: var(--grid-half-step);
+  padding-inline: var(--grid-half-step);
   margin-inline-start: -2px;
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
   white-space: nowrap;
 }
 /* Try another approach (a Cloud chat's latest turn) is a labelled button too: its own width, never
@@ -5248,10 +5270,10 @@ a.cv-sha:focus-visible {
   flex-direction: column;
   /* Mixed from the opaque surface (the page color is clear in a translucent window), light enough that
      the pane reads behind it as a backdrop under the blur (Leo, 2026-11-05: "this screenshot preview has
-     too much opacity"). */
-  background: color-mix(in srgb, var(--cmux-surface-solid, var(--agent-page-bg)) 72%, transparent);
-  -webkit-backdrop-filter: blur(24px);
-  backdrop-filter: blur(24px);
+     too much opacity"). The popover glass level. */
+  background: color-mix(in srgb, var(--cmux-surface-solid, var(--agent-page-bg)) var(--ds-glass-popover-tint), transparent);
+  -webkit-backdrop-filter: var(--ds-glass-popover-blur);
+  backdrop-filter: var(--ds-glass-popover-blur);
   color: var(--agent-text);
   outline: none;
   /* Image viewing is a direct response to a click: show the already decoded image in its final

@@ -89,6 +89,8 @@ export type GalleryEnv = {
   fontFamily: string;
   /** Px; 0 is the page's own size. */
   fontSize: number;
+  /** A font study pairing's id (fontStudy/candidates.ts); empty: the app's own fonts. */
+  fontStudy: string;
   density: Density;
   /** Interface scale (WKWebView pageZoom, DesignSettings.uiScale). */
   scale: number;
@@ -120,6 +122,7 @@ export const DEFAULT_ENV: GalleryEnv = {
   colorScheme: "auto",
   fontFamily: "",
   fontSize: 0,
+  fontStudy: "",
   density: "comfortable",
   scale: 1,
   interfaceScale: 1,
@@ -186,6 +189,8 @@ export function readEnv(params: URLSearchParams): GalleryEnv {
   env.theme = params.get("theme") || defaultTheme(env.colorScheme);
   env.fontFamily = (params.get("fontFamily") ?? "").slice(0, 200);
   env.fontSize = finite(params.get("fontSize"), 0, 0, 40);
+  const fontStudy = params.get("fontStudy") ?? "";
+  if (/^[a-z0-9-]{1,40}$/.test(fontStudy)) env.fontStudy = fontStudy;
   if (params.get("density") === "compact") env.density = "compact";
   env.scale = finite(params.get("scale"), 1, 0.5, 3);
   env.interfaceScale = finite(params.get("interfaceScale"), 1, 0.9, 1.25);

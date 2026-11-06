@@ -178,6 +178,9 @@ final class WorkspaceRowView: SidebarRowView {
     override var interactiveSubviews: [NSView] {
         ([closeSlot.made, moreSlot.made, pinSlot.made, treeFoldSlot.made, audioSlot.made] as [NSView?]).compactMap(\.self)
     }
+    override var hoverPaintedControls: [NSView] {
+        ([closeSlot.made, moreSlot.made, pinSlot.made, treeFoldSlot.made] as [NSView?]).compactMap(\.self)
+    }
     override var debugArchived: Bool { isArchived }
     override var debugIcon: String? {
         switch iconKind {

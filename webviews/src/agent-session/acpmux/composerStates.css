@@ -81,8 +81,8 @@
    - over art or a see-through window, Lens and Spectrum: the glass's own tint and frost, the lens's
      bend at the stack's outer rim, and the glass's specular rim inside the card's ring (the ring
      stays the edge, so focus still lifts it);
-   - the same under Plain glass: the look from before the lens, the surface at 60% under an 18px
-     blur and the light rim above;
+   - the same under Plain glass: the look from before the lens, the surface under the popover level's
+     blur (design-scale glass levels) and the light rim above;
    - Reduce Transparency: the solid composer surface (--glass-opaque, which glass.css holds). */
 :root:not([data-cmux-see-through]) .acpmux-composer {
   --glass-tint: var(--acpmux-composer-surface);
@@ -90,26 +90,27 @@
 }
 :root[data-cmux-see-through]:not([data-glass="lens"], [data-glass="spectrum"]) .acpmux-composer {
   --glass-tint: var(--acpmux-composer-surface);
-  --glass-backdrop: blur(18px) saturate(1.08);
+  --glass-backdrop: var(--ds-glass-popover-blur);
 }
 /* The card and its strip, the input box itself, are more glass than the stack around them (Leo
    2026-10-21, "a bit more glass on the input box"). Glass is never opaque, and the transcript
    scrolls under the card (Leo 2026-10-19), so on an opaque window too the card is glass: the
-   composer surface at 70% under a 24px shared surface blur, so a row passing under it frosts while
+   popover level, the composer surface at 70% under a 24px blur, so a row passing under it frosts while
    the prompt remains at 4.5:1 or more over the brightest and the darkest page
    (composer-glass.test.ts). The gallery keeps the previous 78% level and a clearer candidate beside
-   this choice. Over art or a see-through window under Plain glass it is clearer, at 50%.
+   this choice. Over art or a see-through window under Plain glass it is clearer, at the level's art
+   tint (50%), under the same blur.
    Lens and Spectrum keep the liquid glass's own tint and frost; Reduce Transparency the solid
    surface (glass.css). The queued prompts keep the stack's tokens above. */
 :root:not([data-cmux-see-through]) .acpmux-composer > :is(.acpmux-composer-box, .acpmux-composer-strip),
 :root:not([data-cmux-see-through]) .nt-composer > .nt-box {
-  --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid) 70%, transparent);
-  --glass-backdrop: blur(24px) saturate(1.25);
+  --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid) var(--ds-glass-popover-tint), transparent);
+  --glass-backdrop: var(--ds-glass-popover-blur);
 }
 :root[data-cmux-see-through]:not([data-glass="lens"], [data-glass="spectrum"])
   :is(.acpmux-composer > :is(.acpmux-composer-box, .acpmux-composer-strip), .nt-composer > .nt-box) {
-  --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid) 50%, transparent);
-  --glass-backdrop: var(--surface-blur);
+  --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid) var(--ds-glass-popover-art-tint), transparent);
+  --glass-backdrop: var(--ds-glass-popover-blur);
 }
 .acpmux-composer,
 .nt-composer {
@@ -864,15 +865,16 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   height: 16px;
   padding: 0;
   border: 0;
-  border-radius: 8px;
-  background: var(--acpmux-composer-bg);
-  box-shadow: 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
-  color: var(--agent-text);
+  border-radius: 50%;
+  /* The strip's solid, inverted badge (composerAttachments.css .acpmux-attachment-remove). */
+  background: var(--agent-text);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--acpmux-base, Canvas) 72%, transparent);
+  color: var(--acpmux-base, Canvas);
 }
 .acpmux-queued-image-remove:hover {
-  background: color-mix(in srgb, var(--agent-text) 22%, var(--acpmux-composer-bg));
+  background: color-mix(in srgb, var(--agent-text) 82%, var(--acpmux-base, Canvas));
 }
 .acpmux-queued-image-remove:focus-visible {
   outline: 1.5px solid var(--agent-text);
-  outline-offset: -1.5px;
+  outline-offset: 1.5px;
 }
