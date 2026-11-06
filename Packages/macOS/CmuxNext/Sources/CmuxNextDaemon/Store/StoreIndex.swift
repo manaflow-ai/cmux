@@ -23,15 +23,22 @@ import Foundation
     private(set) var tabsByTerminalResource: [ResourceID: TabModel] = [:]
     private(set) var panesByHandle: [PaneID: PaneModel] = [:]
     private(set) var panesByResource: [ResourceID: PaneModel] = [:]
-    /// Indexed pane records per durable id (``PaneModel/id``): a watcher asks about its own panes.
-    /// A count, not one record: while a pane moves between workspaces its added delta indexes a
-    /// second record of the same id before the source's closed delta drops the first.
-    private var paneRecordsByID: [String: Int] = [:]
+    /// Indexed pane records per durable id (``PaneModel/id``), oldest first: a watcher asks about its
+    /// own panes, a lookup by id reads the first. A list, not one record: while a pane moves between
+    /// workspaces its added delta indexes a second record of the same id before the source's closed
+    /// delta drops the first.
+    private var paneRecordsByID: [String: [ObjectIdentifier]] = [:]
 
     /// Whether any indexed pane record has durable id `id`.
     func listsPane(id: String) -> Bool { paneRecordsByID[id] != nil }
+
+    /// The first indexed pane record with durable id `id` (``PaneModel/id``).
+    func pane(id: String) -> PaneModel? {
+        paneRecordsByID[id]?.first.flatMap { entries[$0]?.record as? PaneModel }
+    }
     private(set) var screensByHandle: [ScreenID: ScreenModel] = [:]
     private(set) var screensByResource: [ResourceID: ScreenModel] = [:]
+    private(set) var screensByID: [String: ScreenModel] = [:]
     private(set) var workspacesByHandle: [WorkspaceHandle: WorkspaceModel] = [:]
     private(set) var workspacesByKey: [WorkspaceKey: WorkspaceModel] = [:]
     private(set) var workspacesByID: [String: WorkspaceModel] = [:]
@@ -51,7 +58,7 @@ import Foundation
 
     private enum Keys {
         case workspace(handle: WorkspaceHandle, key: WorkspaceKey?, id: String, resource: ResourceID?)
-        case screen(handle: ScreenID, resource: ResourceID?)
+        case screen(handle: ScreenID, id: String, resource: ResourceID?)
         case pane(handle: PaneID, resource: ResourceID?, groups: [TabGroupModel])
         case tab(surface: SurfaceID, id: String, terminal: TerminalID?, resource: ResourceID?, terminalResource: ResourceID?)
     }
@@ -144,7 +151,7 @@ import Foundation
 
     mutating func insert(_ screen: ScreenModel, in workspace: WorkspaceModel) {
         remove(screen)
-        add(screen, .screen(handle: screen.handle, resource: screen.resourceID), parent: workspace)
+        add(screen, .screen(handle: screen.handle, id: screen.id, resource: screen.resourceID), parent: workspace)
         for pane in screen.panes { insert(pane, in: screen) }
     }
 
@@ -198,15 +205,16 @@ import Foundation
             workspacesByID[id] = workspace
             if let key { workspacesByKey[key] = workspace }
             if let resource { workspacesByResource[resource] = workspace }
-        case .screen(let handle, let resource):
+        case .screen(let handle, let id, let resource):
             guard let screen = record as? ScreenModel else { return }
             screensByHandle[handle] = screen
+            screensByID[id] = screen
             if let resource { screensByResource[resource] = screen }
         case .pane(let handle, let resource, let groups):
             guard let pane = record as? PaneModel else { return }
             panesByHandle[handle] = pane
             if let resource { panesByResource[resource] = pane }
-            paneRecordsByID[pane.id, default: 0] += 1
+            paneRecordsByID[pane.id, default: []].append(ObjectIdentifier(pane))
             for group in groups { tabGroupsByID[group.id] = group }
         case .tab(let surface, let id, let terminal, let resource, let terminalResource):
             guard let tab = record as? TabModel else { return }
@@ -227,14 +235,16 @@ import Foundation
             Self.drop(id, from: &workspacesByID, if: record)
             if let key { Self.drop(key, from: &workspacesByKey, if: record) }
             if let resource { Self.drop(resource, from: &workspacesByResource, if: record) }
-        case .screen(let handle, let resource):
+        case .screen(let handle, let id, let resource):
             Self.drop(handle, from: &screensByHandle, if: record)
+            Self.drop(id, from: &screensByID, if: record)
             if let resource { Self.drop(resource, from: &screensByResource, if: record) }
         case .pane(let handle, let resource, let groups):
             Self.drop(handle, from: &panesByHandle, if: record)
             if let resource { Self.drop(resource, from: &panesByResource, if: record) }
-            if let pane = record as? PaneModel, let count = paneRecordsByID[pane.id] {
-                paneRecordsByID[pane.id] = count > 1 ? count - 1 : nil
+            if let pane = record as? PaneModel {
+                paneRecordsByID[pane.id]?.removeAll { $0 == ObjectIdentifier(pane) }
+                if paneRecordsByID[pane.id]?.isEmpty == true { paneRecordsByID[pane.id] = nil }
             }
             for group in groups { Self.drop(group.id, from: &tabGroupsByID, if: group) }
         case .tab(let surface, let id, let terminal, let resource, let terminalResource):

@@ -47,6 +47,6 @@ The app package needs Swift tools 6.2; see
 [toolchain and macOS 14 compatibility](../cmux-architecture/references/swift-6-0-compatibility.md).
 
 The installed pre-commit hook normalizes staged project files and registers new
-Python tests in `tests/test-execution.toml`. Preserve it and
+Python tests in `tests/test-execution.d/` (one file per area). Preserve it and
 run `python3 scripts/verify-local.py --only project` after project edits. Toolchain
 pin changes are deliberate team decisions; see [project normalization](references/xcode-project-normalization.md).

@@ -13286,6 +13286,7 @@
           "aclVersion",
           "checkedAt",
           "expiresAt",
+          "ownerExpiresAt",
           "policyDigest",
           "peers"
         ],
@@ -13341,6 +13342,20 @@
             "description": "a non-negative number",
             "title": "nonNegative",
             "minimum": 0
+          },
+          "ownerExpiresAt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Int",
+                "description": "a non-negative number",
+                "title": "nonNegative",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The earliest expiry of an API key that owns one of the listed peers' devices, or null when none expires. Also folded into expiresAt; the Cloud owner bounds the receiver's local admission horizon by it."
           },
           "policyDigest": {
             "type": "string",

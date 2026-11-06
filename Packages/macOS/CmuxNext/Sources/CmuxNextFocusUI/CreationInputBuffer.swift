@@ -60,7 +60,7 @@ public final class CreationInputBuffer {
     /// When the newest creation of this hold began: the reply bound (``replyWaitBound``) counts from here.
     private var newestOpenedAt: ContinuousClock.Instant?
     /// The newest creation's ticket (never a close's read, ``openClose(closing:machine:takesEveryKey:)``: it has its own deadline).
-    private var newestCreation = 0
+    private(set) var newestCreation = 0
 
     public init(began: ContinuousClock.Instant) { self.began = began }
 
@@ -373,16 +373,16 @@ public final class CreationInputBuffer {
     }
 
     /// A creation (never a close's read, which has its own deadline) waits for its reply.
-    private var awaitsCreationReply: Bool { pending.keys.contains { closingTabs[$0] == nil } }
+    var awaitsCreationReply: Bool { pending.keys.contains { closingTabs[$0] == nil } }
 
     /// The newest creation's reply keeps the keys at most ``replyWaitLimit``: then ``onBound`` with ``Bound/reply``.
     private func armReplyBound() {
         let (opened, bound) = (newestCreation, replyWaitLimit)
-        // task-owner: one-shot bound on this hold's reply wait; a hold that ended or opened a newer creation makes it a no-op
-        Task { @MainActor [weak self] in
+        // task-owner: one-shot bound on this hold's reply wait; a hold that ended or opened a newer creation makes it a no-op.
+        // Detached: the held keys run again in a turn of their own, never under the opening run's task locals (review of #35874); high: the person's held keys wait for it.
+        Task.detached(priority: .high) { [weak self] in
             try? await Task.sleep(for: bound) // wakeup-allow: one-shot bound on a key hold whose creation's reply never comes
-            guard let self, awaitsCreationReply, newestCreation == opened else { return }
-            onBound?(self, .reply)
+            await self?.replyBoundPassed(opened: opened)
         }
     }
 

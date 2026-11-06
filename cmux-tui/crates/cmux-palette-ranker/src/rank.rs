@@ -217,8 +217,11 @@ fn sections_of(
         .collect()
 }
 
-pub(crate) fn rank_empty(request: &RankRequest, entries: &[Entry]) -> Vec<RankedSection> {
-    let store = request.frecency.as_ref();
+pub(crate) fn rank_empty(
+    request: &RankRequest,
+    entries: &[Entry],
+    store: Option<&Frecency>,
+) -> Vec<RankedSection> {
     let hidden: HashSet<&str> = store
         .and_then(|store| store.hidden.as_ref())
         .map(|hidden| hidden.iter().map(String::as_str).collect())
@@ -341,13 +344,13 @@ pub(crate) fn rank(
     request: &RankRequest,
     entries: &[Entry],
     prepared: &Prepared,
+    store: Option<&Frecency>,
 ) -> Vec<RankedSection> {
     let raw = request.query.as_deref().unwrap_or("");
     let query = Query::new(raw);
     if query.is_empty() {
-        return rank_empty(request, entries);
+        return rank_empty(request, entries, store);
     }
-    let store = request.frecency.as_ref();
     let now = request.now.unwrap_or(0.0);
     let gated = entries
         .iter()
