@@ -4,8 +4,8 @@
 # repository. Each attempt starts from the newest tip and makes the change again there, so a moved
 # tip is never overwritten; at most 5 attempts.
 #
-#   TOKEN=... scripts/cmux-next/image-roll-push.sh roll --candidate F --revision R --run ID [--pin SHA] [--message-file M] [--dry-run]
-#   TOKEN=... scripts/cmux-next/image-roll-push.sh rollback --image ID --message-file M [--dry-run]
+#   TOKEN=... images/cmux-vm/image-roll-push.sh roll --candidate F --revision R --run ID [--pin SHA] [--message-file M] [--dry-run]
+#   TOKEN=... images/cmux-vm/image-roll-push.sh rollback --image ID --message-file M [--dry-run]
 #
 # TOKEN pushes (the manaflow-cmux-pr-autofix App's token, so the push starts cmux-vm.yml's production
 # deploy; no ruleset or branch protection applies to feat-cmux-next). It reaches git only as an extra

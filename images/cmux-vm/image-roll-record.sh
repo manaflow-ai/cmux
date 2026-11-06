@@ -4,7 +4,7 @@
 # cmux-vm.yml writes the production smoke and any rollback). A reader needs no API call:
 #   git fetch origin cloud-image-rolls && git show FETCH_HEAD:rolls/<id>.json
 #
-#   echo '{"gate":{"result":"passed"}}' | TOKEN=... scripts/cmux-next/image-roll-record.sh ROLL_ID
+#   echo '{"gate":{"result":"passed"}}' | TOKEN=... images/cmux-vm/image-roll-record.sh ROLL_ID
 #
 # TOKEN is a contents: write token (the job's GITHUB_TOKEN: its push starts no workflow). It reaches git
 # only as an extra header in the environment, never argv or a log. A push that loses a race reads the

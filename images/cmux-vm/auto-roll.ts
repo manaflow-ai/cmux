@@ -278,4 +278,5 @@ async function main(argv: string[]): Promise<number> {
   return 2;
 }
 
-if (import.meta.main) process.exit(await main(process.argv.slice(2)));
+const isEntryPoint = process.argv[1] !== undefined && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isEntryPoint) process.exit(await main(process.argv.slice(2)));

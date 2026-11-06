@@ -859,14 +859,15 @@ jobs:
 
   # An image roll commit (cloud-vm-image-roll.yml, subject "cmux-vm: image roll "): record when its production
   # smoke finished, and when the deploy or the product create on its first image is anything but green, land a
-  # rollback commit that takes the image out of both lists (scripts/cmux-next/image-roll-push.sh rollback), so the
+  # rollback commit that takes the image out of both lists (images/cmux-vm/image-roll-push.sh rollback), so the
   # entry before it boots again after that commit's own deploy. Once per roll commit: a rollback commit's subject
   # ("cmux-vm: image rollback ") never matches, and a newer roll already first makes the rollback a no-op.
   image-roll-settle:
     needs: [deploy-production, smoke-production]
     if: >-
       always() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' &&
-      startsWith(github.event.head_commit.message, 'cmux-vm: image roll ')
+      startsWith(github.event.head_commit.message, 'cmux-vm: image roll ') &&
+      !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'cmux-vm-breaking-change-ok')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 15
     # The push App key is a repository secret; the environment (feat-cmux-next only) bounds who can reach it.
@@ -934,7 +935,7 @@ jobs:
             echo "Image-Roll-Image: ${IMAGE}"
             echo "Image-Roll-Rollback-Of: ${GITHUB_SHA}"
           } > "$RUNNER_TEMP/message.txt"
-          scripts/cmux-next/image-roll-push.sh rollback --image "$IMAGE" --message-file "$RUNNER_TEMP/message.txt" | tee "$RUNNER_TEMP/rollback.out"
+          images/cmux-vm/image-roll-push.sh rollback --image "$IMAGE" --message-file "$RUNNER_TEMP/message.txt" | tee "$RUNNER_TEMP/rollback.out"
           tail -1 "$RUNNER_TEMP/rollback.out" | sed 's/^/Rollback: /' >> "$GITHUB_STEP_SUMMARY"
       - name: Record the production smoke and any rollback
         if: always() && steps.roll.outputs.run != ''
@@ -957,7 +958,7 @@ jobs:
             '{production: {commit: $commit, run: $run, deploy: $deploy, product_smoke: (if $product == "" then "not-run" else $product end), smoke_done_at: $now, green: ($green == "true"), superseded: ($green == "superseded")},
               rolled_back: ($rollback == "pushed"),
               rollback: (if $green != "false" then null else {result: (if $rollback == "" then "failed" else $rollback end), commit: $rollback_sha, at: $now} end)}' \
-            | bash scripts/cmux-next/image-roll-record.sh "$ROLL" || echo "::warning title=Image roll record::the record was not written"
+            | bash images/cmux-vm/image-roll-record.sh "$ROLL" || echo "::warning title=Image roll record::the record was not written"
           if [ "$GREEN" != false ]; then exit 0; fi
           what="${IMAGE} was not green in production (deploy ${DEPLOY}, product smoke ${PRODUCT:-not run}); rollback: ${ROLLBACK:-failed}"
           echo "::error title=Cloud VM image roll::${what}"

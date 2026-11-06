@@ -10,14 +10,14 @@ name: Cloud VM image roll
 #               Native receiver image with the agent tools. The gate is the bake's own exact-image checks
 #               on the candidate snapshot: the 5-clone smoke and the agent tools probe. Any red there and
 #               nothing is kept or promoted; production stays on its image.
-#   3. promote  scripts/cmux-next/image-roll-push.sh lands one bot commit on feat-cmux-next: the pinned lock
+#   3. promote  images/cmux-vm/image-roll-push.sh lands one bot commit on feat-cmux-next: the pinned lock
 #               and the image first in production's VM_BOOT_IMAGES (last in staging's). It pushes with the
 #               manaflow-cmux-pr-autofix App, so cmux-vm.yml deploys it to production and runs
 #               smoke-production, whose product create boots exactly that first image.
 #   4. settle   cmux-vm.yml's image-roll-settle job: a red production smoke or deploy on the roll commit lands
 #               a rollback commit (the image leaves both lists; the entry before it boots again).
 #
-# Records: each roll's rolls/<run id>.json on the branch cloud-image-rolls (scripts/cmux-next/image-roll-record.sh),
+# Records: each roll's rolls/<run id>.json on the branch cloud-image-rolls (images/cmux-vm/image-roll-record.sh),
 # plus the trailers Image-Roll-Run and Image-Roll-Image on the roll and rollback commits. A red gate, a failed
 # promotion and a rollback also comment on the one open issue labelled cloud-image-roll.
 #
@@ -197,7 +197,7 @@ jobs:
         run: |
           set -euo pipefail
           # shellcheck disable=SC2086
-          scripts/cmux-next/image-roll-push.sh roll --candidate "$RUNNER_TEMP/candidate.json" --revision "$REVISION" \
+          images/cmux-vm/image-roll-push.sh roll --candidate "$RUNNER_TEMP/candidate.json" --revision "$REVISION" \
             --run "$GITHUB_RUN_ID" --pin "$PIN" --message-file "$RUNNER_TEMP/message.txt" $DRY_RUN | tee "$RUNNER_TEMP/push.out"
           tail -1 "$RUNNER_TEMP/push.out" | sed 's/^/Promotion: /' >> "$GITHUB_STEP_SUMMARY"
       - name: Upload the roll commit's diff
@@ -226,7 +226,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          sparse-checkout: scripts/cmux-next
+          sparse-checkout: images/cmux-vm
       - name: Record the roll
         env:
           TOKEN: ${{ github.token }}
@@ -255,7 +255,7 @@ jobs:
               promotion: {result: (if $gate == "passed" then (if $result == "" then "failed" else $result end) else "not-run" end), job: $promote,
                 commit: $sha, image: $image, revision: $revision, at: (if $result == "pushed" then $now else null end)},
               rolled_back: false}' \
-            | bash scripts/cmux-next/image-roll-record.sh "$GITHUB_RUN_ID" || echo "::warning title=Image roll record::the record was not written"
+            | bash images/cmux-vm/image-roll-record.sh "$GITHUB_RUN_ID" || echo "::warning title=Image roll record::the record was not written"
           echo "Outcome: ${outcome}. Record: \`cloud-image-rolls:rolls/${GITHUB_RUN_ID}.json\`." >> "$GITHUB_STEP_SUMMARY"
           case "$outcome" in
             pushed|dry-run|nothing) exit 0 ;;
