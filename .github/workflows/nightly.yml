@@ -1637,7 +1637,7 @@ jobs:
           overwrite: true
 
       - name: Upload Ghostty CLI helper (retry)
-        if: steps.upload-ghostty-cli-helper.outcome == 'failure'
+        if: "!cancelled() && steps.upload-ghostty-cli-helper.outcome == 'failure' && (inputs.nightly_next_unsigned_run == '' && needs.resolve-nightly-ghostty-cli-helper.outputs.hit != 'true')"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-ghostty-cli-helper
@@ -1672,7 +1672,7 @@ jobs:
           overwrite: true
 
       - name: Upload the cmux-next source archive (retry)
-        if: steps.upload-the-cmux-next-source-archive.outcome == 'failure'
+        if: "!cancelled() && steps.upload-the-cmux-next-source-archive.outcome == 'failure' && (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true'))"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-next-source-archive
@@ -1699,7 +1699,7 @@ jobs:
           overwrite: true
 
       - name: Upload cmux-next license trees (retry)
-        if: steps.upload-cmux-next-license-trees.outcome == 'failure'
+        if: "!cancelled() && steps.upload-cmux-next-license-trees.outcome == 'failure' && (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true'))"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-next-license-trees
@@ -1786,7 +1786,7 @@ jobs:
           retention-days: 1
 
       - name: Upload the web bundles (retry)
-        if: steps.upload-the-web-bundles.outcome == 'failure'
+        if: "!cancelled() && steps.upload-the-web-bundles.outcome == 'failure'"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-web-bundles
@@ -1817,7 +1817,7 @@ jobs:
           retention-days: 1
 
       - name: Upload the third-party notices (retry)
-        if: steps.upload-the-third-party-notices.outcome == 'failure'
+        if: "!cancelled() && steps.upload-the-third-party-notices.outcome == 'failure'"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-notices
@@ -2019,7 +2019,7 @@ jobs:
           compression-level: 0
 
       - name: Retain resumed cmux-nightly-unsigned-app (retry)
-        if: steps.upload-retain-resumed-cmux-nightly-unsigned-app.outcome == 'failure'
+        if: "!cancelled() && steps.upload-retain-resumed-cmux-nightly-unsigned-app.outcome == 'failure' && (inputs.nightly_next_unsigned_run != '')"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-unsigned-app
@@ -2042,7 +2042,7 @@ jobs:
           compression-level: 0
 
       - name: Retain resumed cmux-nightly-remote-daemon (retry)
-        if: steps.upload-retain-resumed-cmux-nightly-remote-daemon.outcome == 'failure'
+        if: "!cancelled() && steps.upload-retain-resumed-cmux-nightly-remote-daemon.outcome == 'failure' && (inputs.nightly_next_unsigned_run != '')"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-remote-daemon
@@ -2065,7 +2065,7 @@ jobs:
           compression-level: 0
 
       - name: Retain resumed cmux-nightly-ghostty-cli-helper (retry)
-        if: steps.upload-retain-resumed-cmux-nightly-ghostty-cli-h.outcome == 'failure'
+        if: "!cancelled() && steps.upload-retain-resumed-cmux-nightly-ghostty-cli-h.outcome == 'failure' && (inputs.nightly_next_unsigned_run != '')"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-ghostty-cli-helper
@@ -2088,7 +2088,7 @@ jobs:
           compression-level: 0
 
       - name: Retain resumed cmux-next-license-trees (retry)
-        if: steps.upload-retain-resumed-cmux-next-license-trees.outcome == 'failure'
+        if: "!cancelled() && steps.upload-retain-resumed-cmux-next-license-trees.outcome == 'failure' && (inputs.nightly_next_unsigned_run != '')"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-next-license-trees
@@ -2111,7 +2111,7 @@ jobs:
           compression-level: 0
 
       - name: Retain resumed cmux-next-source-archive (retry)
-        if: steps.upload-retain-resumed-cmux-next-source-archive.outcome == 'failure'
+        if: "!cancelled() && steps.upload-retain-resumed-cmux-next-source-archive.outcome == 'failure' && (inputs.nightly_next_unsigned_run != '')"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-next-source-archive
@@ -2133,7 +2133,7 @@ jobs:
           retention-days: 30
 
       - name: Retain unsigned resume provenance (retry)
-        if: steps.upload-retain-unsigned-resume-provenance.outcome == 'failure'
+        if: "!cancelled() && steps.upload-retain-unsigned-resume-provenance.outcome == 'failure' && (inputs.nightly_next_unsigned_run != '')"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-unsigned-resume-receipt
@@ -2752,7 +2752,7 @@ jobs:
           retention-days: 1
 
       - name: Upload unsigned nightly app (retry)
-        if: steps.upload-unsigned.outcome == 'failure'
+        if: "!cancelled() && steps.upload-unsigned.outcome == 'failure' && (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.build_only != 'true'))"
         timeout-minutes: 10
         env: *artifact-upload-concurrency
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -2913,7 +2913,7 @@ jobs:
           overwrite: true
 
       - name: Upload SSH daemon assets (retry)
-        if: steps.upload-ssh-daemon-assets.outcome == 'failure'
+        if: "!cancelled() && steps.upload-ssh-daemon-assets.outcome == 'failure' && (inputs.nightly_next_unsigned_run == '')"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-remote-daemon
@@ -3388,7 +3388,7 @@ jobs:
           retention-days: 3
 
       - &upload-prepared-app-for-signin-retry
-        if: steps.upload-prepared-app-for-signing.outcome == 'failure'
+        if: "!cancelled() && steps.upload-prepared-app-for-signing.outcome == 'failure' && (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true')"
         name: Upload prepared app for signing (retry)
         env: *artifact-upload-concurrency
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -4094,7 +4094,7 @@ jobs:
           retention-days: 7
 
       - name: Upload the Chromium runtime pack (retry)
-        if: steps.upload-the-chromium-runtime-pack.outcome == 'failure'
+        if: "!cancelled() && steps.upload-the-chromium-runtime-pack.outcome == 'failure' && (needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_CEF_ON_DEMAND == '1')"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cef-runtime-pack
@@ -4209,7 +4209,7 @@ jobs:
           overwrite: true
 
       - name: Upload signed app for the verify job (retry)
-        if: steps.upload-signed-app-for-the-verify-job.outcome == 'failure'
+        if: "!cancelled() && steps.upload-signed-app-for-the-verify-job.outcome == 'failure' && (!cancelled() && steps.signed-app-checks.outcome == 'success' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true')"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-${{ needs.decide.outputs.channel }}-signed-app-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
@@ -4395,7 +4395,7 @@ jobs:
           retention-days: 14
 
       - name: Upload pending notarization recovery artifact (retry)
-        if: steps.upload-pending-notarization-recovery-artifact.outcome == 'failure'
+        if: "!cancelled() && steps.upload-pending-notarization-recovery-artifact.outcome == 'failure' && (always() && steps.prepare-notarization-recovery.outcome == 'success')"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-${{ needs.decide.outputs.channel }}-notarization-recovery-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
@@ -4467,7 +4467,7 @@ jobs:
           overwrite: true
 
       - name: Upload nightly variant artifacts (retry)
-        if: steps.upload-nightly-variant-artifacts.outcome == 'failure'
+        if: "!cancelled() && steps.upload-nightly-variant-artifacts.outcome == 'failure' && (needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && steps.notarize-nightly.outputs.submission_pending != 'true' && needs.decide.outputs.notary_test != 'true')"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-variant-${{ matrix.variant }}
@@ -4496,7 +4496,7 @@ jobs:
           retention-days: 3
 
       - name: Upload fast arm64 dogfood artifact (retry)
-        if: steps.upload-fast-arm64-dogfood-artifact.outcome == 'failure'
+        if: "!cancelled() && steps.upload-fast-arm64-dogfood-artifact.outcome == 'failure' && (needs.decide.outputs.fast_build == 'true')"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-fast-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
@@ -4537,7 +4537,7 @@ jobs:
           retention-days: 14
 
       - name: Upload notary test receipt (retry)
-        if: steps.upload-notary-test-receipt.outcome == 'failure'
+        if: "!cancelled() && steps.upload-notary-test-receipt.outcome == 'failure' && (always() && steps.notary-receipt.outcome == 'success')"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-notary-test-receipt-${{ needs.decide.outputs.import_variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
@@ -4762,7 +4762,7 @@ jobs:
           retention-days: 3
 
       - name: Upload tested DMG digests (retry)
-        if: steps.upload-tested-dmg-digests.outcome == 'failure'
+        if: "!cancelled() && steps.upload-tested-dmg-digests.outcome == 'failure' && (needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true')"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-tested-${{ matrix.variant }}
@@ -4958,7 +4958,7 @@ jobs:
           retention-days: 3
 
       - name: Upload the recovered variant (retry)
-        if: steps.upload-the-recovered-variant.outcome == 'failure'
+        if: "!cancelled() && steps.upload-the-recovered-variant.outcome == 'failure' && (steps.continue.outputs.accepted == 'true')"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-recovered-variant-arm64
@@ -5018,7 +5018,7 @@ jobs:
           retention-days: 3
 
       - name: Upload tested DMG digests (retry)
-        if: steps.upload-tested-dmg-digests.outcome == 'failure'
+        if: "!cancelled() && steps.upload-tested-dmg-digests.outcome == 'failure'"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-recovered-tested-arm64
@@ -5072,7 +5072,7 @@ jobs:
           retention-days: 3
 
       - name: Upload the republished variant (retry)
-        if: steps.upload-the-republished-variant.outcome == 'failure'
+        if: "!cancelled() && steps.upload-the-republished-variant.outcome == 'failure'"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-republished-variant-arm64
@@ -5092,7 +5092,7 @@ jobs:
           retention-days: 3
 
       - name: Upload the republished build's tested DMG digests (retry)
-        if: steps.upload-the-republished-build-s-tested-dmg-digest.outcome == 'failure'
+        if: "!cancelled() && steps.upload-the-republished-build-s-tested-dmg-digest.outcome == 'failure'"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-republished-tested-arm64
@@ -5115,7 +5115,7 @@ jobs:
           retention-days: 3
 
       - name: Upload the republished build's Chromium runtime pack (retry)
-        if: steps.upload-the-republished-build-s-chromium-runtime.outcome == 'failure'
+        if: "!cancelled() && steps.upload-the-republished-build-s-chromium-runtime.outcome == 'failure' && (steps.fetch.outputs.cef == 'true')"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cef-runtime-pack
@@ -5288,7 +5288,7 @@ jobs:
           retention-days: 3
 
       - name: Keep the stills and the report (retry)
-        if: steps.upload-keep-the-stills-and-the-report.outcome == 'failure'
+        if: "!cancelled() && steps.upload-keep-the-stills-and-the-report.outcome == 'failure' && (always())"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nightly-next-visual-gate-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
@@ -5709,7 +5709,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload branch nightly artifacts (retry)
-        if: steps.upload-branch-nightly-artifacts.outcome == 'failure'
+        if: "!cancelled() && steps.upload-branch-nightly-artifacts.outcome == 'failure' && (needs.decide.outputs.should_publish != 'true' && steps.recheck.outputs.already_published != 'true')"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-${{ steps.source.outputs.build_short_sha }}
@@ -5915,7 +5915,7 @@ jobs:
           retention-days: 1
 
       - name: Upload the published feed for the GitHub release job (retry)
-        if: steps.upload-the-published-feed-for-the-github-release.outcome == 'failure'
+        if: "!cancelled() && steps.upload-the-published-feed-for-the-github-release.outcome == 'failure' && (needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true' && steps.upload_next_appcasts.outputs.feed_current == 'true')"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nightly-next-github-${{ github.run_id }}-${{ github.run_attempt }}
@@ -6374,7 +6374,7 @@ jobs:
           retention-days: 1
 
       - name: Upload the prebuilt deltas (retry)
-        if: steps.upload-the-prebuilt-deltas.outcome == 'failure'
+        if: "!cancelled() && steps.upload-the-prebuilt-deltas.outcome == 'failure'"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-prebuilt-deltas-${{ matrix.variant }}
@@ -6508,7 +6508,7 @@ jobs:
           retention-days: 3
 
       - name: Upload delta result (retry)
-        if: steps.upload-delta-result.outcome == 'failure'
+        if: "!cancelled() && steps.upload-delta-result.outcome == 'failure'"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-deltas-${{ matrix.variant }}
@@ -6908,7 +6908,7 @@ jobs:
           retention-days: 7
 
       - name: Upload the signed release notes (retry)
-        if: steps.upload-the-signed-release-notes.outcome == 'failure'
+        if: "!cancelled() && steps.upload-the-signed-release-notes.outcome == 'failure'"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-notes
