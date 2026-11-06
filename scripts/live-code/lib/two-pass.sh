@@ -33,16 +33,17 @@ live_code_untruncate() { # BIN OUT
 import os, subprocess, sys
 bin, out = sys.argv[1], sys.argv[2]
 cut = 4096 - len("<this-image>/") - 1
-lines = lambda name: [line.rstrip("\n") for line in open(os.path.join(out, name))]
+# Symbol tables can hold bytes that are not UTF-8; surrogateescape keeps them, so names compare exactly.
+lines = lambda name: [line.rstrip("\n") for line in open(os.path.join(out, name), errors="surrogateescape")]
 missing = lines("missing-2.txt")
 long_exports = [name for name in lines("exports-2.txt") if len(name) > cut]
 truncated = [name for name in missing if len(name) == cut and any(e.startswith(name) for e in long_exports)]
 if truncated:
-    whole = set(subprocess.run(["nm", "-j", bin], capture_output=True, text=True, check=True).stdout.split("\n"))
+    whole = set(subprocess.run(["nm", "-j", bin], capture_output=True, text=True, errors="surrogateescape", check=True).stdout.split("\n"))
     truncated = [name for name in truncated if name not in whole]
-with open(os.path.join(out, "missing-2.txt"), "w") as f:
+with open(os.path.join(out, "missing-2.txt"), "w", errors="surrogateescape") as f:
     f.writelines(name + "\n" for name in missing if name not in truncated)
-with open(os.path.join(out, "truncated-2.txt"), "w") as f:
+with open(os.path.join(out, "truncated-2.txt"), "w", errors="surrogateescape") as f:
     f.writelines(name + "\n" for name in truncated)
 if truncated:
     print(f"live-code build: {len(truncated)} bind names cut at {cut} characters by dyld_info start an exported name; counted as exported", file=sys.stderr)

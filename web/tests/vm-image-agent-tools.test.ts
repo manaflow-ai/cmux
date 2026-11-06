@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { agentStepPlan, parseRecordedLaunch, probeOptionsFromArgv, rdActivateCommand, rdConnectCommand, rdOtherUserCommand, rdReadCommand, rdStaticCheckCommand, recorderScript, staticCheckCommand, toolListProblems } from "../scripts/cmux-vm-image/agent-tools-probe";
+import { agentStepPlan, parseRecordedLaunch, probeOptionsFromArgv, rdActivateCommand, rdConnectCommand, rdOtherUserCommand, rdReadCommand, rdStaticCheckCommand, recorderScript, requiredTools, staticCheckCommand, toolListProblems } from "../scripts/cmux-vm-image/agent-tools-probe";
 import { readFileSync as readSource } from "node:fs";
 import {
   A11Y_SCRIPT,
@@ -227,6 +227,37 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
       expect(launch.servers[0].env).toEqual({ CMUX_CUA_MCP_FORCE_PROXY: "1" });
       expect(launch.pluginDir).toBe("/p/x");
       expect(parseRecordedLaunch("--version\n").servers).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("probe: in code mode the cmux server must list cmux_exec; with --all-tools its browser tools; cmux-cua always its own", () => {
+    // Bake run 42112724172: the code-mode cmux server listed ["cmux_exec", "cmux_workflow"] and answered browser_repl_eval.
+    expect(requiredTools("cmux", ["mcp", "serve"])).toEqual(["cmux_exec"]);
+    expect(requiredTools("cmux", ["mcp", "serve", "--all-tools"])).toEqual(["browser_repl_eval", "browser_repl_open"]);
+    expect(requiredTools("cmux-cua", ["mcp"])).toEqual(["get_desktop_state", "click"]);
+  });
+
+  test("probe: acpmux's --mcp-config is a 0600 file it removes later: the recorder keeps its JSON, and code mode's upstreams count as servers", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "cmux-agent-tools-rec-"));
+    try {
+      const out = path.join(dir, "launches.txt");
+      writeFileSync(path.join(dir, "claude"), recorderScript(out));
+      chmodSync(path.join(dir, "claude"), 0o755);
+      // What acpmux writes today (agent_tools.rs folded + claude_args): one cmux server, the others in CMUX_MCP_UPSTREAMS.
+      const upstreams = [{ name: "cmux-cua", command: `${AGENT_TOOLS_BIN}/cmux-cua`, args: ["mcp"], env: { CMUX_CUA_MCP_FORCE_PROXY: "1" } }];
+      const configFile = path.join(dir, "session.json");
+      writeFileSync(configFile, JSON.stringify({ mcpServers: { cmux: { type: "stdio", command: `${AGENT_TOOLS_BIN}/cmux`, args: ["mcp", "serve"], env: { CMUX_MCP_UPSTREAMS: JSON.stringify(upstreams) } } } }, null, 2), { mode: 0o600 });
+      await runChild(path.join(dir, "claude"), ["--print", "--mcp-config", configFile, "--plugin-dir", "/p/x"], { timeout: 20_000 });
+      rmSync(configFile);
+      const launch = parseRecordedLaunch(readFileSync(out, "utf8"));
+      expect(launch.servers.map((s) => [s.name, s.command, s.args])).toEqual([
+        ["cmux", `${AGENT_TOOLS_BIN}/cmux`, ["mcp", "serve"]],
+        ["cmux-cua", `${AGENT_TOOLS_BIN}/cmux-cua`, ["mcp"]],
+      ]);
+      expect(launch.servers[1].env).toEqual({ CMUX_CUA_MCP_FORCE_PROXY: "1" });
+      expect(launch.pluginDir).toBe("/p/x");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

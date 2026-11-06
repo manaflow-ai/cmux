@@ -225,6 +225,14 @@ describe("reproducibility diff and helpers", () => {
     expect(result.diffs).toEqual(["/usr/local/bin/x: F bbb vs F ddd"]);
   });
 
+  test("the repro diff allows the npm download cache by directory, and only under it", () => {
+    const a = new Map([["/home/cmux/.npm/_cacache/index-v5/aa/bb", "F 1"], ["/home/cmux/.npm/_cacache/content-v2/sha512/x", "F 2"], ["/home/cmux/.npm/_logs/1.log", "F 3"], ["/home/cmux/.npmrc", "F 4"]]);
+    const b = new Map([["/home/cmux/.npm/_cacache/index-v5/aa/bb", "F 9"], ["/home/cmux/.npm/_cacache/content-v2/sha512/y", "F 2"], ["/home/cmux/.npm/_logs/1.log", "F 8"], ["/home/cmux/.npmrc", "F 7"]]);
+    const result = diffFileManifests(a, b);
+    expect(result.allowed).toHaveLength(3);
+    expect(result.diffs.map((l) => l.split(":")[0])).toEqual(["/home/cmux/.npm/_logs/1.log", "/home/cmux/.npmrc"]);
+  });
+
   test("names: branch resources carry cmuxnp-dev-", () => {
     expect(imageResourceName({ promotion: false, tag: "ci-123", date: "20261003", sha: "abcdef1234567890" })).toBe("cmuxnp-dev-vmimg-ci-123");
     expect(imageResourceName({ promotion: true, tag: "x", date: "20261003", sha: "abcdef1234567890" })).toBe("cmux-vm-20261003-abcdef1234");
@@ -539,9 +547,9 @@ describe("cmux-rd (the cmux.rd/1 Linux host, role desktop; release cmux-rd-v<V> 
     }
   });
 
-  test("0.1.0 is pinned from release cmux-rd-v0.1.0 (#36433, run 42028500138) by URL, sha256, size and checksums.txt, baked in role desktop", () => {
+  test("0.2.2 is pinned from release cmux-rd-v0.2.2 (#36765, run 42097002278) by URL, sha256, size and checksums.txt, baked in role desktop", () => {
     const pinned = readInputsLock().programs.find((p) => p.name === "cmux-rd")!;
-    expect(pinned).toMatchObject({ ...cmuxRdReleaseShape("0.1.0"), sha256: "8118a53a809e9204e68bb692e88ec1f429c897380c558b98604046dca2d29e73", size: 6868976 });
+    expect(pinned).toMatchObject({ ...cmuxRdReleaseShape("0.2.2"), sha256: "9c7190c62274bd0bc755223d03d8057dab388c724f733579665c8c6f89071ae1", size: 7058496 });
     expect(pinned.firstUse).toBeUndefined();
     expect(bakedPrograms(readInputsLock()).map((p) => p.name)).toContain("cmux-rd");
   });

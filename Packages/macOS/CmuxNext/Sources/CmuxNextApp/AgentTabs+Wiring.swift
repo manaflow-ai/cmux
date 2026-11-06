@@ -421,12 +421,12 @@ extension AgentTabStore {
             // it is sent, through any daemon (the app link's own answer).
             let links = services.machines.session(daemon.machineID).map { CloudMachineLinks(appLink: $0.appLink) }
             host.ownerLink = links?.ownerLink
-            // A start its older daemon refused updates the machine to this app's build and tries
-            // once more, only on the caller's own machine (the link's owner answer, read then).
-            if let cloudMachineID = host.cloudMachineID, let ownerLink = links?.ownerLink {
-                host.updateMachine = { [weak services] in
-                    guard await ownerLink() != nil, let services else { return false }
-                    return await CloudMachineUpdates.updateNow(cloudMachineID, services: services)
+            // A start its older daemon refused updates the machine and tries once more on the link it brought back (the owner's machine only).
+            if let cloudMachineID = host.cloudMachineID, let ownerLink = links?.ownerLink, let session = services.machines.session(daemon.machineID) {
+                host.updateMachine = { [weak services, weak session] in
+                    guard await ownerLink() != nil, let services, let session else { return false }
+                    let handshake: @MainActor @Sendable () -> String? = { [weak services] in services.flatMap { CloudMachineUpdates.handshake(session, machines: $0.machines) } }
+                    return await CloudWait.updatedThenRelinked(handshake: handshake) { await CloudMachineUpdates.updateNow(cloudMachineID, services: services) }
                 }
             }
             host.ownerCloud = RemoteAcpmuxWire.ownerCloud(links?.ownerLink, served: daemon.supports(RemoteAcpmuxWire.ownerCloudCapability))
@@ -616,6 +616,14 @@ extension AgentTabStore {
     /// Keep the native recovery callback aligned with the current Cloud account. This runs at
     /// construction and on each observed sign-in/account transition, so sign-in restores it.
     func syncCloudCredentialTransferAvailability(services: AppServices) {
+        if services.cloud.auth.isSignedIn {
+            tryAnotherApproach = { [weak services] (chat: String, session: String, throughSeq: Int) async throws -> [String: Any] in
+                guard let services else { throw CancellationError() }
+                return try await cloudTryAnotherApproach(chat: chat, session: session, throughSeq: throughSeq, services: services)
+            }
+        } else {
+            tryAnotherApproach = nil
+        }
         guard Self.cloudCredentialTransferIsAvailable(isSignedIn: services.cloud.auth.isSignedIn) else {
             cloudCredentialTransfer = nil
             return

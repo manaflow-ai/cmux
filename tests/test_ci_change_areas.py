@@ -2624,10 +2624,12 @@ def test_repository_helpers_route_by_where_they_run() -> None:
     # Runs only in its own dispatched workflow; pr_runner_pool.py names it
     # in a docstring, which is not a call.
     assert route("scripts/ci/owned_pool_rescue.py") == areas()
-    # compile admission runs it (and seed_derived_data.py, which imports
-    # e2e_warm_derived_data.py): macOS.
+    # compile admission runs it: macOS.
     assert route("scripts/ci/owned_build_state.py") == areas(macos=True)
-    assert route("scripts/ci/e2e_warm_derived_data.py") == areas(macos=True)
+    # job_input_fingerprint.py lists it as a Mac job input (the seed replay in
+    # cmux-next.yml), and a nightly test that runs off the Linux guards names
+    # that script, so the walk fails open, as for owned_spm_scratch.py.
+    assert route("scripts/ci/e2e_warm_derived_data.py") is None
     # Only the Release lane runs it.
     assert route("scripts/ci/reuse_release_product.py") == areas(macos=True, release_build=True)
     # run_python_test_lane.py imports it, and ci.yml's routing job runs that.

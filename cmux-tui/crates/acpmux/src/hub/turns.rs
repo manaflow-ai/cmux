@@ -560,7 +560,6 @@ impl Hub {
         // from here to `queue_slot`'s choice, so it never joins the queue (`auto_resume.rs`).
         let after_turn = opts.after_turn.clone();
         super::auto_resume::check_cut(session, after_turn.as_deref(), false)?;
-        let goal_mark = opts.goal_mark.clone();
         // Queued behind the running turn (and the queue) it waits for its turn (`queue.rs`).
         let slot = super::queue::Slot {
             text: &text,
@@ -613,7 +612,8 @@ impl Hub {
         }
         // A prompt that took the turn lock first (a person's) supersedes the continuation.
         if let Err(e) = super::auto_resume::check_cut(session, after_turn.as_deref(), waiting)
-            .and_then(|()| super::goal_tools::check_goal_mark(session, goal_mark.as_deref()))
+            // Its queue entry's provenance: an edit made it the person's, a restart restored it.
+            .and_then(|()| super::goal_tools::check_goal_mark(session, run.provenance.as_ref()))
         {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
@@ -687,6 +687,9 @@ impl Hub {
             .noticed(super::prompt_line::is_notice(provenance.as_ref()))
             .by_person(persons);
         turn.trigger = trigger;
+        // Before the turn shows: a Stop from then on fences its unwritten prompt (`cancel.rs`).
+        *session.unwritten_prompt.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some((turn_id.to_string(), false));
         let retry = super::subagent_retry::is_retry(run.provenance.as_ref());
         let mut cloud_exec = if let Some(envelope) = cloud_turn.as_ref() {
             if envelope.session != session.id
@@ -1415,6 +1418,9 @@ impl Hub {
                 self.save_meta(session);
             }
         }
+        // Its todo calls still held go with it, however the turn ends or is handed off
+        // (`acp_todo_plan.rs`): a late result passes through as any other tool's.
+        crate::acp_todo_plan::forget(&session.id);
         // Quit Everything already recorded this turn as cancelled. It ends the lane's parent too and
         // no agent starts after it, so the lane reports nothing (`lane_reports.rs`). A restart
         // handed it to the next daemon, which continues it: its end is that daemon's to write.
@@ -1922,8 +1928,17 @@ impl Hub {
                 // The mode first, then the mark, under the lock, only while the chat runs it:
                 // a write that moves the mode takes the mark (`write_mode_state`).
                 let reported = res.get("currentModeId").or(res.get("modeId")).cloned();
+                let mut writes = Vec::new();
+                // Claude Code answers with its options too, the `mode` option now at the new
+                // mode: kept with it, so the option never shows the mode the chat started in.
+                if let Some(opts) = res.get("configOptions").filter(|o| o.is_array()) {
+                    writes.push(ModeWrite::ConfigOptions(opts.clone()));
+                }
                 if let Some(mode) = reported.or_else(|| asked_mode.clone().map(Value::String)) {
-                    self.write_mode_state(session, [ModeWrite::CurrentMode(mode)]);
+                    writes.push(ModeWrite::CurrentMode(mode));
+                }
+                if !writes.is_empty() {
+                    self.write_mode_state(session, writes);
                 }
                 let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
                 if asked_mode.is_some() && crate::web_modes::mode_of(&meta) == asked_mode {

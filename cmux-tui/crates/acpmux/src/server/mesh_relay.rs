@@ -216,6 +216,25 @@ fn heartbeat_wait(options: &RelayOptions, ttl_seconds: u64) -> Duration {
     if third.is_zero() { options.heartbeat_every } else { third.min(options.heartbeat_every) }
 }
 
+/// Read the hub's address book into the hub's rows of this person's machines, within `budget`.
+/// Kept as it was when the read fails; nothing is listed before this machine knows its person.
+async fn read_book(
+    hub: &Weak<Hub>,
+    client: &dyn MeshHub,
+    own_daemon: Option<&str>,
+    budget: Duration,
+) {
+    let Some(own_user) = crate::cli::cloud_join::machine_user_id() else {
+        return;
+    };
+    let Ok(Ok(book)) = tokio::time::timeout(budget, client.sessions()).await else {
+        return;
+    };
+    if let Some(hub) = hub.upgrade() {
+        hub.apply_mesh_book(book, &own_user, own_daemon);
+    }
+}
+
 /// How long a start's ack waits for the heartbeat that lists its new session.
 const START_LISTED_WAIT: Duration = Duration::from_secs(5);
 
@@ -301,7 +320,7 @@ async fn heartbeats(
             Some(hub) => hub.mesh_rows().await,
             None => break,
         };
-        let listing = Heartbeat { host: host.clone(), sessions };
+        let listing = Heartbeat { host: host.clone(), sessions, leaving: false };
         let mut taken = false;
         let wait = tokio::select! {
             r = client.heartbeat(&listing) => match r {
@@ -332,6 +351,9 @@ async fn heartbeats(
                         );
                     }
                     halt.all();
+                    if let Some(hub) = hub.upgrade() {
+                        hub.set_mesh_book(Default::default(), Vec::new());
+                    }
                     return;
                 }
                 Err(e) => {
@@ -360,6 +382,16 @@ async fn heartbeats(
                     .await;
             }
         };
+        // This person's other machines and their sessions, after a heartbeat the hub took
+        // (`hub/mesh_book.rs`): at most one address book read per heartbeat.
+        let own_daemon = daemon.borrow().clone();
+        let book = async {
+            if taken {
+                let budget = wait.min(Duration::from_secs(5));
+                read_book(&hub, client.as_ref(), own_daemon.as_deref(), budget).await;
+            }
+            std::future::pending::<()>().await
+        };
         tokio::select! {
             () = async {
                 tokio::join!(
@@ -367,10 +399,15 @@ async fn heartbeats(
                     read_receipts
                 );
             } => {}
+            // The book read never holds back a heartbeat: dropped once the pause ends.
+            () = book => {}
             () = ended(&mut stop, &hub) => break,
         }
     }
-    let last = Heartbeat { host, sessions: Vec::new() };
+    if let Some(hub) = hub.upgrade() {
+        hub.set_mesh_book(Default::default(), Vec::new());
+    }
+    let last = Heartbeat { host, sessions: Vec::new(), leaving: true };
     let _ = tokio::time::timeout(Duration::from_secs(5), client.heartbeat(&last)).await;
 }
 

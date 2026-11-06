@@ -352,7 +352,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           return toResponse(payload.op, res.frames as unknown as ReadonlyArray<OwnerFrame>)
         }
         // agents.allowedClasses (P17-4): a chief is the "mux" class.
-        if (payload.op === "chief.create") {
+        if (payload.op === "chief.create" || payload.op === "channel.create") {
           const rules = yield* Effect.tryPromise({ try: () => signInRules(env, principal.team!, principal.user!), catch: gateUnreachable })
           if (!rules.allowed_classes.includes("mux")) return yield* new PolicyRefused({ code: "policy.denied", message: "your team does not allow chiefs (agents.allowedClasses)" })
         }

@@ -93,6 +93,19 @@ fn inside_an_input_window_frames_keep_the_floor_apart() {
 }
 
 #[test]
+fn above_250_fps_an_input_window_spaces_frames_as_the_cap_does() {
+    // At 500 fps the cap's 2 ms is shorter than the 4 ms floor: inside the window frames keep
+    // the cap's spacing, never closer than outside the window and never held to 4 ms.
+    let mut g = FrameGate::new(4, 500);
+    g.input(0);
+    assert!(matches!(g.damage(R, 0), FlowAction::Encode { frame: 1, .. }));
+    assert_eq!(g.damage(R, 1_000), FlowAction::Wait);
+    assert_eq!(g.next_deadline_us(), Some(2_000));
+    assert_eq!(g.poll(1_999), FlowAction::Wait);
+    assert!(matches!(g.poll(2_000), FlowAction::Encode { frame: 2, .. }));
+}
+
+#[test]
 fn a_passed_input_window_gives_the_cap_deadline_back() {
     use cmux_rd_core::flow::INPUT_FRAME_WINDOW_US;
     let mut g = FrameGate::new(1, 1);

@@ -324,6 +324,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case agentSessionContent = "agent-session-content-v1"
     /// The `mobile-chat-*` relay the Mac's mobile host offers a phone (cmux-tui mobile_chat.rs).
     case cloudChatRelay = "cloud_chat_relay.v1"
+    /// `agent-session-fork`: fork an attached chat through its latest completed turn.
+    case agentSessionFork = "agent-session-fork-v1"
     /// Read-only observation of a remote agent session. An observer never falls back to the
     /// writable attach capability (`cmux-tui/spec/commands.md`, `agent-session-observe`).
     case agentSessionObserve = "agent-session-observe-v1"
@@ -564,7 +566,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .browserProfiles, .bookmarks, .bookmarkIcon, .history, .localConversations, .conversationDraftEvents, .attachVisibility, .subscribeScrollOnAttach, .treeSelectionDeltas,
              .chiefLive, .cloudChiefLive, .conversationRuns, .conversationRunAnswers, .cloudConversationRuns, .cloudConversationTyping,
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .closedConversationTabs,
-             .agentSessionAttach, .cloudChatRelay, .agentSessionObserve, .agentSessionStart, .agentSessionStartNoCwd, .agentSessionTrust,
+             .agentSessionAttach, .agentSessionFork, .cloudChatRelay, .agentSessionObserve, .agentSessionStart, .agentSessionStartNoCwd, .agentSessionTrust,
              .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionTrustVMKind, .agentSessionFolders,
              .agentSessionChildren, .agentSessionContent, .agentSessionPresence, .agentSessionSettings, .agentSessionLogin, .pageTabs, .pageTabRoute, .appScreens,
              .conversationSearch, .conversationThreads, .conversationThread, .conversationInboxState, .homeInbox,

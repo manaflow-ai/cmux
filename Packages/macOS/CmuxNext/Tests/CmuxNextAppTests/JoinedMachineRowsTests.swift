@@ -5,8 +5,10 @@ import CmuxNextDaemonService
 import CmuxNextRemote
 @testable import CmuxNextServer
 import Foundation
+import Observation
 import Testing
 import CmuxNextTestSupport
+import CmuxNextWakeups
 
 /// The Machines section's machines joined through the hub: rows from `cmux machine list` (none
 /// while the store has no service), online by a heartbeat within 90 s, revoked ones dropped, Revoke and Rotate through the CLI and a fresh read after, Check
@@ -21,13 +23,17 @@ import CmuxNextTestSupport
         var rotated: [String] = []
         var answer = true
         var on = true
+        /// Whether the test's section is on screen, and whether a list read covers it (the window is
+        /// covered while the read is in flight).
+        var visible = true
+        var coverOnList = false
 
         @MainActor func store() -> JoinedMachineStore {
             JoinedMachineStore(service: { [self] in
                 guard on else { return nil }
                 return MachineJoinService(
                     mint: { _ in .failure(.failed) },
-                    list: { [self] in lists += 1; return rows },
+                    list: { [self] in lists += 1; if coverOnList { visible = false }; return rows },
                     revoke: { [self] id in
                         revoked.append(id)
                         if answer { rows = rows.map { $0.id == id ? Fake.machine(id, $0.name, state: .revoked) : $0 } }
@@ -42,15 +48,230 @@ import CmuxNextTestSupport
         }
     }
 
-    @Test func theStoreListsNothingWhileTheLabsSwitchIsOff() async {
+    @Test func theStoreListsNothingWhileItHasNoService() async {
         let fake = Fake()
         let store = fake.store()
         await store.refresh()
         #expect(store.machines.map(\.id) == ["m_1"])
         fake.on = false
         await store.refresh()
-        #expect(store.machines.isEmpty, "turning the switch off empties the section's joined rows")
+        #expect(store.machines.isEmpty, "signing out (no service) empties the section's joined rows")
         #expect(fake.lists == 1)
+    }
+
+    /// An online row turns offline once its heartbeat passes the 90 s window, offline and revoked rows
+    /// stay as they are, and the next deadline is the first online row's expiry.
+    @Test func anOnlineRowAgesOfflinePastTheHeartbeatWindow() {
+        let t0 = Date(timeIntervalSince1970: 1_000_000)
+        let fresh = JoinedMachine(id: "m_1", name: "a", state: .online, heartbeatAt: t0)
+        let older = JoinedMachine(id: "m_2", name: "b", state: .online, heartbeatAt: t0.addingTimeInterval(-30))
+        let off = JoinedMachine(id: "m_3", name: "c", state: .offline, heartbeatAt: t0)
+        #expect(fresh.aged(now: t0.addingTimeInterval(90)).state == .online)
+        #expect(fresh.aged(now: t0.addingTimeInterval(91)).state == .offline)
+        #expect(off.aged(now: t0.addingTimeInterval(1)).state == .offline, "aging never brings a row online")
+        #expect(JoinedMachine(id: "m_4", name: "d", state: .online).aged(now: .distantFuture).state == .online,
+                "no readable heartbeat: the CLI's word stands")
+        #expect(JoinedMachine.nextExpiry([fresh, older, off]) == t0.addingTimeInterval(60))
+        #expect(JoinedMachine.nextExpiry([off]) == nil)
+    }
+
+    /// The re-check deadline runs only while a section shows the rows: it starts with a visible
+    /// section, stops when the last one hides, and a fire that finds none on screen reads nothing.
+    @Test func theRecheckRunsOnlyWhileASectionIsVisible() async {
+        let now = Date()
+        let fake = Fake()
+        fake.rows = [JoinedMachine(id: "m_1", name: "a", state: .online, heartbeatAt: now.addingTimeInterval(-10))]
+        let store = fake.store()
+        await store.refresh()
+        #expect(!store.isAging, "no section shows the rows: no deadline")
+        let section = NSObject()
+        var visible = true
+        store.startAging(section) { visible }
+        #expect(store.isAging)
+        store.stopAging(section)
+        #expect(!store.isAging, "the last section hid: the deadline stops")
+        store.startAging(section) { visible }
+        visible = false
+        store.pauseAging()
+        #expect(!store.isAging, "the window was covered: the deadline stops at once, no wakeup at the expiry")
+        store.startAging(section) { visible }
+        let reads = fake.lists
+        await store.ageFired()
+        #expect(fake.lists == reads, "a fire with no section on screen reads nothing")
+        #expect(!store.isAging, "a covered window costs no wakeups: the deadline stops until it shows")
+        store.resumeAging()
+        #expect(!store.isAging, "still covered: resuming starts nothing")
+        visible = true
+        store.resumeAging()
+        #expect(store.isAging, "the window shows again: aging restarts at once")
+        store.stopAging(section)
+        #expect(!store.isAging)
+        visible = false
+        await store.ageFired()
+        #expect(!store.isAging, "no section registered: a fire never reschedules")
+        fake.rows = [JoinedMachine(id: "m_1", name: "a", state: .offline, heartbeatAt: now.addingTimeInterval(-10))]
+        await store.refresh()
+        visible = true
+        store.startAging(section) { visible }
+        #expect(!store.isAging, "no online row: nothing can age, no deadline")
+        store.stopAging(section)
+    }
+
+    /// A section that registers while its window is covered sets no deadline: a covered window costs
+    /// no wakeups from the start, and showing it starts aging (``JoinedMachineStore/resumeAging()``).
+    @Test func aSectionRegisteringWhileCoveredSetsNoDeadline() async {
+        let fake = Fake()
+        fake.rows = [JoinedMachine(id: "m_1", name: "a", state: .online, heartbeatAt: Date().addingTimeInterval(-10))]
+        let store = fake.store()
+        await store.refresh()
+        let section = NSObject()
+        fake.visible = false
+        store.startAging(section) { fake.visible }
+        #expect(!store.isAging, "registered while covered: no deadline")
+        fake.visible = true
+        store.resumeAging()
+        #expect(store.isAging, "the window shows: aging starts")
+        store.stopAging(section)
+    }
+
+    /// A list read that lands after every window was covered sets no deadline, whether the read was
+    /// a fire's or any other (a refresh, Add Device's card).
+    @Test func aReadLandingAfterTheWindowWasCoveredSetsNoDeadline() async {
+        let fake = Fake()
+        fake.rows = [JoinedMachine(id: "m_1", name: "a", state: .online, heartbeatAt: Date().addingTimeInterval(-10))]
+        let store = fake.store()
+        await store.refresh()
+        let section = NSObject()
+        store.startAging(section) { fake.visible }
+        #expect(store.isAging)
+        fake.coverOnList = true
+        await store.ageFired()
+        #expect(!fake.visible, "the window was covered while the fire's read was in flight")
+        #expect(!store.isAging, "the fire's read landed covered: no next deadline")
+        fake.coverOnList = false
+        await store.refresh()
+        #expect(!store.isAging, "a plain read landing covered: no deadline either")
+        fake.visible = true
+        store.resumeAging()
+        #expect(store.isAging)
+        store.stopAging(section)
+    }
+
+    /// Removing the last visible section while a covered one stays registered stops the deadline: the
+    /// covered window never wakes for the section that went.
+    @Test func removingTheLastVisibleSectionLeavesACoveredOneNoDeadline() async {
+        let fake = Fake()
+        fake.rows = [JoinedMachine(id: "m_1", name: "a", state: .online, heartbeatAt: Date().addingTimeInterval(-10))]
+        let store = fake.store()
+        await store.refresh()
+        let shown = NSObject(), covered = NSObject()
+        store.startAging(covered) { false }
+        store.startAging(shown) { true }
+        #expect(store.isAging)
+        store.stopAging(shown)
+        #expect(!store.isAging, "only a covered section is left: the deadline is cancelled and never fires")
+        store.startAging(shown) { true }
+        let other = NSObject()
+        store.startAging(other) { true }
+        store.stopAging(shown)
+        #expect(store.isAging, "another section is still on screen: the deadline stays")
+        store.stopAging(other)
+        store.stopAging(covered)
+    }
+
+    /// While visible, a fire reads the list once; a row the read did not renew ages offline.
+    @Test func aFireReadsOnceAndAgesWhatTheReadDidNotRenew() async {
+        let past = Date().addingTimeInterval(-200)
+        let fake = Fake()
+        fake.rows = [JoinedMachine(id: "m_1", name: "a", state: .online, heartbeatAt: past)]
+        let store = fake.store()
+        await store.refresh()
+        let section = NSObject()
+        store.startAging(section) { true }
+        let reads = fake.lists
+        await store.ageFired()
+        #expect(fake.lists == reads + 1)
+        #expect(store.machines.first?.state == .offline)
+        #expect(!store.isAging, "no online row left: no next deadline")
+        store.stopAging(section)
+    }
+
+    /// A covered window coming back into view after its rows' heartbeat passed reads at once: the
+    /// deadline is due now, not a window later.
+    @Test func aWindowShownAgainPastTheExpiryReadsAtOnce() async {
+        let fake = Fake()
+        fake.rows = [JoinedMachine(id: "m_1", name: "a", state: .online, heartbeatAt: Date().addingTimeInterval(-200))]
+        let store = fake.store()
+        await store.refresh()
+        let section = NSObject()
+        var visible = false
+        store.startAging(section) { visible }
+        await store.ageFired()
+        let reads = fake.lists
+        visible = true
+        store.resumeAging()
+        for _ in 0..<400 where fake.lists == reads { await Task.yield(); try? await Task.sleep(for: .milliseconds(5)) }
+        #expect(fake.lists == reads + 1, "shown again past the expiry: one read now")
+        #expect(store.machines.first?.state == .offline)
+        store.stopAging(section)
+    }
+
+    /// Switching account or team empties the rows at once (the old team's machines never show under
+    /// the new one) and reads the new account's list; a read still in flight for the old one is dropped.
+    @Test func switchingAccountEmptiesThenReadsTheNewList() async {
+        let fake = Fake()
+        let store = fake.store()
+        await store.refresh()
+        #expect(store.machines.map(\.id) == ["m_1"])
+        let stale = store.beginRead()
+        fake.rows = [Fake.machine("m_9", "other-team-box")]
+        await store.switchedAccount()
+        #expect(store.machines.map(\.id) == ["m_9"])
+        store.finishRead([Fake.machine("m_1", "lane-vm-3")], ticket: stale)
+        #expect(store.machines.map(\.id) == ["m_9"], "the old account's read lands late and is dropped")
+    }
+
+    /// The follow runs on an account change, not only on signing in or out.
+    @Test func theStoreFollowsAnAccountChange() async {
+        let fake = Fake()
+        let account = AccountBox()
+        let store = fake.store().following(account: { account.key })
+        await store.refresh()
+        let reads = fake.lists
+        fake.rows = [Fake.machine("m_9", "other-team-box")]
+        account.key = "u_1|team_b"
+        for _ in 0..<400 where fake.lists == reads { await Task.yield(); try? await Task.sleep(for: .milliseconds(5)) }
+        #expect(fake.lists == reads + 1)
+        #expect(store.machines.map(\.id) == ["m_9"])
+    }
+
+    /// A section hears its window's occlusion reports through the app's one occlusion observer until it
+    /// stops following or goes away (no observer of its own).
+    @Test func aSightFollowerHearsItsWindowUntilItStops() async throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 80, height: 80), styleMask: [], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false // the test holds it; close must not release it a second time
+        defer { window.close() }
+        var heard = 0
+        var owner: NSObject? = NSObject()
+        FrameScheduler.followSight(of: window, owner: owner!) { heard += 1 }
+        func report() async throws {
+            NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: window) // global-notice-allow: the app's one occlusion observer (FrameScheduler.watchSight) listens on .default and takes no center
+            try await Task.sleep(for: .milliseconds(10)) // yields the main actor so the report is delivered on the main queue
+        }
+        try await report()
+        #expect(heard == 1)
+        owner = nil
+        try await report()
+        #expect(heard == 1, "the owner went away: it is not told")
+        let other = NSObject()
+        FrameScheduler.followSight(of: window, owner: other) { heard += 1 }
+        FrameScheduler.unfollowSight(of: window, owner: other)
+        try await report()
+        #expect(heard == 1, "unfollowed: not told")
+    }
+
+    @MainActor @Observable final class AccountBox {
+        var key: String? = "u_1|team_a"
     }
 
     @Test func aRefreshIsOneReadAndAFailedReadKeepsTheRows() async {

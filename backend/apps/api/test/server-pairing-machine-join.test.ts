@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { pairApprove } from "../src/pair-routes.ts"
-import { beginPairing, op, read, sessionPrincipal, sessionToken, testEnv, userSubmit, waitFor } from "./pairing-harness.ts"
+import { beginPairing, call, inDO, op, read, runAlarm, sessionPrincipal, sessionToken, testEnv, userSubmit, waitFor } from "./pairing-harness.ts"
 
 /**
  * A paired box gets the same machine credential as a pasted join line (pair-machine-join.ts): the approval mints a
@@ -95,6 +95,67 @@ describe("server pairing mints the box's machine join token (workerd)", () => {
     expect(fake.calls).toHaveLength(1)
     await waiter.until(() => waiter.frames.some((f) => f.t === "paired"))
     expect(waiter.frames.find((f) => f.t === "paired").machine_join.token).toBe(TOKEN)
+  })
+
+  it("a retry after the pinned token expired mints a fresh one and pushes only that", async () => {
+    const { team, user, code, waiter } = await setup("stack-pair-machine-join-expired")
+    const FRESH = `cmj_${"b".repeat(43)}`
+    let first = true
+    const fake = platform(() => {
+      // The first token lives only 200 ms, so it has expired by the retry.
+      const reply = first
+        ? Response.json({ joinTokenId: "join_1", token: TOKEN, expiresAt: new Date(Date.now() + 200).toISOString(), teamId: "t" })
+        : Response.json({ joinTokenId: "join_2", token: FRESH, expiresAt: new Date(Date.now() + 600_000).toISOString(), teamId: "t" })
+      first = false
+      return reply
+    })
+    const teams = testEnv.TEAM_DO
+    const realTeam = teams.get(teams.idFromName(team)) as any
+    const flaky = { idFromName: (n: string) => teams.idFromName(n), get: () => ({ canEnrollServer: (...a: Array<unknown>) => realTeam.canEnrollServer(...a), enrollServer: async () => ({ ok: false, code: "owner.unreachable", message: "fixture outage" }) }) }
+    const approve = (teamDo: unknown) => pairApprove({ PAIRING_DO: testEnv.PAIRING_DO, TEAM_DO: teamDo, PLATFORM: fake, INTERNAL_TOKEN: "internal-test" } as never, sessionPrincipal(user, team), { op: "server.pair.approve", params: { code, team, name: "Studio" }, idempotency_key: "retry-expired" }, userSubmit as never)
+    expect(await approve(flaky)).toMatchObject({ ok: false })
+    await new Promise((r) => setTimeout(r, 300))
+    expect((await approve(testEnv.TEAM_DO)).ok).toBe(true)
+    expect(fake.calls).toHaveLength(2)
+    await waiter.until(() => waiter.frames.some((f) => f.t === "paired"))
+    expect(waiter.frames.find((f) => f.t === "paired").machine_join.token).toBe(FRESH)
+  })
+
+  // Production pairing e2e (cmuxterm-hq run 42125193131): "server.revoke left the machine live". The server's
+  // revoke must also revoke the cmm_ machine its join token made, as `cmux machine revoke` does.
+  it("server.revoke revokes the machine its join token made, and retries a platform outage until it lands", async () => {
+    const { owner, team, user, code, waiter } = await setup("stack-pair-machine-join-revoke")
+    const env = { PAIRING_DO: testEnv.PAIRING_DO, TEAM_DO: testEnv.TEAM_DO, PLATFORM: platform(minted), INTERNAL_TOKEN: "internal-test" } as never
+    const approved = await pairApprove(env, sessionPrincipal(user, team), { op: "server.pair.approve", params: { code, team, name: "Studio" }, idempotency_key: "machine-join-revoke" }, userSubmit as never)
+    expect(approved.ok).toBe(true)
+    await waiter.until(() => waiter.frames.some((f) => f.t === "paired"))
+    const { host, install } = (approved as { value: { host: string; install: string } }).value
+    const teamStub = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team)) as any
+    expect((await teamStub.debug(team)).state.server_machine_joins).toEqual({ [install]: "join_1" })
+
+    // The platform is down until `up`; TeamDO's own alarm may retry meanwhile, and keeps the item while it is down.
+    let up = false
+    const calls: Array<[string, string]> = []
+    await inDO(teamStub, async (instance) => {
+      instance.machineJoins = async (t: string, id: string) => (calls.push([t, id]), up ? "done" : "retry")
+    })
+    const revoked = await op(owner, "server.revoke", { host })
+    expect(revoked.json).toMatchObject({ ok: true, value: { host, install_revoked: true } })
+    expect(calls.length).toBeGreaterThanOrEqual(1)
+    expect(new Set(calls.map((c) => c.join(" ")))).toEqual(new Set([`${team} join_1`]))
+    // The install is revoked at once; the machine's revocation stays pending until the platform confirms.
+    expect((await call("/v1/auth/challenge", undefined, { user, install })).status).toBe(403)
+    const state = async () => (await teamStub.debug(team)).state
+    expect((await state()).server_revocations?.[install]).toMatchObject({ machine_join_token: "join_1" })
+    expect((await state()).server_machine_joins ?? {}).toEqual({})
+    up = true
+    const before = calls.length
+    await inDO(teamStub, async (instance) => {
+      instance.revokeRetryAt = 0
+    })
+    await runAlarm(teamStub)
+    expect(calls.length).toBeGreaterThan(before)
+    expect((await state()).server_revocations ?? {}).toEqual({})
   })
 
   it("without the platform binding the box pairs as before, with no join token", async () => {

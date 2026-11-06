@@ -1149,6 +1149,29 @@ mod tests {
         assert!(Arc::ptr_eq(&guard.snapshot(&hub).await, &held), "nothing pending: no change");
     }
 
+    /// An agent start's spawn lease and its end each change the list: an update's `ls` never reads
+    /// a cached `starting: false` while a start runs (review of #36854).
+    #[tokio::test]
+    async fn an_agent_start_and_its_end_rebuild_the_list() {
+        let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+        let meta: crate::store::SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "s1", "name": "lane", "harness": "claude",
+            "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1
+        }))
+        .unwrap();
+        let session = hub.insert_test_session(meta);
+        let (guard, minute) = (&hub.list_guard, Duration::from_secs(60));
+        assert_eq!(hub.session_summary(&session)["starting"], json!(false));
+        let held = hold(&hub, minute).await;
+        let lease = hub.spawn_lease(&session).await;
+        assert_ne!(guard.snapshot(&hub).await.serial, held.serial, "a start rebuilds");
+        assert_eq!(hub.session_summary(&session)["starting"], json!(true));
+        let held = hold(&hub, minute).await;
+        drop(lease);
+        assert_ne!(guard.snapshot(&hub).await.serial, held.serial, "its end rebuilds");
+        assert_eq!(hub.session_summary(&session)["starting"], json!(false));
+    }
+
     #[tokio::test]
     async fn a_snapshot_is_shared_until_a_change_and_never_while_the_logs_load() {
         let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));

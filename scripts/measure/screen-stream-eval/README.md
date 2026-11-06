@@ -6,12 +6,17 @@ fixed scenarios on one Mac, and writes numbers a later run can diff key by key
 
 ```
 cmux-ci run --class exclusive --measurement --label measure --label gui-session-v1 --script scripts/measure/screen-stream-eval.sh \
-  --ref SHA --artifact artifacts/screen-stream-eval/results.json [--arg=targets=rd,webrtc] [--arg=samples=200] [--arg=repeats=3]
+  --ref SHA --artifact artifacts/screen-stream-eval/results.json [--arg=targets=rd,webrtc] [--arg=samples=200] [--arg=repeats=3] \
+  [--arg=input-frame-now=1]
 ```
 
-`.github/workflows/screen-stream-eval.yml` runs it every day at the feat-cmux-next tip. It
-uploads `results.json` and a `summary.md` that shows each number's change against the last
-scheduled run.
+`input-frame-now=1` starts the rd host with `--input-frame-now 1` (an input lifts its frame-rate cap
+for 100 ms), for a before/after against a run without it at the same commit.
+
+`.github/workflows/screen-stream-eval.yml` runs it every day at the feat-cmux-next tip, started by
+main's `screen-stream-eval-dispatch.yml` (scheduled workflows run only from the default branch). It
+uploads `results.json` and a `summary.md` that shows each number's change against the last daily
+run (the last successful one that dispatcher started).
 
 ## Scenarios (fixed)
 
@@ -46,7 +51,7 @@ form on the host Mac. The verbs are:
 | --- | --- |
 | `build` | builds its host and viewer into `EVAL_BIN` |
 | `host-start`, `host-stop` | starts its host on this Mac's main display at its defaults, and returns once the host is ready; stops it |
-| `latency-view INPUT SAMPLES RAW`, `latency-report INPUT RAW OUT` | INPUT `key` or `pointer`: SAMPLES inputs on the marker through its viewer; OUT gets `{"g2g_ms": {"n", "p50", "p95", ...}, "lost", "split": {"input_to_capture_ms", "encode_ms", "transport_ms", "decode_ms", "method"}}` (transport: what is left between encode and decode, by each target's own method; not comparable across targets) |
+| `latency-view INPUT SAMPLES RAW`, `latency-report INPUT RAW OUT` | INPUT `key` or `pointer`: SAMPLES inputs on the marker through its viewer; OUT gets `{"g2g_ms": {"n", "p50", "p95", ...}, "lost", "split": {"input_to_capture_ms", "encode_ms", "transport_ms", "decode_ms", "method"}}` (transport: what is left between encode and decode, by each target's own method; not comparable across targets). rd's split also has `input_to_capture_parts`: `{"render_ms", "sck_ms", "pickup_ms", "gate_ms", "encode_ms"}`, each `{"n", "p50", "p95"}`, from the host's per-frame timing log |
 | `window-view SECONDS FRAME GO RAW`, `window-report RAW OUT` | a viewer that sends nothing for SECONDS. It creates GO once its first frame shows, which starts the scene's timeline (the scene then holds its last screen until the harness stops it). FRAME gets the last decoded frame (PNG or PPM), and OUT gets `{"series": [{"unix_ms", "bytes", "frames", "decode_ms", "encode_ms"}], "extra"}`, one row a second |
 
 Today's targets:
@@ -80,8 +85,16 @@ cmux-ci run ... --target-worker HOST_MAC --pin-strict --arg=lan=HOST_LAN_IP --ar
 cmux-ci run ... --target-worker VIEWER_MAC --pin-strict --arg=viewer-of=HOST_LAN_IP --arg=peer-token=$token
 ```
 
+On the fleet's minis, use the host's tailnet address (`100.x`) for `lan` and `viewer-of`: macOS Local
+Network privacy refuses LAN addresses to the binaries a step starts (Apple's own, such as `nc`, are
+exempt, so a shell probe proves nothing), while the tailnet path between two Macs on one LAN is direct,
+inside WireGuard. The summary's link then says `lan via tailnet`.
+
 The host Mac runs everything as usual (scene, marker, host bound to `lan`, OCR, results), and waits
-up to 30 minutes for the viewer Mac. The viewer Mac builds the targets and runs `peer.py agent`. For
+up to 30 minutes for the viewer Mac. Submit the viewer half first and the host half once the viewer's
+step is running (its log shows `SCREEN-STREAM-EVAL-STAGE viewer`): a pinned Mac that is busy with other
+steps can hold the viewer back for longer than the host's wait, and the viewer itself waits 30 minutes
+for the host. The viewer Mac builds the targets and runs `peer.py agent`. For
 each scenario the host Mac hands its target's view verb (`latency-view`, `window-view`) to the
 viewer Mac and gets back the raw result, the viewer frame and the clock offset between the two Macs.
 It then runs the report verb (`latency-report`, `window-report`) itself. The rd host takes its own
