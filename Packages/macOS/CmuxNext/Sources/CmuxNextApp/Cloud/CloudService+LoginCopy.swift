@@ -8,10 +8,7 @@ import Foundation
 extension CloudService {
     /// Reads the remote switch now (5 s at most) and answers it: nil (off) on any failure.
     @discardableResult func readHarnessLoginCopySwitch() async -> Bool? {
-        let auth = auth, identity = installIdentity
-        let owner = CloudOwnerAPIClient(baseURL: FeedService.apiBaseURL(auth: auth), accessToken: { try await auth.tokens().access },
-                                        teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) }, cli: cli)
-        return await harnessLoginCopySwitch.read(owner)
+        await harnessLoginCopySwitch.read(ownerAPI())
     }
 }
 

@@ -35,13 +35,7 @@ final class HandoffNotices {
          user: (@MainActor @Sendable () -> String?)? = nil) {
         self.services = services
         self.currentUser = user ?? { [weak services] in services.flatMap(HandoffNotices.user(in:)) }
-        let cloud = services.cloud, auth = cloud.auth, identity = cloud.installIdentity
-        let owner = CloudOwnerAPIClient(
-            baseURL: FeedService.apiBaseURL(auth: auth),
-            accessToken: { try await auth.tokens().access },
-            teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) },
-            cli: cloud.cli
-        )
+        let owner = services.cloud.ownerAPI()
         self.follower = follower ?? SandboxRunFollower(source: .handoffs(wait: { id, after in try await owner.handoffWait(id, after: after) }))
         self.list = list ?? { try await owner.handoffs() }
         self.follower.onEnd = { [weak self] end in self?.told(end) }

@@ -60,11 +60,7 @@ func cloudTryAnotherApproach(chat key: String, session expected: String, through
                          parentLabel: "Try another approach · \(workspace.displayName)")
         },
         forkMachine: { plan in
-            let owner = CloudOwnerAPIClient(
-                baseURL: FeedService.apiBaseURL(auth: services.cloud.auth), accessToken: { try await services.cloud.auth.tokens().access },
-                teamID: { [identity = services.cloud.installIdentity] in (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) },
-                cli: services.cloud.cli)
-            let children = try await owner.forkRun(workspace: plan.workspace, clientKey: plan.clientKey,
+            let children = try await services.cloud.ownerAPI().forkRun(workspace: plan.workspace, clientKey: plan.clientKey,
                                                    sourceMachine: plan.sourceMachine, session: plan.session,
                                                    harnesses: [plan.harness])
             guard let child = children.first else { throw cloudTryAnotherApproachFailure("Cloud did not return a child") }

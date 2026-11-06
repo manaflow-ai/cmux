@@ -24,8 +24,7 @@ final class CloudService {
     let configuration: CloudConfiguration
     let auth: CloudAuth
     @ObservationIgnored let api: CloudAPIClient
-    /// The bundled cmux every Cloud API call runs through (`cmux cloud api`); nil in a build without it.
-    @ObservationIgnored let cli: BundledCmux?
+    @ObservationIgnored let cli: BundledCmux? // every Cloud API call runs through it (`cmux cloud api`)
     /// A machine's exec and file routes: the configured cmux API Worker.
     @ObservationIgnored let machineAPI: CloudAPIClient
     /// Same person and team as the machine API, at the configured platform preview origin.
@@ -177,10 +176,7 @@ final class CloudService {
         let auth = auth
         let cli = BundledCmux(bundleResources: Bundle.main.resourceURL, work: work)
         self.cli = cli
-        api = CloudAPIClient(
-            configuration: configuration,
-            tokens: { try await auth.tokens() },
-            teamID: { await auth.teamID }, cli: cli)
+        api = CloudAPIClient(configuration: configuration, tokens: { try await auth.tokens() }, teamID: { await auth.teamID }, cli: cli)
         let configuration = self.configuration, paths = self.paths, deviceName = Self.deviceName
         let clientVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
         let install = { @Sendable (api: URL, folder: String) in

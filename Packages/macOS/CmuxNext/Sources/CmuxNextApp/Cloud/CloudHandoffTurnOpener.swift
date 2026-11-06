@@ -153,13 +153,5 @@ struct CloudHandoffTurnOpener {
     }
 
     /// The person's own session on the backend API, as ``HandoffNotices`` reads hand-offs.
-    private func ownerClient() -> CloudOwnerAPIClient {
-        let cloud = services.cloud, auth = cloud.auth, identity = cloud.installIdentity
-        return CloudOwnerAPIClient(
-            baseURL: FeedService.apiBaseURL(auth: auth),
-            accessToken: { try await auth.tokens().access },
-            teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) },
-            cli: cloud.cli
-        )
-    }
+    private func ownerClient() -> CloudOwnerAPIClient { services.cloud.ownerAPI() }
 }

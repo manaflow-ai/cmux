@@ -101,18 +101,19 @@ extension CloudService {
     /// The API Worker with the person's Stack session; the team is the install token's team claim
     /// (the team whose CloudDO holds the app server's machines).
     private func workerApprovalsRoute() -> ApprovalsRoute {
-        let auth = auth, identity = installIdentity
-        let owner = CloudOwnerAPIClient(
-            baseURL: FeedService.apiBaseURL(auth: auth),
-            accessToken: { try await auth.tokens().access },
-            teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) },
-            cli: cli
-        )
+        let owner = ownerAPI()
         return ApprovalsRoute(
             keyedStart: { machine, length, write in try await owner.acpmuxKeyedStart(machine, keyLineLength: length, writeKey: write) },
             personHolds: { machine, nonce in try await owner.acpmuxPersonHolds(machine, nonce: nonce) },
             failure: Self.workerApprovalsFailure
         )
+    }
+
+    /// The person's own session on the API Worker in the install token's team: hand-offs, approvals, fork runs, the switch.
+    func ownerAPI() -> CloudOwnerAPIClient {
+        let auth = auth, identity = installIdentity
+        return CloudOwnerAPIClient(baseURL: FeedService.apiBaseURL(auth: auth), accessToken: { try await auth.tokens().access },
+                                   teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) }, cli: cli)
     }
 
     /// The pane's reason for a refused or failed keyed start (the API Worker's codes, backend cloud-acpmux.ts).
