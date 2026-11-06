@@ -71,7 +71,9 @@ jobs:
           target=()
           [ -n "$WORKER" ] && target=(--target-worker "$WORKER")
           status=0
-          "$client" run --class exclusive --measurement --label bench \
+          # cmux20 is owner-only for pool perf-lead (hq fleet.json owner_only_hosts): the controller refuses a
+          # --label bench step that is not a measurement of that pool (HTTP 409, run 42183675700).
+          "$client" run --class exclusive --measurement --pool perf-lead --label bench \
             --script scripts/measure/perf-bench.sh --ref "$sha" --timeout 23400 \
             --artifact artifacts/perf-bench/results.json ${target[@]+"${target[@]}"} \
             --arg="rounds=$ROUNDS" --arg="browsers=$BROWSERS" --arg="gate=$GATE" \
