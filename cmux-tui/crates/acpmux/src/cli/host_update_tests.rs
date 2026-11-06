@@ -959,6 +959,13 @@ fn a_link_that_drops_under_the_restart_is_no_rollback() {
 }
 
 #[test]
+fn ssh_keepalive_timeouts_are_a_lost_host() {
+    assert!(lost_the_host_text("Connection to UNKNOWN port 65535 timed out\r\n"));
+    assert!(lost_the_host_text("Connection to 100.64.0.7 port 22 timed out"));
+    assert!(!lost_the_host_text("restart timed out waiting for acpmux.service"));
+}
+
+#[test]
 #[cfg(unix)]
 fn without_systemd_the_detached_daemon_is_updated_checked_and_rolled_back() {
     // A cloud VM (root, no user manager): a daemon started detached.

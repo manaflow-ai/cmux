@@ -129,7 +129,6 @@ struct CloudMachineUpdateButtonTests {
     /// its own (no click) is not added to the row. Refused clicks change nothing.
     @Test func aClickedMachineSaysItIsUpdatingUntilItEnds() async {
         let board = DaemonUpdateBoard()
-        board.showNotice = { _ in nil }
         let tooOld = "tidy-yellow-tern runs a cmux too old to update in place."
         board.apply(DaemonUpdateEvent(id: "cloud:a", displayName: "tidy-yellow-tern", state: .cannotUpdate(reason: tooOld)))
         board.apply(DaemonUpdateEvent(id: "cloud:b", displayName: "fs-peer-1", state: .updating))

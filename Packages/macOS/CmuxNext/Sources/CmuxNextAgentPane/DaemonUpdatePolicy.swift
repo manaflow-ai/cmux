@@ -22,13 +22,17 @@ import os
 ///   unreachable one shows as offline, never as a failure, and is asked again at once when it
 ///   connects (its next offer), also after those 6 hours;
 /// - one target at a time across every source, urgent targets first;
-/// - one attempt per target and build: a final outcome is kept in ``DaemonUpdateLedger`` across
-///   launches, so a target that rolled back or failed is not tried again until the next build; one
-///   left for the next launch (no binary, still busy after 6 hours) is not tried again in this run;
+/// - a failed or rolled-back update is tried again in the background with the same backoff, up to
+///   ``Dependencies/failureRetries`` more times in a run, saying only "will try again" on the
+///   machine's own line; then it is final;
+/// - a final outcome is kept in ``DaemonUpdateLedger`` across launches, so a target that rolled
+///   back or failed is not tried again until the next build; one left for the next launch (no
+///   binary, still busy after 6 hours) is not tried again in this run;
 /// - a target that cannot take a build in place (``DaemonUpdateOutcome/unsupported(reason:)``) is
-///   no failure: it shows on the board with no notice, and is not tried again, on this build or a
+///   no failure: it shows on the board, and is not tried again, on this build or a
 ///   later one, while it reports the build it ran then (``DaemonUpdateLedger/cannotUpdate``);
-/// - each target's state on ``DaemonUpdateBoard``, which groups the failures into one notice;
+/// - each target's state on ``DaemonUpdateBoard``, never a toast: a failure is a quiet line on the
+///   machine's row in Settings > Updates;
 /// - off with the Debug Settings toggle `agent.updatePeers`, read before every step.
 public actor DaemonUpdatePolicy {
     nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon-update")
@@ -57,6 +61,9 @@ public actor DaemonUpdatePolicy {
         /// A target that answers busy this long, also to updates while busy, is left for the next
         /// launch.
         public var giveUpAfter: Duration = .seconds(6 * 3600)
+        /// How many more times a failed or rolled-back update is tried in a run, each after the next
+        /// ``busyBackoff`` wait (2, then 4 minutes), before its failure is final.
+        public var failureRetries = 2
 
         public init(bundledBuild: @escaping @Sendable () async -> String?,
                     targets: @escaping @Sendable () async -> [any DaemonUpdateTarget] = DaemonUpdatePolicy.noTargets,
@@ -152,6 +159,8 @@ public actor DaemonUpdatePolicy {
         var firstBusy: Duration?
         /// Its last answer was ``DaemonUpdateOutcome/unreachable``: its board line says offline.
         var offline = false
+        /// Failed or rolled-back updates of it in this run, each tried again after a backoff.
+        var failures = 0
     }
 
     /// Queues `target` and returns at once; the queue drains in the background, one target at a
@@ -465,6 +474,17 @@ public actor DaemonUpdatePolicy {
             again.due = now < cap ? min(now + delay, cap) : now + delay
             return again
         }
+        // A failure is tried again in the background, quietly, before it is final: an update cut
+        // by a dropped link or a slow start often goes through on the next try.
+        if Self.isFailure(outcome), pending.failures < deps.failureRetries {
+            var again = pending
+            again.failures += 1
+            again.offline = false
+            again.due = elapsed() + again.backoff.next()
+            Self.logger.info("\(target.displayName, privacy: .public) update failed; trying again (\(again.failures, privacy: .public))")
+            await deps.report(DaemonUpdateEvent(target, .retrying))
+            return again
+        }
         // Not tried again in this run whatever the ledger write does: a ledger that was not written
         // would let the next drain retry a rollback.
         settled[target.id] = local.hash
@@ -520,8 +540,16 @@ public actor DaemonUpdatePolicy {
         }
     }
 
-    /// The board's state after a final outcome, with the build it was about. Only a recorded
-    /// failure notifies: it is recorded once per target and build, so its notice shows once.
+    /// Whether `outcome` is a failed or rolled-back update, tried again before it is final.
+    nonisolated static func isFailure(_ outcome: DaemonUpdateOutcome) -> Bool {
+        switch outcome {
+        case .rolledBack, .failed: true
+        default: false
+        }
+    }
+
+    /// The board's state after a final outcome, with the build it was about. None raises a toast:
+    /// a failure is the machine's quiet row line.
     nonisolated static func event(_ target: any DaemonUpdateTarget, _ outcome: DaemonUpdateOutcome,
                                   local: DaemonBuildCommit) -> DaemonUpdateEvent {
         let build = local.hash
@@ -531,11 +559,11 @@ public actor DaemonUpdatePolicy {
         case .busy: DaemonUpdateEvent(target, .retrying)
         case .unreachable: DaemonUpdateEvent(target, .offline)
         case .needsBinary(let triple): DaemonUpdateEvent(target, .failed(reason: "no build for \(triple)", rolledBack: false), build: build)
-        case .rolledBack(let reason): DaemonUpdateEvent(target, .failed(reason: reason, rolledBack: true), notify: true, build: build)
+        case .rolledBack(let reason): DaemonUpdateEvent(target, .failed(reason: reason, rolledBack: true), build: build)
         case .handledElsewhere, .held: DaemonUpdateEvent(target, .cleared)
-        // Not a failure: no notice, the board's grouped line.
+        // Not a failure: the board's grouped line.
         case .unsupported(let reason): DaemonUpdateEvent(target, .cannotUpdate(reason: reason), build: build)
-        case .failed(let reason): DaemonUpdateEvent(target, .failed(reason: reason, rolledBack: false), notify: true, build: build)
+        case .failed(let reason): DaemonUpdateEvent(target, .failed(reason: reason, rolledBack: false), build: build)
         }
     }
 }

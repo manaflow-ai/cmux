@@ -33,7 +33,6 @@ struct CloudMachineUpdateTargetTests {
         #expect(fixture.states == [.updating, .updated(build: Self.bundled)])
         #expect(machine.reconnects == 1, "the connection is pointed at the new daemon")
         #expect(fixture.ledger.targets == [CloudMachineUpdateTarget.id("vm-1"): "updated"])
-        #expect(fixture.notices.isEmpty)
     }
 
     /// The CLI cannot update now (another update of the machine runs): busy, asked again after
@@ -300,9 +299,9 @@ struct CloudMachineUpdateTargetTests {
         #expect(fixture.states.isEmpty)
     }
 
-    /// A rollback shows its state and one notice; the next connect's pass (the same build) does
-    /// not run it again. A new app build does.
-    @Test func aFailureShowsOnceAndIsNotRetriedInALoop() async throws {
+    /// A rollback is tried twice more in the background, then its state stays on the machine's row
+    /// with no toast; the next connect's pass (the same build) does not run it again. A new app build does.
+    @Test func aFailureIsRetriedQuietlyAndNotInALoop() async throws {
         let rolledBack = CloudMoveCLI.Answer(ok: false, errorCode: "machine_update_rolled_back",
                                              error: "the new daemon did not serve, so the machine runs its old build again")
         let machine = FakeCloudMachine(build: Self.older, level: .limited, answers: [rolledBack])
@@ -312,14 +311,13 @@ struct CloudMachineUpdateTargetTests {
         await fixture.run(machine)
         await fixture.run(machine)
 
-        #expect(machine.updates == 1)
+        #expect(machine.updates == 3)
         #expect(fixture.board.targets[CloudMachineUpdateTarget.id("vm-1")]?.state == .failed(reason: rolledBack.error ?? "", rolledBack: true))
-        #expect(fixture.notices.count == 1)
-        #expect(fixture.notices.first?.contains("Leo VM") == true)
+        #expect(fixture.board.otherMachines?.lines.first?.contains("Leo VM") == true)
         #expect(fixture.ledger.targets == [CloudMachineUpdateTarget.id("vm-1"): "rolledBack"])
 
         await fixture.run(machine, bundled: "fedcba987654")
-        #expect(machine.updates == 2, "the app's next build tries once more")
+        #expect(machine.updates == 6, "the app's next build tries again")
     }
 
     /// Leo's screen: "lofty-lemon-stoat runs a cmux too old to update in place. Use a new Cloud
@@ -337,7 +335,6 @@ struct CloudMachineUpdateTargetTests {
         await fixture.run(machine, bundled: "fedcba987654")
 
         #expect(machine.updates == 1, "asked again on a later build")
-        #expect(fixture.notices.isEmpty, "a toast for a machine too old to update in place")
         #expect(fixture.board.targets[id]?.state == .cannotUpdate(reason: CloudMachineUpdateStrings.unsupported("Leo VM")))
         #expect(fixture.board.otherMachines?.lines == [CloudMachineUpdateStrings.unsupported("Leo VM")])
 
@@ -438,7 +435,6 @@ struct CloudMachineUpdateTargetTests {
         #expect(machine.reconnectRestarts == [false], "the connection is left as it is")
         #expect(fixture.states == [.updating, .cleared])
         #expect(fixture.ledger.targets.isEmpty)
-        #expect(fixture.notices.isEmpty)
     }
 
     /// A toggle turned off after the policy read the machine: the CLI does not run.
@@ -463,7 +459,6 @@ struct CloudMachineUpdateTargetTests {
         defer { fixture.remove() }
         await fixture.run(machine)
         #expect(machine.updates == 2)
-        #expect(fixture.notices.isEmpty)
         #expect(fixture.ledger.targets == [CloudMachineUpdateTarget.id("vm-1"): "updated"])
     }
 
@@ -474,7 +469,6 @@ struct CloudMachineUpdateTargetTests {
         let fixture = try CloudUpdateFixture()
         defer { fixture.remove() }
         await fixture.run(machine)
-        #expect(fixture.notices.count == 1)
         #expect(fixture.ledger.targets == [CloudMachineUpdateTarget.id("vm-1"): "failed"])
     }
 
@@ -502,8 +496,7 @@ struct CloudMachineUpdateTargetTests {
         let fixture = try CloudUpdateFixture()
         defer { fixture.remove() }
         await fixture.run(machine)
-        #expect(machine.updates == 1)
-        #expect(fixture.notices.count == 1)
+        #expect(machine.updates == 3, "tried twice more in the background")
         #expect(fixture.ledger.targets == [CloudMachineUpdateTarget.id("vm-1"): "failed"])
     }
 
@@ -631,12 +624,10 @@ final class CloudUpdateFixture {
     let clock = CloudUpdateTestClock()
     let board = DaemonUpdateBoard()
     private(set) var events: [DaemonUpdateEvent] = []
-    private(set) var notices: [String] = []
 
     init() throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("cloud-update-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        board.showNotice = { [weak self] in self?.notices.append($0.toast.message); return nil }
     }
 
     var directory: URL { root }
