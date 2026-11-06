@@ -36,19 +36,18 @@ fn optimistic_requests_round_trip_their_json() {
 
 #[test]
 fn optimistic_ratio_and_width_come_back_bit_for_bit() {
-    let text = r#"{"op":"split","screen":{"layout":{"type":"leaf","pane":3},"panes":[3]},
-        "target":3,"dir":"right","ratio":0.30000000000000004,"leaf":9,"split_id":"s",
-        "column":{"handle":9,"width":0.6666666666666666}}"#;
-    let request: Request = serde_json::from_str(text).expect("request");
-    let answer = respond(&request);
-    let width = answer["columns"][1]["width"].as_f64().expect("width");
-    assert_eq!(width.to_bits(), (2.0f64 / 3.0).to_bits());
-    let split: Request = serde_json::from_str(
-        &text.replace(r#","column":{"handle":9,"width":0.6666666666666666}"#, ""),
-    )
-    .expect("split");
-    let ratio = respond(&split)["layout"]["ratio"].as_f64().expect("ratio");
+    let split = r#"{"op":"split","screen":{"layout":{"type":"leaf","pane":3},"panes":[3]},
+        "target":3,"dir":"right","ratio":0.30000000000000004,"leaf":9,"split_id":"s"}"#;
+    let request: Request = serde_json::from_str(split).expect("split");
+    let ratio = respond(&request)["layout"]["ratio"].as_f64().expect("ratio");
     assert_eq!(ratio.to_bits(), (0.1f64 + 0.2).to_bits());
+    let column = split.replace(
+        r#""split_id":"s""#,
+        r#""split_id":"s","column":{"handle":9,"width":0.6666666666666666}"#,
+    );
+    let request: Request = serde_json::from_str(&column).expect("column");
+    let width = respond(&request)["columns"][1]["width"].as_f64().expect("width");
+    assert_eq!(width.to_bits(), (2.0f64 / 3.0).to_bits());
 }
 
 #[test]
