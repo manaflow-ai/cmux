@@ -188,6 +188,15 @@ key fingerprint, the link binding and the canonical list of the grants the
 person ticked; hostd verifies that signature, and that the ticked list is a
 subset of what the caller signed, before it writes `DeviceTrust`. A grant
 that is not in both signed lists is never written.
+
+**Which phone may approve** (review: approval bootstrap). The target checks
+a phone's approval signature only against an approval key already in its
+own `DeviceTrust`, put there when that phone paired with this Mac through
+its own card (today's `pairing.rs` flow). A key that arrives through the hub
+or the caller is never accepted as an approver. So the card for a first
+contact shows on the phone only when that phone is already paired with the
+target Mac; otherwise it shows only on the target Mac itself, and the person
+approves there. The device registry's ids are never treated as keys.
 Linux machines come later: today the device registry and the hub know only
 `mac` and `phone` (`backend/src/index.ts`, `schema.ts`, `team-hub.ts`), so a
 Linux kind needs that change in the same PR that lets one pair.
@@ -301,8 +310,16 @@ MacBook**, or the sidebar row's menu.
    bundle, never through the file system) before it creates the link. A
    target that leaves the bundle, or a symlink at a path already written,
    refuses the whole archive. The whole tree is then checked once more
-   against the manifest before the rename. Anything else refuses the whole archive. It unpacks into a fresh
-   folder in staging, which is moved into place with one rename.
+   against the manifest before it is moved into place. Anything else refuses
+   the whole archive. It unpacks into a fresh folder in staging, on the same
+   volume as `~/Applications`. A first install moves it into place with
+   `renamex_np(RENAME_EXCL)`, which fails rather than overwrite anything. A
+   replacement (allowed only by step 4) swaps the two folders atomically
+   with `renamex_np(RENAME_SWAP)`, which works on a non-empty destination
+   (review: replacement); the old tree, now in staging, is deleted after the
+   ledger records the new one. A crash at any point leaves either the old or
+   the new app at the path, never a mix, and the ledger's pending entry tells
+   the next start which one and what to clean up.
 4. **It never replaces anything it did not install.** The receiver keeps an
    install ledger (0600, beside Activity): each install's path, bundle id,
    archive sha256, installed-tree hash and the peer that sent it. The
@@ -314,10 +331,15 @@ MacBook**, or the sidebar row's menu.
    the send is refused with its reason. A build-key build
    installs only as a tagged DEV app: bundle id `com.cmuxterm.app.debug.<tag>`,
    into `~/Applications/cmux DEV <tag>.app`. The tag must match
-   `^[a-z0-9][a-z0-9-]{0,39}$`, which is stricter than `scripts/reload.sh`
-   (it accepts `^[A-Za-z0-9_-]+$` and then sanitizes); the sender lowercases
-   a reload tag and turns `_` into `-` before it sends, and any
-   other tag refuses the send, so neither the path nor the bundle id is ever
+   `^[a-z0-9][a-z0-9-]{0,39}$`, and the signed bundle id must be exactly
+   `com.cmuxterm.app.debug.<tag>`. That is stricter than
+   `scripts/reload.sh`, which accepts `^[A-Za-z0-9_-]+$` and makes the
+   bundle segment by turning every other character into `.`
+   (`mobile-attach.sh`): a reload build tagged `foo_bar` carries
+   `com.cmuxterm.app.debug.foo.bar` and no tag maps to it. The sender checks
+   this before uploading and says "rebuild with a tag of lowercase letters,
+   digits and dashes" (a tag such as `foo-bar` already satisfies both); it
+   never renames a signed bundle. Any other tag or bundle id refuses the send, so neither the path nor the bundle id is ever
    built from a slash, a dot component or a control character. The final
    path is checked to be a direct child of `~/Applications` after
    resolving. A release build installs beside
@@ -338,6 +360,20 @@ Workspace on MacBook**. A typed `machine.session.request` (the October
 draft's schema): agent from a closed list, `cwd` inside the folders the
 grant lists (realpath, no symlink escape), prompt as data delivered through
 hooks. No `command`, `argv`, `env` or launcher field exists in the schema.
+
+**`run` is code execution as the person** (review: run scope). The folder
+list fixes only where the agent starts. The agent itself (Claude, Codex)
+runs commands and edits files as the person's user on the target, anywhere
+that user can reach, so `run` is treated as that and not as a sandbox. The
+card says so in words: "Studio wants to start Codex here. Codex can run
+commands and change files as you on this Mac." The agent starts in the
+target's own default permission mode and policy for that harness, which the
+request cannot name or raise: an agent started over `run` asks on the target
+(and on a paired phone) before every command its own policy would ask for,
+exactly as one the person started locally. "Always" on a `run` card covers
+that peer, folder and agent only. A sandboxed `run` (a container, or a
+macOS sandbox profile) is a later option, not something this design
+claims.
 Answer: the host-qualified receipt `{machine, workspace_id, surface_id,
 session_id}`; the caller's sidebar shows it under that machine and opens it
 over the same link (the phone's `daemon` and `acpmux` lanes).
@@ -425,14 +461,22 @@ reach open channels). The remover keeps a tombstone (the peer's identity
 key and the removal time) and refuses every `auth` from that key until the
 person pairs it again by card; the tombstone, not the other end's
 cooperation, is what makes Remove hold. It then tells the other end so it
-forgets too: over the live link when there is one, and otherwise as a
-removal notice signed with the remover's identity key, left in the hub's
-per-user mailbox and also sent at the next direct contact. The other end
-verifies the notice against the key it pinned and drops its record of the
-remover; the hub can delay or drop a notice, never forge one. Until the
+forgets too, with a removal notice signed by the remover's identity key:
+over the live link when there is one, and otherwise as the answer to that
+peer's next dial, which the tombstone refuses with the signed notice in
+place of a first-contact card. The hub's reply mailbox is not used: it
+carries only phone-to-Mac replies today (review: notice route). The other
+end verifies the notice against the key it pinned and drops its record of
+the remover; a hub can delay a dial, never forge a notice. Until the
 other end confirms, Activity on the remover shows "Removal not yet
 delivered to MacBook", so the person knows that machine still lists this
 one (it can no longer get in here either way).
+
+**Pairing again after Remove** (review: tombstone reset). Only the remover
+can lift its tombstone: **Allow MacBook to Pair Again** in Activity on that
+machine (a person's gesture in its own UI, never a request over the link).
+That deletes the tombstone, and the peer's next dial is a first contact with
+the usual card.
 
 ## Security analysis
 
@@ -450,7 +494,7 @@ service until `auth` passes, exactly as phones are.
 | --- | --- | --- | --- |
 | `machine.describe` | No. | No. | Name, OS, arch, cmux version, logged-in desktop yes/no, the grants this peer has. No paths, sessions or windows. |
 | `install` | Unpacks and, with `--open`, launches an app: allowed only for a signature the receiver verifies itself (release key, or a build key the person enrolled here by card), into a tagged path that never replaces an existing app. Nothing of the sender's choosing runs before verification. | Writes only `~/Applications/cmux DEV <tag>.app` (refuses a tag whose app it did not install) and its staging folder. | No. |
-| `run` | Starts an agent: the launcher is the receiver's own, the agent an enum, the cwd in the grant's folder list; the request has no command-bearing field. | Creates a new workspace owned by this request; names no existing object. | Answers only the receipt. |
+| `run` | Yes, by design: it starts an agent that runs commands as the person. The launcher is the receiver's own, the agent an enum, the start folder in the grant's list, and the agent's permission mode the receiver's default, which the request cannot raise; the request has no command-bearing field. | The request creates a new workspace and names no existing object; the agent it starts can touch what the person's user can, under its own permission prompts. | The request answers only the receipt; the agent can read what the person's user can. |
 | `move` (in) | Starts terminals in the moved workspace's folders with the receiver's own shell; recreates chats through acpmux's transfer, which carries history, not commands. | Creates new objects; a move out takes only the workspace named by a one-use ticket the source minted from its own UI. | The source's pumps serve only the ticket's workspace, chats and folder. |
 | `screen` | Shows the screen (View) or injects input (Control) through the screen-sharing worker; Control never from an `agent` origin; the indicator and Stop always show. | No. | The screen, by design: that is the grant. |
 | `control` (today's phone lanes) | Unchanged: `policy.rs` allowlists, command params denied. | Unchanged ID scoping (`owned_check`). | Unchanged. |
@@ -459,7 +503,8 @@ Command-bearing params (`command`, `initial_command`, `tmux_start_command`,
 `pane_start_command`, `argv`, `env`) stay denied on every method.
 
 **Residual risks.** A peer with `run` can start agents in the listed folders
-with prompts it writes; a peer with `install` and an enrolled build key can
+with prompts it writes, and those agents act as the person under the
+target's own permission prompts (see `run`); a peer with `install` and an enrolled build key can
 install a tagged app the person may then open. That is why both default to
 Ask and both are logged. The hub operator sees which devices talk and when,
 never content (WireGuard end to end; TURN sees ciphertext). The hub keeps
