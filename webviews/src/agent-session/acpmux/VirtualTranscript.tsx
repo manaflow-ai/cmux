@@ -310,14 +310,28 @@ export function sameRowFrame(previous: Record<string, unknown>, next: Record<str
 /// What a row's content draws from (the registry component's props, and the component).
 type RowContentProps = { Component: React.ComponentType<RowProps> } & RowProps;
 
-/// A row's content: the registry component, counted when committed (loadDebug.ts `loadTick`).
-function RowContent({ Component, ...props }: RowContentProps) {
-  // Counted when committed: a render React set aside (an interrupted concurrent pass) drew nothing.
-  useLayoutEffect(() => {
-    if (acpmuxPerf.enabled) acpmuxPerf.render(`content:${props.row.id}`);
-  });
-  return <Component {...props} />;
-}
+/// A row's content, drawn again only when what it draws from changes: never for its frame's place
+/// (`top`, `index`, `gapBelow`), focus (`tabStop`, `active`, `selected`) or entrance flags. A scroll
+/// moves every mounted frame each time a row above is measured or an older page lands, and the
+/// roving tab stop follows the first row in view; with the content drawn inside the frame, each such
+/// change drew every mounted row's whole content again (Leo, 2026-11-06: "Still seeing the flicker
+/// re-render. Sometimes when I scroll up").
+const RowContent = React.memo(
+  function RowContent({ Component, ...props }: RowContentProps) {
+    // Counted when committed: a render React set aside (an interrupted concurrent pass) drew nothing.
+    useLayoutEffect(() => {
+      if (acpmuxPerf.enabled) acpmuxPerf.render(`content:${props.row.id}`);
+    });
+    return <Component {...props} />;
+  },
+  (previous, next) => {
+    const keys = Object.keys(next) as (keyof RowContentProps)[];
+    if (keys.length !== Object.keys(previous).length) return false;
+    return keys.every((key) =>
+      key === "row" ? sameRowDraw(previous.row, next.row) : Object.is(previous[key], next[key]),
+    );
+  },
+);
 
 /// One transcript row. It reports its drawn height before the frame paints whenever it mounts or
 /// its content, width or expansion changes; the transcript's ResizeObserver reports later changes
@@ -433,9 +447,11 @@ const RowFrame = React.memo(function RowFrame({
     [index, onRowKeyDown],
   );
   const rowTabStop = rovingTabStopProps(tabStop, handleKeyDown);
-  const content = (
-    <ReferenceScopeContext.Provider value={referenceScope ?? null}>{children}</ReferenceScopeContext.Provider>
-  );
+  // A frame drawn again for its place hands down the scope object it had while that names the same
+  // repositories (sameRowFrame compares it so): a new object would redraw its content's chips.
+  const [scope, setScope] = useState(referenceScope);
+  if (scope !== referenceScope && !sameReferenceScope(scope, referenceScope)) setScope(referenceScope);
+  const content = <ReferenceScopeContext.Provider value={scope ?? null}>{children}</ReferenceScopeContext.Provider>;
   useLayoutEffect(() => {
     if (acpmuxPerf.enabled) acpmuxPerf.render(`frame:${row.id}`);
   });
