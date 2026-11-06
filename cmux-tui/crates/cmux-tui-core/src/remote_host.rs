@@ -56,10 +56,12 @@ mod imp {
     }
 
     impl crate::mux::Mux {
-        pub fn configure_remote_host(
-            self: &std::sync::Arc<Self>,
-            _daemon_socket: &std::path::Path,
-        ) {
+        pub fn configure_remote_host(self: &std::sync::Arc<Self>, daemon_socket: &std::path::Path) {
+            // Windows runs Computer Use in the daemon's own worker.
+            #[cfg(windows)]
+            self.configure_computer_use(daemon_socket);
+            #[cfg(not(windows))]
+            let _ = daemon_socket;
         }
     }
 }

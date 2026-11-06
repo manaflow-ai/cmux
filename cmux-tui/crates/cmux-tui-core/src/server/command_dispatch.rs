@@ -112,6 +112,15 @@ fn dispatch_command(
             )
         }
         Command::RemoteHostApp => remote_host_command::app(mux, client),
+        Command::ComputerUseEndpoint => computer_use_command::endpoint(mux, client),
+        Command::ComputerUseConfig { config } => computer_use_command::config(mux, client, config),
+        Command::ComputerUseApprovals { action, app_id, id, answer } => {
+            computer_use_command::approvals(
+                mux,
+                client,
+                json!({"action": action, "app_id": app_id, "id": id, "answer": answer}),
+            )
+        }
         Command::Identify { machine_metadata, revisions } => {
             cmd_server::identify(mux, machine_metadata, revisions)
         }

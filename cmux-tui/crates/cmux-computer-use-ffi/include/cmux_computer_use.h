@@ -103,6 +103,21 @@ CmuxCuBuffer cmux_cu_engine_saved_approvals(CmuxCuEngine *engine);
 int32_t cmux_cu_engine_edit_approvals(CmuxCuEngine *engine, const uint8_t *action, size_t action_len,
                                       const uint8_t *app_id, size_t app_id_len);
 
+typedef struct CmuxCuServer CmuxCuServer;
+
+// Serves the engine on the agent socket (cmux-computer-use-v1, wire.rs): a
+// Unix socket at socket_path, mode 0600 in a 0700 directory of this user's,
+// admitting only this user's processes (getpeereid) that send secret_hex
+// (hex, at least 16 bytes) as their first line. Calls run off the caller's
+// threads, ordered per agent session. Returns NULL with error filled on
+// failure. The server holds the engine; call cmux_cu_serve_stop before
+// cmux_cu_engine_destroy and before the host context goes away.
+CmuxCuServer *cmux_cu_serve(CmuxCuEngine *engine, const uint8_t *socket_path, size_t socket_path_len,
+                            const uint8_t *secret_hex, size_t secret_hex_len, CmuxCuBuffer *error);
+// Stops accepting, closes live connections, removes the socket file and
+// frees server. Calls already running finish first.
+void cmux_cu_serve_stop(CmuxCuServer *server);
+
 // The MCP tools/list result and the server instructions.
 CmuxCuBuffer cmux_cu_tools_list(void);
 
