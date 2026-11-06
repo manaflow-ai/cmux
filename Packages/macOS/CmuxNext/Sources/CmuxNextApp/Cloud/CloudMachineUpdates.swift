@@ -150,10 +150,9 @@ final class CloudMachineUpdates {
     /// The machine daemon's socket as this Mac reaches it (what Update Machine passes). A refused
     /// daemon left no connection: the app link's socket is read without asking (its connection's
     /// second ask would end the link), and the carrier dials the machine again for the CLI's own connection.
-    /// A connection through a carrier dial has no socket (its path names only the bundled CLI it watches).
     private static func socket(of session: CloudMachineSession?) async -> String? {
         guard let session else { return nil }
-        if let endpoint = await session.daemon.connection?.endpoint, endpoint.bridge == nil { return endpoint.socketPath }
+        if let connection = session.daemon.connection, let path = await connection.endpoint?.socketPath { return path }
         return await session.appLink?.currentSocket
     }
 }

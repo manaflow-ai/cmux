@@ -620,14 +620,15 @@ final class CloudService {
     @discardableResult
     private func addSession(_ machine: CloudMachine) -> CloudMachineSession? {
         guard !policyDisabled else { return nil }
-        // The carrier: each daemon connection is its own `cmux carrier dial --service mux`; the record names the owner.
-        let resolver = CloudCarrierResolver { @MainActor [weak self, id = machine.id] in
+        // The carrier: one `cmux carrier serve` for the session; the record names the owner.
+        let serve = CloudCarrierDial.Connector(machine: machine.id, service: .mux, cli: binary, auth: auth, platform: configuration.relayAPIBaseURL(),
+                                               team: machine.team).map { CloudCarrierServe(connector: $0, paths: paths) }
+        let resolver = CloudCarrierResolver(serve: serve) { @MainActor [weak self, id = machine.id] in
             CloudCallerOwnership(creator: self?.machines.session(id)?.machine.createdBy, caller: self?.auth.user?.id)
         }
         let local = machines.local
         let session = CloudMachineSession(machine: machine, appLink: CloudLinkSession(key: CloudLinkKey(machine: machine.id), resolver: resolver),
                                           localIdentity: { [weak local] in local?.identity }, mainWork: mainWork)
-        session.carrier = .init(machine: machine.id, service: .mux, cli: binary, auth: auth, platform: configuration.relayAPIBaseURL(), team: machine.team)
         session.daemon.workTracker = machines.local.workTracker
         session.daemon.onPaneNotReady = machines.local.onPaneNotReady
         session.daemon.paneNotReadyText = machines.local.paneNotReadyText

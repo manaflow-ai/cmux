@@ -88,18 +88,3 @@ public enum CloudLinkError: Error, Equatable, Sendable, CustomStringConvertible,
     /// The words a drop carries when it has no reason of its own.
     static let stateWords: Set<String> = ["disconnected", CloudLinkChange.State.down.rawValue]
 }
-
-/// An app server op failure, as the daemon answered it (`error_code`). It
-/// reads as the server's message, else its code.
-public struct CloudAppOpError: Error, Equatable, Sendable, CustomStringConvertible, LocalizedError {
-    public let code: String
-    public let message: String
-
-    public init(code: String, message: String) {
-        self.code = code
-        self.message = message
-    }
-
-    public var description: String { message.isEmpty ? code : message }
-    public var errorDescription: String? { description }
-}
