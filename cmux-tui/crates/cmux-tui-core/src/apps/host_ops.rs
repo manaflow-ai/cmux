@@ -133,7 +133,10 @@ impl Supervisor {
     /// `{servers: N}`.
     pub(crate) fn team_event(&self, event: &str, data: &Value) -> Result<Value, super::ApiError> {
         if !event.starts_with("cloud.") || event.len() > 128 {
-            return Err(super::ApiError::new("validation.invalid", "a team event is a cloud.* event"));
+            return Err(super::ApiError::new(
+                "validation.invalid",
+                "a team event is a cloud.* event",
+            ));
         }
         let frame = json!({ "type": "team.event", "event": event, "data": data });
         let bytes = line(&frame);

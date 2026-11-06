@@ -93,14 +93,10 @@ extension MachineJoinService {
             return try? await auth.tokens().access
         }
         let machines = services.machines
-        // A list read feeds the Machines section only with labs.machineJoin on, on the store's ticket (a
-        // read behind a newer one, or after the switch went off, feeds nothing); off, Add Device still reads.
-        let beginRead = { @MainActor [weak services] () -> Int? in
-            guard let services, services.settings?.snapshot.machineJoin == true else { return nil }
-            return services.joinedMachines.beginRead()
-        }
+        // Every list read feeds the Machines section too, on the store's ticket (a read behind a newer one feeds nothing).
+        let beginRead = { @MainActor [weak services] () -> Int? in services?.joinedMachines.beginRead() }
         let store = { @MainActor [weak services] (rows: [JoinedMachine], ticket: Int?) in
-            if let ticket, services?.settings?.snapshot.machineJoin == true { services?.joinedMachines.finishRead(rows, ticket: ticket) }
+            if let ticket { services?.joinedMachines.finishRead(rows, ticket: ticket) }
         }
         return MachineJoinService(
             mint: { name in

@@ -33,7 +33,7 @@ public nonisolated struct SidebarDoneFoldID: Hashable, Sendable {
     func of(_ kind: Kind) -> SidebarDoneFoldID { SidebarDoneFoldID(section: section, group: group, kind: kind) }
 }
 
-// The "Done (N)" fold (`sidebar.doneFold`, Leo's sidebar organization): workspaces the person marked Done
+// The "Done (N)" fold (Leo's sidebar organization): workspaces the person marked Done
 // (`SidebarTaskStatus.done`) leave their place and list behind one row at the end of their group or list, in their
 // manual order; the row opens them below it. Archived workspaces (`isArchived`, `foldsArchived`) do the same behind an
 // "Archived (N)" row after it (Lawrence 18470: "better ui for archived stuff instead of just greying them out"; it

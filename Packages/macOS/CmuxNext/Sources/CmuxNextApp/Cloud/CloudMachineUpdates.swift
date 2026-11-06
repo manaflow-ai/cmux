@@ -80,21 +80,23 @@ final class CloudMachineUpdates {
     /// the toggles are off, the app has no `cmux` client, or the machine is gone. Same guarantees as the
     /// automatic update: `--to-bundled --if-older`, never a move back, terminals and chats keep running.
     static func updateNow(_ machineID: String, services: AppServices) async -> Bool {
-        guard let target = target(machineID, services: services) else { return false }
+        // Not held by ``CloudStartGate``: this update is the start's own, which waits for it.
+        guard let target = target(machineID, services: services, holdsForStarts: false) else { return false }
         logger.info("cloud machine \(machineID, privacy: .public): a start was refused by its daemon; updating it before starting again")
         await services.daemonUpdates.policy.updateNow(target)
         return true
     }
 
     /// Machine `machineID` as the shared policy's target; nil while the toggles are off, the app has no
-    /// `cmux` client, or the machine is gone.
-    private static func target(_ machineID: String, services: AppServices) -> CloudMachineUpdateTarget? {
+    /// `cmux` client, or the machine is gone. `holdsForStarts`: it answers busy while a chat start brings the
+    /// machine up (``CloudStartGate``), so the automatic update never restarts the daemon under a start.
+    private static func target(_ machineID: String, services: AppServices, holdsForStarts: Bool = true) -> CloudMachineUpdateTarget? {
         guard CloudTunables.updatesCloudMachines, let session = services.machines.session(machineID),
               let binary = services.cloud.move.cli else { return nil }
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
-        return CloudMachineUpdateTarget(machineID: machineID, displayName: session.machine.title,
-                                        source: source(session, machines: services.machines, cli: cli, api: services.cloud.machineAPI,
-                                                       logger: logger))
+        var side = source(session, machines: services.machines, cli: cli, api: services.cloud.machineAPI, logger: logger)
+        if holdsForStarts { side.starting = { [gate = services.cloud.startGate] in await gate.contains(machineID) } }
+        return CloudMachineUpdateTarget(machineID: machineID, displayName: session.machine.title, source: side)
     }
 
     // MARK: The machine's side

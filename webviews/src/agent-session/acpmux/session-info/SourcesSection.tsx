@@ -6,8 +6,11 @@ import { rowIconSize } from "../icons/iconSize";
 import { NativeError } from "../nativeError";
 import type { SummarySource } from "../summary/sessionSummary";
 import { extraFolderName } from "../extraFolders";
+import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
+import { openPullRequestDiff, pullRequestDiffUrl } from "./pullRequestDiff";
+import { SessionInfoFold } from "./SessionInfoSection";
 
-export const SOURCES_SHOWN = 5;
+export const SOURCES_SHOWN = 4;
 type RowProps = {
   source: SummarySource;
   onOpenBeside?: (url: string) => void;
@@ -74,7 +77,8 @@ export function SourcesSection({
   onExpandedChange: (expanded: boolean) => void;
 }) {
   const t = useT();
-  const folds = sources.length > SOURCES_SHOWN;
+  // A fold that would hold back one row shows it instead (OutputsSection `OUTPUTS_SHOWN`).
+  const folds = sources.length - SOURCES_SHOWN >= 2;
   const shown = folds && !expanded ? sources.slice(0, SOURCES_SHOWN) : sources;
   const labels = sourceLabels(t, sources);
   return (
@@ -99,14 +103,15 @@ export function SourcesSection({
         ))}
       </ul>
       {folds && (
-        <button
-          type="button"
-          className="acpmux-session-info-fold acpmux-session-info-sources-fold"
-          aria-expanded={expanded}
-          onClick={() => onExpandedChange(!expanded)}
+        <SessionInfoFold
+          className="acpmux-session-info-sources-fold"
+          open={expanded}
+          onToggle={() => onExpandedChange(!expanded)}
         >
-          {expanded ? t("summary.showFewer") : t("summary.viewAll", { n: sources.length })}
-        </button>
+          {expanded
+            ? t("sessionInfo.outputs.showLess")
+            : t("sessionInfo.list.showMore", { n: sources.length - SOURCES_SHOWN })}
+        </SessionInfoFold>
       )}
     </>
   );
@@ -192,5 +197,31 @@ function SourceRow({
         {content}
       </a>
     );
-  return <li className="acpmux-session-info-source">{failure ? <span role="alert">{failure}</span> : target}</li>;
+  // A pull request the chat named opens its diff from its ⋯ menu, as a Changes row does.
+  const diffUrl = onOpenBeside && source.kind === "pullRequest" ? pullRequestDiffUrl(source.url) : undefined;
+  return (
+    <li className="acpmux-session-info-source">
+      {failure ? <span role="alert">{failure}</span> : target}
+      {diffUrl && !failure && (
+        <Menu>
+          <MenuButton
+            className="acpmux-session-info-icon-button acpmux-session-info-source__more"
+            label={t("sessionInfo.changes.more", { reference: source.label })}
+            aria-haspopup="menu"
+          >
+            <Icon name="action.more" size={14} />
+          </MenuButton>
+          <MenuPopup
+            className="acpmux-session-info-menu"
+            label={t("sessionInfo.changes.actions", { reference: source.label })}
+            align="end"
+          >
+            <MenuItem className="acpmux-session-info-menu__item" onSelect={() => openPullRequestDiff(diffUrl)}>
+              {t("sessionInfo.changes.viewDiff")}
+            </MenuItem>
+          </MenuPopup>
+        </Menu>
+      )}
+    </li>
+  );
 }

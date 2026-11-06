@@ -13,7 +13,8 @@ and each TARGET is
    "latency": {"key"|"pointer": {"p50_ms", "p95_ms", "n", "lost"}},
    "kbps": {"idle"|"typing"|"scroll": number}, "fps": {same},
    "ocr": {"cer", "host_cer_vs_truth", "viewer_cer_vs_truth", ...},
-   "split": {"key"|"pointer": {"encode_ms", "transport_ms", "decode_ms", "input_to_capture_ms", "method"},
+   "split": {"key"|"pointer": {"encode_ms", "transport_ms", "decode_ms", "input_to_capture_ms", "method",
+                                [rd: "input_to_capture_parts": {"render_ms"|"sck_ms"|"pickup_ms"|"gate_ms"|"encode_ms": {"n", "p50", "p95"}}]},
              "typing": {"encode_ms", "decode_ms"}},
    "extra": {..., "repeats": [{"repeat", "kbps", "fps", "ocr_cer", ...}]}}
 The window and OCR scenarios run several times (the harness's repeats=, 3 by default): each of
@@ -87,6 +88,8 @@ def target(name: str, folder: Path, out: Path) -> None:
         result["latency"][kind] = {"p50_ms": g2g.get("p50"), "p95_ms": g2g.get("p95"), "n": g2g.get("n"), "lost": lat.get("lost")}
         split = lat.get("split") or {}
         result["split"][kind] = {k: split.get(k) for k in ("input_to_capture_ms", "encode_ms", "transport_ms", "decode_ms", "method")}
+        if split.get("input_to_capture_parts"):
+            result["split"][kind]["input_to_capture_parts"] = split["input_to_capture_parts"]
         if g2g.get("p50") is None:
             errors.append(f"latency {kind}: no samples")
     # Repeats (window-N.json, phases-N.jsonl, ocr-N.json): every number is the median of the repeats
@@ -130,7 +133,10 @@ def target(name: str, folder: Path, out: Path) -> None:
     # repeat's); the image names, which have no median, are the median-CER repeat's.
     result["ocr"] = dict.fromkeys(OCR_FIELDS)
     if ocrs:
-        middle = sorted(ocrs, key=lambda o: o.get("cer") if isinstance(o.get("cer"), (int, float)) else 1e9)[(len(ocrs) - 1) // 2]
+        # Among the repeats that measured a CER (any repeat when none did), so the images never
+        # come from a repeat with no measurement while others have one.
+        measured = [o for o in ocrs if isinstance(o.get("cer"), (int, float))] or ocrs
+        middle = sorted(measured, key=lambda o: o.get("cer") if isinstance(o.get("cer"), (int, float)) else 0)[(len(measured) - 1) // 2]
         for k in OCR_FIELDS:
             if any(isinstance(o.get(k), (int, float)) for o in ocrs):
                 result["ocr"][k] = median_of(o.get(k) for o in ocrs)
@@ -168,7 +174,8 @@ def summary(results_path: Path, out: Path, previous_path: Path | None) -> None:
     run = results.get("run", {})
     lines = [f"# Screen stream eval, {run.get('at', '?')}", ""]
     lines.append(f"Host {run.get('host', '?')} ({run.get('cpu', '?')}, macOS {run.get('macos', '?')}), display {run.get('display', '?')}, "
-                 f"link {run.get('link', '?')}, rev `{str(run.get('rev', '?'))[:12]}`.")
+                 f"link {run.get('link', '?')}, rev `{str(run.get('rev', '?'))[:12]}`"
+                 + (", rd host `--input-frame-now 1`" if run.get("rd_input_frame_now") == "1" else "") + ".")
     if previous:
         prev_run = previous.get("run", {})
         lines.append(f"Changes in brackets are against {prev_run.get('at', '?')} (rev `{str(prev_run.get('rev', '?'))[:12]}`).")
@@ -201,6 +208,11 @@ def summary(results_path: Path, out: Path, previous_path: Path | None) -> None:
             lines.append(f"| {kind.capitalize()} split: input→capture / encode / transport / decode | "
                          f"{cell('split', kind, 'input_to_capture_ms')} / {cell('split', kind, 'encode_ms', digits=2)} / "
                          f"{cell('split', kind, 'transport_ms', digits=2)} / {cell('split', kind, 'decode_ms', digits=2)} |")
+        for kind in ("key", "pointer"):
+            parts = get(t, "split", kind, "input_to_capture_parts") or {}
+            if parts:
+                lines.append(f"| {kind.capitalize()} input→capture parts (p50): render / SCK / pickup / gate | "
+                             + " / ".join(fmt((parts.get(k) or {}).get("p50"), " ms", 2) for k in ("render_ms", "sck_ms", "pickup_ms", "gate_ms")) + " |")
         lines.append(f"| Typing split: encode / decode | {cell('split', 'typing', 'encode_ms', digits=2)} / {cell('split', 'typing', 'decode_ms', digits=2)} |")
         reps = (t.get("extra") or {}).get("repeats") or []
         if len(reps) > 1:

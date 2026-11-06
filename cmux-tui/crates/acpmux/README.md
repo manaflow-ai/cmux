@@ -270,7 +270,13 @@ reaches `linux-b/review` when no other live session is called `review`. A sub-se
 `PARENT/SHORT`) also answers to its short name: `acpmux send lane-3` reaches
 `coord/lane-3` when no session on any host has that name or id and none here has a
 name starting with it; `HOST/SHORT` looks on that host only. A name nothing matches is
-refused with the close matches. Closed sessions count
+refused with the close matches. A name typed loosely still finds its one session
+(`src/name_match.rs`): failing an exact name, the same name in another case (`td2-a` for
+`td2-A`), then a unique prefix (here, or on the host `HOST/…` names), then the name without
+case or `-`, `_` and spaces (`td2_a`). `HOST` in `HOST/NAME`, `new --host` and
+`dispatch --host` read a machine the same way (`LANE-VM-2` for `lane-vm-2`, or a unique prefix of it).
+Only the first step that matches counts; several matches there are refused with each one,
+never guessed. Closed sessions count
 only when no live one matches. Several live matches are refused (exit 2,
 `session_ambiguous`), never picked; a session here does not win over a peer's. The refusal
 lists each choice and the exact command for it:

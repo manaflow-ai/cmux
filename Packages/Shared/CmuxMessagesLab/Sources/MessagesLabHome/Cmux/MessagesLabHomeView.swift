@@ -148,14 +148,6 @@ public final class MessagesLabHomeView: NSView {
         set { projection.notice = newValue }
     }
 
-    /// An agent's pipe tables draw as cards at the chat's full width, assignment tables as the
-    /// Chief's plan card (default on; Debug Settings > Home > Rich tables). Off, they stay Markdown
-    /// text in the bubble. Messages mapped after the change follow it.
-    public static var richTables: Bool {
-        get { HomeTableRowProvider.isOn }
-        set { HomeTableRowProvider.isOn = newValue }
-    }
-
     /// The Chief's live plan for the plan cards' state pills and owner links (the host copies its
     /// ``ChiefPlanBoard`` here whenever it changes).
     public static func publish(plan: ChiefPlan) {
@@ -266,6 +258,7 @@ public final class MessagesLabHomeView: NSView {
             demo.chrome.setNeedsDisplay(); demo.refreshVisibleCells()
             demo.compose.rescale()  // the placeholder, waveform and chips are drawn once with the palette
         }
+        controller.intents?.rowsPlaced()  // layers over rows (table skeleton shimmers) take the new colours
     }
 
     /// cmux: a click on a cmux app link in agent text (`URL.isCmuxAppLink`); the host
@@ -754,6 +747,37 @@ public final class MessagesLabHomeView: NSView {
                 return nil
             }.joined(separator: "\n")
         }
+    }
+
+    /// Automation (DEBUG socket): opens picture `index` of the newest table card in the large picture viewer
+    /// through the click's path (``ChatController/openTablePicture(_:at:width:)``); `compare` shows its row's
+    /// Before and After; `mark` draws a box, an arrow and a word on it. False when no table has a loaded picture.
+    public func debugOpenTablePicture(index: Int, compare: Bool, mark: Bool) -> Bool {
+        guard let store = controller.store else { return false }
+        for m in store.state.conversation.messages.reversed() {
+            for part in m.parts {
+                guard case let .custom(custom) = part, custom.kind == HomeTableRowProvider.kind,
+                      let payload = HomeTableRowProvider.payload(custom) else { continue }
+                let width: CGFloat = 700
+                let loaded = HomeTableGrid(payload.table, available: width).pictureRects(at: .zero).filter { !$0.loading }
+                guard let target = loaded[checked: min(max(0, index), loaded.count - 1)],
+                      controller.openTablePicture(custom, at: CGPoint(x: target.rect.midX, y: target.rect.midY), width: width),
+                      let viewer = controller.pictureViewer else { continue }
+                // task-owner: the viewer; marks go on once its picture loaded.
+                Task { @MainActor [weak viewer] in
+                    guard let viewer else { return }
+                    await viewer.loaded()
+                    if compare { viewer.handle(.compare) }
+                    if mark, let size = viewer.markedImage().map({ CGSize(width: $0.width, height: $0.height) }) {
+                        viewer.addMark(.box(CGRect(x: size.width * 0.18, y: size.height * 0.2, width: size.width * 0.42, height: size.height * 0.36)))
+                        viewer.addMark(.arrow(from: CGPoint(x: size.width * 0.86, y: size.height * 0.84), to: CGPoint(x: size.width * 0.62, y: size.height * 0.58)))
+                        viewer.addMark(.text(at: CGPoint(x: size.width * 0.18, y: size.height * 0.6), "this moved"))
+                    }
+                }
+                return true
+            }
+        }
+        return false
     }
 
     /// Automation (DEBUG socket): plays or pauses the newest video bubble
