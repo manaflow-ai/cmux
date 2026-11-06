@@ -120,6 +120,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_run_guards.py
 
+      - name: Validate the deleted-test guard
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_test_integrity.py
+
       - name: Validate machine-failure detection for focused reruns
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_machine_failure.py
@@ -1520,6 +1524,8 @@ jobs:
           python3 tests/test_ci_nightly_push_throttle.py
           python3 tests/test_ci_nightly_off_blacksmith.py
           python3 tests/test_classic_nightly_build_runner.py
+          python3 tests/test_classic_nightly_one_mini.py
+          python3 tests/test_classic_nightly_job_conditions.py
           python3 tests/test_ci_publisher_mac_jobs_move.py
           python3 tests/test_ci_helper_prebuild_lifecycle.py
 
@@ -1541,6 +1547,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_notarization_recovery_manifest.py
 
+      - name: Validate recovery app archives made on a Mac
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_recovery_app_archive.py
+
       - name: Validate asynchronous notarization status polling
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_poll_notary_submission.py
@@ -1552,6 +1562,10 @@ jobs:
       - name: Validate accepted nightly DMG artifact aliases
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_artifact_alias.py
+
+      - name: Validate auto-resume Linux jobs on bash 3.2
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_auto_resume_linux_jobs_bash32.py
 
       - name: Validate Sparkle delta finalization
         if: ${{ matrix.group == 'release-notary' }}
@@ -1687,6 +1701,10 @@ jobs:
         run: |
           python3 tests/test_ci_cli_contract_verb_guard.py
           python3 scripts/check-cli-contract-verbs.py
+
+      - name: Validate Cloud VM contract option coverage
+        if: ${{ matrix.group == 'quality-determinism' }}
+        run: python3 tests/test_cli_contract_vm_options.py -v
 
       - name: Validate socket capability parity
         if: ${{ matrix.group == 'quality-determinism' }}
