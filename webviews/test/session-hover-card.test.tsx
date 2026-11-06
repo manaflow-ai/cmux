@@ -424,9 +424,9 @@ test("an agent link to a listed chat shows that chat's card, opening it as the l
 });
 
 // An agent link's first hover or focus is what asks acpmux for its chat. Its answer coming in while
-// the card is up keeps the card the entry started (the site's), not a switch to a trigger no event
-// reached, which left no card at all (review of #36360 at 7211b8f2). The next entry shows the chat's.
-test("an agent link that resolves while its card is up keeps that card; the next entry shows the chat's", async () => {
+// the site's card is up puts the chat's card in its place at once, with the focus still on the link:
+// no card lost, none waiting on the pointer to leave and come back (review of #36360 at 7211b8f2).
+test("an agent link that resolves while its card is up shows the chat's card in its place", async () => {
   const { act } = await import("react");
   const { createRoot } = await import("react-dom/client");
   const { UiProvider } = await import("../src/ui/UiProvider");
@@ -463,12 +463,13 @@ test("an agent link that resolves while its card is up keeps that card; the next
       await Promise.resolve();
     });
     expect(link.getAttribute("data-open-session")).toBe(ID);
-    expect(rootElement.querySelector(".cv-link-preview")).not.toBeNull();
-    await act(async () => link.blur());
-    await act(async () => link.focus());
-    expect(rootElement.querySelector(".acpmux-session-hover-card")?.getAttribute("aria-label")).toBe(
-      "Switch gh-merge-green to merge-freeze issues",
-    );
+    // In the same act: the site's card is gone and the chat's is up, with no fade in.
+    expect(rootElement.querySelector(".cv-link-preview")).toBeNull();
+    const card = rootElement.querySelector<HTMLElement>(".acpmux-session-hover-card");
+    expect(card?.getAttribute("aria-label")).toBe("Switch gh-merge-green to merge-freeze issues");
+    expect(card?.closest("[data-instant]")).not.toBeNull();
+    expect(dom.window.document.activeElement).toBe(link);
+    expect(link.getAttribute("aria-describedby")).toBe(card!.id);
   } finally {
     await act(async () => root.unmount());
     refs.setSessionRefResolver(undefined);
