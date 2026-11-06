@@ -26,7 +26,13 @@ pub(super) enum Relayed {
 /// 256 KiB). A larger one goes the link path, which uploads it.
 pub(super) const RELAY_PROMPT_BYTES: usize = 96 * 1024;
 
-pub(super) fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Value) -> Relayed {
+/// `made` is set to a machine this chat creates itself (`run`'s `new_machine`).
+pub(super) fn relay_chat(
+    runner: &mut dyn Runner,
+    request: &Request,
+    listed: &Value,
+    made: &mut Option<String>,
+) -> Relayed {
     // `--timeout` counts from here, a new machine included.
     let started_at = runner.now();
     let machine_id = match &request.machine {
@@ -54,7 +60,7 @@ pub(super) fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Va
                 // A name no machine has yet: made here under that name, so its first chat still goes the relay way.
                 None if plain_name(name) && name_is_free(listed) => {
                     match new_machine(runner, request, listed, Some(name)) {
-                        Ok(id) => id,
+                        Ok(id) => made.insert(id).clone(),
                         Err(outcome) => return Relayed::Answered(outcome),
                     }
                 }
@@ -64,7 +70,7 @@ pub(super) fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Va
             }
         }
         Machine::New => match new_machine(runner, request, listed, None) {
-            Ok(id) => id,
+            Ok(id) => made.insert(id).clone(),
             Err(outcome) => return Relayed::Answered(outcome),
         },
     };
