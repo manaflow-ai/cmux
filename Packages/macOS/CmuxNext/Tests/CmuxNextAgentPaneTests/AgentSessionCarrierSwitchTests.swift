@@ -23,6 +23,8 @@ struct AgentSessionCarrierSwitchTests {
             var closed = false
             var detached = false
             var onAttach: (@Sendable () -> Void)?
+            /// Runs as a detach starts, with the handler the attachment had (a push still in flight).
+            var onDetach: (@Sendable ((@Sendable (AgentSessionRemoteEvent) -> Void)?) -> Void)?
             /// The next attach waits here until ``releaseAttach()``.
             var holdAttach = false
             var heldAttach: CheckedContinuation<Void, Never>?
@@ -78,7 +80,11 @@ struct AgentSessionCarrierSwitchTests {
         func cancel() async throws {}
         func permission(id: String, option: String, answers: Data?, annotations: Data?, decisionNonce: String?,
                         personDecision: String?) async throws {}
-        func detach() async { state.withLock { $0.detached = true } }
+        func detach() async {
+            let (hook, handler) = state.withLock { ($0.onDetach, $0.handler) }
+            hook?(handler)
+            state.withLock { $0.detached = true }
+        }
         func close() async { state.withLock { $0.closed = true } }
 
         func push(_ seq: UInt64) {
@@ -450,6 +456,35 @@ struct AgentSessionCarrierSwitchTests {
         // Once the new attachment carries the chat, the old one's late pushes are not the page's.
         old(.record(Data(#"{"seq":3}"#.utf8)))
         #expect(page.seqs == (refused ? [1, 2, 3] : [1, 2]))
+    }
+
+    /// Codex re-review at 1aff3697: a relay push still in flight when the move cuts over reaches the
+    /// page if it is a permission, change or presence; its records come over the direct link.
+    @Test func aRelayPushInFlightAtTheCutoverIsNotLost() async throws {
+        let relay = Carrier()
+        let direct = Carrier(log: [1, 2])
+        let chat = AgentSessionCarrierSwitch(fallback: relay)
+        let page = Page()
+        _ = try await chat.attach(AgentSessionPage(), events: page.handler)
+        relay.push(1)
+        let permission = AgentSessionRemoteEvent.permission(Data(#"{"id":"p1"}"#.utf8))
+        relay.state.withLock { state in
+            state.onDetach = { handler in
+                handler?(.record(Data(#"{"seq":3}"#.utf8)))
+                handler?(permission)
+                handler?(.closed("detached"))
+            }
+        }
+
+        #expect(await chat.move(to: direct))
+        #expect(page.events.withLock { $0 }.contains(permission))
+        #expect(page.seqs == [1, 2], "the relay's late record waits for the direct link")
+        #expect(page.closes == 0)
+        direct.push(3)
+        #expect(page.seqs == [1, 2, 3])
+        relay.state.withLock { $0.handler }?(.permission(Data(#"{"id":"p2"}"#.utf8)))
+        #expect(page.events.withLock { $0 }.filter { if case .permission = $0 { true } else { false } }.count == 1,
+                "once the relay detached, its pushes are not the page's")
     }
 
     /// Codex re-review at 54f1272e, F2: a fall-back waits for calls still running on the direct client,
