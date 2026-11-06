@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBridge
 import CmuxNextTestSupport
+import CmuxNextWakeupsTestSupport
 import struct CmuxNextDaemon.CellSize
 import CmuxNextDesign
 @testable import CmuxNextLayout
@@ -15,8 +16,9 @@ import Testing
 /// reflow preview does not re-wrap) stayed at its start size for the whole drag, the terminal background beside it, then
 /// jumped at the mouse-up (the RESIZE OWNER's film of px-col-drag-2-sw-terminals at 96ad37a03a3, STATUS 14461). Still
 /// never one grid per frame: the program redraws at most once per window.
-/// Real terminal sessions and the app's ResizeCoordinator (`SplitTerminalResizeCountTests`); the test steps the frames,
-/// and real time passes between them (12 ms per frame) so the coalescer's windows close as in a drag.
+/// Real terminal sessions and the app's ResizeCoordinator (`SplitTerminalResizeCountTests`); the test steps the frames
+/// and the coalescer's clock: each terminal's grid reporter runs on a `ManualClock`, advanced 12 ms per drag frame, so the
+/// 25 ms windows close as in a drag with no real sleep (review of #36631: a loaded runner stretched the real sleeps).
 @MainActor
 @Suite(.closesItsWindows, .timeLimit(.minutes(1)))
 struct DividerDragTerminalResizeCountTests {
@@ -29,7 +31,12 @@ struct DividerDragTerminalResizeCountTests {
         try screen.attachTerminal("p1")
         try screen.attachTerminal("p2")
         await screen.drain()
-        for terminal in screen.terminals.values { terminal.pty.applied.removeAll() }
+        let clock = ManualClock()
+        for terminal in screen.terminals.values {
+            let view = terminal.session.surfaceView
+            view.gridReports = TerminalGridReporter(view: view, clock: clock)
+            terminal.pty.applied.removeAll()
+        }
         let before = try #require(screen.terminals["p1"]?.session.surfaceView.fittedGrid)
 
         let view = try #require(screen.root.screenViews["s"])
@@ -42,7 +49,12 @@ struct DividerDragTerminalResizeCountTests {
             view.handleDrag(kind: .split("r"), event: .moved(CGPoint(x: start.x - CGFloat(step) * 6, y: start.y), []))
             screen.root.syncWithModel()
             await screen.step()
-            try await Task.sleep(for: .milliseconds(12)) // the drag's own pace: the coalescer's 25 ms windows close
+            // The drag's own pace: a window that opened waits on the clock, then 12 ms pass.
+            if screen.terminals.values.contains(where: { $0.session.surfaceView.gridReports.isWaiting }), clock.sleeperCount == 0 {
+                try await clock.waitForSleeper()
+            }
+            clock.advance(by: .milliseconds(12))
+            for _ in 0..<20 { await Task.yield() }
         }
         await screen.drain()
         let midDrag = screen.terminals.mapValues(\.pty.applied)

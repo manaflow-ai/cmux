@@ -69,6 +69,10 @@ struct DemoDriver {
         case "chief": await chief()
         case "chief-parity": await chiefParity()
         case "chief-settings": await chiefSettings()
+        case "call-scope": await callScope()
+        case "call-scope-home":
+            ChiefSources.shared.showDemoCloudChief(named: "Atlas")
+            shell.tab = .home
         case "chief-open":
             // Opens Chief and leaves it to real touches (verify/imsg-parity.sh).
             shell.tab = .home
@@ -680,6 +684,19 @@ struct DemoDriver {
             await pause(1.5)
         }
         mark("end")
+    }
+
+    /// A call is to the Chief called (Aziz 2026-11-05): a Cloud Chief "Atlas" is the default
+    /// Chief, and the Mac Chief's info page is open; its Call must reach the Mac Chief, not Atlas.
+    /// The UI test taps Call (CMUX_MOBILE_CALL_DEMO=1: the scripted call link).
+    private func callScope() async {
+        ChiefSources.shared.showDemoCloudChief(named: "Atlas")
+        shell.tab = .home
+        await pause(1.5)
+        shell.homePath.append(ChiefRoute(place: .mac))
+        await pause(2.0)
+        ChiefDemoHook.shared.openSettings()
+        mark("mac chief info")
     }
 
     private func chiefParity() async {

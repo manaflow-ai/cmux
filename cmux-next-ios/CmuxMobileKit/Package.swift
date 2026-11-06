@@ -180,6 +180,10 @@ let package = Package(
             ]
         ),
         .testTarget(name: "CmuxMobileRealtimeTests", dependencies: ["CmuxMobileRealtime"]),
+        .testTarget(name: "CmuxMobileVoiceTests", dependencies: [
+            "CmuxMobileVoice", "CmuxMobileChief", "CmuxMobileModel",
+            .product(name: "CmuxConversationCore", package: "CmuxConversation"),
+        ]),
         .testTarget(name: "CmuxMobileScreenSharingTests", dependencies: [
             "CmuxMobileScreenSharing",
             .product(name: "CmuxDeviceHub", package: "CmuxDeviceHub"),
