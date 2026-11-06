@@ -25,7 +25,7 @@ use cmux_remote::session::SessionLimits;
 use cmux_remote::workspace::WorkspaceService;
 use cmux_remote_protocol::{LanePolicy, Service, ServiceControl, SessionId};
 use ring::signature::{Ed25519KeyPair, KeyPair as _};
-use serde_json::{Value, json};
+use serde_json::json;
 use tempfile::tempdir;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::sync::mpsc;
