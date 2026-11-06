@@ -561,8 +561,8 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     if at(&started, "pending").as_bool() == Some(true) {
         let again = again_command(request, &machine);
         let stage = start_stage(runner, &started);
-        if let Some(found) = stage.is_final().then(|| stage.reason.as_deref()).flatten().and_then(|why| cap::cap_of("", why))
-        {
+        let capped = stage.reason.as_deref().filter(|_| stage.is_final()).and_then(|why| cap::cap_of("", why));
+        if let Some(found) = capped {
             let why = stage.reason.as_deref().unwrap_or_default();
             let (message, details) = cap::at_cap(found, why, &listed, |id| {
                 again_command(request, &Machine::Target(id.to_owned()))
@@ -1133,7 +1133,9 @@ fn start_refused(error: Value, listed: &Value, request: &Request) -> Outcome {
             let (text, mut details) = cap::at_cap(found, message, listed, |id| {
                 again_command(request, &Machine::Target(id.to_owned()))
             });
-            details["app"] = error;
+            if let Some(fields) = details.as_object_mut() {
+                fields.insert("app".to_owned(), error);
+            }
             failed("cloud.machine_cap", text, details, 1)
         }
         _ => app_failure(error),

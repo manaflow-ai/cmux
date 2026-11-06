@@ -78,7 +78,7 @@ pub(super) fn at_cap(
         ));
     }
     if machines.len() > NAMED {
-        lines.push(format!("  and {} more: `cmux cloud list-machines`", machines.len() - NAMED));
+        lines.push(format!("  and {} more: `cmux cloud list-machines`", machines.len().saturating_sub(NAMED)));
     }
     let cap = match cap {
         Cap::Running => "running",
