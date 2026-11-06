@@ -636,6 +636,31 @@ class InstantChanges(unittest.TestCase):
         self.assertEqual(result["verdict"], "FAIL", result["fails"])
         self.assertGreater(result["missed_refreshes"], 0)
 
+    def test_a_noswitch_insert_whose_new_row_shows_a_frame_late_fails(self):
+        # the rows below move at the change, the new row draws one frame later: a gap frame (INSTANT OWNER, 02:3xZ)
+        frames = instant_film("insert")
+        del frames[FIRST]["views"][NEW]
+        result = judge_mode(frames, "noswitch", "snap")
+        self.assertEqual(result["verdict"], "FAIL", result["fails"])
+        self.assertEqual(result["motions"][0]["change_frames"], [FIRST, FIRST + 1])
+
+    def test_a_noswitch_insert_whose_new_row_shows_a_frame_early_fails(self):
+        # the new row draws one frame before the rows below make room: an overlap frame
+        frames = instant_film("insert", change=2)
+        frames[FIRST]["views"][NEW] = [X, TOP + 2 * STEP, W, ROW_H, 1.0]
+        result = judge_mode(frames, "noswitch", "snap")
+        self.assertEqual(result["verdict"], "FAIL", result["fails"])
+        self.assertEqual(result["motions"][0]["change_frames"], [FIRST, FIRST + 1])
+
+    def test_a_noswitch_remove_whose_rows_close_the_slot_a_frame_late_fails(self):
+        # the closing row is gone one frame before the rows below close its slot: a gap frame (real film noswitch-200 #5)
+        frames = instant_film("remove")
+        for r in range(3, 12):
+            frames[FIRST]["views"][key(r)][1] = TOP + r * STEP
+        result = judge_mode(frames, "noswitch", "snap", kind="remove")
+        self.assertEqual(result["verdict"], "FAIL", result["fails"])
+        self.assertEqual(result["motions"][0]["change_frames"], [FIRST, FIRST + 1])
+
     def test_a_keys_press_is_judged_by_its_motion(self):
         # mode "keys" (the user's Cmd-N): the motion the flag names; an instant insert is a pop-in under snap
         self.assertEqual(judge_mode(instant_film("insert"), "keys", "snap")["verdict"], "FAIL")
