@@ -8,5 +8,9 @@
 //!
 //! - [`close`]: what closing tabs asks first (a working agent, a foreground
 //!   program) and whether the close earns an undo toast.
+//! - [`tabs`]: what a new tab or pane opens and where (its kind, the browser
+//!   open plan, a split's plan), tab moves, numbers, duplicates, restarts and
+//!   icons; [`tabs::panes`] the pane and terminal tables.
 
 pub mod close;
+pub mod tabs;
