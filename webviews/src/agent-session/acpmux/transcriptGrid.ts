@@ -109,14 +109,15 @@ export function transcriptGap(previous: number, next: number): number {
   // Waiting for the first output: the indicator right under its prompt takes the block gap.
   if ((next === MARK_INDICATOR || next === MARK_FOOTER_SLOT) && previous === MARK_PROMPT) return TRANSCRIPT_BLOCK_GAP;
   if (previous === MARK_PROMPT || next === MARK_PROMPT) return TRANSCRIPT_TURN_GAP;
-  // The live line under a run is one more line of it (#29965): flush too.
-  if (previous === MARK_STEP && (next === MARK_STEP || next === MARK_INDICATOR || next === MARK_FOOTER_SLOT)) return 0;
   // Any two one-line rows in a row, a status line among them ("Scheduled check", "Compacting the
   // conversation…", a background task's end), sit flush on the 22 pitch: one row height and no gap
   // (design/transcript-spacing.md rule 3; Leo, 2026-11-02, on a Claude chat where they stood a
   // block apart: "these are all so stupid looking").
   const line = (mark: number) => mark === MARK_STEP || mark === MARK_STATUS;
   if (line(previous) && line(next)) return 0;
+  // The live state is separate from completed activity. Leo, 2026-11-04: "the gap between tool
+  // calls and thinking needs to be bigger". Use the same scaled run gap as activity to prose.
+  if (line(previous) && (next === MARK_INDICATOR || next === MARK_FOOTER_SLOT)) return TRANSCRIPT_RUN_GAP;
   // A run, or any status line, and the reply's prose around it sit 16 apart, either way.
   if ((line(previous) && next === MARK_MESSAGE) || (previous === MARK_MESSAGE && line(next))) return TRANSCRIPT_RUN_GAP;
   return TRANSCRIPT_BLOCK_GAP;

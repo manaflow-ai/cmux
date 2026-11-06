@@ -172,6 +172,8 @@ struct HomeAgentMessagesTests {
         expectedFold.latest = "checked"
         // Each agent's title: the first words of the Chief's first message to it.
         expectedFold.peerTitles = ["please check", "please build"]
+        // a1's report is unread until the person opens a1 (the agent pane).
+        expectedFold.peerUnread = [true, false]
         #expect(rows[1].agentMessage == expectedFold)
         #expect(rows[2].agentMessage?.kind == .message(from: "agent_mux", to: "a1", outgoing: true, text: "please check"))
         #expect(rows[3].agentMessage?.kind == .message(from: "agent_mux", to: "a2", outgoing: true, text: "please build"))
@@ -386,11 +388,109 @@ struct HomeAgentMessagesTests {
         #expect(row.peerStates == [.told] && row.peerTitles == ["Nightly rebuild"])
     }
 
+    /// A pill's title (user 2026-11-03): the task's `Title:` line, else its first clause cut at a word edge to
+    /// about 32 characters with no trailing punctuation, never a fixed five words cut mid-phrase.
+    @Test(arguments: [
+        ("Add auto-archive: off by default, 3 days idle, in the Tidy Up dialog and Settings.", "Add auto-archive"),
+        ("Title: Fix caret blink\n\nUser msg 1: the caret blinks.", "Fix caret blink"),
+        ("Buttons respond first click: test every button with one click", "Buttons respond first click"),
+        ("Default picked: reserve one Mac mini's nightly slot", "Default picked"),
+        ("Hold the push until the nightly appcast builds - then land it", "Hold the push until the nightly"),
+        ("Check Text Size in the docs. Then fix the sidebar.", "Check Text Size in the docs"),
+        ("Rebuild the appcast; then push", "Rebuild the appcast"),
+        ("Audit every button for first-click response\nin both windows", "Audit every button for"),
+        ("**Please** check the `nightly` build and report back today", "Please check the nightly build"),
+        ("Fix the v1.2 release notes", "Fix the v1.2 release notes"),
+        ("Supercalifragilisticexpialidociousnessly long word", "Supercalifragilisticexpialidociousnessly"),
+        // A quoted message's speaker header is no title (user 2026-11-04, msg 21664: "User (Nov 4)").
+        ("User (Nov 4): \"are we cancelling nightlies? we need to just make nightlies build\"", "are we cancelling nightlies"),
+        ("User: why is the computer overloaded", "why is the computer overloaded"),
+    ])
+    func aTitleIsTheTitleLineElseTheFirstClauseAtAWordEdge(text: String, expected: String) {
+        #expect(HomeAgentMessageRow.title(of: text) == expected)
+    }
+
     /// A pill names an agent by its task's `Title:` line (the spawn task's first line), else the
     /// first words of the Chief's first message (user 2026-11-03, msg 19960: the ChatGPT-style pills).
     @Test func anAgentsTitleIsItsTasksTitleLineElseItsFirstWords() {
         #expect(HomeAgentMessageRow.title(of: "Title: Fix caret blink\n\nUser msg 1: the caret blinks.") == "Fix caret blink")
         #expect(HomeAgentMessageRow.title(of: "**Please** check the `nightly` build and report back today") == "Please check the nightly build")
         #expect(HomeAgentMessageRow.title(of: "\n\n") == nil)
+    }
+
+    /// User 2026-11-04 (msg 21664): an agent's pill and chat are named by its spawn task's `Title:` line, in every
+    /// row it shows in, never by a later tell's first clause ("User (Nov 4)").
+    @Test func anAgentKeepsItsSpawnTitleInLaterRows() throws {
+        var book = HomeAgentMessages()
+        let spawn = HomeAgentRun(conversation: conversation, id: "run-spawn", author: chief, turn: nil,
+                                 answers: [MessageID("question")], threadRoot: nil, revision: 1, messages: [
+            .init(id: "spawn:a988", sequence: 1, revision: 1, peer: "a988", outgoing: true,
+                  text: "Title: Bubble tail last only\n\nOnly the last bubble of a run gets the tail.", date: date),
+        ])
+        let tell = HomeAgentRun(conversation: conversation, id: "run-tell", author: chief, turn: nil,
+                                answers: [MessageID("later")], threadRoot: nil, revision: 1, messages: [
+            .init(id: "tell:1", sequence: 1, revision: 1, peer: "a988", outgoing: true,
+                  text: "User (Nov 4): \"are we cancelling nightlies?\"", date: date.addingTimeInterval(60)),
+        ])
+        _ = book.apply(spawn)
+        _ = book.apply(tell)
+        let rows = book.inserting(into: [question(), question("later")], summary: nil)
+        let folds = rows.compactMap(\.agentMessage).filter { if case .fold = $0.kind { true } else { false } }
+        #expect(folds.count == 2)
+        #expect(folds.map(\.peerTitles) == [["Bubble tail last only"], ["Bubble tail last only"]])
+        let thread = try #require(book.thread(peer: "a988", in: rows))
+        #expect(thread.title == "Bubble tail last only")
+        #expect(thread.task?.hasPrefix("Title: Bubble tail last only") == true)
+    }
+
+    /// The Chief's own post of the turn that started `peer`: a `send` (key `send-<conversation>-<turn>-<16 hex>`).
+    func chiefSend(_ turn: String, hash: String = "000000000000000a", thread: String? = nil) -> TranscriptItem {
+        .init(key: IdempotencyKey("send-\(conversation.rawValue)-\(turn)-\(hash)"), seq: 2, author: chief,
+              parts: [.text("Started a1002 on Cmd+P memory.")], createdAt: date.addingTimeInterval(5), delivery: .committed,
+              replyTo: thread.map { PartRef(message: MessageID($0), partIndex: 0) }, threadRoot: thread.map { MessageID($0) },
+              messageID: MessageID("send-\(hash)"))
+    }
+
+    func spawnRun(turn: String) -> HomeAgentRun {
+        HomeAgentRun(conversation: conversation, id: "run-\(turn)", author: chief, turn: IdempotencyKey(turn),
+                     answers: [MessageID("question")], threadRoot: nil, revision: 1, messages: [
+            .init(id: "spawn:a1002", sequence: 1, revision: 1, peer: "a1002", outgoing: true,
+                  text: "Title: Cmd+P search memory\n\nUser (Nov 5): the whole raw task.", date: date.addingTimeInterval(1)),
+        ])
+    }
+
+    /// User 2026-11-05 (msg 22013): a spawn turn's pills show beside the Chief's words of that turn, not alone
+    /// under the person's message while the words went into its thread.
+    @Test func spawnPillsFollowTheChiefsTextOfTheirTurn() throws {
+        var book = HomeAgentMessages()
+        _ = book.apply(spawnRun(turn: "turn-7"))
+        let rows = book.inserting(into: [question(), chiefSend("turn-7", thread: "question")], summary: nil)
+        #expect(rows.count == 3)
+        #expect(rows[1].key.rawValue.hasPrefix("send-"))
+        let fold = try #require(rows.last)
+        #expect(fold.agentMessage?.peerTitles == ["Cmd+P search memory"])
+        #expect(fold.threadRoot == MessageID("question"))
+        #expect(fold.replyTo?.message == MessageID("question"))
+    }
+
+    /// A send of another turn is no anchor: the pills stay under the message they answer.
+    @Test func anotherTurnsSendIsNoAnchor() {
+        var book = HomeAgentMessages()
+        _ = book.apply(spawnRun(turn: "turn-7"))
+        let rows = book.inserting(into: [question(), chiefSend("turn-70")], summary: nil)
+        #expect(rows.count == 3)
+        #expect(rows[1].agentMessage != nil)
+        #expect(rows[1].threadRoot == nil)
+    }
+
+    /// Of several sends in the turn, the one on the main line (no thread) carries the pills.
+    @Test func aMainLineSendWinsOverAThreadedOne() {
+        var book = HomeAgentMessages()
+        _ = book.apply(spawnRun(turn: "turn-7"))
+        let rows = book.inserting(into: [question(), chiefSend("turn-7", hash: "000000000000000a", thread: "question"),
+                                         chiefSend("turn-7", hash: "000000000000000b")], summary: nil)
+        #expect(rows.count == 4)
+        #expect(rows[3].agentMessage != nil)
+        #expect(rows[3].threadRoot == nil)
     }
 }

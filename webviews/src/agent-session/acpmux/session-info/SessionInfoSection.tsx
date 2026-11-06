@@ -1,16 +1,18 @@
 // One Session Info section: its title with a disclosure triangle and a one-line value on the right
 // (a count, a percent), folding its body. Without `onOpenChange` the head is plain text (Context
-// before the agent reports usage). With `icon`, the head starts with it, so a section that is one
+// before the agent reports usage), or with `onActivate` one button (Context, which opens the
+// composer's context card). With `icon`, the head starts with it, so a section that is one
 // line lines up with the rows above it (the rail's top block, SessionInfo.tsx `RAIL_LAYOUT`).
 // `bare` draws the body alone, with no head: rows that need no title over them. Inside the panel's
-// list (SessionInfoGroup.tsx) it also has the six-dot handle that moves it anywhere in the panel, left
-// of its title (sessionInfo.css).
+// list (SessionInfoGroup.tsx) it also has the six-dot handle that moves it anywhere in the panel, in
+// the panel's gutter left of its head (sessionInfo.css).
 import type { ReactNode } from "react";
 import { Disclosure } from "../../../ui/Disclosure";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { useReorder } from "./SessionInfoGroup";
+import { movable } from "./sectionOrder";
 import type { SessionInfoSectionId } from "./sessionInfoState";
 
 const ROW_ICON = rowIconSize(12);
@@ -40,14 +42,15 @@ export function SessionInfoFold({
   );
 }
 
-/// Six dots, drawn here (the icon pack has no grip glyph): three across and two down, a grip wider than it
-/// is tall (Leo, 2026-11-03: "make it a more horizontally wide symbol, why not?").
-const GRIP_DOTS = [1.25, 4.75].flatMap((y) => [1, 4, 7].map((x) => ({ x, y })));
+/// Six dots, drawn here (the icon pack has no grip glyph): two across and three down, in the panel's left
+/// gutter beside the head, outside its pill (sessionInfo.css; Lucas, 2026-11-05, Session Info lab: the
+/// grip inside the pill "looks strange and poorly positioned").
+const GRIP_DOTS = [2, 6, 10].flatMap((y) => [2, 6].map((x) => ({ x, y })));
 
 function ReorderHandle({ id, title }: { id: SessionInfoSectionId; title: string }) {
   const reorder = useReorder();
   const t = useT();
-  if (!reorder) return null;
+  if (!reorder || !movable(id)) return null;
   return (
     <button
       type="button"
@@ -61,9 +64,9 @@ function ReorderHandle({ id, title }: { id: SessionInfoSectionId; title: string 
         reorder.step(id, event.key === "ArrowUp" ? -1 : 1);
       }}
     >
-      <svg width="8" height="6" viewBox="0 0 8 6" aria-hidden="true">
+      <svg width="8" height="12" viewBox="0 0 8 12" aria-hidden="true">
         {GRIP_DOTS.map(({ x, y }) => (
-          <circle key={`${x}-${y}`} cx={x} cy={y} r="0.9" fill="currentColor" />
+          <circle key={`${x}-${y}`} cx={x} cy={y} r="1" fill="currentColor" />
         ))}
       </svg>
     </button>
@@ -78,6 +81,8 @@ export function SessionInfoSection({
   meta,
   icon,
   bare = false,
+  onActivate,
+  activateLabel,
   children,
 }: {
   id: string;
@@ -87,6 +92,10 @@ export function SessionInfoSection({
   meta?: ReactNode;
   icon?: string;
   bare?: boolean;
+  /// With no fold, the head is one button that does this (Context's opens the composer's context card).
+  onActivate?: () => void;
+  /// The button's accessible name, when its title and value are not enough.
+  activateLabel?: string;
   children?: ReactNode;
 }) {
   const head = (foldable: boolean) => (
@@ -126,6 +135,16 @@ export function SessionInfoSection({
         >
           {children}
         </Disclosure>
+      ) : onActivate ? (
+        <button
+          type="button"
+          className="acpmux-session-info-section__head acpmux-session-info-section__head--button"
+          aria-label={activateLabel}
+          aria-haspopup="dialog"
+          onClick={onActivate}
+        >
+          {head(false)}
+        </button>
       ) : (
         <div className="acpmux-session-info-section__head">{head(false)}</div>
       )}

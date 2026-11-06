@@ -9,6 +9,8 @@ use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 use wait_timeout::ChildExt;
 
+// timeout: harness diagnostics are health-only; after this bound the child process group is
+// cleaned up and the check reports an unknown/problem row. Agent starts do not depend on it.
 const TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Runs `argv` with the login environment plus `env`, no input and a timeout.

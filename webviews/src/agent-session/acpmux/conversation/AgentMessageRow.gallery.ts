@@ -320,11 +320,11 @@ export default agentPaneEntry({
       snapshot: lanes(),
     },
     "sent-subagents": {
-      note: "Messages to subagents read by the subagent's description (the Agent call's), never its agentId; an id no Agent call in the loaded transcript names reads as a short id. Each chip's tooltip holds the full id.",
+      note: "Messages to subagents read by the subagent's description (the Agent call's), never its agentId; an id no Agent call in the loaded transcript names reads as a short id. Three in a row fold into one closed \"Sent 3 messages\" line (cmux#34865); opened, each chip's tooltip holds the full id.",
       snapshot: subagentSends(),
     },
     "sent-hover": {
-      note: "Pointed at, a send shows Copy at the line's end, after its status word, clear of the line's words.",
+      note: "Pointed at, a send lights its line; it shows no Copy (cmux#34865).",
       snapshot: sends(),
       play: async (ctx) => {
         await ctx.hover({ selector: ".cv-message" });

@@ -39,8 +39,9 @@ enum TopPages {
     /// person's New Tab, New Terminal Tab or split leaves the page and runs in the workspace.
     static func installActionRules(_ services: AppServices) {
         services.registry.install(ActionTopPageRules(isShowing: { [weak services] in services?.windows.active?.shownTopPage != nil },
+                                                     canLeave: { [weak services] in services?.windows.active?.leavingShowsWorkspace == true },
                                                      leave: { [weak services] in _ = services?.windows.active?.leaveTopPage() },
-                                                     noTabs: { RefusalStrings.topPageHasNoTabs }))
+                                                     noTabs: { RefusalStrings.topPageHasNoTabs }, noPanes: { RefusalStrings.topPageHasNoPanes }))
     }
 
     /// Leaves the active window's top page for its workspace at once (a

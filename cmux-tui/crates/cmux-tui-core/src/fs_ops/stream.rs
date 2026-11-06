@@ -15,12 +15,17 @@
 //!        With `fs-write-deflate-v1` the request may also carry
 //!        `"permissions"`, and `"encoding":"deflate"` with `"decoded_size"`:
 //!        the `size` wire bytes are raw deflate, decoded as they come, never
-//!        past `decoded_size` ([`super::encoding`]).
+//!        past `decoded_size` ([`super::encoding`]). With
+//!        `fs-write-nofollow-v1`, `"no_follow":true` refuses a symlink as any
+//!        component of `path` (`fs.symlink_in_path`).
 //!
 //! Backpressure is the socket itself: the daemon reads and writes through
 //! one 256 KiB buffer and blocks on a full window. A write stream that ends
 //! (or times out) before `size` bytes drops its [`PendingWrite`], which
-//! unlinks the temporary file: nothing appears at `path`.
+//! unlinks the temporary file: nothing appears at `path`. A write the daemon
+//! refuses after `ready` (bytes past `decoded_size`, a failed disk write) is
+//! answered at once and the stream closes without reading the rest of the
+//! `size` bytes: a client whose send then fails reads that answer.
 
 use std::io::{self, Read, Write};
 use std::os::fd::AsFd;
@@ -58,13 +63,14 @@ pub enum StreamRequest {
     },
 }
 
-/// The optional fields of a write stream (`fs-write-deflate-v1`); every
-/// one absent is the stream as before.
+/// The optional fields of a write stream (`fs-write-deflate-v1`,
+/// `fs-write-nofollow-v1`); every one absent is the stream as before.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct WriteOptions {
     pub permissions: Option<u32>,
     pub encoding: Option<String>,
     pub decoded_size: Option<u64>,
+    pub no_follow: bool,
 }
 
 #[derive(Deserialize)]
@@ -90,6 +96,8 @@ struct Line {
     encoding: Option<String>,
     #[serde(default)]
     decoded_size: Option<u64>,
+    #[serde(default)]
+    no_follow: bool,
 }
 
 impl StreamRequest {
@@ -114,6 +122,7 @@ impl StreamRequest {
             permissions: line.permissions,
             encoding: line.encoding,
             decoded_size: line.decoded_size,
+            no_follow: line.no_follow,
         };
         Some(Ok(Self::Write { id: line.id, path, mode, expected: line.expected, size, options }))
     }
@@ -227,7 +236,11 @@ fn serve_write(
                 Encoding::Deflate { decoded_size } => decoded_size,
             };
             let mode = WriteMode::parse(mode, expected)?;
-            let mut pending = PendingWrite::begin(service.roots(), path, mode, Some(decoded))?;
+            let mut pending = if options.no_follow {
+                PendingWrite::begin_no_follow(service.roots(), path, mode, Some(decoded))?
+            } else {
+                PendingWrite::begin(service.roots(), path, mode, Some(decoded))?
+            };
             if let Some(permissions) = options.permissions {
                 pending.set_permissions(permissions)?;
             }

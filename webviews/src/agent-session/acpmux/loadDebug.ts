@@ -137,7 +137,7 @@ export async function loadRun(
   const work: number[] = [];
   const late: number[] = [];
   let blank = 0;
-  let liveLineShown = 0;
+  let liveLineHidden = 0;
   // The scroll: up from the bottom at `speed` until `depth` viewports above it, then back down to
   // the bottom, again and again, while the reply streams in below.
   const span = depth * scroller.clientHeight;
@@ -161,8 +161,9 @@ export async function loadRun(
     }
     previous = now;
     if (!streamDone && requested()) scroller.scrollTop = scroller.scrollHeight - scroller.clientHeight - offset;
-    // The live line under a reply whose text streams stays quiet (Thinking.tsx `quietKey`).
-    if (!streamDone && document.querySelector(".cv-worked--live:not(.is-quiet)")) liveLineShown += 1;
+    // The live line under a reply whose text streams stays shown, reading "Writing" (Thinking.tsx
+    // `quietKey`): it never leaves and comes back mid-turn.
+    if (!streamDone && document.querySelector(".cv-worked--live.is-quiet")) liveLineHidden += 1;
     const blankNow = isBlank(acpmuxPerf.mounted, scroller.scrollTop, scroller.clientHeight, scroller.scrollHeight);
     if (blankNow) blank += 1;
     acpmuxPerf.markFrame(now, blankNow);
@@ -206,7 +207,7 @@ export async function loadRun(
     over_60hz_budget: sorted.filter((ms) => ms > 1000 / 60).length,
     frames: work.length,
     blank_frames: blank,
-    live_line_shown_frames: liveLineShown,
+    live_line_hidden_frames: liveLineHidden,
     layout_ms: stats.layout,
     react_ms: stats.react,
     other_ms: stats.other,

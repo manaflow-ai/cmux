@@ -43,6 +43,8 @@ mod chief;
 mod chief_target;
 #[cfg(unix)]
 mod cloud_client_session;
+#[cfg(unix)]
+mod cloud_environment;
 mod cloud_help;
 #[cfg(unix)]
 mod cloud_machine_io;
@@ -74,6 +76,8 @@ mod host_mount;
 mod internal;
 mod launch_credential;
 mod lifecycle;
+#[cfg(unix)]
+mod live_code;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
 #[cfg(unix)]
 mod sandbox_run;
@@ -98,6 +102,8 @@ mod machine_doctor;
 #[cfg(unix)]
 mod machine_join;
 #[cfg(unix)]
+mod machine_link;
+#[cfg(unix)]
 pub(crate) use machine_join::{
     CallError as PlatformCallError, Platform, device_credential as joined_machine_credential,
     platform_origin, rows_for_devices as joined_machine_rows,
@@ -109,6 +115,8 @@ pub(crate) use machine_server::is_lifecycle_scope;
 #[cfg(unix)]
 mod mcp;
 mod raw;
+#[cfg(unix)]
+mod remote_host;
 mod resolve;
 mod scope_help;
 mod screen_help;
@@ -403,8 +411,19 @@ pub(crate) fn rewrite_deprecated_server_lifecycle(args: &mut Vec<String>) {
 /// the parser whose `help <scope>` knows only its own scopes, so `cmux help
 /// agents` answered "unknown resource scope".
 pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
-    "agents", "chats", "harness", "remote", "script", "host", "github", "avatar", "chief", "setup",
-    "device", "workflow",
+    "agents",
+    "chats",
+    "harness",
+    "remote",
+    "script",
+    "host",
+    "github",
+    "avatar",
+    "chief",
+    "setup",
+    "device",
+    "workflow",
+    "remote-host",
 ];
 
 /// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>
@@ -521,14 +540,17 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| automation::run_if_requested(args))
         .or_else(|| billing::run_if_requested(args))
         .or_else(|| auth_token::run_if_requested(args))
+        .or_else(|| live_code::run_if_requested(args))
         .or_else(|| sandbox_run::run_if_requested(args))
         .or_else(|| vm::run_if_requested(args))
         .or_else(|| vnc::run_if_requested(args))
+        .or_else(|| cloud_environment::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
         .or_else(|| cloud_start_chat::run_if_requested(args))
         .or_else(|| cloud_repo::run_if_requested(args))
         .or_else(|| cloud_client_session::run_if_requested(args))
         .or_else(|| cloud_machine_io::run_if_requested(args))
+        .or_else(|| machine_link::run_if_requested(args))
         .or_else(|| machine_join::run_if_requested(args))
         .or_else(|| machine_doctor::run_if_requested(args))
         .or_else(|| apps_list::run_if_requested(args))
@@ -536,6 +558,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
+        .or_else(|| remote_host::run_if_requested(args))
         .or_else(|| status::run_args(args))
     {
         return code;

@@ -20,6 +20,10 @@ concurrency:
   group: web-validation-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
   # Secretless placement bootstrap: fresh runner state assigns this short status
   # job to an idle owned mini; stale state fails open to the existing overflow.
@@ -51,6 +55,9 @@ jobs:
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           JOBS: web-validation
+          # Only the owned-pool rescue bot's third attempt may re-place this
+          # light job. Other workflows and manual retries stay fail-closed.
+          PORTABLE_ATTEMPT3_RESCUE: '1'
           FLEET_LINUX: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.LINUX_RUNNER }}
           REQUIRE_LIVE_CAPACITY: '1'
           SIDE_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_LIGHT_LANE_RUNNER || vars.CI_SIDE_LANE_RUNNER }}

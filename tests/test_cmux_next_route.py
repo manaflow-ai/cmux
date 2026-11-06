@@ -573,11 +573,13 @@ class EveryTier(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/cmux-next.yml").read_text(encoding="utf-8")
         self.assertIn("vendored_pin: ${{ steps.route.outputs.vendored_pin }}", workflow)
         swift_test = workflow[workflow.index("\n  swift-test:\n"):workflow.index("\n  daemon-test:\n")]
-        # Swift runs on a same-repository PR (#22303), a fork PR labeled full-ci and
-        # dispatches; a feat-cmux-next push skips it (push CI is the app build).
+        # Swift runs on a PR labeled full-ci (same-repository or fork; since 2026-11-05, when every
+        # unlabeled PR run was cancelled or skipped and none passed) and on dispatches; a
+        # feat-cmux-next push skips it (push CI is the app build).
         condition = next(line for line in swift_test.splitlines() if line.startswith("    if: "))
-        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", condition)
-        self.assertIn("contains(github.event.pull_request.labels.*.name, 'full-ci')", condition)
+        self.assertNotIn("github.event.pull_request.head.repo.full_name == github.repository", condition)
+        self.assertIn("github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')",
+                      condition)
         self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", condition)
         self.assertIn("    continue-on-error: false\n", swift_test)
         self.assertIn("    name: cmux-next swift test\n", swift_test)
@@ -609,8 +611,8 @@ class LinuxLaneTests(unittest.TestCase):
                           and not route_module.consumed(path, cls.tree_inputs, cls.read))
 
     def test_the_allowlist_comes_from_the_registry(self):
-        from test_execution_registry import load_registry
-        entries = load_registry(ROOT / "tests/test-execution.toml")
+        from test_execution_registry import load_tree
+        entries = load_tree(ROOT)
         expected = {e["path"] for e in entries if e.get("lane") == "linux-guard" and str(e["path"]).startswith("tests/test_")}
         self.assertEqual(set(self.linux), expected)
         self.assertGreater(len(self.linux), 100)
@@ -619,19 +621,21 @@ class LinuxLaneTests(unittest.TestCase):
         result = tiers([self.sample])
         self.assertEqual(mac_tiers(result), [], self.sample)
         self.assertEqual(tiers([self.sample, "tests/test-execution.toml"])["native"], "false")
+        self.assertEqual(tiers([self.sample, "tests/test-execution.d/ci.toml"])["native"], "false")
 
     def test_a_test_moved_off_linux_guard_routes_to_mac_again(self):
-        from test_execution_registry import load_registry
+        from test_execution_registry import load_tree
         entries = [dict(e, lane="macos-shell") if e["path"] == self.sample else e
-                   for e in load_registry(ROOT / "tests/test-execution.toml")]
-        with mock.patch("test_execution_registry.load_registry", return_value=entries):
+                   for e in load_tree(ROOT)]
+        with mock.patch("test_execution_registry.load_tree", return_value=entries):
             self.assertIn("native", mac_tiers(tiers([self.sample])))
 
     def test_an_unreadable_registry_allowlists_nothing(self):
-        with mock.patch("test_execution_registry.load_registry", side_effect=ValueError("bad registry")):
+        with mock.patch("test_execution_registry.load_tree", side_effect=ValueError("bad registry")):
             self.assertEqual(self.route.linux_guard_tests(ROOT), frozenset())
             self.assertIn("native", mac_tiers(tiers([self.sample])))
             self.assertIn("native", mac_tiers(tiers(["tests/test-execution.toml"])))
+            self.assertIn("native", mac_tiers(tiers(["tests/test-execution.d/ci.toml"])))
 
     def test_a_linux_guard_test_a_mac_tier_reads_keeps_its_tier(self):
         with mock.patch.object(self.route, "SWIFT_JOB_INPUTS", self.route.SWIFT_JOB_INPUTS + (self.sample,)):
@@ -1243,6 +1247,65 @@ class PushAttribution(unittest.TestCase):
         payload.update(total_commits=3, merge_base_commit={"sha": side})
         with mock.patch.object(attribution, "gh_api", return_value=payload):
             self.assertEqual(attribution.compare_commits("o/r", a, c), [])
+
+    def test_range_and_culprit_come_from_first_parent_git_history(self):
+        """Squash subjects name their pull requests from local git; only commits git cannot name
+        (a rebase merge, a direct push) share one GraphQL lookup, and nothing asks compare or
+        commits/{sha}/pulls."""
+        import os
+        import subprocess
+        import tempfile
+        import cmux_next_push_attribution as attribution
+
+        with tempfile.TemporaryDirectory() as repo:
+            def git(*args):
+                return subprocess.run(["git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
+                                      check=True, capture_output=True, text=True).stdout.strip()
+            git("init", "-q")
+            shas = []
+            for subject in ("base", "feat: one (#11)", "fix: rebased, no number", "Revert \"x (#9)\" (#12)", "two (#11)"):
+                git("commit", "-q", "--allow-empty", "-m", subject)
+                shas.append(git("rev-parse", "HEAD"))
+            git("checkout", "-q", "-b", "side", shas[1])
+            git("commit", "-q", "--allow-empty", "-m", "side (#99)")
+            git("checkout", "-q", "-")
+            git("merge", "-q", "--no-ff", "-m", "Merge pull request #13 from o/side", "side")
+            shas.append(git("rev-parse", "HEAD"))
+            base, head = shas[0], shas[-1]
+            asked = []
+            cwd = os.getcwd()
+            os.chdir(repo)
+            try:
+                with mock.patch.object(attribution, "gh_api", side_effect=lambda path: self.fail(f"REST read {path}")), \
+                     mock.patch.object(attribution, "merged_pulls_batch",
+                                       side_effect=lambda r, unnamed, b: asked.append(unnamed) or {unnamed[0]: [20]}):
+                    self.assertEqual(attribution.pull_requests("o/r", base, head, "feat-cmux-next"), [11, 20, 12, 13])
+                    self.assertEqual(asked, [[shas[2]]])
+                    self.assertEqual(attribution.compare_commits("o/r", base, head), shas[1:])
+                    self.assertEqual(attribution.pull_requests_for_commit("o/r", shas[3], "feat-cmux-next"), [12])
+                # A base off the fetched first-parent chain falls back to the API.
+                with mock.patch.object(attribution, "gh_api", return_value={"commits": []}) as api:
+                    self.assertEqual(attribution.pull_requests("o/r", "f" * 40, head, "feat-cmux-next"), [])
+                    api.assert_called_once()
+            finally:
+                os.chdir(cwd)
+
+    def test_reads_use_the_read_token_and_retry_on_the_workflow_token(self):
+        import subprocess
+        import cmux_next_push_attribution as attribution
+        calls = []
+
+        def run(args, **kwargs):
+            token = (kwargs.get("env") or {}).get("GH_TOKEN", "workflow")
+            calls.append(token)
+            if token == "app":
+                raise subprocess.CalledProcessError(1, args)
+            return subprocess.CompletedProcess(args, 0, stdout="{}")
+
+        with mock.patch.dict("os.environ", {"GH_READ_TOKEN": "app"}), \
+             mock.patch.object(attribution.subprocess, "run", side_effect=run):
+            self.assertEqual(attribution.gh_api("repos/o/r/actions/runs/1/jobs"), {})
+        self.assertEqual(calls, ["app", "workflow"])
 
     def test_culprit_mapping_requires_the_prs_actual_merge_commit(self):
         import cmux_next_push_attribution as attribution

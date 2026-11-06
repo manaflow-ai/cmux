@@ -326,6 +326,8 @@ export function LiveChat({
               onToggleActivity={toggle}
               working={snapshot.isWorking}
               readOnly
+              // The thread rail is the owner's pane chrome; here it drew a lone tick at the page's edge.
+              showMinimap={false}
               canLoadOlder={hasMore}
               historyFrom={snapshot.historyFrom}
               onLoadOlder={loadOlder}

@@ -7,6 +7,7 @@ import table from "./generated/strings.json";
 import { ImportHistory } from "./ImportHistory";
 import { ImportHistoryStore } from "./model";
 import { MockImportHistoryProvider } from "./mockProvider";
+import "../../ui/ui.css";
 import "../shared/pageBase.css";
 import "./styles.css";
 

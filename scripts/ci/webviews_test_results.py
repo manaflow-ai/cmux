@@ -18,6 +18,7 @@ names only some tests says the rest passed. The bisect's probes read it (web_coa
 from __future__ import annotations
 
 import json
+import importlib.util
 import os
 from pathlib import Path
 import re
@@ -160,7 +161,97 @@ def failed_files(results: dict[str, bool]) -> list[str]:
     return sorted({name.split(" > ", 1)[0] for name, ok in results.items() if not ok})
 
 
+def tap_observations(summary: Path, *, log_dir: Path | None = None):
+    """Explicit outcomes from each file's final whole attempt, with bounded line/diagnostic buffers.
+
+    Huge diagnostic floods supply no samples, preserving the existing MAX_LINE_BYTES safety bound rather than
+    trimming an error into a signature that could match a different failure. Memory is per-file test results plus
+    that buffer; a green file's complete console output is never retained in memory or printed.
+    """
+    parser_path = Path(__file__).with_name("test_reds.py")
+    # Older downloaded runner artifacts omit the classifier. Their base replay still works; it contributes no
+    # scoring evidence until the artifact includes the same canonical parser as the source checkout.
+    if not parser_path.is_file():
+        return
+    spec = importlib.util.spec_from_file_location("tap_test_reds", parser_path)
+    reds = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(reds)
+
+    class Unreadable(Exception):
+        pass
+
+    def bounded_lines(stream):
+        while raw := stream.readline(MAX_LINE_BYTES + 1):
+            if len(raw) > MAX_LINE_BYTES:
+                while raw and not raw.endswith(b"\n"):
+                    raw = stream.readline(MAX_LINE_BYTES + 1)
+                yield None
+            else:
+                yield ANSI.sub(b"", raw.rstrip(b"\r\n"))
+
+    with summary.open(encoding="utf-8") as listed:
+        for line in listed:
+            parts = line.rstrip("\n").split(" ", 2)
+            if len(parts) != 3 or parts[0] not in {"PASS", "FAIL"}:
+                continue
+            outcome, file, path = parts
+            if log_dir is not None:
+                path = str(log_dir / Path(path).name)  # artifact downloads relocate the runner's absolute paths
+            file = reds.BUN_PACKAGE.sub("", file)
+            try:
+                if not _completed(Path(path)):
+                    continue
+                # A twice-red log includes the first attempt for diagnosis. It cannot supply outcomes for the
+                # final attempt (a first-attempt crash may have a whole, passing retry).
+                offset = 0
+                with open(path, "rb") as stream:
+                    for raw in bounded_lines(stream):
+                        if raw == RETRY_BYTES:
+                            offset = stream.tell()
+                found = reds.Result()
+                with open(path, "rb") as stream:
+                    stream.seek(offset)
+                    def checked_lines():
+                        diagnostic_bytes = 0
+                        for raw in bounded_lines(stream):
+                            if raw is None:
+                                raise Unreadable()
+                            text = raw.decode("utf-8", errors="replace")
+                            exited = reds.PROCESS_EXIT.match(text)
+                            if (reds.BUN_PANIC.match(text) or reds.TRUNCATED.search(text)
+                                    or reds.LOST_RUNNER.search(text) or reds.BLOB_NOT_FOUND.search(text)
+                                    or (exited and 129 <= int(exited.group(1)) <= 192)
+                                    or ((reds.CRASH.search(text) or reds.CRASH_AT_START.search(text)
+                                         or reds.SIGNALED.search(text)) and not reds.TEST_LINE.search(text))
+                                    or text.startswith("--- retry stopped at shared budget ---")):
+                                raise Unreadable()
+                            if reds.BUN_TEST.match(text) or reds.BUN_COUNT.match(text):
+                                diagnostic_bytes = 0
+                            else:
+                                diagnostic_bytes += len(raw)
+                                if diagnostic_bytes > MAX_LINE_BYTES:
+                                    raise Unreadable()
+                            yield text
+                    reds.read_bun(checked_lines(), found)
+                if found.truncated or (outcome == "PASS" and found.failed) or (outcome == "FAIL" and not found.failed):
+                    continue
+                for name in sorted(found.passed | found.failed):
+                    if not name.startswith(file + " > "):
+                        continue
+                    yield {"schema": "tap-test/v1", "file": file, "test": name,
+                           "outcome": "fail" if name in found.failed else "pass",
+                           "signature": found.messages.get(name, "") if name in found.failed else ""}
+            except (OSError, Unreadable):
+                continue
+
+
 def main(argv: list[str]) -> int:
+    if len(argv) == 2 and argv[0] == "--tap-markers":
+        print("::group::TAP final named results")
+        for row in tap_observations(Path(argv[1])):
+            print("tap-test/v1 " + json.dumps(row, ensure_ascii=True, separators=(",", ":")))
+        print("::endgroup::")
+        return 0
     if len(argv) == 2 and argv[0] == "--failed-files":
         print("\n".join(failed_files(json.loads(Path(argv[1]).read_text(encoding="utf-8")))))
         return 0

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 90d0605d1f55a8b89b86ace2127f57445382f7e804efff5ba385ae75bddc84dd.
+// cmux-tui mux protocol 12, IR a8bf2d3326aa4ee4ca8db46cb9b69b3f29663cf614c1a9e776b2aae5751ab54b.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1149,6 +1149,28 @@ pub enum Layout {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LayoutSizePaneWidth {
+    pub pane: Id,
+    pub width: f32,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LayoutSizeSplitRatio {
+    pub ratio: f32,
+    pub split: Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum LayoutSizeValue {
+    LayoutSizeSplitRatio(LayoutSizeSplitRatio),
+    LayoutSizePaneWidth(LayoutSizePaneWidth),
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LayoutUndoConfirmationRequired {
     pub closes_panes: Vec<Id>,
     pub confirmation_required: bool,
@@ -1456,6 +1478,14 @@ pub struct ReadScrollbackResult {
 pub struct ReattachViewResult {
     pub participant: String,
     pub state: SizeState,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RemoteHostAppResult {
+    pub host_pid: u32,
+    pub secret: String,
+    pub socket: String,
 }
 
 #[rustfmt::skip]

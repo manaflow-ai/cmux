@@ -23,10 +23,12 @@ public final class SidebarSameTurn {
     /// Observes `compute`, handing each value to `apply`; `syncNow` runs it too. `listsRows`
     /// marks the rows pass, which walks every workspace.
     public func observe<Value: Sendable>(listsRows: Bool = false, _ compute: @escaping @MainActor @Sendable () -> Value,
-                                  apply: @escaping @MainActor @Sendable (Value) -> Void) {
+                                  apply: @escaping @MainActor @Sendable (Value) -> Void,
+                                  fileID: StaticString = #fileID, line: UInt = #line) {
         passes.append((listsRows, { apply(compute()) }))
         // A trigger: `syncNow` applies outside the stream too, and `apply` compares with what it applied.
-        tasks.append(Task { for await value in ObservationStream({ ObservationTrigger(compute()) }) { apply(value.value) } })
+        let stream = ObservationStream({ ObservationTrigger(compute()) }, fileID: fileID, line: line)
+        tasks.append(Task { for await value in stream { apply(value.value) } })
     }
 
     /// Runs the passes in order (rows, then selection) and draws the sidebar now. `rows` false
