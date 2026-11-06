@@ -500,18 +500,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
               <ForkButton throughSeq={seq} onFork={() => forkWithFeedback(seq, () => fork(seq))} />
             )}
             {tryAnotherApproach && seq !== undefined && seq === forkSeq && (
-              <button
-                type="button"
-                className="cv-iconbtn cv-iconbtn--compact cv-turn-try-another"
-                aria-label={t("turn.tryAnotherApproach")}
-                title={t("turn.tryAnotherApproach")}
-                onClick={() =>
-                  // A refused click or a Cloud error must not become an unhandled rejection.
-                  void tryAnotherApproach(seq).catch(() => undefined)
-                }
-              >
-                {t("turn.tryAnotherApproach")}
-              </button>
+              <TryAnotherApproachButton onTry={() => tryAnotherApproach(seq)} />
             )}
             {!messages && <PinButton rowId={row.id} />}
             {!messages && timeline.toggle}
@@ -801,5 +790,40 @@ function TurnFailure({
         )}
       </span>
     </div>
+  );
+}
+
+/// Cloud's Try another approach, labelled. A machine snapshot takes a while, so the button says it
+/// is working; a refused click or a Cloud error says the fork failed (the Fork button's copy) and a
+/// second click tries again.
+function TryAnotherApproachButton({ onTry }: { onTry(): Promise<unknown> }) {
+  const t = useT();
+  const [state, setState] = useState<"idle" | "pending" | "failed">("idle");
+  const label =
+    state === "pending"
+      ? `${t("turn.tryAnotherApproach")}…`
+      : state === "failed"
+        ? t("notice.forkFailed")
+        : t("turn.tryAnotherApproach");
+  return (
+    <button
+      type="button"
+      className="cv-iconbtn cv-iconbtn--compact cv-turn-try-another"
+      aria-label={label}
+      title={label}
+      aria-busy={state === "pending"}
+      data-try-state={state}
+      disabled={state === "pending"}
+      onClick={() => {
+        setState("pending");
+        onTry().then(
+          () => setState("idle"),
+          () => setState("failed"),
+        );
+      }}
+    >
+      {state === "failed" && <AlertCircle size={ROW_ICON} />}
+      {label}
+    </button>
   );
 }
