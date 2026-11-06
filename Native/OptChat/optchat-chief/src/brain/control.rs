@@ -209,12 +209,12 @@ pub(super) fn permission_note(id: &str, request: &Value, shown: bool) -> String 
         )
     } else {
         format!(
-            "No working local Allow button is confirmed yet for {id}. An eligible hidden local request can appear in Home after delivery, or once control(action: \"show\", id: \"{id}\") opens its workspace."
+            "No working local Allow button is confirmed yet for {id}. An eligible hidden local request appears in Home as an Allow/Deny card; any other opens its workspace, or control(action: \"show\", id: \"{id}\") does."
         )
     };
     let deadline = crate::approval::PERMISSION_WAIT.as_secs();
     format!(
-        "[{id}] waits on a prompt: {title}{input}\nOptions: {options}\n{who} Without a local workspace, the host denies an unanswered request after {deadline} s, even if its Home card was delivered. Deny it: control(action: \"answer\", id: \"{id}\", option: \"deny\"). Or steer it: control(action: \"interrupt\", id: \"{id}\", message: \"do this instead\")."
+        "[{id}] waits on a prompt: {title}{input}\nOptions: {options}\n{who} With neither a delivered Home card nor a local workspace, the host denies an unanswered request after {deadline} s. Deny it: control(action: \"answer\", id: \"{id}\", option: \"deny\"). Or steer it: control(action: \"interrupt\", id: \"{id}\", message: \"do this instead\")."
     )
 }
 
@@ -1340,10 +1340,10 @@ mod tests {
         assert!(note.starts_with("[a3] waits on a prompt: Bash: rm -rf build"));
         assert!(note.contains("allow_once (Allow), reject (Reject)"));
         assert!(note.contains("Only the user can allow it"));
-        assert!(note.contains("after 120 s, even if its Home card was delivered"));
+        assert!(note.contains("With neither a delivered Home card nor a local workspace, the host denies an unanswered request after 120 s."));
         let undelivered = permission_note("a3", &request, false);
         assert!(undelivered.contains("No working local Allow button is confirmed yet"));
-        assert!(undelivered.contains("after 120 s, even if its Home card was delivered"));
+        assert!(undelivered.contains("after 120 s."));
     }
 
     #[test]

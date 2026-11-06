@@ -252,7 +252,7 @@ public final class ChiefMockBackend: ConversationFileBackend, ChiefLiveSource, @
     }
 }
 
-/// The mock answers like the Mac: a pause where Face ID would be (mock
+/// The mock answers like the Mac: a pause where signing would be (mock
 /// only: nothing is signed), then the question reads as answered and Chief
 /// replies. Layout and flow only.
 extension ChiefMockBackend: ChiefQuestionSource {

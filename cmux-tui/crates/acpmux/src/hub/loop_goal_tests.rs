@@ -50,6 +50,11 @@ fn logged_goals(hub: &Hub, session: &Session, seq: u64) -> Vec<Value> {
         .collect()
 }
 
+/// The `kind` the chat's goal keeps (`"loop"` for a Claude Code /loop).
+fn goal_kind(session: &Session) -> Option<String> {
+    session.meta().goal?.extra.get("kind").and_then(Value::as_str).map(str::to_owned)
+}
+
 fn last_seq(hub: &Hub, session: &Session) -> u64 {
     hub.events(&session.id, 0, 10_000).unwrap().last().map_or(0, |e| e.seq)
 }
@@ -59,8 +64,8 @@ async fn a_forced_stop_restart_ends_the_loop_goal_its_agent_dropped() {
     let (hub, session) = chat().await;
     let child = session.child.lock().await.clone().expect("the stand-in agent runs");
     let looping = json!({"kind": "loop", "status": "active", "objective": "check the deploy", "nextRunAt": 9});
-    send(&session, goal_update(child.generation, looping.clone())).await;
-    assert_eq!(session.meta().goal, Some(looping));
+    send(&session, goal_update(child.generation, looping)).await;
+    assert_eq!(goal_kind(&session).as_deref(), Some("loop"));
 
     // The forced restart (`cancel.rs`): the stopped agent's own clear at its exit is dropped.
     session.stopped_agent.store(child.generation, Ordering::SeqCst);
@@ -78,9 +83,13 @@ async fn an_exit_keeps_a_goal_that_is_not_a_loop() {
     let (hub, session) = chat().await;
     let child = session.child.lock().await.clone().expect("the stand-in agent runs");
     let goal = json!({"status": "active", "objective": "Ship the fix"});
-    send(&session, goal_update(child.generation, goal.clone())).await;
+    send(&session, goal_update(child.generation, goal)).await;
     let seq = last_seq(&hub, &session);
     send(&session, Inbound::Exited { pid: child.pid, code: None, host_seq: None }).await;
-    assert_eq!(session.meta().goal, Some(goal), "a harness's persisted goal outlives its process");
+    assert_eq!(
+        session.meta().goal.map(|goal| goal.objective).as_deref(),
+        Some("Ship the fix"),
+        "a harness's persisted goal outlives its process"
+    );
     assert!(logged_goals(&hub, &session, seq).is_empty());
 }

@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 797,
-    "mcp": 712
+    "verbs": 808,
+    "mcp": 723
   },
   "nouns": [
     {
@@ -1092,6 +1092,13 @@
           "mcpTool": "app_browser_profile_open_link"
         },
         {
+          "command": "cmux browser-profile open-link-in-new",
+          "title": "Open Link in New Browser Profile…",
+          "id": "browserProfile.openLinkInNew",
+          "mcp": true,
+          "mcpTool": "app_browser_profile_open_link_in_new"
+        },
+        {
           "command": "cmux browser-profile remove-imported-data",
           "title": "Remove Imported Browser Data…",
           "id": "browserProfile.removeImportedData",
@@ -1138,6 +1145,13 @@
     {
       "noun": "chat",
       "verbs": [
+        {
+          "command": "cmux chat channel create",
+          "title": "New Channel…",
+          "id": "home.createChannel",
+          "mcp": true,
+          "mcpTool": "app_chat_channel_create"
+        },
         {
           "command": "cmux chat colors",
           "title": "Chat Colors…",
@@ -1492,6 +1506,20 @@
           "mcpTool": "app_cloud_prepare_scp"
         },
         {
+          "command": "cmux cloud preview-revoke",
+          "title": "Revoke Machine Preview Link…",
+          "id": "cloudPreviewRevoke",
+          "mcp": true,
+          "mcpTool": "app_cloud_preview_revoke"
+        },
+        {
+          "command": "cmux cloud preview-share",
+          "title": "Share Machine Preview…",
+          "id": "cloudPreviewShare",
+          "mcp": true,
+          "mcpTool": "app_cloud_preview_share"
+        },
+        {
           "command": "cmux cloud promote-machine-to-template",
           "title": "Promote Machine to Template",
           "id": "palette.cloud.promoteTemplate",
@@ -1511,6 +1539,13 @@
           "id": "cloudPublicationList",
           "mcp": true,
           "mcpTool": "app_cloud_publication_list"
+        },
+        {
+          "command": "cmux cloud relay-chat",
+          "title": "Chat on Cloud Machine via the Relay…",
+          "id": "cloudRelayChat",
+          "mcp": true,
+          "mcpTool": "app_cloud_relay_chat"
         },
         {
           "command": "cmux cloud rename-machine",
@@ -3173,6 +3208,13 @@
           "id": "palette.checkForUpdates",
           "mcp": true,
           "mcpTool": "app_settings_check_for_updates"
+        },
+        {
+          "command": "cmux settings clear-palette-history",
+          "title": "Clear Palette Search History",
+          "id": "palette.clearSearchHistory",
+          "mcp": true,
+          "mcpTool": "app_settings_clear_palette_history"
         },
         {
           "command": "cmux settings hide-announcements",
@@ -5010,11 +5052,39 @@
           "mcpTool": "app_workspace_add_checklist_item"
         },
         {
+          "command": "cmux workspace archive-above",
+          "title": "Archive Workspaces Above",
+          "id": "workspace.archiveWorkspacesAbove",
+          "mcp": true,
+          "mcpTool": "app_workspace_archive_above"
+        },
+        {
+          "command": "cmux workspace archive-below",
+          "title": "Archive Workspaces Below",
+          "id": "workspace.archiveWorkspacesBelow",
+          "mcp": true,
+          "mcpTool": "app_workspace_archive_below"
+        },
+        {
           "command": "cmux workspace archive-idle",
           "title": "Archive Idle Workspaces",
           "id": "workspace.archiveIdle",
           "mcp": true,
           "mcpTool": "app_workspace_archive_idle"
+        },
+        {
+          "command": "cmux workspace archive-other",
+          "title": "Archive Other Workspaces",
+          "id": "workspace.archiveOtherWorkspaces",
+          "mcp": true,
+          "mcpTool": "app_workspace_archive_other"
+        },
+        {
+          "command": "cmux workspace archive-others-in-group",
+          "title": "Archive Other Workspaces in Group",
+          "id": "workspace.archiveOthersInGroup",
+          "mcp": true,
+          "mcpTool": "app_workspace_archive_others_in_group"
         },
         {
           "command": "cmux workspace archive-unarchive",
@@ -5762,6 +5832,13 @@
           "id": "workspaceGroup.setIcon",
           "mcp": true,
           "mcpTool": "app_workspace_group_set_icon"
+        },
+        {
+          "command": "cmux workspace-group set-sort",
+          "title": "Set Workspace Group Sort Order…",
+          "id": "workspaceGroup.setSort",
+          "mcp": true,
+          "mcpTool": "app_workspace_group_set_sort"
         },
         {
           "command": "cmux workspace-group sort-by-directory",

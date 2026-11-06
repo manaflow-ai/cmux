@@ -51,11 +51,13 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "palette.newAgentChat",
                 title: String(localized: "action.palette.newAgentChat", defaultValue: "New Agent Chat", bundle: .module),
-                keywords: ["agent", "chat", "ai", "acpmux"], defaultShortcut: Shortcut("i", modifiers: [.command]),
+                // Cmd-I moved to Open Chief Dock (user 2026-11-05: "make cmd + i open the chief dock from now
+                // on"); New Agent Chat keeps the leader chord Cmd-J S (`LeaderLayer`) and the palette.
+                keywords: ["agent", "chat", "ai", "acpmux"],
                 category: .agents, symbol: "bubble.left.and.bubble.right",
                 surfaces: [.palette, .keyboard, .menu, .contextMenu],
-                // These optional values are one schema for Cmd-I extensions, the palette chooser,
-                // CLI and MCP. With none present the handler keeps Cmd-I's inherited seed.
+                // These optional values are one schema for keyboard extensions, the palette chooser,
+                // CLI and MCP. With none present the handler keeps the keyboard's inherited seed.
                 arguments: [
                     ActionArgument(name: "cwd", title: String(localized: "argument.agent.cwd", defaultValue: "Folder", bundle: .module), kind: .string, isRequired: false),
                     ActionArgument(name: "harness", title: String(localized: "argument.agent.harness", defaultValue: "Harness", bundle: .module), kind: .string, isRequired: false),
@@ -633,6 +635,20 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.chief.openViews", defaultValue: "Chief View Gallery", bundle: .module),
                 keywords: ["chief", "views", "gallery", "agents", "where", "everybody", "board", "fleet", "landing", "timeline"],
                 category: .agents, symbol: "square.grid.2x2", surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
+            // Gallery Stage: a stage of the live gallery as a tab of this app, in its own theme and
+            // backdrop (GalleryStageTabs, CmuxNextPages); Move Tab to New Window separates it out.
+            // NIGHTLY, cmux NEXT DEV and Debug only.
+            ActionDescriptor(
+                id: "gallery.openStage",
+                title: String(localized: "action.gallery.openStage", defaultValue: "Gallery Stage", bundle: .module),
+                keywords: ["gallery", "stage", "component", "preview", "view", "window", "hot reload", "dev"],
+                category: .window, symbol: "square.on.square.dashed", surfaces: [.palette],
+                arguments: [
+                    ActionArgument(name: "entry", title: String(localized: "argument.gallery.entry", defaultValue: "Entry", bundle: .module), kind: .string, isRequired: false),
+                    ActionArgument(name: "variant", title: String(localized: "argument.gallery.variant", defaultValue: "Variant", bundle: .module), kind: .string, isRequired: false),
+                ],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
             ActionDescriptor(

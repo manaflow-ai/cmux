@@ -58,7 +58,8 @@ function member(row: AcpmuxRow): Member | undefined {
   // A folded run (codexRuns, shapeTurn): its lines as ToolRows draws them (`runStretches`).
   if (row.kind !== "activity" || row.foldRun !== true || !row.items?.length) return undefined;
   const groups = toolGroups(row.items);
-  // A card that stays in sight for its own sake (a sub-session started or waited on, a dispatch)
+  // A card that stays in sight for its own sake (a sub-session started or waited on, a dispatch,
+  // who else works on these files)
   // keeps the run open around it; only messages fold. So does a run whose edit still waits for its
   // permission: the change it asks about stays in sight (turns.ts codexRuns).
   if (row.items.some((item) => awaitsPermission(item.tool))) return undefined;
@@ -66,15 +67,25 @@ function member(row: AcpmuxRow): Member | undefined {
     groups.some(
       (group) =>
         group.type === "subsessionGroup" ||
+        group.type === "agentCall" ||
         group.type === "dispatch" ||
+        group.type === "whoElse" ||
         (group.type === "subsession" && group.call.tool !== "send"),
     )
   )
     return undefined;
   let lines = 0;
   for (const stretch of runStretches(row, groups)) lines += stretch.fold ? 1 : stretch.groups.length;
-  const sent = groups.filter(isSend).length;
-  const sentItems = new Set(groups.flatMap((group) => (isSend(group) && "item" in group ? [group.item] : [])));
+  // A group of sends counts each of its messages (toolGroups.ts `sendGroup`).
+  const sent = groups.reduce(
+    (sum, group) => sum + (group.type === "sendGroup" ? group.entries.length : isSend(group) ? 1 : 0),
+    0,
+  );
+  const sentItems = new Set(
+    groups.flatMap((group) =>
+      group.type === "sendGroup" ? group.items : isSend(group) && "item" in group ? [group.item] : [],
+    ),
+  );
   const work = row.items.filter((item) => item.tool && !sentItems.has(item));
   return {
     lines,

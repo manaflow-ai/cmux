@@ -1,3 +1,4 @@
+import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
@@ -42,7 +43,9 @@ struct AppEnvironment: Sendable {
     /// so prompts and tools pick the same colors as in Ghostty. Also the
     /// daemon's launch overrides, so terminals it creates without a
     /// per-terminal `env` match. Resolved once per launch.
-    let terminalEnvironment: [String: String]
+    var terminalEnvironment: [String: String]
+    /// Resolved by the Rust CLI before any credential-bearing service or daemon starts.
+    var cloudConfiguration: CloudConfiguration?
     /// Ghostty resources directory and bundled CLI helper for shell
     /// integration (`GhosttyShellIntegration`). Resolved once per launch.
     var ghosttyResources: String?
@@ -116,6 +119,7 @@ struct AppEnvironment: Sendable {
             captureShellHome: captureShellHome(environment),
             testWindow: TestWindowPlacement.parse(environment, noActivate: noActivate),
             terminalEnvironment: terminalEnvironment(launch: launch, environment: environment).merging(openFiles?.childEnvironment ?? [:]) { $1 },
+            cloudConfiguration: nil,
             ghosttyResources: GhosttyRuntime.resourcesDirectory(environment: environment),
             ghosttyBinary: GhosttyRuntime.cliHelperPath()
         )

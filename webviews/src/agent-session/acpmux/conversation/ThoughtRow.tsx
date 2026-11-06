@@ -10,25 +10,18 @@ import { isQuietThought, thoughtDuration, thoughtParts } from "./thoughts";
 
 export { thoughtDuration, thoughtParts };
 
-/// With the Debug choice "viewport" and the live viewport off, a done thought folds once it is
-/// taller than the transcript's viewport, and never under this (20 of the tool rows' 20px lines).
-/// With the live viewport on, or the Debug choice "codex", it folds once taller than
-/// THOUGHT_LIVE_PX. By default ("every") every done thought folds.
-export const THOUGHT_FOLD_MIN_PX = 400;
 /// A long thought still streaming holds a viewport this tall: seven of its 20px lines, the 8.75rem
-/// Codex gives a live reasoning trace. conversation.css caps `.is-live` at the same.
+/// Codex gives a live reasoning trace. conversation.css caps `.is-live` at the same. With the Debug
+/// choice "viewport" or "codex" a done thought folds once taller than this; by default ("every")
+/// every done thought folds.
 export const THOUGHT_LIVE_PX = 140;
 
 /// What the row reads from the page; tests swap these.
 export const thoughtLayout = {
-  /// The Debug toggle `agentPane.debug.foldLongThoughts` (on by default): thoughts fold unless the
-  /// app sets `data-fold-long-thoughts="off"` on `<html>` before the page loads.
-  enabled: () => typeof document === "undefined" || document.documentElement.dataset.foldLongThoughts !== "off",
   /// The Debug choice `agentPane.debug.thoughtFoldThreshold`: by default ("every") every done
   /// thought folds. `data-thought-fold-threshold="viewport"` or `"codex"` brings back the older
-  /// fold of long thoughts only, a short one in full after "Thought": with the live viewport on,
-  /// once taller than Codex's seven lines (THOUGHT_LIVE_PX); with it off, once taller than the
-  /// transcript's viewport (never under THOUGHT_FOLD_MIN_PX), or with "codex", than seven lines.
+  /// fold of long thoughts only, a short one in full after "Thought": once taller than Codex's
+  /// seven lines (THOUGHT_LIVE_PX), the live viewport a long thought streamed in.
   threshold: (): ThoughtFoldThreshold => {
     const value = typeof document === "undefined" ? undefined : document.documentElement.dataset.thoughtFoldThreshold;
     return value === "viewport" || value === "codex" ? value : "every";
@@ -39,14 +32,9 @@ export const thoughtLayout = {
     typeof document !== "undefined" && document.documentElement.dataset.thoughtHeader === "preview"
       ? "preview"
       : "duration",
-  /// The Debug toggle `agentPane.debug.liveThoughtViewport` (on by default): a long thought streams
-  /// in a fixed viewport unless the app sets `data-live-thought-viewport="off"`.
-  liveViewport: () => typeof document === "undefined" || document.documentElement.dataset.liveThoughtViewport !== "off",
   height: (node: HTMLElement) => node.getBoundingClientRect().height,
   /// The text's whole height, also while the live viewport clips it.
   contentHeight: (node: HTMLElement) => node.scrollHeight,
-  /// The transcript scroller's height (VirtualTranscript's `.acpmux-scroll`).
-  viewport: (node: HTMLElement) => node.closest<HTMLElement>(".acpmux-scroll")?.clientHeight ?? 0,
 };
 
 export type ThoughtHeader = "duration" | "preview";
@@ -89,12 +77,11 @@ const ThoughtText = memo(function ThoughtText({ text }: { text: string }) {
 /// (thoughts.ts `isQuietThought`) draws nothing. While it streams it reads "Thinking" on its own
 /// line with the text under it, never after the label as one sentence (Leo 2026-10-21: "Thought I
 /// am here" read weird); one taller than THOUGHT_LIVE_PX holds a fixed viewport that keeps its
-/// newest line in view, as Codex's reasoning trace does (Debug toggle `liveThoughtViewport`; off,
-/// it shows in full). Shown in full once done (a Debug choice below), it reads "Thought for 12s"
-/// over its text. Headings in the text (Codex's `**Heading**`) draw as titles (thoughtParts). The
-/// Debug choice `thoughtFoldThreshold` "viewport" or "codex" folds only a long one, the toggle
-/// `foldLongThoughts` off folds none, and the choice `thoughtHeader` "preview" reads "Thought" and
-/// its first line. The reader's toggle always wins over the fold (`choice ?? !folds`). The fold
+/// newest line in view, as Codex's reasoning trace does. Shown in full once done (a Debug choice
+/// below), it reads "Thought for 12s" over its text. Headings in the text (Codex's `**Heading**`)
+/// draw as titles (thoughtParts). The Debug choice `thoughtFoldThreshold` "viewport" or "codex"
+/// folds only a long one, and the choice `thoughtHeader` "preview" reads "Thought" and its first
+/// line. The reader's toggle always wins over the fold (`choice ?? !folds`). The fold
 /// snaps; the reader's toggle plays the transcript's fold (fold.ts), except under Reduce Motion.
 export const ThoughtRow = memo(function ThoughtRow({
   item,
@@ -107,7 +94,7 @@ export const ThoughtRow = memo(function ThoughtRow({
 }) {
   const t = useT();
   const text = item.text.trim();
-  const enabled = thoughtLayout.enabled();
+  const threshold = thoughtLayout.threshold();
   const [long, setLong] = useState(false);
   // The chat's transcript view (transcriptView.ts): Thinking and Verbose open every thought. The
   // reader's toggles are kept per view, as the transcript's disclosures are.
@@ -122,8 +109,8 @@ export const ThoughtRow = memo(function ThoughtRow({
   const full = useRef<HTMLSpanElement>(null);
   const toggled = useRef(false);
   const bodyId = useId();
-  const folds = enabled && !streaming && (long || thoughtLayout.threshold() === "every");
-  const liveViewport = enabled && streaming && thoughtLayout.liveViewport();
+  const folds = !streaming && (long || threshold === "every");
+  const liveViewport = streaming;
   const [tall, setTall] = useState(false);
   const clipped = liveViewport && tall;
   const open = choice ?? (!folds || view !== "normal");
@@ -151,17 +138,12 @@ export const ThoughtRow = memo(function ThoughtRow({
   // not the clip); a folded thought's text no longer changes.
   useLayoutEffect(() => {
     const node = full.current;
-    if (!enabled || !node) return;
+    if (!node) return;
     const drawn = Math.max(thoughtLayout.height(node), thoughtLayout.contentHeight(node));
-    // While the live viewport is on, a thought it clipped folds once done, so nothing grows after
-    // it streams; otherwise the threshold choice decides.
-    const limit =
-      thoughtLayout.liveViewport() || thoughtLayout.threshold() === "codex"
-        ? THOUGHT_LIVE_PX
-        : Math.max(THOUGHT_FOLD_MIN_PX, thoughtLayout.viewport(node));
-    setLong(drawn > limit);
+    // A thought the live viewport clipped folds once done, so nothing grows after it streams.
+    setLong(drawn > THOUGHT_LIVE_PX);
     if (liveViewport) setTall(drawn > THOUGHT_LIVE_PX);
-  }, [enabled, text, liveViewport]);
+  }, [text, liveViewport]);
   // After the fold's own layout effect has read it.
   useLayoutEffect(() => {
     toggled.current = false;
@@ -202,11 +184,7 @@ export const ThoughtRow = memo(function ThoughtRow({
             {thoughtPreview(text)}
           </span>
         )}
-        <ChevronRight
-          size={14}
-          strokeWidth={1.2}
-          className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
-        />
+        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
       </button>
       {fold.present && (
         <div {...fold.bodyProps}>
@@ -220,8 +198,9 @@ export const ThoughtRow = memo(function ThoughtRow({
 });
 
 /// A thought as one step of an opened group (ToolGroupRow.tsx). The thought that led into the run
-/// (`lead`) starts open, its whole text in that place with the disclosure at the top of the row's
-/// end, as Claude Code desktop lists a run's; closed, its words on one line cut with an ellipsis and
+/// (`lead`) starts open: "Thought" or "Thought for 6s" with the disclosure right after the words, its
+/// whole text under them, as Claude Code desktop lists a run's (cmux#27896 parked that disclosure at
+/// the row's far edge; gallery agent-pane.claude-desktop-organization keeps it as `lead-edge`); closed, its words on one line cut with an ellipsis and
 /// the disclosure right after them. A later thought is one quiet row like ThoughtRow's, "Thought" or
 /// "Thought for 12s" with none of its text inline, that opens to its whole text under it (Leo
 /// 2026-10-20, agent-pane-step-rows.test.ts). The reader's choice is kept by `id` with ThoughtRow's,
@@ -249,8 +228,10 @@ export function StepThought({ item, id, lead = false }: { item: AcpmuxActivity; 
     () => (open || !lead ? "" : text.split("\n").map(thoughtPreview).filter(Boolean).join(" ")),
     [open, lead, text],
   );
-  // A later thought's quiet label, as ThoughtRow's folded line reads.
-  const ms = lead || thoughtLayout.header() !== "duration" ? undefined : thoughtDuration(item);
+  // A later thought's quiet label, as ThoughtRow's folded line reads; an opened lead thought reads
+  // the same, "Thought for 6s", with its chevron right after the words (design/chat-transcript.md,
+  // the chevron after its label), never parked at the row's far edge.
+  const ms = thoughtLayout.header() !== "duration" ? undefined : thoughtDuration(item);
   const label =
     ms !== undefined && ms >= 1000 ? t("tools.thoughtFor", { time: formatDuration(ms) }) : t("tools.thought");
   return (
@@ -260,25 +241,19 @@ export function StepThought({ item, id, lead = false }: { item: AcpmuxActivity; 
         className={`cv-tool is-toggle cv-thought cv-step-thought${open && lead ? " is-open" : ""}`}
         aria-expanded={open}
         aria-controls={open ? bodyId : undefined}
-        aria-label={open && lead ? t("tools.thought") : undefined}
+        aria-label={open && lead ? label : undefined}
         onClick={() => choose(!open)}
       >
-        {!lead ? (
+        {!lead || open ? (
           <span className="cv-tool__text cv-thought__label" data-find-skip>
             {label}
           </span>
         ) : (
-          !open && (
-            <span className="cv-tool__text cv-thought__preview" dir="auto" data-find-skip>
-              {line}
-            </span>
-          )
+          <span className="cv-tool__text cv-thought__preview" dir="auto" data-find-skip>
+            {line}
+          </span>
         )}
-        <ChevronRight
-          size={14}
-          strokeWidth={1.2}
-          className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
-        />
+        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
       </button>
       {open && (
         <div id={bodyId} className="cv-thought__text cv-thought__body cv-step-thought__body selectable" dir="auto">

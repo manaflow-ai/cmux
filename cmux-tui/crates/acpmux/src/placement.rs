@@ -633,7 +633,7 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
             w.refused.as_deref().unwrap_or_default()
         ),
         Some(w) => format!("{}: {}", w.name, w.why),
-        None => "no host has room for this; `acpmux host place --json` says why each was refused"
+        None => "no host has room for this; `acpmux machine pick --json` says why each was refused"
             .to_owned(),
     };
     json!({

@@ -94,9 +94,9 @@ struct SidebarGroupFlow {
         let life = bridge.life, ending = life.emptied(by: members, into: id)
         // A pending edit until the store holds the move (cx-odqn): no recompute in between shows the old group.
         let (failed, applied) = bridge.rows.edits.outcome(bridge.rows.edits.add(intent), failed: bridge.saveFailed(intent))
-        life.commit("set-personal-workspace", ending: ending, recheck: { ending.filter(life.isEmptyUnpinned) },
-                    failed: failed, applied: applied) { connection in
-            for workspace in members {
+        let writes = life.personal.writes, claim = writes.claim(workspaces: members.map { ($0.session, $0.key.rawValue) })
+        life.commit("set-personal-workspace", ending: ending, recheck: { ending.filter(life.isEmptyUnpinned) }, until: claim, failed: failed, applied: applied) { connection in
+            for workspace in members { guard await writes.isCurrent(claim, workspace: workspace.session, workspace.key.rawValue) else { continue } // a later move's
                 try await connection.state.placePersonalWorkspace(session: workspace.session, key: workspace.key, resource: workspace.resource,
                                                                   group: .set(id))
             }
@@ -165,10 +165,11 @@ struct SidebarGroupFlow {
     }
 
     private func send(_ id: WorkspaceGroupID, name: String?, color: GroupTint?, edit: SidebarPendingEdits.Token) {
-        let v2 = bridge.statePersonal, bridge = bridge, colorUpdate: FieldUpdate<String> = color.map { .set($0.wire) } ?? .unchanged
+        let v2 = bridge.statePersonal, bridge = bridge, colorUpdate: FieldUpdate<String> = color.map { .set($0.wire) } ?? .unchanged, home = bridge.services.machines.local
         let group = CmuxNextSidebar.GroupID(id.rawValue)
         let intent: SidebarIntent = name.map { .renameGroup(group, $0) } ?? .setGroupColor(group, color ?? GroupTint.none)
-        bridge.rows.send("update-personal-group", edit: edit, on: bridge.services.machines.local, failed: bridge.saveFailed(intent)) { connection in
+        bridge.rows.send("update-personal-group", edit: edit, on: home, until: home.store.personal.writes.claim(group: id.rawValue, name == nil ? "color" : "name"),
+                         failed: bridge.saveFailed(intent)) { connection in
             if v2 { return try await connection.state.updateWorkspaceGroup(id.rawValue, name: name, color: colorUpdate) }
             try await connection.updatePersonalGroup(id, name: name, color: colorUpdate)
         }
@@ -184,9 +185,9 @@ struct SidebarGroupFlow {
             bridge.map { SidebarGroupFlow(bridge: $0).editorItems(group) } ?? SidebarContainerView.standardGroupEditorItems()
         }
         container.onGroupEditorItem = { [weak bridge = self.bridge] group, item in
-            guard let bridge else { return }
-            SidebarGroupFlow(bridge: bridge).performEditorItem(group, item)
+            if let bridge { SidebarGroupFlow(bridge: bridge).performEditorItem(group, item) }
         }
+        container.groupSortMenu = { [weak bridge = self.bridge] in bridge?.services.registry.makeChoicesMenu(for: "workspaceGroup.setSort", in: .workspaceGroup, target: ActionTargetRef(kind: .workspaceGroup, id: $0.rawValue)) }
     }
 
     /// The standard rows with each action's current shortcut; the pin row reads as the change it makes.

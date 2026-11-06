@@ -95,6 +95,8 @@ use cell_pixel_state::apply_cell_pixel_size_until;
 use cell_pixel_state::cell_pixel_retry_delay;
 use cell_pixel_state::validate_cell_pixel_convergence;
 mod client_sizing_state;
+/// A key's sizing note without the sizing lock (R-DAEMON-STATE stage S1).
+pub(crate) mod sizing_fast_path;
 use client_sizing_state::AppliedClientSize;
 use client_sizing_state::ClientResizeRequest;
 pub(crate) use client_sizing_state::ClientSizeRollback;
@@ -233,6 +235,7 @@ mod events;
 pub(crate) mod layout_invariants;
 mod layout_ratio_error;
 mod layout_resize;
+mod layout_sizes;
 mod layout_types;
 mod layout_undo;
 mod lifecycle;
@@ -276,9 +279,9 @@ mod rows;
 mod screen_changed;
 pub(crate) mod screen_groups;
 mod signaled_mutex;
-pub(crate) use signaled_mutex::SignaledMutex;
 #[cfg(test)]
 pub(crate) use signaled_mutex::state_locks_taken_on_this_thread;
+pub(crate) use signaled_mutex::{SignaledMutex, interactive_scope};
 mod command_history;
 pub(crate) mod keybindings;
 mod new_terminal_cwd;
@@ -319,6 +322,7 @@ mod terminal_host_link;
 mod terminal_move;
 mod terminal_move_topology;
 mod terminal_progress;
+mod terminal_publisher;
 mod terminal_reap;
 #[cfg(unix)]
 mod terminal_rehost;
@@ -354,6 +358,7 @@ pub use dock_columns::{
 pub(crate) use dock_columns::{ensure_permanent_columns_kept, permanent_columns};
 pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
 pub use layout_ratio_error::LayoutRatioError;
+pub use layout_sizes::{LayoutSizeValue, LayoutSizesError};
 pub(crate) use pinned_columns::{
     LONE_DOCK_NEIGHBOR_WIDTH, ensure_pane_takes_tabs, ensure_pinned_columns_kept,
     ensure_pinned_tabs_not_closed, lone_pinned_dock_taking_no_tabs, pane_in_lone_pinned_column,
@@ -535,7 +540,7 @@ pub struct Mux {
     workspace_lifecycles: Mutex<HashMap<WorkspaceId, Weak<Mutex<()>>>>,
     pending_workspace_surfaces: Mutex<HashMap<SurfaceId, WorkspaceId>>,
     client_sizing_lifecycle: Mutex<()>,
-    client_sizing: Mutex<ClientSizingState>,
+    client_sizing: sizing_fast_path::SizingMutex,
     /// Per-client focus memory (client-focus-v1): the most recent focus each
     /// client id reported, so a reconnecting client restores its own view
     /// instead of the shared session focus. In-memory and bounded; a mux
@@ -650,7 +655,7 @@ pub struct Mux {
     /// Child agents each terminal agent runs past its turn, memory only (`agent_hook_children.rs`).
     agent_hook_children: Mutex<HashMap<TerminalPublicId, agent_hook_children::HookChildren>>,
     agent_roster: Mutex<AgentRosterHost>,
-    agent_roster_fold: Mutex<agent_roster_fold::AgentRosterFold>,
+    agent_roster_worker: agent_roster_fold::AgentRosterWorker,
     agent_message_pump: agent_message_pump::AgentMessagePump,
     #[cfg(unix)]
     agent_chat_notices: agent_chat_notices::AgentChatNoticesWake,
@@ -665,6 +670,8 @@ pub struct Mux {
     terminal_command_history: AtomicBool,
     /// The command history worker's bounded queue (`mux/command_history.rs`).
     command_history_worker: Mutex<Option<SyncSender<command_history::CommandHistoryMessage>>>,
+    /// Makes the durable commits terminal output asks for, off the output readers.
+    terminal_publisher: terminal_publisher::TerminalPublisher,
     notification_ledger: Mutex<VecDeque<ResourceNotification>>,
     /// Per-client read marks. The shared unread marker above answers "does this terminal need
     /// attention on the shared console"; this map answers "has this client install seen this
@@ -929,21 +936,31 @@ impl Mux {
 
     #[track_caller]
     pub fn surface(&self, id: SurfaceId) -> Option<Arc<Surface>> {
+        // The last finished change's routes, no lock (R-DAEMON-STATE S1); loaded before the poison check (poison
+        // never clears), and a poisoned state takes the old read, which fails as it does.
         if self.control_clients.input_lane.on() {
-            // The routing tables of the last finished change, with no lock (R-DAEMON-STATE stage S1): the same
-            // lookup, never a wait behind a list, a snapshot or a durable mutation that holds the session lock.
-            return self.state.routes().surface(id);
+            let routes = self.state.routes();
+            if !self.state.is_poisoned() {
+                return routes.surface(id);
+            }
         }
         let state = self.state.lock().unwrap();
         state.surfaces.get(&id).or_else(|| state.terminal_runtime_by_id(id)).cloned()
     }
 
+    /// The catalog owner of `terminal_id`; recovers a poisoned state, as the shutdown that calls it does (the output
+    /// store's last write looks terminals up here, inside `Mux::drop`).
     #[track_caller]
     pub(crate) fn terminal_resource_surface(
         &self,
         terminal_id: &TerminalPublicId,
     ) -> Option<Arc<Surface>> {
-        self.state.lock().unwrap().terminal_catalog.get(terminal_id).cloned()
+        self.state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .terminal_catalog
+            .get(terminal_id)
+            .cloned()
     }
 
     #[cfg(test)]
@@ -956,6 +973,10 @@ impl Mux {
     pub(crate) fn set_input_lane_for_test(&self, on: bool) {
         self.state.set_route_publishing_for_test(on);
         self.control_clients.set_input_lane_for_test(on);
+        self.remote_relay().peers.set_publishing_for_test(on);
+        self.surface_operation_admission.set_lock_free_for_test(on);
+        self.client_sizing.set_publishing_for_test(on);
+        self.activity.set_lock_free_for_test(on);
     }
 
     #[cfg(test)]

@@ -724,21 +724,20 @@ pub(super) fn mint_params(plan: &[String]) -> Result<Map<String, Value>, UsageEr
 /// service answered (401 11, 402 12, 403 13, 429 16, 503 18, no answer 3), so
 /// scripts tell the cases apart the same way on either mint path.
 pub(super) fn mint_exit(code: &str, status: Option<u64>) -> i32 {
+    use cmux_cloud_config::agent_key::{Outcome, outcome};
     use cmux_vm::exit;
-    match code {
-        "labs_off" | "no_team" | "feature.disabled" => 3,
-        "not_signed_in" => exit::UNAUTHENTICATED,
-        "plan_required" => exit::PAYMENT_REQUIRED,
-        "forbidden" => exit::FORBIDDEN,
-        "rate_limited" => exit::QUOTA_EXCEEDED,
-        "invalid_params" => exit::USAGE,
-        "method_not_found" => 5,
-        "unavailable" => match status.and_then(|status| u16::try_from(status).ok()) {
-            None | Some(0) => exit::NETWORK,
-            Some(status) if status >= 500 => exit::SERVICE_UNAVAILABLE,
-            Some(status) => exit::for_status(status),
-        },
-        _ => exit::UNEXPECTED,
+    // What each refusal means is the app's and this CLI's shared rule (cmux-cloud-config).
+    match outcome(code, status) {
+        Outcome::Network => exit::NETWORK,
+        Outcome::Unauthenticated => exit::UNAUTHENTICATED,
+        Outcome::PaymentRequired => exit::PAYMENT_REQUIRED,
+        Outcome::Forbidden => exit::FORBIDDEN,
+        Outcome::QuotaExceeded => exit::QUOTA_EXCEEDED,
+        Outcome::Usage => exit::USAGE,
+        Outcome::MethodNotFound => 5,
+        Outcome::ServiceUnavailable => exit::SERVICE_UNAVAILABLE,
+        Outcome::Status(status) => exit::for_status(status),
+        Outcome::Unexpected => exit::UNEXPECTED,
     }
 }
 

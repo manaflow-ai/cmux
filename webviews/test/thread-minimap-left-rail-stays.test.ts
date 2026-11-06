@@ -115,13 +115,17 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
       const scroller = document.querySelector(".acpmux-scroll")!.getBoundingClientRect();
       const rows = [...document.querySelectorAll(".acpmux-row")].map((row) => row.getBoundingClientRect().left);
       const column = Math.min(...rows);
-      if (!nav) return { shown: false as const };
+      // Session Info's stage as the page chose it (SessionInfo.tsx sessionInfoStage, with the chat's
+      // measured overflow), not one this file computes.
+      const placement = document.querySelector("aside.acpmux-session-info")?.getAttribute("data-placement") ?? null;
+      if (!nav) return { shown: false as const, placement };
       const box = nav.getBoundingClientRect();
       // A tick's resting bar, as drawn.
       const bar = nav.querySelector(".acpmux-minimap__bar")!.getBoundingClientRect();
       return {
         shown: true as const,
         scrollbarPinned: Math.abs(scroller.right - shell.right) < 1,
+        placement,
         left: Math.round(box.left),
         occluded: nav.hasAttribute("data-occluded"),
         insidePane: box.left >= shell.left - 0.5 && box.right <= shell.right + 0.5 && bar.width > 0,
@@ -163,18 +167,25 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
           }
           expect(closed.scrollbarPinned).toBe(true);
           // The chat's scroller (and its scrollbar) leaves the pane's right edge only where Session Info
-          // pushes. It floats where the gutter holds it (1600px), pushes only where that keeps the
-          // transcript's column at its width (1084px), and lies over the chat wherever a push would narrow
-          // the column (1200px, 800px and under; #33037, Leo 2026-11-03: "its text shouldn't be affected by
-          // the session info if it would need to be then session info should be an overlay"). Push always
-          // pushes by its whole room, so it too lies over the chat where that room narrows the column
-          // (1600px). The stage is SessionInfo.tsx sessionInfoStage, at the panel's default width.
-          const pushesHere = (placement: "overlay" | "push") =>
-            sessionInfoStage(placement, { width, height: 700 }, SESSION_INFO_WIDTH.fallback) === "push";
-          // At least one width here pushes, so the push arm stays covered.
-          if (width === 1084) expect([pushesHere("overlay"), pushesHere("push")]).toEqual([true, true]);
-          expect(open.scrollbarPinned).toBe(!pushesHere("overlay"));
-          expect(pushed.scrollbarPinned).toBe(!pushesHere("push"));
+          // pushes, read from the page's own stage. It floats where the gutter holds it (1600px), pushes only
+          // where that keeps the transcript's column at its width (1084px), and lies over the chat wherever a
+          // push would narrow the column (1200px, 800px and under; #33037, Leo 2026-11-03: "its text
+          // shouldn't be affected by the session info if it would need to be then session info should be an
+          // overlay"). Push always pushes by its whole room, so it too lies over the chat where that room
+          // narrows the column (1600px). The model's stage at the panel's default width (sessionInfoStage)
+          // still says 1084px pushes in both, so the push arm stays covered.
+          if (width === 1084) {
+            const pushesHere = (placement: "overlay" | "push") =>
+              sessionInfoStage(placement, { width, height: 700 }, SESSION_INFO_WIDTH.fallback) === "push";
+            expect([pushesHere("overlay"), pushesHere("push"), open.placement, pushed.placement]).toEqual([
+              true,
+              true,
+              "push",
+              "push",
+            ]);
+          }
+          expect(open.scrollbarPinned).toBe(open.placement !== "push");
+          expect(pushed.scrollbarPinned).toBe(pushed.placement !== "push");
           expect([closed.left, open.left, pushed.left]).toEqual([railInset, railInset, railInset]);
         } finally {
           await page.close();

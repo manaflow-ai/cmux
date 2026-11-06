@@ -135,6 +135,30 @@ async fn sessions_at_work_counts_a_background_process_the_turn_left_running() {
     hub.shutdown_all().await;
 }
 
+/// cmux#34298: the activity report's phases read what holds each session at work: its turn,
+/// and the processes it left running.
+#[tokio::test]
+async fn sessions_at_work_detail_says_what_holds_each_session() {
+    let (hub, session) = chat().await;
+    assert!(hub.sessions_at_work_detail().is_empty());
+    session.harness_turn.store(true, Ordering::SeqCst);
+    let detail = hub.sessions_at_work_detail();
+    assert_eq!(detail.len(), 1);
+    assert!(detail[0].turn && !detail[0].person && detail[0].processes == 0);
+    assert_eq!(detail[0].id, session.id);
+    session.harness_turn.store(false, Ordering::SeqCst);
+    let shell = |state: &str| json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "own", "update": {"sessionUpdate": "background_task_update", "toolCallId": "bg", "taskId": "bg", "state": state, "command": "serve"}}});
+    let rec = hub.append(&session, "in", "background_task_update", shell("running"));
+    hub.note_process(&session, &rec, None);
+    let detail = hub.sessions_at_work_detail();
+    assert_eq!(detail.len(), hub.sessions_at_work());
+    assert!(!detail[0].turn && detail[0].processes == 1, "a background shell, no turn");
+    let rec = hub.append(&session, "in", "background_task_update", shell("completed"));
+    hub.note_process(&session, &rec, None);
+    assert!(hub.sessions_at_work_detail().is_empty());
+    hub.shutdown_all().await;
+}
+
 /// cmux#33328: the Cloud activity report waits on the same startup gates as `in_use`.
 #[tokio::test]
 async fn startup_settles_only_once_every_load_is_done() {

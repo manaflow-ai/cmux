@@ -31,7 +31,9 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
     private var frameRate = ScreenQuality.baselineFrameRate
     private var onFrame: (@Sendable (CVPixelBuffer, CGRect) -> Void)?
     private var onDisplays: (@Sendable ([CGSize], Int) -> Void)?
-    private let input = EventInjector()
+    private let input: EventInjector
+    /// The screen stream eval's per-frame times (measurement only; nil unless `CMUX_VNC_TIMING_LOG` is set).
+    private let timing: CaptureTimingLog?
     /// Stopped by the viewer: no recovery after that.
     private var stopped = false
     /// The display-change callback, and the backend it holds (retained, so a
@@ -40,6 +42,8 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
 
     public init(log: @escaping @Sendable (String) -> Void) {
         self.log = log
+        timing = CaptureTimingLog()
+        input = EventInjector(timing: timing)
     }
 
     public func start(frame: @escaping @Sendable (CVPixelBuffer, CGRect) -> Void,
@@ -236,6 +240,7 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
               let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
               let statusRaw = attachments.first?[.status] as? Int, SCFrameStatus(rawValue: statusRaw) == .complete,
               let buffer = sampleBuffer.imageBuffer else { return }
+        timing?.frame(displayTime: attachments.first?[.displayTime] as? UInt64)
         let sink = lock.withLock { onFrame }
         sink?(buffer, CGRect(x: 0, y: 0, width: CVPixelBufferGetWidth(buffer), height: CVPixelBufferGetHeight(buffer)))
     }
@@ -297,12 +302,16 @@ final class EventInjector: @unchecked Sendable {
     var display = CGRect.zero
     private let source: CGEventSource?
     private let poster: @Sendable (CGEvent) -> Void
+    private let timing: CaptureTimingLog?
 
-    /// `post` sends each event (tests capture them; the backend posts at the HID tap).
+    /// `post` sends each event (tests capture them; the backend posts at the HID tap); `timing` notes
+    /// each key or click for the screen stream eval.
     init(source: CGEventSource? = CGEventSource(stateID: .hidSystemState),
-         post: @escaping @Sendable (CGEvent) -> Void = { $0.post(tap: .cghidEventTap) }) {
+         post: @escaping @Sendable (CGEvent) -> Void = { $0.post(tap: .cghidEventTap) },
+         timing: CaptureTimingLog? = nil) {
         self.source = source
         poster = post
+        self.timing = timing
     }
 
     private var buttons: UInt8 = 0
@@ -317,7 +326,10 @@ final class EventInjector: @unchecked Sendable {
     func handle(_ input: ScreenInput) {
         lock.withLock {
             guard !ended else { return }
+            let held = buttons
             apply(input)
+            // The eval times a key or a click, not a plain pointer move.
+            if input.t != "move" || buttons != held { timing?.input() }
         }
     }
 

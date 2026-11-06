@@ -125,7 +125,8 @@ extension AgentShareActions {
         AgentShareInviteSheetModel(chat: chat.title, session: chat.session, role: role, work: AgentShareInviteSheetModel.Work(
             list: { try await Self.connected(chat.connection).request(AgentSessionShareListRequest(surface: chat.surface)).shares },
             invite: { account, role in _ = try await Self.inviteWork(chat, account: account, role: role, ttl: nil, host: host) },
-            remove: { account in _ = try await Self.uninviteWork(account: account, shareID: nil, chat: chat, connection: chat.connection) }
+            remove: { account in _ = try await Self.uninviteWork(account: account, shareID: nil, chat: chat, connection: chat.connection) },
+            copy: { host.shareCopy($0) }
         ))
     }
 }
@@ -150,7 +151,17 @@ enum AgentShareInvites {
     /// invitees. A guest link without any is left alone (its 24 hours and single use are the link's),
     /// so nil makes a new share for invites.
     static func inviteShare(of session: String, in shares: [AgentSessionShare]) -> String? {
-        shares.filter { $0.session == session && $0.isLive && !$0.invitees.isEmpty }.max { $0.createdAt < $1.createdAt }?.shareId
+        inviteRecord(of: session, in: shares)?.shareId
+    }
+
+    /// The link of the share invites to `session`'s chat go on (``inviteShare(of:in:)``); nil with none,
+    /// or while that share has no room.
+    static func inviteLink(of session: String, in shares: [AgentSessionShare]) -> String? {
+        inviteRecord(of: session, in: shares)?.inviteUrl
+    }
+
+    private static func inviteRecord(of session: String, in shares: [AgentSessionShare]) -> AgentSessionShare? {
+        shares.filter { $0.session == session && $0.isLive && !$0.invitees.isEmpty }.max { $0.createdAt < $1.createdAt }
     }
 
     /// Every share of `session`'s chat on which `account` is still invited.

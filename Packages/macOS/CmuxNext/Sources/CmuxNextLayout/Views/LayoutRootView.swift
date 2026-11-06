@@ -112,6 +112,10 @@ public final class LayoutRootView: NSView {
     public private(set) var isLayoutInMotion = false
     /// Layout motion observers by id (`observeLayoutMotion`).
     var layoutMotionObservers: [Int: (Bool) -> Void] = [:]
+    /// Work waiting for the layout to be still (``whenStill(_:on:_:)``), by key, with the queue it runs on.
+    var stillWork: [String: (queue: FrameBatchQueue, work: @MainActor () -> Void)] = [:]
+    /// Work waiting for its changes to settle (``whenSettled(_:after:on:_:)``), by key, with its timer.
+    var settlingWork: [String: (timer: DemandTimer, queue: FrameBatchQueue, work: @MainActor () -> Void)] = [:]
 
     /// A split or a pane close is springing on some screen: the panes it resizes change size every
     /// frame, and their terminals keep their grids (the PTY resizes once, at rest) until it lands
@@ -298,6 +302,26 @@ public final class LayoutRootView: NSView {
     public func syncWithModel() {
         let current = snapshot()
         if current != lastSnapshot { sync(current) }
+    }
+
+    /// Mirrors the model now for the window's next frame tick (a keyboard resize press, FRAME OWNER S1B): the springs
+    /// get their targets in this turn, so the next display frame moves, but nothing is presented, laid out, announced to
+    /// the content or synced to the overlay here. The next tick presents once (`advanceFrame`), and it is asked for.
+    /// The key's own turn stays a model change. A root that runs
+    /// no frames (parked, out of its window) syncs as ``syncWithModel()`` does. A screen the change did not put on a
+    /// spring (Reduce Motion, pane animations off: its frames snapped) presents in this turn: no tick moves it, so it
+    /// must not wait for one.
+    public func syncWithModelForNextFrame() {
+        guard isLive, driver.isAttached else { return syncWithModel() }
+        let held = context.holdsPresentations
+        context.holdsPresentations = true
+        syncWithModel()
+        context.holdsPresentations = held
+        let waiting = screenViews.values.filter(\.frameInput.presentationWaiting)
+        let snapped = waiting.filter { !$0.hasMotion }
+        for view in snapped { view.applyPresentation() }
+        if !snapped.isEmpty { flushOverlaySync() }
+        if waiting.count > snapped.count { driver.start() }
     }
 
     var canAnimate: Bool { window != nil && driver.isAttached && !context.reduceMotion }
@@ -526,6 +550,8 @@ public final class LayoutRootView: NSView {
 
     /// Tells the layout motion observers when the first spring starts and when the last one lands.
     func setLayoutInMotion(_ moving: Bool) {
+        // After the flag: the landing's still work sees a still layout (a drag's release with no spring ends here too).
+        defer { if !moving { runStillWork() } }
         guard moving != isLayoutInMotion else { return }
         isLayoutInMotion = moving
         for block in layoutMotionObservers.values { block(moving) }

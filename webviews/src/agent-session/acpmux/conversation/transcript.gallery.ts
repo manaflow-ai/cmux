@@ -9,7 +9,6 @@ import { childRows } from "../subagents/childRows";
 import type { PlayContext } from "../../../gallery/play";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { workedTurnRows } from "../workedTurn";
-import { TRANSCRIPT_FOOTER_GAP, TRANSCRIPT_RUN_GAP } from "../transcriptGrid";
 import { checkRunningLineLoops, hasCompleteRunningLineShimmer } from "./runningLineMotion";
 import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
 import {
@@ -377,14 +376,28 @@ const liveShellRows = (id: string, output: string) => [
   activity([tool("Read retryPolicy.ts", "read", "in_progress")], 0.5, { id: `${id}-read` }),
 ];
 
-/// Opens the one call's row (inside the turn's fold once it is done; a running turn shows it) and
-/// turns its Wrap lines off.
+/// Leaves `body`'s lines whole, each on its own row: output opens that way (blockWrap.ts), and a
+/// viewer who turned Wrap lines on is flipped back, so the variant draws the same state either way.
+const unwrap = (body: string, actions: string) => async (ctx: PlayContext) => {
+  if (ctx.document.querySelector(body)?.getAttribute("data-wrap") === "true")
+    await ctx.click({ selector: `${actions} button[aria-label="Wrap lines"]` });
+  await ctx.waitFor(() => ctx.document.querySelector(body)?.getAttribute("data-wrap") === "false");
+};
+
+/// Folds `body`'s long lines back under their start: what Wrap lines gives from the opening state.
+const wrapOn = (body: string, actions: string) => async (ctx: PlayContext) => {
+  if (ctx.document.querySelector(body)?.getAttribute("data-wrap") !== "true")
+    await ctx.click({ selector: `${actions} button[aria-label="Wrap lines"]` });
+  await ctx.waitFor(() => ctx.document.querySelector(body)?.getAttribute("data-wrap") === "true");
+};
+
+/// Opens the one call's row (inside the turn's fold once it is done; a running turn shows it) with
+/// its output's lines whole.
 const unwrapCall = (body: string, actions: string) => async (ctx: PlayContext) => {
   if (!ctx.document.querySelector(".cv-tool.is-toggle")) await openWorked(ctx);
   await ctx.click({ selector: ".cv-tool.is-toggle" });
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(body)));
-  await ctx.click({ selector: `${actions} button[aria-label="Wrap lines"]` });
-  await ctx.waitFor(() => ctx.document.querySelector(body)?.getAttribute("data-wrap") === "false");
+  await unwrap(body, actions)(ctx);
 };
 
 const shellDisclosureChecks = {
@@ -826,6 +839,15 @@ const liveLineClear = async (ctx: PlayContext) => {
   const doc = ctx.document;
   await ctx.waitFor(() => doc.querySelector(".cv-worked.is-below .cv-thinking"));
   const words = doc.querySelector<HTMLElement>(".cv-worked.is-below .cv-thinking")!.getBoundingClientRect();
+  const live = doc.querySelector<HTMLElement>(".cv-worked.is-below")!.getBoundingClientRect();
+  // Resolve through a box so both Interface Size and document zoom enter the same geometry.
+  const probe = doc.createElement("span");
+  probe.style.cssText = "position:absolute;visibility:hidden;width:0;height:var(--grid-gap-run)";
+  doc.body.append(probe);
+  const runGap = probe.getBoundingClientRect().height;
+  probe.style.height = "var(--grid-gap-footer)";
+  const footerGap = probe.getBoundingClientRect().height;
+  probe.remove();
   // A stacked message row's first line under it (messageLineLook.ts) is the row's last line.
   const over = [...doc.querySelectorAll(".cv-tool, .cv-msgline__preview, .cv-md")]
     .map((node) => ({
@@ -835,13 +857,11 @@ const liveLineClear = async (ctx: PlayContext) => {
     .filter(({ bottom }) => bottom <= words.top + 1);
   if (!over.length) throw new Error("no tool row or reply draws over the live line");
   const nearest = over.reduce((a, b) => (b.bottom > a.bottom ? b : a));
-  const gap = words.top - nearest.bottom;
-  if (nearest.step && !(gap >= -0.5 && gap < TRANSCRIPT_RUN_GAP))
-    throw new Error(`the live line sits ${gap.toFixed(1)}px under the run over it, not flush as one more line of it`);
-  if (!nearest.step && !(gap >= TRANSCRIPT_FOOTER_GAP))
-    throw new Error(
-      `the live line sits ${gap.toFixed(1)}px under the reply over it, not ${TRANSCRIPT_FOOTER_GAP}px or more`,
-    );
+  const gap = live.top - nearest.bottom;
+  if (nearest.step && Math.abs(gap - runGap) > 0.5)
+    throw new Error(`the live line sits ${gap.toFixed(1)}px under the run over it, not the scaled ${runGap}px run gap`);
+  if (!nearest.step && gap < footerGap - 0.5)
+    throw new Error(`the live line sits ${gap.toFixed(1)}px under the reply over it, not ${footerGap}px or more`);
   const hint = doc.querySelector<HTMLElement>(".cv-worked.is-below .cv-command__bg");
   if (hint && getComputedStyle(hint).opacity !== "0")
     throw new Error("the ⌃B hint shows before the pointer is on the line");
@@ -1474,8 +1494,47 @@ export default agentPaneEntry({
   },
   covers: [
     "page:cmux.agent",
-    "agent-session/acpmux/App.tsx#VirtualTranscript",
+    "agent-session/acpmux/VirtualTranscript.tsx#VirtualTranscript",
     "agent-session/acpmux/App.tsx#AcpmuxApp",
+    "agent-session/acpmux/rows/ActivityLineRow.tsx",
+    "agent-session/acpmux/rows/AgentPairRow.tsx",
+    "agent-session/acpmux/rows/BackgroundTaskRow.tsx",
+    "agent-session/acpmux/rows/BackgroundTurnRow.tsx",
+    "agent-session/acpmux/rows/CompactionRow.tsx",
+    "agent-session/acpmux/rows/DateRow.tsx",
+    "agent-session/acpmux/rows/EditedFilesRow.tsx",
+    "agent-session/acpmux/rows/FailoverRow.tsx",
+    "agent-session/acpmux/rows/LaneNoticeBatchRow.tsx",
+    "agent-session/acpmux/rows/MessageRow.tsx",
+    "agent-session/acpmux/rows/MessageRunRow.tsx",
+    "agent-session/acpmux/rows/NextStepRow.tsx",
+    "agent-session/acpmux/rows/NoticeRow.tsx",
+    "agent-session/acpmux/rows/OfferResultRow.tsx",
+    "agent-session/acpmux/rows/PendingMessagesRow.tsx",
+    "agent-session/acpmux/rows/PermissionAsk.tsx",
+    "agent-session/acpmux/rows/PermissionRecordRow.tsx",
+    "agent-session/acpmux/rows/PermissionRow.tsx",
+    "agent-session/acpmux/rows/PlanRow.tsx",
+    "agent-session/acpmux/rows/PolicyUnenforcedRow.tsx",
+    "agent-session/acpmux/rows/PreviewRow.tsx",
+    "agent-session/acpmux/rows/QuestionRecordRow.tsx",
+    "agent-session/acpmux/rows/QueuedMessageRow.tsx",
+    "agent-session/acpmux/rows/RecapRow.tsx",
+    "agent-session/acpmux/rows/RenderRow.tsx",
+    "agent-session/acpmux/rows/SessionOfferRow.tsx",
+    "agent-session/acpmux/rows/SessionStartRow.tsx",
+    "agent-session/acpmux/rows/StartedSessionsRow.tsx",
+    "agent-session/acpmux/rows/SubagentDoneRow.tsx",
+    "agent-session/acpmux/rows/SubagentGroupRow.tsx",
+    "agent-session/acpmux/rows/SubagentOfPillRow.tsx",
+    "agent-session/acpmux/rows/SubagentRow.tsx",
+    "agent-session/acpmux/rows/SummaryRow.tsx",
+    "agent-session/acpmux/rows/TaskLineRow.tsx",
+    "agent-session/acpmux/rows/ThinkingRow.tsx",
+    "agent-session/acpmux/rows/ToolActivityRow.tsx",
+    "agent-session/acpmux/rows/WorkedRow.tsx",
+    "agent-session/acpmux/rows/WorkflowCardRow.tsx",
+    "agent-session/acpmux/rows/WorkingRow.tsx",
     "agent-session/acpmux/SecretCard.tsx#SecretCard",
     "agent-session/acpmux/conversation/ChatFindScope.tsx#ChatFindScope",
     "agent-session/acpmux/conversation/MessageCard.tsx",
@@ -1928,13 +1987,13 @@ export default agentPaneEntry({
       },
     },
     "long-thought-streaming": {
-      note: "A long thought still streaming holds a seven-line viewport with its newest line in view (Debug toggle agentPane.debug.liveThoughtViewport) and folds once done; with agentPane.debug.foldLongThoughts off, it shows in full.",
+      note: "A long thought still streaming holds a seven-line viewport with its newest line in view and folds once done.",
       snapshot: chat([user(prompt, 2), activity([thought(LONG_THOUGHT)], 1.5)], {
         isWorking: true,
       }),
     },
     "long-thought-done": {
-      note: 'A long thought followed by a step folds to "Thought for 12s" (with Debug Settings agentPane.debug.thoughtHeader preview, "Thought" and its first line); with agentPane.debug.foldLongThoughts off (data-fold-long-thoughts="off" on <html>), it shows in full as before.',
+      note: 'A long thought followed by a step folds to "Thought for 12s" (with Debug Settings agentPane.debug.thoughtHeader preview, "Thought" and its first line).',
       snapshot: chat(
         [
           user(prompt, 2),
@@ -3548,8 +3607,21 @@ export default agentPaneEntry({
       ),
       play: async (ctx) => {
         await openSingleShell(ctx);
-        await ctx.click({ selector: '.cv-shell__actions button[aria-label="Wrap lines"]' });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-shell__body")?.getAttribute("data-wrap") === "false");
+        await unwrap(".cv-shell__body", ".cv-shell__actions")(ctx);
+      },
+    },
+    "shell-wrapped-long-line": {
+      note: "The same output after Wrap lines: each long row folds back under its start, so a table's columns no longer line up. Output opens aligned instead (blockWrap.ts); this is what the toggle gives.",
+      checks: shellDisclosureChecks,
+      snapshot: chat(
+        shellRows("gallery-shell-wrapped", "Print the retry log", "cat logs/retry.log", {
+          output: SHELL_LONG_LOG,
+          exitCode: 0,
+        }),
+      ),
+      play: async (ctx) => {
+        await openSingleShell(ctx);
+        await wrapOn(".cv-shell__body", ".cv-shell__actions")(ctx);
       },
     },
     "edit-long-line-code-cut": {
@@ -3569,8 +3641,7 @@ export default agentPaneEntry({
       ),
       play: async (ctx) => {
         await openSingleShell(ctx);
-        await ctx.click({ selector: '.cv-shell__actions button[aria-label="Wrap lines"]' });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-shell__body")?.getAttribute("data-wrap") === "false");
+        await unwrap(".cv-shell__body", ".cv-shell__actions")(ctx);
       },
     },
     "shell-live-unwrapped-long-line": {

@@ -1,0 +1,133 @@
+{
+ "batch": "transcript",
+ "icons": [
+  {
+   "name": "view.expand",
+   "meaning": "Expand view",
+   "line": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"scale(1.5)\"><path d=\"M9.5 3.5h3v3m0-3L9 7M6.5 12.5h-3v-3m0 3L7 9\" /></g></svg>",
+   "solid": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"scale(1.5)\"><path d=\"M9.5 3.5h3v3m0-3L9 7M6.5 12.5h-3v-3m0 3L7 9\" /></g></svg>",
+   "note": "Transcript glyph moved onto the shared 24-unit pack grid; preserves the existing action meaning.",
+   "replaces": []
+  },
+  {
+   "name": "view.tab.trailing",
+   "meaning": "Open in trailing tab",
+   "line": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"scale(1.5)\"><rect x=\"2.5\" y=\"3.5\" width=\"11\" height=\"9\" rx=\"1.5\" />\n    <path d=\"M9 3.5v9\" /></g></svg>",
+   "solid": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"scale(1.5)\"><rect x=\"2.5\" y=\"3.5\" width=\"11\" height=\"9\" rx=\"1.5\" />\n    <path d=\"M9 3.5v9\" /></g></svg>",
+   "note": "Transcript glyph moved onto the shared 24-unit pack grid; preserves the existing action meaning.",
+   "replaces": []
+  },
+  {
+   "name": "action.save",
+   "meaning": "Save to file",
+   "line": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"scale(1.5)\"><path d=\"M8 2.5v7.5M5 7l3 3 3-3\" />\n    <path d=\"M2.75 10.5v1.75a1.25 1.25 0 0 0 1.25 1.25h8a1.25 1.25 0 0 0 1.25-1.25V10.5\" /></g></svg>",
+   "solid": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"scale(1.5)\"><path d=\"M8 2.5v7.5M5 7l3 3 3-3\" />\n    <path d=\"M2.75 10.5v1.75a1.25 1.25 0 0 0 1.25 1.25h8a1.25 1.25 0 0 0 1.25-1.25V10.5\" /></g></svg>",
+   "note": "Transcript glyph moved onto the shared 24-unit pack grid; preserves the existing action meaning.",
+   "replaces": []
+  },
+  {
+   "name": "action.retry",
+   "meaning": "Retry prompt",
+   "line": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"scale(1.5)\"><path d=\"M2.5 8a5.5 5.5 0 1 0 5.5-5.5 6 6 0 0 0-4.12 1.67L2.5 5.56\" />\n    <path d=\"M2.5 2.5v3.06h3.06\" /></g></svg>",
+   "solid": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"scale(1.5)\"><path d=\"M2.5 8a5.5 5.5 0 1 0 5.5-5.5 6 6 0 0 0-4.12 1.67L2.5 5.56\" />\n    <path d=\"M2.5 2.5v3.06h3.06\" /></g></svg>",
+   "note": "Transcript glyph moved onto the shared 24-unit pack grid; preserves the existing action meaning.",
+   "replaces": []
+  },
+  {
+   "name": "status.failure",
+   "meaning": "Failed turn",
+   "line": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"scale(1.5)\"><circle cx=\"8\" cy=\"8\" r=\"5.75\" />\n    <path d=\"M8 5.25v3.25\" />\n    <circle cx=\"8\" cy=\"10.75\" r=\".4\" fill=\"currentColor\" /></g></svg>",
+   "solid": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"scale(1.5)\"><circle cx=\"8\" cy=\"8\" r=\"5.75\" />\n    <path d=\"M8 5.25v3.25\" />\n    <circle cx=\"8\" cy=\"10.75\" r=\".4\" fill=\"currentColor\" /></g></svg>",
+   "note": "Transcript glyph moved onto the shared 24-unit pack grid; preserves the existing action meaning.",
+   "replaces": []
+  },
+  {
+   "name": "message.delivered",
+   "meaning": "Delivered message",
+   "line": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"scale(1.5)\"><path d=\"M1.75 8.4 4.3 10.9 9.2 5.2\" />\n    <path d=\"M7.4 10.6l.3.3 4.9-5.7\" /></g></svg>",
+   "solid": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"scale(1.5)\"><path d=\"M1.75 8.4 4.3 10.9 9.2 5.2\" />\n    <path d=\"M7.4 10.6l.3.3 4.9-5.7\" /></g></svg>",
+   "note": "Transcript glyph moved onto the shared 24-unit pack grid; preserves the existing action meaning.",
+   "replaces": []
+  },
+  {
+   "name": "action.quote",
+   "meaning": "Quote selected text",
+   "line": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"scale(1.5)\"><path d=\"M6.5 4.5 3 8l3.5 3.5M3.5 8h6a3.5 3.5 0 0 1 3.5 3.5v0\" /></g></svg>",
+   "solid": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"scale(1.5)\"><path d=\"M6.5 4.5 3 8l3.5 3.5M3.5 8h6a3.5 3.5 0 0 1 3.5 3.5v0\" /></g></svg>",
+   "note": "Transcript reply glyph moved onto the shared 24-unit pack grid; preserves the existing quote action.",
+   "replaces": []
+  },
+  {
+   "name": "media.stop.circle",
+   "meaning": "Stop reading aloud",
+   "line": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"scale(1.5)\"><circle cx=\"8\" cy=\"8\" r=\"5.75\" />\n    <rect x=\"5.9\" y=\"5.9\" width=\"4.2\" height=\"4.2\" rx=\"0.8\" fill=\"currentColor\" stroke=\"none\"  /></g></svg>",
+   "solid": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"scale(1.5)\"><circle cx=\"8\" cy=\"8\" r=\"5.75\" />\n    <rect x=\"5.9\" y=\"5.9\" width=\"4.2\" height=\"4.2\" rx=\"0.8\" fill=\"currentColor\" stroke=\"none\"  /></g></svg>",
+   "note": "Transcript glyph moved onto the shared 24-unit pack grid; preserves the existing action meaning.",
+   "replaces": []
+  },
+  {
+   "name": "time.waiting",
+   "meaning": "Waiting for delivery",
+   "line": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"scale(1.5)\"><circle cx=\"8\" cy=\"8\" r=\"5.5\" />\n    <path d=\"M8 5v3.2l2 1.3\" /></g></svg>",
+   "solid": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"scale(1.5)\"><circle cx=\"8\" cy=\"8\" r=\"5.5\" />\n    <path d=\"M8 5v3.2l2 1.3\" /></g></svg>",
+   "note": "Transcript glyph moved onto the shared 24-unit pack grid; preserves the existing action meaning.",
+   "replaces": []
+  },
+  {
+   "name": "transcript.summary",
+   "meaning": "Transcript summary",
+   "line": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"scale(1.5)\"><circle cx=\"4.4\" cy=\"4.6\" r=\"1.9\" />\n    <circle cx=\"4.4\" cy=\"11.4\" r=\"1.9\" />\n    <path d=\"M8.6 4.6h5.1M8.6 11.4h5.1\" /></g></svg>",
+   "solid": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"scale(1.5)\"><circle cx=\"4.4\" cy=\"4.6\" r=\"1.9\" />\n    <circle cx=\"4.4\" cy=\"11.4\" r=\"1.9\" />\n    <path d=\"M8.6 4.6h5.1M8.6 11.4h5.1\" /></g></svg>",
+   "note": "Transcript glyph moved onto the shared 24-unit pack grid; preserves the existing action meaning.",
+   "replaces": []
+  },
+  {
+   "name": "sources.connected",
+   "meaning": "Connected sources",
+   "line": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"scale(1.5)\"><circle cx=\"3.9\" cy=\"12.1\" r=\"1.7\" />\n    <circle cx=\"12.1\" cy=\"3.9\" r=\"1.7\" />\n    <path d=\"M5.4 11.1c1.5-.4 1.7-1.6 2.6-3.1s2.1-2.6 2.6-3.1\" />\n    <circle cx=\"8\" cy=\"8\" r=\"1.7\" /></g></svg>",
+   "solid": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"scale(1.5)\"><circle cx=\"3.9\" cy=\"12.1\" r=\"1.7\" />\n    <circle cx=\"12.1\" cy=\"3.9\" r=\"1.7\" />\n    <path d=\"M5.4 11.1c1.5-.4 1.7-1.6 2.6-3.1s2.1-2.6 2.6-3.1\" />\n    <circle cx=\"8\" cy=\"8\" r=\"1.7\" /></g></svg>",
+   "note": "Transcript glyph moved onto the shared 24-unit pack grid; preserves the existing action meaning.",
+   "replaces": []
+  },
+  {
+   "name": "tool.multiple",
+   "meaning": "Several kinds of tools",
+   "line": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"scale(1.5)\"><circle cx=\"4.5\" cy=\"4.5\" r=\"2.05\" />\n    <circle cx=\"11.5\" cy=\"4.5\" r=\"2.05\" />\n    <circle cx=\"4.5\" cy=\"11.5\" r=\"2.05\" />\n    <circle cx=\"11.5\" cy=\"11.5\" r=\"2.05\" />\n    <path d=\"M10 6 6 10\" /></g></svg>",
+   "solid": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"scale(1.5)\"><circle cx=\"4.5\" cy=\"4.5\" r=\"2.05\" />\n    <circle cx=\"11.5\" cy=\"4.5\" r=\"2.05\" />\n    <circle cx=\"4.5\" cy=\"11.5\" r=\"2.05\" />\n    <circle cx=\"11.5\" cy=\"11.5\" r=\"2.05\" />\n    <path d=\"M10 6 6 10\" /></g></svg>",
+   "note": "Transcript glyph moved onto the shared 24-unit pack grid; preserves the existing action meaning.",
+   "replaces": []
+  },
+  {
+   "name": "message.send",
+   "meaning": "Send message",
+   "line": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"scale(1.5)\"><rect x=\"2.25\" y=\"3.75\" width=\"11.5\" height=\"8.5\" rx=\"1.75\" />\n    <path d=\"m2.75 4.75 5.25 4 5.25-4\" /></g></svg>",
+   "solid": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"scale(1.5)\"><rect x=\"2.25\" y=\"3.75\" width=\"11.5\" height=\"8.5\" rx=\"1.75\" />\n    <path d=\"m2.75 4.75 5.25 4 5.25-4\" /></g></svg>",
+   "note": "Transcript glyph moved onto the shared 24-unit pack grid; preserves the existing action meaning.",
+   "replaces": []
+  },
+  {
+   "name": "agent.bot",
+   "meaning": "Agent",
+   "line": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"scale(1.5)\"><rect x=\"2.75\" y=\"5.25\" width=\"10.5\" height=\"7.5\" rx=\"2.5\" />\n    <path d=\"M8 5.25V3.5\" />\n    <circle cx=\"8\" cy=\"2.9\" r=\"0.6\" />\n    <path d=\"M1.75 8.25v1.5M14.25 8.25v1.5\" />\n    <circle cx=\"6\" cy=\"8.75\" r=\"0.5\" fill=\"currentColor\" />\n    <circle cx=\"10\" cy=\"8.75\" r=\"0.5\" fill=\"currentColor\" />\n    <path d=\"M6.75 10.75c.75.4 1.75.4 2.5 0\" /></g></svg>",
+   "solid": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"scale(1.5)\"><rect x=\"2.75\" y=\"5.25\" width=\"10.5\" height=\"7.5\" rx=\"2.5\" />\n    <path d=\"M8 5.25V3.5\" />\n    <circle cx=\"8\" cy=\"2.9\" r=\"0.6\" />\n    <path d=\"M1.75 8.25v1.5M14.25 8.25v1.5\" />\n    <circle cx=\"6\" cy=\"8.75\" r=\"0.5\" fill=\"currentColor\" />\n    <circle cx=\"10\" cy=\"8.75\" r=\"0.5\" fill=\"currentColor\" />\n    <path d=\"M6.75 10.75c.75.4 1.75.4 2.5 0\" /></g></svg>",
+   "note": "Transcript glyph moved onto the shared 24-unit pack grid; preserves the existing action meaning.",
+   "replaces": []
+  },
+  {
+   "name": "agent.paused",
+   "meaning": "Paused agent",
+   "line": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"scale(1.5)\"><circle cx=\"8\" cy=\"8\" r=\"5.75\" />\n    <path d=\"M6.5 6v4M9.5 6v4\" /></g></svg>",
+   "solid": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"scale(1.5)\"><circle cx=\"8\" cy=\"8\" r=\"5.75\" />\n    <path d=\"M6.5 6v4M9.5 6v4\" /></g></svg>",
+   "note": "Transcript glyph moved onto the shared 24-unit pack grid; preserves the existing action meaning.",
+   "replaces": []
+  },
+  {
+   "name": "nav.down",
+   "meaning": "Down",
+   "line": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"scale(1.5)\"><path d=\"M8 2.5v11M3.5 9 8 13.5 12.5 9\" /></g></svg>",
+   "solid": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"scale(1.5)\"><path d=\"M8 2.5v11M3.5 9 8 13.5 12.5 9\" /></g></svg>",
+   "note": "Transcript glyph moved onto the shared 24-unit pack grid; preserves the existing action meaning.",
+   "replaces": []
+  }
+ ]
+}

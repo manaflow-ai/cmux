@@ -92,9 +92,7 @@ extension PaneContentView {
         // The keyboard never stays in a view that does not show: the window
         // takes it, and the focus model re-applies its target (the content
         // shown now), as when a view leaves the window.
-        if let window, let responder = window.firstResponder as? NSView, responder.isDescendant(of: view) {
-            window.makeFirstResponder(nil)
-        }
+        view.handKeyboardToWindow()
         (view as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
         view.isHidden = true
         // A hidden agent or internal page stays sized with the pane, so showing it again needs no redraw at a new
@@ -154,6 +152,14 @@ extension PaneContentView {
             view.autoresizingMask = []
             if view.frame != frame { view.frame = frame }
         }
+    }
+
+    /// Parked content whose tab closed, moved away or got a new view leaves the window. `liveContent`: the pane's tabs' content
+    /// now (every kind: a page tab that parks is never dropped as closed); a browser tab keeps the pane's one browser chrome.
+    func dropClosedParked(liveContent: () -> [TabContent]) {
+        guard !parked.isEmpty else { return }
+        let live = Set(liveContent().map { if case .browser = $0, let chrome = browserChrome.chrome { ObjectIdentifier(chrome) } else { ObjectIdentifier($0.view) } })
+        prunePark { live.contains(ObjectIdentifier($0)) }
     }
 
     /// Takes every parked view out of the pane (the pane goes away).

@@ -4,10 +4,12 @@ import { BACKGROUND_TURN } from "./conversation/backgroundTurns";
 import { layoutConversation, placeRows, type AcpmuxRow, type RowHeights } from "./model";
 import {
   TRANSCRIPT_BLOCK_GAP,
+  TRANSCRIPT_COMPOSER_GAP,
   TRANSCRIPT_FOOTER_CONTROL,
   TRANSCRIPT_FOOTER_GAP,
   TRANSCRIPT_RUN_GAP,
   TRANSCRIPT_TURN_GAP,
+  MARK_FOOTER_ROW,
   MARK_MESSAGE,
   MARK_PROMPT,
   MARK_STATUS,
@@ -23,7 +25,11 @@ const row = (id: string, kind: string, fields: Partial<AcpmuxRow> = {}): AcpmuxR
   ...fields,
 });
 const answer = row("answer", "assistant", { text: "Done." });
-const footer = row("footer", "turnSummary", { text: "Done.", durationMs: 1000, status: "completed" });
+const footer = row("footer", "turnSummary", {
+  text: "Done.",
+  durationMs: 1000,
+  status: "completed",
+});
 const hidden = row("hidden", "user", { incoming: { kind: "hidden" } });
 
 // A reply's footer is a row of its own, as ChatGPT's (design/transcript-spacing.md "Reply footer";
@@ -34,7 +40,9 @@ test("a reply's footer row sits 8 under it, and the next row 24 (a prompt 32) un
   for (const next of [
     row("reply", "assistant", { text: "Next." }),
     row("prompt", "user", { text: "Next." }),
-    row("peer", "user", { incoming: { kind: "message", message: { name: "peer", text: "Report", raw: "Report" } } }),
+    row("peer", "user", {
+      incoming: { kind: "message", message: { name: "peer", text: "Report", raw: "Report" } },
+    }),
   ]) {
     const rows = [answer, footer, hidden, next];
     const layout = layoutConversation(rows, 720);
@@ -45,6 +53,29 @@ test("a reply's footer row sits 8 under it, and the next row 24 (a prompt 32) un
     expect(layout.tops[3]! - (layout.tops[1]! + layout.heights[1]!)).toBe(gap);
     const measured = placeRows(layout, (index) => (index === 0 ? 100 : undefined));
     expect(measured.tops[3]).toBe(100 + TRANSCRIPT_FOOTER_GAP + TRANSCRIPT_FOOTER_CONTROL + gap);
+  }
+});
+
+// A status line the agent's own background work drew after its turn ended ("Background update",
+// "Background task finished", "Subagent finished") is that turn's tail: 8 under its footer row, as
+// the footer is under the reply, and the turn gap to the next prompt. A block gap above and the
+// turn gap below left it floating alone in the band (Leo, 2026-11-04: "this bare background update
+// tool call floating in teh air is so weird loking proportionally"). Another agent's line there
+// keeps the block gap (the test above).
+test("a lone status line under a footer row is its turn's tail, 8 under it", () => {
+  expect(transcriptGap(MARK_FOOTER_ROW, MARK_STATUS)).toBe(TRANSCRIPT_FOOTER_GAP);
+  expect(transcriptGap(MARK_FOOTER_ROW, MARK_STEP)).toBe(TRANSCRIPT_BLOCK_GAP);
+  expect(transcriptGap(MARK_STATUS, MARK_PROMPT)).toBe(TRANSCRIPT_TURN_GAP);
+  const lone = [
+    row("bg", BACKGROUND_TURN, { background: { id: "bg", trigger: "system", running: false, quiet: true } }),
+    row("bg-running", BACKGROUND_TURN, { background: { id: "bg2", trigger: "system", running: true } }),
+    row("task", "backgroundTask", {}),
+    row("subagent", "subagentDone", {}),
+  ];
+  for (const line of lone) {
+    const layout = layoutConversation([answer, footer, hidden, line, row("prompt", "user", { text: "Next." })], 720);
+    expect(layout.tops[3]! - (layout.tops[1]! + layout.heights[1]!)).toBe(TRANSCRIPT_FOOTER_GAP);
+    expect(layout.tops[4]! - (layout.tops[3]! + layout.heights[3]!)).toBe(TRANSCRIPT_TURN_GAP);
   }
 });
 
@@ -64,9 +95,12 @@ test("incremental placement matches fresh placement when a continuation becomes 
   const continued = layoutConversation(next, 720, undefined, undefined, known, { rows, layout });
   expect(continued).toEqual(layoutConversation(next, 720));
   const changed = [...rows, row("next", "user", { text: "Next task." })];
-  expect(layoutConversation(changed, 720, undefined, undefined, known, { rows: next, layout: continued })).toEqual(
-    layoutConversation(changed, 720),
-  );
+  expect(
+    layoutConversation(changed, 720, undefined, undefined, known, {
+      rows: next,
+      layout: continued,
+    }),
+  ).toEqual(layoutConversation(changed, 720));
 });
 
 test("failure and Continue controls remain content; a reply's footer is a row of its own", () => {
@@ -90,7 +124,9 @@ test("placed gaps follow an Interface Size change, kept rows included", () => {
   const saved = { document: g.document, getComputedStyle: g.getComputedStyle };
   let scale = "1";
   g.document ??= { documentElement: {} };
-  g.getComputedStyle = () => ({ getPropertyValue: (name: string) => (name === "--cmux-interface-scale" ? scale : "") });
+  g.getComputedStyle = () => ({
+    getPropertyValue: (name: string) => (name === "--cmux-interface-scale" ? scale : ""),
+  });
   try {
     const rows = [
       { id: "a", version: 1, at: 0, kind: "assistant", text: "One." },
@@ -104,7 +140,10 @@ test("placed gaps follow an Interface Size change, kept rows included", () => {
     const atLarger = placeRows(estimate, heightAt, { layout: atOne, kept: 2 });
     expect(atLarger.tops[1]! - atLarger.tops[0]!).toBe(20 + 30);
     expect(atLarger.scale).toBe(1.25);
-    const relaid = layoutConversation(rows, 720, undefined, undefined, undefined, { rows, layout: estimate });
+    const relaid = layoutConversation(rows, 720, undefined, undefined, undefined, {
+      rows,
+      layout: estimate,
+    });
     expect(relaid.scale).toBe(1.25);
     expect(relaid.gaps?.[1]).toBe(30);
   } finally {
@@ -120,7 +159,9 @@ test("estimated grid rows follow the Interface Size", () => {
   const saved = { document: g.document, getComputedStyle: g.getComputedStyle };
   let scale = "1";
   g.document ??= { documentElement: {} };
-  g.getComputedStyle = () => ({ getPropertyValue: (name: string) => (name === "--cmux-interface-scale" ? scale : "") });
+  g.getComputedStyle = () => ({
+    getPropertyValue: (name: string) => (name === "--cmux-interface-scale" ? scale : ""),
+  });
   try {
     const received = [
       { id: "r", version: 1, at: 0, kind: "user", text: "Task", received: {} },
@@ -152,18 +193,32 @@ test("estimated grid rows follow the Interface Size", () => {
   }
 });
 
-test("the live line sits flush under a run of one-line rows: 22 apart top to top (#29965)", () => {
+test("the live line keeps the scaled run gap after activity while activity rows stay flush", () => {
   const run = row("run", "activity", {
-    items: [{ kind: "tool", text: "", tool: { id: "c", title: "ls", kind: "execute", status: "completed" } }],
+    items: [
+      {
+        kind: "tool",
+        text: "",
+        tool: { id: "c", title: "ls", kind: "execute", status: "completed" },
+      },
+    ],
   } as Partial<AcpmuxRow>);
   const next = row("next", "activity", {
-    items: [{ kind: "tool", text: "", tool: { id: "d", title: "cat x", kind: "execute", status: "completed" } }],
+    items: [
+      {
+        kind: "tool",
+        text: "",
+        tool: { id: "d", title: "cat x", kind: "execute", status: "completed" },
+      },
+    ],
   } as Partial<AcpmuxRow>);
   const live = row("live", "thinking", { below: true } as Partial<AcpmuxRow>);
   const layout = layoutConversation([run, next, live], 720);
   expect(layout.heights[0]).toBe(22);
   expect(layout.tops[1]! - layout.tops[0]!).toBe(22);
-  expect(layout.tops[2]! - layout.tops[1]!).toBe(22);
+  expect(layout.tops[2]! - layout.tops[1]! - layout.heights[1]!).toBe(TRANSCRIPT_RUN_GAP);
+  expect(layout.heights[2]).toBe(22);
+  expect(layout.tailGap).toBe(TRANSCRIPT_COMPOSER_GAP);
   // The same live line right under its prompt still waits a block gap under it (grid.md 5.5).
   const prompt = row("p", "user", { text: "Go" });
   const waiting = layoutConversation([prompt, live], 720);
@@ -184,6 +239,33 @@ test("a run and the reply's prose sit the run gap apart, either way", () => {
   expect(transcriptGap(MARK_PROMPT, MARK_STEP)).toBe(TRANSCRIPT_TURN_GAP);
 });
 
+test("a finished work disclosure shares the activity rhythm when closed or opened", () => {
+  const worked = row("worked", "worked", { durationMs: 17_000 });
+  const run = row("run", "activity", {
+    items: [
+      {
+        kind: "tool",
+        text: "ls",
+        tool: { id: "t", title: "ls", kind: "execute", status: "completed" },
+      },
+    ],
+  });
+  for (const rows of [
+    [worked, answer],
+    [worked, run, answer],
+  ]) {
+    const layout = layoutConversation(rows, 720);
+    expect(layout.heights[0]).toBe(22);
+    const replyIndex = rows.length - 1;
+    expect(layout.gaps?.[replyIndex]).toBe(TRANSCRIPT_RUN_GAP);
+    if (rows.length === 3) expect(layout.tops[1]! - layout.tops[0]!).toBe(22);
+    const placed = placeRows(layout, () => 22);
+    expect(placed.tops[replyIndex]! - placed.tops[replyIndex - 1]! - 22).toBe(TRANSCRIPT_RUN_GAP);
+  }
+  const prompt = row("prompt", "user", { text: "Go" });
+  expect(layoutConversation([prompt, worked, answer], 720).gaps?.[1]).toBe(TRANSCRIPT_TURN_GAP);
+});
+
 // Status lines ("Scheduled check", "Compacting the conversation…", a background task's end) and
 // tool runs in a row sit flush on the 22 pitch, never a block apart (design/transcript-spacing.md
 // rule 3; Leo, 2026-11-02, on a Claude chat where they did: "these are all so stupid looking").
@@ -196,7 +278,13 @@ test("status rows and step rows in a row sit flush", () => {
       background: { id: "bg", trigger: "scheduled", running: false, quiet: true },
     }),
     row("run", "activity", {
-      items: [{ kind: "tool", text: "ls", tool: { id: "t", title: "ls", kind: "execute", status: "completed" } }],
+      items: [
+        {
+          kind: "tool",
+          text: "ls",
+          tool: { id: "t", title: "ls", kind: "execute", status: "completed" },
+        },
+      ],
     }),
     row("compact", "compaction", { compaction: { state: "running" } }),
   ];

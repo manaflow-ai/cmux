@@ -9,9 +9,49 @@
 //! columns and LAST).
 //! A peer whose link is down never drops out: its rows read `unknown`, and a line per such peer
 //! says its sessions are last known, not live (hq#4897: unreadable means UNKNOWN).
+//! A down peer that fleet-registry.json means to be down (retired, idle-stopped or on demand,
+//! [`registry_pauses`]) reads `paused` instead, its line `PAUSED`: 2026-11-04, `acpmux ls` called
+//! 69 sessions on gcp-codex-lane-1..12 (idle-stopped) and gcp-agent-lane-3/4 (on demand, their
+//! names unresolvable while stopped) unknown. A peer the registry means to be up keeps UNKNOWN.
 
 use super::output::short;
 use serde_json::Value;
+use std::collections::BTreeMap;
+
+/// Why fleet-registry.json means each machine to be down, by its name and aliases (lowercased):
+/// `retired` (`retired: true`, or a status that starts "retired"), `idle-stopped` (a status that
+/// starts so: powered off by its idle guard, started again when work asks) or `on demand`
+/// (`on_demand: true`). The marks leo-workspace tools/host_state.py reads. No registry, none.
+pub fn registry_pauses() -> BTreeMap<String, String> {
+    crate::placement::load_registry().map(|reg| pauses_of(&reg)).unwrap_or_default()
+}
+
+fn pauses_of(reg: &Value) -> BTreeMap<String, String> {
+    let mut out = BTreeMap::new();
+    let Some(machines) = reg.get("machines").and_then(Value::as_object) else { return out };
+    for (name, m) in machines {
+        let status = m.get("status").and_then(Value::as_str).unwrap_or("").trim().to_lowercase();
+        let why = if m.get("retired") == Some(&Value::Bool(true)) || status.starts_with("retired") {
+            "retired"
+        } else if status.starts_with("idle-stopped") {
+            "idle-stopped"
+        } else if m.get("on_demand") == Some(&Value::Bool(true)) {
+            "on demand"
+        } else {
+            continue;
+        };
+        let aliases = m.get("aliases").and_then(Value::as_array).into_iter().flatten();
+        for n in std::iter::once(name.as_str()).chain(aliases.filter_map(Value::as_str)) {
+            out.insert(n.to_lowercase(), why.to_owned());
+        }
+    }
+    out
+}
+
+/// Why the registry means PEER to be down, if it does.
+fn paused<'a>(pauses: &'a BTreeMap<String, String>, peer: &str) -> Option<&'a str> {
+    pauses.get(&peer.to_lowercase()).map(String::as_str)
+}
 
 /// `acpmux ls --help` examples.
 pub const HELP: &str = "Examples:
@@ -20,12 +60,13 @@ pub const HELP: &str = "Examples:
   acpmux ls --wide                every column (AGENT, STATUS, usage, LAST)
   acpmux ls --status stuck        only stuck sessions (a filter hides nothing else)
   acpmux ls --leads               the leaders: each live session others report to, with its reports
-  acpmux ls --live --host cosmic-gray   that host's live sessions (--host local: this machine)
+  acpmux ls --live --machine cosmic-gray   that machine's live sessions (--machine local: this one)
   acpmux --json ls --fields name,state,peer   for scripts: the daemon's rows, unchanged
   acpmux ls 'review-27*' --fields name,turn.activity   name globs (host/glob: one peer's); dotted fields
 
 STUCK is why a lane needs someone: permission, capacity, harness down, failed turn, stalled 12m.
-A peer that cannot be reached reads UNKNOWN; its sessions are last known. ls never starts a daemon.
+A peer that cannot be reached reads UNKNOWN, or PAUSED when fleet-registry.json means it to be
+down (retired, idle-stopped, on demand); its sessions are last known. ls never starts a daemon.
 Usage (--wide): LAUNCHER, CAP (autocompact cap, or none), CTX (context now), CMP (compactions),
 SUBS (subagents live/started), TOK24H and $24H; ? is a value acpmux could not read, never 0.";
 
@@ -116,9 +157,10 @@ fn unreadable(row: &Value) -> bool {
                 .is_some_and(|s| s != "connected" && s != "degraded")
 }
 
-fn state(row: &Value) -> String {
+fn state(row: &Value, pauses: &BTreeMap<String, String>) -> String {
     if unreadable(row) {
-        return "unknown".into();
+        let down = host(row).and_then(|h| paused(pauses, h));
+        return if down.is_some() { "paused" } else { "unknown" }.into();
     }
     if pending(row) > 0 {
         return "waiting".into();
@@ -132,8 +174,11 @@ fn pending(row: &Value) -> u64 {
 
 /// The short reason a lane needs someone, or empty: a permission it waits on, the daemon's stuck
 /// reason (capacity, the harness down), a failed or lost turn, or a stalled turn.
-fn stuck(row: &Value, now: u64) -> String {
+fn stuck(row: &Value, now: u64, pauses: &BTreeMap<String, String>) -> String {
     if unreadable(row) {
+        if let Some(why) = host(row).and_then(|h| paused(pauses, h)) {
+            return format!("host {why}");
+        }
         return format!("peer {}", row.get("peerState").and_then(Value::as_str).unwrap_or("down"));
     }
     match pending(row) {
@@ -269,6 +314,19 @@ pub fn render(
     filtered: bool,
     now: u64,
 ) -> String {
+    render_paused(sessions, peers, view, filtered, now, &BTreeMap::new())
+}
+
+/// [`render`], with the peers fleet-registry.json means to be down ([`registry_pauses`]) read as
+/// paused, not unknown.
+pub fn render_paused(
+    sessions: &[Value],
+    peers: Option<&[Value]>,
+    view: View,
+    filtered: bool,
+    now: u64,
+    pauses: &BTreeMap<String, String>,
+) -> String {
     let mut hidden_counts = [0usize; HIDDEN_ORDER.len()];
     // The daemon's order (newest first) in every view: `--limit`, `--since` and `--tag` read it.
     let shown: Vec<&Value> = sessions
@@ -296,7 +354,7 @@ pub fn render(
     } else {
         let with_host = shown.iter().any(|r| host(r).is_some());
         let with_warn = shown.iter().any(|r| !warn(r, false).is_empty());
-        let with_stuck = shown.iter().any(|r| !stuck(r, now).is_empty());
+        let with_stuck = shown.iter().any(|r| !stuck(r, now, pauses).is_empty());
         let mut header = vec!["NAME"];
         if with_host {
             header.push("HOST");
@@ -326,11 +384,11 @@ pub fn render(
             if view.wide {
                 cells.push(short(text(row, "harness"), 8));
             }
-            cells.push(state(row));
+            cells.push(state(row, pauses));
             cells.push(row.get("turnCount").and_then(Value::as_u64).unwrap_or(0).to_string());
             cells.push(ago(now, row.get("updatedAt").and_then(Value::as_u64).unwrap_or(0)));
             if with_stuck || view.wide {
-                cells.push(stuck(row, now));
+                cells.push(stuck(row, now, pauses));
             }
             if with_warn {
                 cells.push(warn(row, view.wide));
@@ -352,10 +410,15 @@ pub fn render(
             .as_u64()
             .map(|at| format!(" for {}", ago(now, at)))
             .unwrap_or_default();
-        out.push_str(&format!(
-            "UNKNOWN {}: peer {state}{since}; its sessions are last known, not live\n",
-            text(peer, "name")
-        ));
+        let name = text(peer, "name");
+        out.push_str(&match paused(pauses, name) {
+            Some(why) => format!(
+                "PAUSED {name}: {why} in the fleet registry, peer {state}{since}; its sessions are last known, not live\n"
+            ),
+            None => format!(
+                "UNKNOWN {name}: peer {state}{since}; its sessions are last known, not live\n"
+            ),
+        });
     }
     if peers.is_none() {
         out.push_str("UNKNOWN peers: their link states could not be read\n");

@@ -1,0 +1,232 @@
+{
+ "source": "webviews/src/agent-session/acpmux/mockFixture.ts workedTurn",
+ "steps": [
+  {
+   "atMs": 2000,
+   "update": {
+    "sessionUpdate": "agent_message_chunk",
+    "content": {
+     "type": "text",
+     "text": "I'll find where artifacts are uploaded first."
+    }
+   }
+  },
+  {
+   "atMs": 4000,
+   "update": {
+    "sessionUpdate": "tool_call",
+    "toolCallId": "w-search",
+    "kind": "search",
+    "title": "Search for uploadArtifact",
+    "status": "completed",
+    "content": [
+     {
+      "type": "content",
+      "content": {
+       "type": "text",
+       "text": "Sources/Fleet/upload.ts:1\nSources/Fleet/publish.ts:42\nSources/Fleet/upload.test.ts:2"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "atMs": 7000,
+   "update": {
+    "sessionUpdate": "tool_call",
+    "toolCallId": "w-read-upload",
+    "kind": "read",
+    "title": "Read Sources/Fleet/upload.ts",
+    "status": "completed",
+    "locations": [
+     {
+      "path": "~/code/cmux/Sources/Fleet/upload.ts"
+     }
+    ],
+    "content": [
+     {
+      "type": "content",
+      "content": {
+       "type": "text",
+       "text": "export async function uploadArtifact(url: string, body: Blob): Promise<void> {\n  const response = await fetch(url, { method: \"PUT\", body });\n  if (!response.ok) throw new Error(`upload failed: ${response.status}`);\n}\n"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "atMs": 9000,
+   "update": {
+    "sessionUpdate": "tool_call",
+    "toolCallId": "w-read-test",
+    "kind": "read",
+    "title": "Read Sources/Fleet/upload.test.ts",
+    "status": "completed",
+    "locations": [
+     {
+      "path": "~/code/cmux/Sources/Fleet/upload.test.ts"
+     }
+    ],
+    "content": [
+     {
+      "type": "content",
+      "content": {
+       "type": "text",
+       "text": "import { expect, test } from \"bun:test\";\nimport { uploadArtifact } from \"./upload\";\n\ntest(\"uploads the artifact\", async () => {\n  await uploadArtifact(server.url, new Blob([\"ok\"]));\n  expect(server.requests).toHaveLength(1);\n});\n"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "atMs": 15000,
+   "update": {
+    "sessionUpdate": "agent_message_chunk",
+    "content": {
+     "type": "text",
+     "text": "The upload is a single `fetch` with no retry, so any 5xx fails the whole publish. I'll add a small helper that retries only server errors, doubling the wait each time:\n\n```ts\nexport async function withRetry<T>(attempt: () => Promise<T>, tries = 5): Promise<T> {\n  for (let index = 0; ; index += 1) {\n    try {\n      return await attempt();\n    } catch (error) {\n      if (!(error instanceof RetryableError) || index + 1 >= tries) throw error;\n      await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** index));\n    }\n  }\n}\n```\n\nClient errors like 403 still fail at once, since retrying them can't help."
+    }
+   }
+  },
+  {
+   "atMs": 40000,
+   "update": {
+    "sessionUpdate": "tool_call",
+    "toolCallId": "w-write-retry",
+    "kind": "edit",
+    "title": "Write Sources/Fleet/retry.ts",
+    "status": "completed",
+    "locations": [
+     {
+      "path": "~/code/cmux/Sources/Fleet/retry.ts"
+     }
+    ],
+    "content": [
+     {
+      "type": "diff",
+      "path": "~/code/cmux/Sources/Fleet/retry.ts",
+      "newText": "export class RetryableError extends Error {}\n\n/// Runs `attempt` until it succeeds, waiting 0.5 s, 1 s, 2 s... between tries.\nexport async function withRetry<T>(attempt: () => Promise<T>, tries = 5): Promise<T> {\n  for (let index = 0; ; index += 1) {\n    try {\n      return await attempt();\n    } catch (error) {\n      if (!(error instanceof RetryableError) || index + 1 >= tries) throw error;\n      await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** index));\n    }\n  }\n}\n"
+     }
+    ]
+   }
+  },
+  {
+   "atMs": 52000,
+   "update": {
+    "sessionUpdate": "tool_call",
+    "toolCallId": "w-edit-upload",
+    "kind": "edit",
+    "title": "Edit Sources/Fleet/upload.ts",
+    "status": "completed",
+    "locations": [
+     {
+      "path": "~/code/cmux/Sources/Fleet/upload.ts",
+      "line": 1
+     }
+    ],
+    "content": [
+     {
+      "type": "diff",
+      "path": "~/code/cmux/Sources/Fleet/upload.ts",
+      "oldText": "export async function uploadArtifact(url: string, body: Blob): Promise<void> {\n  const response = await fetch(url, { method: \"PUT\", body });\n  if (!response.ok) throw new Error(`upload failed: ${response.status}`);\n}\n",
+      "newText": "import { withRetry } from \"./retry\";\n\nexport async function uploadArtifact(url: string, body: Blob): Promise<void> {\n  await withRetry(async () => {\n    const response = await fetch(url, { method: \"PUT\", body });\n    if (response.status >= 500) throw new RetryableError(response.status);\n    if (!response.ok) throw new Error(`upload failed: ${response.status}`);\n  });\n}\n"
+     }
+    ]
+   }
+  },
+  {
+   "atMs": 61000,
+   "update": {
+    "sessionUpdate": "tool_call",
+    "toolCallId": "w-edit-test",
+    "kind": "edit",
+    "title": "Edit Sources/Fleet/upload.test.ts",
+    "status": "completed",
+    "locations": [
+     {
+      "path": "~/code/cmux/Sources/Fleet/upload.test.ts",
+      "line": 8
+     }
+    ],
+    "content": [
+     {
+      "type": "diff",
+      "path": "~/code/cmux/Sources/Fleet/upload.test.ts",
+      "oldText": "import { expect, test } from \"bun:test\";\nimport { uploadArtifact } from \"./upload\";\n\ntest(\"uploads the artifact\", async () => {\n  await uploadArtifact(server.url, new Blob([\"ok\"]));\n  expect(server.requests).toHaveLength(1);\n});\n",
+      "newText": "import { expect, test } from \"bun:test\";\nimport { uploadArtifact } from \"./upload\";\n\ntest(\"uploads the artifact\", async () => {\n  await uploadArtifact(server.url, new Blob([\"ok\"]));\n  expect(server.requests).toHaveLength(1);\n});\n\ntest(\"retries a 503 and then succeeds\", async () => {\n  server.failNext(2, 503);\n  await uploadArtifact(server.url, new Blob([\"ok\"]));\n  expect(server.requests).toHaveLength(3);\n});\n"
+     }
+    ]
+   }
+  },
+  {
+   "atMs": 80000,
+   "update": {
+    "sessionUpdate": "tool_call",
+    "toolCallId": "w-test",
+    "kind": "execute",
+    "title": "Run bun test Sources/Fleet",
+    "status": "completed",
+    "rawInput": {
+     "command": "bun test Sources/Fleet",
+     "cwd": "~/code/cmux"
+    },
+    "rawOutput": {
+     "exit_code": 0
+    },
+    "content": [
+     {
+      "type": "content",
+      "content": {
+       "type": "text",
+       "text": "bun test v1.4.0\n\nSources/Fleet/upload.test.ts:\n✓ uploads the artifact [3.12ms]\n✓ retries a 503 and then succeeds [1504.40ms]\n\n 2 pass\n 0 fail\nRan 2 tests across 1 file. [1.53s]"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "atMs": 82000,
+   "update": {
+    "sessionUpdate": "tool_call",
+    "toolCallId": "w-pr",
+    "kind": "execute",
+    "title": "Run gh pr create --title \"fleet: retry artifact uploads with backoff\" --fill",
+    "status": "completed",
+    "rawInput": {
+     "command": "gh pr create --title \"fleet: retry artifact uploads with backoff\" --fill",
+     "cwd": "~/code/cmux"
+    },
+    "rawOutput": {
+     "exit_code": 0
+    },
+    "content": [
+     {
+      "type": "content",
+      "content": {
+       "type": "text",
+       "text": "https://github.com/manaflow-ai/cmux/pull/18204\n"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "atMs": 84000,
+   "update": {
+    "sessionUpdate": "agent_message_chunk",
+    "content": {
+     "type": "text",
+     "text": "Uploads now retry server errors with backoff.\n\n- `withRetry` in `retry.ts` tries up to 5 times, waiting 0.5 s, 1 s, 2 s and 4 s.\n- `uploadArtifact` retries only 5xx responses; a 4xx still fails at once.\n- The new test fails the first two uploads with 503 and checks the third succeeds.\n\n```ts\nawait withRetry(async () => {\n  const response = await fetch(url, { method: 'PUT', body });\n  if (response.status >= 500) throw new RetryableError(response.status);\n});\n```\n\nBoth tests pass. The worst case adds 7.5 s before a publish gives up."
+    }
+   }
+  },
+  {
+   "atMs": 85000,
+   "update": {
+    "sessionUpdate": "usage_update",
+    "used": 33551,
+    "size": 200000
+   }
+  }
+ ]
+}

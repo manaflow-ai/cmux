@@ -22,13 +22,11 @@ public struct HomeAgentMessageRow: Hashable, Sendable {
 
     /// The row's role in its fold.
     public enum Kind: Hashable, Sendable {
-        /// The fold: `count` messages with `peers` (agent ids, first-seen order), shown in full when `expanded`.
+        /// The agents row (one pill per agent): `count` messages and status notes, one or more, with `peers`
+        /// (agent ids, first-seen order), shown in full after it when `expanded`.
         case fold(count: Int, peers: [String], expanded: Bool)
         /// One message from `from` to `to`; `outgoing` is the Chief's message to the agent, else the agent's report.
         case message(from: String, to: String, outgoing: Bool, text: String)
-        /// The fold of `count` status notes (agents that stopped with no report) from `peers`, shown in
-        /// full when `expanded`; `reason` is their one shared reason, nil when they differ.
-        case notes(count: Int, peers: [String], reason: StatusNote?, expanded: Bool)
         /// One status note from `peer`: why it stopped, and the note's own words (no parentheses).
         case note(peer: String, reason: StatusNote, text: String)
     }
@@ -58,16 +56,24 @@ public struct HomeAgentMessageRow: Hashable, Sendable {
     public var group: String
     /// What the row shows.
     public var kind: Kind
-    /// For a fold or notes row: each agent's state, in the order of its `peers`; empty for other rows.
+    /// For an agents row: each agent's state, in the order of its `peers`; empty for other rows.
     public var peerStates: [PeerState] = []
-    /// For a fold or notes row: the newest message's words (a one-line preview); nil for other rows.
+    /// For an agents row: the newest message's words (a one-line preview); nil for other rows.
     public var latest: String?
-    /// For a fold or notes row: each agent's title, in the order of its `peers`: the `Title:` line of the
-    /// first message the Chief sent it (a spawn task's first line), else its first words; the agent's id
+    /// For an agents row: each agent's title, in the order of its `peers`: the `Title:` line of the
+    /// first message the Chief sent it (a spawn task's first line), else its first clause (``title(of:)``); the agent's id
     /// when the Chief sent it nothing here. Empty for other rows.
     public var peerTitles: [String] = []
+    /// For an agents row: whether each agent, in the order of its `peers`, has a report newer than the one
+    /// the person last opened (its unread dot). Empty for other rows.
+    public var peerUnread: [Bool] = []
 
-    /// A task's title: its `Title:` line, else the first line's first five words (Markdown marks dropped).
+    /// About how many characters a title keeps before it is cut at a word edge (the pill clips the rest).
+    public static let titleLength = 32
+
+    /// A task's title: its `Title:` line, else its first clause (Markdown marks dropped): the first line cut
+    /// at the first `:`, `,`, `;`, ` - ` or sentence end (`.` before a space), then at a word edge to about
+    /// ``titleLength`` characters, with no trailing punctuation. Nil for a task with no words.
     public static func title(of text: String) -> String? {
         let lines = text.split(separator: "\n", omittingEmptySubsequences: true).map { $0.trimmingCharacters(in: .whitespaces) }
         if let line = lines.first(where: { $0.lowercased().hasPrefix("title:") }) {
@@ -75,9 +81,31 @@ public struct HomeAgentMessageRow: Hashable, Sendable {
             if !title.isEmpty { return title }
         }
         guard let first = lines.first else { return nil }
-        let words = first.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "`", with: "")
-            .split(separator: " ").prefix(5).joined(separator: " ")
-        return words.isEmpty ? nil : words
+        var clause = first.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "`", with: "")
+        // A quoted message's speaker header ("User (Nov 4): \"…\"", "User: …") names who spoke, not the task.
+        if let colon = clause.range(of: ":"), isSpeakerHeader(clause[..<colon.lowerBound]) {
+            clause = clause[colon.upperBound...].trimmingCharacters(in: CharacterSet.whitespaces.union(CharacterSet(charactersIn: "\"“”'")))
+        }
+        for mark in [":", ",", ";", " - ", ". ", "? ", "! "] {
+            if let cut = clause.range(of: mark) { clause = String(clause[..<cut.lowerBound]) }
+        }
+        let words = clause.split(separator: " ")
+        var title = ""
+        for word in words {
+            let next = title.isEmpty ? String(word) : title + " " + word
+            if !title.isEmpty, next.count > titleLength { break }
+            title = next
+        }
+        while let last = title.last, ".,;:!?-–—".contains(last) || last.isWhitespace { title.removeLast() }
+        return title.isEmpty ? nil : title
+    }
+
+    /// Whether `head` (the words before a first line's `:`) is a speaker header: "User", "The user",
+    /// "User (Nov 4)", "User msg 12" — a relayed quote's label, never a task's title.
+    private static func isSpeakerHeader(_ head: Substring) -> Bool {
+        let words = head.lowercased().split(separator: " ")
+        guard let first = words.first, words.count <= 4 else { return false }
+        return first == "user" || (first == "the" && words.dropFirst().first == "user")
     }
 
     /// Creates a row of `group`.
@@ -121,9 +149,6 @@ public struct HomeAgentMessageRow: Hashable, Sendable {
         if inner.hasPrefix("its report could not be read") { return .unreadable }
         return nil
     }
-
-    /// The fold id of the status notes in fold `group` (they open and close apart from its messages).
-    public static func notesGroup(_ group: String) -> String { hex("notes\u{0}\(group)") }
 
     /// The link a click on a fold row follows to expand or collapse `group`: `cmux://agent-messages/<group>`.
     public static func toggleLink(group: String) -> String { "cmux://agent-messages/\(group)" }

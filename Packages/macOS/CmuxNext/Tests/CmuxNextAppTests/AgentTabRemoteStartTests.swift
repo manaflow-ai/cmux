@@ -59,6 +59,42 @@ struct AgentTabRemoteStartTests {
         #expect(request["cwd"] == nil)
     }
 
+    /// A Cloud chat with no folder whose link cannot be read fails as that link, never as "it needs a
+    /// folder" (Leo's NIGHTLY 4191131679101 said the folder sentence while its link to the machine was down).
+    @Test func aNoFolderCloudStartWhoseLinkIsDownSaysSoNotNeedsFolder() async throws {
+        struct LinkDown: Error {}
+        let (tabs, key) = try makeTabs(seedCwd: nil)
+        tabs.remoteFolder = { _ in nil }
+        do {
+            _ = try await tabs.startRemoteChat(key, machine: "Cloud fixture", ownerLink: { 1 }, endpoint: { throw LinkDown() })
+            Issue.record("a start over a down link went through")
+        } catch let refusal as AgentRemoteStartRefusal {
+            #expect(refusal.code != AgentRemoteStartRefusal.folderNeededCode, "a down link was reported as needing a folder")
+        } catch {}
+        #expect(tabs.sessions[key] == nil)
+    }
+
+    /// A non-Cloud (SSH) host whose folder lookup fails keeps its Choose Folder refusal: only a Cloud
+    /// owner link reports the link's own failure (router review F1 at 97804cba).
+    @Test func aNonCloudHostWhoseFolderLookupFailsStillAsksForAFolder() async throws {
+        struct LinkDown: Error {}
+        let (tabs, key) = try makeTabs(seedCwd: nil)
+        tabs.remoteFolder = { _ in nil }
+        do {
+            _ = try await tabs.startRemoteChat(key, machine: "SSH fixture", endpoint: { throw LinkDown() })
+            Issue.record("a start with no folder went through")
+        } catch let refusal as AgentRemoteStartRefusal {
+            #expect(refusal.code == AgentRemoteStartRefusal.folderNeededCode)
+        }
+        #expect(tabs.sessions[key] == nil)
+    }
+
+    /// The folder refusal a no-folder start gives on an older Cloud daemon is one the start answers
+    /// by updating the machine (``AgentRemoteStartCoordinator``), not one the person must pick around.
+    @Test func aNoFolderStartOnAnOlderCloudDaemonIsAnOlderDaemonRefusal() {
+        #expect(AgentRemoteStartRefusal.olderDaemonCodes.contains(AgentRemoteStartRefusal.folderNeededCode))
+    }
+
     @Test func theFolderListIsTheWorkspacesThenTheMachinesEachOnce() {
         let folders = AgentTabRemoteStart.folders(listed: ["/srv/app", "/home/cmux/work"],
                                                   machine: ["/home/cmux/work", "/home/cmux/work/repo"])

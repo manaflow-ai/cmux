@@ -5,6 +5,9 @@
   gap: 8px;
   width: 100%;
   max-width: var(--acpmux-column, 720px);
+  /* Keep the message, status line and disclosure in the same shell footprint while the
+     native handoff swaps this view for the live transcript. */
+  min-height: calc(4 * var(--grid-row));
   margin: 24px auto 0;
   padding: 0 16px;
   box-sizing: border-box;
@@ -32,7 +35,8 @@
   text-align: left;
 }
 .acpmux-cloud-start[data-initialized="true"] .acpmux-cloud-start__summary { color: var(--agent-muted); }
-.acpmux-cloud-start__checklist { padding: 4px 16px 12px; }
+.acpmux-cloud-start__details { padding: 4px 16px 12px; }
+.acpmux-cloud-start__checklist { padding: 0; }
 /* Each step is one icon column (a spinner, a check, a muted dot), then its name, at the summary's
    16 px inset. The state words are for screen readers only: the agent pane does not load the
    pages' global .visually-hidden, so the card hides them itself, or they draw in the 16 px icon
@@ -63,6 +67,7 @@
   line-height: var(--text-body--line-height);
   letter-spacing: normal;
 }
+.acpmux-cloud-start__status--ready { color: var(--agent-accent, #4ade80); }
 .acpmux-cloud-start[data-state="failed"] .acpmux-cloud-start__status {
   color: var(--agent-danger, currentColor);
 }

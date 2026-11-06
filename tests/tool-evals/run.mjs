@@ -49,6 +49,10 @@ const CLI_TIMEOUT_S = Number(arg("timeout", "600"));
 const BASE_URL = process.env.ANTHROPIC_BASE_URL ?? "http://sr2-gateway.tail137216.ts.net:4016";
 const AUTH = process.env.ANTHROPIC_AUTH_TOKEN ?? process.env.ANTHROPIC_API_KEY ?? "";
 const OVERLAY = arg("overlay", null) ? JSON.parse(readFileSync(arg("overlay"), "utf8")) : null;
+const PROMPT_ARM = arg("prompt-arm", "none");
+if (!["none", "baseline", "guidance"].includes(PROMPT_ARM)) throw new Error("--prompt-arm must be none, baseline, or guidance");
+const CMUX_GUIDANCE = "Read relevant instructions and likely source files early. Batch independent reads and searches into parallel tool calls; sequence dependent work. Start long-running builds, tests, and waits in the background when the tools support it, then continue useful independent work. Rejoin and inspect the results before relying on them. Keep reports concise: explain the outcome, verification, and remaining blockers.";
+const COMPACT_ASKING_RULE = "Asking the person: Full access already permits harness tool calls; never ask them to allow or confirm one. Decide, say why, continue. This never widens the task: respect user-only skill steps and consent cards; never bypass refusals. Ask only unresolved product taste, not permission.";
 const TEMPLATE = JSON.parse(gunzipSync(readFileSync(join(HERE, "templates/claude.json.gz"))).toString());
 const PREFIX = "mcp__cmux__";
 
@@ -69,12 +73,22 @@ function loadCases() {
 // ---------- the request the harness would send ----------
 /** Applies an overlay (fast copy experiments without a rebuild): { instructions, exec, tools: { name: description } }. */
 function overlaid(tools, instructions) {
-  if (!OVERLAY) return { tools, instructions };
+  let nextInstructions = OVERLAY?.instructions ?? instructions;
+  if (PROMPT_ARM === "guidance") {
+    // The current cmux code-mode sheet ends with ASKING_RULE. Replace that
+    // duplicated block in the candidate arm, then append the one canonical
+    // early/concurrent-work block. If a future sheet moves it, the candidate
+    // still gets the guidance and keeps the source text unchanged.
+    // Only replace a trailing rule, never discard another section after it.
+    const asking = nextInstructions.lastIndexOf("Asking the person:");
+    if (asking >= 0 && !nextInstructions.slice(asking).includes("\n\n")) nextInstructions = `${nextInstructions.slice(0, asking).trimEnd()}\n\n${COMPACT_ASKING_RULE}`;
+    nextInstructions = `${nextInstructions.trimEnd()}\n\n${CMUX_GUIDANCE}`;
+  }
   return {
-    instructions: OVERLAY.instructions ?? instructions,
+    instructions: nextInstructions,
     tools: tools.map((t) => ({
       ...t,
-      description: t.name === "cmux_exec" && OVERLAY.exec ? OVERLAY.exec : (OVERLAY.tools?.[t.name] ?? t.description),
+      description: t.name === "cmux_exec" && OVERLAY?.exec ? OVERLAY.exec : (OVERLAY?.tools?.[t.name] ?? t.description),
     })),
   };
 }
@@ -249,6 +263,23 @@ function readLines(path) {
   return existsSync(path) ? readFileSync(path, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)) : [];
 }
 
+/** Metrics shared by the synthetic and real harness paths. A tool turn is one
+ * model response that contains one or more tool calls; a parallel turn has at
+ * least two calls in that response. Real Codex app-server events provide the
+ * same batches from overlapping item/started events. */
+function toolMetrics(sample) {
+  const turns = sample.toolTurns ?? [];
+  const toolCalls = turns.reduce((n, t) => n + (t.calls ?? 0), 0);
+  const parallelToolTurns = turns.filter((t) => (t.calls ?? 0) > 1).length;
+  return {
+    tool_calls: toolCalls,
+    tool_turns: turns.length,
+    parallel_tool_turns: parallelToolTurns,
+    parallel_share: turns.length ? parallelToolTurns / turns.length : 0,
+    first_read_ms: sample.firstReadMs ?? null,
+  };
+}
+
 let jobSeq = 0;
 
 // ---------- real CLIs on this machine ----------
@@ -275,7 +306,7 @@ async function runCliAgent(sample, testCase, surface) {
   const env = { ...sample.shellEnv, HOME: process.env.HOME, PATH: `${join(dir, "bin")}:${dirname(CLI)}:${process.env.PATH}` };
   for (const k of Object.keys(env)) if (/^(ACPMUX|MUX)_/.test(k) || k === "CMUX_AGENT_SESSION") delete env[k];
   const prompt = testCase.context ? `${testCase.context}\n\n${testCase.prompt}` : testCase.prompt;
-  const common = { model: CLI_AGENT[2], prompt, cwd: session.work, mcp, env, own: dir, effort: EFFORT, timeoutMs: CLI_TIMEOUT_S * 1000, allTools: surface === "all" };
+  const common = { model: CLI_AGENT[2], prompt, cwd: session.work, mcp, env, own: dir, effort: EFFORT, timeoutMs: CLI_TIMEOUT_S * 1000, allTools: surface === "all", guidance: PROMPT_ARM === "guidance" ? CMUX_GUIDANCE : undefined };
   // A model route that is out of capacity (a 429, "no non-exhausted accounts", a dropped
   // stream) is not a cmux result: wait and try the same sample again, up to 4 times. Only a
   // turn that never reached the model is retried, so no cmux call runs twice.
@@ -292,6 +323,8 @@ async function runCliAgent(sample, testCase, surface) {
   sample.text = out.text;
   sample.steps = out.steps;
   Object.assign(sample.usage, out.usage);
+  sample.toolTurns.push(...(out.toolTurns ?? []));
+  sample.firstReadMs = out.firstReadMs ?? sample.firstReadMs;
   sample.shell.push(...out.shell);
   if (out.error && (!out.text || /^API Error/.test(out.text))) sample.agentError = out.error;
   // MCP calls and, for cmux_exec, the calls its scripts made.
@@ -437,7 +470,7 @@ async function runSample(testCase, surface, index) {
   mkdirSync(dir, { recursive: true });
   const name = `te${process.pid}-${(jobSeq++).toString(36)}`;
   const session = await openSession({ cli: CLI, name, dir, allTools: surface === "all" ? true : surface === "hybrid" ? "hybrid" : false, setup: testCase.setup ?? [], noApp: !!testCase.noApp, remote: REMOTE });
-  const sample = { dir, session, ops: [], shell: [], scripts: [], cliCalls: [], docsCalls: 0, text: "", steps: 0, usage: { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 }, firstInput: 0 };
+  const sample = { dir, session, ops: [], shell: [], scripts: [], cliCalls: [], docsCalls: 0, text: "", steps: 0, toolTurns: [], firstReadMs: null, usage: { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 }, firstInput: 0 };
   try {
     for (const [file, body] of Object.entries(testCase.files ?? {})) {
       mkdirSync(dirname(join(session.work, file)), { recursive: true });
@@ -484,6 +517,10 @@ async function runSample(testCase, surface, index) {
       const uses = res.content.filter((b) => b.type === "tool_use");
       stop = res.stop_reason;
       if (!uses.length) break;
+      sample.toolTurns.push({ calls: uses.length });
+      if (sample.firstReadMs == null && uses.some((use) => /^(Read|Bash|mcp__cmux__(cmux_docs|cmux_exec))$/.test(use.name))) {
+        sample.firstReadMs = Date.now() - sample.started;
+      }
       const results = [];
       for (const use of uses) {
         const r = await answerTool(sample, { ...use, name: internalName(use.name) }).catch((e) => ({ text: `harness: ${e.message}`, isError: true }));
@@ -515,6 +552,7 @@ async function finishSample(sample, testCase, surface, index, before, name, tran
   const row = {
     case: testCase.id, surface, sample: index, model: MODEL, ...verdict(checks), checks,
     steps, stop, ops: sample.ops.length, op_errors: sample.ops.filter((o) => !o.ok).length,
+    ...toolMetrics(sample),
     docs_calls: sample.docsCalls, first_input_tokens: sample.firstInput, usage: sample.usage, cost_usd: cost(sample.usage),
     // Every token the model read (cached or not) and wrote over the task, and its wall time.
     tokens: (sample.usage.input ?? 0) + (sample.usage.cacheRead ?? 0) + (sample.usage.cacheWrite ?? 0) + (sample.usage.output ?? 0),
@@ -585,7 +623,7 @@ async function main() {
 }
 
 function summarize(cases, rows, baseline) {
-  const lines = [`# Tool evals: ${MODEL}, ${SURFACES.join("+")}, ${SAMPLES} samples${OVERLAY ? `, overlay ${arg("overlay")}` : ""}`, ""];
+  const lines = [`# Tool evals: ${MODEL}, ${SURFACES.join("+")}, ${SAMPLES} samples${OVERLAY ? `, overlay ${arg("overlay")}` : ""}, prompt arm ${PROMPT_ARM}`, ""];
   for (const surface of SURFACES) {
     const mine = rows.filter((r) => r.surface === surface);
     const byCase = cases.filter((c) => !c.surfaces || c.surfaces.includes(surface)).map((c) => {

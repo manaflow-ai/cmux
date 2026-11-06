@@ -7,13 +7,22 @@
 // input; and a turn that had only streamed text drew no line at all. Before the first output it
 // read a bare "Thinking" with no time.
 import { expect, test } from "bun:test";
-import { renderToStaticMarkup } from "react-dom/server";
+import { renderToStaticMarkup as renderMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { configureLiveLineBelow, useLiveLineBelow } from "../src/agent-session/acpmux/liveLineBelow";
 import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
 import { WorkingFor } from "../src/agent-session/acpmux/conversation/WorkingFor";
 import { THINKING, turnView, WORKING } from "../src/agent-session/acpmux/conversation/turns";
 import { insertByTime } from "../src/agent-session/acpmux/shell/shellRuns";
+
+import type { ReactNode } from "react";
+import { StatusVerbContext } from "../src/agent-session/acpmux/statusVerbs";
+
+// These assertions cover turn state and time, independently of decorative verb rotation.
+const renderToStaticMarkup = (node: ReactNode) =>
+  renderMarkup(
+    <StatusVerbContext.Provider value={{ mode: "thinking", verbs: ["Thinking"] }}>{node}</StatusVerbContext.Provider>,
+  );
 
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({

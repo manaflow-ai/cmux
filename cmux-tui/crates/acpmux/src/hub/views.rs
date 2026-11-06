@@ -486,6 +486,9 @@ impl Hub {
             queue_paused: session.queue_paused(),
             // Its queued prompt waits for a run slot of its parent (`subsession_runs.rs`).
             waits_for_slot: self.waits_for_slot(&m),
+            // An agent start under way (`lifecycle.rs` holds `spawn_lock` until the agent answered
+            // session/new or session/load): the busy("starting") of `stop_if_idle.rs`.
+            starting: session.spawn_lock.try_lock().is_err(),
             // Being moved to another daemon (`transfer_out.rs`): it takes no prompt meanwhile.
             moving: session.moving().is_some() && m.moved_to.is_none(),
             // Moved away for good (`transfer_out.rs` commit): where it runs now.
@@ -651,12 +654,12 @@ impl Hub {
         let m = session.meta();
         let mut v = self.session_summary(session);
         v.set("modes", m.modes.clone().unwrap_or(Value::Null));
-        v.set("configOptions", m.config_options.clone().unwrap_or(Value::Null));
+        v.set("configOptions", m.config_options.as_deref().cloned().unwrap_or(Value::Null));
         v.set("models", m.models.clone().unwrap_or(Value::Null));
         v.set("agentInfo", m.agent_info.clone().unwrap_or(Value::Null));
         v.set("agentCapabilities", m.agent_capabilities.clone().unwrap_or(Value::Null));
         v.set("usage", m.usage.clone().unwrap_or(Value::Null));
-        v.set("goal", m.goal.clone().unwrap_or(Value::Null));
+        v.set("goal", m.goal.as_ref().map(crate::goal::GoalState::to_value).unwrap_or(Value::Null));
         // What the context holds by category, as Claude Code's /context says after each turn.
         v.set("contextBreakdown", m.context_breakdown.clone().unwrap_or(Value::Null));
         // The account's plan usage limits, as Claude Code's rate_limit_event last said them.

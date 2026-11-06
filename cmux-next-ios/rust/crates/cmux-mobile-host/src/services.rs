@@ -60,6 +60,41 @@ pub async fn serve(
     } else {
         link.gate().await
     };
+    // A machine (not a phone) opens only what the person granted it on this Mac,
+    // read again at every open so a removed or narrowed peer loses it at once.
+    let machine_grants = if service == "auth" || gate != crate::pairing::Gate::Paired {
+        None
+    } else {
+        machine_grants(&config, &peer, &link)
+    };
+    if let Some(grants) = &machine_grants {
+        let decision = match grants {
+            Ok(grants) => crate::peer::allows(grants, &service),
+            Err(code) => Err(*code),
+        };
+        if let Some(pairing) = config.pairing.as_ref() {
+            let kind = link.peer().map(|(kind, _)| kind.as_str()).unwrap_or("mac");
+            pairing.activity.record(crate::activity::Entry {
+                at_ms: crate::activity::now_ms(),
+                peer: peer.device_id.clone(),
+                kind,
+                direction: "in",
+                service: service.clone(),
+                decision: decision.err().unwrap_or("allowed").to_owned(),
+                target: None,
+            });
+        }
+        if let Err(code) = decision {
+            let reason = match code {
+                "revoked" => "this Mac no longer allows that machine".to_owned(),
+                "not_offered" => format!("{service} is not offered to machines"),
+                _ => format!("this Mac has not allowed that machine to use {service}"),
+            };
+            tracing::info!(service, code, peer = peer.device_id, "machine channel refused");
+            sender.close(code, &reason).await;
+            return;
+        }
+    }
     let result = match service.as_str() {
         "auth" => crate::pairing::serve(
             config.pairing.as_ref(),
@@ -87,6 +122,11 @@ pub async fn serve(
         "file-preview" => file(&config, &args, &sender, true).await,
         "upload" => upload(&config, &peer, &args, &sender, receiver).await,
         "version" => version(&config, &sender).await,
+        "machine" => {
+            let grants = machine_grants.and_then(Result::ok).unwrap_or_default();
+            let name = std::env::var("CMUX_MOBILE_DEVICE_NAME").unwrap_or_else(|_| crate::config::hostname());
+            crate::machine::serve(&sender, &name, &grants).await
+        }
         "needs-you" => crate::needs_you::serve(&sender, receiver).await,
         "browser" => crate::browser::serve(&config.browser, &*config, &peer, &args, &sender, receiver).await,
         "surface" => crate::surface::serve(&config.surface, &*config, &peer, &args, &sender, receiver).await,
@@ -105,6 +145,30 @@ pub async fn serve(
             sender.close(refusal.code, &refusal.reason).await;
         }
     }
+}
+
+/// For a link whose `auth` was a machine's: the grants the app gives it now,
+/// or `Err("revoked")` when the app no longer lists it. `None` for a phone, or
+/// an unsupervised hostd.
+fn machine_grants(
+    config: &ServiceConfig,
+    peer: &Peer,
+    link: &crate::pairing::LinkAuth,
+) -> Option<Result<Vec<crate::peer::Grant>, &'static str>> {
+    let pairing = config.pairing.as_ref()?;
+    let (kind, identity_key) = link.peer()?;
+    if !kind.is_machine() {
+        return None;
+    }
+    let trust = pairing.trust.borrow();
+    Some(
+        trust
+            .as_ref()
+            .and_then(|trust| trust.machine(&peer.device_id, &identity_key))
+            .filter(|device| device.kind == kind)
+            .map(|device| device.grants.clone())
+            .ok_or("revoked"),
+    )
 }
 
 /// Closes `incoming` at once with `code` (the accept loop's own refusals).

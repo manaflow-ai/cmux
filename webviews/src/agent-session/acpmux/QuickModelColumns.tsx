@@ -120,7 +120,7 @@ const CheckIcon = () => (
 );
 
 const PlusIcon = () => (
-  <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true">
+  <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
     <path d="M6 2v8M2 6h8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
   </svg>
 );
@@ -295,6 +295,12 @@ function Columns({
     field.current = node;
     if (node && !node.ownerDocument.activeElement?.closest(".acpmux-cols")) node.focus({ preventScroll: true });
   }, []);
+  // A reopen while the closed popup is still mounted (its fade) keeps the same field, so the ref
+  // above never runs again: take the keyboard as the menu opens, not a frame later.
+  useLayoutEffect(() => {
+    const node = field.current;
+    if (open && node && !node.ownerDocument.activeElement?.closest(".acpmux-cols")) node.focus({ preventScroll: true });
+  }, [open]);
   const updateAction = useRef<HTMLButtonElement | null>(null);
   // The menu never shrinks while open: a tab, a search or a model with fewer rows keeps its size, so
   // the edge away from the chip stays put. The floor is the largest it has been since it opened; the
@@ -337,7 +343,7 @@ function Columns({
       if (box.height > height) {
         height = box.height;
         // Never past the frame's own cap: min-height beats max-height.
-        frame.style.minHeight = `min(${height}px, 259px, var(--available-height, 259px))`;
+        frame.style.minHeight = `min(${height}px, var(--acpmux-cols-max-height), var(--available-height, var(--acpmux-cols-max-height)))`;
       }
     });
     observer.observe(frame);
@@ -858,7 +864,7 @@ function Columns({
         aria-disabled={model.disabled ? true : undefined}
         className="acpmux-cols-row"
         data-hl={index === hl ? "" : undefined}
-        // tooltip-allow: a long model name ends in "…" at the column's width; the tooltip names it whole.
+        // tooltip-allow: shows a clipped name in full, alongside its provider and harness.
         title={[
           model.name,
           query ? model.harness : undefined,
@@ -1120,6 +1126,7 @@ function Columns({
                     }
                     // tooltip-allow: the rail tab draws only the family's mark; the title names it.
                     title={family.note ? `${entry.name} · ${family.note}` : entry.name}
+                    data-tooltip-side="left"
                     className="acpmux-cols-tab"
                     data-hl={selected ? "" : undefined}
                     data-off={family.setUp ? "" : undefined}
@@ -1147,6 +1154,7 @@ function Columns({
                   className="acpmux-cols-tab acpmux-cols-tab-add"
                   aria-label={t("modelPicker.addHarness")}
                   title={t("modelPicker.addHarness")}
+                  data-tooltip-side="left"
                   onPick={() => {
                     close();
                     families.onAddHarness?.();
@@ -1162,6 +1170,8 @@ function Columns({
               kind="listbox"
               label={t("picker.model")}
               className="acpmux-cols-list"
+              data-cmux-card-scroll=""
+              data-cmux-scroll-only=""
               onScroll={(event) => markFades(event.currentTarget)}
               data-col-focus={col === 1 ? "" : undefined}
             >
@@ -1230,6 +1240,8 @@ function Columns({
 
             <div
               className="acpmux-cols-list acpmux-cols-tune"
+              data-cmux-card-scroll=""
+              data-cmux-scroll-only=""
               onScroll={(event) => markFades(event.currentTarget)}
               data-col-focus={col === 2 ? "" : undefined}
               aria-label={t("effort.title")}
@@ -1319,6 +1331,7 @@ function Columns({
         <AddAccountDialog
           add={addAccount}
           family={adding.family}
+          existing={accounts.list?.ids ?? (accounts.list?.accounts ?? []).map((choice) => choice.id)}
           {...(adding.apiKey ? { kinds: ["direct-api-key" as const] } : {})}
           onClose={() => setAddingAccount(false)}
           onAdded={() => {

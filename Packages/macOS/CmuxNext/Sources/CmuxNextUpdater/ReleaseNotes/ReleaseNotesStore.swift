@@ -36,9 +36,23 @@ nonisolated public struct ReleaseNotesStore: Sendable {
     /// The verified index of recent builds (newest first), fresh or cached.
     @concurrent
     public func index() async -> [ReleaseNotesIndexEntry] {
+        guard let data = await verified("index.json") else { return [] }
+        return Self.builds(in: data)
+    }
+
+    /// The verified index this store last fetched and kept on disk, with no network call; empty when
+    /// none verifies. The Updated card reads it first after a relaunch: the network's index answered
+    /// about 2.5 s after the relaunch, after the card had drawn (Leo 2026-11-04: "i feel like the
+    /// restarted after nightly update does too many layout shifts/flicker renderings").
+    @concurrent
+    public func cachedIndex() async -> [ReleaseNotesIndexEntry] {
+        guard let data = cached("index.json") else { return [] }
+        return Self.builds(in: data)
+    }
+
+    private static func builds(in data: Data) -> [ReleaseNotesIndexEntry] {
         struct Index: Decodable { var builds: [ReleaseNotesIndexEntry] }
-        guard let data = await verified("index.json"), let index = try? JSONDecoder().decode(Index.self, from: data) else { return [] }
-        return index.builds
+        return (try? JSONDecoder().decode(Index.self, from: data))?.builds ?? []
     }
 
     /// The verified announcement cards (`notes/announcements.json`), fresh or cached.
@@ -79,9 +93,9 @@ nonisolated public struct ReleaseNotesStore: Sendable {
 
     /// The cached pair, when its signature still verifies.
     private func cached(_ name: String) -> Data? {
-        // concurrency-allow: called from @concurrent verified(_:), never on the main thread; small cached files.
+        // concurrency-allow: called from @concurrent verified(_:) and cachedIndex(), never on the main thread; small cached files.
         guard let data = try? Data(contentsOf: cache.appending(path: name)),
-              // concurrency-allow: called from @concurrent verified(_:), never on the main thread; small cached files.
+              // concurrency-allow: called from @concurrent verified(_:) and cachedIndex(), never on the main thread; small cached files.
               let sig = try? String(contentsOf: cache.appending(path: name + ".sig"), encoding: .utf8),
               ContentSignature.verify(data, signature: sig.trimmingCharacters(in: .whitespacesAndNewlines), publicKey: publicKey)
         else { return nil }

@@ -49,6 +49,7 @@ import {
 import { flushSync } from "react-dom";
 import { useSeeThroughBlur } from "../../../ui/glass/seeThroughBlur";
 import "../../../ui/controls.css";
+import { useChatCut } from "./chatCut";
 import { chatGlass, chatUnderGlass } from "../chatUnderGlass";
 import { usePresence, type Presence } from "../../../ui/presence";
 import { useChatDisplay } from "../chatDisplay";
@@ -111,7 +112,9 @@ import { sessionInfoLists, type SessionInfoProcess, type ProcessRegistry } from 
 import { ServersSection } from "./ServersSection";
 import { SubagentLimitStepper } from "./SubagentLimitStepper";
 import { SubagentCountsMeta, SubagentsSection } from "./SubagentsSection";
+import { AlsoHereSection, useAlsoHere } from "./AlsoHereSection";
 import { TasksSection } from "./TasksSection";
+import { currentPlan, planDone, ProgressSection, type SessionInfoPlan } from "./ProgressSection";
 import { WorkflowTasks, type WorkflowAgentRowVariant } from "./WorkflowTasks";
 import { UsageSection, usageMeta, type UsageOwnRowLayout } from "./UsageSection";
 import { AppPanelSection, useAppPanelSections } from "../../../apps/scene/panels";
@@ -1052,6 +1055,25 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     ),
   );
   const links = useSameValue(useMemo(() => (drawn ? outputLinks(rows) : []), [drawn, rows]));
+  // The plan the transcript's todo list draws. The chat's is the one the client publishes beside its
+  // rows (snapshot.progress, liveProgress.ts): the same object until the checklist changes or its turn
+  // ends, so a streamed token neither rescans the rows nor recounts the steps (carried from #34933). A
+  // subagent's panel gets the parent's snapshot, so it never reads that one: its plan comes from its
+  // own live rows (not `sectionRows`, which keep their identity until a row is added), so a step ticked
+  // in place shows here at once.
+  const live = snapshot.progress;
+  const livePlan = useMemo<SessionInfoPlan | undefined>(
+    () => (live ? { entries: live.plan, ended: Boolean(live.ended), done: live.completed } : undefined),
+    [live],
+  );
+  const scopedWorking = scopedAgent?.state === "running";
+  const scopedPlan = useSameValue(
+    useMemo(
+      () => (drawn && scopedAgent ? currentPlan(rows, scopedWorking) : undefined),
+      [drawn, scopedAgent, rows, scopedWorking],
+    ),
+  );
+  const plan = scopedAgent ? scopedPlan : drawn ? livePlan : undefined;
   const artifacts = useMemo(() => (drawn ? chatGallery(rows).length : 0), [drawn, rows]);
   const documents = useSameValue(useMemo(() => (drawn ? outputArtifacts(rows) : []), [drawn, rows]));
   const views = subagents?.views;
@@ -1181,6 +1203,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           backLabel={scope ? subagentBackLabel(t, scope.parent) : undefined}
           summary={summary}
           usage={usage}
+          plan={plan}
           machineName={machineName}
           peerKinds={snapshot.peerKinds}
           repository={repository}
@@ -1269,6 +1292,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         artifacts={artifacts}
         documents={documents}
         rows={sectionRows}
+        plan={plan}
         toolCalls={toolCalls}
         agents={agents}
         waiting={waiting}
@@ -1370,6 +1394,10 @@ export function SessionInfoPanel({
   // text never reads through the glass (Leo 2026-10-30: "I don't like the non-glassness"). Pushing,
   // or in the gutter, it covers nothing.
   useSeeThroughBlur(frame, glass, chatUnderGlass, chatGlass);
+  // The transcript leaves the panel's box out while it shows (chatCut.ts), so nothing scrolls under
+  // it: its pixels hold still while the chat scrolls (Leo, 2026-11-03: "the session info thing not
+  // flicker EVER when im scrolling"). Its place re-measures when it moves.
+  useChatCut(frame, !presence?.leaving, `${placement}:${width}:${foot ?? ""}:${side}:${overlap}:${under ?? ""}`);
   // The foot animates only once it has been drawn at its first measure: the open draws it at once.
   const footKnown = foot !== undefined && foot > 0;
   const [footSettled, setFootSettled] = useState(false);
@@ -1525,6 +1553,7 @@ export function SessionInfo({
   artifacts = 0,
   documents = [],
   rows = [],
+  plan,
   toolCalls,
   agents = [],
   waiting = new Set(),
@@ -1589,6 +1618,8 @@ export function SessionInfo({
   onOpenDocument?: (artifact: Artifact) => void;
   /// The chat's rows, for its gallery.
   rows?: readonly AcpmuxRow[];
+  /// The agent's current plan (ProgressSection.tsx `currentPlan`); without one, no Progress.
+  plan?: SessionInfoPlan;
   /// The tool calls the loaded transcript holds (toolCallIds), where the caller reads them; else read
   /// from `rows`.
   toolCalls?: ReadonlySet<string>;
@@ -1925,6 +1956,27 @@ export function SessionInfo({
       />
     </SessionInfoSection>
   );
+  // The agent's plan, live: its steps done of its steps, on Context's meter.
+  const planSteps = plan?.entries.length ?? 0;
+  const stepsDone = plan ? planDone(plan) : 0;
+  const progressSection = plan && planSteps > 0 && (
+    <SessionInfoSection
+      id="progress"
+      title={t("sessionInfo.progress")}
+      open={state.progress ?? true}
+      onOpenChange={fold("progress")}
+      meta={
+        <>
+          {value(t("sessionInfo.progress.count", { done: stepsDone, total: planSteps }))}
+          <span className="acpmux-session-info-meter" aria-hidden="true">
+            <span style={{ width: `${Math.round((stepsDone / planSteps) * 100)}%` }} />
+          </span>
+        </>
+      }
+    >
+      <ProgressSection plan={plan} />
+    </SessionInfoSection>
+  );
   // A workflow Background tasks lists (Labs) is not a Subagents row too.
   const workflowIds = new Set(workflows.map((workflow) => workflow.id));
   const listedAgents = workflowIds.size > 0 ? agents.filter((agent) => !workflowIds.has(agent.id)) : agents;
@@ -1952,6 +2004,20 @@ export function SessionInfo({
   // The dev servers are background commands too: their rows head the one Background tasks section
   // (they were a card of their own, most often one row). Every server runs.
   const running = runningTasks + servers.length + workflows.filter((workflow) => workflow.state === "running").length;
+  // The other chats in this chat's worktree or on its branch (alsoHere.ts), shown only when there are.
+  // A chat that goes a day idle leaves the list while Session Info stays open (useAlsoHere).
+  const alsoHereRows = useAlsoHere(chatId, allSessions);
+  const alsoHereSection = alsoHereRows.length > 0 && (
+    <SessionInfoSection
+      id="alsoHere"
+      title={t("sessionInfo.alsoHere")}
+      open={state.alsoHere}
+      onOpenChange={fold("alsoHere")}
+      meta={value(String(alsoHereRows.length))}
+    >
+      <AlsoHereSection rows={alsoHereRows} onOpen={onOpenChat} />
+    </SessionInfoSection>
+  );
   const tasks = servers.length + commands.length + scheduled.length + workflows.length > 0 && (
     <SessionInfoSection
       id="tasks"
@@ -1984,7 +2050,8 @@ export function SessionInfo({
   // Usage shows once acpmux reports what this chat or any listed chat spends.
   const ownUsage = summary?.usageStats;
   const usageValue = usageMeta(t, ownUsage, language);
-  const usageSection = (ownUsage || anyUsage) && (
+  const planLimits = typeof summary?.usageLimits === "object" ? summary.usageLimits : undefined;
+  const usageSection = (ownUsage || anyUsage || planLimits) && (
     <SessionInfoSection
       id="usage"
       title={t("sessionInfo.usage")}
@@ -1995,6 +2062,7 @@ export function SessionInfo({
     >
       <UsageSection
         own={ownUsage}
+        planLimits={planLimits}
         sessions={allSessions ?? []}
         chatId={chatId}
         onOpen={onOpenChat}
@@ -2028,8 +2096,10 @@ export function SessionInfo({
           changes,
           sources: sourcesSection,
           outputs: outputsSection,
+          progress: progressSection,
           subagents: subagentsSection,
           tasks,
+          alsoHere: alsoHereSection,
           ...appNodes,
         }}
       />

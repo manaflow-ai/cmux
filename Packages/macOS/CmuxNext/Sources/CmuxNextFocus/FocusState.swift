@@ -193,6 +193,17 @@ public nonisolated struct FocusState: Hashable, Sendable, Codable {
     public var context = Context()
     /// The focused page is in browser focus mode.
     public var isBrowserFocusModeActive = false
+    /// The tab a key typed now is for: the tab the focus is on its way to (a creation's new tab,
+    /// shown and focused in the key's frame), else the focused terminal's tab. A creation hold binds
+    /// each held key to it (P0 1193). The machine's rule (`FocusState::typing_tab`), from its reply.
+    public var typingTab: String?
+    /// How many focus choices the person made in this window (``FocusEvent/choosesFocusAsPerson``: a move from their mouse,
+    /// keyboard or palette entry, or the responder report of a click), counted by the machine, and the focus choices of a run
+    /// they chose from a menu (``FocusEvent/choosesFocusInMenuPick``: AppKit runs it outside any input event, so its events
+    /// carry the CLI's or the app's source); a key typed into a view, a script's, the CLI's, MCP's, an agent's or the app's
+    /// event of any other run never counts. A creation hold's keys go to their press-time terminal only while it did not
+    /// change (cmux-ad m12, #35275: a count, so a move that ends where the person was before the press still counts).
+    public var personMoveSeq: UInt64 = 0
 
     /// What the settle observers act on: they run only when it changed.
     public struct SettleKey: Hashable, Sendable {

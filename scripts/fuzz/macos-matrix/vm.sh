@@ -3,9 +3,10 @@
 # the seeded UI fuzz, or the replay of a saved repro. Run it ON a Tart host, never on a laptop.
 # Agents start it on the fleet with os-matrix.sh (a cmux-ci step of class vm).
 #
-# Usage: vm.sh [--majors 14,15,26,27] [--suite smoke|fuzz|repro|exec] [--seed N] [--steps N] [--minutes N]
+# Usage: vm.sh [--majors 14,15,26,27] [--suite smoke|fuzz|repro|exec|onboarding] [--seed N] [--steps N] [--minutes N]
 #              [--repro NAME | --replay STEPS.jsonl | --probe NAME] [--work DIR] [--results FILE] [--keep-vm] BUILD
-#   BUILD      a cmux-next .app, a .zip with one, or a .dmg (a shipped nightly).
+#   BUILD      a cmux-next .app, a .zip with one, or a .dmg (a shipped nightly). The word `nightly`
+#              downloads the NIGHTLY feed's newest DMG (onboarding/nightly.py), `nightly:N` feed build N.
 #   --suite    smoke: smoke.py (launch, window, terminal echo, split, Chromium and WebKit tabs,
 #              Settings, quit; needs a DEV build). fuzz (default): fuzz.py, a feature tour and
 #              --steps seeded random steps. repro: fuzz.py --replay repros/NAME.jsonl.
@@ -14,6 +15,11 @@
 #              and run it there as the guest user, bounded to 5 min. result.json has its exit
 #              code, stdout and stderr. Exit 0 is PASS, 1 is FAIL, anything else is no verdict
 #              (a probe must catch its errors and exit 1 for a FAIL: a trap is no verdict).
+#              onboarding: onboarding/onboarding.py (scoreboard row ON1, cmuxterm-hq#7146), on a
+#              DMG: install it from Downloads, turn on Computer Use through cmux's own window and
+#              the System Settings prompts it opens, all over VNC (the person's part), then a
+#              scripted agent clicks, types and drags in background apps. A video and a still per
+#              step. Needs a NIGHTLY (a signed helper): a DEV build has none.
 #              The probe never runs on the host. It tests the OS, not the build (BUILD is still
 #              copied into the guest, so a probe may use it).
 #   --minutes  fuzz: stop each major's walk after N minutes (the run's time bound). Without
@@ -52,15 +58,21 @@ while [[ $# -gt 0 ]]; do
     --probe) PROBE=$2; shift 2 ;;
     --results) RESULTS=$2; shift 2 ;;
     --keep-vm) KEEP_VM=1; shift ;;
-    -h|--help) sed -n '2,36p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,42p' "$0"; exit 0 ;;
     -*) echo "unknown option $1" >&2; exit 2 ;;
     *) BUILD=$1; shift ;;
   esac
 done
+if [[ "${BUILD:-}" == nightly || "${BUILD:-}" =~ ^nightly:[0-9]{1,20}$ ]]; then
+  mkdir -p "$WORK/nightly"; pin=(); [[ "$BUILD" == nightly:* ]] && pin=(--build "${BUILD#nightly:}")
+  read -r NIGHTLY_BUILD _ BUILD < <(python3 -I "$HERE/onboarding/nightly.py" "$WORK/nightly" ${pin[@]+"${pin[@]}"}) || { echo "no NIGHTLY download" >&2; exit 2; }
+  echo "NIGHTLY build $NIGHTLY_BUILD: $BUILD" >&2
+fi
 [[ -n "${BUILD:-}" && -e "$BUILD" ]] || { echo "usage: vm.sh [--majors 14,15,26] [--suite smoke|fuzz|repro] BUILD" >&2; exit 2; }
 [[ -z "$PROBE" || "$SUITE" == exec ]] || { echo "--probe needs --suite exec" >&2; exit 2; }
 case "$SUITE" in
   smoke|fuzz) [[ -z "$REPRO" ]] || { echo "--repro needs --suite repro" >&2; exit 2; } ;;
+  onboarding) [[ -z "$REPRO" && "$BUILD" == *.dmg ]] || { echo "--suite onboarding needs a .dmg (or nightly)" >&2; exit 2; } ;;
   exec)
     # NAME is a plain name (no separator, no ..), probes/ is a real folder of this runner and
     # probes/NAME.swift a regular file in it, not a link: the source is the reviewed one.
@@ -71,7 +83,7 @@ case "$SUITE" in
     [[ "$REPRO" =~ ^[a-z0-9][a-z0-9-]{0,63}$ && -f "$HERE/repros/$REPRO.jsonl" ]] || {
       echo "--suite repro needs --repro NAME of a file in $HERE/repros (without .jsonl)" >&2; exit 2; }
     REPLAY="$HERE/repros/$REPRO.jsonl" ;;
-  *) echo "--suite must be smoke, fuzz, repro or exec" >&2; exit 2 ;;
+  *) echo "--suite must be smoke, fuzz, repro, exec or onboarding" >&2; exit 2 ;;
 esac
 # The results file is created new at the end (O_EXCL): refuse an existing one before the run.
 [[ -z "$RESULTS" || ! -e "$RESULTS" && ! -L "$RESULTS" ]] || { echo "--results $RESULTS exists" >&2; exit 2; }
@@ -88,6 +100,8 @@ printf '#!/bin/sh\necho admin\n' >"$RUN/askpass.sh"; chmod 700 "$RUN/askpass.sh"
 export SSH_ASKPASS="$RUN/askpass.sh" SSH_ASKPASS_REQUIRE=force DISPLAY=none
 SSH_OPTS=(-o PubkeyAuthentication=no -o PreferredAuthentications=password,keyboard-interactive -o NumberOfPasswordPrompts=1)
 SSHB=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=5 "${SSH_OPTS[@]}")
+# Run inside the throwaway guest only: the apps macOS opens at first login, which would sit over the run.
+GUEST_QUIT_FIRST_LOGIN_APPS='pkill -x "System Settings" || true; pkill -x Terminal || true'
 
 image_ref() {  # FUZZ_IMAGE_<major> (e.g. ghcr.io/cirruslabs/macos-sonoma-vanilla:14.8.7) overrides the pin
   local override; override=$(eval "echo \${FUZZ_IMAGE_$1:-}")
@@ -135,8 +149,18 @@ print(next((i.get("host_os_min", "") for i in json.load(open(sys.argv[1]))["imag
   done
   local vnc; vnc=$(grep -Eo 'vnc://[^ ]+' "$out/tart-run.log" | head -1)
   local vncarg; vncarg=$(python3 -I -c 'import sys,urllib.parse as u;p=u.urlparse(sys.argv[1]);print("%s:%s:%s"%(p.hostname,p.port,u.unquote(p.password or "")))' "$vnc")
+  if [[ "$SUITE" == onboarding ]]; then
+    # The person installs the DMG: the suite copies it into the guest itself, unopened.
+    ssh "${SSHB[@]}" "admin@$ip" "$GUEST_QUIT_FIRST_LOGIN_APPS" </dev/null || true
+    python3 -I "$HERE/onboarding/onboarding.py" --ssh "admin@$ip" --vnc "$vncarg" --dmg "$BUILD_DMG" --vmeye "$VMEYE_BIN" \
+      --agent "$AGENT_BIN" --nightly-build "${NIGHTLY_BUILD:-}" --out "$out" --ssh-opt=-oPubkeyAuthentication=no \
+      --ssh-opt=-oPreferredAuthentications=password,keyboard-interactive --ssh-opt=-oNumberOfPasswordPrompts=1 \
+      >"$out/onboarding.log" 2>&1 || echo "onboarding exit $?" >"$out/failure"
+    grep -E '^(ONBOARDING|[a-z_]+ +(ok|FAIL)) ' "$out/onboarding.log" | cut -c1-400 >&2 || true
+    return 0
+  fi
   scp "${SSHB[@]}" -q "$BUILD_ZIP" "admin@$ip:/Users/admin/build.zip" </dev/null
-  local app; app=$(ssh "${SSHB[@]}" "admin@$ip" 'set -e; pkill -x "System Settings" || true; pkill -x Terminal || true; rm -rf ~/fuzzapp; mkdir ~/fuzzapp;
+  local app; app=$(ssh "${SSHB[@]}" "admin@$ip" "set -e; $GUEST_QUIT_FIRST_LOGIN_APPS; "'rm -rf ~/fuzzapp; mkdir ~/fuzzapp;
     ditto -x -k ~/build.zip ~/fuzzapp; ls -d ~/fuzzapp/*.app | head -1' </dev/null)
   local common=(--ssh "admin@$ip" --vnc "$vncarg" --app "$app" --out "$out" --ssh-opt=-oPubkeyAuthentication=no
     --ssh-opt=-oPreferredAuthentications=password,keyboard-interactive --ssh-opt=-oNumberOfPasswordPrompts=1)
@@ -239,7 +263,28 @@ unlock_keychain() {  # unlock_keychain OUT
 }
 relock_keychain() { if [[ "$RELOCK" == 1 ]]; then security lock-keychain "$KEYCHAIN" || true; RELOCK=0; fi; }
 
+# onboarding: both tools are compiled on the host like a probe, from this reviewed runner directory.
+# vmeye (OCR and the video) runs on the host and never enters the guest; the agent is copied into the
+# guest as a binary (the pinned images have no Command Line Tools, so no python3).
+VMEYE_BIN="" AGENT_BIN=""
+compile_onboarding() {  # compile_onboarding OUTDIR
+  mkdir -p "$1"
+  local dir; dir=$(cd "$HERE/onboarding" && pwd -P)
+  if (cd "$1" && bounded "$PROBE_COMPILE_SECONDS" xcrun swiftc -O -module-cache-path "$1/module-cache" -o "$1/vmeye" "$dir/vmeye.swift" &&
+      bounded "$PROBE_COMPILE_SECONDS" xcrun swiftc -O -target arm64-apple-macos14.0 -module-cache-path "$1/module-cache" \
+        -o "$1/onbagent" "$dir/agent.swift" && bounded 60 /usr/bin/codesign --force --sign - "$1/onbagent") >"$1/compile.log" 2>&1; then
+    VMEYE_BIN="$1/vmeye" AGENT_BIN="$1/onbagent"
+  else
+    tail -c 3000 "$1/compile.log" >&2; return 1
+  fi
+}
+
+BUILD_DMG=""
+[[ "$BUILD" == *.dmg ]] && BUILD_DMG=$(cd "$(dirname "$BUILD")" && pwd)/$(basename "$BUILD")
+# The onboarding suite never opens the DMG on the host: it goes into the guest as downloaded.
+[[ "$SUITE" == onboarding ]] && BUILD=onboarding-skip
 case "$BUILD" in
+  onboarding-skip) BUILD_ZIP="" ;;
   *.zip) BUILD_ZIP=$(cd "$(dirname "$BUILD")" && pwd)/$(basename "$BUILD") ;;
   *.app|*.app/) BUILD_ZIP="$RUN/build.zip"; ditto -c -k --keepParent "$BUILD" "$BUILD_ZIP" ;;
   *.dmg) mnt=$(mktemp -d); hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$BUILD" >/dev/null
@@ -254,6 +299,12 @@ if [[ "$SUITE" == exec ]] && ! compile_probe "$RUN/probe-bin"; then
   for major in "${majors[@]}"; do
     mkdir -p "$RUN/$major"; echo "probe $PROBE did not compile (probe-bin/probe-compile.log)" >"$RUN/$major/failure"
     printf '{"suite": "exec", "probe": "%s", "verdict": "NO-VERDICT", "ok": false, "failed_steps": ["compile"]}\n' "$PROBE" >"$RUN/$major/result.json"
+  done
+  majors=()
+fi
+if [[ "$SUITE" == onboarding ]] && ! compile_onboarding "$RUN/onboarding-bin"; then
+  for major in "${majors[@]}"; do
+    mkdir -p "$RUN/$major"; echo "the onboarding tools did not compile (onboarding-bin/compile.log)" >"$RUN/$major/failure"
   done
   majors=()
 fi
@@ -285,6 +336,12 @@ for m in majors:
         verdict = s.get("verdict", "NO-VERDICT") if s else "NO-VERDICT"
         line = "%-4s %-8s exec  %-10s probe=%s exit=%s %s" % (
             m, s.get("os", "?"), verdict, s.get("probe", "-"), s.get("exit_code", "-"), fail)
+    elif suite == "onboarding":
+        s = load("result.json")
+        verdict = "NO-VERDICT" if not s else ("PASS" if s.get("ok") and not fail else "FAIL")
+        line = "%-4s %-8s onboarding %-10s nightly=%s failed=%s actions=%s/%s findings=%d %s" % (
+            m, s.get("os", "?"), verdict, s.get("nightly_build") or "-", ",".join(s.get("failed_steps", [])) or "-",
+            s.get("person_actions_to_ready", "-"), s.get("reference_actions_to_ready", "-"), len(s.get("findings", [])), fail)
     elif suite == "smoke":
         s = load("result.json")
         verdict = "NO-VERDICT" if not s else ("PASS" if s.get("ok") and not fail else "FAIL")
@@ -311,9 +368,14 @@ if results:
     with os.fdopen(fd, "wb") as out, tarfile.open(fileobj=out, mode="w:gz") as tar:
         for name in sorted(os.listdir(run)):
             if name not in ("build.zip", "askpass.sh"):
-                # The probe's compiler module cache is not a result.
-                tar.add(os.path.join(run, name), arcname=name,
-                        filter=lambda info: None if "/module-cache" in "/" + info.name else info)
+                # Not results: the compiler module cache, the onboarding tools' binaries and its raw frames
+                # (onboarding.mp4 has them; frames.txt stays).
+                def keep(info):
+                    parts = info.name.split("/")
+                    if "module-cache" in parts or (len(parts) > 1 and parts[-2] == "onboarding-bin" and parts[-1] in ("vmeye", "onbagent")):
+                        return None
+                    return None if "frames" in parts[:-1] or (parts[-1] == "frames" and info.isdir()) else info
+                tar.add(os.path.join(run, name), arcname=name, filter=keep)
     print("results:", results)
     # With --results the verdict is data, NO-VERDICT included: the results upload either way.
     sys.exit(0)

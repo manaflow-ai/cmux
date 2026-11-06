@@ -53,28 +53,70 @@ struct AgentTurnRingTests {
         #expect(service.attentionMarks(for: workspace).isEmpty, "turning agent chat rings off left the ring")
     }
 
-    private static func chatTab() throws -> (NotificationCenterService, WorkspaceModel, TabModel) {
+    /// https://github.com/manaflow-ai/cmux/issues/34447: a finished agent's chat whose turn
+    /// notification is unread shows the blue dot, so its pane rings too, whatever
+    /// `notifications.attention.agentChats` says; with that off the ring takes the terminal look.
+    /// Reading the tab clears the ring with the dot.
+    @Test func anUnreadAgentChatRingsLikeItsDotWithTheDefaultSettings() throws {
         _ = NSApplication.shared
+        var chat = TabSnapshot(surface: SurfaceID(rawValue: 1), kind: .conversation, cwd: nil)
+        chat.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "install:unread", session: "s1", harness: "claude"))
+        chat.notification = TabNotification(notification: NotificationID(rawValue: 9), unread: true, level: .info, source: "agent")
+        let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [chat])])
         let store = DaemonStore()
-        let pane = PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, title: "chat")])
+        store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w", screens: [screen])]))
+        let workspace = try #require(store.workspaces.first)
+        let tab = try #require(workspace.screens.first?.panes.first?.tabs.first)
+        let design = DesignSettings.shared
+        let before = design.attention
+        defer { design.attention = before }
+        design.attention = AttentionSettings()
+        #expect(tab.showsUnread, "the fixture's chat has no unread dot")
+        let service = NotificationCenterService()
+        let mark = try #require(service.attentionMarks(for: workspace).values.first, "an unread agent chat shows its dot but its pane has no ring")
+        #expect(mark.agentChat == false, "with agent chat rings off, an unread chat must draw the terminal look, which draws")
+        #expect(service.hasHighlight(workspace))
+        design.attention.agentChatRing = .ring
+        #expect(service.attentionMarks(for: workspace).values.first?.agentChat == true, "on, the chat's own look draws")
+        design.attention.terminalRing = .none
+        design.attention.agentChatRing = .none
+        #expect(service.attentionMarks(for: workspace).isEmpty, "every ring look off still rang")
+        design.attention = AttentionSettings()
+        service.acknowledge(tab)
+        #expect(service.attentionMarks(for: workspace).isEmpty, "reading the chat left its ring")
+    }
+
+    /// One agent chat whose turn ended, with the opt-in agent chat ring on (the turn-end ring
+    /// exists only then); `restore` puts the attention settings back.
+    private static func chatTab() throws -> (NotificationCenterService, WorkspaceModel, TabModel, restore: @MainActor () -> Void) {
+        _ = NSApplication.shared
+        let design = DesignSettings.shared
+        let before = design.attention
+        design.attention.agentChatRing = .ring
+        var chat = TabSnapshot(surface: SurfaceID(rawValue: 1), kind: .conversation, cwd: nil)
+        chat.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "install:finished", session: "s1", harness: "claude"))
+        let store = DaemonStore()
+        let pane = PaneSnapshot(id: 1, tabs: [chat])
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])
         store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w", screens: [screen])]))
         let workspace = try #require(store.workspaces.first)
         let tab = try #require(workspace.screens.first?.panes.first?.tabs.first)
         let service = NotificationCenterService()
         service.agentFinished[tab.id] = 1 << 62
-        return (service, workspace, tab)
+        return (service, workspace, tab, { design.attention = before })
     }
 
     @Test func aFinishedChatRingsItsPane() throws {
-        let (service, workspace, _) = try Self.chatTab()
+        let (service, workspace, _, restore) = try Self.chatTab()
+        defer { restore() }
         #expect(service.attentionMarks(for: workspace).count == 1, "the finished chat's pane has no ring")
     }
 
     /// The default `focus` (https://github.com/manaflow-ai/cmux/issues/25662): selecting the pane
     /// reads its finished turn, and the ring does not come back.
     @Test func focusClearsTheRingWithTheDefaultSettings() throws {
-        let (service, workspace, tab) = try Self.chatTab()
+        let (service, workspace, tab, restore) = try Self.chatTab()
+        defer { restore() }
         service.interacted(.focus, tab: tab)
         #expect(service.attentionMarks(for: workspace).isEmpty, "selecting the pane left the ring")
         service.interacted(.focus, tab: tab)
@@ -82,7 +124,8 @@ struct AgentTurnRingTests {
     }
 
     @Test func underTheClickModeFocusKeepsTheRingAndAClickBlinksItOut() throws {
-        let (service, workspace, tab) = try Self.chatTab()
+        let (service, workspace, tab, restore) = try Self.chatTab()
+        defer { restore() }
         service.preferences.dismissal = .click
         service.interacted(.focus, tab: tab)
         #expect(service.attentionMarks(for: workspace).count == 1, "focus cleared the ring")
@@ -92,7 +135,8 @@ struct AgentTurnRingTests {
     }
 
     @Test func markReadClearsTheRingWithoutTheFlash() throws {
-        let (service, workspace, tab) = try Self.chatTab()
+        let (service, workspace, tab, restore) = try Self.chatTab()
+        defer { restore() }
         service.acknowledge(tab)
         #expect(service.attentionMarks(for: workspace).isEmpty)
         #expect(!service.entryReads.contains(tab.id))
