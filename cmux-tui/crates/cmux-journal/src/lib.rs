@@ -18,6 +18,9 @@
 //! - **Streams.** A [`Class::Stream`] record (terminal output, streamed agent tokens) is written in
 //!   the next batch, so a kill of every process keeps it, and synced with the next acked batch, or
 //!   [`Config::stream_sync_delay`] after its write when no acked batch comes.
+//!   [`Journal::on_written`] reports each batch's write, before its sync: a reply that promises
+//!   only that a kill of every process keeps its change (a daemon's kept class) waits for that,
+//!   and [`Journal::wait_durable`] asks for the sync at once instead of the delay.
 //!
 //! Sync levels ([`SyncLevel`]): an acked batch is synced with `F_BARRIERFSYNC` on macOS
 //! (`fdatasync` on Linux, `FlushFileBuffers` on Windows), so an acknowledged change survives a

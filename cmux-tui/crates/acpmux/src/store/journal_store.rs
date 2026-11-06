@@ -260,6 +260,11 @@ struct Inner {
     stop: tokio::sync::watch::Sender<Option<String>>,
     /// The LSN of the last `Ack` record appended (`Store::durability`).
     acked: Arc<AtomicU64>,
+    /// The LSN of the last record of a kept change appended (`Keep::Written`,
+    /// `Store::durability`).
+    kept: Arc<AtomicU64>,
+    /// The journal's written LSN, fed by its writer; closed when the writer ends.
+    written: tokio::sync::watch::Receiver<u64>,
     /// The durable LSN the outbound gate waits for: the journal's, fed by its writer, held below
     /// a new chat's record until its folder is synced ([`new_folders`]); closed when the writer
     /// ends.
@@ -410,6 +415,17 @@ impl JournalStore {
             let _owned = &ended;
             reported.journal_durable(lsn, &durable_tx);
         });
+        // Owned by the listener too: the watch closes when the writer ends.
+        let (written_tx, written) = tokio::sync::watch::channel(journal.stats().written_lsn);
+        journal.on_written(move |lsn| {
+            written_tx.send_if_modified(|was| {
+                let moved = lsn > *was;
+                if moved {
+                    *was = lsn;
+                }
+                moved
+            });
+        });
         let inner = Arc::new(Inner {
             local,
             journal,
@@ -427,6 +443,8 @@ impl JournalStore {
             wake: Condvar::new(),
             stop,
             acked: Arc::new(AtomicU64::new(0)),
+            kept: Arc::new(AtomicU64::new(0)),
+            written,
             durable,
             new_folders,
             ending,
@@ -611,13 +629,19 @@ impl Store for JournalStore {
     }
     /// A `meta` record and the overlay; the checkpoint writes `session.json` ([`meta`]).
     fn save(&self, meta: &SessionMeta) -> Result<()> {
-        self.inner.save_meta(meta)
+        self.inner.save_meta(meta, Keep::Durable)
+    }
+    /// A `Stream` `meta` record: written in the journal's next batch, synced after
+    /// ([`super::durability`]).
+    fn save_kept(&self, meta: &SessionMeta) -> Result<()> {
+        self.inner.save_meta(meta, Keep::Written)
     }
     /// The line to the log first, then its record ([module docs](self)).
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
         let mut line = serde_json::to_string(record)?;
         line.push('\n');
-        let class = if streamed(record) { Class::Stream } else { Class::Ack };
+        let kind = record_class(record);
+        let class = if kind == RecordClass::Acked { Class::Ack } else { Class::Stream };
         let payload = encode_log(id, line.as_bytes());
         let inner = &self.inner;
         let mut order = inner.order.lock_or_recover();
@@ -635,8 +659,10 @@ impl Store for JournalStore {
         // record, as after a crash between the two.
         let lsn =
             inner.journal.append(KIND_LOG, class, &payload).map_err(JournalStore::journal_error)?;
-        if class == Class::Ack {
-            inner.acked.store(lsn, std::sync::atomic::Ordering::SeqCst);
+        match kind {
+            RecordClass::Acked => inner.acked.store(lsn, std::sync::atomic::Ordering::SeqCst),
+            RecordClass::Kept => inner.kept.store(lsn, std::sync::atomic::Ordering::SeqCst),
+            RecordClass::Stream => {}
         }
         order.applied = lsn;
         // A chat's first line in this process allocates its entry; every later one reuses it.
@@ -738,6 +764,8 @@ impl Store for JournalStore {
         Some(Durability {
             acked: Arc::clone(&self.inner.acked),
             durable: self.inner.durable.clone(),
+            kept: Arc::clone(&self.inner.kept),
+            written: self.inner.written.clone(),
             stalled: Arc::new(move |why: String| {
                 if let Some(inner) = inner.upgrade() {
                     inner.ask_to_stop(why);
