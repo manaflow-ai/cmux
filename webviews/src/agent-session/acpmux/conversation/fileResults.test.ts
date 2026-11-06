@@ -6,6 +6,7 @@ import { expect, test } from "bun:test";
 import type { AcpmuxActivity } from "../model";
 import { HARNESS_CALLS } from "../toolNamesFixture";
 import { fileCard, fileCardText, readPeek, searchResult } from "./fileResults";
+import { fileLanguage } from "../shikiLanguages";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -140,4 +141,12 @@ test("Find reads a card's lines and paths as drawn, without its numbers or count
   expect(fileCardText(search)).toBe("a.ts\nuseTool()");
   const glob = fileCard(HARNESS_CALLS.claude.glob, "/w/src/a.ts\n/w/src/b.ts");
   expect(glob).toMatchObject({ kind: "search", tool: "glob" });
+});
+
+test("a read is highlighted by its file's name, in a bundled language or as text", () => {
+  expect(fileLanguage("/w/src/App.tsx")).toBe("tsx");
+  expect(fileLanguage("/w/main.rs")).toBe("rust");
+  expect(fileLanguage("/w/Makefile")).toBe("make");
+  expect(fileLanguage("/w/notes.txt")).toBe("text");
+  expect(fileLanguage("/w/LICENSE")).toBe("text");
 });
