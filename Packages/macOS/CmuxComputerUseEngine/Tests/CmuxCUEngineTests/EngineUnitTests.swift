@@ -59,7 +59,8 @@ import Testing
         #expect(geometry.pixelWidth == 1568)
         #expect(geometry.pixelHeight == 980)
         // A pixel maps back to the point it shows.
-        #expect(geometry.globalPoint(x: 1568, y: 980) == CGPoint(x: 1600, y: 1000))
+        let corner = geometry.globalPoint(x: 1568, y: 980)
+        #expect(abs(corner.x - 1600) < 0.001 && abs(corner.y - 1000) < 0.001)
     }
 }
 

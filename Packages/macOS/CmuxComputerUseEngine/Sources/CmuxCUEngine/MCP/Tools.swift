@@ -8,10 +8,10 @@ enum ToolCatalog {
         ["type": "object", "properties": properties, "required": required, "additionalProperties": false]
     }
 
-    static let app: [String: Any] = ["type": "string", "description": "App name, bundle id or path (as list_apps prints it)."]
-    static let index: [String: Any] = ["type": "integer", "description": "Element index from the app's latest state."]
+    static var app: [String: Any] { ["type": "string", "description": "App name, bundle id or path (as list_apps prints it)."] }
+    static var index: [String: Any] { ["type": "integer", "description": "Element index from the app's latest state."] }
 
-    static let tools: [[String: Any]] = [
+    static var tools: [[String: Any]] { [
         ["name": "list_apps", "description": "List running apps.",
          "inputSchema": schema([:], required: []), "annotations": ["readOnlyHint": true]],
         ["name": "get_app_state",
@@ -47,7 +47,7 @@ enum ToolCatalog {
          "description": "Perform one of an element's Secondary Actions (as its state line lists them). Returns the new state.",
          "inputSchema": schema(["app": app, "element_index": index, "action": ["type": "string"]],
                                required: ["app", "element_index", "action"])],
-    ]
+    ] }
 }
 
 extension Engine {
@@ -68,7 +68,7 @@ extension Engine {
                 if let value = args[key] as? String { return Double(value) }
                 return nil
             }
-            func required(_ key: String) throws -> Int {
+            func requiredInt(_ key: String) throws -> Int {
                 guard let value = int(key) else { throw EngineError("\(key) is required") }
                 return value
             }
@@ -94,11 +94,11 @@ extension Engine {
                 }
                 return try await drag(app: string("app"), from: (fx, fy), to: (tx, ty))
             case "set_value":
-                return try await setValue(app: string("app"), index: required("element_index"), value: string("value"))
+                return try await setValue(app: string("app"), index: requiredInt("element_index"), value: string("value"))
             case "select_text":
-                return try await selectText(app: string("app"), index: required("element_index"), text: string("text"))
+                return try await selectText(app: string("app"), index: requiredInt("element_index"), text: string("text"))
             case "perform_secondary_action":
-                return try await secondaryAction(app: string("app"), index: required("element_index"), action: string("action"))
+                return try await secondaryAction(app: string("app"), index: requiredInt("element_index"), action: string("action"))
             default:
                 return .error("unknown tool \(name)")
             }

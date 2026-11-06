@@ -59,7 +59,7 @@ struct KeySpec: Sendable, Equatable {
             if let code = characters[character] { return (code, []) }
             let lower = Character(character.lowercased())
             if character.isUppercase, let code = characters[lower] { return (code, .maskShift) }
-            if let (code, shifted) = shiftedCharacters[character] { return (code, shifted ? .maskShift : []) }
+            if let shifted = shiftedCharacters[character] { return (shifted.0, shifted.1 ? .maskShift : []) }
         }
         return nil
     }

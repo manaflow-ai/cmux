@@ -71,7 +71,7 @@ struct AppDirectory: Sendable {
                   let id = (entry[kCGWindowNumber as String] as? NSNumber)?.uint32Value,
                   let layer = (entry[kCGWindowLayer as String] as? NSNumber)?.intValue, layer == 0,
                   let bounds = entry[kCGWindowBounds as String] as? NSDictionary,
-                  let frame = CGRect(dictionaryRepresentation: bounds), frame.width > 1, frame.height > 1
+                  let frame = CGRect(dictionaryRepresentation: bounds as CFDictionary), frame.width > 1, frame.height > 1
             else { return nil }
             return WindowInfo(id: id, pid: pid, title: entry[kCGWindowName as String] as? String ?? "",
                               frame: frame, layer: layer,

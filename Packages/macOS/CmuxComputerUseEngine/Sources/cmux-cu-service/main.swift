@@ -35,7 +35,7 @@ case "mcp":
 case "stdio":
     let connection = MCPConnection(engine: Engine(), input: .standardInput, output: .standardOutput)
     let done = DispatchSemaphore(value: 0)
-    Task.detached(priority: .userInitiated) {
+    Task.detached(priority: .userInitiated) { [connection, done] in
         await connection.serve()
         done.signal()
     }
@@ -45,7 +45,7 @@ case "serve":
     let engine = Engine()
     // No Dock icon and no menu bar: the engine never takes focus.
     NSApplication.shared.setActivationPolicy(.prohibited)
-    Thread.detachNewThread {
+    Thread.detachNewThread { [socket, engine] in
         do {
             try socket.serve(engine: engine)
         } catch {

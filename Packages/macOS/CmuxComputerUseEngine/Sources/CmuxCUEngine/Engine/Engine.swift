@@ -216,7 +216,7 @@ public final class Engine: @unchecked Sendable {
         guard let element = target.element else { throw EngineError("select_text needs element_index") }
         let whole = element.element.string(kAXValueAttribute) ?? ""
         guard let range = whole.range(of: text) else { throw EngineError("\"\(text)\" is not in element \(index)'s text") }
-        let location = whole.utf16.distance(from: whole.utf16.startIndex, to: range.lowerBound.samePosition(in: whole.utf16) ?? whole.utf16.startIndex)
+        let location = whole.utf16.distance(from: whole.utf16.startIndex, to: range.lowerBound)
         var cfRange = CFRange(location: location, length: text.utf16.count)
         guard let value = AXValueCreate(.cfRange, &cfRange) else { throw EngineError("could not make the range") }
         return try await acting(app: app, pid: target.snapshot.app.pid, "Selected \"\(text)\" in element \(index).") {

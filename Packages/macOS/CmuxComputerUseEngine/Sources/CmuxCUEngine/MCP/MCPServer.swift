@@ -18,19 +18,31 @@ public final class MCPConnection: @unchecked Sendable {
         self.output = output
     }
 
-    /// Serves until the input closes. Lines are handled one at a time.
+    /// Serves until the input closes. Lines are handled one at a time, in
+    /// order. The blocking read runs on its own thread and hands complete
+    /// lines over, so no Swift concurrency thread ever waits on the socket.
     public func serve() async {
-        var buffer = Data()
-        while true {
-            let chunk = input.availableData
-            if chunk.isEmpty { return }
-            buffer.append(chunk)
-            while let newline = buffer.firstIndex(of: 0x0A) {
-                let line = buffer[buffer.startIndex..<newline]
-                buffer.removeSubrange(buffer.startIndex...newline)
-                guard !line.isEmpty else { continue }
-                await handle(Data(line))
+        let (lines, continuation) = AsyncStream<Data>.makeStream(bufferingPolicy: .unbounded)
+        let input = self.input
+        let reader = Thread {
+            var buffer = Data()
+            while true {
+                let chunk = input.availableData
+                if chunk.isEmpty { break }
+                buffer.append(chunk)
+                while let newline = buffer.firstIndex(of: 0x0A) {
+                    let line = Data(buffer[buffer.startIndex..<newline])
+                    buffer.removeSubrange(buffer.startIndex...newline)
+                    if !line.isEmpty { continuation.yield(line) }
+                }
             }
+            continuation.finish()
+        }
+        reader.name = "cmux.cu.mcp-read"
+        reader.qualityOfService = .userInitiated
+        reader.start()
+        for await line in lines {
+            await handle(line)
         }
     }
 

@@ -63,17 +63,15 @@ final class AppActivityMonitor: @unchecked Sendable {
             _ = AXObserverAddNotification(observer, app, name as CFString, refcon)
         }
         lock.withLock { observers[pid] = observer }
-        thread.perform {
-            CFRunLoopAddSource(CFRunLoopGetCurrent(), AXObserverGetRunLoopSource(observer), .defaultMode)
-        }
+        let source = RunLoopSource(AXObserverGetRunLoopSource(observer))
+        thread.perform { CFRunLoopAddSource(CFRunLoopGetCurrent(), source.raw, .defaultMode) }
         return true
     }
 
     func forget(pid: pid_t) {
         guard let observer = lock.withLock({ observers.removeValue(forKey: pid) }) else { return }
-        thread.perform {
-            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), AXObserverGetRunLoopSource(observer), .defaultMode)
-        }
+        let source = RunLoopSource(AXObserverGetRunLoopSource(observer))
+        thread.perform { CFRunLoopRemoveSource(CFRunLoopGetCurrent(), source.raw, .defaultMode) }
     }
 
     private func record(pid: pid_t) {
@@ -98,6 +96,12 @@ final class AppActivityMonitor: @unchecked Sendable {
             try? await Task.sleep(for: .milliseconds(4), tolerance: .milliseconds(1), clock: clock)
         }
     }
+}
+
+/// A run loop source handed to the observer thread (CF sources are thread-safe to add).
+struct RunLoopSource: @unchecked Sendable {
+    let raw: CFRunLoopSource
+    init(_ raw: CFRunLoopSource) { self.raw = raw }
 }
 
 /// A thread that runs a CFRunLoop forever, for observer sources.
