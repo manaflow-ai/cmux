@@ -78,8 +78,8 @@ public struct TitlebarHistoryMenu {
     public static let closedLimit = 5
 
     /// `showAll` is the registry's `history.show` row (it runs the registered action, as the
-    /// palette does), retitled Show Full History; nil: no footer (the `scope` layout, the R69
-    /// list as it was). `closed` nil leaves the Recently Closed section out.
+    /// palette does), retitled Show Full History; nil: no footer. `closed` nil leaves the Recently
+    /// Closed section out.
     public static func make(_ sections: [LocationTrailMenuSection], closed: TitlebarHistoryClosedSection? = nil,
                             style: TitlebarHistoryMenuStyle = .inline,
                             choose: @escaping (Int) -> Void, reopen: @escaping (String) -> Void = { _ in },

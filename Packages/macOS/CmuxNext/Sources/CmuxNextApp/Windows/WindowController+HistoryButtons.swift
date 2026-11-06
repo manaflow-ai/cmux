@@ -20,10 +20,9 @@ extension WindowController {
             let layout = TitlebarHistoryTunables.menuLayout.value, trail = services.locationTrail
             // With the `surface` scope the page's own list is Back's walk: no trail rows, Recently Closed still lists.
             let sections = trail.scope == .surface ? [] : trail.menuSections(direction, layout: layout)
-            // The `scope` layout is the R69 list as it was: nothing to list, no menu. The others always open, a dimmed
-            // arrow's too. Recently Closed reads the mirrored closed history (bounded, no daemon request) and keeps the
-            // list's size (`TitlebarHistoryMenuStyle`); Show Full History is the registered `history.show` row.
-            if layout == .scope { return sections.isEmpty ? nil : TitlebarHistoryMenu.make(sections, choose: { Self.goTo(registry, $0) }, showAll: nil) }
+            // Every layout always opens, a dimmed arrow's too. Recently Closed reads the mirrored closed history (bounded,
+            // no daemon request) and keeps the list's size (`TitlebarHistoryMenuStyle`); Show Full History is the
+            // registered `history.show` row.
             let closed = TitlebarHistoryClosedSection(services.history.closedEntries(limit: TitlebarHistoryMenu.closedLimit),
                                                       served: DaemonClosedHistory.isServed(in: services))
             return TitlebarHistoryMenu.make(sections, closed: closed, style: TitlebarHistoryTunables.menuStyle.value,
