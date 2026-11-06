@@ -374,6 +374,12 @@ def main():
         # rests past the dwell then wakes nothing, and any hover grace it starts (30 s) ends long before the settle
         # wait below. The pointer aims at each row as drawn when it moves, so a later scroll does not matter.
         kept, refused = bench.hoverable(([target] if target else []) + sweep_workspaces)
+        why = (refused[0]["reply"].get("why") if refused else None) or {}
+        if not kept and isinstance(why, dict) and (why.get("presentation") != "shown" or why.get("list_hidden")):
+            # The window opened with its sidebar hidden (a narrow fleet display): show it, then look again.
+            print(f"PERF-HOVER-ROWS sidebar_hidden why={json.dumps(why)}", flush=True)
+            report["sidebar_shown_by_bench"] = bench.app.action("toggleSidebar")
+            kept, refused = bench.hoverable(([target] if target else []) + sweep_workspaces)
         target_hoverable = bool(target) and target in kept
         report["rows_hoverable"] = len(kept)
         report["target_row_hoverable"] = target_hoverable
