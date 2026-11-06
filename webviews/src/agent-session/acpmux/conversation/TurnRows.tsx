@@ -303,6 +303,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
     fork,
     forkSeq,
     forkAny,
+    tryAnotherApproach,
     retry,
     retryFailed,
     retryWith,
@@ -497,6 +498,20 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             )}
             {!messages && fork && seq !== undefined && (forkAny || seq === forkSeq) && (
               <ForkButton throughSeq={seq} onFork={() => forkWithFeedback(seq, () => fork(seq))} />
+            )}
+            {tryAnotherApproach && seq !== undefined && seq === forkSeq && (
+              <button
+                type="button"
+                className="cv-iconbtn cv-iconbtn--compact cv-turn-try-another"
+                aria-label={t("turn.tryAnotherApproach")}
+                title={t("turn.tryAnotherApproach")}
+                onClick={() =>
+                  // A refused click or a Cloud error must not become an unhandled rejection.
+                  void tryAnotherApproach(seq).catch(() => undefined)
+                }
+              >
+                {t("turn.tryAnotherApproach")}
+              </button>
             )}
             {!messages && <PinButton rowId={row.id} />}
             {!messages && timeline.toggle}

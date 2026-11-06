@@ -1585,6 +1585,13 @@ describe("workflow progress in the default tray and Session Info", () => {
         await view.show(
           draw({ ...workflow, agents: { done: 37, started: 101, failed: 2, queued: 4 }, tokens: 1_200_000 }),
         );
+        if (surface === "inspector") {
+          // Session Info's lines are lean (AgentLine `lean`): the counts are the hover card's, and an
+          // update still replaces no other row.
+          expect(view.root.querySelector(".acpmux-agent-line__progress, .acpmux-agent-line__stats")).toBeNull();
+          expect(buttons().find((button) => button.textContent?.includes("Unrelated agent"))).toBe(unrelated);
+          return;
+        }
         expect(view.root.querySelectorAll(".acpmux-agent-line__progress")).toHaveLength(1);
         // Every subagent list omits usage; the dedicated Context section retains it.
         expect(view.root.querySelector(".acpmux-agent-line__progress, .acpmux-agent-line__stats")?.textContent).toBe(
