@@ -70,7 +70,15 @@ await requireBrowserLane("folder-menu-scroll-steady.browser.test.ts", async () =
             const popup = document.querySelector<HTMLElement>(selector)!;
             const composer = document.querySelector("form.acpmux-composer, .nt-composer, .acpmux-composer-context");
             const scroller = popup.querySelector<HTMLElement>(".ui-combobox-viewport")!;
-            const trace: Trace = { popupClass: [], popupStyle: 0, composer: [], boxes: 0, scrolls: [], highlighted: 0, rowsMounted: 0 };
+            const trace: Trace = {
+              popupClass: [],
+              popupStyle: 0,
+              composer: [],
+              boxes: 0,
+              scrolls: [],
+              highlighted: 0,
+              rowsMounted: 0,
+            };
             (window as unknown as { scrollTrace: Trace }).scrollTrace = trace;
             new MutationObserver((records) => {
               for (const record of records) {
@@ -79,9 +87,12 @@ await requireBrowserLane("folder-menu-scroll-steady.browser.test.ts", async () =
                   trace.popupClass.push(`${record.oldValue} -> ${popup.className}`);
                 else if (target === popup && record.attributeName === "style") trace.popupStyle += 1;
                 else if (composer?.contains(target) && !popup.contains(target))
-                  trace.composer.push(`${target.nodeName}.${(target as HTMLElement).className}@${record.attributeName ?? record.type}`);
+                  trace.composer.push(
+                    `${target.nodeName}.${(target as HTMLElement).className}@${record.attributeName ?? record.type}`,
+                  );
                 if (record.attributeName === "data-highlighted") trace.highlighted += 1;
-                if (record.type === "childList" && scroller.contains(target)) trace.rowsMounted += record.addedNodes.length;
+                if (record.type === "childList" && scroller.contains(target))
+                  trace.rowsMounted += record.addedNodes.length;
               }
             }).observe(document.documentElement, {
               subtree: true,

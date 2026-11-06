@@ -70,7 +70,7 @@ export const CONTEXT_LABELS = {
   local: "composer.thisMac",
   chooseComputer: "composer.chooseComputer",
   chooseFolder: "composer.chooseFolder",
-  chooseFolderMenu: "composer.chooseFolderMenu",
+  chooseFolderMenu: "composer.addFolder",
   folderSearch: "composer.folderSearch",
   cloud: "composer.cloud",
   connectSSH: "composer.connectSSH",
@@ -79,7 +79,7 @@ export const CONTEXT_LABELS = {
   newChatHere: "composer.newChatHere",
   machine: "composer.machine",
   chooseMachine: "composer.chooseMachine",
-  noProject: "composer.noProject",
+  noProject: "project.noFolder",
   environment: "composer.environment",
 } as const;
 
@@ -193,7 +193,7 @@ export function ComposerContext({
   onBrowseProject?(request?: BrowseRequest): Promise<BrowseResult> | BrowseResult | void;
   /// New Worktree (cx-lyqio.2): a new chat on this Mac starts in a worktree of its folder.
   onNewWorktree?(cwd: string): void;
-  /// A new chat's Do not work in a project (FolderPopover); `noProject` while it is the choice.
+  /// A new chat's No folder (FolderPopover); `noProject` while it is the choice.
   onNoProject?(): void;
   noProject?: boolean;
   /// This Mac's name (the handshake's `machineName`).
@@ -201,7 +201,7 @@ export function ComposerContext({
   /// A started chat's New Chat Here, or a folder picked from its menu: a new chat in that folder,
   /// in a tab of its own.
   onNewChat?(cwd: string): void;
-  /// A started chat's Choose folder…: the host's folder panel, then a new chat there.
+  /// A started chat's Add folder…: the host's folder panel, then a new chat there.
   onBrowseFolder?(): Promise<string | undefined>;
   /// A new chat's Computer menu ends with SSH… and New Cloud Machine, which open the host's
   /// connect flows (Lawrence 2026-10-06: "I cannot click on cmux Cloud SSH").
@@ -263,7 +263,7 @@ export function ComposerContext({
   /// Gallery seam; the app's Cloud account state (cloudMachines.ts) is used when omitted.
   cloudSignedIn?: boolean;
   /// A new chat's extra folders (extraFolders.ts, acpmux `additionalDirectories`): the folder menu's
-  /// Add folder… adds one of the picked machine's folders, and each added one can be removed. The
+  /// Add another folder… adds one of the picked machine's folders, and each added one can be removed. The
   /// list is the machine's: another machine picked starts over. `onBrowse` is this Mac's folder
   /// chooser; another machine's folders are its listed ones or a typed path.
   extraFolders?: ExtraFolderControl;
@@ -488,7 +488,7 @@ export function ComposerContext({
         : currentRepo.name
       : projectLabel(currentLocation.id)
     : undefined;
-  // A started chat's Choose folder…: the host's folder panel, then a new chat there.
+  // A started chat's Add folder…: the host's folder panel, then a new chat there.
   const browseNewChat =
     onBrowseFolder && onNewChat
       ? () => {
@@ -588,7 +588,7 @@ export function ComposerContext({
   };
   const folderShown = !savedPick && !(readOnly && !newChats && !currentFolder);
   // The new chat's extra folders on the picked machine (a pick of the chat's own folder is never one).
-  // A Cloud or Sandboxed start carries none (cmux#34403), so those modes offer no Add folder… or +N.
+  // A Cloud or Sandboxed start carries none (cmux#34403), so those modes offer no Add another folder… or +N.
   const extraShown =
     extraFolders && !readOnly && !cloudPicked && !sandboxPicked
       ? draftFolders(extraFolders.draft, selectedComputer)
@@ -798,8 +798,6 @@ export function ComposerContext({
               onNoProject={onNoProject}
               noProject={noProject && !currentFolder}
               onNewWorktree={currentFolder && onNewWorktree ? () => onNewWorktree(currentFolder) : undefined}
-              localName={localName}
-              peers={peers}
               {...(folderNote && !currentFolder ? { note: folderNote } : {})}
               {...(extra ? { extra } : {})}
             />
@@ -1241,7 +1239,7 @@ function LocationPicker({
   /// "computer": the picker whose name gives way to its icon in a narrow strip.
   kind?: "computer";
   allowPath?: boolean;
-  /// The folder popover's last row, Choose folder…: the host's folder panel.
+  /// The folder popover's last row, Add folder…: the host's folder panel.
   onBrowse?(): void;
   /// Rows after the choices that run something instead of picking (the connect flows).
   extras?: { id: string; label: string; detail?: string; onSelect(): void }[];
@@ -1250,7 +1248,7 @@ function LocationPicker({
   onOpen?(): void;
   /// A trust question takes precedence over an open destination picker.
   closeOnTrustAsk?: boolean;
-  /// A new chat's extra folders on this machine (extraFolders.ts): Add folder… turns the list into a
+  /// A new chat's extra folders on this machine (extraFolders.ts): Add another folder… turns the list into a
   /// pick of one more folder of it, and the ones added are listed under it.
   extra?: ExtraFolderRows;
 }) {
@@ -1292,7 +1290,7 @@ function LocationPicker({
         ),
     );
   }, [options, query, suffixes, addingExtra, selected, extraFolders]);
-  // Add folder… gives the menu a fresh field (the Combobox's key): the keyboard stays in it.
+  // Add another folder… gives the menu a fresh field (the Combobox's key): the keyboard stays in it.
   useEffect(() => {
     if (!addingExtra) return;
     control.current?.ownerDocument
@@ -1431,7 +1429,7 @@ function LocationPicker({
                 setAddingExtra(true);
               }}
             >
-              {t("composer.addFolder")}
+              {t("composer.addAnotherFolder")}
             </button>
           </>
         )}

@@ -66,7 +66,7 @@ test("the project picker with no projects says none are recent until a search fi
   );
   await act(async () => host.querySelector<HTMLButtonElement>("button")!.click());
   const empty = () => document.querySelector(".acpmux-project-empty")?.textContent;
-  expect(empty()).toBe("No recent projects");
+  expect(empty()).toBe("No recent folders");
 
   const search = document.querySelector<HTMLInputElement>('input[role="combobox"]')!;
   const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
@@ -74,5 +74,5 @@ test("the project picker with no projects says none are recent until a search fi
     setValue.call(search, "payments");
     search.dispatchEvent(new window.Event("input", { bubbles: true }));
   });
-  expect(empty()).toBe("No matching projects");
+  expect(empty()).toBe("No matching folders");
 });

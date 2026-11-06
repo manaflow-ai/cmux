@@ -4,8 +4,6 @@ import type { BrowseRequest, BrowseResult } from "./AddProjectPanel";
 import { useT } from "./i18n";
 import { Popover } from "../../ui/Popover";
 import { Combobox } from "../../ui/Combobox";
-import { AddProjectDialog } from "./AddProjectPanel";
-import type { ProjectDirectoryHost } from "./projectDirectory";
 import { ProjectBadge } from "./ProjectBadge";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { chooserRows, type ProjectRepo } from "./projectRepos";
@@ -23,7 +21,7 @@ export type Project = {
   repo?: ProjectRepo;
 };
 
-/// One row of the chooser: a project, or Do not work in a project (`project` undefined).
+/// One row of the chooser: a folder, or No folder (`project` undefined).
 type Row = { key: string; project?: Project };
 
 const NO_PROJECT_KEY = "\u0000none";
@@ -34,8 +32,9 @@ const rowKey = (project: Project) => (project.peer ? `${project.peer}\u0000${pro
 /// project starts a new chat there. The search field keeps focus; arrows move the
 /// highlight, Enter picks and Escape closes back to the pill.
 /// `inline` draws the trigger as the project's name inside a sentence (the new chat's "What should
-/// we build in <project>?", cx-9g0w), and `onNoProject` adds Do not work in a project, checked while
-/// `noProject`.
+/// we build in <project>?", cx-9g0w), and `onNoProject` adds No folder, checked while `noProject`.
+/// `onBrowse` adds Add folder…: the host's folder panel, and a new chat in the folder picked there
+/// (Leo, 2026-11-06: "why not just add fodler? what's special about project?").
 export function ProjectChooser({
   projects,
   current,
@@ -46,7 +45,6 @@ export function ProjectChooser({
   onBrowse,
   onNoProject,
   noProject = false,
-  projectHost,
   side = "top",
   inline = false,
 }: {
@@ -59,16 +57,14 @@ export function ProjectChooser({
   onPick(cwd: string, peer?: string): void;
   onBrowse?(request?: BrowseRequest): Promise<BrowseResult> | BrowseResult | void;
   onNoProject?(): void;
-  /// The chat is in no project: Do not work in a project is checked, and picking it changes nothing.
+  /// The chat is in no folder: No folder is checked, and picking it changes nothing.
   noProject?: boolean;
-  projectHost?: ProjectDirectoryHost;
   /// Where the menu opens: above the composer's tray, below a picker at the top of a page.
   side?: "top" | "bottom";
   inline?: boolean;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  const [adding, setAdding] = useState(false);
   const [query, setQuery] = useState("");
   const trigger = useRef<HTMLButtonElement>(null);
   const search = useRef<HTMLInputElement>(null);
@@ -105,7 +101,7 @@ export function ProjectChooser({
   const press = usePopoverTrigger(open, (next) => (next ? show() : close(true)), show);
   const pick = (row: Row | undefined) => {
     if (row && !row.project) {
-      // Do not work in a project: a change unless the chat is in no project already.
+      // No folder: a change unless the chat is in no project already.
       close(noProject);
       if (!noProject) onNoProject?.();
       return;
@@ -130,23 +126,23 @@ export function ProjectChooser({
   const suggestions = [...pinned, ...rows.filter((row) => row.key !== NO_PROJECT_KEY).map((row) => row.key)];
   if (typedPath && shown.length === 0) suggestions.push(typedPath);
   const rowLabel = (key: string) => {
-    if (key === ADD_PROJECT_KEY) return t("project.new");
+    if (key === ADD_PROJECT_KEY) return t("composer.addFolder");
     const project = rowsByKey.get(key)?.project;
     return project
       ? [project.label, project.host, project.cwd].filter(Boolean).join(" ")
       : key === NO_PROJECT_KEY
-        ? t("project.noProject")
+        ? t("project.noFolder")
         : key;
   };
 
-  const label = currentLabel ?? t("project.choose");
+  const label = currentLabel ?? t("composer.chooseFolder");
   return (
     <span className={`acpmux-picker acpmux-project${inline ? " acpmux-project-inline" : ""}`}>
       <button
         ref={trigger}
         type="button"
         className={inline ? "acpmux-project-button" : "acpmux-context-chip acpmux-project-button"}
-        aria-label={inline ? `${t("project.label")}: ${label}` : t("project.label")}
+        aria-label={inline ? `${t("composer.folder")}: ${label}` : t("composer.folder")}
         aria-haspopup="dialog"
         // tooltip-allow: a truncated project label keeps its full path available.
         title={current}
@@ -166,7 +162,7 @@ export function ProjectChooser({
         open={open}
         onOpenChange={(next) => (next ? show() : close(true))}
         anchor={open ? trigger.current : null}
-        label={t("project.label")}
+        label={t("composer.folder")}
         className="acpmux-menu acpmux-project-menu"
         side={side}
         initialFocus={search}
@@ -180,8 +176,11 @@ export function ProjectChooser({
             onQuery={setQuery}
             onSubmit={(key) => {
               if (key === ADD_PROJECT_KEY) {
+                // The host's folder panel picks the folder and reports a failure itself.
                 close(false);
-                setAdding(true);
+                void Promise.resolve()
+                  .then(() => onBrowse?.())
+                  .catch(() => undefined);
                 return;
               }
               const row =
@@ -196,8 +195,8 @@ export function ProjectChooser({
             onCancel={() => close(true)}
             cancelOnBlur={false}
             autoHighlight
-            label={t("project.search")}
-            placeholder={t("project.search")}
+            label={t("composer.folderSearch")}
+            placeholder={t("composer.folderSearch")}
             inputClassName="acpmux-project-search-field"
             listClassName="acpmux-project-folders m-0 list-none p-0"
             itemClassName="acpmux-menu-item rounded-lg data-[highlighted]:bg-hover"
@@ -212,14 +211,14 @@ export function ProjectChooser({
                       <PlusIcon />
                     </span>
                     <span className="acpmux-menu-text">
-                      <span className="acpmux-menu-label">{t("project.new")}</span>
+                      <span className="acpmux-menu-label">{t("composer.addFolder")}</span>
                     </span>
                   </>
                 );
               const row = rowsByKey.get(key);
               const project = row?.project;
               const checked = isCurrent(key);
-              const name = project ? project.label : row ? t("project.noProject") : t("project.usePath", { path: key });
+              const name = project ? project.label : row ? t("project.noFolder") : t("project.usePath", { path: key });
               return (
                 <>
                   {project ? (
@@ -250,20 +249,12 @@ export function ProjectChooser({
             inline
           />
           {shown.length === 0 && !typedPath && (query.trim() || !onNoProject) && (
-            <div className="acpmux-project-empty">{t(query.trim() ? "project.none" : "project.noneYet")}</div>
+            <div className="acpmux-project-empty">
+              {t(query.trim() ? "composer.folderNone" : "composer.folderNoneYet")}
+            </div>
           )}
         </div>
       </Popover>
-      <AddProjectDialog
-        open={adding}
-        host={projectHost}
-        onBrowse={onBrowse}
-        onClose={() => setAdding(false)}
-        onPick={(cwd) => {
-          setAdding(false);
-          onPick(cwd);
-        }}
-      />
     </span>
   );
 }
