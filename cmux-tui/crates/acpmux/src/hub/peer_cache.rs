@@ -510,8 +510,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn an_immediate_stop_flushes_a_notice_before_its_worker_starts() {
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_immediate_stop_flushes_a_notice_before_its_worker_starts() {
         let (hub, dir) = test_hub();
         let peer = add_idle_peer(&hub, "builder");
         hub.cache_test_write_delay_ms.store(200, std::sync::atomic::Ordering::SeqCst);
@@ -732,6 +732,9 @@ mod tests {
         };
         purging.join().unwrap();
         hub.cache_test_write_delay_ms.store(0, std::sync::atomic::Ordering::SeqCst);
+        // The store keeps an exclusive journal lock for the hub lifetime. Release it before
+        // constructing the restart fixture that reloads the cache.
+        drop(hub);
 
         let again = hub_at(dir.path());
         let restored = add_idle_peer(&again, "builder");
