@@ -19,6 +19,7 @@ use super::wire::{
 /// JSON HTTP operations: `(status, body)`, or a transport error.
 pub trait Http {
     fn post(&self, url: &str, body: &Value, bearer: Option<&str>) -> Result<(u16, Value), String>;
+    fn post_empty(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Value), String>;
 
     /// Raw, bounded, no-redirect GET (`body=None`) or JSON POST. All calls
     /// in a receiving-policy read share this absolute deadline. Older
@@ -502,6 +503,22 @@ impl<H: Http> CloudClient<H> {
         Answer::Http { status, body: answer }
     }
 
+    /// One authenticated POST to `path` with no request body.
+    fn post_empty_with_token(&mut self, path: &str, now_wall_ms: u64) -> Answer {
+        let url = self.url(path);
+        let send = |client: &mut Self| -> Option<(u16, Value)> {
+            let token = client.token(now_wall_ms).ok()?;
+            client.http.post_empty(&url, Some(&token)).ok()
+        };
+        let Some((mut status, mut answer)) = send(self) else { return Answer::Transport };
+        if status == 401 || status == 403 {
+            self.cached = None;
+            let Some(again) = send(self) else { return Answer::Transport };
+            (status, answer) = again;
+        }
+        Answer::Http { status, body: answer }
+    }
+
     /// One JSON POST to `path` with the bearer token, the same token
     /// handling as [`CloudClient::op`] (the trajectory routes, `trajectory.rs`).
     pub fn post_json(&mut self, path: &str, body: &Value, now_wall_ms: u64) -> Answer {
@@ -536,7 +553,7 @@ impl<H: Http> CloudClient<H> {
     /// (`carrier_ticket.rs`): the machine names itself; the caller nothing.
     pub fn carrier_ticket(&mut self, now_wall_ms: u64) -> Value {
         let path = super::carrier_ticket::path(&self.bound.machine);
-        let answer = self.post_with_token(&path, &json!({}), now_wall_ms);
+        let answer = self.post_empty_with_token(&path, now_wall_ms);
         super::carrier_ticket::reply_for(&answer)
     }
 
