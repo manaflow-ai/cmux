@@ -21,7 +21,7 @@ enum NewWorkspacePlacements {
                                    legacy: windows.services.sidebarLayout.unavailableReason != nil, machines: windows.services.machines) } == true
                 ? nil : windows.services.machines.daemon(forWorkspace: id)?.machineID
         }
-        return NewWorkspaceDefaultSlot(placement: placement, current: current, currentMachine: currentMachine, currentGap: NewWorkspaceDefaultSlot.belowCurrent(current, in: model?.sections))
+        return NewWorkspaceDefaultSlot(placement: placement, current: current, currentMachine: currentMachine, currentGaps: NewWorkspaceDefaultSlot.gaps(around: current, in: model?.sections))
     }
 
     /// Whether workspace `id` shows outside the window's workspace list: an item of a section of

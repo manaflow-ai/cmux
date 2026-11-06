@@ -34,34 +34,35 @@ public struct NewWorkspaceDefaultSlot: Hashable, Sendable {
     /// Its creator named `placement` (`agents chat new --top`): the daemon placed it by the setting, so `move` writes even its top slot.
     public var named = false
 
-    /// The gap right below `current` in the window's rows at the press (``belowCurrent(_:in:)``): where the new
-    /// workspace goes when `current` closes before it is listed, instead of the section's top.
-    public var currentGap: WorkspaceGap?
+    /// The gaps right below and right above `current` in the window's rows at the press (``gaps(around:in:)``):
+    /// where the new workspace goes when `current` closes before it is listed (by its next row, else its previous
+    /// one), instead of the section's top.
+    public var currentGaps: [WorkspaceGap]
 
     public init(placement: NewWorkspacePlacement, current: String? = nil, currentMachine: String? = nil, named: Bool = false,
-                currentGap: WorkspaceGap? = nil) {
+                currentGaps: [WorkspaceGap] = []) {
         self.placement = placement
         self.current = current
         self.currentMachine = currentMachine
         self.named = named
-        self.currentGap = currentGap
+        self.currentGaps = currentGaps
     }
 
-    /// The gap right below workspace `current` in its container of the window's `shown` rows (its group, else the
-    /// loose rows; pending rows left out), nil when they do not list it.
-    public static func belowCurrent(_ current: String?, in shown: [SidebarRowSection]?) -> WorkspaceGap? {
-        guard let current, let shown else { return nil }
+    /// The gaps right below and right above workspace `current` in its container of the window's `shown` rows (its
+    /// group, else the loose rows; pending rows left out), none when they do not list it.
+    public static func gaps(around current: String?, in shown: [SidebarRowSection]?) -> [WorkspaceGap] {
+        guard let current, let shown else { return [] }
         let sections = SidebarRowSection.withoutPlaceholders(shown)
-        guard let position = WorkspaceSlot.below(current).position(moving: [], besides: current, in: sections) else { return nil }
-        return WorkspaceGap(position, in: sections)
+        return [WorkspaceSlot.below(current), .above(current)].compactMap { slot in
+            slot.position(moving: [], besides: current, in: sections).flatMap { WorkspaceGap($0, in: sections) }
+        }
     }
 
-    /// Right below `current`, else where it was when it closed during the create (`currentGap`), else the end of
+    /// Right below `current`, else where it was when it closed during the create (`currentGaps`), else the end of
     /// the group it was in: what a new workspace made from the selected row resolves to (Leo 2026-11-06).
     private var belowCurrentOrItsPlace: [WorkspaceSlot] {
-        (current.map { [WorkspaceSlot.below($0)] } ?? []) + (currentGap.map { gap in
-            [.gap(gap)] + (gap.group.map { [.endOfGroup($0)] } ?? [])
-        } ?? [])
+        (current.map { [WorkspaceSlot.below($0)] } ?? []) + currentGaps.map { .gap($0) }
+            + (currentGaps.first?.group.map { [.endOfGroup($0)] } ?? [])
     }
 
     /// The current row is expected in this machine section but is not in the

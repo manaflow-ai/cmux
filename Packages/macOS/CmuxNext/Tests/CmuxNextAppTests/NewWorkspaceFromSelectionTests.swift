@@ -28,7 +28,7 @@ import Testing
     /// The rule a press made from `current` takes: the rows as they were then (no `n` yet).
     static func rule(from current: String?) -> NewWorkspaceDefaultSlot {
         NewWorkspaceDefaultSlot(placement: .afterCurrent, current: current,
-                                currentGap: NewWorkspaceDefaultSlot.belowCurrent(current, in: sections(new: false)))
+                                currentGaps: NewWorkspaceDefaultSlot.gaps(around: current, in: sections(new: false)))
     }
 
     /// The loose rows and `g1`'s members once `n` is at `slot`, resolved against the rows once the daemon lists `n`.
