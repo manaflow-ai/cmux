@@ -25,7 +25,7 @@ import Testing
         "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/settings/index.html": "s\n",
         "Native/OptChat/optchat-chief/inspector/index.html": "i\n",
     ]
-    static let treeDigest = "645e75a54a960ed3afb77b27adf24ceea07e735eaa2cee5920eab8bfdeb9adb7"
+    static let treeDigest = "82ba929a93ebcc51609a84991ecf129ff7036ba20694bee83abe737ed152e704"
 
     static func makeTree(at root: URL) throws {
         for (rel, text) in files {
