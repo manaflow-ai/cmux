@@ -46,11 +46,14 @@
 //! policy is one any unix socket client may name. Chief's turn and compactor presets keep their
 //! harness's own mode.
 //!
-//! Only the person widens a mode later (`hub/person.rs`), with one exception: a running chat may
+//! Only the person widens a mode later (`hub/person.rs`), with two exceptions
+//! ([`Hub::may_move_without_person`]), from the unix socket or the local app: a running chat may
 //! move to the full-access mode new chats of its profile start in now
-//! ([`Hub::is_start_full_access`]), from the unix socket or the local app. The person already
-//! chose that level for every new chat (Lawrence 2026-11-04: "set EVERY running ACP chat ... to
-//! bypass permissions (yolo) now, not only new sessions"); no other mode that does not ask.
+//! ([`Hub::is_start_full_access`]), and a Claude chat to Claude Code's own Auto
+//! (`claude_stdio::OWN_MODE`) while new chats start in full access or the harness's own mode. The
+//! person already chose that level for every new chat (Lawrence 2026-11-04: "set EVERY running
+//! ACP chat ... to bypass permissions (yolo) now, not only new sessions"; 2026-11-05, workers stuck
+//! in Manual: "u gotta fix this this is huge blocker"); no other mode that does not ask.
 //!
 //! Inherit (Leo 2026-10-25: "shouldn't sub-agents just inherit the bypass
 //! permission situation?"): a chat an agent starts, by `session/new` from
@@ -528,6 +531,39 @@ impl Hub {
             && self.full_access_allowed()
             && full_access_mode(&available(meta)).as_deref() == Some(mode)
             && self.start_level(&meta.harness).await.0 == DefaultMode::FullAccess
+    }
+
+    /// Whether a running chat may move to `mode` without the person (module docs): the
+    /// full-access mode its profile's new chats start in now (`is_start_full_access`), or Claude
+    /// Code's own start mode (`claude_stdio::OWN_MODE`, Auto) while new chats start at a level no
+    /// narrower than it: full access (allowed here) or the harness's own (`standard`). Auto asks
+    /// less than Manual but more than full access, so either level the person picked already
+    /// covers it; under `ask` it stays the person's. Never a chat a remote connection started.
+    pub(super) async fn may_move_without_person(
+        &self,
+        meta: &crate::store::SessionMeta,
+        mode: &str,
+    ) -> bool {
+        if self.is_start_full_access(meta, mode).await {
+            return true;
+        }
+        if meta.remote_origin
+            || mode != crate::claude_stdio::OWN_MODE
+            || crate::web_modes::family_of(meta) != "claude"
+            || !available(meta).iter().any(|m| m == mode)
+        {
+            return false;
+        }
+        // A chat whose policy is narrower than approve-all keeps the mode that holds it
+        // (`policy_mode.rs`).
+        let default = self.config.read().await.permission_policy;
+        if super::policy_mode::narrow_policy(meta, default).is_some() {
+            return false;
+        }
+        match self.start_level(&meta.harness).await.0 {
+            DefaultMode::FullAccess | DefaultMode::Standard => true,
+            DefaultMode::Ask => false,
+        }
     }
 
     /// The mode a new chat on `session` starts in (module docs), or `None`
