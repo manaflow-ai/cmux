@@ -26,106 +26,49 @@
    "optional": "debug.tunables is DEBUG only"
   },
   {
-   "title": "Workspace docs",
+   "title": "Workspace docs (a plain $ prompt from its first frame)",
    "cmux": [
     "workspace",
     "new",
     "--name",
     "docs",
     "--cwd",
-    "/tmp"
+    "/tmp",
+    "--shell",
+    "PS1='$ ' exec /bin/sh -i"
    ],
    "wait": 3,
    "shot": false
   },
   {
-   "title": "A plain $ prompt in docs",
-   "cmux": [
-    "workspace",
-    "name:docs",
-    "screen",
-    "current",
-    "pane",
-    "current",
-    "tab",
-    "current",
-    "terminal",
-    "current",
-    "write",
-    "--text",
-    "\u0015export PS1='$ ' PROMPT='$ '; clear\r"
-   ],
-   "wait": 1,
-   "shot": false,
-   "daemon": true
-  },
-  {
-   "title": "Workspace api",
+   "title": "Workspace api (a plain $ prompt from its first frame)",
    "cmux": [
     "workspace",
     "new",
     "--name",
     "api",
     "--cwd",
-    "/tmp"
+    "/tmp",
+    "--shell",
+    "PS1='$ ' exec /bin/sh -i"
    ],
    "wait": 3,
    "shot": false
   },
   {
-   "title": "A plain $ prompt in api",
-   "cmux": [
-    "workspace",
-    "name:api",
-    "screen",
-    "current",
-    "pane",
-    "current",
-    "tab",
-    "current",
-    "terminal",
-    "current",
-    "write",
-    "--text",
-    "\u0015export PS1='$ ' PROMPT='$ '; clear\r"
-   ],
-   "wait": 1,
-   "shot": false,
-   "daemon": true
-  },
-  {
-   "title": "Workspace Corner",
+   "title": "Workspace Corner (a plain $ prompt from its first frame)",
    "cmux": [
     "workspace",
     "new",
     "--name",
     "Corner",
     "--cwd",
-    "/tmp"
+    "/tmp",
+    "--shell",
+    "PS1='$ ' exec /bin/sh -i"
    ],
    "wait": 3,
    "shot": false
-  },
-  {
-   "title": "A plain $ prompt in Corner",
-   "cmux": [
-    "workspace",
-    "name:Corner",
-    "screen",
-    "current",
-    "pane",
-    "current",
-    "tab",
-    "current",
-    "terminal",
-    "current",
-    "write",
-    "--text",
-    "\u0015export PS1='$ ' PROMPT='$ '; clear\r"
-   ],
-   "wait": 1,
-   "shot": false,
-   "daemon": true
   },
   {
    "title": "Show Corner",
