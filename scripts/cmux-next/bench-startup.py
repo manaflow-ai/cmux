@@ -30,8 +30,9 @@ each run (a first launch on a new Mac; cold mode only). --profile realistic
 seeds one priming launch with REALISTIC_WORKSPACES workspaces of three
 terminal tabs and a split, then splits the selected pane and opens an agent
 chat in it, so the measured launch restores a full sidebar, a terminal and
-an agent pane. Its runs wait for the agent pane's handshake as well as the
-first terminal frame. --profile stress seeds one priming launch with the standard
+an agent pane. Its runs wait for the agent chat's first frame (agent_pane.painted,
+which both agent page hosts send) as well as the first terminal frame.
+--profile stress seeds one priming launch with the standard
 STRESS session (scripts/cmux-next/perf-stress-session.py: 60 workspaces, the shown
 one 14 panes of 6 tabs with a terminal selected in each, 10 of them printing), so
 the measured launch restores 14 visible terminals; its runs wait for the first
@@ -70,7 +71,11 @@ FINAL_MARK = "first_terminal_frame"
 # The reopen number (#31621): every visible terminal's saved frame shown, the last pane's time.
 VISIBLE_MARK = "launch.visible_terminals_drawn"
 VISIBLE_GRACE_S = 1.5
-AGENT_MARK = "agent_pane.handshake_end"
+# The agent chat drew its first frame after its handshake (`pane.painted`, AgentPaneModel.respond): sent on both agent
+# page hosts. Not agent_pane.handshake_end: only the pane's own WebKit host (AgentPaneBridge) marks that, and every new
+# agent tab is on the shared page host (AgentPageProvider) since AgentPaneTunables.chromium went on (69a51bf63bed), so
+# the seeded chat "never loaded" and --profile realistic measured terminals only.
+AGENT_MARK = "agent_pane.painted"
 # A seeding launch may build its state once the daemon's first tree is in: a fresh profile (after reset_state) shows
 # the first-run page, which draws no terminal and no agent page, so neither content mark ever comes there.
 SEED_READY = [FINAL_MARK, AGENT_MARK, "daemon.first_tree_applied"]
@@ -136,7 +141,8 @@ MARKS = [
     ("agent_pane.view_created", "first agent pane view made"),
     ("agent_pane.page_loaded", "agent page loaded (didFinish)"),
     ("agent_pane.handshake_start", "agent page asked for its handshake"),
-    (AGENT_MARK, "agent pane handshake answered"),
+    ("agent_pane.handshake_end", "agent pane handshake answered (pane's own host only)"),
+    (AGENT_MARK, "agent chat drew its first frame"),
     # The last quit's pane images, read off the main thread from main() (slice c): a `missed` row means a pane
     # asked before its read ended and showed its placeholder.
     ("agent_pane.launch_images_read", "saved agent pages read and decoded"),
