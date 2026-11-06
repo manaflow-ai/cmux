@@ -87,6 +87,10 @@ struct ClassicUpgradeHugeProfileTests {
                              Double(count) / perWorkspace, (now.total - was.total) * 1000 / Double(count),
                              (now.total - was.total) * 1000 / perWorkspace, now.longest * 1000, Double(now.bytes - was.bytes) / Double(count)))
             }
+            let changed = after.changedFields.map { ($0.key, $0.value - (before.changedFields[$0.key] ?? 0)) }.filter { $0.1 > 0 }
+            for (field, count) in changed.sorted(by: { $0.1 > $1.1 }).prefix(25) {
+                print(String(format: "CLASSIC-PROFILE %@ changed %@ n=%.1f/ws", label, field, Double(count) / perWorkspace))
+            }
             for (name, now) in after.eventsByName.sorted(by: { $0.value.bytes - (before.eventsByName[$0.key]?.bytes ?? 0) > $1.value.bytes - (before.eventsByName[$1.key]?.bytes ?? 0) }).prefix(20) {
                 let was = before.eventsByName[name] ?? (0, 0)
                 guard now.count > was.count else { continue }
