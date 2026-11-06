@@ -346,6 +346,8 @@ mod tests {
         let this = std::env::current_exe().unwrap().to_string_lossy().into_owned();
         assert_eq!(classify_command(&argv(&["claude", "auth", "status"]), "mine"), agent("claude"));
         assert_eq!(classify_command(&argv(&["/opt/x", "auth"]), "opencode-v2"), agent("opencode"));
+        // The claude-acp ACP adapter (`config/discover.rs`) is Claude Code under any profile name.
+        assert_eq!(classify_command(&argv(&["/opt/bin/claude-acp"]), "mine"), agent("claude"));
         // The host is this very binary running `chief acp`, nothing named like it.
         assert_eq!(classify_command(&argv(&[&this, "chief", "acp"]), "codex"), Runs::Host);
         assert_eq!(classify_command(&argv(&["cmux", "chief", "acp"]), "x"), Runs::Unknown);
