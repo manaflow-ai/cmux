@@ -74,6 +74,59 @@ import Testing
                 "the hibernation policy carries the freeing tier's")
     }
 
+    // MARK: Agents and running commands
+
+    /// An agent TUI idle past the setting (its prompt is not a shell's: no OSC 133 A).
+    static func agent(_ surface: String, _ agent: WorkspaceFreeingPlanner.Terminal.Agent) -> WorkspaceFreeingPlanner.Terminal {
+        var terminal = idle(surface)
+        terminal.promptSince = nil
+        terminal.commandSince = terminal.lastOutput
+        terminal.programReported = true
+        terminal.agent = agent
+        return terminal
+    }
+
+    /// A command that still runs, quiet past the setting (a stalled dev server).
+    static func running(_ surface: String) -> WorkspaceFreeingPlanner.Terminal {
+        var terminal = idle(surface)
+        terminal.promptSince = nil
+        terminal.commandSince = terminal.lastOutput
+        return terminal
+    }
+
+    @Test func anIdleAgentWithARecordedSessionFreesAndResumesOnShow() {
+        let plan = WorkspaceFreeingPlanner().plan([Self.agent("a1", .resumable)], policy: Self.on, now: Self.now)
+        #expect(plan.due == ["a1"])
+    }
+
+    @Test func aWorkingAgentOrAgentsOffKeepsTheTerminal() {
+        var off = Self.on
+        off.agents = false
+        #expect(WorkspaceFreeingPlanner().plan([Self.agent("a1", .resumable)], policy: off, now: Self.now).due.isEmpty)
+        #expect(WorkspaceFreeingPlanner().plan([Self.agent("a1", .working)], policy: Self.on, now: Self.now).due.isEmpty)
+    }
+
+    @Test func neverKeepsARunningCommandAndItsWorkspacesShells() {
+        let terminals = [Self.running("dev"), Self.idle("shell"), Self.idle("other", workspace: "w2")]
+        #expect(WorkspaceFreeingPlanner().plan(terminals, policy: Self.on, now: Self.now).due == ["other"])
+    }
+
+    @Test func relaunchFreesARunningCommandWithItsShell() {
+        var relaunch = Self.on
+        relaunch.runningCommands = .relaunch
+        let plan = WorkspaceFreeingPlanner().plan([Self.running("dev"), Self.idle("shell")], policy: relaunch, now: Self.now)
+        #expect(Set(plan.due) == ["dev", "shell"])
+    }
+
+    @Test func settingsParseTheAgentAndRunningCommandKeys() throws {
+        #expect(WorkspaceHibernationSettings().freeingAgents == true)
+        #expect(WorkspaceHibernationSettings().freeingRunningCommands == .never)
+        let json = #"{"workspaces":{"freeing":{"agents":false,"runningCommands":"relaunch"}}}"#
+        let snapshot = CmuxConfigSnapshot.parse(try JSONValue.parse(Data(json.utf8)), validDensities: [], validMetrics: [])
+        let policy = WorkspaceFreeingPlanner.Policy(snapshot.workspaceHibernation)
+        #expect(policy.agents == false && policy.runningCommands == .relaunch)
+    }
+
     // MARK: Coordinator
 
     /// The App's owners and this Mac's daemon in one fake.

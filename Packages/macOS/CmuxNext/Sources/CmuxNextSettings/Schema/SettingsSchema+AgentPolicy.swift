@@ -298,6 +298,7 @@ extension SettingsSchema {
         "workspaces.hibernation.hiddenSpaceMinutes": .userOnly,
         // Freeing ends shells (sidebar-recents-and-freeing-DESIGN.md): an agent must not turn it on to end the person's work.
         "workspaces.freeing.enabled": .destructive, "workspaces.freeing.idleMinutes": .destructive,
+        "workspaces.freeing.agents": .destructive, "workspaces.freeing.runningCommands": .destructive,
         // Which of the person's folders the Screenshots page reads.
         "screenshots.findTools": .privacy, "screenshots.folders": .privacy,
         // A pin leads the empty palette and an alias wins its word: an agent could put Close Window

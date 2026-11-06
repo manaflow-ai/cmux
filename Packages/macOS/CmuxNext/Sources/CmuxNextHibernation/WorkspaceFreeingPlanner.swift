@@ -28,25 +28,44 @@ public nonisolated struct WorkspaceFreeingPlanner: Sendable {
         public var enabled: Bool
         /// Minutes without use before a terminal frees.
         public var idleMinutes: Double
+        /// An idle agent TUI with a recorded session frees too (`workspaces.freeing.agents`).
+        public var agents: Bool
+        /// Whether a running command keeps its workspace's terminals (`never`) or ends with its shell (`relaunch`).
+        public var runningCommands: WorkspaceFreeingRunningCommandsSetting
 
         /// - Parameters:
         ///   - enabled: off by default (it ends shell processes).
         ///   - idleMinutes: one day by default.
+        ///   - agents: on by default (showing the tab resumes the session).
+        ///   - runningCommands: `never` by default (ending a program the person started is not ours to do silently).
         public init(enabled: Bool = WorkspaceHibernationSettings.freeingEnabledDefault,
-                    idleMinutes: Double = WorkspaceHibernationSettings.freeingIdleMinutesDefault) {
+                    idleMinutes: Double = WorkspaceHibernationSettings.freeingIdleMinutesDefault,
+                    agents: Bool = WorkspaceHibernationSettings.freeingAgentsDefault,
+                    runningCommands: WorkspaceFreeingRunningCommandsSetting = WorkspaceHibernationSettings.freeingRunningCommandsDefault) {
             self.enabled = enabled
             self.idleMinutes = idleMinutes
+            self.agents = agents
+            self.runningCommands = runningCommands
         }
 
         /// The policy cmux.json's `workspaces.freeing.*` sets; nil (no settings yet) takes the defaults.
         public init(_ settings: WorkspaceHibernationSettings?) {
             let settings = settings ?? WorkspaceHibernationSettings()
-            self.init(enabled: settings.freeingEnabled, idleMinutes: settings.freeingIdleMinutes)
+            self.init(enabled: settings.freeingEnabled, idleMinutes: settings.freeingIdleMinutes, agents: settings.freeingAgents,
+                      runningCommands: settings.freeingRunningCommands)
         }
     }
 
     /// One terminal tab of a workspace, and what keeps its shell running.
     public nonisolated struct Terminal: Hashable, Sendable {
+        /// The Claude Code or Codex TUI that runs in a terminal, as far as freeing goes.
+        public enum Agent: Hashable, Sendable {
+            /// Idle (no turn, nothing waits on the person) with its session id recorded: showing the tab resumes it.
+            case resumable
+            /// It works, waits on the person, or has no recorded session: it keeps the terminal.
+            case working
+        }
+
         /// The tab's surface id (what `park-tabs` takes).
         public var surface: String
         /// The workspace that holds it.
@@ -70,12 +89,17 @@ public nonisolated struct WorkspaceFreeingPlanner: Sendable {
         public var local: Bool
         /// The shell already ended or the tab is already parked.
         public var ended: Bool
+        /// The agent TUI that runs in it; nil: none.
+        public var agent: Agent?
+        /// When the command that runs now started; nil: none runs, or the shell sends no OSC 133.
+        public var commandSince: Date?
 
         /// A nil `promptSince` keeps the terminal running; `hibernated` and `local` default to true and `attached` to
         /// false, which the daemon's own attach and keep check backs up.
         public init(surface: String, workspace: String, workspaceLastActive: Date?, hibernated: Bool = true,
                     workspaceKept: Bool = false, promptSince: Date? = nil, lastOutput: Date? = nil,
-                    programReported: Bool = false, attached: Bool = false, local: Bool = true, ended: Bool = false) {
+                    programReported: Bool = false, attached: Bool = false, local: Bool = true, ended: Bool = false,
+                    agent: Agent? = nil, commandSince: Date? = nil) {
             self.surface = surface
             self.workspace = workspace
             self.workspaceLastActive = workspaceLastActive
@@ -87,6 +111,8 @@ public nonisolated struct WorkspaceFreeingPlanner: Sendable {
             self.attached = attached
             self.local = local
             self.ended = ended
+            self.agent = agent
+            self.commandSince = commandSince
         }
 
         /// Whether a fact keeps it running whatever its age.

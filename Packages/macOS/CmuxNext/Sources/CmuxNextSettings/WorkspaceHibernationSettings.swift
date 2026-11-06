@@ -16,6 +16,11 @@ public nonisolated struct WorkspaceHibernationSettings: Sendable, Equatable {
     public var freeingEnabled: Bool
     /// `workspaces.freeing.idleMinutes`: minutes of no use before a hibernated workspace's idle shells end.
     public var freeingIdleMinutes: Double
+    /// `workspaces.freeing.agents`: whether an idle Claude Code or Codex TUI with a recorded session frees too (on).
+    public var freeingAgents: Bool
+    /// `workspaces.freeing.runningCommands`: whether a running command keeps its terminal (`never`, the default) or
+    /// ends and is typed again on show (`relaunch`).
+    public var freeingRunningCommands: WorkspaceFreeingRunningCommandsSetting
 
     /// - Parameters:
     ///   - enabled: on by default.
@@ -23,14 +28,20 @@ public nonisolated struct WorkspaceHibernationSettings: Sendable, Equatable {
     ///   - hiddenSpaceMinutes: the generated default (``hiddenSpaceMinutesDefault``).
     ///   - freeingEnabled: off by default (``freeingEnabledDefault``).
     ///   - freeingIdleMinutes: one day by default (``freeingIdleMinutesDefault``).
+    ///   - freeingAgents: on by default (``freeingAgentsDefault``).
+    ///   - freeingRunningCommands: `never` by default (``freeingRunningCommandsDefault``).
     public init(enabled: Bool = Self.enabledDefault, idleMinutes: Double = Self.idleMinutesDefault,
                 hiddenSpaceMinutes: Double = Self.hiddenSpaceMinutesDefault,
-                freeingEnabled: Bool = Self.freeingEnabledDefault, freeingIdleMinutes: Double = Self.freeingIdleMinutesDefault) {
+                freeingEnabled: Bool = Self.freeingEnabledDefault, freeingIdleMinutes: Double = Self.freeingIdleMinutesDefault,
+                freeingAgents: Bool = Self.freeingAgentsDefault,
+                freeingRunningCommands: WorkspaceFreeingRunningCommandsSetting = Self.freeingRunningCommandsDefault) {
         self.enabled = enabled
         self.idleMinutes = idleMinutes
         self.hiddenSpaceMinutes = hiddenSpaceMinutes
         self.freeingEnabled = freeingEnabled
         self.freeingIdleMinutes = freeingIdleMinutes
+        self.freeingAgents = freeingAgents
+        self.freeingRunningCommands = freeingRunningCommands
     }
 
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> Self {
@@ -45,6 +56,9 @@ public nonisolated struct WorkspaceHibernationSettings: Sendable, Equatable {
         if var reader = ConfigFieldReader(root, at: ["workspaces", "freeing"], diagnostics: &diagnostics) {
             result.freeingEnabled = reader.bool("enabled") ?? freeingEnabledDefault
             result.freeingIdleMinutes = reader.number("idleMinutes", range: freeingIdleMinutesRange) ?? freeingIdleMinutesDefault
+            result.freeingAgents = reader.bool("agents") ?? freeingAgentsDefault
+            result.freeingRunningCommands = reader.choice("runningCommands", WorkspaceFreeingRunningCommandsSetting.self)
+                ?? freeingRunningCommandsDefault
             diagnostics += reader.diagnostics
         }
         return result
