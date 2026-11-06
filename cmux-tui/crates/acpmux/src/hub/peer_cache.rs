@@ -7,21 +7,7 @@ use super::*;
 
 /// While a peer's sessions change, at most one save this often; a fresh
 /// list and the first drop are saved at once.
-const SAVE_EVERY_MS: u64 = 30_000;
-
-type CacheWriterKey = (usize, String);
-
-static CACHE_WRITERS: std::sync::OnceLock<StdMutex<HashMap<CacheWriterKey, Arc<StdMutex<()>>>>> =
-    std::sync::OnceLock::new();
-
-#[cfg(test)]
-static CACHE_TEST_WRITES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-#[cfg(test)]
-static CACHE_TEST_WRITE_DELAY_MS: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(0);
-#[cfg(test)]
-static CACHE_TEST_WRITE_STARTED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+pub(super) const SAVE_EVERY_MS: u64 = 30_000;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -70,10 +56,8 @@ impl Hub {
     /// through serialization and the atomic rename, while both global locks are held only for
     /// their short snapshots.
     pub(super) fn peer_cache_writer(&self, peer: &str) -> Arc<StdMutex<()>> {
-        let key = (self as *const Hub as usize, peer.to_owned());
-        let writers = CACHE_WRITERS.get_or_init(Default::default);
-        let mut writers = writers.lock().unwrap_or_else(|e| e.into_inner());
-        writers.entry(key).or_insert_with(|| Arc::new(StdMutex::new(()))).clone()
+        let mut writers = self.peer_cache_writers.lock().unwrap_or_else(|e| e.into_inner());
+        writers.entry(peer.to_owned()).or_insert_with(|| Arc::new(StdMutex::new(()))).clone()
     }
 
     /// Save `peer`'s rows, while `generation` is the instance registered
@@ -92,6 +76,7 @@ impl Hub {
         let at = now_ms();
         let last = p.cache_saved_at.load(std::sync::atomic::Ordering::SeqCst);
         if !now && at.saturating_sub(last) < SAVE_EVERY_MS {
+            p.cache_dirty.store(true, std::sync::atomic::Ordering::SeqCst);
             return;
         }
         // Snapshot each shared structure independently. The writer gate preserves ordering for
@@ -114,10 +99,13 @@ impl Hub {
             crate::config::private_state_dir(&dir)?;
             #[cfg(test)]
             {
-                CACHE_TEST_WRITES.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                CACHE_TEST_WRITE_STARTED.store(true, std::sync::atomic::Ordering::SeqCst);
-                let delay = CACHE_TEST_WRITE_DELAY_MS.load(std::sync::atomic::Ordering::SeqCst);
-                if delay != 0 {
+                self.cache_test_writes.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                self.cache_test_write_started.store(true, std::sync::atomic::Ordering::SeqCst);
+                let delay_peer =
+                    self.cache_test_delay_peer.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                let delay =
+                    self.cache_test_write_delay_ms.load(std::sync::atomic::Ordering::SeqCst);
+                if delay != 0 && delay_peer.as_deref().is_none_or(|p| p == peer) {
                     std::thread::sleep(std::time::Duration::from_millis(delay));
                 }
             }
@@ -127,6 +115,7 @@ impl Hub {
             tracing::warn!(peer = %peer, "saving the peer's last-known sessions failed: {e}");
         } else {
             p.cache_saved_at.store(at, std::sync::atomic::Ordering::SeqCst);
+            p.cache_dirty.store(false, std::sync::atomic::Ordering::SeqCst);
             p.cache_saved_outage
                 .store(saved.down_since.is_some(), std::sync::atomic::Ordering::SeqCst);
         }
@@ -159,6 +148,8 @@ impl Hub {
     /// `forget_peer_files` under the rows lock (`remove_peer` holds it itself).
     #[cfg(test)]
     pub(super) fn forget_peer_cache(&self, peer: &str) {
+        let writer = self.peer_cache_writer(peer);
+        let _writer = writer.lock().unwrap_or_else(|e| e.into_inner());
         let _rows = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
         self.forget_peer_files(peer);
     }
@@ -402,8 +393,8 @@ mod tests {
     fn a_burst_of_session_lists_is_coalesced_to_throttled_cache_writes() {
         let (hub, _dir) = test_hub();
         let peer = add_idle_peer(&hub, "builder");
-        CACHE_TEST_WRITE_DELAY_MS.store(0, std::sync::atomic::Ordering::SeqCst);
-        CACHE_TEST_WRITES.store(0, std::sync::atomic::Ordering::SeqCst);
+        hub.cache_test_write_delay_ms.store(0, std::sync::atomic::Ordering::SeqCst);
+        hub.cache_test_writes.store(0, std::sync::atomic::Ordering::SeqCst);
         hub.apply_peer_notice(
             "builder",
             peer.generation,
@@ -414,7 +405,7 @@ mod tests {
             row["updatedAt"] = json!(at + 10);
             hub.apply_peer_notice("builder", peer.generation, PeerNotice::Sessions(vec![row]));
         }
-        let writes = CACHE_TEST_WRITES.load(std::sync::atomic::Ordering::SeqCst);
+        let writes = hub.cache_test_writes.load(std::sync::atomic::Ordering::SeqCst);
         assert!(writes < 32, "writes={writes}");
     }
 
@@ -422,8 +413,8 @@ mod tests {
     fn disconnect_forces_the_latest_dirty_rows_to_disk() {
         let (hub, dir) = test_hub();
         let peer = add_idle_peer(&hub, "builder");
-        CACHE_TEST_WRITE_DELAY_MS.store(0, std::sync::atomic::Ordering::SeqCst);
-        CACHE_TEST_WRITES.store(0, std::sync::atomic::Ordering::SeqCst);
+        hub.cache_test_write_delay_ms.store(0, std::sync::atomic::Ordering::SeqCst);
+        hub.cache_test_writes.store(0, std::sync::atomic::Ordering::SeqCst);
         hub.apply_peer_notice(
             "builder",
             peer.generation,
@@ -436,7 +427,7 @@ mod tests {
         let bytes = std::fs::read(dir.path().join("peers/builder.json")).unwrap();
         let saved: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(saved["sessions"][0]["status"], "unreachable");
-        assert!(CACHE_TEST_WRITES.load(std::sync::atomic::Ordering::SeqCst) >= 2);
+        assert!(hub.cache_test_writes.load(std::sync::atomic::Ordering::SeqCst) >= 2);
     }
 
     #[test]
@@ -466,16 +457,16 @@ mod tests {
             peer.generation,
             PeerNotice::Sessions(vec![remote("old", "lane")]),
         );
-        CACHE_TEST_WRITES.store(0, std::sync::atomic::Ordering::SeqCst);
-        CACHE_TEST_WRITE_STARTED.store(false, std::sync::atomic::Ordering::SeqCst);
-        CACHE_TEST_WRITE_DELAY_MS.store(100, std::sync::atomic::Ordering::SeqCst);
+        hub.cache_test_writes.store(0, std::sync::atomic::Ordering::SeqCst);
+        hub.cache_test_write_started.store(false, std::sync::atomic::Ordering::SeqCst);
+        hub.cache_test_write_delay_ms.store(100, std::sync::atomic::Ordering::SeqCst);
         let saving = {
             let hub = hub.clone();
             let generation = peer.generation;
             std::thread::spawn(move || hub.save_peer_cache("builder", generation, true))
         };
         for _ in 0..100_000 {
-            if CACHE_TEST_WRITE_STARTED.load(std::sync::atomic::Ordering::SeqCst) {
+            if hub.cache_test_write_started.load(std::sync::atomic::Ordering::SeqCst) {
                 break;
             }
             std::thread::yield_now();
@@ -485,7 +476,7 @@ mod tests {
         hub.apply_peer_notice("builder", peer.generation, PeerNotice::Sessions(vec![newer]));
         hub.save_peer_cache("builder", peer.generation, true);
         saving.join().unwrap();
-        CACHE_TEST_WRITE_DELAY_MS.store(0, std::sync::atomic::Ordering::SeqCst);
+        hub.cache_test_write_delay_ms.store(0, std::sync::atomic::Ordering::SeqCst);
         let saved: Value =
             serde_json::from_slice(&std::fs::read(dir.path().join("peers/builder.json")).unwrap())
                 .unwrap();
@@ -504,15 +495,16 @@ mod tests {
                 PeerNotice::Sessions(vec![remote("m1", name)]),
             );
         }
-        CACHE_TEST_WRITE_STARTED.store(false, std::sync::atomic::Ordering::SeqCst);
-        CACHE_TEST_WRITE_DELAY_MS.store(200, std::sync::atomic::Ordering::SeqCst);
+        hub.cache_test_write_started.store(false, std::sync::atomic::Ordering::SeqCst);
+        hub.cache_test_write_delay_ms.store(200, std::sync::atomic::Ordering::SeqCst);
+        *hub.cache_test_delay_peer.lock().unwrap() = Some("slow".into());
         let saving = {
             let hub = hub.clone();
             let generation = slow.generation;
             std::thread::spawn(move || hub.save_peer_cache("slow", generation, true))
         };
         for _ in 0..100_000 {
-            if CACHE_TEST_WRITE_STARTED.load(std::sync::atomic::Ordering::SeqCst) {
+            if hub.cache_test_write_started.load(std::sync::atomic::Ordering::SeqCst) {
                 break;
             }
             std::thread::yield_now();
@@ -521,7 +513,79 @@ mod tests {
         hub.save_peer_cache("fast", fast.generation, true);
         let elapsed = started.elapsed();
         saving.join().unwrap();
-        CACHE_TEST_WRITE_DELAY_MS.store(0, std::sync::atomic::Ordering::SeqCst);
+        hub.cache_test_write_delay_ms.store(0, std::sync::atomic::Ordering::SeqCst);
+        *hub.cache_test_delay_peer.lock().unwrap() = None;
         assert!(elapsed < std::time::Duration::from_millis(150), "fast save waited {elapsed:?}");
+    }
+
+    #[test]
+    fn held_ask_release_after_sessions_does_not_reenter_a_notice_lock() {
+        let (hub, _dir) = test_hub();
+        let peer = add_idle_peer(&hub, "builder");
+        hub.held_peer_asks.hold(
+            "builder",
+            peer.generation,
+            "m1",
+            PeerNotice::SessionChanged {
+                session: remote("m1", "lane"),
+                kind: "status".into(),
+                seq: 1,
+            },
+        );
+        hub.apply_peer_notice(
+            "builder",
+            peer.generation,
+            PeerNotice::Sessions(vec![remote("m1", "lane")]),
+        );
+        assert_eq!(hub.remote_sessions().len(), 1);
+        hub.held_peer_asks.hold(
+            "builder",
+            peer.generation,
+            "m2",
+            PeerNotice::SessionChanged {
+                session: remote("m2", "lane-2"),
+                kind: "status".into(),
+                seq: 2,
+            },
+        );
+        hub.apply_peer_notice(
+            "builder",
+            peer.generation,
+            PeerNotice::SessionChanged {
+                session: remote("m2", "lane-2"),
+                kind: "status".into(),
+                seq: 3,
+            },
+        );
+        assert_eq!(hub.remote_sessions().len(), 2);
+    }
+
+    #[test]
+    fn removing_a_peer_cannot_be_followed_by_its_in_flight_cache_write() {
+        let (hub, dir) = test_hub();
+        let peer = add_idle_peer(&hub, "builder");
+        hub.apply_peer_notice(
+            "builder",
+            peer.generation,
+            PeerNotice::Sessions(vec![remote("m1", "lane")]),
+        );
+        hub.cache_test_write_started.store(false, std::sync::atomic::Ordering::SeqCst);
+        hub.cache_test_write_delay_ms.store(100, std::sync::atomic::Ordering::SeqCst);
+        let saving = {
+            let hub = hub.clone();
+            let generation = peer.generation;
+            std::thread::spawn(move || hub.save_peer_cache("builder", generation, true))
+        };
+        for _ in 0..100_000 {
+            if hub.cache_test_write_started.load(std::sync::atomic::Ordering::SeqCst) {
+                break;
+            }
+            std::thread::yield_now();
+        }
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        runtime.block_on(hub.remove_peer("builder")).unwrap();
+        saving.join().unwrap();
+        hub.cache_test_write_delay_ms.store(0, std::sync::atomic::Ordering::SeqCst);
+        assert!(!dir.path().join("peers/builder.json").exists());
     }
 }

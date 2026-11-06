@@ -4,12 +4,6 @@ use super::*;
 use crate::session_identity::SessionReceipt;
 use cmux_json::JsonSet as _;
 
-type PeerNoticeLockKey = (usize, String);
-
-static PEER_NOTICE_LOCKS: std::sync::OnceLock<
-    StdMutex<HashMap<PeerNoticeLockKey, Arc<StdMutex<()>>>>,
-> = std::sync::OnceLock::new();
-
 pub(super) fn session_receipt(summary: &Value) -> Option<SessionReceipt> {
     summary.get("sessionReceipt").and_then(|value| serde_json::from_value(value.clone()).ok())
 }
@@ -48,16 +42,6 @@ fn take_peer_rows(map: &mut super::remote_rows::RemoteRows, name: &str) -> Vec<V
 }
 
 impl Hub {
-    /// Serializes notices for one peer while allowing unrelated peers to proceed independently.
-    /// The guard is held through the per-peer diff and event announcements, but never replaces
-    /// the short `remote_sessions` snapshots with a global lock around the expensive work.
-    pub(super) fn peer_notice_lock(&self, peer: &str) -> Arc<StdMutex<()>> {
-        let key = (self as *const Hub as usize, peer.to_owned());
-        let locks = PEER_NOTICE_LOCKS.get_or_init(Default::default);
-        let mut locks = locks.lock().unwrap_or_else(|e| e.into_inner());
-        locks.entry(key).or_insert_with(|| Arc::new(StdMutex::new(()))).clone()
-    }
-
     // ------------------------------------------------------------- peers
 
     pub(super) fn start_peer(
@@ -375,6 +359,8 @@ impl Hub {
         // `peer_leases`, `remote_sessions`, then `peers`).
         let mut cfg = self.config.write().await;
         let gone = {
+            let writer = self.peer_cache_writer(name);
+            let _writer = writer.lock().unwrap_or_else(|e| e.into_inner());
             // Under the lease lock, so no save of the removed peer's sessions
             // lands after its cache is gone (`save_peer_cache`).
             let leases = self.peer_leases.lock().unwrap_or_else(|e| e.into_inner());
@@ -396,6 +382,7 @@ impl Hub {
             self.forget_peer_files(name);
             take_peer_rows(&mut rows, name)
         };
+        self.peer_cache_writers.lock().unwrap_or_else(|e| e.into_inner()).remove(name);
         // A late notice of it finds it gone. Clients watching the list drop its rows.
         for summary in gone {
             self.announce_remote(name, summary, "purged");
@@ -611,8 +598,6 @@ impl Hub {
         // that changes rows checks again under the rows lock.
         use crate::peer::PeerNotice;
         let peer = peer.to_owned();
-        let notice_lock = self.peer_notice_lock(&peer);
-        let _notice = notice_lock.lock().unwrap_or_else(|e| e.into_inner());
         {
             match notice {
                 PeerNotice::Connected => {
@@ -722,12 +707,12 @@ impl Hub {
                         for (id, row) in updates {
                             map.insert(id, row);
                         }
-                    }
-                    // Which generation of each session is current (`peer_snapshot.rs`), sent
-                    // after the swap and before events, so a page asked of a row read after it
-                    // comes after it.
-                    if self.peer_snapshots.allows(generation) {
-                        self.peer_snapshots.listed(&peer, listed, true);
+                        // Which generation of each session is current (`peer_snapshot.rs`), sent
+                        // while the row swap is still held, so a page cannot observe a row before
+                        // its listing record.
+                        if self.peer_snapshots.allows(generation) {
+                            self.peer_snapshots.listed(&peer, listed, true);
+                        }
                     }
                     // A burst of lists is dirty state, not an immediate disk write for every
                     // notice. The throttle admits one snapshot per interval; disconnect/drop

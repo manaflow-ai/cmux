@@ -55,6 +55,8 @@ impl Hub {
         // belongs to the main daemon, including before its waiter registers.
         let mut stop = self.peer_notices_stop.subscribe();
         let mut drops = Outages::new();
+        let mut cache_tick =
+            tokio::time::interval(Duration::from_millis(super::peer_cache::SAVE_EVERY_MS));
         loop {
             if *stop.borrow() {
                 break;
@@ -84,6 +86,17 @@ impl Hub {
                 }
                 // No timer task outlives this loop or daemon shutdown.
                 _ = stop.changed() => break,
+                _ = cache_tick.tick() => {
+                    let dirty: Vec<_> = self.peers.lock().unwrap_or_else(|e| e.into_inner())
+                        .values()
+                        .filter(|p| p.cache_dirty.load(Ordering::SeqCst))
+                        .map(|p| (p.name.clone(), p.generation))
+                        .collect();
+                    for (peer, generation) in dirty {
+                        self.save_peer_cache(&peer, generation, true);
+                    }
+                    continue;
+                }
             };
             let Some((peer, generation, notice)) = incoming else { break };
             let Some(current) = self.peer(&peer).filter(|p| p.generation == generation) else {
@@ -131,6 +144,17 @@ impl Hub {
                 current.mark_settled();
                 self.watches.peer_settled();
             }
+        }
+        let dirty: Vec<_> = self
+            .peers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .values()
+            .filter(|p| p.cache_dirty.load(Ordering::SeqCst))
+            .map(|p| (p.name.clone(), p.generation))
+            .collect();
+        for (peer, generation) in dirty {
+            self.save_peer_cache(&peer, generation, true);
         }
     }
 }
