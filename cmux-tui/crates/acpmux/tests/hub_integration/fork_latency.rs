@@ -1,7 +1,8 @@
 //! A measurement, not a check: how long Fork Conversation (`acp.session.fork`) takes to answer
-//! on a Claude chat of `FORK_LATENCY_EVENTS` log records (default 2000, 20000 and 60000), on the
-//! disk store, `FORK_LATENCY_RUNS` (default 5) forks each. The answer is what the pane waits
-//! for before it opens the fork (Leo, 2026-11-06: "it's so SLOW").
+//! on a Claude chat of 100 turns streaming `FORK_LATENCY_WORDS` text chunks in all (default 2000,
+//! 20000 and 60000) on the disk store, `FORK_LATENCY_RUNS` (default 5) forks each. The answer is what the pane waits
+//! for before it opens the fork (Leo, 2026-11-06: "it's so SLOW"). A second connection watches
+//! every chat, as the app does: `notes` counts what one fork sends it, each one work for the app.
 //! `cargo test -p acpmux --test hub_integration fork_latency -- --ignored --nocapture`
 
 use super::*;
@@ -10,7 +11,7 @@ use super::*;
 #[ignore]
 async fn fork_latency() {
     let var = |k: &str| std::env::var(k).ok();
-    let sizes: Vec<usize> = var("FORK_LATENCY_EVENTS")
+    let sizes: Vec<usize> = var("FORK_LATENCY_WORDS")
         .map(|v| v.split(',').filter_map(|n| n.trim().parse().ok()).collect())
         .unwrap_or_else(|| vec![2_000, 20_000, 60_000]);
     let runs: usize = var("FORK_LATENCY_RUNS").and_then(|v| v.parse().ok()).unwrap_or(5);
@@ -21,49 +22,44 @@ async fn fork_latency() {
         let (hub, mut c) = disk_claude_setup(&root, &claude).await;
         let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await;
         let id = s.unwrap()["sessionId"].as_str().unwrap().to_owned();
-        for text in ["first".to_owned(), format!("burst: {size}")] {
+        for _ in 0..100 {
+            let text = format!("burst: {}", size / 100);
             let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]});
             c.request(method::SESSION_PROMPT, prompt).await.unwrap();
         }
-        let events = hub.session_summary(&hub.resolve(&id).unwrap())["eventCount"].clone();
-        for (label, params) in [
-            ("live", json!({"sessionId": id, "live": true})),
-            ("reply", json!({"sessionId": id, "throughSeq": last_turn_result(&hub, &id)})),
-        ] {
-            let mut took = Vec::with_capacity(runs);
-            for _ in 0..runs {
-                let started = std::time::Instant::now();
-                let f = c.request(FORK_OP, params.clone()).await.unwrap();
-                took.push(started.elapsed());
-                let fid = f["sessionId"].as_str().unwrap().to_owned();
-                // The fork holds the chat's history, whenever it reads it.
-                assert!(!hub.events(&fid, 0, 10).unwrap().is_empty());
+        // Drained as it comes, as the app reads its socket.
+        let mut app = super::usage_stats::connect(&hub).await;
+        app.request(method::MUX_WATCH, json!({"enabled": true})).await.unwrap();
+        let heard = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = heard.clone();
+        let drain = tokio::spawn(async move {
+            while app.rx.recv().await.is_some() {
+                counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
-            took.sort();
-            let at =
-                |q: f64| took[((took.len() as f64 * q).ceil() as usize).clamp(1, took.len()) - 1];
-            println!(
-                "fork_latency {label}: events={events} runs={runs} p50={:?} p95={:?} max={:?}",
-                at(0.50),
-                at(0.95),
-                took[took.len() - 1]
-            );
+        });
+        let events = hub.session_summary(&hub.resolve(&id).unwrap())["eventCount"].clone();
+        let mut took = Vec::with_capacity(runs);
+        for _ in 0..runs {
+            let started = std::time::Instant::now();
+            let f = c.request(FORK_OP, json!({"sessionId": id, "live": true})).await.unwrap();
+            took.push(started.elapsed());
+            let fid = f["sessionId"].as_str().unwrap().to_owned();
+            // The fork holds the chat's history.
+            assert!(!hub.events(&fid, 0, 10).unwrap().is_empty());
         }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let notes = heard.load(std::sync::atomic::Ordering::Relaxed) / runs;
+        took.sort();
+        let at = |q: f64| took[((took.len() as f64 * q).ceil() as usize).clamp(1, took.len()) - 1];
+        println!(
+            "fork_latency: events={events} runs={runs} p50={:?} p95={:?} max={:?} app_notes_per_fork={notes}",
+            at(0.50),
+            at(0.95),
+            took[took.len() - 1],
+        );
+        drain.abort();
         hub.shutdown_all().await;
         let _ = std::fs::remove_dir_all(&root);
-    }
-}
-
-fn last_turn_result(hub: &Arc<Hub>, id: &str) -> u64 {
-    let mut after = 0;
-    let mut last = 0;
-    loop {
-        let page = hub.events(id, after, 1000).unwrap();
-        let Some(end) = page.last() else { return last };
-        after = end.seq;
-        if let Some(r) = page.iter().rev().find(|e| e.kind == "turn_result") {
-            last = r.seq;
-        }
     }
 }
 
