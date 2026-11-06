@@ -32,7 +32,7 @@ extension CMUXCLI {
     static var vmPushUsage: String {
         """
         Usage: cmux vm push <id> <local-path> [remote-path] [--exclude <pattern>]... [--no-default-excludes] [--allow-large]
-               cmux vm push <id> <local-path> [remote-path] --watch [--interval <seconds>] [--exclude <pattern>]...
+               cmux vm push <id> <local-path> [remote-path] --watch [--interval <seconds>] [--exclude <pattern>]... [--no-default-excludes] [--allow-large]
                cmux vm push --secret <id> <local-file> [remote-path] [--mode <octal>]
 
         Copy a local file or directory onto a cloud machine over its private
@@ -1792,7 +1792,7 @@ extension CMUXCLI {
 
     static var vmAgentUsage: String {
         """
-        Usage: cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--focus|--no-focus] [--remote-workspace <ws>] [--wait [--output] [--timeout <seconds>]] [--new] [--size <4g|8g|16g|24g|32g|64g|MB>] [--json] -- <prompt or args...>
+        Usage: cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--focus|--no-focus] [--remote-workspace <ws>] [--wait] [--output] [--timeout <seconds>] [--new] [--size <4g|8g|16g|24g|32g|64g|MB>] [--json] -- <prompt or args...>
 
         Short forms:
           cmux agent <claude|codex|opencode|pi> [vm-agent-options] -- <prompt or args...>
@@ -1826,10 +1826,11 @@ extension CMUXCLI {
           --wait           Block until the agent's process exits and pass its exit
                            code through (`exited code=<n>`; 1 for a signal). Ctrl-C
                            stops waiting only — the agent keeps running detached.
-          --output         With --wait: print the agent's whole terminal output on
-                           stdout when it ends (the launch lines move to stderr).
-          --timeout <s>    With --wait: give up waiting after this many seconds
-                           (exit 1, the agent is not stopped). Default: no limit.
+          --output         Wait for the agent to exit and print its whole terminal
+                           output on stdout (the launch lines move to stderr).
+          --timeout <s>    Requires --wait or --output. Give up waiting after this
+                           many seconds (exit 1; the agent is not stopped).
+                           Default: no limit.
           --new            Force a fresh pool machine.
           --size <4g|8g|16g|24g|32g|64g|MB>
                            Memory preset for a machine this call creates

@@ -63,6 +63,17 @@ class PerTest(unittest.TestCase):
         self.assertTrue(verdict.own)
         self.assertIn("pass or do not run on the base: c()", verdict.reasons[0])
 
+    def test_display_named_swift_testing_reds_are_compared_by_name(self):
+        # PR 35296's shard 2: `@Test("…")` names print quoted, with no `()`.
+        shared = '✘ Test "A capped plan shows used/limit" recorded an issue at X.swift:25:9: Expectation failed'
+        param = ('✘ Test "Hovering shows help" recorded an issue with 2 arguments activeCount → 1, help → "x" '
+                 'at X.swift:1:2: Expectation failed')
+        self.assertEqual(reds.read(log(shared, param, SUMMARY)).failed,
+                         {'"A capped plan shows used/limit"', '"Hovering shows help"'})
+        self.assertFalse(reds.classify(log(shared, SUMMARY), log(shared, SUMMARY)).own)
+        new = log(shared, '✘ Test "Another" recorded an issue at X.swift:3:4: Expectation failed', SUMMARY)
+        self.assertIn('"Another"', reds.classify(new, log(shared, SUMMARY)).reasons[0])
+
     def test_a_crash_on_both_sides_is_still_the_heads_own(self):
         both = log(failed("a()"), ABORT, "*** Terminating app due to uncaught exception 'NSInternalInconsistencyException'")
         verdict = reds.classify(both, both)

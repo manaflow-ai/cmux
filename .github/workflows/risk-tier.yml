@@ -51,7 +51,11 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.base.ref }}
           persist-credentials: false
-          sparse-checkout: scripts/ci/risk_tier.py
+          # receipt_grammar.py: risk_tier.py imports it for the review receipt grammar (feat-cmux-next
+          # #36941). A base before that has no such file; the pattern then matches nothing.
+          sparse-checkout: |
+            scripts/ci/risk_tier.py
+            scripts/ci/receipt_grammar.py
           sparse-checkout-cone-mode: false
       # The base's last 9 days of history, for the check that flags taking back a change another
       # pull request merged recently (a stale base). A fresh repository with full blobs, not the

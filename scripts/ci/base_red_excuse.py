@@ -129,7 +129,8 @@ VERDICTS = frozenset({"success", "failure"})
 # commit used up five).
 LOOKBACK = 10
 TESTS = (
-    re.compile(r"✘ Test (.+?\)) (?:recorded an issue|failed)"),  # Swift Testing
+    # Swift Testing: `name()`, or a display name (`@Test("A capped plan …")` prints `✘ Test "A capped plan …"`).
+    re.compile(r"✘ Test (\"[^\"\n]*\"|.+?\)) (?:recorded an issue|failed)"),
     re.compile(r"Test Case '-\[(\S+ \S+)\]' failed"),  # XCTest
     re.compile(r"^test (\S+) \.\.\. FAILED$"),  # cargo test
     re.compile(r"^(?:FAIL|ERROR): (\S+ \([^)]+\))"),  # unittest
