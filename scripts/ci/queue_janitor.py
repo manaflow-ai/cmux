@@ -1469,17 +1469,27 @@ def _gated(run_jobs: Iterable[Mapping[str, Any]], suspects: Iterable[Mapping[str
     Its wait has not begun, whether the run is stale or current. A sibling
     that is itself a suspect (unassigned and overdue, and in find_lost() also
     skipped by its pool) is no gate, so two lost jobs never mask each other.
-    Nor is a sibling no suspect may need (may_need(): created with or after
-    every suspect), running or not: the run cannot finish without the lost
-    job, a cancel's re-run brings the sibling back with it, and in run
-    41158893861 such siblings were created in waves (02:30Z, 02:43Z, 02:57Z)
-    and kept running beside the lost `GhosttyKit release check` until a
-    runner took it at 02:59Z, 41 minutes in.
+    Nor is a queued sibling no suspect may need (may_need(): created with or
+    after every suspect): the run cannot finish without the lost job, a
+    cancel's re-run brings the sibling back with it, and in run 41158893861
+    such siblings were created in waves (02:30Z, 02:43Z, 02:57Z) beside the
+    lost `GhosttyKit release check` until a runner took it at 02:59Z, 41
+    minutes in.
+
+    A running sibling (in_progress on a runner) always gates, needed or not:
+    the cancel would kill its work, and its re-run starts it from scratch at
+    the back of its pool's queue. Run 42018091049 attempt 2 (PR #36356,
+    2026-11-05): `cmux-next swift test` had run 26 minutes on its runner when
+    the sweep cancelled the run for `cmux-next daemon tests`, created the
+    same second and queued 31 minutes. The lost job is failed over once the
+    running siblings finish, and a re-run of the failed jobs then leaves
+    their results alone.
     """
     suspects = list(suspects)
     exempt = {id(job) for job in suspects}
     return any(job.get("status") != "completed" and id(job) not in exempt
-               and any(may_need(suspect, job) for suspect in suspects) for job in run_jobs)
+               and (job.get("status") in RUNNING_JOB_STATUSES or any(may_need(suspect, job) for suspect in suspects))
+               for job in run_jobs)
 
 
 def _lost_scope(run: Mapping[str, Any]) -> bool:
@@ -3341,6 +3351,10 @@ def open_head_jobs_moved(
         fresh = [job for job in now if job.get("status") != "completed" and _job_key(job) not in lost]
         if fresh:
             return f"job {fresh[0].get('name')!r} is unfinished beside the lost jobs"
+    # A sibling running now, at any head, would be killed by the cancel (_gated(); run 42018091049).
+    running = [job for job in now if job.get("status") in RUNNING_JOB_STATUSES and _job_key(job) not in lost]
+    if running:
+        return f"job {running[0].get('name')!r} is running beside the lost job"
     return None
 
 
