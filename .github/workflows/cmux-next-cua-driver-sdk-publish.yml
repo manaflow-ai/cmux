@@ -189,7 +189,7 @@ jobs:
           echo "$WANT  $tarball" | sha256sum -c -
           mkdir -p "$RUNNER_TEMP/pin"
           python3 -I - "$tarball" "$WANT" "$TAG" "$COMMIT" "$SOURCE_SHA" "$RUN_URL" "$RUNNER_TEMP/pin/cua-driver-sdk.pin.json" <<'PY'
-          import hashlib, json, sys, tarfile
+          import hashlib, json, re, sys, tarfile
           path, sha, tag, commit, source_sha, run_url, out = sys.argv[1:]
           asset = "cua-driver-sdk-macos-arm64"
           with tarfile.open(path, "r:gz") as tar:
@@ -205,12 +205,14 @@ jobs:
               header = hashlib.sha256(read("include/cua_driver_abi.h")).hexdigest()
           assert info["upstream_tag"] == tag and info["upstream_commit"] == commit, "build-info names another release"
           assert info["crate"] == "cua-driver-sdk", "crate"
+          # `ld -v` prints "@(#)PROGRAM:ld PROJECT:ld-1267"; the pin keeps "ld-1267".
+          ld = re.search(r"PROJECT:(\S+)", str(info["ld"]))
           pin = {
               "asset": f"{asset}.tar.gz", "arch": "arm64", "sha256": sha, "r2_bucket": "cmux-cef",
               "r2_key": f"cua-driver-sdk/{sha}/{asset}.tar.gz",
               "upstream_repo": "https://github.com/trycua/cua", "upstream_tag": tag, "upstream_commit": commit,
               "crate": "cua-driver-sdk", "rust_toolchain": str(info["rust_toolchain"]),
-              "developer_dir": str(info["developer_dir"]), "ld": str(info["ld"]).split()[0] if info["ld"] else "",
+              "developer_dir": str(info["developer_dir"]), "ld": ld.group(1) if ld else str(info["ld"]),
               "license": "MIT", "dylib_sha256": dylib, "header_sha256": header,
               "build_job": run_url, "build_script_commit": source_sha,
           }
