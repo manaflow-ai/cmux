@@ -129,6 +129,12 @@ impl Hub {
         if !now && at.saturating_sub(last) < SAVE_EVERY_MS {
             return;
         }
+        // A forced save is owed even when no session notice preceded it (for example, an outage
+        // metadata change). Mark it before the write so a failure remains eligible for shutdown's
+        // retry rather than making stale disk state look flushed.
+        if now {
+            p.cache_dirty_seq.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
         // Snapshot each shared structure independently. The writer gate preserves ordering for
         // one peer, while readers and notices for every other peer continue immediately.
         let snapshot_seq = p.cache_dirty_seq.load(std::sync::atomic::Ordering::SeqCst);
@@ -708,6 +714,23 @@ mod tests {
         let restored = add_idle_peer(&again, "builder");
         again.load_peer_cache(&restored);
         assert!(again.remote_sessions().is_empty(), "purged row was restored from cache");
+    }
+
+    #[test]
+    fn a_failed_forced_save_remains_dirty_for_retry() {
+        let (hub, dir) = test_hub();
+        let peer = add_idle_peer(&hub, "builder");
+        let peers_dir = dir.path().join("peers");
+        std::fs::create_dir_all(&peers_dir).unwrap();
+        std::fs::remove_dir(&peers_dir).unwrap();
+        std::fs::write(&peers_dir, b"blocked").unwrap();
+
+        hub.save_peer_cache("builder", peer.generation, true);
+        assert!(peer.cache_is_dirty(), "a failed forced save was marked flushed");
+
+        std::fs::remove_file(&peers_dir).unwrap();
+        hub.save_peer_cache("builder", peer.generation, true);
+        assert!(!peer.cache_is_dirty(), "a successful retry stayed dirty");
     }
 
     #[test]

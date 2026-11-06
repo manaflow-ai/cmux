@@ -78,6 +78,16 @@ fn take_peer_rows(map: &mut super::remote_rows::RemoteRows, name: &str) -> Vec<V
     map.take_peer(name).into_iter().map(|(_, r)| Arc::unwrap_or_clone(r).summary).collect()
 }
 
+/// The mux ids of rows removed locally. A full-list projection that was already in progress
+/// must skip these ids when it retries after the purge's row epoch changes.
+fn removed_mux_ids(rows: &[Value]) -> impl Iterator<Item = String> + '_ {
+    rows.iter().filter_map(|summary| {
+        session_receipt(summary)
+            .map(|receipt| receipt.mux_session_id)
+            .or_else(|| summary.get("sessionId").and_then(Value::as_str).map(str::to_owned))
+    })
+}
+
 impl Hub {
     #[cfg(test)]
     fn pause_after_peer_session_projection_for_test(&self) {
@@ -467,6 +477,10 @@ impl Hub {
             if !gone.is_empty()
                 && let Some(p) = peer.as_ref().filter(|p| Some(p.generation) == generation)
             {
+                p.remote_purge_fences
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .extend(removed_mux_ids(&gone));
                 p.remote_rows_epoch.fetch_add(1, std::sync::atomic::Ordering::Release);
                 p.cache_dirty_seq.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             }
@@ -1917,6 +1931,43 @@ mod tests {
         hook.release();
         applying.join().unwrap();
         assert!(hub.remote_sessions().is_empty(), "the purged row was reinserted");
+    }
+
+    #[test]
+    fn a_peer_purge_fences_rows_from_an_inflight_full_list_retry() {
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(cfg, store);
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let peer = crate::peer::Peer::new("builder", "ws://127.0.0.1:9", None, None, tx);
+        hub.peers.lock().unwrap().insert("builder".into(), peer.clone());
+        let row = json!({"sessionId": "x", "name": "lane-x", "status": "idle",
+            "createdAt": 1, "updatedAt": 2});
+        hub.apply_peer_notice(
+            "builder",
+            peer.generation,
+            crate::peer::PeerNotice::Sessions(vec![row.clone()]),
+        );
+
+        let hook = PeerNoticeProjectionHook::new();
+        *hub.peer_notice_projection_hook.lock().unwrap() = Some(hook.clone());
+        let applying = {
+            let hub = hub.clone();
+            let generation = peer.generation;
+            std::thread::spawn(move || {
+                hub.apply_peer_notice(
+                    "builder",
+                    generation,
+                    crate::peer::PeerNotice::Sessions(vec![row]),
+                );
+            })
+        };
+        hook.wait_reached();
+        hub.purge_peer_rows("builder");
+        hook.release();
+        applying.join().unwrap();
+        assert!(hub.remote_sessions().is_empty(), "the purged row was reinserted after retry");
     }
 }
 
