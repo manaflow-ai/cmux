@@ -2836,7 +2836,7 @@
           "attach": "/tmp/contract",
           "cmd": "/tmp/contract",
           "cwd": "/tmp/contract",
-          "focus": "true",
+          "focus": true,
           "host": "/tmp/contract",
           "label": "/tmp/contract",
           "name": "/tmp/contract",
@@ -2844,9 +2844,10 @@
           "split": "/tmp/contract"
         },
         "cli": true,
+        "focus": true,
         "wait": true
       },
-      "source": "cmux open-remote --host /tmp/contract --split /tmp/contract --cwd /tmp/contract --cmd /tmp/contract --name /tmp/contract --label /tmp/contract --attach /tmp/contract --ratio /tmp/contract --arg focus=true"
+      "source": "cmux open-remote --host /tmp/contract --split /tmp/contract --cwd /tmp/contract --cmd /tmp/contract --name /tmp/contract --label /tmp/contract --attach /tmp/contract --ratio /tmp/contract --focus"
     },
     {
       "params": {

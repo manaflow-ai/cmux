@@ -12,6 +12,7 @@ use super::require_all;
 /// Before-prompt requests require requestId and omit both throughSeq and live.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
+#[schemars(deny_unknown_fields)]
 pub struct ForkParams {
     pub session_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
