@@ -925,6 +925,7 @@ fn a_relay_login_refusal_is_the_answer_and_nothing_else_runs_or_sends() {
         ("cloud.relay.login_account_changed", 1),
         ("cloud.relay.login_skipped", 1),
         ("cloud.relay.login_unverified", 1),
+        ("cloud.relay.login_team_machine", 1),
     ] {
         let refusal = json!({"error_code": code, "error_message": "claude on dev has no login",
                              "delivered": false, "command": "cmux cloud start-session --target machine:vm-1 --agent claude",

@@ -107,12 +107,13 @@ extension CloudStartSession {
     /// of the person's to give it), or the copy failed. Nil sends. Every field is fixed text: no token or provider output.
     /// A Claude step that skipped sends nothing either: only a login copied now or the machine's own counts. Not the owner by an
     /// answer nobody read (no link up, or the app server could not read it: `ownership` unknown) is `login_unverified`, never a
-    /// teammate's machine; start-session connects first and asks. A known teammate's machine, or any other skip, is
-    /// `login_skipped`: this Mac never copies the caller's login onto a machine the caller doesn't own.
+    /// teammate's machine; start-session connects first and asks. Any other skip is `login_skipped`. A known teammate's machine
+    /// (`team`) is `login_team_machine` for every agent: its owner starts chats there, as the app refuses a start there (cmux#29214).
     static func relayLoginRefusal(_ decision: CloudHarnessLoginDecision?, _ started: Request, machine: String,
                                   ownership: CloudCallerOwnership) -> (code: String, message: String)? {
         guard let decision else { return nil }
         let asked = started.asked(machine: machine)
+        if ownership == .team { return ("cloud.relay.login_team_machine", AgentRemoteStartRefusal.teamMachine(machine: machine).userMessage) }
         if let reason = decision.refusal { return ("cloud.relay.login_refused", CloudStartSessionStrings.loginRefused(reason, asked)) }
         // No login copied to a machine that needs one: none cached on this Mac, or the person said no to the copy of the
         // one it holds (the confirm, or Release's one-time consent: both come only after the cache check).
@@ -122,7 +123,7 @@ extension CloudStartSession {
             return ("cloud.relay.login_failed", CloudStartSessionStrings.relayLoginFailed(asked, reason: Self.reason(String(outcome.dropFirst(CloudStartChat.loginFailed.count)))))
         }
         guard decision.provider == .claude, decision.step == .skip, decision.outcome == nil, ![.machineLoginKept, .choseNone].contains(decision.reason) else { return nil }
-        if decision.reason == .callerNotOwner, ownership != .team { return ("cloud.relay.login_unverified", CloudStartSessionStrings.relayLoginUnverified(asked)) }
+        if decision.reason == .callerNotOwner { return ("cloud.relay.login_unverified", CloudStartSessionStrings.relayLoginUnverified(asked)) }
         return ("cloud.relay.login_skipped", CloudStartSessionStrings.relayLoginSkipped(asked))
     }
 

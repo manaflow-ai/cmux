@@ -44,6 +44,8 @@ pub struct FakeControlPlane {
     vm_kind: Option<&'static str>,
     /// `connect_info` answers this error code instead (access ended).
     connect_info_error: Option<&'static str>,
+    /// `connect_info` never gets an answer: the host's relay to Cloud failed.
+    connect_info_unreachable: bool,
     connect_info_action: Option<Box<dyn FnOnce() + Send>>,
     /// The current host-reported team identity for auth status tests.
     session_team: Option<String>,
@@ -86,6 +88,7 @@ impl FakeControlPlane {
             connect_info: None,
             vm_kind: None,
             connect_info_error: None,
+            connect_info_unreachable: false,
             connect_info_action: None,
             session_team: None,
             session_unavailable: false,
@@ -137,6 +140,13 @@ impl FakeControlPlane {
     /// the caller's access to the machine ended).
     pub fn fail_connect_info(&mut self, code: &'static str) {
         self.connect_info_error = Some(code);
+    }
+
+    /// While `down`, `connect_info` calls get no answer: the host's relay to
+    /// Cloud is down (`RelayError::Unavailable`, `cmux.cloud.relay_unavailable`),
+    /// the way a transient owner read fails.
+    pub fn set_connect_info_relay_down(&mut self, down: bool) {
+        self.connect_info_unreachable = down;
     }
 
     /// `vm-get-unbound` ends: the machine is bound and runs from now on
@@ -228,6 +238,9 @@ impl ControlPlane for FakeControlPlane {
             && let Some(action) = self.connect_info_action.take()
         {
             action();
+        }
+        if call.op == "cloud.machine.connect_info" && self.connect_info_unreachable {
+            return Err(RelayError::Unavailable("the relay to cmux Cloud did not answer".into()));
         }
         // The link-test names answer first: `vm-list` replaces the vectors'
         // `list {}` for the tests that name it.

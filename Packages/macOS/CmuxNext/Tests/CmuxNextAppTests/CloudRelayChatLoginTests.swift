@@ -76,11 +76,11 @@ struct CloudRelayChatLoginTests {
 
     /// A Claude login decision on a machine the person owns, as the login step leaves it on the machine's row.
     static func decision(requested: CloudHarnessLoginDecision.Choice? = .pass, harness: String = "claude", outcome: String?,
-                         callerOwns: Bool = true) -> CloudHarnessLoginDecision {
+                         callerOwns: Bool = true, guest: String = "owner", machine: String = "none") -> CloudHarnessLoginDecision {
         var decision = CloudHarnessLoginDecision(dogfood: true, setting: nil, harness: harness, signedIn: true)
         (decision.requested, decision.requestedByPerson, decision.headless) = (requested, requested != nil, true)
-        (decision.callerOwns, decision.guestStdout) = (callerOwns, "vm-kind:owner\n")
-        decision.machineProbe = .init(exitCode: 0, stdout: "none\n")
+        (decision.callerOwns, decision.guestStdout) = (callerOwns, "vm-kind:\(guest)\n")
+        decision.machineProbe = .init(exitCode: 0, stdout: machine + "\n")
         decision.outcome = outcome
         return decision
     }
@@ -222,13 +222,35 @@ struct CloudRelayChatLoginTests {
         #expect(fields["login_reason"] == .string("caller-not-owner"))
     }
 
-    /// A known teammate's machine (its link answered `team`): the caller-not-owner skip is final. This Mac never copies the
-    /// caller's login onto a machine the caller doesn't own, and a chat start there is refused as a teammate's anyway.
-    @Test func aKnownTeamMachineIsFinal() async throws {
-        let run = try await Self.relayChat(Self.decision(outcome: nil, callerOwns: false), link: .team)
+    /// A known teammate's machine (its link answered `team`): never sent, for any agent, with the app's own teammate refusal.
+    /// Its owner starts chats there (cmux#29214), and this Mac never copies the caller's login onto it.
+    @Test func aKnownTeammatesMachineSendsNothing() async throws {
+        for decision in [Self.decision(outcome: nil, callerOwns: false), Self.decision(requested: nil, harness: "pi", outcome: nil, callerOwns: false)] {
+            let run = try await Self.relayChat(decision, link: .team)
+            #expect(run.steps == ["login"], "\(decision.summary) was sent")
+            let fields = try Self.fields(run.result)
+            #expect(fields["delivered"] == .bool(false) && fields["error_code"] == .string("cloud.relay.login_team_machine"))
+            #expect(fields["error_message"] == .string(AgentRemoteStartRefusal.teamMachine(machine: "Icon VM").userMessage))
+        }
+    }
+
+    /// A team machine the caller made (the link says owner, its guest says `team`) keeps a working sign-in of its own: sent.
+    @Test func aTeamGuestWithItsOwnLoginSends() async throws {
+        let kept = Self.decision(outcome: nil, guest: "team", machine: "working")
+        try #require(kept.step == .skip && kept.reason == .machineLoginKept && kept.guestKind == "team")
+        let run = try await Self.relayChat(kept, link: .owner)
+        #expect(run.steps == ["login", "send"])
+        #expect(try Self.fields(run.result)["delivered"] == .bool(true))
+    }
+
+    /// The same team guest with no sign-in, and none on this Mac to give it: not sent, with the sign-in recovery.
+    @Test func aTeamGuestWithNoLoginSendsNothing() async throws {
+        let none = Self.decision(outcome: CloudCredentialTransfer.CachedLogin.none.startOutcome, guest: "team")
+        try #require(none.guestKind == "team")
+        let run = try await Self.relayChat(none, link: .owner)
         #expect(run.steps == ["login"])
         let fields = try Self.fields(run.result)
-        #expect(fields["delivered"] == .bool(false) && fields["error_code"] == .string("cloud.relay.login_skipped"))
+        #expect(fields["delivered"] == .bool(false) && fields["error_code"] == .string("cloud.relay.login_missing"))
     }
 
     /// A link up whose answer was neither owner nor team (the app server could not read it: `vm_kind: "unknown"`): not a
