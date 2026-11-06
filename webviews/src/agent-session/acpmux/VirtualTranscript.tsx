@@ -2633,8 +2633,12 @@ export function VirtualTranscript({
             holdUnderStack(host, stack, effect.getTiming(), stack.animation.currentTime);
           }
         } else {
-          stack.from = delta;
-          const frames = [{ translate: `0 ${delta}px` }, { translate: "0 0" }];
+          // Only what this pass added slides: what the fold's own frames already moved is drawn where
+          // it is. A call that joined the opened group after its fold ended slid the whole fold
+          // again from the closed row's height, and the row dropped back and grew a second time
+          // (Leo, 2026-11-06: "things clash with other things with animations going haywire").
+          stack.from = delta - stack.delta;
+          const frames = [{ translate: `0 ${stack.from}px` }, { translate: "0 0" }];
           const duration = foldMs(host);
           if (duration > 0) {
             const timing = { duration, easing: foldMotion.easing(host) };
