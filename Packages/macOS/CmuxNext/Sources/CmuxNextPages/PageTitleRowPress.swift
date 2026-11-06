@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 import WebKit
 
 /// Presses on a page's own title row (https://github.com/manaflow-ai/cmux/issues/36897). A page
@@ -8,7 +8,8 @@ import WebKit
 /// like the sidebar header beside it. AppKit cannot see the page's controls (a Chromium page is
 /// even a child window), so the page reports the press: a document script tells the host about a
 /// left press that starts a drag (moved 3 CSS px), or a double-click, on anything but a control in
-/// its top 64 CSS px. The host checks the point is in the window's top row of a top page
+/// its top 96 CSS px (the row at any page zoom down to 0.5). The page never sees the mouse-up of a
+/// press the window took, so the host clears any selection the press began once the drag ends. The host checks the point is in the window's top row of a top page
 /// (``TitleRowHostView/takesTitleRowPress(from:atWindowPoint:)``) and moves the window, or runs
 /// the title bar's double-click action. A press on a control, below the row, or in a pane tab
 /// stays the page's.
@@ -50,7 +51,7 @@ enum PageTitleRowPress {
       let press = null;
       addEventListener("mousedown", (event) => {
         press = null;
-        if (event.button !== 0 || event.clientY >= 64 || event.metaKey || event.ctrlKey) return;
+        if (event.button !== 0 || event.clientY >= 96 || event.metaKey || event.ctrlKey) return;
         const target = event.target;
         if (!(target instanceof Element) || target.closest(controls) !== null) return;
         if (event.detail === 2) { post({ kind: "double", x: event.clientX, y: event.clientY }); return; }
@@ -107,18 +108,20 @@ extension PageWebView: TitleRowSelfHandling {
     /// A press the page reported on its title row (``PageTitleRowPress``): moves the window while
     /// the left button is still down, or runs the double-click action.
     func titleRowPressed(_ report: PageTitleRowPress.Report) {
-        guard let window, takesTitleRowPress(report) else { return }
+        // Page script can post at any time: only right after the person's own press in the page.
+        guard let window, recentUserGestureEvent(within: 0.5) != nil, takesTitleRowPress(report) else { return }
         switch report.kind {
         case .double:
             WindowTitlebar.performDoubleClick(in: window)
         case .drag:
-            // Page script can post at any time; only a press the person still holds moves the window.
+            // Only a press the person still holds moves the window.
             guard NSEvent.pressedMouseButtons & 1 != 0,
                   let press = NSEvent.mouseEvent(with: .leftMouseDown, location: window.mouseLocationOutsideOfEventStream,
                                                  modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                                                  windowNumber: window.windowNumber, context: nil, eventNumber: 0,
                                                  clickCount: 1, pressure: 1) else { return }
-            window.performDrag(with: press)
+            window.performDrag(with: press) // returns once the button is up
+            evaluateInPage("getSelection()?.removeAllRanges()")
         }
     }
 }

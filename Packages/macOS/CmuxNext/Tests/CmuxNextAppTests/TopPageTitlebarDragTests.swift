@@ -37,10 +37,15 @@ struct TopPageTitlebarDragTests {
             #expect(!web.takesTitleRowPress(.init(kind: .drag, point: CGPoint(x: row.point.x, y: web.bounds.height / zoom / 2))))
             // AppKit hands a press over the page to the page (its controls take it, or it reports the drag).
             let top = CGPoint(x: shown.midX, y: shown.maxY - 2)
+            let frameView = try #require(window.contentView?.superview)
+            #expect(frameView.hitTest(frameView.convert(top, from: nil))?.isDescendant(of: web) == true, "the press lands on the page")
             #expect(TitlebarDragPolicy.decide(at: top, in: window) == .staysPut)
         }
     }
+}
 
+/// The title row rule without an app: a pane above a page answers for its own top row.
+@MainActor @Suite struct TitleRowHostPaneTests {
     /// A page in a pane tab sits under the pane's tab strip: its top is no title row.
     @Test func aPageInAPaneDoesNotMoveTheWindow() throws {
         do {
