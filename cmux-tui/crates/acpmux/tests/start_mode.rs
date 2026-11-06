@@ -787,12 +787,16 @@ async fn a_chat_whose_move_aborts_follows_a_deny_all_default_set_meanwhile() {
     assert!(r.get("error").is_none(), "{r}");
     let begin = mover.call("_acpmux/transfer_begin", json!({"sessionId": id})).await;
     let transfer = begin["result"]["transferId"].clone();
+    let epoch = begin["result"]["epoch"].clone();
     assert!(transfer.is_string(), "{begin}");
     let r = app.call("_acpmux/set_default_policy", json!({"policy": "deny-all"})).await;
     assert!(r.get("error").is_none(), "{r}");
     assert_eq!(app.mode(&id).await, "agent-full-access", "a moving chat is not touched");
     let r = mover
-        .call("_acpmux/transfer_abort", json!({"sessionId": id, "transferId": transfer}))
+        .call(
+            "_acpmux/transfer_abort",
+            json!({"sessionId": id, "transferId": transfer, "epoch": epoch}),
+        )
         .await;
     assert!(r.get("error").is_none(), "{r}");
     assert_eq!(mode_soon(&mut app, &id, "read-only").await, "read-only");

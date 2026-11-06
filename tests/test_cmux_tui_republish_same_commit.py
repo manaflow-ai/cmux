@@ -236,6 +236,12 @@ class RebuildOfAPublishedCommit(unittest.TestCase):
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
+    def test_publish_step_guards_empty_acpmux_array_for_bash32(self) -> None:
+        # macOS's Bash 3.2 reports an empty `${array[@]}` as unbound under
+        # `set -u`; the guarded form must remain in the workflow step.
+        publish_tree = step_script("publish-tree", "Publish the complete tree with the trusted helper")
+        self.assertIn('${acpmux[@]+"${acpmux[@]}"}', publish_tree)
+
     def published(self) -> dict[str, bytes]:
         return {str(p.relative_to(self.box.r2)): p.read_bytes() for p in self.box.r2.rglob("*") if p.is_file()}
 

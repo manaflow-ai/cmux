@@ -215,11 +215,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-cloud-config"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-vm"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "clap",
+ "cmux-cloud-config",
  "cmux-vm-client",
  "futures",
  "nix",

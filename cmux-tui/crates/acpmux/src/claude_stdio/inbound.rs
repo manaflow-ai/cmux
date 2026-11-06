@@ -9,6 +9,10 @@ impl Translator {
         // A Ctrl-B the hub stopped waiting for leaves no mark (`end_background_asks`).
         let now = std::time::Instant::now();
         self.end_background_asks(false, |_, deadline| deadline.is_some_and(|d| d <= now)).await;
+        // A `/rename` acpmux wrote is never the chat's (`live_name.rs`).
+        if let Some(answer) = self.rename_line(line).await {
+            return answer;
+        }
         let kind = line.get("type").and_then(Value::as_str).unwrap_or("");
         let sub = line.get("subtype").and_then(Value::as_str).unwrap_or("");
         let main_line = line.get("parent_tool_use_id").and_then(Value::as_str).is_none();
@@ -265,8 +269,13 @@ impl Translator {
                             self.task_plan.lock().await.call(name, id, &input);
                         }
                         // Every shell, so one moved to the background later
-                        // keeps its command (cx-ncc.84).
-                        if name == "Bash"
+                        // keeps its command (cx-ncc.84). A Monitor runs its
+                        // command in the background too, and Claude's task
+                        // events for it carry only its description: without
+                        // its call the tray read the description ("hold") as
+                        // the command.
+                        let monitor = name == "Monitor";
+                        if (name == "Bash" || monitor)
                             && let Some(id) = c.get("id").and_then(Value::as_str)
                         {
                             let command =
@@ -274,11 +283,17 @@ impl Translator {
                             let shell = BackgroundShell {
                                 sid: sid.clone(),
                                 command: command.to_owned(),
+                                description: input
+                                    .get("description")
+                                    .and_then(Value::as_str)
+                                    .map(str::trim)
+                                    .filter(|d| !d.is_empty())
+                                    .map(str::to_owned),
                                 task: None,
-                                background: input.get("run_in_background")
-                                    == Some(&Value::Bool(true)),
-                                launched: input.get("run_in_background")
-                                    == Some(&Value::Bool(true)),
+                                background: monitor
+                                    || input.get("run_in_background") == Some(&Value::Bool(true)),
+                                launched: monitor
+                                    || input.get("run_in_background") == Some(&Value::Bool(true)),
                                 asked: false,
                                 announced: false,
                                 output: None,
@@ -979,6 +994,7 @@ impl Translator {
                 let shell = shells.entry(tool.clone()).or_insert_with(|| BackgroundShell {
                     sid: sid.to_owned(),
                     command: text("description").unwrap_or("").to_owned(),
+                    description: None,
                     task: None,
                     background: false,
                     launched: backgrounded(line.get("is_backgrounded")),
@@ -1335,13 +1351,19 @@ pub(super) fn summary_exit_code(summary: &str) -> Option<i64> {
 
 /// A `background_task_update` for one shell.
 fn background_task_update(tool: &str, shell: &BackgroundShell, state: &str) -> Value {
-    json!({
+    let mut update = json!({
         "sessionUpdate": "background_task_update",
         "taskId": shell.task.as_deref().unwrap_or(""),
         "toolCallId": tool,
         "command": shell.command,
         "state": state,
-    })
+    });
+    // The call's own words for it, so a client that never loaded the call
+    // (an older page, a peer) still names it by them.
+    if let Some(description) = &shell.description {
+        update.set("description", json!(description));
+    }
+    update
 }
 
 /// The `running` update of a shell Claude runs in the background now, once

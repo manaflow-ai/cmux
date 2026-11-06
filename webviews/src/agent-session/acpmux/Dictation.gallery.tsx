@@ -85,11 +85,6 @@ const start: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.find({ role: "button", name: "Stop dictation" }).getAttribute("aria-pressed") === "true");
 };
 
-const finish: Play = async (ctx) => {
-  await ctx.click({ role: "button", name: "Finish dictation" });
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-dictation-wave") === null);
-};
-
 const stop: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Stop dictation" });
   await ctx.waitFor(() => ctx.find({ role: "button", name: "Dictate" }).getAttribute("aria-pressed") === "false");
@@ -124,7 +119,7 @@ export default componentEntry<Props>({
     "agent-session/acpmux/DictationButton.tsx#DictationButton",
     "agent-session/acpmux/DictationMic.tsx#DictationMic",
     "agent-session/acpmux/DictationListening.tsx#DictationWave",
-    "agent-session/acpmux/DictationListening.tsx#DictationFinishButton",
+    "agent-session/acpmux/DictationListening.tsx#DictationStrip",
     "agent-session/acpmux/DictationNotice.tsx#DictationNotice",
   ],
   styles: () => import("./styles.css"),
@@ -135,8 +130,7 @@ export default componentEntry<Props>({
     },
     layoutShiftMax: {
       value: 0,
-      reason:
-        "The waveform, finish key and permission notice stay inside the composer host instead of reflowing the pane.",
+      reason: "The waveform and permission notice stay inside the composer host instead of reflowing the pane.",
     },
     longFrameFailMs: {
       value: 33,
@@ -152,7 +146,17 @@ export default componentEntry<Props>({
     idle: { props: { initialState: "idle", initialNotice: null } },
     listening: {
       props: { initialState: "listening", initialNotice: null },
-      note: "Listening: a waveform of thin bars that fades to dots at both ends, the finish key (⏎), and the lit mic.",
+      note: "Listening: a waveform of thin bars that fades to dots at both ends, and the lit mic; no send of its own (the composer's Send ends the session).",
+    },
+    "idle-menu": {
+      props: { initialState: "idle", initialNotice: null },
+      play: async (ctx) => ctx.contextMenu({ role: "button", name: "Dictate" }),
+      note: "The idle mic keeps its quiet hover wash while its Hide menu is open.",
+    },
+    "listening-menu": {
+      props: { initialState: "listening", initialNotice: null },
+      play: async (ctx) => ctx.contextMenu({ role: "button", name: "Stop dictation" }),
+      note: "The listening mic retains its accent hover tone while its Hide menu is open.",
     },
     starting: {
       props: { initialState: "starting", initialNotice: null },
@@ -160,17 +164,12 @@ export default componentEntry<Props>({
     },
     finalizing: {
       props: { initialState: "finalizing", initialNotice: null },
-      note: "Finalizing: the last words are landing; the wave dims and the finish key waits.",
+      note: "Finalizing: the last words are landing; the wave dims.",
     },
     start: {
       props: { initialState: "idle", initialNotice: null },
       play: start,
-      note: "The mic keeps the composer focused while the waveform and finish key come in beside it.",
-    },
-    finish: {
-      props: { initialState: "listening", initialNotice: null },
-      play: finish,
-      note: "The finish key ends the session and keeps its words.",
+      note: "The mic keeps the composer focused while the waveform comes in beside it.",
     },
     stop: {
       props: { initialState: "listening", initialNotice: null },

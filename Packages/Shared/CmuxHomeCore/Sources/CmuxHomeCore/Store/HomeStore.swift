@@ -64,6 +64,10 @@ public final class HomeStore {
     @ObservationIgnored var agentMessageRefreshes: Set<ConversationID> = []
     /// The agent-message folds the user expanded, by conversation (`toggleAgentMessages`).
     @ObservationIgnored var expandedAgentMessages: [ConversationID: Set<String>] = [:]
+    /// Per conversation, each agent's newest report time the person opened in the agent pane (``markAgentSeen(_:in:)``).
+    @ObservationIgnored var agentSeen: [ConversationID: [String: Date]] = [:]
+    /// Per conversation, where each agent's session runs, by session id (``followAgentSessions(_:in:)``).
+    @ObservationIgnored var agentSessions: [ConversationID: [String: HomeAgentSessionRef]] = [:]
     /// The Feed rows the main Chief's transcript shows, and that conversation (``setFeedRows(_:in:)``).
     @ObservationIgnored var feedRows: (conversation: ConversationID, rows: [HomeFeedRow])?
     @ObservationIgnored var liveBook = HomeLiveBook()
@@ -284,7 +288,7 @@ public final class HomeStore {
         var items = (mirror.windows[id] ?? TranscriptWindow()).items(pending: log.sends(in: id), me: me)
         if !localFiles.isEmpty { items = items.map(decorated) }
         items = agentMessages[id]?.inserting(into: items, summary: summary(id),
-                                             expanded: expandedAgentMessages[id] ?? []) ?? items
+                                             expanded: expandedAgentMessages[id] ?? [], seen: agentSeen[id] ?? [:]) ?? items
         if let feed = feedRows, feed.conversation == id,
            let chief = summary(id)?.participants.first(where: \.isChief)?.id {
             // A window that does not reach the start shows no rows older than its first message.
@@ -311,6 +315,14 @@ public final class HomeStore {
             item.attachmentProgress = job.progress
         }
         return item
+    }
+
+    /// The first page of the conversation's transcript is still being read for an open (``beginOpen(_:)``).
+    ///
+    /// Events committed meanwhile are buffered into the window, so a view may already show some of
+    /// its messages; it is not a settled transcript yet.
+    public func isLoadingTranscript(_ id: ConversationID) -> Bool {
+        pager.runningLoad(id) != nil
     }
 
     public func hasOlderMessages(in id: ConversationID) -> Bool {

@@ -29,6 +29,10 @@ public final class HomeNativeTranscriptView: NSView {
     }
     let transcript: MessagesLabHomeView
     let firstRun = HomeFirstRunView()
+    /// The agent pane's tabs (one per agent opened from its pill) and its view on the right; the view is made
+    /// at the first open (HomeNativeTranscriptView+AgentPane.swift).
+    lazy var agentPane = HomeAgentPane(conversation: conversationID, threads: binding.store)
+    var agentPaneView: HomeAgentPaneView?
     var starterSent = false
     var starterIntakes = 0 { didSet { updateStarterAvailability() } }
     let me: ParticipantID
@@ -173,8 +177,6 @@ public final class HomeNativeTranscriptView: NSView {
         attachmentPanel = openPanel.map { HomeAttachmentPanel(openPanel: $0) }
         HomeReduceMotion.install()
         self.me = me
-        // Debug Settings > Home > Rich tables, before the transcript maps its first messages.
-        MessagesLabHomeView.richTables = HomeTunables.richTables.value
         conversationID = conversation
         // One binding per shown conversation; it opens the conversation on
         // the store now and `stop()` closes exactly that open, once. Before the
@@ -214,6 +216,7 @@ public final class HomeNativeTranscriptView: NSView {
             self?.onHideSwitchKeys()
         }
         firstRun.switchCard.onOpenSettings = { [weak self] in self?.onOpenKeyboardShortcutSettings() }
+        transcript.onAgentPill = { [weak self] peer in self?.openAgent(peer) }
         transcript.onSummaryChange = { [weak self] _ in self?.updateFirstRun() }
         transcript.onRowsChange = { [weak self] in self?.updateFirstRun() }
         // A long draft grows the field with no size change: refit the panel and the notice above it.
@@ -221,7 +224,6 @@ public final class HomeNativeTranscriptView: NSView {
         followTextSize()
         followZoom()
         followBubbleStyle()
-        followHeroTunable()
         followChiefPet()
         followPresence()
         applyTheme()
@@ -252,6 +254,7 @@ public final class HomeNativeTranscriptView: NSView {
         stopped = true
         if let linkPreviews { linkPreviews.coordinator.unregister(linkPreviews) }
         intake?.cancel()
+        agentPaneView?.stop()
         voice.close()
         transcript.stop()
         binding.stop()
@@ -465,6 +468,7 @@ public final class HomeNativeTranscriptView: NSView {
         // debugTranscriptWidthTrim narrows it (automation: a pane width change).
         var place = bounds.offsetBy(dx: debugTranscriptOffset.x, dy: debugTranscriptOffset.y)
         place.size.width = max(0, place.width - debugTranscriptWidthTrim)
+        place.size.width = max(0, place.width - layoutAgentPane())
         if transcript.frame != place {
             let resized = transcript.frame.size != place.size
             transcript.frame = place

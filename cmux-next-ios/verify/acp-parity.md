@@ -16,7 +16,7 @@ Branch `feat-cnx-ios-acp`, 2026-10-13. Modules: the new `CmuxMobileArtifacts`, `
 | Checkpoints | List (before and after each turn, branch, head, file count, partial warning), swipe or tap to restore, confirmation dialog, toast, safety checkpoint. Live: acpmux has no checkpoint method (checkpoints are the cmux app's `git.checkpoint.*`), so the screen shows "Checkpoints unavailable" with the reason. | `ParityViews.swift`, `AgentParity.swift` |
 | Handoff | Pick a harness (`_acpmux/harnesses`; unavailable ones disabled with the reason), review: from and to glyphs, carried context (coverage), repository checkpoint reference with the attestation toggle, editable capsule with a byte counter, sticky "Continue in X" button, Discard. Live: `_acpmux/handoff_prepare`, `handoff_start` (checkpoint attested), `handoff_discard`; refusals such as `source_busy` show as sentences. | `ParityViews.swift`, `AcpmuxHub.swift` |
 | Feed swipes | Mail conventions on the `LazyVStack` Feed: a horizontal-only pan (never fights scrolling), actions under the row, a full swipe past 60 % performs the outermost action with a haptic, rubber banding, tap to close, one row open at a time, scroll closes. Leading: Allow (permissions), Answer (questions), Read or Unread. Trailing: Deny or Done, then Open. Done hides the event with an Undo bar for 4 s. VoiceOver gets the same actions as accessibility actions. | `FeedSwipe.swift`, `FeedScreen.swift`, `FeedStore.swift` |
-| Composer | Camera through `UIImagePickerController`; on devices without a camera (simulators) the menu item is disabled with "No camera on this device". The mic button is gone: iOS has no API to start keyboard dictation, and the keyboard's own mic dictates into the field. `NSCameraUsageDescription` added. | `ChatComposer.swift`, `project.yml` |
+| Composer | Camera through `UIImagePickerController`; on devices without a camera (simulators) the menu item is disabled with "No camera on this device". The mic button is gone: the waveform starts voice mode (GPT Realtime, `AgentVoiceMode`), and the keyboard's own mic dictates into the field. `NSCameraUsageDescription` added. | `ChatComposer.swift`, `project.yml` |
 | Release -O link | Fixed (see below); the Demo configuration builds with -O again. | `CmuxMobileDesign/States.swift`, `project.yml`, `scripts/demo-build.sh` |
 
 ## Release (-O) link failure: root cause and fix
@@ -105,4 +105,4 @@ Branch `feat-cnx-ios-acp`, 2026-10-13. Modules: the new `CmuxMobileArtifacts`, `
   are not in the protocol.
 - iOS 27's `swipeActionsContainer()` would replace the custom swipe once the deployment
   target is 27.
-- Dictation is the keyboard's mic (no composer mic).
+- Dictation is the keyboard's mic; the composer's waveform starts voice mode (agent replies read aloud, speech sent as prompts).

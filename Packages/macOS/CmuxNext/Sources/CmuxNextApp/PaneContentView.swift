@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextBrowser
+import CmuxNextBrowserHost
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextSettings
@@ -15,7 +16,7 @@ import os
 /// The strip is the pane's header, or with the strip at the bottom its
 /// footer: the layout's border and rounded corners trace the content host
 /// between them, a browser's toolbar included.
-final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding {
+final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, AgentRenderHome {
     let stripView: TabStripView
     /// The strip's colors: its pane's scope, subtler while another pane has focus (`setChromeEmphasis`). Chrome, not
     /// `.terminal`, which keeps the terminal theme under an App Theme (`PaneStripAppThemeTests`).
@@ -128,7 +129,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding {
         agentTagObservation = observeAgentTag(stripModel)
         themeDidChange()
         tokenObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (PaneChromeMetrics.current, ChromeTunables.tabRowTools.value, ChromeTunables.nativeRowTools.value) }) {
+            for await _ in ObservationStream({ (PaneChromeMetrics.current, ChromeTunables.tabRowTools.value, ChromeTunables.nativeRowTools.value, stripModel.hidesLoneTab) }) {
                 self?.needsLayout = true
                 self?.refreshBandHeight()
             }
@@ -173,9 +174,8 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding {
         toolbar?.view.isHidden = shown <= 0
         let tools = toolbarWidth(shown: shown), room = bounds.width - tools, held = contentHost.isHolding, row = held ? nil : tabRowSharer // held: the row is the strip's (S1B)
         let rowContent = row?.fitsTabRow(room: room) == true ? row : nil, rowTools = rowContent?.tabRowWidth(room: room) ?? 0
-        // The strip shows at every tab count, one included: a lone tab hidden left the top of the pane bare and
-        // undraggable (Leo 2026-11-03: "i think that's just too alien of a look"; it replaced #33132).
-        stripView.isHidden = shown <= 0
+        // The strip shows at every tab count (#34327); a chat alone in its pane hides its tab only with tabs.hideLoneChatTab on.
+        stripView.isHidden = shown <= 0 || rowTools > 0 && rowContent?.tabRowTakesLoneTab == true && stripView.model.hidesLoneTab
         if !isBandActive {
             stripView.frame = NSRect(x: 0, y: onTop ? 0 : bounds.height - shown, width: bounds.width - tools - rowTools, height: shown)
             toolbar?.view.frame = NSRect(x: bounds.width - tools, y: stripView.frame.minY, width: tools, height: shown)
@@ -220,7 +220,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding {
         }
         if !contentHost.isHolding { layoutParked() }
         layoutAgentTag()
-        if !held, hostsContent, let sharing = content as? PaneTabRowSharing { sharing.offerTabRow(height: rowContent == nil ? 0 : shown, trailingInset: tools, in: self) }
+        if !held, hostsContent, let sharing = content as? PaneTabRowSharing { sharing.offerTabRow(height: rowContent == nil ? 0 : shown, trailingInset: tools, tabs: !stripView.isHidden, toolbar: toolbar?.view, in: self) } else if !held { toolbar?.view.paintTabRowHole(nil) }
         if contentHost.takeEndedHold() || hostChanged && !contentHost.isHolding { onResize?() }
     }
 
@@ -324,7 +324,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding {
     @discardableResult
     func show(_ view: NSView?) -> NSView? {
         let previous = content
-        guard previous !== view || (view != nil && !hostsContent) else { return previous }
+        guard previous !== view || (view != nil && !hostsContent && !(view?.staysParked(awayFrom: self) ?? false)) else { return previous }
         tabSwitchMark("show")
         defer { tabSwitchMark("shown") }
         // Another pane may have reparented `previous` already (a moved tab):
@@ -439,6 +439,11 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding {
         reparentRootedThemeScope()
         stripView.reparentRootedThemeScope()
     }
+
+    /// Its parked workspace shows: content an agent drove off screen meanwhile (`AgentRenderWindows`) comes back.
+    override func viewDidUnhide() { super.viewDidUnhide(); if let content { takeBack(content) } }
+    /// Its window draws again (`AgentRenderHome`): the tab an agent drove off screen comes back if this pane still shows it.
+    func takeBack(_ view: NSView) { if view === content, !hostsContent, view.window?.identifier == AgentRenderPanel.windowIdentifier { show(view) } }
 
     override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()

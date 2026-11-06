@@ -79,8 +79,12 @@ class GitHub:
 
 
 def latest_checks(repo: str, sha: str, github: GitHub) -> dict:
+    """The newest check run of each name on SHA: its last real attempt. Every attempt is read (filter=all), since
+    GitHub's default lists only each check suite's newest attempt, and one that ended in startup_failure ran no
+    jobs, so a red before it vanished from that list (cmux#35906, 2026-11-05). Such an attempt is no result: the
+    newest check run of a name is the last attempt that ran it, red or green."""
     checks = {}
-    for page in github.json(f"repos/{repo}/commits/{sha}/check-runs?per_page=100", paginate=True):
+    for page in github.json(f"repos/{repo}/commits/{sha}/check-runs?filter=all&per_page=100", paginate=True):
         for check in page["check_runs"]:
             # A third-party app cannot provide compile or test evidence.
             if check.get("app", {}).get("slug") != "github-actions":

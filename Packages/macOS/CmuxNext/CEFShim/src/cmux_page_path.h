@@ -4,6 +4,7 @@
 #ifndef CMUX_SHIM_CMUX_PAGE_PATH_H_
 #define CMUX_SHIM_CMUX_PAGE_PATH_H_
 
+#include <ctype.h>
 #include <limits.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -225,6 +226,49 @@ inline std::vector<std::pair<std::string, std::string>> PageResponseHeaders(cons
       {"X-Frame-Options", "SAMEORIGIN"},
       {"Cross-Origin-Resource-Policy", "same-origin"},
   };
+}
+
+// A header value from the page host: empty when it holds a CR or LF, so an answer cannot split a
+// header (cmux_shim_page_resource_respond_page's CSP).
+inline std::string PageHeaderValue(const std::string& value) {
+  return value.find_first_of("\r\n") == std::string::npos ? value : std::string();
+}
+
+// The headers a ranged dynamic answer adds (cmux_shim_page_resource_respond_ranged):
+// `Name: value` lines, newline-separated. Only Content-Range and Accept-Ranges
+// are kept, and a value with a CR or LF is dropped, so an answer can never set
+// the page's CSP or other page headers, or split a header.
+inline std::vector<std::pair<std::string, std::string>> PageRangeHeaders(const std::string& text) {
+  std::vector<std::pair<std::string, std::string>> out;
+  size_t start = 0;
+  while (start <= text.size()) {
+    size_t end = text.find('\n', start);
+    if (end == std::string::npos) end = text.size();
+    std::string line = text.substr(start, end - start);
+    start = end + 1;
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+    const size_t colon = line.find(':');
+    if (colon == std::string::npos) continue;
+    std::string name = line.substr(0, colon);
+    std::string value = line.substr(colon + 1);
+    while (!value.empty() && value.front() == ' ') value.erase(value.begin());
+    if (value.empty() || value.find('\r') != std::string::npos) continue;
+    std::string lower = name;
+    for (char& c : lower) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+    if (lower == "content-range") out.emplace_back("Content-Range", value);
+    else if (lower == "accept-ranges") out.emplace_back("Accept-Ranges", value);
+  }
+  return out;
+}
+
+// The reason phrase a dynamic answer's status carries.
+inline const char* PageStatusText(int status) {
+  switch (status) {
+    case 200: return "OK";
+    case 206: return "Partial Content";
+    case 416: return "Range Not Satisfiable";
+    default: return "Not Found";
+  }
 }
 
 }  // namespace cmux_shim

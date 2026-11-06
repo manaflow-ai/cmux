@@ -105,7 +105,7 @@ struct SidebarStatesPlaygroundRenderer {
     /// Draws every view under `root` as laid out (no layout pass, so the hover set after the list's layout stays), then
     /// returns its pixels at `pixelScale` pixels per point at least: a 1x screen (a fleet display) still gives a 2x shot,
     /// its layers drawn again at that scale, so a size critique reads half points.
-    private static func draw(_ root: NSView, pixelScale: CGFloat) -> CGImage? {
+    static func draw(_ root: NSView, pixelScale: CGFloat) -> CGImage? {
         func all(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(all) }
         let scale = max(pixelScale, root.window?.backingScaleFactor ?? 1)
         func rescale(_ layer: CALayer) {

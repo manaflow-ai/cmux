@@ -178,6 +178,9 @@ public struct AgentSessionShare: Decodable, Sendable, Equatable, Identifiable {
     public var usesLeft: UInt32
     /// The hosted room's origin, nil without one.
     public var room: String?
+    /// The link invitees open (`<room>/i/<share_id>`, no secret in it); nil without a room, and from a
+    /// daemon older than invite links.
+    public var inviteUrl: String?
     public var guests: [AgentSessionShareGuest]
     /// The cmux accounts invited to the share; empty from a daemon older than invites.
     public var invitees: [AgentSessionShareInvitee]
@@ -193,10 +196,11 @@ public struct AgentSessionShare: Decodable, Sendable, Equatable, Identifiable {
         case expiresAt = "expires_at"
         case expiresInSecs = "expires_in_secs"
         case usesLeft = "uses_left"
+        case inviteUrl = "invite_url"
     }
 
     public init(shareId: String, state: String, session: String, surface: UInt64, createdAt: UInt64 = 0, createId: String? = nil,
-                expiresAt: UInt64 = 0, expiresInSecs: UInt64 = 0, usesLeft: UInt32 = 0, room: String? = nil,
+                expiresAt: UInt64 = 0, expiresInSecs: UInt64 = 0, usesLeft: UInt32 = 0, room: String? = nil, inviteUrl: String? = nil,
                 guests: [AgentSessionShareGuest] = [], invitees: [AgentSessionShareInvitee] = []) {
         self.shareId = shareId
         self.state = state
@@ -208,6 +212,7 @@ public struct AgentSessionShare: Decodable, Sendable, Equatable, Identifiable {
         self.expiresInSecs = expiresInSecs
         self.usesLeft = usesLeft
         self.room = room
+        self.inviteUrl = inviteUrl
         self.guests = guests
         self.invitees = invitees
     }
@@ -224,6 +229,7 @@ public struct AgentSessionShare: Decodable, Sendable, Equatable, Identifiable {
         expiresInSecs = try c.decode(UInt64.self, forKey: .expiresInSecs)
         usesLeft = try c.decode(UInt32.self, forKey: .usesLeft)
         room = try c.decodeIfPresent(String.self, forKey: .room)
+        inviteUrl = try c.decodeIfPresent(String.self, forKey: .inviteUrl)
         guests = try c.decode([AgentSessionShareGuest].self, forKey: .guests)
         invitees = try c.decodeIfPresent([AgentSessionShareInvitee].self, forKey: .invitees) ?? []
     }

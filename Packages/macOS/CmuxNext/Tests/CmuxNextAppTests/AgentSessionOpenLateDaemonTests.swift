@@ -41,6 +41,20 @@ struct AgentSessionOpenLateDaemonTests {
         }
     }
 
+    @MainActor private final class Ended { var value = false }
+
+    /// Runs `work` (an open's own work, awaited) while the daemon is stopped, for at most `limit`, and says
+    /// whether it ended in that time. Waiting on the open itself, not a fixed sleep: an open that gives up on
+    /// the stopped daemon ends the wait at once, and one that waits it out holds it to `limit`, the stall.
+    static func ends(within limit: Duration, _ work: @escaping @MainActor () async -> Void) async -> Bool {
+        let ended = Ended()
+        Task { @MainActor in
+            await work()
+            ended.value = true
+        }
+        return await RapidWorkspaceCreateTests.wait(within: limit) { ended.value }
+    }
+
     /// Waits until the store applied every event the daemon sent so far.
     private static func caughtUp(_ services: AppServices) async {
         guard let connection = services.daemon.connection, let barrier = await connection.eventSequence() else { return }
@@ -62,9 +76,11 @@ struct AgentSessionOpenLateDaemonTests {
         let session = "s-late-ws-\(UUID().uuidString.prefix(8).lowercased())"
 
         #expect(kill(pid, SIGSTOP) == 0)
+        defer { kill(pid, SIGCONT) } // a throw before the SIGCONT below never leaves the daemon stopped
         let work = try AgentSessionWorkspace.open(session: session, name: "late lane", key: key, cwd: nil, services: services)
-        // Every request misses its 2 s deadline, past the old ten-second budget.
-        try await Task.sleep(for: .seconds(12))
+        // Every request misses its 2 s deadline, past the old ten-second budget: the daemon stays stopped
+        // while the open waits, for that budget and two seconds more, unless the open ends first.
+        let endedStopped = await Self.ends(within: NewFrontendBrowserTabRequest.lateReplyBudget + .seconds(2)) { _ = await work.value }
         #expect(kill(pid, SIGCONT) == 0)
         let failure = await work.value?.message
         await RapidWorkspaceCreateTests.wait(within: .seconds(20)) { !Self.tabs(on: session, in: store).isEmpty }
@@ -74,6 +90,7 @@ struct AgentSessionOpenLateDaemonTests {
         let after = Self.daemonTabs(store)
         await launched.stop()
 
+        #expect(!endedStopped, "the open ended while the daemon was stopped")
         #expect(failure == nil, "the open gave up on the late daemon: \(failure ?? "")")
         #expect(onSession.count == 1, "tabs on the session: \(onSession.map { "\($0.workspace) \($0.tab.surface)" })")
         #expect(onSession.first?.workspace == key.rawValue, "the session's tab is not in its own new workspace")
@@ -98,8 +115,10 @@ struct AgentSessionOpenLateDaemonTests {
         let session = "s-late-tab-\(UUID().uuidString.prefix(8).lowercased())"
 
         #expect(kill(pid, SIGSTOP) == 0)
+        defer { kill(pid, SIGCONT) } // a throw before the SIGCONT below never leaves the daemon stopped
         let pending = try tabs.open(in: pane.handle, of: services.daemon, session: session, linked: true)
-        try await Task.sleep(for: .seconds(4))
+        // Past two 2 s control deadlines, unless the open ends first (it gave up on the stopped daemon).
+        let endedStopped = await Self.ends(within: .seconds(4)) { _ = try? await pending.value() }
         #expect(kill(pid, SIGCONT) == 0)
         var failure: String?
         var created: AgentTabCreated?
@@ -113,6 +132,7 @@ struct AgentSessionOpenLateDaemonTests {
         let after = Self.daemonTabs(store)
         await launched.stop()
 
+        #expect(!endedStopped, "the open ended while the daemon was stopped")
         #expect(failure == nil, "the open gave up on the late daemon: \(failure ?? "")")
         #expect(onSession.count == 1, "tabs on the session: \(onSession.map { "\($0.workspace) \($0.tab.surface)" })")
         #expect(linked, "the daemon's tab lost its session link")
@@ -145,9 +165,14 @@ struct AgentSessionOpenLateDaemonTests {
 
         // The daemon holds both runs' requests, so the second comes while the first is in flight.
         #expect(kill(pid, SIGSTOP) == 0)
-        let first = run()
-        let second = run()
-        try await Task.sleep(for: .seconds(1))
+        defer { kill(pid, SIGCONT) } // a throw before the SIGCONT below never leaves the daemon stopped
+        var first = false, second = false
+        let work = services.registry.capturingWork {
+            first = run()
+            second = run()
+        }
+        // Both runs' work waits on the stopped daemon for a second, unless it ends first.
+        let endedStopped = await Self.ends(within: .seconds(1)) { for task in work { _ = await task.value } }
         #expect(kill(pid, SIGCONT) == 0)
         await RapidWorkspaceCreateTests.wait(within: .seconds(20)) { !Self.tabs(on: session, in: store).isEmpty }
         // Long enough for a second create to land as well.
@@ -158,7 +183,35 @@ struct AgentSessionOpenLateDaemonTests {
         await launched.stop()
 
         #expect(first && second, "a run was refused")
+        #expect(!endedStopped, "an open ended while the daemon was stopped")
         #expect(onSession.count == 1, "the same key made \(onSession.count) tabs: \(onSession.map { "\($0.workspace) \($0.tab.surface)" })")
         #expect(workspaces.count == 1)
+    }
+
+    /// A tab a person opens (Cmd-T, a split, an import: no control run's scope) on a stopped daemon gives up
+    /// within the short late-reply budget, as Cmd-N's workspace does, instead of holding its provisional tab
+    /// for the two minutes a scripted open waits.
+    @Test func aPersonsTabGivesUpWithinTheShortBudget() async throws {
+        let launched = try await RapidWorkspaceCreateTests.launch()
+        let services = launched.services
+        let tabs = Self.agentTabs(services)
+        try #require(tabs.canHostChat, "this build has no agent page")
+        let store = services.daemon.store
+        let pid = try #require(services.daemon.identity?.pid)
+        let pane = try #require(store.workspaces.first?.screens.first?.panes.first, "the launch window shows no pane")
+
+        #expect(DaemonCommandScope.current == nil)
+        #expect(kill(pid, SIGSTOP) == 0)
+        defer { kill(pid, SIGCONT) } // a throw before the SIGCONT below never leaves the daemon stopped
+        let started = ContinuousClock.now
+        let pending = try tabs.open(in: pane.handle, of: services.daemon)
+        var failed = false
+        do { _ = try await pending.value() } catch { failed = true }
+        let waited = ContinuousClock.now - started
+        #expect(kill(pid, SIGCONT) == 0)
+        await launched.stop()
+
+        #expect(failed, "a person's tab on a stopped daemon never gave up")
+        #expect(waited < .seconds(20), "a person's tab waited \(waited) on a stopped daemon")
     }
 }

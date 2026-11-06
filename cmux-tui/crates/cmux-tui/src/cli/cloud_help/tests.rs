@@ -175,7 +175,10 @@ fn quick_start_commands_parse() {
             .lines()
             .map(str::trim)
             .filter(|line| line.starts_with("cmux cloud ") && !line.contains('<'))
+            // These run in this CLI, not through the app's catalog; `cloud env` lines parse in
+            // `cloud_environment.rs` (`the_help_env_lines_parse`).
             .filter(|line| !line.contains("secret") && !line.contains("client-session"))
+            .filter(|line| !line.starts_with("cmux cloud env "))
             .collect::<Vec<_>>();
         // Two start-chat lines, three follow-ups and five machine lines; the quick start's
         // create is `cmux machine new`.

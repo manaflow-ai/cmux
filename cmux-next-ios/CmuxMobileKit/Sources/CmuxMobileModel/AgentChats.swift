@@ -94,6 +94,47 @@ public protocol AgentChatsBackend: AnyObject {
     /// Stop: the chat's running turn stops (`session/cancel`). acpmux refuses a chat the Mac
     /// started (only its owner stops it); that refusal is thrown.
     func stopAgentChat(_ chat: AgentChatListing, on macID: String) async throws
+    /// Launch Claude Teams or Launch Codex Teams: a new terminal tab beside `tab` (else in the
+    /// workspace's first pane), in `folder`, that runs the team's line. Returns it once the
+    /// Mac lists it.
+    func launchAgentTeams(_ teams: AgentTeamsLaunch, beside tab: WorkspaceTab?, folder: String?,
+                          in workspace: Workspace) async throws -> WorkspaceTab
+}
+
+extension AgentChatsBackend {
+    public func launchAgentTeams(_ teams: AgentTeamsLaunch, beside tab: WorkspaceTab?, folder: String?,
+                                 in workspace: Workspace) async throws -> WorkspaceTab {
+        throw WorkspaceCreationError(String(localized: "This Mac can't open a terminal from iPhone."), isForPerson: true)
+    }
+}
+
+/// The Mac's Launch Claude Teams and Launch Codex Teams (CmuxNextApp `AgentTeamsLaunch`): the
+/// line each types into a new terminal. The variable is a prefix of the one command, so it
+/// never stays in the shell.
+public enum AgentTeamsLaunch: String, CaseIterable, Hashable, Sendable {
+    case claude
+    case codex
+
+    public var title: String {
+        switch self {
+        case .claude: String(localized: "Launch Claude Teams")
+        case .codex: String(localized: "Launch Codex Teams")
+        }
+    }
+
+    public var systemImage: String {
+        switch self {
+        case .claude: "person.3"
+        case .codex: "person.3.fill"
+        }
+    }
+
+    public var line: String {
+        switch self {
+        case .claude: "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 claude --teammate-mode in-process\n"
+        case .codex: "codex -c features.multi_agent=true\n"
+        }
+    }
 }
 
 /// acpmux kept a chat running because it was started on the Mac (only its owner stops it,

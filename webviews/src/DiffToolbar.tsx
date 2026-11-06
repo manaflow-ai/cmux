@@ -116,8 +116,9 @@ export function SourceMenu({
   model,
   onSelect,
 }: {
-  additions: number;
-  deletions: number;
+  /** Null while the diff is still loading: the counts keep their place but show no made-up +0 -0. */
+  additions: number | null;
+  deletions: number | null;
   label: DiffViewerLabelResolver;
   model: SourceMenuModel;
   onSelect: (target: SourceTarget) => void;
@@ -171,10 +172,17 @@ export function SourceMenu({
         <span className="source-pill-label">{selectedText}</span>
         <Icon name="chevronDown" />
       </button>
-      <span className="source-pill-stats" aria-label={label("diffStats")}>
-        <span className="source-pill-additions">+{additions}</span>
-        <span className="source-pill-deletions">-{deletions}</span>
-      </span>
+      {additions == null || deletions == null ? (
+        <span className="source-pill-stats invisible" aria-hidden="true">
+          <span className="source-pill-additions">+0</span>
+          <span className="source-pill-deletions">-0</span>
+        </span>
+      ) : (
+        <span className="source-pill-stats" aria-label={label("diffStats")}>
+          <span className="source-pill-additions">+{additions}</span>
+          <span className="source-pill-deletions">-{deletions}</span>
+        </span>
+      )}
       {open && style
         ? createPortal(
             <div
@@ -183,7 +191,7 @@ export function SourceMenu({
                 if (node && !node.contains(document.activeElement)) focusFirstMenuItem(node);
               }}
               id={menuId}
-              className="toolbar-menu source-menu"
+              className="toolbar-menu ui-popup ui-glass source-menu"
               role="menu"
               tabIndex={-1}
               aria-label={label("diffTarget")}
@@ -225,7 +233,7 @@ export function SourceMenu({
                         {committedOpen ? (
                           <div
                             ref={submenuRef}
-                            className="toolbar-menu toolbar-submenu ui-scroll-edge-fade"
+                            className="toolbar-menu ui-popup ui-glass toolbar-submenu ui-scroll-edge-fade"
                             role="menu"
                             tabIndex={-1}
                             aria-label={entryText(entry)}
@@ -378,7 +386,7 @@ export function JumpToFilePalette({
         ? createPortal(
             <div
               ref={paletteRef}
-              className="toolbar-menu jump-palette"
+              className="toolbar-menu ui-popup ui-glass jump-palette"
               // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
               role="dialog"
               aria-label={label("jumpToFile")}
@@ -506,7 +514,7 @@ export function FloatingToolbar({
         <div
           ref={focusFirstMenuItem}
           id="options-menu"
-          className="toolbar-menu options-menu"
+          className="toolbar-menu ui-popup ui-glass options-menu"
           role="menu"
           tabIndex={-1}
           aria-label={label("options")}
@@ -671,7 +679,7 @@ export function FileMenuButton({ items, label }: { items: FileMenuItem[]; label:
                 focusFirstMenuItem(node);
               }}
               id={menuId}
-              className="toolbar-menu file-header-menu"
+              className="toolbar-menu ui-popup ui-glass file-header-menu"
               role="menu"
               tabIndex={-1}
               aria-label={label}

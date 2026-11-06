@@ -130,6 +130,19 @@ public nonisolated enum GroupTint: Hashable, Sendable {
         }
     }
 
+    /// The group's color for tinted glass (Leo 2026-11-05: "We can afford to put glass here ... still keeping the
+    /// colors, it's just, like, but just make it glassier"): its line color with its chroma raised by `vividness`
+    /// (each channel pushed away from the color's grey), so a translucent wash of it reads vibrant over a busy
+    /// backdrop instead of muddy. No color: the theme's ink, untinted glass.
+    @MainActor public func glassRGB(themed: Bool, vividness: Double = 1.3) -> ThemeRGB {
+        let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+        if isNone { return tokens.textPrimary.withAlpha(1) }
+        let rgb = lineRGB(themed: themed)
+        let grey = 0.299 * rgb.red + 0.587 * rgb.green + 0.114 * rgb.blue
+        func push(_ c: Double) -> Double { min(1, max(0, grey + (c - grey) * vividness)) }
+        return ThemeRGB(red: push(rgb.red), green: push(rgb.green), blue: push(rgb.blue))
+    }
+
     /// The custom color as the person picked it (the color panel starts there).
     public var picked: NSColor? {
         if case let .custom(rgb) = self { rgb.nsColor } else { nil }

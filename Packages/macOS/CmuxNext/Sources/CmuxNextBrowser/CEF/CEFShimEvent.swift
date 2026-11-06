@@ -91,8 +91,9 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     /// A download's start, progress or end (`CEFDownloads`).
     case download(CEFDownloadEvent)
     /// A cmux page asks for one of its dynamic paths (PAGE_RESOURCE), answered with
-    /// `cmux_shim_page_resource_respond(token, …)` (``CEFTab/pageResources``).
-    case pageResource(browser: Int32, token: Int32, url: String)
+    /// `cmux_shim_page_resource_respond(token, …)` (``CEFTab/pageResources``); `range` is the
+    /// request's `Range` header, empty when none.
+    case pageResource(browser: Int32, token: Int32, url: String, range: String)
     /// A drag of files from outside entered a page (PAGE_DRAG_ENTER): their paths, as JSON.
     case pageDragEnter(browser: Int32, pathsJSON: String)
     /// A page opened a file chooser (FILE_DIALOG; only after `setFileDialogs(1)`): answer it once with
@@ -172,7 +173,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 43: self = .passwordPrompt(browser: browser, promptID: request, json: s1)
         case 44: self = .beforeUnloadDialog(browser: browser, token: request, isReload: a != 0)
         case 45: self = .beforeUnloadDismissed(browser: browser)
-        case 46: self = .pageResource(browser: browser, token: request, url: s1)
+        case 46: self = .pageResource(browser: browser, token: request, url: s1, range: s2)
         case 47: self = .pageDragEnter(browser: browser, pathsJSON: s1)
         case 48:
             self = .fileDialog(browser: browser, dialogID: request, mode: Int32(truncatingIfNeeded: a),

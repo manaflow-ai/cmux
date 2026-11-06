@@ -11,7 +11,7 @@ import Testing
 /// sidebar shows on the left, otherwise in a row the main pane starts below. Rects are in window
 /// coordinates (y up).
 @MainActor @Suite(.closesItsWindows, .serialized) struct BottomTabsTitleStripTests {
-    /// Runs `body` with `tabs.barPosition` at `position`, an explicit minimal title bar and the
+    /// Runs `body` with `tabs.barPosition` at `position`, the minimal title bar (the default) and the
     /// sidebar on `side`; restores the process-wide settings after.
     func with<T>(tabs position: TabBarPosition, side: SidebarSide = .left, _ body: () throws -> T) rethrows -> T {
         let design = DesignSettings.shared

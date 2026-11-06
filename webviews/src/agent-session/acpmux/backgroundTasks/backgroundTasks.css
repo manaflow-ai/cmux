@@ -44,11 +44,13 @@
   margin: 0;
   z-index: var(--layer-raised);
   /* Docked under the side panel, the one rule that parts the two. */
-  box-shadow: inset 0 1px 0 var(--agent-border);
+  box-shadow: inset 0 var(--cmux-hairline) 0 var(--agent-border);
 }
 .acpmux-shell:has(> .acpmux-bg) > .acpmux-artifact {
   height: calc((100% - var(--acpmux-bg-top)) * (1 - var(--acpmux-bg-share)));
-  max-height: calc((100% - var(--acpmux-bg-top)) * (1 - var(--acpmux-bg-share)));
+  max-height: calc(
+    (100% - var(--acpmux-bg-top)) * (1 - var(--acpmux-bg-share))
+  );
   align-self: flex-start;
 }
 .acpmux-shell:has(> .acpmux-artifact) > .acpmux-bg[data-expanded] {
@@ -65,7 +67,7 @@
     inset: auto 0 0 0;
     width: auto;
     z-index: calc(var(--layer-overlay) + 1);
-    box-shadow: inset 0 1px 0 var(--agent-border);
+    box-shadow: inset 0 var(--cmux-hairline) 0 var(--agent-border);
   }
   .acpmux-shell:has(> .acpmux-bg) > .acpmux-artifact {
     bottom: auto;
@@ -87,7 +89,7 @@
   letter-spacing: var(--text-body--letter-spacing);
 }
 .acpmux-bg__head {
-  flex: 0 0 44px;
+  flex: 0 0 calc(var(--ds-control-row) + var(--ds-space-4));
   display: flex;
   align-items: center;
   gap: var(--ds-space-2);
@@ -96,8 +98,35 @@
   /* No rule under the header. It drew `inset 0 -1px 0 var(--cmux-hairline)`, and --cmux-hairline is
      a length (desktop.css), not a colour: a 1px spread in currentColor, the white line Leo saw. */
 }
-.acpmux-bg__head > .cv-iconbtn:first-child {
-  margin-left: -6px;
+/* The agent pane may load the shared controls sheet through Session Info. Keep these Button
+   adapters scoped here so the background panel and the gallery share the same compact chrome. */
+.acpmux-bg__icon.ui-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--agent-muted);
+  font: inherit;
+  width: var(--ds-control-compact);
+  height: var(--ds-control-compact);
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--ds-radius-control);
+  cursor: default;
+}
+.acpmux-bg__icon.ui-btn svg {
+  width: var(--ds-icon-14);
+  height: var(--ds-icon-14);
+}
+.acpmux-bg__icon.ui-btn:hover:not(:disabled) {
+  background: var(--ds-color-hover);
+}
+.acpmux-bg__icon.ui-btn:active:not(:disabled) {
+  background: var(--ds-color-pressed);
+}
+.acpmux-bg__head > .acpmux-bg__icon:first-child {
+  margin-left: calc((var(--ds-icon-12) - var(--ds-control-compact)) / 2);
 }
 .acpmux-bg__title {
   flex: 1 1 auto;
@@ -130,7 +159,7 @@
 /* An agent's block: its line, then its counts line, then its tasks. */
 .acpmux-bg__group {
   border-radius: var(--grid-cards-radius);
-  background: color-mix(in srgb, var(--agent-text) 3%, transparent);
+  background: color-mix(in srgb, var(--ds-color-hover) 50%, transparent);
   padding: var(--ds-space-1);
 }
 .acpmux-bg__group + .acpmux-bg__group {
@@ -141,61 +170,65 @@
   display: flex;
   align-items: center;
   gap: var(--ds-space-2);
-  min-height: 28px;
+  min-height: var(--ds-control-row);
   padding-right: var(--ds-space-1);
   border-radius: var(--ds-radius-popup);
 }
 .acpmux-bg__agent {
-  min-height: 32px;
+  min-height: var(--ds-control-primary);
 }
-.acpmux-bg__name,
-.acpmux-bg__task-open,
-.acpmux-bg__fold,
-.acpmux-bg__counts,
-.acpmux-bg__more,
-.acpmux-bg__line--fold {
+.acpmux-bg__name.ui-btn,
+.acpmux-bg__task-open.ui-btn,
+.acpmux-bg__fold.ui-btn,
+.acpmux-bg__counts.ui-btn,
+.acpmux-bg__more.ui-btn,
+.acpmux-bg__line--fold.ui-btn {
   appearance: none;
   border: none;
   background: none;
   color: inherit;
   font: inherit;
   letter-spacing: inherit;
+  justify-content: flex-start;
   text-align: left;
   cursor: default;
 }
-.acpmux-bg__name,
-.acpmux-bg__task-open {
+.acpmux-bg__name.ui-btn,
+.acpmux-bg__task-open.ui-btn {
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
   align-items: center;
   gap: var(--ds-space-2);
   align-self: stretch;
+  height: auto;
+  justify-content: flex-start;
   padding: 0 0 0 var(--ds-space-2);
   border-radius: var(--ds-radius-popup);
 }
-.acpmux-bg__name:disabled,
-.acpmux-bg__task-open:disabled {
+.acpmux-bg__name.ui-btn:disabled,
+.acpmux-bg__task-open.ui-btn:disabled {
   cursor: default;
 }
 /* A hover lights only the control it belongs to (rulebook). */
-.acpmux-bg__name:hover:not(:disabled),
-.acpmux-bg__task-open:hover:not(:disabled),
-.acpmux-bg__fold:hover,
-.acpmux-bg__counts:hover,
-.acpmux-bg__more:hover,
-.acpmux-bg__line--fold:hover {
-  background: color-mix(in srgb, var(--agent-text) 7%, transparent);
+.acpmux-bg__name.ui-btn:hover:not(:disabled),
+.acpmux-bg__task-open.ui-btn:hover:not(:disabled),
+.acpmux-bg__fold.ui-btn:hover:not(:disabled),
+.acpmux-bg__counts.ui-btn:hover:not(:disabled),
+.acpmux-bg__more.ui-btn:hover:not(:disabled),
+.acpmux-bg__line--fold.ui-btn:hover:not(:disabled) {
+  background: var(--ds-color-hover);
 }
-.acpmux-bg__name:focus-visible,
-.acpmux-bg__task-open:focus-visible,
-.acpmux-bg__fold:focus-visible,
-.acpmux-bg__counts:focus-visible,
-.acpmux-bg__more:focus-visible,
-.acpmux-bg__line--fold:focus-visible,
-.acpmux-bg__stop:focus-visible {
-  outline: 2px solid var(--agent-accent);
-  outline-offset: -2px;
+.acpmux-bg__icon.ui-btn:focus-visible,
+.acpmux-bg__name.ui-btn:focus-visible,
+.acpmux-bg__task-open.ui-btn:focus-visible,
+.acpmux-bg__fold.ui-btn:focus-visible,
+.acpmux-bg__counts.ui-btn:focus-visible,
+.acpmux-bg__more.ui-btn:focus-visible,
+.acpmux-bg__line--fold.ui-btn:focus-visible,
+.acpmux-bg__stop.ui-btn:focus-visible {
+  outline: var(--cmux-focus-ring-width) solid var(--ds-color-focus);
+  outline-offset: calc(-1 * var(--cmux-focus-ring-width));
 }
 .acpmux-bg__label {
   min-width: 0;
@@ -214,7 +247,7 @@
 }
 .acpmux-bg__time {
   flex: none;
-  min-width: 48px;
+  min-width: var(--ds-space-48);
   text-align: right;
   color: var(--agent-muted);
   font-variant-numeric: tabular-nums;
@@ -223,48 +256,49 @@
 }
 .acpmux-bg__stop-slot {
   flex: none;
-  width: 24px;
-  height: 24px;
+  width: var(--ds-control-compact);
+  height: var(--ds-control-compact);
   display: inline-flex;
 }
-.acpmux-bg__stop {
+.acpmux-bg__stop.ui-btn {
   appearance: none;
-  width: 24px;
-  height: 24px;
+  width: var(--ds-control-compact);
+  height: var(--ds-control-compact);
   padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border: none;
   border-radius: var(--ds-radius-control);
-  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+  background: var(--ds-color-hover);
   color: var(--agent-text);
   cursor: default;
 }
-.acpmux-bg__stop:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--agent-text) 16%, transparent);
+.acpmux-bg__stop.ui-btn:hover:not(:disabled) {
+  background: var(--ds-color-pressed);
 }
-.acpmux-bg__stop:disabled {
+.acpmux-bg__stop.ui-btn:disabled {
   opacity: 0.5;
   cursor: default;
 }
-.acpmux-bg__stop[data-state="failed"] {
+.acpmux-bg__stop.ui-btn[data-state="failed"] {
   color: var(--agent-status-failure);
 }
-.acpmux-bg__fold,
-.acpmux-bg__counts {
+.acpmux-bg__fold.ui-btn,
+.acpmux-bg__counts.ui-btn {
   display: flex;
   align-items: center;
   gap: var(--ds-space-2);
-  min-height: 28px;
+  height: auto;
+  min-height: var(--ds-control-row);
   padding: 0 var(--ds-space-2);
   border-radius: var(--ds-radius-popup);
   color: var(--agent-muted);
 }
-.acpmux-bg__fold {
+.acpmux-bg__fold.ui-btn {
   width: 100%;
 }
-.acpmux-bg__counts {
+.acpmux-bg__counts.ui-btn {
   flex: none;
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
@@ -287,8 +321,9 @@
 .acpmux-bg__finished {
   padding-left: var(--ds-space-4);
 }
-.acpmux-bg__more {
-  min-height: 28px;
+.acpmux-bg__more.ui-btn {
+  height: auto;
+  min-height: var(--ds-control-row);
   padding: 0 var(--ds-space-2);
   border-radius: var(--ds-radius-popup);
   color: var(--agent-muted);
@@ -297,14 +332,14 @@
    as Claude Desktop's panel splits it: muted, each folding its blocks; its hover covers the heading's
    words alone, never the row. */
 .acpmux-bg__section + .acpmux-bg__section {
-  margin-top: 16px;
+  margin-top: var(--ds-space-4);
 }
-.acpmux-bg__fold.acpmux-bg__section-head {
+.acpmux-bg__fold.ui-btn.acpmux-bg__section-head {
   width: fit-content;
   max-width: 100%;
 }
 .acpmux-bg__section-head + .acpmux-bg__group {
-  margin-top: 4px;
+  margin-top: var(--ds-space-1);
 }
 .acpmux-bg__section-count {
   font-variant-numeric: tabular-nums;
@@ -333,7 +368,7 @@
   margin: 0;
   padding: var(--ds-space-2) var(--ds-space-3);
   border-radius: var(--grid-cards-radius);
-  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  background: var(--ds-color-hover);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -350,18 +385,19 @@
   margin: 0;
   color: var(--agent-muted);
 }
-.acpmux-bg__line--fold {
+.acpmux-bg__line--fold.ui-btn {
   display: inline-flex;
   align-items: center;
   gap: var(--ds-space-2);
+  height: auto;
   max-width: 100%;
-  min-height: 24px;
+  min-height: var(--ds-control-compact);
   padding: 0 var(--ds-space-1);
-  margin-left: -4px;
+  margin-left: calc(-1 * var(--ds-space-1));
   border-radius: var(--ds-radius-control);
   color: var(--agent-muted);
 }
-.acpmux-bg__tool[data-failed] .acpmux-bg__line--fold {
+.acpmux-bg__tool[data-failed] .acpmux-bg__line--fold.ui-btn {
   color: var(--agent-status-failure);
 }
 .acpmux-bg__thought-text {
@@ -375,7 +411,7 @@
   max-height: 240px;
   overflow: auto;
   border-radius: var(--ds-radius-popup);
-  background: color-mix(in srgb, var(--agent-text) 5%, transparent);
+  background: var(--ds-color-hover);
   font-family: var(--cv-mono, ui-monospace, monospace);
   font-size: var(--text-detail);
   white-space: pre-wrap;
@@ -395,6 +431,17 @@
   .acpmux-bg * {
     transition: none !important;
   }
+}
+
+/* Row glyphs keep their status/disclosure size; the header uses Button's compact icon size. */
+.acpmux-bg .ui-btn:not([data-icon]) svg,
+.acpmux-bg__stop.ui-btn svg {
+  width: var(--ds-icon-12);
+  height: var(--ds-icon-12);
+}
+.acpmux-bg__name.ui-btn[data-disabled],
+.acpmux-bg__task-open.ui-btn[data-disabled] {
+  opacity: 1;
 }
 
 /* ---------- Its own tab in the right column (backgroundPane.ts) ---------- */

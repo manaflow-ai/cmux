@@ -19,12 +19,14 @@
   --cmux-diff-selection-bg-light: var(--cmux-text-selection, #abd8ff);
   --cmux-diff-selection-bg-dark: var(--cmux-text-selection, #3f638b);
   --cmux-diff-ui-font-family: var(--font-ui);
-  /* 13 px UI text, the classic viewer's size (its 2x screenshots). */
-  --cmux-diff-ui-font-size: 13px;
-  --cmux-diff-ui-line-height: 18px;
+  /* Diff chrome uses the shared body step; code uses the shared detail step. The
+     viewer keeps its compact line height through the shared type scale instead
+     of minting a page-local type system. */
+  --cmux-diff-ui-font-size: var(--text-body);
+  --cmux-diff-ui-line-height: var(--text-body--line-height);
   --cmux-diff-code-font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-  --cmux-diff-font-size: 10px;
-  --cmux-diff-line-height: 20px;
+  --cmux-diff-font-size: var(--text-detail);
+  --cmux-diff-line-height: var(--text-body--line-height);
   --cmux-diff-bg: var(--cmux-diff-bg-light);
   --cmux-diff-fg: var(--cmux-diff-fg-light);
   /* Separators, panel edges and outlines: the foreground at 8% over the
@@ -106,8 +108,7 @@ html:has(.acpmux-shell[data-tab-row]) {
      ground: the window's shows through"): the window's own tint and blur over the image make its
      names readable. Its sticky folder rows keep the film, so rows scrolling under them do not show
      through their text; it takes the film while it slides, when it passes over code.
-   - The tree's own layers go clear so no tint stacks; a shortened name's marker keeps the solid
-     backdrop so the hidden text does not show under it.
+   - The tree's own layers go clear so no tint stacks; a long name fades out at its end.
    - File names keep their status color, mixed toward the text color for contrast. */
 @media not (prefers-reduced-transparency: reduce) {
   :root[data-cmux-see-through]:not([data-reduce-transparency]) {
@@ -115,7 +116,6 @@ html:has(.acpmux-shell[data-tab-row]) {
     --cmux-diff-files-sticky-bg: var(--cmux-diff-header-bg);
     --cmux-diff-files-float-bg: var(--cmux-diff-header-bg);
     --cmux-diff-files-layer-bg: transparent;
-    --cmux-diff-truncate-marker-bg: var(--cmux-diff-solid-bg);
     --cmux-diff-tree-name-strength: 65%;
     /* A tint of the text color, not the theme surface (no navy or other theme hue). */
     --cmux-diff-header-bg: color-mix(in srgb, var(--cmux-diff-fg) 5%, transparent);
@@ -242,7 +242,7 @@ body {
 }
 .toolbar-left,
 .toolbar-middle {
-  gap: 6px;
+  gap: var(--ds-space-1);
 }
 .toolbar-left {
   justify-self: stretch;
@@ -256,7 +256,7 @@ body {
 }
 .toolbar-actions {
   justify-self: end;
-  gap: 4px;
+  gap: var(--ds-space-1);
 }
 #source-select,
 #repo-select,
@@ -543,18 +543,21 @@ body {
   max-width: min(86vw, 360px);
   display: flex;
   flex-direction: column;
-  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 13%, transparent);
-  border-radius: 8px;
-  background: var(--cmux-diff-bg);
-  box-shadow: var(--elevation-2);
+  /* ui-glass owns the popup rim; retain the one-pixel box edge for stable
+     geometry without drawing a second border over the glass surface. */
+  border: 1px solid transparent;
+  border-radius: var(--ds-radius-lg);
+  background: var(--glass-tint, var(--cmux-diff-bg));
+  -webkit-backdrop-filter: var(--surface-blur, none);
+  backdrop-filter: var(--surface-blur, none);
   z-index: 120;
   overflow: hidden;
 }
 .base-picker-search {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 7px 9px;
+  gap: var(--ds-space-1);
+  padding: var(--grid-half-step) var(--ds-space-2);
   border-bottom: 1px solid color-mix(in lab, var(--cmux-diff-fg) 11%, transparent);
 }
 .base-picker-search svg {
@@ -581,7 +584,7 @@ body {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: 4px;
+  padding: var(--ds-space-1);
 }
 .base-picker-status {
   padding: 12px 9px;
@@ -1521,9 +1524,9 @@ body[data-loading="true"] #status::before {
 }
 .file-tree-context-menu {
   min-width: 180px;
-  padding: 4px;
+  padding: var(--ds-space-1);
   border: 1px solid var(--cmux-diff-border);
-  border-radius: 7px;
+  border-radius: var(--ds-radius-menu);
   background: var(--cmux-diff-solid-bg);
   box-shadow: var(--elevation-2);
 }
@@ -1791,8 +1794,8 @@ body[data-loading="true"] #status::before {
   background: var(--cmux-diff-hover-bg);
 }
 .file-review-eye svg {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   fill: none;
   stroke: currentcolor;
   stroke-width: 1.3;
@@ -1836,9 +1839,9 @@ svg[data-icon-fill] {
 #toolbar {
   display: flex;
   align-items: center;
-  gap: 6px;
-  min-height: 50px;
-  padding: 0 7px 0 8px;
+  gap: var(--ds-space-1);
+  min-height: calc(var(--grid-row) + var(--ds-space-4));
+  padding: 0 var(--ds-space-1) 0 var(--ds-space-2);
   /* No fill and no backdrop filter, like the tab bar and every other page header: it shows the
      page's backdrop as it is. (--surface-blur's saturate(1.4) tinted the flat color under it, so
      the header read as a different color than the rest of the app.) */
@@ -1848,17 +1851,17 @@ svg[data-icon-fill] {
    queries), so it cannot size to its content: it takes the header's width. */
 #toolbar .toolbar-left {
   flex: 1 1 auto;
-  gap: 6px;
+  gap: var(--ds-space-1);
 }
 /* Source chip: "Branch v +N -N". */
 .source-pill {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 2px;
-  height: 28px;
-  padding: 2px 10px 2px 2px;
-  border-radius: 7px;
+  gap: var(--ds-space-1);
+  height: var(--grid-row);
+  padding: var(--grid-half-step) var(--ds-space-2) var(--grid-half-step) var(--grid-half-step);
+  border-radius: var(--ds-radius-md);
   background: var(--cmux-diff-pill-bg);
   box-shadow: var(--cmux-diff-pill-rim);
   font-variant-numeric: tabular-nums;
@@ -1866,11 +1869,11 @@ svg[data-icon-fill] {
 .source-pill-button {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  height: 24px;
-  padding: 0 8px 0 10px;
+  gap: var(--ds-space-1);
+  height: var(--ds-control-compact);
+  padding: 0 var(--ds-space-2) 0 var(--ds-space-3);
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   background: transparent;
   color: var(--cmux-diff-fg);
   font: inherit;
@@ -1884,14 +1887,14 @@ svg[data-icon-fill] {
 }
 .source-pill-button svg,
 .toolbar-round-button svg {
-  width: 12px;
-  height: 12px;
+  width: var(--grid-glyph);
+  height: var(--grid-glyph);
   fill: currentcolor;
   opacity: 0.75;
 }
 .source-pill-stats {
   display: inline-flex;
-  gap: 4px;
+  gap: var(--ds-space-1);
 }
 .source-pill-additions {
   color: light-dark(var(--cmux-diff-addition-fg-light), var(--cmux-diff-addition-fg-dark));
@@ -1901,10 +1904,10 @@ svg[data-icon-fill] {
 }
 /* The base picker joins the toolbar as a chip too: "head -> base v". */
 #toolbar .base-picker-button {
-  height: 28px;
-  padding: 0 10px 0 12px;
+  height: var(--grid-row);
+  padding: 0 var(--ds-space-2) 0 var(--ds-space-3);
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--ds-radius-md);
   background: var(--cmux-diff-pill-bg);
   box-shadow: var(--cmux-diff-pill-rim);
   font-weight: 400;
@@ -1918,16 +1921,19 @@ svg[data-icon-fill] {
 #toolbar .base-picker-ref {
   font-weight: 500;
 }
+#jump-to-file {
+  flex: 0 0 auto;
+}
 .toolbar-round-button {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: var(--grid-row);
+  height: var(--grid-row);
   padding: 0;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--ds-radius-md);
   background: var(--cmux-diff-pill-bg);
   box-shadow: var(--cmux-diff-pill-rim);
   color: var(--cmux-diff-fg);
@@ -1953,11 +1959,14 @@ svg[data-icon-fill] {
   display: flex;
   flex-direction: column;
   min-width: 200px;
-  padding: 6px;
-  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 13%, transparent);
-  border-radius: 12px;
-  background: color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg));
-  box-shadow: var(--elevation-2);
+  padding: var(--ds-space-1);
+  /* ui-glass owns the popup rim; retain the one-pixel box edge for stable
+     geometry without drawing a second border over the glass surface. */
+  border: 1px solid transparent;
+  border-radius: var(--ds-radius-lg);
+  background: var(--glass-tint, color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg)));
+  -webkit-backdrop-filter: var(--surface-blur, none);
+  backdrop-filter: var(--surface-blur, none);
   color: var(--cmux-diff-fg);
 }
 .toolbar-menu-section {
@@ -1965,16 +1974,23 @@ svg[data-icon-fill] {
   flex-direction: column;
 }
 .toolbar-menu .menu-separator {
-  margin: 5px 8px;
+  margin: var(--ds-space-1) var(--ds-space-2);
 }
 .toolbar-menu-item {
-  min-height: 28px;
-  border-radius: 7px;
+  min-height: var(--grid-row);
+  border-radius: var(--ds-radius-menu);
   cursor: default;
   color: color-mix(in lab, var(--cmux-diff-fg) 90%, var(--cmux-diff-bg));
 }
 .source-menu .toolbar-menu-item {
   grid-template-columns: minmax(0, 1fr) 18px;
+}
+/* The committed-refs submenu flies out of this popup; ui-popup's scroll box
+   would otherwise clip the absolutely positioned child. Its own list keeps
+   the 60vh cap below. */
+.source-menu {
+  max-height: none;
+  overflow: visible;
 }
 /* Only the pointer tints a row: a click leaves focus on it, and a tint on that focus stayed after
    the pointer left, as if the row were selected (its check mark says it is on). */
@@ -2020,8 +2036,8 @@ svg[data-icon-fill] {
 .jump-palette-search {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 9px 12px;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-2) var(--ds-space-3);
 }
 .jump-palette-search svg,
 .base-picker-search svg {
@@ -2043,7 +2059,7 @@ svg[data-icon-fill] {
   background: transparent;
   color: var(--cmux-diff-fg);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--text-body);
   outline: none;
 }
 .jump-palette-list {
@@ -2055,10 +2071,10 @@ svg[data-icon-fill] {
 .jump-palette-row {
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  min-height: 28px;
-  padding: 5px 8px;
-  border-radius: 7px;
+  gap: var(--ds-space-2);
+  min-height: var(--grid-row);
+  padding: var(--grid-half-step) var(--ds-space-2);
+  border-radius: var(--ds-radius-menu);
   cursor: default;
   white-space: nowrap;
 }
@@ -2080,7 +2096,7 @@ svg[data-icon-fill] {
   color: color-mix(in lab, var(--cmux-diff-fg) 50%, var(--cmux-diff-bg));
 }
 .jump-palette-status {
-  padding: 8px;
+  padding: var(--ds-space-2);
   color: color-mix(in lab, var(--cmux-diff-fg) 55%, var(--cmux-diff-bg));
 }
 /* Branch rows: branch icon, name, check on the current base. */
@@ -2198,9 +2214,8 @@ svg[data-icon-fill] {
 
 /* The base picker popover uses the toolbar menu surface. */
 .base-picker-popover {
-  border-radius: 8px;
-  background: color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg));
-  box-shadow: var(--elevation-2);
+  border-radius: var(--ds-radius-lg);
+  background: var(--glass-tint, color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg)));
 }
 .base-picker-search {
   padding: 9px 12px;
