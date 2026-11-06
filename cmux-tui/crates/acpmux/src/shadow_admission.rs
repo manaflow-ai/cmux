@@ -23,6 +23,7 @@
 
 use crate::host_pressure::{ShadowInputs, ShadowState, ShadowVerdict, shadow_verdict};
 use crate::placement::Candidate;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
@@ -165,16 +166,16 @@ pub fn local_readings() -> Value {
         "cpus": std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1),
     });
     if let Some(age) = pressure_age_ms() {
-        r["pressureAgeMs"] = json!(age);
+        r.set("pressureAgeMs", json!(age));
     }
     if let Some(l) = load() {
-        r["load"] = json!(l);
+        r.set("load", json!(l));
     }
     if let Some(total) = ram_total() {
-        r["ram"] = json!({"totalBytes": total});
+        r.set("ram", json!({"totalBytes": total}));
     }
     if let Some((used, total)) = swap() {
-        r["swap"] = json!({"usedBytes": used, "totalBytes": total});
+        r.set("swap", json!({"usedBytes": used, "totalBytes": total}));
     }
     r
 }
@@ -184,7 +185,7 @@ pub fn local_readings() -> Value {
 pub fn local_health(readings: &Value, pressure: Value) -> Value {
     let mut health = readings.clone();
     if !pressure.is_null() {
-        health["pressure"] = pressure;
+        health.set("pressure", pressure);
     }
     health
 }
@@ -206,12 +207,12 @@ pub fn status_candidate(name: &str, host_pressure: &Value, at_ms: u64) -> Candid
     let mut health = json!({});
     for k in ["cpus", "pressureAgeMs", "load", "ram", "swap"] {
         if let Some(v) = host_pressure.get(k) {
-            health[k] = v.clone();
+            health.set(k, v.clone());
         }
     }
     // The verdict is only a verdict once the meter has a sample (`ok` set).
     if host_pressure.get("ok").is_some_and(|ok| !ok.is_null()) {
-        health["pressure"] = host_pressure.clone();
+        health.set("pressure", host_pressure.clone());
     }
     Candidate { name: name.to_owned(), local: true, health, health_at: Some(at_ms) }
 }

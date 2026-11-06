@@ -62,8 +62,10 @@ async fn this_machine(hub: &Hub) -> Candidate {
 pub(super) async fn pick(hub: &Hub, work: Work) -> Value {
     let registry = crate::placement::load_registry();
     let candidates = candidates(hub).await;
-    let verdict = dispatch_place(candidates.clone(), registry.as_ref(), work);
-    crate::shadow_admission::with_shadow("pick", verdict, &candidates)
+    // The shadow judges only the hosts the pick weighs, not the ones `dispatch_hosts` leaves out.
+    let (weighed, _) = dispatch_hosts(candidates.clone(), registry.as_ref(), work);
+    let verdict = dispatch_place(candidates, registry.as_ref(), work);
+    crate::shadow_admission::with_shadow("pick", verdict, &weighed)
 }
 
 /// `placement::place` over the hosts `dispatch_hosts` keeps. With no pick, `why` also names
