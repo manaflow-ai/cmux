@@ -68,11 +68,11 @@ struct CloudIdlePauseTests {
         #expect(text.contains("idle pause: 30 minutes"))
         #expect(text.contains("idle pause decision: idle (idle)"))
 
-        let appServer = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"id":"vm-next","status":"running","idlePauseMinutes":30,"idlePause":{"minutes":30,"lastCheckedAt":1700000000000,"idleSince":1699998000000,"lastApiActivityAt":1699999000000,"privateAddressKnown":true,"lastDecision":{"at":1700000000000,"outcome":"idle","reason":"idle","run":{"checked":8,"elapsedMs":120}}}}"#.utf8))
+        let appServer = try JSONDecoder().decode(CmuxNextDaemon.JSONValue.self, from: Data(#"{"id":"vm-next","status":"running","idlePauseMinutes":30,"idlePause":{"minutes":30,"lastCheckedAt":1700000000000,"idleSince":1699998000000,"lastApiActivityAt":1699999000000,"privateAddressKnown":true,"lastDecision":{"at":1700000000000,"outcome":"idle","reason":"idle","run":{"checked":8,"elapsedMs":120}}}}"#.utf8))
         let next = try #require(CloudMachine(next: appServer))
         #expect(next.idlePause?.lastDecision?.run.elapsedMs == 120)
 
-        let nextPolicy = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"id":"vm-next-policy","status":"running","idle_policy":{"idle_seconds":1800}}"#.utf8))
+        let nextPolicy = try JSONDecoder().decode(CmuxNextDaemon.JSONValue.self, from: Data(#"{"id":"vm-next-policy","status":"running","idle_policy":{"idle_seconds":1800}}"#.utf8))
         let policyMachine = try #require(CloudMachine(next: nextPolicy))
         #expect(policyMachine.idlePauseMinutes == 30)
     }
@@ -80,7 +80,7 @@ struct CloudIdlePauseTests {
     /// A failed create keeps its reason only on the record (`error`): machine-status prints it, so "state failed"
     /// says why (Leo's six failed machines read only "state failed", 2026-11-06).
     @Test func machineStatusPrintsWhyTheMachineFailed() throws {
-        let record = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"id":"vm-failed","status":"failed","error":{"code":"cloud.provider.unavailable","message":"VM API: HTTP 503","at":1700000000000}}"#.utf8))
+        let record = try JSONDecoder().decode(CmuxNextDaemon.JSONValue.self, from: Data(#"{"id":"vm-failed","status":"failed","error":{"code":"cloud.provider.unavailable","message":"VM API: HTTP 503","at":1700000000000}}"#.utf8))
         let machine = try #require(CloudMachine(next: record))
         let services = MachineIconTests.services()
         let session = MachineIconTests.cloudMachine(services, id: "vm-failed")
