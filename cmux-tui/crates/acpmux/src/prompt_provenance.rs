@@ -278,6 +278,8 @@ pub fn named_sender(name: &str, to: &str) -> Value {
 
 /// The provenance kind of a tool's notice ([`notice`]).
 pub const NOTICE_KIND: &str = "notice";
+/// A peer-carried proof that the originating connection was a verified person.
+pub const PERSON_VERIFIED: &str = "personVerified";
 /// Longest notice title, in characters.
 pub const MAX_NOTICE_TITLE_CHARS: usize = 200;
 /// Most links one notice carries.
@@ -618,6 +620,10 @@ pub const FROM_SESSION_ID: &str = "fromSessionId";
 /// See [`FROM_SESSION_ID`].
 pub const FROM_HARNESS: &str = "fromHarness";
 
+/// A caller-supplied sender label kept beside authenticated provenance.  It is deliberately
+/// separate from `fromName`: the latter is the daemon's name for a proven session.
+pub const DECLARED_LABEL: &str = "declared";
+
 /// The sending session's id and harness family, as far as the daemon bound them.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct BoundSender {
@@ -706,6 +712,137 @@ pub fn sender_of(provenance: Option<&Value>) -> (Option<String>, Option<String>)
     (field(FROM_SESSION_ID), field(FROM_HARNESS))
 }
 
+/// The label a caller declared with `--from`/`ACPMUX_FROM`, when it survived alongside a
+/// caller-token or peer-stamped provenance.  Older named-sender records use `fromName`.
+pub fn declared_label(provenance: Option<&Value>) -> Option<String> {
+    let provenance = provenance?;
+    provenance
+        .get(DECLARED_LABEL)
+        .or_else(|| {
+            (provenance.get("from").and_then(Value::as_str) == Some(NAMED_SENDER))
+                .then(|| provenance.get("fromName"))
+                .flatten()
+        })
+        .and_then(Value::as_str)
+        .filter(|label| !label.trim().is_empty())
+        .map(str::to_owned)
+}
+
+/// Keep a caller's self-declared label when the daemon also has authenticated provenance.
+pub fn stamp_declared(mut provenance: Value, label: Option<&str>) -> Value {
+    if let Some(label) = label.filter(|label| !label.trim().is_empty()) {
+        provenance.set(DECLARED_LABEL, json!(label));
+    }
+    provenance
+}
+
+/// The additive sender projection carried by an inbox message.  `legacy_session` is the old
+/// `from`/`fromSession` value and is retained for historical records, but it never upgrades a
+/// record to authenticated.  Only `fromSessionId` (stamped by this daemon or an authenticated
+/// peer) does that.
+pub fn sender_record(
+    provenance: Option<&Value>,
+    legacy_session: Option<&str>,
+    meta: Option<&crate::store::SessionMeta>,
+) -> Value {
+    sender_record_with_auth(provenance, legacy_session, meta, false)
+}
+
+/// Sender projection with the connection proof for a human author. Agent provenance remains
+/// authenticated only through the daemon-stamped session fields; a `kind` label alone is not
+/// proof of a person.
+pub fn sender_record_with_auth(
+    provenance: Option<&Value>,
+    legacy_session: Option<&str>,
+    meta: Option<&crate::store::SessionMeta>,
+    human_authenticated: bool,
+) -> Value {
+    let empty = Value::Null;
+    let provenance = provenance.unwrap_or(&empty);
+    let (stamped_session, harness) = sender_of(Some(provenance));
+    let authenticated = stamped_session.is_some() || human_authenticated;
+    let session = stamped_session.clone().or_else(|| legacy_session.map(str::to_owned));
+    let label = declared_label(Some(provenance));
+    let verification = if authenticated {
+        "verified"
+    } else if label.is_some() {
+        "declared"
+    } else {
+        "legacy"
+    };
+    let family = harness.clone().or_else(|| meta.map(crate::web_modes::family_of));
+    let has_parent = meta.is_some_and(|m| m.lineage.is_some() || m.subsession.is_some());
+    let actor_kind = if human_authenticated {
+        "authenticated_human"
+    } else if authenticated && meta.is_some() && !has_parent {
+        "root_assistant"
+    } else if authenticated && family.as_deref().is_some_and(|f| f.eq_ignore_ascii_case("codex")) {
+        "codex_worker"
+    } else {
+        "other_agent"
+    };
+    let actor_id = stamped_session
+        .as_ref()
+        .map(|id| {
+            provenance
+                .get("peer")
+                .or_else(|| provenance.get("fromPeer"))
+                .and_then(Value::as_str)
+                .map_or_else(|| id.clone(), |peer| format!("{peer}:{id}"))
+        })
+        .or_else(|| {
+            human_authenticated
+                .then(|| provenance.get("from").and_then(Value::as_str).map(str::to_owned))
+                .flatten()
+        });
+    let parent = meta
+        .and_then(|m| m.lineage.as_ref().map(|lineage| lineage.parent.clone()))
+        .or_else(|| provenance.get("parent").and_then(Value::as_str).map(str::to_owned));
+    let delegator = meta
+        .and_then(|m| m.delegator.clone())
+        .or_else(|| provenance.get("delegator").and_then(Value::as_str).map(str::to_owned));
+
+    // A message copy records the original sender beside the authenticated forwarder.  This is
+    // additive and intentionally accepts only daemon-carried objects, never a --from string.
+    let author = provenance
+        .get("author")
+        .or_else(|| provenance.get("originalAuthor"))
+        .or_else(|| provenance.pointer("/_acpmuxMessage/sender"))
+        .cloned();
+    let forwarded_by = provenance
+        .get("forwardedBy")
+        .or_else(|| provenance.get("forwarder"))
+        .or_else(|| provenance.pointer("/_acpmuxMessage/forwardedBy"))
+        .cloned()
+        .or_else(|| {
+            author.as_ref().and_then(|author| {
+                let author_session = author
+                    .get("sessionId")
+                    .or_else(|| author.get("session"))
+                    .and_then(Value::as_str)
+                    .or_else(|| author.as_str());
+                (authenticated
+                    && author_session.is_some_and(|id| Some(id) != stamped_session.as_deref()))
+                .then(|| json!({"session": stamped_session}))
+            })
+        });
+
+    json!({
+        "session": session,
+        "authenticated": authenticated,
+        "harness": harness,
+        "label": label,
+        "labelDeclared": label.is_some(),
+        "author": author,
+        "forwardedBy": forwarded_by,
+        "actorKind": actor_kind,
+        "actorId": actor_id,
+        "parent": parent,
+        "delegator": delegator,
+        "verification": verification,
+    })
+}
+
 #[cfg(test)]
 mod sender_tests {
     use super::*;
@@ -774,6 +911,128 @@ mod sender_tests {
         let mut params = json!({"_meta": {"acpmux": {"fromSessionId": "x", "fromHarness": "y", "promptId": "p"}}});
         drop_sender_fields(&mut params);
         assert_eq!(params, json!({"_meta": {"acpmux": {"promptId": "p"}}}));
+    }
+
+    #[test]
+    fn sender_records_accept_peer_stamps_but_not_client_written_sender_fields() {
+        let raw = json!({
+            "_meta": {"acpmux": {
+                "provenance": {"kind": "agent_message", "from": "fromAgent", "fromName": "dot",
+                    "to": "target", "msgId": "m", "threadId": "t"},
+                "fromSessionId": "claimed", "fromHarness": "codex"
+            }}
+        });
+        let parsed = of(&raw, Sender::Local).unwrap().unwrap();
+        assert_eq!(sender_of(Some(&parsed)), (None, None));
+        assert_eq!(sender_record(Some(&parsed), None, None)["authenticated"], false);
+
+        let peer = json!({
+            "_meta": {"acpmux": {
+                "fromSessionId": "peer-session", "fromHarness": "codex",
+                "provenance": parsed
+            }}
+        });
+        let stamped = stamp_sender(
+            peer["_meta"]["acpmux"]["provenance"].clone(),
+            peer_sender(&peer).as_ref(),
+        );
+        let record = sender_record(Some(&stamped), None, None);
+        assert_eq!(record["session"], "peer-session");
+        assert_eq!(record["authenticated"], true);
+        assert_eq!(record["verification"], "verified");
+    }
+
+    #[test]
+    fn sender_records_keep_declared_labels_separate_from_authenticated_sessions() {
+        let declared = named_sender("dot", "target");
+        let record = sender_record(Some(&declared), None, None);
+        assert_eq!(record["session"], Value::Null);
+        assert_eq!(record["authenticated"], false);
+        assert_eq!(record["label"], "dot");
+        assert_eq!(record["labelDeclared"], true);
+        assert_eq!(record["verification"], "declared");
+
+        let authenticated = stamp_declared(
+            stamp_sender(
+                session_message("s-1", "worker", "target"),
+                Some(&BoundSender {
+                    session_id: Some("s-1".into()),
+                    harness: Some("codex".into()),
+                }),
+            ),
+            Some("dot"),
+        );
+        let record = sender_record(Some(&authenticated), None, None);
+        assert_eq!(record["session"], "s-1");
+        assert_eq!(record["authenticated"], true);
+        assert_eq!(record["label"], "dot");
+        assert_eq!(record["verification"], "verified");
+        assert_eq!(declared_label(Some(&authenticated)).as_deref(), Some("dot"));
+
+        let person =
+            json!({"kind": crate::author::PERSON_MESSAGE, "from": "user-1", "fromName": "Ana"});
+        let unproven = sender_record(Some(&person), None, None);
+        assert_eq!(unproven["authenticated"], false);
+        assert_eq!(unproven["actorId"], Value::Null);
+        let proven = sender_record_with_auth(Some(&person), None, None, true);
+        assert_eq!(proven["actorKind"], "authenticated_human");
+        assert_eq!(proven["actorId"], "user-1");
+    }
+
+    #[test]
+    fn sender_records_keep_a_relay_author_and_forwarder_distinct() {
+        let provenance = json!({
+            "kind": "agent_message", "from": "fromAgent", "fromName": "worker",
+            "fromSessionId": "forwarder", "fromHarness": "codex",
+            "_acpmuxMessage": {"sender": {"sessionId": "author", "name": "original"},
+                "forwardedBy": {"session": "forwarder"}},
+        });
+        let record = sender_record(Some(&provenance), None, None);
+        assert_eq!(record["author"]["sessionId"], "author");
+        assert_eq!(record["forwardedBy"]["session"], "forwarder");
+        assert_eq!(record["actorId"], "forwarder");
+    }
+
+    #[test]
+    fn sender_records_keep_worker_and_delegator_distinct() {
+        let meta: crate::store::SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "worker", "name": "worker",
+            "harness": "codex", "cwd": "/tmp", "status": "idle",
+            "createdAt": 1, "updatedAt": 1,
+            "lineage": {"parent": "root", "root": "root", "depth": 1},
+            "delegator": "root"
+        }))
+        .expect("session metadata");
+        let provenance = stamp_sender(
+            session_message("worker", "worker", "receiver"),
+            Some(&BoundSender { session_id: Some("worker".into()), harness: Some("codex".into()) }),
+        );
+        let record = sender_record(Some(&provenance), None, Some(&meta));
+        assert_eq!(record["actorKind"], "codex_worker");
+        assert_eq!(record["actorId"], "worker");
+        assert_eq!(record["parent"], "root");
+        assert_eq!(record["delegator"], "root");
+    }
+
+    #[test]
+    fn sender_actor_metadata_uses_the_stamped_session_not_provenance_from() {
+        let meta: crate::store::SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "worker", "name": "worker",
+            "harness": "codex", "cwd": "/tmp", "status": "idle",
+            "createdAt": 1, "updatedAt": 1,
+            "lineage": {"parent": "root", "root": "root", "depth": 1},
+            "delegator": "root"
+        }))
+        .expect("session metadata");
+        let provenance = stamp_sender(
+            json!({"kind": "session_message", "from": "acp:root", "fromName": "root", "to": "receiver"}),
+            Some(&BoundSender { session_id: Some("worker".into()), harness: Some("codex".into()) }),
+        );
+        let record = sender_record_with_auth(Some(&provenance), Some("root"), Some(&meta), false);
+        assert_eq!(record["actorId"], "worker");
+        assert_eq!(record["actorKind"], "codex_worker");
+        assert_eq!(record["parent"], "root");
+        assert_eq!(record["delegator"], "root");
     }
 }
 
