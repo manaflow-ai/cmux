@@ -227,8 +227,12 @@ fn read_json_object(
     }
 }
 
-/// Codex's own config must use the OpenAI (or cmux) provider and keep its
-/// login in a file, or a copied login would go unused or reach another endpoint.
+/// Codex's own config must keep every way to pick a provider on the OpenAI
+/// (or cmux) provider with a file login, or a copied login would go unused or
+/// reach another endpoint: the top level and every profile (a launch can pick
+/// any with `--profile`) name only `openai` or `cmux` and store logins in a
+/// file, no base URL is overridden, and no `model_providers` entry redefines
+/// `openai` or `cmux` or asks for the OpenAI login.
 fn check_codex_config(path: &Path) -> Result<(), LoginRefusal> {
     match std::fs::symlink_metadata(path) {
         Ok(metadata) if !metadata.file_type().is_file() => return Err(LoginRefusal::Conflict),
@@ -238,12 +242,48 @@ fn check_codex_config(path: &Path) -> Result<(), LoginRefusal> {
     }
     let text = std::fs::read_to_string(path).map_err(|_| LoginRefusal::Conflict)?;
     let config: toml::Table = text.parse().map_err(|_| LoginRefusal::Conflict)?;
-    let text_of = |key: &str, default: &'static str| {
-        config.get(key).map_or(Some(default.to_owned()), |v| v.as_str().map(str::to_owned))
+    let profiles = match config.get("profiles") {
+        None => toml::Table::new(),
+        Some(toml::Value::Table(profiles)) => profiles.clone(),
+        Some(_) => return Err(LoginRefusal::Conflict),
     };
-    let provider_ok =
-        text_of("model_provider", "openai").is_some_and(|v| v == "openai" || v == "cmux");
-    let store_ok =
-        text_of("cli_auth_credentials_store", "file").is_some_and(|v| v == "file" || v == "auto");
-    if provider_ok && store_ok { Ok(()) } else { Err(LoginRefusal::Conflict) }
+    let mut scopes = vec![&config];
+    for profile in profiles.values() {
+        scopes.push(profile.as_table().ok_or(LoginRefusal::Conflict)?);
+    }
+    if !scopes.into_iter().all(codex_scope_is_plain) {
+        return Err(LoginRefusal::Conflict);
+    }
+    if let Some(profile) = config.get("profile") {
+        let name = profile.as_str().ok_or(LoginRefusal::Conflict)?;
+        if !profiles.contains_key(name) {
+            return Err(LoginRefusal::Conflict);
+        }
+    }
+    match config.get("model_providers") {
+        None => Ok(()),
+        Some(toml::Value::Table(providers)) => {
+            let plain = providers.iter().all(|(name, provider)| {
+                name != "openai"
+                    && name != "cmux"
+                    && provider
+                        .get("requires_openai_auth")
+                        .is_none_or(|value| value.as_bool() == Some(false))
+            });
+            if plain { Ok(()) } else { Err(LoginRefusal::Conflict) }
+        }
+        Some(_) => Err(LoginRefusal::Conflict),
+    }
+}
+
+/// One scope of a Codex config (the top level or a profile) leaves the
+/// provider, its endpoint and the login store alone.
+fn codex_scope_is_plain(scope: &toml::Table) -> bool {
+    let text_is = |key: &str, allowed: &[&str]| {
+        scope.get(key).is_none_or(|value| value.as_str().is_some_and(|v| allowed.contains(&v)))
+    };
+    text_is("model_provider", &["openai", "cmux"])
+        && text_is("cli_auth_credentials_store", &["file", "auto"])
+        && !scope.contains_key("openai_base_url")
+        && !scope.contains_key("chatgpt_base_url")
 }

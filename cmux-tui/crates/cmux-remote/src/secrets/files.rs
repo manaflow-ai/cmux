@@ -1,7 +1,9 @@
 //! The files `secrets-v1` writes: owner-only (0600) in owner-only (0700)
 //! folders, replaced atomically by a rename, never through a symlink.
 
-use std::io::{self, Write};
+use std::io;
+#[cfg(unix)]
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 /// `~/.config/cmux/machine-secrets.env`, which the machine's `machine.env`
@@ -187,69 +189,111 @@ pub fn declared_names(status: &[u8]) -> Option<Vec<String>> {
         .collect()
 }
 
-/// Make `dir` (and its parents) and require it to be a real folder owned by
-/// this user, then set it to 0700.
+/// Replace `home/relative` with `bytes`, mode 0600, without following a
+/// symlink anywhere below `home`: each folder is opened relative to the one
+/// above it with `O_NOFOLLOW` (made 0700 when missing), must be a folder this
+/// user owns, and the last is set to 0700. The bytes go to a fresh file in
+/// that folder, synced, then renamed over the target by the folder's
+/// descriptor, so a reader sees the old file or the new one and no path is
+/// resolved twice.
 #[cfg(unix)]
-pub fn ensure_private_dir(dir: &Path) -> io::Result<()> {
-    use std::os::unix::fs::{MetadataExt, PermissionsExt};
-    std::fs::create_dir_all(dir)?;
-    let metadata = std::fs::symlink_metadata(dir)?;
-    if !metadata.file_type().is_dir() {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, "not a real folder"));
-    }
-    // SAFETY: geteuid has no preconditions and cannot fail.
-    if metadata.uid() != unsafe { libc::geteuid() } {
-        return Err(io::Error::new(io::ErrorKind::PermissionDenied, "folder is not ours"));
-    }
-    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
-}
+pub fn write_private_atomic(home: &Path, relative: &Path, bytes: &[u8]) -> io::Result<()> {
+    use std::ffi::{CString, OsStr};
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    use std::os::unix::ffi::OsStrExt;
+    use std::path::Component;
 
-/// Replace `path` with `bytes`, mode 0600: written to a fresh file beside it,
-/// synced, then renamed over it, so a reader sees the old file or the new one.
-#[cfg(unix)]
-pub fn write_private_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    use std::os::unix::fs::OpenOptionsExt;
-    let parent = path
-        .parent()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no parent folder"))?;
-    ensure_private_dir(parent)?;
-    match std::fs::symlink_metadata(path) {
-        Ok(metadata) if !metadata.file_type().is_file() => {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "not a regular file"));
-        }
-        Ok(_) => {}
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error),
+    fn c_name(name: &OsStr) -> io::Result<CString> {
+        CString::new(name.as_bytes()).map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))
     }
-    let file_name = path
-        .file_name()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no file name"))?;
+    fn check(result: libc::c_int) -> io::Result<libc::c_int> {
+        if result < 0 { Err(io::Error::last_os_error()) } else { Ok(result) }
+    }
+    fn open_dir_at(parent: libc::c_int, name: &CString) -> io::Result<OwnedFd> {
+        let flags = libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+        // SAFETY: `name` is NUL-terminated; a non-negative result is an owned fd.
+        let fd = check(unsafe { libc::openat(parent, name.as_ptr(), flags) })?;
+        // SAFETY: `fd` was just opened and is owned by nobody else.
+        Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+    }
+    fn owned_by_us(fd: &OwnedFd) -> io::Result<()> {
+        let mut status = std::mem::MaybeUninit::<libc::stat>::uninit();
+        // SAFETY: `status` is a valid out pointer for fstat.
+        check(unsafe { libc::fstat(fd.as_raw_fd(), status.as_mut_ptr()) })?;
+        // SAFETY: fstat succeeded, so `status` is initialized.
+        let status = unsafe { status.assume_init() };
+        // SAFETY: geteuid has no preconditions and cannot fail.
+        if status.st_uid != unsafe { libc::geteuid() } {
+            return Err(io::Error::new(io::ErrorKind::PermissionDenied, "folder is not ours"));
+        }
+        Ok(())
+    }
+
+    let mut names = Vec::new();
+    for component in relative.components() {
+        match component {
+            Component::Normal(name) => names.push(c_name(name)?),
+            _ => return Err(io::Error::new(io::ErrorKind::InvalidInput, "not a plain path")),
+        }
+    }
+    let file_name =
+        names.pop().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no file name"))?;
+    let home = c_name(home.as_os_str())?;
+    let mut directory = open_dir_at(libc::AT_FDCWD, &home)?;
+    owned_by_us(&directory)?;
+    for name in &names {
+        // SAFETY: `name` is NUL-terminated and `directory` is an open folder.
+        let made = unsafe { libc::mkdirat(directory.as_raw_fd(), name.as_ptr(), 0o700) };
+        if made < 0 {
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::AlreadyExists {
+                return Err(error);
+            }
+        }
+        directory = open_dir_at(directory.as_raw_fd(), name)?;
+        owned_by_us(&directory)?;
+    }
+    // SAFETY: `directory` is an open folder this user owns.
+    check(unsafe { libc::fchmod(directory.as_raw_fd(), 0o700) })?;
+
     let suffix =
         super::seal::fresh_nonce().map_err(|_| io::Error::other("no system random source"))?;
-    let mut temporary_name = std::ffi::OsString::from(".");
-    temporary_name.push(file_name);
-    temporary_name.push(format!(".{suffix}.tmp"));
-    let temporary = parent.join(temporary_name);
+    let mut temporary = b".".to_vec();
+    temporary.extend_from_slice(file_name.as_bytes());
+    temporary.extend_from_slice(format!(".{suffix}.tmp").as_bytes());
+    let temporary =
+        CString::new(temporary).map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
+    let flags = libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+    // SAFETY: `temporary` is NUL-terminated; mode is passed as the variadic third argument.
+    let fd = check(unsafe {
+        libc::openat(directory.as_raw_fd(), temporary.as_ptr(), flags, 0o600 as libc::c_uint)
+    })?;
+    // SAFETY: `fd` was just opened and is owned by nobody else.
+    let mut file = std::fs::File::from(unsafe { OwnedFd::from_raw_fd(fd) });
     let result = (|| {
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
-            .open(&temporary)?;
         file.write_all(bytes)?;
         file.sync_all()?;
-        std::fs::rename(&temporary, path)?;
-        std::fs::File::open(parent)?.sync_all()
+        // SAFETY: both names are NUL-terminated and relative to the same open folder.
+        check(unsafe {
+            libc::renameat(
+                directory.as_raw_fd(),
+                temporary.as_ptr(),
+                directory.as_raw_fd(),
+                file_name.as_ptr(),
+            )
+        })?;
+        // SAFETY: `directory` is an open folder.
+        check(unsafe { libc::fsync(directory.as_raw_fd()) }).map(|_| ())
     })();
     if result.is_err() {
-        let _ = std::fs::remove_file(&temporary);
+        // SAFETY: `temporary` is NUL-terminated and relative to the open folder.
+        unsafe { libc::unlinkat(directory.as_raw_fd(), temporary.as_ptr(), 0) };
     }
     result
 }
 
 #[cfg(not(unix))]
-pub fn write_private_atomic(_: &Path, _: &[u8]) -> io::Result<()> {
+pub fn write_private_atomic(_: &Path, _: &Path, _: &[u8]) -> io::Result<()> {
     Err(io::Error::new(io::ErrorKind::Unsupported, "secrets-v1 writes need Unix"))
 }
 
@@ -268,5 +312,8 @@ pub fn write_allowed(home: &Path, path: &Path, bytes: &[u8]) -> io::Result<()> {
     if !allowed_paths(home).iter().any(|allowed| allowed == path) {
         return Err(io::Error::new(io::ErrorKind::PermissionDenied, "path outside secrets-v1"));
     }
-    write_private_atomic(path, bytes)
+    let relative = path
+        .strip_prefix(home)
+        .map_err(|_| io::Error::new(io::ErrorKind::PermissionDenied, "path outside secrets-v1"))?;
+    write_private_atomic(home, relative, bytes)
 }

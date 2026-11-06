@@ -436,3 +436,72 @@ fn requests_built_on_the_device_open_on_the_machine() {
         .unwrap();
     assert!(!wire.contains(&token) && !wire.contains(&value));
 }
+
+#[test]
+fn a_symlinked_folder_below_home_is_never_written_through() {
+    let fixture = fixture(&["DEMO_KEY"]);
+    let outside = fixture._dir.path().join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::create_dir_all(fixture.home.join(".config")).unwrap();
+    std::os::unix::fs::symlink(&outside, fixture.home.join(".config/cmux")).unwrap();
+    let error = fixture
+        .secrets
+        .replace_machine_secrets(&[fixture.seal(Purpose::Secret, "DEMO_KEY", &random_hex(16))])
+        .unwrap_err();
+    assert!(error.message.starts_with("write"), "{error}");
+    assert_eq!(std::fs::read_dir(&outside).unwrap().count(), 0);
+    std::os::unix::fs::symlink(&outside, fixture.home.join(".claude")).unwrap();
+    let error = fixture
+        .secrets
+        .install_harness_login(
+            &fixture.seal(
+                Purpose::HarnessLogin,
+                "claude",
+                &format!("sk-ant-oat01-{}", random_hex(24)),
+            ),
+            false,
+        )
+        .unwrap_err();
+    assert!(error.message.starts_with("conflict") || error.message.starts_with("write"), "{error}");
+    assert_eq!(std::fs::read_dir(&outside).unwrap().count(), 0);
+}
+
+#[test]
+fn a_codex_config_that_can_reach_another_provider_refuses_the_login() {
+    let fixture = fixture(&[]);
+    std::fs::create_dir_all(fixture.home.join(".codex")).unwrap();
+    let auth = serde_json::json!({
+        "tokens": {
+            "access_token": random_hex(16),
+            "refresh_token": random_hex(16),
+            "id_token": random_hex(16),
+        },
+    })
+    .to_string();
+    for config in [
+        "model_provider = \"custom\"\n",
+        "profile = \"work\"\n[profiles.work]\nmodel_provider = \"custom\"\n",
+        "[profiles.other]\nmodel_provider = \"custom\"\n",
+        "[model_providers.custom]\nbase_url = \"https://example.invalid\"\nrequires_openai_auth = true\n",
+        "[model_providers.openai]\nbase_url = \"https://example.invalid\"\n",
+        "openai_base_url = \"https://example.invalid\"\n",
+        "profile = \"missing\"\n",
+    ] {
+        std::fs::write(fixture.home.join(".codex/config.toml"), config).unwrap();
+        let error = fixture
+            .secrets
+            .install_harness_login(&fixture.seal(Purpose::HarnessLogin, "codex", &auth), false)
+            .unwrap_err();
+        assert!(error.message.starts_with("conflict"), "{config}: {error}");
+    }
+    assert!(!fixture.home.join(".codex/auth.json").exists());
+    std::fs::write(
+        fixture.home.join(".codex/config.toml"),
+        "model_provider = \"openai\"\n[profiles.fast]\nmodel = \"x\"\n",
+    )
+    .unwrap();
+    fixture
+        .secrets
+        .install_harness_login(&fixture.seal(Purpose::HarnessLogin, "codex", &auth), false)
+        .unwrap();
+}

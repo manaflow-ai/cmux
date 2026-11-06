@@ -216,6 +216,10 @@ impl MachineSecrets {
             HarnessLogin::from_name(&item.name).ok_or_else(|| refused("bad-name", &item.name))?;
         let value = self.open(Purpose::HarnessLogin, item)?;
         login.validate(&value).map_err(|error| refused(error.code(), &item.name))?;
+        // A team guest's Unix user is every member's, and the daemon can't
+        // tell its creator from a teammate: only a DEV daemon build honors
+        // the DEV creator allowance. Every other build takes owner guests only.
+        let allow_team_guest = allow_team_guest && cfg!(debug_assertions);
         harness::check_guest(&self.etc, login, allow_team_guest)
             .map_err(|error| refused(error.code(), &item.name))?;
         self.remember(std::slice::from_ref(item))?;
