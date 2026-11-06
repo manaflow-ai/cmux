@@ -331,6 +331,10 @@ extension AgentPaneTransport {
 
     /// The main actor's part of one frame: small values only (the frame stays in its box).
     private func decide(_ facts: Facts, _ box: FrameBox, connection id: Int, socket: AcpmuxPaneSocket, ids: AcpmuxRequestIds) async -> Step {
+        // The pane reconnected while the frame was read off the main actor: it goes nowhere, and it
+        // spends nothing, so the person's send ticket it names stays for the prompt on the next
+        // connection (``AgentPaneUserGestures/carrySendTickets(to:)``).
+        guard id == current, self.socket === socket else { return .stop(.staleConnection) }
         // A start or open while a Sandboxed send runs is refused before it spends the gesture or
         // leaves a start credit (the count below still decides).
         if socket.refusesPageFrame(method: facts.method) {
