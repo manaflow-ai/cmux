@@ -23,9 +23,11 @@ struct ClosingPanesDockTests {
 
     @Test func dockedPaneClosesUnderTheStripPaneThatGrowsOverIt() {
         var rules = ClosingPanesRules()
-        #expect(rules.begin(2, shown: Self.dock.edges, panes: [Self.strip, Self.dock], handles: [Self.dockEdge], maxGap: 11, viewShift: nil))
+        let began = rules.begin(2, shown: Self.dock.edges, panes: [Self.strip, Self.dock], handles: [Self.dockEdge], maxGap: 11, viewShift: nil)
+        #expect(began)
         // The strip pane springs over the dock's place: the docked pane does not hide in the close's turn.
-        #expect(rules.settle(frames: [Self.growing(to: 600)], rows: []) == [])
+        let hidden = rules.settle(frames: [Self.growing(to: 600)], rows: [])
+        #expect(hidden == [])
         #expect(rules.entries[2]?.minX.neighbours == [1])
         // Its leading side rides the strip pane's trailing edge (the dock's edge goes, so no gap stays).
         let mid = rules.rects(frames: [Self.growing(to: 750)], rows: [])
