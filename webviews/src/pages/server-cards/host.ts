@@ -34,6 +34,7 @@ export function useCardSize(client: PageClient | null, card: string, ref: RefObj
       void client.call(CardOps.resize, { card, width, height }).catch(() => {});
     };
     report();
+    if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(report);
     observer.observe(element);
     return () => observer.disconnect();

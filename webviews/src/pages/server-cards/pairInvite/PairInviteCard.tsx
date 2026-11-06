@@ -2,7 +2,7 @@
 // `cmux pair` line and the install line with their Copy buttons and the countdown; then, once a
 // machine used the code, Add Server's facts, four words and name, with Confirm. Every step derives
 // from the host's status (model.ts); the card only draws it.
-import { useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { DialogButton } from "../../../ui/DialogButton";
 import { cx } from "../../../ui/cx";
 import type { Strings } from "../../shared/i18n";
@@ -59,21 +59,28 @@ export function PairInviteCard({
   const name = candidate && typed?.code === candidate.code ? typed.value : (candidate?.name ?? "");
   const buttons = buttonsOf(step);
   const press = (action: Action) => onAction(action, name);
-  const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
-    if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
-    // Return presses the default button, never Confirm or Try Again: only a click pairs a machine.
-    const main = buttons.find((button) => button.key === "return");
-    if (!main || isClickOnly(main.action) || !isEnabled(main.action, step, status.approver)) return;
-    event.preventDefault();
-    press(main.action);
-  };
+  // Return presses the default button, never Confirm or Try Again: only a click pairs a machine.
+  const main = buttons.find((button) => button.key === "return");
+  const onReturn = useRef<(() => void) | null>(null);
+  onReturn.current =
+    main && !isClickOnly(main.action) && isEnabled(main.action, step, status.approver)
+      ? () => press(main.action)
+      : null;
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Enter" || event.isComposing || event.defaultPrevented || !onReturn.current) return;
+      event.preventDefault();
+      onReturn.current();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
   return (
     <section
       className={cx("server-card pair-invite", `pair-invite--${layout}`)}
       data-card="pair-invite"
       data-step={step.kind}
       aria-label={t("pairInvite.title")}
-      onKeyDown={onKeyDown}
     >
       <Body
         step={step}
@@ -346,7 +353,12 @@ function Review({ candidate, approver, strings, name, onName, onRunChief }: Revi
         />
       </label>
       <label className="pair-invite-chief">
-        <input type="checkbox" checked={approver.runChief} onChange={(event) => onRunChief(event.target.checked)} />
+        <input
+          type="checkbox"
+          aria-label={t("approver.runChief")}
+          checked={approver.runChief}
+          onChange={(event) => onRunChief(event.target.checked)}
+        />
         <span>{t("approver.runChief")}</span>
       </label>
       <p className="server-card-caption">{t("pairInvite.confirmNote")}</p>

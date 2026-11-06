@@ -144,7 +144,7 @@ body {
 .pair-invite-qr {
   flex: none;
   width: 132px;
-  height: 132px;
+  aspect-ratio: 1;
   border-radius: 8px;
   background: white;
   image-rendering: pixelated;
