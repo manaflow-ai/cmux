@@ -5,14 +5,15 @@
 //! load while the prompt sat unread for 22 (Leo: "this thing keeps getting stuck???"). Claude
 //! Code gives the count a 1 to 3 s deadline it did not keep there. When a turn logs `turn_silent`
 //! (`silent_turn.rs`), acpmux sends SIGTERM to every such listing under the chat's own agent
-//! and logs `listing_ended` {turnId, pid, args}: a count Claude Code loses only reads as unknown.
+//! (found as `ChildAgent::harness_processes` finds them, never from a bare pid, each checked by
+//! pid and start time before its signal) and logs `listing_ended` {turnId, pid, args}: a count Claude Code loses only reads as unknown.
 //! A listing a tool asked for (Glob's `--null`, a `--glob` that picks files) or one with a depth
 //! bound is left alone, as is every process outside the chat's own agent.
 
 use super::*;
 
 /// Whether `argv` is a whole-tree file listing by ripgrep: `--files` and `--hidden`, no
-/// `--max-depth`, no `--null` (Glob), and every glob an exclusion.
+/// `--max-depth`, no `--null` (Glob), and every glob, apart or attached, an exclusion.
 pub(super) fn unbounded_listing(argv: &[String]) -> bool {
     let Some(program) = argv.first() else { return false };
     if std::path::Path::new(program).file_name().is_none_or(|n| n != "rg") {
@@ -27,9 +28,16 @@ pub(super) fn unbounded_listing(argv: &[String]) -> bool {
     }
     let mut words = argv.iter();
     while let Some(word) = words.next() {
-        if matches!(word.as_str(), "--glob" | "-g" | "--iglob")
-            && words.next().is_none_or(|g| !g.starts_with('!'))
-        {
+        // A glob given apart (`--glob G`, `-g G`) or attached (`--glob=G`, `--iglob=G`, `-gG`).
+        let glob = match word.as_str() {
+            "--glob" | "-g" | "--iglob" => Some(words.next().map_or("", String::as_str)),
+            w => w
+                .strip_prefix("--glob=")
+                .or_else(|| w.strip_prefix("--iglob="))
+                .or_else(|| w.strip_prefix("-g").filter(|g| !g.is_empty())),
+        };
+        // One that picks files (not an `!` exclusion), or has no value: a tool asked for it.
+        if glob.is_some_and(|g| !g.starts_with('!')) {
             return false;
         }
     }
@@ -40,9 +48,10 @@ impl Hub {
     /// Ends the unbounded listings under `session`'s agent, as its turn `turn_id` goes silent.
     #[cfg(unix)]
     pub(super) async fn end_silent_listings(&self, session: &Arc<Session>, turn_id: &str) {
-        let Some(pid) = session.child.lock().await.as_ref().and_then(|c| c.pid) else { return };
+        let Some(child) = session.child.lock().await.clone() else { return };
+        let procs = child.harness_processes().await;
         let ended = tokio::task::spawn_blocking(move || {
-            crate::agent_host::tree::terminate_under(&[pid], |a| unbounded_listing(a))
+            crate::agent_host::tree::terminate_picked(&procs, |a| unbounded_listing(a))
         })
         .await
         .unwrap_or_default();

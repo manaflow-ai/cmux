@@ -11,6 +11,7 @@ fn claude_codes_folder_count_is_an_unbounded_listing() {
     // The exact command Leo's stuck chat ran (cosmic-gray, 2026-11-06 00:21Z).
     assert!(unbounded_listing(&words("rg --no-config --files --hidden /Users/leoli/Projects")));
     assert!(unbounded_listing(&words("/opt/bin/rg --files --hidden --glob !.git /p")));
+    assert!(unbounded_listing(&words("rg --files --hidden --glob=!.git -g!node_modules /p")));
 }
 
 #[test]
@@ -21,6 +22,10 @@ fn bounded_or_tool_listings_are_left_alone() {
         "rg --files --hidden --max-depth=3 /p",
         "rg --files --null --glob *.rs --sort=modified --no-ignore --hidden /p",
         "rg --files --hidden --follow --no-ignore --glob *.md /p",
+        "rg --files --hidden --glob=*.rs /p",
+        "rg --files --hidden --iglob=*.rs /p",
+        "rg --files --hidden -g*.rs /p",
+        "rg --files --hidden --glob",
         "rg --files /p",
         "rg --hidden needle /p",
         "fd --files --hidden /p",
@@ -48,8 +53,8 @@ fn terminate_under_ends_only_the_listing_it_picks() {
     let mut other = spawn("--hidden needle /p");
     // Let both exec so their argv is the one the kernel reports.
     std::thread::sleep(std::time::Duration::from_millis(300));
-    let ended =
-        crate::agent_host::tree::terminate_under(&[std::process::id()], |a| unbounded_listing(a));
+    let under = crate::agent_host::tree::descendants(&[std::process::id()]);
+    let ended = crate::agent_host::tree::terminate_picked(&under, |a| unbounded_listing(a));
     assert_eq!(ended.iter().map(|(pid, _)| *pid).collect::<Vec<_>>(), vec![listing.id()]);
     let status = listing.wait().unwrap();
     assert!(!status.success(), "the listing ended on its signal: {status:?}");
@@ -59,4 +64,41 @@ fn terminate_under_ends_only_the_listing_it_picks() {
         unsafe { libc::killpg(i32::try_from(group).unwrap(), libc::SIGKILL) };
     }
     let _ = other.wait();
+}
+
+/// A hosted agent's listings are found by its host's start nonce (`HOST_MARK`), never by a pid:
+/// a listing that carries another host's nonce, or none, runs on (review F1 of #36966).
+#[cfg(target_os = "linux")]
+#[test]
+fn a_hosted_agents_listings_are_found_by_its_hosts_nonce() {
+    use std::os::unix::process::CommandExt;
+    use std::process::Command;
+    let mark = crate::agent_host::HOST_MARK;
+    let ours = format!("silent-listing-{}", std::process::id());
+    let spawn = |nonce: Option<&str>| {
+        let mut command = Command::new("/bin/bash");
+        command
+            .args(["-c", "exec -a rg /bin/bash -c 'sleep 20; :' --files --hidden /p"])
+            .env_remove(mark)
+            .process_group(0);
+        if let Some(nonce) = nonce {
+            command.env(mark, nonce);
+        }
+        command.spawn().unwrap()
+    };
+    let mut listing = spawn(Some(&ours));
+    let mut other_host = spawn(Some("another-host"));
+    let mut unmarked = spawn(None);
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    let marked = crate::agent_host::tree::marked(mark, &ours);
+    let ended = crate::agent_host::tree::terminate_picked(&marked, |a| unbounded_listing(a));
+    assert_eq!(ended.iter().map(|(pid, _)| *pid).collect::<Vec<_>>(), vec![listing.id()]);
+    assert!(!listing.wait().unwrap().success());
+    assert!(other_host.try_wait().unwrap().is_none(), "another host's listing runs on");
+    assert!(unmarked.try_wait().unwrap().is_none(), "a listing with no nonce runs on");
+    for child in [&mut other_host, &mut unmarked] {
+        // SAFETY: each group is one this test started (`process_group(0)`).
+        unsafe { libc::killpg(i32::try_from(child.id()).unwrap(), libc::SIGKILL) };
+        let _ = child.wait();
+    }
 }
