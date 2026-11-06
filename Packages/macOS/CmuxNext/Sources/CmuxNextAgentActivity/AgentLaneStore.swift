@@ -26,6 +26,8 @@ public final class AgentLaneStore {
         set {
             withMutation(keyPath: \.lanes) { storage = newValue }
             waiting = Set(newValue.compactMap { $0.value.state == .input ? $0.key : nil })
+            working = Set(newValue.compactMap { $0.value.state == .working ? $0.key : nil })
+            unread = Set(newValue.compactMap { $0.value.unread ? $0.key : nil })
             syncCells()
             syncChiefParticipants()
         }
@@ -36,14 +38,23 @@ public final class AgentLaneStore {
     /// the menu bar's count) reads a few lanes instead of ranking every one. Not observed: read
     /// it when it is used.
     @ObservationIgnored public private(set) var waiting: Set<String> = []
+    /// The sessions whose lane runs a turn (`.working`), kept as ``waiting`` is: the menu bar's
+    /// Running list reads these few lanes, never every one.
+    @ObservationIgnored public private(set) var working: Set<String> = []
+    /// The sessions whose lane has a result nobody has seen (`unread`), kept as ``waiting`` is: the
+    /// menu bar's Unread list. The person's read marks (`AgentPriorityMarks`) still apply on top.
+    @ObservationIgnored public private(set) var unread: Set<String> = []
 
     /// Writes one session's lane (nil: it ended), as ``lanes``' setter does for that session, but
-    /// in place and keeping ``waiting`` by that session alone: the watch's per-session changes,
-    /// many a second while an agent works, never copy or rescan the map or the other sessions' cells.
+    /// in place and keeping ``waiting``, ``working`` and ``unread`` by that session alone: the
+    /// watch's per-session changes, many a second while an agent works, never copy or rescan the
+    /// map or the other sessions' cells.
     public func set(_ session: String, _ lane: AgentActivityLane?) {
         let ownedBefore = Self.chiefOwnership(storage[session])
         withMutation(keyPath: \.lanes) { storage[session] = lane }
         if lane?.state == .input { waiting.insert(session) } else { waiting.remove(session) }
+        if lane?.state == .working { working.insert(session) } else { working.remove(session) }
+        if lane?.unread == true { unread.insert(session) } else { unread.remove(session) }
         // Only this session's cell can change: the others' lanes are as they were.
         syncCell(session)
         // Rescan only when this session's Chief tags change, not on every step of its output.
