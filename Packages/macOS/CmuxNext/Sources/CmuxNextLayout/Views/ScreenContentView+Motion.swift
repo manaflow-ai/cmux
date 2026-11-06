@@ -201,10 +201,12 @@ extension ScreenContentView {
     /// `force` (or a structural change's `forcesPresentation`): everything is re-placed and the overlay syncs.
     func applyPresentation(force: Bool = false) { // perf-hot: 4ms motion-frame
         // The frame tick's input: the pass waits for the frame's one presentation (`LayoutFrameInput`).
-        if context.holdsPresentations {
+        // A snap held for its terminals' frames shows at the next tick (`ScreenContentView+SnapFrame`).
+        if context.holdsPresentations || frameInput.snapWaitsForContent {
             (frameInput.presentationWaiting, forcesPresentation) = (true, forcesPresentation || force)
             return
         }
+        releaseSnapDeparted()
         // Every presentation shows the latest pan and the frame's input: nothing waits after it.
         (frameInput.panPresentationPending, frameInput.presentationWaiting) = (false, false)
         presentationPasses += 1
