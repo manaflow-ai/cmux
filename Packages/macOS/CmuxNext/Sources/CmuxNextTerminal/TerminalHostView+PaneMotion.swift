@@ -62,6 +62,16 @@ extension TerminalHostView: PaneMotionHoldFollowing {
         current.drawAhead(surfaceSize(forHostSize: nextHostSize))
     }
 
+    /// Draw ahead of the follow (T-KEYS 3): a key press's first refresh hands this host its pane's hold at `nextHostSize`.
+    /// The surface asks Ghostty for the size it takes then, in the key's turn (render only), so the frame that shows the
+    /// press has it drawn. A follow that does not begin leaves it to the next placement at rest, which drops it unless it
+    /// takes it (``dropsAheadAtRest``).
+    public func drawAheadOfFollow(nextHostSize: CGSize) {
+        guard !surfaceFollowsArea, !isHidden, let current else { return }
+        current.drawAhead(surfaceSize(forHostSize: nextHostSize))
+        dropsAheadAtRest = true
+    }
+
     /// Whether the host is in a content area that holds for a key resize and will hand it the follow in the area's next
     /// layout pass (a parked tab shown mid-hold: its surface is shown, and joins, a pass before that).
     var joinsAreaKeyHold: Bool { followedHold == nil && (superview as? PaneContentAreaView)?.hold != nil }

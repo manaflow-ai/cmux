@@ -7198,6 +7198,1316 @@
         }
       }
     },
+    "settings.workspaceHibernation.freeingEnabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحرير الطرفيات الخاملة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oslobodi neaktivne terminale"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frigør inaktive terminaler"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inaktive Terminals freigeben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Free Idle Terminals"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liberar terminales inactivos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Libérer les terminaux inactifs"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Libera i terminali inattivi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイドル状態のターミナルを解放"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដោះលែងទែមីណាល់ដែលទំនេរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "유휴 터미널 해제"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frigjør inaktive terminaler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zwalniaj bezczynne terminale"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liberar terminais ociosos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Освобождать неактивные терминалы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปล่อยเทอร์มินัลที่ไม่ได้ใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boştaki terminalleri serbest bırak"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Звільняти неактивні термінали"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giải phóng terminal không hoạt động"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "释放闲置终端"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "釋放閒置終端機"
+          }
+        }
+      }
+    },
+    "settings.workspaceHibernation.freeingEnabled.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ينهي الصدفات في مساحات العمل التي لم تستخدمها منذ مدة طويلة عندما تكون عند موجه فارغ. عند فتح مساحة العمل تبدأ كل صدفة من جديد في المجلد نفسه، وفوقها شاشتها المحفوظة. لا تُحرَّر أبدًا مساحات العمل المثبتة والمُبقاة مستيقظة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Završava shellove radnih prostora koje dugo niste koristili kada čekaju na praznom promptu. Otvaranje radnog prostora ponovo pokreće svaki shell u istoj mapi, sa sačuvanim ekranom iznad. Zakačeni radni prostori i oni ostavljeni budnim se nikad ne oslobađaju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afslutter shells i arbejdsområder, du ikke har brugt længe, når de står ved en tom prompt. Når du åbner arbejdsområdet, starter hver shell igen i samme mappe med den gemte skærm over sig. Fastgjorte arbejdsområder og dem, der holdes vågne, frigøres aldrig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beendet die Shells von Workspaces, die du lange nicht benutzt hast, wenn sie an einem leeren Prompt stehen. Beim Öffnen startet jede Shell im selben Ordner neu, mit ihrem gespeicherten Bildschirm darüber. Angeheftete und wach gehaltene Workspaces werden nie freigegeben."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ends the shells of workspaces you have not used for a long time when they sit at an empty prompt. Opening the workspace starts each shell again in the same folder, with its saved screen above it. Pinned workspaces and workspaces kept awake are never freed."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cierra los shells de los espacios de trabajo que no usas desde hace tiempo cuando están en un prompt vacío. Al abrir el espacio, cada shell vuelve a iniciarse en la misma carpeta, con su pantalla guardada encima. Los espacios fijados y los mantenidos activos nunca se liberan."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Termine les shells des espaces de travail inutilisés depuis longtemps lorsqu'ils attendent sur une invite vide. À l'ouverture, chaque shell redémarre dans le même dossier, avec son écran enregistré au-dessus. Les espaces épinglés et ceux gardés éveillés ne sont jamais libérés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiude le shell degli spazi di lavoro che non usi da molto quando sono ferme su un prompt vuoto. Aprendo lo spazio, ogni shell riparte nella stessa cartella, con la schermata salvata sopra. Gli spazi fissati e quelli tenuti attivi non vengono mai liberati."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "長い間使っていないワークスペースのシェルが空のプロンプトで待機している場合に終了します。ワークスペースを開くと、各シェルが同じフォルダで再起動し、保存された画面がその上に表示されます。ピン留めされたワークスペースとスリープしないワークスペースは解放されません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ចប់ shell នៃកន្លែងធ្វើការដែលអ្នកមិនបានប្រើយូរ នៅពេលវានៅត្រង់ prompt ទទេ។ ការបើកកន្លែងធ្វើការចាប់ផ្តើម shell នីមួយៗឡើងវិញក្នុងថតដដែល ជាមួយអេក្រង់ដែលបានរក្សាទុកនៅខាងលើ។ កន្លែងធ្វើការដែលបានខ្ទាស់ និងដែលរក្សាឱ្យភ្ញាក់ មិនត្រូវបានដោះលែងទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오랫동안 사용하지 않은 워크스페이스의 셸이 빈 프롬프트에서 대기하면 종료합니다. 워크스페이스를 열면 각 셸이 같은 폴더에서 다시 시작되고 저장된 화면이 위에 표시됩니다. 고정된 워크스페이스와 깨어 있게 유지된 워크스페이스는 해제되지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avslutter skallene i arbeidsområder du ikke har brukt på lenge når de står ved en tom ledetekst. Når du åpner arbeidsområdet, starter hvert skall igjen i samme mappe med den lagrede skjermen over. Festede arbeidsområder og de som holdes våkne, frigjøres aldri."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kończy powłoki obszarów roboczych, których dawno nie używasz, gdy czekają na pustym monicie. Otwarcie obszaru uruchamia każdą powłokę ponownie w tym samym folderze, z zapisanym ekranem nad nią. Przypięte obszary i te utrzymywane w gotowości nigdy nie są zwalniane."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encerra os shells de espaços de trabalho que você não usa há muito tempo quando estão num prompt vazio. Ao abrir o espaço, cada shell recomeça na mesma pasta, com a tela salva acima. Espaços fixados e espaços mantidos ativos nunca são liberados."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Завершает оболочки рабочих пространств, которыми вы давно не пользовались, если они ждут на пустом приглашении. При открытии пространства каждая оболочка запускается снова в той же папке, над ней — сохранённый экран. Закреплённые пространства и пространства, которые не засыпают, никогда не освобождаются."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิดเชลล์ของเวิร์กสเปซที่คุณไม่ได้ใช้มานานเมื่อค้างอยู่ที่พรอมต์ว่าง การเปิดเวิร์กสเปซจะเริ่มเชลล์แต่ละตัวใหม่ในโฟลเดอร์เดิม พร้อมหน้าจอที่บันทึกไว้ด้านบน เวิร์กสเปซที่ปักหมุดและที่ตั้งให้ตื่นอยู่จะไม่ถูกปล่อย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uzun süredir kullanmadığınız çalışma alanlarının kabuklarını boş bir istemde beklerken sonlandırır. Çalışma alanını açınca her kabuk aynı klasörde yeniden başlar, kayıtlı ekranı üstünde görünür. Sabitlenmiş ve uyanık tutulan çalışma alanları asla serbest bırakılmaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Завершує оболонки робочих просторів, якими ви давно не користувалися, коли вони чекають на порожньому запрошенні. Під час відкриття кожна оболонка запускається знову в тій самій теці, над нею — збережений екран. Закріплені простори та ті, що не засинають, ніколи не звільняються."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kết thúc shell của các workspace bạn đã lâu không dùng khi chúng đang ở dấu nhắc trống. Khi mở workspace, mỗi shell khởi động lại trong cùng thư mục, với màn hình đã lưu ở phía trên. Workspace được ghim và workspace được giữ thức không bao giờ bị giải phóng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当长时间未使用的工作区的 shell 停在空提示符时将其结束。打开工作区时，每个 shell 会在同一文件夹中重新启动，上方显示保存的屏幕。已固定的工作区和保持唤醒的工作区永远不会被释放。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當長時間未使用的工作區的 shell 停在空白提示字元時將其結束。開啟工作區時，每個 shell 會在同一檔案夾重新啟動，上方顯示儲存的畫面。已釘選的工作區與保持喚醒的工作區絕不會被釋放。"
+          }
+        }
+      }
+    },
+    "settings.workspaceHibernation.freeingIdleMinutes": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحرير الطرفيات بعد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oslobodi terminale nakon"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frigør terminaler efter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminals freigeben nach"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Free Terminals After"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liberar terminales tras"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Libérer les terminaux après"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Libera i terminali dopo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルを解放するまでの時間"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដោះលែងទែមីណាល់បន្ទាប់ពី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 해제까지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frigjør terminaler etter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zwalniaj terminale po"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liberar terminais após"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Освобождать терминалы через"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปล่อยเทอร์มินัลหลังจาก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalleri şu süre sonra serbest bırak"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Звільняти термінали через"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giải phóng terminal sau"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "释放终端的时间"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "釋放終端機的時間"
+          }
+        }
+      }
+    },
+    "settings.workspaceHibernation.freeingIdleMinutes.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تنتهي الصدفات الخاملة في مساحة العمل الموجودة في وضع السبات بعد هذا العدد من الدقائق دون استخدام (1440 يوم واحد)."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neaktivni shellovi uspavanog radnog prostora završavaju nakon ovoliko minuta bez korištenja (1440 je jedan dan)."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et dvalende arbejdsområdes inaktive shells afsluttes efter så mange minutter uden brug (1440 er én dag)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die inaktiven Shells eines ruhenden Workspaces enden nach so vielen Minuten ohne Nutzung (1440 ist ein Tag)."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A hibernated workspace's idle shells end after this many minutes without use (1440 is one day)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los shells inactivos de un espacio hibernado se cierran tras estos minutos sin uso (1440 es un día)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les shells inactifs d'un espace en veille se terminent après ce nombre de minutes sans utilisation (1440 = un jour)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le shell inattive di uno spazio ibernato si chiudono dopo questi minuti senza uso (1440 è un giorno)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "休止中のワークスペースのアイドル状態のシェルは、この分数使われないと終了します（1440 は 1 日）。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shell ទំនេរនៃកន្លែងធ្វើការដែលកំពុងសម្រាក បញ្ចប់បន្ទាប់ពីប៉ុន្មាននាទីនេះដោយគ្មានការប្រើ (1440 គឺមួយថ្ងៃ)។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최대 절전 중인 워크스페이스의 유휴 셸은 이 시간(분) 동안 사용하지 않으면 종료됩니다(1440은 하루)."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et dvalende arbeidsområdes inaktive skall avsluttes etter så mange minutter uten bruk (1440 er én dag)."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bezczynne powłoki uśpionego obszaru kończą się po tylu minutach bez użycia (1440 to jeden dzień)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os shells ociosos de um espaço hibernado terminam após esta quantidade de minutos sem uso (1440 é um dia)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неактивные оболочки спящего пространства завершаются после стольких минут без использования (1440 — один день)."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เชลล์ที่ไม่ได้ใช้งานของเวิร์กสเปซที่จำศีลจะปิดหลังไม่ได้ใช้เป็นเวลาเท่านี้นาที (1440 คือหนึ่งวัน)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uykudaki bir çalışma alanının boştaki kabukları bu kadar dakika kullanılmazsa sonlanır (1440 bir gündür)."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неактивні оболонки сплячого простору завершуються після стількох хвилин без використання (1440 — одна доба)."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các shell không hoạt động của workspace đang ngủ đông kết thúc sau số phút không dùng này (1440 là một ngày)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "休眠工作区中闲置的 shell 在这么多分钟未使用后结束（1440 为一天）。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "休眠工作區中閒置的 shell 在這麼多分鐘未使用後結束（1440 為一天）。"
+          }
+        }
+      }
+    },
+    "settings.workspaceHibernation.freeingAgents": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحرير الوكلاء الخاملين"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oslobodi neaktivne agente"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frigør inaktive agenter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inaktive Agenten freigeben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Free Idle Agents"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liberar agentes inactivos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Libérer les agents inactifs"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Libera gli agenti inattivi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイドル状態のエージェントを解放"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដោះលែងភ្នាក់ងារទំនេរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "유휴 에이전트 해제"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frigjør inaktive agenter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zwalniaj bezczynnych agentów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liberar agentes ociosos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Освобождать неактивных агентов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปล่อยเอเจนต์ที่ว่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boştaki ajanları serbest bırak"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Звільняти неактивних агентів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giải phóng agent nhàn rỗi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "释放空闲代理"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "釋放閒置代理程式"
+          }
+        }
+      }
+    },
+    "settings.workspaceHibernation.freeingAgents.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ينهي أيضًا جلسات Claude Code وCodex التي تنتظر رسالتك التالية. فتح علامة التبويب يستأنف الجلسة نفسها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Završava i Claude Code i Codex sesije koje čekaju vašu sljedeću poruku. Otvaranje kartice nastavlja istu sesiju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afslutter også Claude Code- og Codex-sessioner, der venter på din næste besked. Når du åbner fanen, genoptages den samme session."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beendet auch Claude-Code- und Codex-Sitzungen, die auf deine nächste Nachricht warten. Beim Öffnen des Tabs wird dieselbe Sitzung fortgesetzt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Also ends Claude Code and Codex sessions that wait for your next message. Opening the tab resumes the same session."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "También cierra las sesiones de Claude Code y Codex que esperan tu próximo mensaje. Al abrir la pestaña se reanuda la misma sesión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Termine aussi les sessions Claude Code et Codex qui attendent votre prochain message. Ouvrir l’onglet reprend la même session."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiude anche le sessioni di Claude Code e Codex in attesa del tuo prossimo messaggio. Aprendo la scheda riprende la stessa sessione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次のメッセージを待っている Claude Code と Codex のセッションも終了します。タブを開くと同じセッションが再開されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ចប់វគ្គ Claude Code និង Codex ដែលកំពុងរង់ចាំសាររបស់អ្នកបន្ទាប់ផងដែរ។ ការបើកផ្ទាំងបន្តវគ្គដដែល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다음 메시지를 기다리는 Claude Code 및 Codex 세션도 종료합니다. 탭을 열면 같은 세션이 재개됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avslutter også Claude Code- og Codex-økter som venter på neste melding fra deg. Når du åpner fanen, gjenopptas den samme økten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kończy też sesje Claude Code i Codex, które czekają na Twoją następną wiadomość. Otwarcie karty wznawia tę samą sesję."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Também encerra sessões do Claude Code e do Codex que esperam sua próxima mensagem. Abrir a aba retoma a mesma sessão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Также завершает сеансы Claude Code и Codex, которые ждут вашего следующего сообщения. При открытии вкладки тот же сеанс возобновляется."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิดเซสชัน Claude Code และ Codex ที่รอข้อความถัดไปของคุณด้วย การเปิดแท็บจะทำเซสชันเดิมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonraki mesajınızı bekleyen Claude Code ve Codex oturumlarını da sonlandırır. Sekmeyi açmak aynı oturumu sürdürür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Також завершує сеанси Claude Code і Codex, що чекають на ваше наступне повідомлення. Відкриття вкладки відновлює той самий сеанс."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cũng kết thúc các phiên Claude Code và Codex đang chờ tin nhắn tiếp theo của bạn. Mở tab sẽ tiếp tục đúng phiên đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "也会结束正在等待你下一条消息的 Claude Code 和 Codex 会话。打开标签页会恢复同一会话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "也會結束正在等待你下一則訊息的 Claude Code 與 Codex 工作階段。開啟分頁會恢復同一工作階段。"
+          }
+        }
+      }
+    },
+    "settings.workspaceHibernation.freeingRunningCommands": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الأوامر قيد التشغيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokrenute naredbe"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kørende kommandoer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laufende Befehle"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Running Commands"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comandos en ejecución"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commandes en cours"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comandi in esecuzione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中のコマンド"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពាក្យបញ្ជាកំពុងដំណើរការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 중인 명령"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kjørende kommandoer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uruchomione polecenia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comandos em execução"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выполняющиеся команды"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำสั่งที่กำลังทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışan komutlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запущені команди"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lệnh đang chạy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在运行的命令"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "執行中的指令"
+          }
+        }
+      }
+    },
+    "settings.workspaceHibernation.freeingRunningCommands.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ما يحدث لأمر لا يزال يعمل في مساحة عمل تحرّر طرفياتها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Šta se dešava s naredbom koja još radi u radnom prostoru koji oslobađa svoje terminale."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvad der sker med en kommando, der stadig kører i et arbejdsområde, som frigør sine terminaler."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Was mit einem Befehl geschieht, der noch in einem Workspace läuft, der seine Terminals freigibt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What happens to a command that still runs in a workspace that frees its terminals."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qué ocurre con un comando que sigue en ejecución en un espacio que libera sus terminales."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce qui arrive à une commande encore en cours dans un espace qui libère ses terminaux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cosa succede a un comando ancora in esecuzione in uno spazio che libera i suoi terminali."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "端末を解放するワークスペースでまだ実行中のコマンドをどうするか。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អ្វីដែលកើតឡើងចំពោះពាក្យបញ្ជាដែលនៅតែដំណើរការក្នុងកន្លែងធ្វើការដែលដោះលែងស្ថានីយរបស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널을 해제하는 워크스페이스에서 아직 실행 중인 명령을 어떻게 처리할지 정합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hva som skjer med en kommando som fortsatt kjører i et arbeidsområde som frigjør terminalene sine."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Co dzieje się z poleceniem, które nadal działa w obszarze zwalniającym swoje terminale."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O que acontece com um comando que ainda roda num espaço que libera seus terminais."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Что происходит с командой, которая ещё выполняется в пространстве, освобождающем свои терминалы."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สิ่งที่เกิดกับคำสั่งที่ยังทำงานอยู่ในเวิร์กสเปซที่ปล่อยเทอร์มินัลของตน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminallerini serbest bırakan bir çalışma alanında hâlâ çalışan bir komuta ne olacağı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Що відбувається з командою, яка ще працює в просторі, що звільняє свої термінали."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Điều gì xảy ra với lệnh vẫn đang chạy trong workspace giải phóng terminal của nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在释放终端的工作区中仍在运行的命令如何处理。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在釋放終端機的工作區中仍在執行的指令如何處理。"
+          }
+        }
+      }
+    },
+    "settings.choice.freeingRunningNever": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إبقاؤها قيد التشغيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ostavi da radi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bliv ved med at køre"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weiterlaufen lassen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep Running"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seguir ejecutando"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laisser tourner"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lascia in esecuzione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行し続ける"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្តដំណើរការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "계속 실행"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La kjøre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pozostaw uruchomione"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manter em execução"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не останавливать"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ให้ทำงานต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışmaya devam etsin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не зупиняти"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giữ chạy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保持运行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保持執行"
+          }
+        }
+      }
+    },
+    "settings.choice.freeingRunningRelaunch": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إنهاؤها وعرضها مرة أخرى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Završi i ponudi ponovo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afslut og tilbyd igen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beenden und erneut anbieten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "End and Offer Again"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerrar y volver a ofrecer"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminer et reproposer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiudi e riproponi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終了して再提示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ចប់ ហើយផ្តល់ជូនម្តងទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "종료 후 다시 제안"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avslutt og tilby igjen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zakończ i zaproponuj ponownie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encerrar e oferecer de novo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Завершить и предложить снова"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิดแล้วเสนอใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonlandır ve yeniden öner"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Завершити й запропонувати знову"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kết thúc và đề xuất lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "结束并再次提供"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "結束並再次提供"
+          }
+        }
+      }
+    },
     "settings.workspaceHibernation.enabled": {
       "extractionState": "manual",
       "localizations": {
@@ -23517,6 +24827,60 @@
             "value": "瀏覽器標籤頁和 cmux 頁面（例如歷史記錄和 App）會以此引擎開啟。"
           }
         }
+      }
+    },
+    "settings.browser.wakeTabsOnHover": {
+      "comment": "Settings > Browser > Memory toggle: hover preload (browser.wakeTabsOnHover).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Wake Tabs on Hover"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تنشيط علامات التبويب عند التمرير"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Probudi kartice pri prelasku"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Væk faner ved hover"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Tabs beim Darüberfahren aufwecken"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Activar pestañas al pasar el puntero"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Réveiller les onglets au survol"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Riattiva le schede al passaggio del puntatore"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ホバーでタブを起こす"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ដាស់ផ្ទាំងពេលដាក់ទស្សន៍ទ្រនិចលើ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "마우스를 올리면 탭 깨우기"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Vekk faner ved peker over"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Wybudzaj karty po najechaniu"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Despertar abas ao passar o ponteiro"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Пробуждать вкладки при наведении"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ปลุกแท็บเมื่อชี้เมาส์"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Üzerine gelince sekmeleri uyandır"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Пробуджувати вкладки під час наведення"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Đánh thức tab khi di chuột"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "悬停时唤醒标签页"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "懸停時喚醒分頁"}}
+      }
+    },
+    "settings.browser.wakeTabsOnHover.help": {
+      "comment": "Help under the Wake Tabs on Hover setting.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "When the pointer rests on a tab or a workspace, its sleeping pages start to load before you click. Uses more memory."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "عندما يستقر المؤشر على علامة تبويب أو مساحة عمل، تبدأ صفحاتها النائمة في التحميل قبل أن تنقر. يستخدم ذاكرة أكثر."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Kada pokazivač miruje na kartici ili radnom prostoru, njegove uspavane stranice počinju se učitavati prije klika. Koristi više memorije."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Når markøren hviler på en fane eller et arbejdsområde, begynder dets sovende sider at indlæse, før du klikker. Bruger mere hukommelse."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Ruht der Zeiger auf einem Tab oder Workspace, laden dessen schlafende Seiten schon vor dem Klick. Braucht mehr Speicher."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Cuando el puntero se detiene en una pestaña o un espacio de trabajo, sus páginas en reposo empiezan a cargarse antes de hacer clic. Usa más memoria."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Quand le pointeur s’arrête sur un onglet ou un espace de travail, ses pages en veille commencent à se charger avant le clic. Utilise plus de mémoire."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Quando il puntatore si ferma su una scheda o un workspace, le sue pagine sospese iniziano a caricarsi prima del clic. Usa più memoria."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ポインタがタブやワークスペースの上で止まると、スリープ中のページがクリック前に読み込みを始めます。メモリを多く使います。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ពេលទស្សន៍ទ្រនិចឈប់លើផ្ទាំង ឬកន្លែងធ្វើការ ទំព័រដែលកំពុងដេករបស់វាចាប់ផ្ដើមផ្ទុកមុនពេលអ្នកចុច។ ប្រើអង្គចងចាំច្រើនជាង។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "포인터가 탭이나 작업 공간 위에 머무르면 잠든 페이지가 클릭하기 전에 로드를 시작합니다. 메모리를 더 사용합니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Når pekeren hviler på en fane eller et arbeidsområde, begynner de sovende sidene å laste før du klikker. Bruker mer minne."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Gdy wskaźnik zatrzyma się na karcie lub obszarze roboczym, jego uśpione strony zaczynają się wczytywać przed kliknięciem. Zużywa więcej pamięci."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Quando o ponteiro para sobre uma aba ou um espaço de trabalho, suas páginas em repouso começam a carregar antes do clique. Usa mais memória."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Когда указатель задерживается на вкладке или рабочем пространстве, его спящие страницы начинают загружаться до щелчка. Использует больше памяти."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เมื่อตัวชี้หยุดอยู่บนแท็บหรือพื้นที่ทำงาน หน้าที่หลับอยู่จะเริ่มโหลดก่อนที่คุณจะคลิก ใช้หน่วยความจำมากขึ้น"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "İşaretçi bir sekmenin veya çalışma alanının üzerinde durduğunda, uyuyan sayfaları siz tıklamadan yüklenmeye başlar. Daha fazla bellek kullanır."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Коли вказівник зупиняється на вкладці або робочому просторі, його сплячі сторінки починають завантажуватися до клацання. Використовує більше пам’яті."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Khi con trỏ dừng trên một tab hoặc không gian làm việc, các trang đang ngủ của nó bắt đầu tải trước khi bạn nhấp. Dùng nhiều bộ nhớ hơn."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "指针停在标签页或工作区上时，其休眠页面会在你点击前开始加载。会占用更多内存。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "指標停在分頁或工作區上時，其休眠頁面會在你點按前開始載入。會使用更多記憶體。"}}
       }
     },
     "settings.browser.hibernatePinnedTabs": {
@@ -95330,6 +96694,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "資料夾"
+          }
+        }
+      }
+    },
+    "settings.choice.groupByRecents": {
+      "comment": "Sidebar Group Projects By choice: groups under Projects, then other workspaces under Recents (the ChatGPT app's layout).",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المشاريع والأخيرة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projekti i nedavno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projekter og seneste"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projekte und Zuletzt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projects and Recents"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proyectos y recientes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projets et récents"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Progetti e recenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロジェクトと最近"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គម្រោង និងថ្មីៗ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로젝트 및 최근"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prosjekter og nylige"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projekty i ostatnie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projetos e recentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проекты и недавние"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โปรเจกต์และล่าสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projeler ve Son Kullanılanlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проєкти та нещодавні"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dự án và gần đây"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "项目和最近"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "專案與最近"
           }
         }
       }

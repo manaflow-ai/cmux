@@ -328,7 +328,7 @@ test("a fresh New Tab exposes the no-project path in its environment card", asyn
   expect(container.querySelector('.nt-env .nt-stage-row[aria-pressed="true"]')).toBeTruthy();
 });
 
-test("Do not work in a project, then a remote machine with a folder: headline, location and send name that folder", async () => {
+test("No folder, then a remote machine with a folder: headline, location and send name that folder", async () => {
   const remoteFolder = "/remote/project";
   const asks: unknown[][] = [];
   await act(async () => {
@@ -367,7 +367,7 @@ test("Do not work in a project, then a remote machine with a folder: headline, l
   expect(folder).toBeTruthy();
   await act(async () => folder!.click());
   const noProject = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) =>
-    row.textContent?.includes("Do not work in a project"),
+    row.textContent?.includes("No folder"),
   );
   expect(noProject).toBeTruthy();
   await act(async () => noProject!.click());
@@ -381,7 +381,7 @@ test("Do not work in a project, then a remote machine with a folder: headline, l
   expect(headline).toContain("project");
   expect(headline).toContain("build-box");
   expect(container.querySelector(".nt-location")?.textContent).toContain("project");
-  expect(container.querySelector(".nt-location")?.textContent).not.toContain("No project");
+  expect(container.querySelector(".nt-location")?.textContent).not.toContain("No folder");
   await typePrompt("fix it");
   await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
   expect(asks.length).toBe(1);
@@ -789,7 +789,7 @@ test("with Cloud picked, a send goes to onCloud with its prompt, not a new chat;
   expect(promptValue()).toBe("fix the flaky test");
 });
 
-test("with Cloud picked and Do not work in a project, a send names no folder: not even the tab's inherited one", async () => {
+test("with Cloud picked and No folder, a send names no folder: not even the tab's inherited one", async () => {
   const clouded: unknown[][] = [];
   await act(async () => {
     root!.render(
@@ -811,10 +811,10 @@ test("with Cloud picked and Do not work in a project, a send names no folder: no
       />,
     );
   });
-  // Do not work in a project, from the card's chooser (the tab inherited /repo/A).
+  // No folder, from the card's chooser (the tab inherited /repo/A).
   await act(async () => container.querySelector<HTMLButtonElement>(".nt-env .acpmux-project-button")!.click());
   const noProject = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) =>
-    row.textContent?.includes("Do not work in a project"),
+    row.textContent?.includes("No folder"),
   );
   expect(noProject).toBeTruthy();
   await act(async () => noProject!.click());
@@ -1132,7 +1132,7 @@ test("keeps a changed machine choice while browse settles, then permits retry", 
   expect(container.querySelector('[role="alert"]')).toBeNull();
 });
 
-test("keeps the project chooser open when a second Add Project browse is already pending", async () => {
+test("Add folder… is the host's folder panel: a second one while it is open asks nothing, and its pick lands", async () => {
   let resolveBrowse!: (folder: string | undefined) => void;
   let calls = 0;
   await act(async () => {
@@ -1142,6 +1142,7 @@ test("keeps the project chooser open when a second Add Project browse is already
         pageWidgets={new Set(["projects"])}
         projects={[{ cwd: "/Users/you/src/cmux", label: "cmux" }]}
         onBrowseProject={(request) => {
+          // The folder menu commits the pick itself (deferPick), so a folder picked meanwhile wins.
           expect(request?.deferPick).toBe(true);
           calls += 1;
           return new Promise<string | undefined>((resolve) => {
@@ -1151,30 +1152,23 @@ test("keeps the project chooser open when a second Add Project browse is already
       />,
     );
   });
-  await act(async () => container.querySelector<HTMLButtonElement>(".nt-env .acpmux-project-button")!.click());
-  const add = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) =>
-    row.textContent?.includes("New project"),
-  );
-  expect(add).toBeTruthy();
-  await act(async () => add!.click());
-  const pick = async (label: string) => {
-    const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) =>
-      row.textContent?.includes(label),
+  const addFolder = async () => {
+    await act(async () => container.querySelector<HTMLButtonElement>(".nt-env .acpmux-project-button")!.click());
+    const options = [...document.querySelectorAll<HTMLElement>('[role="option"]')].map((row) => row.textContent ?? "");
+    expect(options.some((text) => text.includes("New project") || text.includes("Add project"))).toBe(false);
+    const add = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) =>
+      row.textContent?.includes("Add folder…"),
     );
-    expect(option).toBeTruthy();
-    await act(async () => option!.click());
+    expect(add).toBeTruthy();
+    await act(async () => add!.click());
   };
-  await pick("This Mac");
-  await pick("Local folder");
+  await addFolder();
   expect(calls).toBe(1);
-  expect(document.querySelector('[data-add-project-step="source"]')).toBeTruthy();
-  // Back and re-enter while the first native chooser remains pending. Busy is not cancellation.
-  await act(async () => document.querySelector<HTMLButtonElement>(".acpmux-add-project-heading button")!.click());
-  await pick("This Mac");
-  await pick("Local folder");
+  // The first panel is still open: busy is not a second ask, nor a cancellation.
+  await addFolder();
   expect(calls).toBe(1);
-  expect(document.querySelector('[data-add-project-step="source"]')).toBeTruthy();
   await act(async () => resolveBrowse("/Users/you/src/new"));
+  expect(container.querySelector(".nt-env")?.textContent).toContain("new");
 });
 
 test("a closed agent chat uses the semantic agent glyph and preserves its title", async () => {

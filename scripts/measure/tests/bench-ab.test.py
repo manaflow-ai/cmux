@@ -219,11 +219,15 @@ class DriverRules(unittest.TestCase):
     def test_idle_mini_is_ready(self):
         self.assertEqual(driver.worker_ready(self.status(), "cmux22-perf", "perf-lead"), (True, "idle"))
 
-    def test_capture_lease_disk_running_and_pins_are_not_ready(self):
-        for st in (self.status(pool="capture-abc"), self.status(free=39), self.status(running={"id": "j"}),
-                   self.status(pinned=1)):
+    def test_capture_lease_running_and_pins_are_not_ready(self):
+        for st in (self.status(pool="capture-abc"), self.status(running={"id": "j"}), self.status(pinned=1)):
             self.assertFalse(driver.worker_ready(st, "cmux22-perf", "perf-lead")[0])
         self.assertFalse(driver.worker_ready(self.status(), "cmux21-perf", "perf-lead")[0])
+
+    def test_low_disk_warns_and_is_still_ready(self):
+        ok, why = driver.worker_ready(self.status(free=33), "cmux22-perf", "perf-lead")
+        self.assertTrue(ok)
+        self.assertIn("warning: cmux22-perf has 33.0 GiB free, under the 40 GiB floor", why)
 
     def test_step_actions(self):
         self.assertEqual(driver.step_action({"state": "running", "worker": "cmux17-perf"}, "cmux22-perf", 5),

@@ -394,7 +394,13 @@ produces one notice without resolving. Failed deliveries remain visible in the l
 on a relevant session/peer change or restart. A one-shot watch is removed after delivery.
 Unreadable watch state is preserved as `watches.json.bad-<timestamp>`; the daemon starts
 with no watches. Older cursor fields default safely. Peer replay uses eight workers.
-The CLI and MCP watch tools are not exposed yet; `acpmux wait` remains the script interface.
+The same three are `acpmux watch add|ls|rm` and the `acpmux` MCP server's `watch_add`,
+`watch_ls` and `watch_rm` tools, on the local socket only; inside an agent session the recipient
+defaults to that session. A wake counts as delivered when the recipient's daemon accepts it
+(queued or steered into its turn), not when its agent has read it; `watch ls` lists every wake
+not accepted yet with its outbox state. Removing a watch stops new wakes, and wakes it already
+owes are still delivered (`watch_rm` answers how many). `acpmux wait` remains the blocking
+script interface.
 
 Agents spawned by acpmux get `ACPMUX_ENV=1`, `ACPMUX_SESSION_ID`, `ACPMUX_SESSION_NAME` and
 `ACPMUX_SOCKET`, and `@` names that session (`acpmux last @`), so an agent can drive its own
@@ -1489,17 +1495,15 @@ When no config exists, harnesses are imported from `~/.acpx/config.json` (its `a
   would free; `--archive DIR` keeps the old segments under `DIR/<chat id>/<pass>/events/`;
   `--older-than-days N` and `--only CHAT` narrow it.
   Read when the daemon starts.
-- `store.journal`: `true` sends every event-log line through one append-only journal in
-  `journal/` as well (default `false`, a dogfood switch). A line is then durable within one group
-  commit (an OS crash or a power loss keeps it), and the next start writes back into a chat's log
-  every line it lost. `journal-projected.json` names how far the logs are synced. Lines the start
-  could not write into a log that changed without the journal (a run with the switch off after a
-  crash, or an older build) go to `journal-unapplied/`. Turning it off is safe: the next start
-  writes the journal's lines into the logs first. A failed log sync stops the daemon for a restart,
-  which writes the logs again: it exits with status 74, and its supervisor (or the next client)
-  starts it again. A reply and an acknowledged event wait until what they show is durable. With it
-  on, an event line over 64 MiB (the journal's record limit) is refused, and its log does not get
-  it either; with it off, the log takes it. Read when the daemon starts.
+- The event log goes through one append-only journal in `journal/` as well. A line is durable
+  within one group commit (an OS crash or a power loss keeps it), and the next start writes back
+  into a chat's log every line it lost. `journal-projected.json` names how far the logs are synced.
+  Lines the start could not write into a log that changed without the journal (an older build after
+  a crash) go to `journal-unapplied/`. A failed log sync stops the daemon for a restart, which
+  writes the logs again: it exits with status 74, and its supervisor (or the next client) starts it
+  again. A reply and an acknowledged event wait until what they show is durable. An event line over
+  64 MiB (the journal's record limit) is refused, and its log does not get it either. The old
+  `store.journal` key is ignored.
 - `websocket`: optional. The same protocol over WebSocket text frames, for remote clients such
   as a dashboard or a Durable Object. Put it behind a tunnel; the token is a bearer token.
 

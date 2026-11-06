@@ -302,6 +302,11 @@ lane = "manual"
 reason = "Run by the lane that changes scripts/live-code/switch.sh (no new CI tests): python3 tests/test_live_code_switch.py; needs only bash and python3."
 
 [[test]]
+path = "tests/test_live_mode.py"
+lane = "manual"
+reason = "Run by the lane that changes scripts/live-code/live-mode.py (no new CI tests): python3 tests/test_live_mode.py; needs only python3 (a fake control socket stands in for the app)."
+
+[[test]]
 path = "tests/test_local_build_cache_policy.py"
 lane = "linux-guard"
 

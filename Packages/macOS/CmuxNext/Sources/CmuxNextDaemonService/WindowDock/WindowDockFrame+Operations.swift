@@ -121,7 +121,7 @@ public extension WindowDockFrame {
         return true
     }
 
-    /// Shows or hides the target dock (Show or Hide Dock); whether it shows now, nil with no dock. Hiding the dock
+    /// Shows or hides the target dock (Show/Hide Dock); whether it shows now, nil with no dock. Hiding the dock
     /// that has the focus gives it to the stage.
     @discardableResult
     func toggleTargetDock() -> Bool? {
@@ -134,7 +134,7 @@ public extension WindowDockFrame {
         return result == .shown
     }
 
-    /// The target dock's no-tab-bar mode on or off (Show or Hide Dock Tab Bar); the new mode, nil with no dock.
+    /// The target dock's no-tab-bar mode on or off (Show/Hide Dock Tab Bar); the new mode, nil with no dock.
     /// Its panes read it in their strip map (``dockHidesTabBar(of:shownTabs:)``), so each shows or hides its bar now.
     @discardableResult
     func toggleTargetDockTabBar() -> Bool? {

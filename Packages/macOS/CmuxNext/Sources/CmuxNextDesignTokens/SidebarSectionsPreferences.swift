@@ -33,6 +33,10 @@ public nonisolated enum SidebarGroupBy: String, Hashable, Sendable, CaseIterable
     case none
     /// A header per folder: the front tab's working directory.
     case folder
+    /// Projects and Recents, as the ChatGPT app's sidebar (Lawrence 2026-11-05): every group under a
+    /// "Projects" header (the first five, then "Show N more"), then every workspace in no group under
+    /// "Recents", the newest activity first.
+    case recents
 }
 
 public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {

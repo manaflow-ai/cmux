@@ -347,13 +347,21 @@ public final class AcpmuxHub {
             guard let sessionID, let permissionID = params["permissionId"]?.stringValue, let request = params["request"] else { return }
             onWatchEvent?(.permissionPending(sessionID: sessionID, permissionID: permissionID, request: request))
         case "_acpmux/lagged":
+            // A list reply that went out after a `session_changed` (acpmux `send_serialized`,
+            // `list_changed`) dropped nothing: that notice came before it and is applied above,
+            // so nothing is read again, neither the list nor an open chat's history. Asking
+            // again sent another whole list, which a busy acpmux followed with the same lag: a
+            // 25 MB list about every minute without end, which held up the Mac's own chats
+            // (2026-11-06; the Mac pane stops the same way, direct.ts `resyncAfterLag`).
+            if params["reason"]?.stringValue == "list_changed", (params["dropped"]?.numberValue ?? 0) <= 0 { return }
             // Missed notifications: attached chats fill their gap, and watch runs again. The
             // chats first, before the next notification: a record after the dropped ones must
             // be held for the refill, not applied ahead of it.
             for entry in sources.values { entry.source?.refill() }
+            // The watch runs again; its reply is not read, so one row is asked for, not the list.
             Task { [weak self] in
                 guard let self, let connection = self.connection else { return }
-                _ = try? await connection.request("_acpmux/watch", .object(["enabled": .bool(true)]))
+                _ = try? await connection.request("_acpmux/watch", .object(["enabled": .bool(true), "limit": .number(1)]))
             }
         default:
             break

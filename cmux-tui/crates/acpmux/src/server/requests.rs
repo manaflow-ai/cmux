@@ -1635,6 +1635,11 @@ async fn dispatch_request_with_identity(
                 (provenance, _) => provenance,
             };
             let declared = crate::hub::declared_sender(&params)?;
+            // Keep a caller's `--from` label beside authenticated caller provenance. The label
+            // is display-only; `fromSessionId` is still stamped below from the caller token.
+            let provenance = provenance.map(|provenance| {
+                crate::prompt_provenance::stamp_declared(provenance, declared.as_deref())
+            });
             // What another agent's message asks of this chat (`prompt_class.rs`).
             let class = crate::prompt_class::declared(&params)?;
             // The inbox thread its sender named (`hub/inbox.rs`).
@@ -1777,6 +1782,15 @@ async fn dispatch_request_with_identity(
                 steer_now: steer && flag("steerNow") == Some(true),
                 interrupt_turn: None,
                 provenance,
+                human_authenticated: person_message
+                    && (conn.is_person()
+                        || (conn.origin == super::Origin::Peer
+                            && mux_meta(&params)
+                                .and_then(|meta| {
+                                    meta.get(crate::prompt_provenance::PERSON_VERIFIED)
+                                })
+                                .and_then(Value::as_bool)
+                                == Some(true))),
                 agent,
                 class,
                 after_turn: None,
