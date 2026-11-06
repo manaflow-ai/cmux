@@ -17,11 +17,10 @@ final class HomeLinkPreviewCardView: NSView, HoverCardTextReporting {
     let linesLabel = ChromeLabel(wrappingLabelWithString: "")
     private let thumbnail = NSView()
     private var thumbnailHeight: NSLayoutConstraint?
-    private var linesTop: NSLayoutConstraint?
-    /// The place row's gap under the title, and the zero height it takes while it has no place, so a
-    /// link with no place keeps no empty line.
-    private var placeTop: NSLayoutConstraint?
-    private var placeCollapsed: NSLayoutConstraint?
+    /// The content lines' top: under the place row, or under the title while there is no place, so a link
+    /// with no place keeps no empty line (a hidden row keeps its size under plain constraints).
+    private var linesUnderPlace: NSLayoutConstraint?
+    private var linesUnderTitle: NSLayoutConstraint?
     /// The content lines' zero height while there are none.
     private var linesCollapsed: NSLayoutConstraint?
     private var thumbnailTop: NSLayoutConstraint?
@@ -49,8 +48,8 @@ final class HomeLinkPreviewCardView: NSView, HoverCardTextReporting {
         }
         let p = Self.padding, iconSize = HoverCardRowView.iconSize
         let style = HoverCardStyle.shared
-        let placeTop = placeRow.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: style.titleGap)
-        let linesTop = linesLabel.topAnchor.constraint(equalTo: placeRow.bottomAnchor, constant: style.rowGap)
+        let linesUnderPlace = linesLabel.topAnchor.constraint(equalTo: placeRow.bottomAnchor, constant: style.rowGap)
+        linesUnderTitle = linesLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: style.titleGap)
         let thumbnailTop = thumbnail.topAnchor.constraint(equalTo: linesLabel.bottomAnchor, constant: style.mediaGap)
         let height = thumbnail.heightAnchor.constraint(equalToConstant: 0)
         NSLayoutConstraint.activate([
@@ -64,10 +63,10 @@ final class HomeLinkPreviewCardView: NSView, HoverCardTextReporting {
             titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: statusLabel.leadingAnchor, constant: -Metrics.space2),
             statusLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -p),
             statusLabel.firstBaselineAnchor.constraint(equalTo: titleLabel.firstBaselineAnchor),
-            placeTop,
+            placeRow.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: style.titleGap),
             placeRow.leadingAnchor.constraint(equalTo: leadingAnchor, constant: p),
             placeRow.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -p),
-            linesTop,
+            linesUnderPlace,
             linesLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: p),
             linesLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -p),
             thumbnailTop,
@@ -76,9 +75,7 @@ final class HomeLinkPreviewCardView: NSView, HoverCardTextReporting {
             thumbnail.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -p),
             height,
         ])
-        self.linesTop = linesTop
-        self.placeTop = placeTop
-        placeCollapsed = placeRow.heightAnchor.constraint(equalToConstant: 0)
+        self.linesUnderPlace = linesUnderPlace
         linesCollapsed = linesLabel.heightAnchor.constraint(equalToConstant: 0)
         self.thumbnailTop = thumbnailTop
         thumbnailHeight = height
@@ -100,14 +97,17 @@ final class HomeLinkPreviewCardView: NSView, HoverCardTextReporting {
         } else {
             placeRow.isHidden = true
         }
-        // A hidden row still holds its height under plain constraints: collapse it and its gap.
-        placeCollapsed?.isActive = placeRow.isHidden
-        placeTop?.constant = placeRow.isHidden ? 0 : HoverCardStyle.shared.titleGap
         linesLabel.font = preview.monospaced ? Typography.system(.monospaced, size: Typography.caption.pointSize, weight: .regular) : HoverCardStyle.shared.secondaryFont
         linesLabel.stringValue = preview.lines.joined(separator: "\n")
         linesLabel.isHidden = preview.lines.isEmpty
         linesCollapsed?.isActive = preview.lines.isEmpty
-        linesTop?.constant = preview.lines.isEmpty ? 0 : placeRow.isHidden ? HoverCardStyle.shared.titleGap : HoverCardStyle.shared.rowGap
+        // Deactivate before activating, so the two tops never both hold.
+        let style = HoverCardStyle.shared
+        if placeRow.isHidden { linesUnderPlace?.isActive = false } else { linesUnderTitle?.isActive = false }
+        linesUnderPlace?.constant = preview.lines.isEmpty ? 0 : style.rowGap
+        linesUnderTitle?.constant = preview.lines.isEmpty ? 0 : style.titleGap
+        linesUnderPlace?.isActive = !placeRow.isHidden
+        linesUnderTitle?.isActive = placeRow.isHidden
         thumbnail.layer?.contents = preview.thumbnail
         thumbnail.isHidden = preview.thumbnail == nil
         thumbnailHeight?.constant = preview.thumbnail == nil ? 0 : Self.thumbnailHeight
