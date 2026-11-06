@@ -547,16 +547,17 @@ fn route(words: &[&str], credential: bool, app: bool) -> NewRoute {
     new_route(scope, &rest[1..], || credential, app)
 }
 
-/// `cmux machine new` makes the app's Cloud machine when the app is here
-/// and the caller has no VM API key; a key, a VM-API-only flag, no app, or
-/// the old `vm new` keeps the VM API, as it ran before.
+/// `cmux machine new` makes the app's Cloud machine when the app is here, a
+/// stored VM API key or not: Leo's nightly died on an expired one (2026-11-06,
+/// "`cmux machine new` ignores the signed-in app"). A VM-API-only flag, no app,
+/// or the old `vm new` keeps the VM API.
 #[test]
 fn machine_new_goes_to_the_app_unless_the_vm_api_is_asked_for() {
     assert_eq!(route(&["machine", "new"], false, true), NewRoute::App);
     assert_eq!(route(&["machine", "create", "--name", "a"], false, true), NewRoute::App);
     assert_eq!(route(&["machine", "new", "--size=medium"], true, false), NewRoute::App);
     assert_eq!(route(&["machine", "new", "--persistent"], true, true), NewRoute::App);
-    assert_eq!(route(&["machine", "new"], true, true), NewRoute::VmApi);
+    assert_eq!(route(&["machine", "new"], true, true), NewRoute::App, "a stored key no longer wins over the app");
     assert_eq!(route(&["machine", "new"], false, false), NewRoute::VmApi);
     assert_eq!(route(&["machine", "new", "--snapshot", "snap_1"], false, true), NewRoute::VmApi);
     assert_eq!(route(&["machine", "new", "--team=t"], false, true), NewRoute::VmApi);
