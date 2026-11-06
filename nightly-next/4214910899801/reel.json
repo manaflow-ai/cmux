@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "build": "4214910899801",
+  "notes": "notes/4214910899801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 36949,
+      "title": "perf flags cleanup: a new WebKit tab always takes the tab made ahead; delete browserPage.webKitSpareTab",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36953,
+      "title": "Sidebar row oracle: --motion snap judges the default sidebar.insertMotion (snap)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36539,
+      "title": "ci(cmux-next): swift test, daemon tests and generated files start from the base's seeded build",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36854,
+      "title": "cmux-host updater: never restart acpmux while an agent is starting",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36590,
+      "title": "WebKit pages resize with their pane in every key-resize frame; the gap shows the page's color",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36950,
+      "title": "fix(ci): base red: keep the receipt grammar inside risk_tier.py (#36941)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
