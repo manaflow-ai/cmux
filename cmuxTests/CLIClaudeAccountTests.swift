@@ -93,7 +93,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let resyncFailed = try output(notResumedReason: "transcript_resync_failed", name: "claude-account-resync")
         let noPrompt = try output(notResumedReason: "no_prompt", name: "claude-account-noprompt")
 
-        XCTAssertNotEqual(resyncFailed, noPrompt)
+        // The helper runs the CLI in English; compare with that catalog's text for each reason.
+        let resyncText = try claudeAccountCatalogValue("cli.claudeAccount.transcriptResyncFailed", language: "en")
+        let noPromptText = try claudeAccountCatalogValue("cli.claudeAccount.resumeManually", language: "en")
+        XCTAssertNotEqual(resyncText, noPromptText)
+        XCTAssertTrue(resyncFailed.contains(resyncText), resyncFailed)
+        XCTAssertFalse(resyncFailed.contains(noPromptText), resyncFailed)
+        XCTAssertTrue(noPrompt.contains(noPromptText), noPrompt)
+        XCTAssertFalse(noPrompt.contains(resyncText), noPrompt)
     }
 
     /// The app's refusal already says how to force the switch; the CLI relays it once and adds
@@ -157,6 +164,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         """.utf8).write(to: configDirectory.appendingPathComponent("cmux.json"))
 
         var environment = ProcessInfo.processInfo.environment
+        environment["AppleLanguages"] = "(en)"
+        environment["AppleLocale"] = "en_US"
         environment["HOME"] = home.path
         environment["CFFIXED_USER_HOME"] = home.path
         environment["CMUX_SOCKET_PATH"] = makeSocketPath("claude-account-list")
@@ -175,9 +184,39 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let accounts = try XCTUnwrap(jsonObject(json.stdout)?["accounts"] as? [[String: Any]], json.stdout)
         XCTAssertEqual(accounts.map { $0["name"] as? String }, ["default", "work"])
         XCTAssertEqual(accounts.map { $0["default"] as? Bool }, [true, false])
-        // Absolute in JSON, unlike the `~/` text form.
+        // Absolute in JSON, unlike the `~/` text form, and under the fixture home: the CLI reads
+        // its home from NSHomeDirectory() (CFFIXED_USER_HOME here) and standardizes the path.
         let workDirectory = try XCTUnwrap(accounts.last?["config_dir"] as? String)
-        XCTAssertTrue(workDirectory.hasPrefix("/") && workDirectory.hasSuffix("/.claude-work"), workDirectory)
+        XCTAssertEqual(workDirectory, (home.path as NSString).standardizingPath + "/.claude-work")
+    }
+
+    /// The CLI executable has no string catalog of its own; its text comes from the enclosing
+    /// app's, so `claude-account` help follows the user's language like the rest of the CLI.
+    func testClaudeAccountHelpUsesTheAppCatalog() throws {
+        let cliPath = try bundledCLIPath()
+        let german = try claudeAccountCatalogValue("cli.claudeAccount.help", language: "de")
+        XCTAssertNotEqual(german, try claudeAccountCatalogValue("cli.claudeAccount.help", language: "en"))
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["AppleLanguages"] = "(de)"
+        environment["AppleLocale"] = "de_DE"
+        environment["CMUX_SOCKET_PATH"] = makeSocketPath("claude-account-help")
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        let result = runProcess(executablePath: cliPath, arguments: ["claude-account", "--help"], environment: environment, timeout: 5)
+
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains(german), result.stdout)
+    }
+
+    /// `key`'s value in the bundled app's compiled catalog for `language`, so tests compare the
+    /// CLI's output with the catalog instead of hard-coding a translation.
+    private func claudeAccountCatalogValue(_ key: String, language: String) throws -> String {
+        let resources = URL(fileURLWithPath: try bundledCLIPath())
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let strings = resources.appendingPathComponent("\(language).lproj/Localizable.strings")
+        let table = try XCTUnwrap(NSDictionary(contentsOf: strings) as? [String: String], strings.path)
+        return try XCTUnwrap(table[key], key)
     }
 
     /// An account that hit its usage limit shows until when the automatic switch skips it; an
@@ -193,6 +232,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         """.utf8).write(to: configDirectory.appendingPathComponent("cmux.json"))
 
         var environment = ProcessInfo.processInfo.environment
+        environment["AppleLanguages"] = "(en)"
+        environment["AppleLocale"] = "en_US"
         environment["HOME"] = home.path
         environment["CFFIXED_USER_HOME"] = home.path
         environment["CMUX_SOCKET_PATH"] = makeSocketPath("claude-account-exhausted")
@@ -234,7 +275,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let lines = text.stdout.split(separator: "\n").map(String.init)
         XCTAssertEqual(lines.count, 2, text.stdout)
         XCTAssertFalse(lines[0].contains(exhaustedUntil), text.stdout)
-        XCTAssertTrue(lines[1].hasPrefix("work") && lines[1].contains(exhaustedUntil), text.stdout)
+        let exhaustedColumn = String(
+            format: try claudeAccountCatalogValue("cli.claudeAccount.list.exhaustedUntil", language: "en"),
+            exhaustedUntil
+        )
+        XCTAssertTrue(lines[1].hasPrefix("work") && lines[1].hasSuffix("  \(exhaustedColumn)"), text.stdout)
         // The CLI only reads the app's file.
         XCTAssertEqual(try Data(contentsOf: storeFile), storedBytes)
     }
@@ -268,6 +313,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
 
         var environment = ProcessInfo.processInfo.environment
+        // The CLI's text follows the user's language; these tests read the English catalog.
+        environment["AppleLanguages"] = "(en)"
+        environment["AppleLocale"] = "en_US"
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_WORKSPACE_ID"] = nil
