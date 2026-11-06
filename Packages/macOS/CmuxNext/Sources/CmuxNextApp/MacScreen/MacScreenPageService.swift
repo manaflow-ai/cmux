@@ -213,7 +213,6 @@ extension AppServices {
         let bundleID = environment.launch.bundleID ?? "com.cmuxterm.app.next"
         let auth = cloud.auth
         guard let devices = cmuxRemote.start(bundleID: bundleID, loginKeychain: loginKeychain, deviceHub: deviceHub, pages: macScreenPages,
-                                             computerUse: ComputerUseHelperDaemon.shared.upstream,
                                              tokens: { try await auth.tokens().access }) else { return }
         let consent = joinConsent, previous = consent.changed
         devices.setConsentSource { @MainActor [weak consent] in
@@ -234,8 +233,20 @@ extension AppServices {
             guard let self, let settings else { return (false, false, true) }
             let computerUse = settings.snapshot.computerUse
             _ = daemon.identity?.capabilities.count // a reconnected daemon sends the switches again
-            return (computerUse.enabled && ComputerUseHelperDaemon.shared.effectiveDriver(computerUse.driver) == .upstream && !registry.disabledFeatures.contains(.computerUse),
+            return (computerUse.mode != .off && !registry.disabledFeatures.contains(.computerUse),
                     cloud.isSignedIn, !settings.snapshot.remote.endSharingOnQuit)
+        }
+        // The person's Computer Use policy and the cursor's animation switches go to cmux Remote's
+        // worker, from the first settings load on (``CmuxRemoteService/followComputerUse(_:)`` waits for it).
+        cmuxRemote.followComputerUse { [weak self, weak settings] in
+            guard let self, let settings else { return nil }
+            _ = daemon.identity?.capabilities.count // a reconnected daemon gets the policy again
+            let snapshot = settings.snapshot
+            let speed = snapshot.animationSpeed
+            let animates = snapshot.motionCategories.enabled && !snapshot.motionCategories.disabled.contains(.cursor) && speed != .off
+            return CmuxRemoteComputerUsePolicy(policy: snapshot.computerUse.policyConfigJSON(), cursorAnimates: animates,
+                                               cursorSpeed: speed.timeScale > 0 ? 1 / speed.timeScale : 1,
+                                               machine: MacScreenShareHost.computerName)
         }
     }
 

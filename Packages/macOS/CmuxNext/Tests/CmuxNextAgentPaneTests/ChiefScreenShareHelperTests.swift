@@ -248,13 +248,13 @@ private final class FakeHost: ChiefScreenCaptureHost, @unchecked Sendable {
         #expect(ChiefScreenStillWire.interruption(refusal: "Unknown method") == nil)
     }
 
-    /// cmux.app never reads the screen or asks for Screen Recording for Share Screen: only the helper
-    /// does, so a grant relaunches the helper, never cmux.
+    /// cmux.app never reads the screen or asks for Screen Recording for Share Screen; with the helper
+    /// gone, its capture host answers unavailable (ChiefScreenStillsUnavailable) instead.
     @Test func shareScreenNeverCapturesInTheApp() throws {
         let sources = URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appending(path: "Sources")
         let folders = ["CmuxNextDictation/ChiefScreenShare", "CmuxNextAgentPane/ChiefScreenShare"]
-        let host = "CmuxNextComputerUse/ComputerUseScreenStills.swift"
+        let host = "CmuxNextApp/ComputerUse/ChiefScreenStillsUnavailable.swift"
         let banned = ["ScreenCaptureKit", "SCScreenshotManager", "SCShareableContent", "CGRequestScreenCaptureAccess",
                       "CGPreflightScreenCaptureAccess", "CGWindowListCopyWindowInfo", "CGWindowListCreateImage"]
         var checked = 0
@@ -270,6 +270,6 @@ private final class FakeHost: ChiefScreenCaptureHost, @unchecked Sendable {
         let hostText = try String(contentsOf: sources.appending(path: host), encoding: .utf8)
         for word in banned + ["runningApplications"] { #expect(!hostText.contains(word), "\(host) uses \(word)") }
         let services = try String(contentsOf: sources.appending(path: "CmuxNextApp/AppServices.swift"), encoding: .utf8)
-        #expect(services.contains("ChiefScreenHelperCapture(host: ComputerUseScreenStills(helper: .shared))"))
+        #expect(services.contains("ChiefScreenHelperCapture(host: ChiefScreenStillsUnavailable())"))
     }
 }

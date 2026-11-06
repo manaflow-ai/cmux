@@ -40,6 +40,7 @@ final class WorkerServices: @unchecked Sendable { // crash-allow: mutable state 
     let tap = TakeoverTap()
     private let lock = NSLock()
     private var engine: ComputerUseEngine?
+    private var server: ServerHandle?
     private var flags = PolicyFlags()
     /// Set on the main actor.
     nonisolated(unsafe) private var overlay: AgentCursorOverlay?
@@ -69,6 +70,8 @@ final class WorkerServices: @unchecked Sendable { // crash-allow: mutable state 
         }
         // The host closed stdin: stop.
         logger.notice("Computer Use worker: the host closed the control channel; stopping")
+        let (engine, server) = lock.withLock { (self.engine, self.server) }
+        if let engine, let server { engine.stopServing(server) }
         DispatchQueue.main.async {
             MainActor.assumeIsolated {
                 self.approvals?.cancelAll()
@@ -133,24 +136,16 @@ final class WorkerServices: @unchecked Sendable { // crash-allow: mutable state 
         } catch {
             return unavailable(String(describing: error))
         }
-        let listener: Int32
-        do { listener = try LocalSocket.listen(configuration.socket) } catch {
-            return unavailable("cannot listen on \(configuration.socket): \(error)")
+        let server: ServerHandle
+        do { server = try engine.serve(socket: configuration.socket, secret: configuration.secret) } catch {
+            return unavailable("cannot serve the agent socket \(configuration.socket): \(error)")
         }
         lock.withLock {
             self.engine = engine
+            self.server = server
             flags = PolicyFlags(configuration.policy)
         }
         applyFlags(motion: configuration.motion)
-        let server = Thread { [self] in
-            let failure = engine.serve(listener: listener, secret: configuration.secret)
-            logger.error("Computer Use worker: the agent socket stopped: \(failure ?? "clean stop", privacy: .public)")
-            // The host restarts a worker that stops serving.
-            channel.write(WorkerReport.unavailable(failure ?? "the agent socket stopped"))
-            exit(failure == nil ? 0 : 3)
-        }
-        server.name = "remote-cu-serve"
-        server.start()
         logger.notice("Computer Use worker ready pid=\(getpid(), privacy: .public)")
         channel.write(WorkerReport.ready(pid: getpid(), socket: configuration.socket))
     }

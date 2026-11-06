@@ -329,7 +329,7 @@ extension ComputerUseSetup {
     /// (``CmuxRemoteService``, its host status through the daemon).
     static func app(services: AppServices) -> ComputerUseSetup {
         let remote = services.cmuxRemote
-        let remoteState = remote.state
+        let remoteState = remote.computerUse
         let setup = ComputerUseSetup(
             inputs: { [weak services] in
                 let mode = services?.settings?.snapshot.computerUse.mode ?? .off
@@ -339,7 +339,10 @@ extension ComputerUseSetup {
                 return Inputs(disabledByPolicy: services?.registry.disabledFeatures.contains(.computerUse) ?? true,
                               enabled: mode != .off, helper: helper)
             },
-            read: { [weak remote] in await remote?.computerUseGrants() ?? .noAnswer },
+            read: { @MainActor [weak remote] in
+                guard let status = await remote?.computerUseStatus() else { return .noAnswer }
+                return ComputerUseSetup.grants(fromStatus: status) ?? .noAnswer
+            },
             restartHelper: { [weak remote] in await remote?.restartComputerUse() },
             requestPermission: { [weak services, weak remote] pane in
                 guard let services, let settings = services.settings,
@@ -348,8 +351,8 @@ extension ComputerUseSetup {
                 Task {
                     do {
                         if settings.snapshot.computerUse.mode == .off {
-                            let write = ComputerUseSettings.enableWrite
-                            try await settings.setSetting(at: write.path, to: write.value, by: SettingWriter.currentRun())
+                            try await settings.setSetting(at: ComputerUseSettings.modePath, to: .string(ComputerUseMode.fullAccess.rawValue),
+                                                          by: SettingWriter.currentRun())
                         }
                         await remote?.requestGrant(pane == .screenRecording ? "screen-recording" : "accessibility")
                     } catch {
@@ -360,10 +363,11 @@ extension ComputerUseSetup {
             enableSetting: { [weak services] in
                 guard let settings = services?.settings else { return }
                 let writer = SettingWriter.currentRun()
-                let write = ComputerUseSettings.enableWrite
                 // task-owner: one settings write; cmux Remote's start follows the setting.
                 Task {
-                    do { try await settings.setSetting(at: write.path, to: write.value, by: writer) } catch {
+                    do {
+                        try await settings.setSetting(at: ComputerUseSettings.modePath, to: .string(ComputerUseMode.fullAccess.rawValue), by: writer)
+                    } catch {
                         setupLogger.error("Computer Use could not be turned on: \(String(describing: error), privacy: .public)")
                     }
                 }

@@ -15,11 +15,14 @@ final class ComputerUseLibrary: @unchecked Sendable { // crash-allow: immutable 
     typealias SavedApprovalsFn = @convention(c) (OpaquePointer?) -> CmuxCuBuffer
     typealias EditApprovalsFn = @convention(c) (OpaquePointer?, UnsafePointer<UInt8>?, Int, UnsafePointer<UInt8>?, Int) -> Int32
     typealias FreeFn = @convention(c) (CmuxCuBuffer) -> Void
-    /// `cmux_cu_serve` (lane `worker` adds it to the ABI): serves the agent socket
-    /// (`cmux_computer_use::server`, cmux-computer-use-v1) on the listening Unix socket `listen_fd`
-    /// (which it then owns), admitting this user's peers that present `secret_hex`. Blocks until
-    /// the engine is destroyed or the socket fails; 0 on a clean stop, else nonzero with `error`.
-    typealias ServeFn = @convention(c) (OpaquePointer?, Int32, UnsafePointer<UInt8>?, Int, UnsafeMutablePointer<CmuxCuBuffer>?) -> Int32
+    /// `void *cmux_cu_serve(CmuxCuEngine *, const uint8_t *socket_path, size_t, const uint8_t *secret_hex, size_t,
+    /// CmuxCuBuffer *error)`: serves the agent socket (`cmux_computer_use::server`,
+    /// cmux-computer-use-v1) at `socket_path` on the library's own threads, admitting this user's
+    /// peers that present the secret. Returns a handle, or NULL with `error` filled.
+    typealias ServeFn = @convention(c) (OpaquePointer?, UnsafePointer<UInt8>?, Int, UnsafePointer<UInt8>?, Int,
+                                        UnsafeMutablePointer<CmuxCuBuffer>?) -> UnsafeMutableRawPointer?
+    /// `void cmux_cu_serve_stop(void *handle)`: stops serving and frees the handle.
+    typealias ServeStopFn = @convention(c) (UnsafeMutableRawPointer?) -> Void
 
     enum LoadError: Error, CustomStringConvertible, Equatable {
         case open(String)
@@ -42,6 +45,7 @@ final class ComputerUseLibrary: @unchecked Sendable { // crash-allow: immutable 
     let editApprovals: EditApprovalsFn
     let free: FreeFn
     let serve: ServeFn
+    let serveStop: ServeStopFn
 
     /// The library in this bundle's Frameworks (a plain dylib, never a nested .framework).
     static func bundledPath(bundle: Bundle = .main) -> String {
@@ -65,6 +69,7 @@ final class ComputerUseLibrary: @unchecked Sendable { // crash-allow: immutable 
         editApprovals = try symbol("cmux_cu_engine_edit_approvals", EditApprovalsFn.self)
         free = try symbol("cmux_cu_buffer_free", FreeFn.self)
         serve = try symbol("cmux_cu_serve", ServeFn.self)
+        serveStop = try symbol("cmux_cu_serve_stop", ServeStopFn.self)
     }
 
     /// A library buffer as a string, freed.
@@ -124,13 +129,31 @@ final class ComputerUseEngine: @unchecked Sendable { // crash-allow: the handle 
         }
     }
 
-    /// Serves the agent socket on `listener` until the engine stops (blocks; a dedicated thread).
-    func serve(listener: Int32, secret: String) -> String? {
+    /// Serves the agent socket at `socket` (the library's threads); the server stops with ``stopServing(_:)``.
+    func serve(socket: String, secret: String) throws -> ServerHandle {
         var error = CmuxCuBuffer(data: nil, len: 0)
-        let status = Array(secret.utf8).withUnsafeBufferPointer { library.serve(handle, listener, $0.baseAddress, $0.count, &error) }
-        let message = library.take(error)
-        return status == 0 ? nil : (message.isEmpty ? "cmux_cu_serve returned \(status)" : message)
+        let handle = Array(socket.utf8).withUnsafeBufferPointer { path in
+            Array(secret.utf8).withUnsafeBufferPointer { secret in
+                library.serve(self.handle, path.baseAddress, path.count, secret.baseAddress, secret.count, &error)
+            }
+        }
+        guard let handle else {
+            let message = library.take(error)
+            throw Failure(description: message.isEmpty ? "cmux_cu_serve failed" : message)
+        }
+        return ServerHandle(raw: handle)
     }
+
+    func stopServing(_ server: ServerHandle) {
+        library.serveStop(server.raw)
+    }
+
+    deinit { library.destroy(handle) }
+}
+
+/// A running agent socket server (`cmux_cu_serve`'s handle).
+struct ServerHandle: @unchecked Sendable { // crash-allow: an opaque handle the library owns; only passed back to cmux_cu_serve_stop
+    let raw: UnsafeMutableRawPointer
 }
 
 extension Data {

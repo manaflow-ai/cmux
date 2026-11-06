@@ -1,5 +1,4 @@
 import CmuxNextCompat
-public import CmuxNextComputerUse
 public import CmuxNextDaemon
 public import CmuxNextDaemonService
 public import CmuxNextDevices
@@ -12,13 +11,15 @@ private let remoteLogger = Logger(subsystem: "com.cmuxterm.app.next", category: 
 
 /// cmux Remote from the app (docs/cmux-remote.md): the daemon supervises the one signed host
 /// that holds Accessibility and Screen Recording; this app tells the daemon which features are
-/// on, opens Computer Use channels through the host, signs its own device hub requests with the
+/// on, sends the Computer Use policy (its worker serves agents itself, through the daemon), signs its own device hub requests with the
 /// Screen Sharing worker's device keys (this Mac is one device), reads hub pushes from the
 /// worker's one User DO socket, and anchors the worker's device-key renewal while signed in.
 @MainActor
 public final class CmuxRemoteService {
     /// This build embeds cmux Remote (``start(_:)`` ran).
     public private(set) var started = false
+    /// cmux Remote's Computer Use worker as the last host status said (Computer Use Setup follows it).
+    public let computerUse = CmuxRemoteComputerUseState()
     /// This app's local daemon connection when it serves `remote-host-v1`, else nil.
     private let connectionSource: @MainActor () -> DaemonConnection?
     /// The app socket's credentials, until the host restarts (a refusal asks again).
@@ -51,7 +52,10 @@ public final class CmuxRemoteService {
         self.init { [weak daemon] in daemon?.supports(DaemonCapability.remoteHost.rawValue) == true ? daemon?.connection : nil }
     }
 
-    func markStarted() { started = true }
+    func markStarted() {
+        started = true
+        computerUse.embedded = true
+    }
 
     // MARK: Daemon
 
@@ -86,7 +90,7 @@ public final class CmuxRemoteService {
         if lastConfig == nil {
             await apply(computerUse: config.computerUse, screenSharing: config.screenSharing, headless: config.headless)
         }
-        // Both switches off (Computer Use off or not Upstream, and signed out): the app's own helper and host serve.
+        // Both switches off (Computer Use off, and signed out): nothing runs in cmux Remote.
         return available && (config.computerUse || config.screenSharing)
     }
 
