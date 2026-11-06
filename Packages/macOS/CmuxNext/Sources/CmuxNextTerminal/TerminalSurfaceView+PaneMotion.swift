@@ -111,6 +111,28 @@ extension TerminalSurfaceView {
         isFollowingResizeGesture = active
         // The start ends a spring's hold the drag caught (a split or a press still landing): the surface follows the drag
         // from this frame. The end sends the grid that waits in the coalescer's window now, then any grid still held.
-        if active { endPaneMotion() } else { gridReports.flush(); if isHeldGridPending { updateSurfaceSize() } }
+        if active { endPaneMotion() } else {
+            resendShownGrid(atRest: true)
+            gridReports.flush()
+            if isHeldGridPending { updateSurfaceSize() }
+        }
+    }
+
+    /// A grid the PTY lacks was dropped with a hide (``cancelGridReport()``): shown, the view's grid goes once (nothing
+    /// when the PTY has it). `atRest`, now. In a key spring or a drag (the surface follows its pane), coalesced with that
+    /// motion's grids, so the window's end or the landing sends it. In a split's, close's or zoom's spring it waits for
+    /// the landing (``endPaneMotion()``), as the grid such a spring holds. Review of 5840aea3a603, P1 #2: a show inside a
+    /// key spring dropped it, the geometry already counted it as sent, and the PTY kept the older grid after the landing.
+    func resendShownGrid(atRest: Bool) {
+        guard resendsShownGrid, isShown else { return }
+        guard ownsGeometry, let grid = fittedGrid else {
+            resendsShownGrid = false
+            return
+        }
+        let live = isFollowingResizeGesture || ((superview as? TerminalHostView)?.surfaceFollowsArea ?? false)
+        guard atRest || live else { return }
+        resendsShownGrid = false
+        gridReports.coalesced(grid)
+        if atRest { gridReports.flush() }
     }
 }

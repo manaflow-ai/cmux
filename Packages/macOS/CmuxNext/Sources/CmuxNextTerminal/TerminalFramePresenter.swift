@@ -297,7 +297,10 @@ final class TerminalFramePresenter {
         if watch, requests[id] == nil { watched[id] = Watch(view: view) } else if !watch { commits[id] = Watch(view: view) }
         // Outside the lock span: what follows the new size and reads Ghostty under the terminal's lock.
         view.frameDidLand()
-        if followUp { view.requestWantedFrame() }
+        // A frame that landed late in a spring: the size drawn ahead for the next refresh goes after this pass
+        // (``applyAheads()``), not the size wanted now, whose frame could only show a refresh late, and so on for every
+        // later frame (review of 5840aea3a603, P1 #1). The next refresh's layout takes the size drawn ahead.
+        if followUp, !view.drawsAheadAfterLanding { view.requestWantedFrame() }
     }
 
     private static func isReady(_ state: ghostty_host_frame_e) -> Bool {

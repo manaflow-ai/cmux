@@ -125,6 +125,23 @@ extension TerminalSurfaceView {
         updateReflowPreview()
     }
 
+    /// A frame just landed short of the wanted size and its spring gave it the next refresh's size this turn: that size
+    /// goes to Ghostty after the pass (``applyAhead()``), and no request for the size wanted now goes before it. A request
+    /// now is drawn for a refresh whose layout already wants the next size, so the spring stayed a refresh behind from its
+    /// first late frame on (review of 5840aea3a603, P1 #1).
+    var drawsAheadAfterLanding: Bool {
+        guard let next = frameOwnership.pendingAhead, isShown, frameOwnership.inFlight == nil else { return false }
+        return next != bounds.size && next != frameOwnership.wanted?.size
+    }
+
+    /// Hidden or parked: nothing is drawn ahead (rule 3). Shown again, Ghostty gets the view's size back
+    /// (`updateSurfaceSize`), so the show's present (``requestPresentIfNeeded()``) never shows a frame drawn at the next
+    /// refresh's size in the view's bounds (review of 5840aea3a603, P2 #3); the next layout asks for its own size.
+    func dropAheadForHide() {
+        frameOwnership.ahead = nil
+        frameOwnership.pendingAhead = nil
+    }
+
     /// Its pane's hold ended and the final placement did not take the size drawn ahead (the spring ended elsewhere): Ghostty
     /// goes back to the view's size (``TerminalHostView`` `placeSurface`). Only then: while the hold runs, the next layout
     /// takes it, whenever its refresh comes.

@@ -83,6 +83,7 @@ public final class TerminalSurfaceView: NSView {
         geometry.motionLanded()
         (superview as? TerminalHostView)?.releaseSurfaceHold()
         if isHeldGridPending { updateSurfaceSize() }
+        resendShownGrid(atRest: true)
         // A key resize's last grid goes at its landing, not up to 25 ms later.
         gridReports.flush()
     }
@@ -279,6 +280,7 @@ public final class TerminalSurfaceView: NSView {
         super.viewDidHide()
         isShown = false
         cancelGridReport()
+        dropAheadForHide()
         // A hidden terminal gets no mouseExited: its link hover and modifier watcher end here.
         linkPointer.exited()
         observeWindow(false)
@@ -299,6 +301,7 @@ public final class TerminalSurfaceView: NSView {
         if !shown {
             linkPointer.exited()
             cancelGridReport()
+            dropAheadForHide()
         }
         // Out of its window, no drag's end may reach it (its layout root can go before it): it stops following, so
         // its next shown size reports as any other, never held for a drag that is gone.
@@ -310,14 +313,8 @@ public final class TerminalSurfaceView: NSView {
             let joined = isInPaneMotion && joinPaneMotion()
             updateSurfaceSize(forceReport: pendingForcedReport && !joined)
             pendingForcedReport = false
-            if resendsShownGrid {
-                resendsShownGrid = false
-                // The grid the view fits now, at rest: once, unless the PTY has it (a report just now, or the same grid).
-                if ownsGeometry, !joined, !isInPaneMotion, !isFollowingResizeGesture, let grid = fittedGrid {
-                    gridReports.coalescer.viewSized(grid)
-                    gridReports.flush()
-                }
-            }
+            // A join sent the grid its spring rests at; else a grid a hide dropped goes (``resendShownGrid(atRest:)``).
+            if joined { resendsShownGrid = false } else { resendShownGrid(atRest: !isInPaneMotion && !isFollowingResizeGesture) }
             requestPresentIfNeeded()
         }
         updateOcclusion()
