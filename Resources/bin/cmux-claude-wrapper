@@ -2396,7 +2396,8 @@ if [[ "$cmux_claude_teams_wrapper_launch" != "1" ]]; then
                 cmux_user_settings_trimmed="${cmux_user_settings_trimmed#"${cmux_user_settings_trimmed%%[![:space:]]*}"}"
             done
             if [[ "$cmux_user_settings_trimmed" == \{* || "$cmux_user_settings_trimmed" == \[* ]]; then
-                if cmux_user_settings_durable="$(cmux_claude_wrapper_create_durable_settings_file "$cmux_user_settings_value")"; then
+                # The loader parses a settings path without trim(), so save the JSON without its BOMs.
+                if cmux_user_settings_durable="$(cmux_claude_wrapper_create_durable_settings_file "$cmux_user_settings_trimmed")"; then
                     cmux_user_settings_value="$cmux_user_settings_durable"
                 fi
             elif [[ "$cmux_user_settings_trimmed" != /* && "$cmux_user_settings_trimmed" != "~/"* ]]; then
