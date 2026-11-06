@@ -83,6 +83,22 @@ import Testing
         #expect(record.closes == 1, "a second close reports nothing")
     }
 
+    /// Review of #37299 (F1): a name changed elsewhere while the field is untouched is not written back on close.
+    @Test func anUntouchedFieldLeavesANameChangedElsewhere() throws {
+        let service = GroupEditorService()
+        let record = Record()
+        let parent = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 600, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
+        parent.isReleasedWhenClosed = false
+        defer { parent.closeAfterTest() }
+        service.present(Self.group, items: Self.items, anchor: PopupAnchor(rect: CGRect(x: 240, y: 650, width: 100, height: 30), edge: .leading),
+                        parent: parent, themeAnchor: parent.contentView ?? NSView(), ordersFront: false, events: Self.events(record))
+        var renamed = Self.group
+        renamed.name = "Office"
+        service.refresh(renamed)
+        service.dismiss()
+        #expect(record.renames.isEmpty, "closing an untouched editor renamed the group back")
+    }
+
     @Test func theCardShowsInOneStepOnceThePageHasPainted() async throws {
         try #require(await GUIAnimationTestSupport.animatesHere(), "requires an awake fleet display; a skip is not regression evidence")
         let service = GroupEditorService()
