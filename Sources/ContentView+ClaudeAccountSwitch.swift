@@ -53,37 +53,46 @@ extension ContentView {
 
     /// Registers a handler for each command
     /// ``claudeAccountSwitchCommandContributions(targetNames:subtitle:)`` makes from the same
-    /// `targetNames`. Each runs the same ``ClaudeAccountSwitchUserFlow`` as the terminal menu.
+    /// `targetNames`. Each runs the same ``ClaudeAccountSwitchUserFlow`` as the terminal menu, on
+    /// the pane focused now, in the same palette build that read `targetNames` from it.
     func registerClaudeAccountSwitchHandlers(
         _ registry: inout CommandPaletteHandlerRegistry,
         targetNames: [String]
     ) {
-        Self.registerClaudeAccountSwitchHandlers(&registry, targetNames: targetNames) { accountName in
-            guard let context = focusedPanelContext,
-                  context.panel.panelType == .terminal else {
-                NSSound.beep()
-                return
-            }
+        var pane: (workspace: Workspace, panelId: UUID)?
+        if let context = focusedPanelContext, context.panel.panelType == .terminal {
+            pane = (context.workspace, context.panelId)
+        }
+        Self.registerClaudeAccountSwitchHandlers(&registry, targetNames: targetNames, pane: pane) { workspace, panelId, accountName in
             Task { @MainActor in
                 await ClaudeAccountSwitchUserFlow().run(
-                    workspace: context.workspace,
-                    panelId: context.panelId,
+                    workspace: workspace,
+                    panelId: panelId,
                     accountName: accountName
                 )
             }
         }
     }
 
-    /// Registers, for each name in `targetNames`, a handler under its switch command id that
-    /// calls `run` with that name.
+    /// Registers, for each name in `targetNames`, a handler under its switch command id that calls
+    /// `run` with `pane` and that name. `pane` is the terminal the names were read from: a handler
+    /// that runs after focus moved still switches it, and beeps instead once its workspace no
+    /// longer has it as a terminal.
     static func registerClaudeAccountSwitchHandlers(
         _ registry: inout CommandPaletteHandlerRegistry,
         targetNames: [String],
-        run: @escaping (_ accountName: String) -> Void
+        pane: (workspace: Workspace, panelId: UUID)?,
+        run: @escaping (_ workspace: Workspace, _ panelId: UUID, _ accountName: String) -> Void
     ) {
+        let workspace = pane?.workspace
+        let panelId = pane?.panelId
         for accountName in targetNames {
-            registry.register(commandId: claudeAccountSwitchCommandId(accountName: accountName)) {
-                run(accountName)
+            registry.register(commandId: claudeAccountSwitchCommandId(accountName: accountName)) { [weak workspace] in
+                guard let workspace, let panelId, workspace.terminalPanel(for: panelId) != nil else {
+                    NSSound.beep()
+                    return
+                }
+                run(workspace, panelId, accountName)
             }
         }
     }
