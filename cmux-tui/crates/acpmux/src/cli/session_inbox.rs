@@ -68,6 +68,9 @@ const SENT_SHOWN: u64 = 10;
 pub fn describe(reply: &Value) -> String {
     let s = |v: &Value| v.as_str().unwrap_or_default().to_owned();
     let sender_name = |name: &str, sender: Option<&Value>| {
+        if name.contains(" (self-declared, unauthenticated)") || name.contains(" (label: ") {
+            return name.to_owned();
+        }
         let Some(sender) = sender else { return name.to_owned() };
         let label = sender.get("label").and_then(Value::as_str);
         let declared = sender.get("labelDeclared").and_then(Value::as_bool) == Some(true);

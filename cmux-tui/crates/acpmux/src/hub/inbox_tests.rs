@@ -49,6 +49,7 @@ fn a_thread_is_the_senders_pr_or_topic_else_the_pr_its_first_line_names_else_the
 fn a_self_declared_label_has_a_distinct_thread_key_and_display() {
     let provenance = crate::prompt_provenance::named_sender("dot", "target");
     assert_eq!(thread_sender(Some(&provenance), "dot"), "declared:dot");
+    assert_eq!(thread_key(None, "declared:dot", "hello"), "declared:dot");
     let sender = crate::prompt_provenance::sender_record(Some(&provenance), None, None);
     assert_eq!(display_sender(&sender, "dot"), "dot (self-declared, unauthenticated)");
     assert_eq!(label("declared:dot"), "dot (self-declared, unauthenticated)");
@@ -57,6 +58,10 @@ fn a_self_declared_label_has_a_distinct_thread_key_and_display() {
         legacy_thread_key(Some(&provenance), "dot", "from:dot/pr:7".into()),
         "declared:dot/pr:7"
     );
+    let mut old = item("old", "declared:dot", "dot", PromptClass::Result, 1, "hello");
+    assert!(thread_matches(&old, "from:dot"));
+    old.thread = "from:other".into();
+    assert!(!thread_matches(&old, "from:dot"));
     let authenticated = crate::prompt_provenance::stamp_declared(
         crate::prompt_provenance::stamp_sender(
             crate::prompt_provenance::session_message("dot", "dot", "target"),

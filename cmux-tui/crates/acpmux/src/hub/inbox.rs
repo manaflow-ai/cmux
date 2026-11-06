@@ -415,9 +415,11 @@ pub(crate) fn thread_key(explicit: Option<&str>, sender: &str, text: &str) -> St
     if let Some(key) = explicit.filter(|k| !k.is_empty()) {
         return key.to_owned();
     }
+    let prefix =
+        if sender.starts_with("declared:") { sender.to_owned() } else { format!("from:{sender}") };
     match first_pr(text.lines().next().unwrap_or_default()) {
-        Some(n) => format!("from:{sender}/pr:{n}"),
-        None => format!("from:{sender}"),
+        Some(n) => format!("{prefix}/pr:{n}"),
+        None => prefix,
     }
 }
 
@@ -544,6 +546,16 @@ fn legacy_thread_key(provenance: Option<&Value>, from: &str, thread: String) -> 
     let Some(suffix) = thread.strip_prefix(&prefix) else { return thread };
     let declared = thread_sender(provenance, from);
     declared.strip_prefix("declared:").map(|_| format!("{declared}{suffix}")).unwrap_or(thread)
+}
+
+/// A client may retain the old `from:<label>` key after a declared-only thread was re-keyed in
+/// memory. Keep that handle readable without merging it with an authenticated session thread.
+fn thread_matches(item: &Item, requested: &str) -> bool {
+    item.thread == requested
+        || item
+            .thread
+            .strip_prefix("declared:")
+            .is_some_and(|rest| requested == format!("from:{rest}"))
 }
 
 /// Whether a message reports work this chat gave: a lane's report (`lane_reports.rs`) or a task's
@@ -854,17 +866,21 @@ impl Hub {
         class: PromptClass,
         explicit: Option<&str>,
         provenance: Option<&Value>,
+        human_authenticated: bool,
         accept: &mut impl FnMut(Value),
     ) -> Result<Value, RpcError> {
         let text = prompt_text(blocks);
         let sender_session = sender_session(provenance);
-        let sender_meta = sender_session
+        let stamped_session =
+            provenance.and_then(|p| crate::prompt_provenance::sender_of(Some(p)).0);
+        let sender_meta = stamped_session
             .as_deref()
             .and_then(|id| self.resolve(id).ok().map(|session| session.meta()));
-        let sender_identity = crate::prompt_provenance::sender_record(
+        let sender_identity = crate::prompt_provenance::sender_record_with_auth(
             provenance,
             sender_session.as_deref(),
             sender_meta.as_ref(),
+            human_authenticated,
         );
         let thread = thread_key(explicit, &thread_sender(provenance, sender), &text);
         let (tx, mut rx) = tokio::sync::watch::channel(None);
@@ -1761,11 +1777,17 @@ impl Hub {
 
     /// `_acpmux/inbox_thread`: a thread's messages, newest first; `mark_read` marks them read.
     pub fn inbox_thread(&self, session: &Session, thread: &str, mark_read: bool) -> Value {
-        let (messages, marked) = {
+        let (messages, marked, label_key) = {
             let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
             let mut marked = Vec::new();
             let mut messages = Vec::new();
-            for item in inbox.items.iter_mut().rev().filter(|i| i.thread == thread) {
+            let label_key = inbox
+                .items
+                .iter()
+                .find(|item| thread_matches(item, thread))
+                .map(|item| item.thread.clone())
+                .unwrap_or_else(|| thread.to_owned());
+            for item in inbox.items.iter_mut().rev().filter(|i| thread_matches(i, thread)) {
                 messages.push(json!({
                     "promptId": item.prompt_id, "from": display_sender(&item.sender, &item.from), "fromSession": item.from_session,
                     "sender": item.sender,
@@ -1778,13 +1800,13 @@ impl Hub {
                     marked.push(item.prompt_id.clone());
                 }
             }
-            (messages, marked)
+            (messages, marked, label_key)
         };
         if !marked.is_empty() {
             let msg = json!({"threadId": thread, "promptIds": marked});
             self.append(session, "mux", "inbox_read", msg);
         }
-        json!({"sessionId": session.id, "threadId": thread, "label": label(thread), "messages": messages})
+        json!({"sessionId": session.id, "threadId": thread, "label": label(&label_key), "messages": messages})
     }
 
     /// `_acpmux/inbox_reply`: `text` from this chat's agent to the thread's newest sender here,
@@ -1797,7 +1819,7 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         let to = {
             let inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
-            let newest = inbox.items.iter().rev().filter(|i| i.thread == thread);
+            let newest = inbox.items.iter().rev().filter(|i| thread_matches(i, thread));
             newest.filter_map(|i| i.from_session.clone()).next()
         };
         let Some(to) = to else {

@@ -29,21 +29,24 @@ pub(super) fn embed_message_context(
     message: Option<&MessageContext>,
     receiver: &str,
 ) {
+    let forwarder =
+        opts.provenance.as_ref().and_then(|p| crate::prompt_provenance::sender_of(Some(p)).0);
     let Some(provenance) = opts.provenance.as_mut() else { return };
     let Some(object) = provenance.as_object_mut() else { return };
     object.remove(MESSAGE_META);
     let Some(message) = message else { return };
-    object.insert(
-        MESSAGE_META.to_owned(),
-        json!({
-            "sender": message.sender.clone(),
-            "text": message.text.clone(),
-            "messageId": message.message_id.clone(),
-            "recordSenderCopy": message.record_sender_copy,
-            "at": message.at,
-            "receiverId": receiver,
-        }),
-    );
+    let mut context = json!({
+        "sender": message.sender.clone(),
+        "text": message.text.clone(),
+        "messageId": message.message_id.clone(),
+        "recordSenderCopy": message.record_sender_copy,
+        "at": message.at,
+        "receiverId": receiver,
+    });
+    if let Some(forwarder) = forwarder.filter(|id| id != &message.sender_session) {
+        context.set("forwardedBy", json!({"session": forwarder}));
+    }
+    object.insert(MESSAGE_META.to_owned(), context);
 }
 
 fn resolve_exact(hub: &Hub, id: &str) -> Option<Arc<Session>> {

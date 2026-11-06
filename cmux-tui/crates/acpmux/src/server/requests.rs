@@ -1782,6 +1782,8 @@ async fn dispatch_request_with_identity(
                 steer_now: steer && flag("steerNow") == Some(true),
                 interrupt_turn: None,
                 provenance,
+                human_authenticated: conn.is_person()
+                    || (conn.origin == super::Origin::Peer && person_message),
                 agent,
                 class,
                 after_turn: None,

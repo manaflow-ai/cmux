@@ -743,11 +743,22 @@ pub fn sender_record(
     legacy_session: Option<&str>,
     meta: Option<&crate::store::SessionMeta>,
 ) -> Value {
+    sender_record_with_auth(provenance, legacy_session, meta, false)
+}
+
+/// Sender projection with the connection proof for a human author. Agent provenance remains
+/// authenticated only through the daemon-stamped session fields; a `kind` label alone is not
+/// proof of a person.
+pub fn sender_record_with_auth(
+    provenance: Option<&Value>,
+    legacy_session: Option<&str>,
+    meta: Option<&crate::store::SessionMeta>,
+    human_authenticated: bool,
+) -> Value {
     let empty = Value::Null;
     let provenance = provenance.unwrap_or(&empty);
     let (stamped_session, harness) = sender_of(Some(provenance));
-    let kind = provenance.get("kind").and_then(Value::as_str);
-    let authenticated = stamped_session.is_some() || kind == Some(crate::author::PERSON_MESSAGE);
+    let authenticated = stamped_session.is_some() || human_authenticated;
     let session = stamped_session.clone().or_else(|| legacy_session.map(str::to_owned));
     let label = declared_label(Some(provenance));
     let verification = if authenticated {
@@ -759,7 +770,7 @@ pub fn sender_record(
     };
     let family = harness.clone().or_else(|| meta.map(crate::web_modes::family_of));
     let has_parent = meta.is_some_and(|m| m.lineage.is_some() || m.subsession.is_some());
-    let actor_kind = if kind == Some(crate::author::PERSON_MESSAGE) {
+    let actor_kind = if human_authenticated {
         "authenticated_human"
     } else if authenticated && !has_parent {
         "root_assistant"
@@ -778,7 +789,7 @@ pub fn sender_record(
                 .map_or_else(|| id.clone(), |peer| format!("{peer}:{id}"))
         })
         .or_else(|| {
-            (kind == Some(crate::author::PERSON_MESSAGE))
+            human_authenticated
                 .then(|| provenance.get("from").and_then(Value::as_str).map(str::to_owned))
                 .flatten()
         });
@@ -796,21 +807,23 @@ pub fn sender_record(
         .or_else(|| provenance.get("originalAuthor"))
         .or_else(|| provenance.pointer("/_acpmuxMessage/sender"))
         .cloned();
-    let forwarded_by =
-        provenance.get("forwardedBy").or_else(|| provenance.get("forwarder")).cloned().or_else(
-            || {
-                author.as_ref().and_then(|author| {
-                    let author_session = author
-                        .get("sessionId")
-                        .or_else(|| author.get("session"))
-                        .and_then(Value::as_str)
-                        .or_else(|| author.as_str());
-                    (authenticated
-                        && author_session.is_some_and(|id| Some(id) != stamped_session.as_deref()))
-                    .then(|| json!({"session": stamped_session}))
-                })
-            },
-        );
+    let forwarded_by = provenance
+        .get("forwardedBy")
+        .or_else(|| provenance.get("forwarder"))
+        .or_else(|| provenance.pointer("/_acpmuxMessage/forwardedBy"))
+        .cloned()
+        .or_else(|| {
+            author.as_ref().and_then(|author| {
+                let author_session = author
+                    .get("sessionId")
+                    .or_else(|| author.get("session"))
+                    .and_then(Value::as_str)
+                    .or_else(|| author.as_str());
+                (authenticated
+                    && author_session.is_some_and(|id| Some(id) != stamped_session.as_deref()))
+                .then(|| json!({"session": stamped_session}))
+            })
+        });
 
     json!({
         "session": session,
@@ -937,13 +950,31 @@ mod sender_tests {
         assert_eq!(record["labelDeclared"], true);
         assert_eq!(record["verification"], "declared");
 
-        let authenticated = stamp_declared(session_message("s-1", "worker", "target"), Some("dot"));
+        let authenticated = stamp_declared(
+            stamp_sender(
+                session_message("s-1", "worker", "target"),
+                Some(&BoundSender {
+                    session_id: Some("s-1".into()),
+                    harness: Some("codex".into()),
+                }),
+            ),
+            Some("dot"),
+        );
         let record = sender_record(Some(&authenticated), None, None);
         assert_eq!(record["session"], "s-1");
         assert_eq!(record["authenticated"], true);
         assert_eq!(record["label"], "dot");
         assert_eq!(record["verification"], "verified");
         assert_eq!(declared_label(Some(&authenticated)).as_deref(), Some("dot"));
+
+        let person =
+            json!({"kind": crate::author::PERSON_MESSAGE, "from": "user-1", "fromName": "Ana"});
+        let unproven = sender_record(Some(&person), None, None);
+        assert_eq!(unproven["authenticated"], false);
+        assert_eq!(unproven["actorId"], Value::Null);
+        let proven = sender_record_with_auth(Some(&person), None, None, true);
+        assert_eq!(proven["actorKind"], "authenticated_human");
+        assert_eq!(proven["actorId"], "user-1");
     }
 
     #[test]
@@ -951,7 +982,8 @@ mod sender_tests {
         let provenance = json!({
             "kind": "agent_message", "from": "fromAgent", "fromName": "worker",
             "fromSessionId": "forwarder", "fromHarness": "codex",
-            "_acpmuxMessage": {"sender": {"sessionId": "author", "name": "original"}},
+            "_acpmuxMessage": {"sender": {"sessionId": "author", "name": "original"},
+                "forwardedBy": {"session": "forwarder"}},
         });
         let record = sender_record(Some(&provenance), None, None);
         assert_eq!(record["author"]["sessionId"], "author");
@@ -976,6 +1008,27 @@ mod sender_tests {
         let record = sender_record(Some(&provenance), None, Some(&meta));
         assert_eq!(record["actorKind"], "codex_worker");
         assert_eq!(record["actorId"], "worker");
+        assert_eq!(record["parent"], "root");
+        assert_eq!(record["delegator"], "root");
+    }
+
+    #[test]
+    fn sender_actor_metadata_uses_the_stamped_session_not_provenance_from() {
+        let meta: crate::store::SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "worker", "name": "worker",
+            "harness": "codex", "cwd": "/tmp", "status": "idle",
+            "createdAt": 1, "updatedAt": 1,
+            "lineage": {"parent": "root", "root": "root", "depth": 1},
+            "delegator": "root"
+        }))
+        .expect("session metadata");
+        let provenance = stamp_sender(
+            json!({"kind": "session_message", "from": "acp:root", "fromName": "root", "to": "receiver"}),
+            Some(&BoundSender { session_id: Some("worker".into()), harness: Some("codex".into()) }),
+        );
+        let record = sender_record_with_auth(Some(&provenance), Some("root"), Some(&meta), false);
+        assert_eq!(record["actorId"], "worker");
+        assert_eq!(record["actorKind"], "codex_worker");
         assert_eq!(record["parent"], "root");
         assert_eq!(record["delegator"], "root");
     }

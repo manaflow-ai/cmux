@@ -453,6 +453,7 @@ impl Hub {
                     class,
                     opts.thread.as_deref(),
                     opts.provenance.as_ref(),
+                    opts.human_authenticated,
                     &mut accept,
                 ))
                 .await;
