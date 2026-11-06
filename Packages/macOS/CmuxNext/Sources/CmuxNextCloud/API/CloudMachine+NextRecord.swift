@@ -39,7 +39,11 @@ extension CloudMachine {
                   pauseReason: Self.nextPauseReason(value["pause_reason"] ?? value["pauseReason"]), idlePauseMinutes: minutes,
                   idlePause: idlePause, lastChangeFailure: Self.changeFailure(value["error"]))
         serverRevision = value["revision"]?.stringValue
+        // The machine serves `desktop` (cloud-machine-ops.ts CloudMachine.desktop); absent from an older server.
+        servesDesktop = value["desktop"]?.boolValue ?? false
         createdBy = value["creator"]?.stringValue
+        // The contract's `created_at` (epoch ms); the classic decoder's `createdAt` is never in this record.
+        createdAt = value["created_at"]?.doubleValue.map { Date(timeIntervalSince1970: $0 / 1000) }
     }
 
     /// The backend's `pause_reason` (`pauseReason` from an older app server): why cmux paused the

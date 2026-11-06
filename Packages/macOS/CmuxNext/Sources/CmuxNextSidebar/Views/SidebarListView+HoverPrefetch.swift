@@ -7,9 +7,11 @@ import AppKit
 /// times or counts. O(1) per hovered row: the row's workspace comes from `workspaces`.
 extension SidebarListView {
     func forwardHover(_ key: SidebarRowKey?) {
+        var workspace: WorkspaceID?
+        if case let .workspace(id)? = key { workspace = id }
+        onHoverWorkspace?(workspace)
         guard let onHoverTab else { return }
-        var tab: TabID?
-        if case let .workspace(id)? = key { tab = workspaces[id]?.focusedTab }
+        let tab = workspace.flatMap { workspaces[$0]?.focusedTab }
         hoverTabSent = tab
         onHoverTab(tab)
     }
@@ -32,6 +34,12 @@ extension SidebarListView {
 }
 
 extension SidebarViewComponents {
+    /// The workspace of the row under the pointer (``SidebarListView/onHoverWorkspace``).
+    public var onHoverWorkspace: ((WorkspaceID?) -> Void)? {
+        get { list.onHoverWorkspace }
+        set { list.onHoverWorkspace = newValue }
+    }
+
     /// The tab of the row the person is likely to open next (``SidebarListView/onHoverTab``).
     public var onHoverTab: ((TabID?) -> Void)? {
         get { list.onHoverTab }

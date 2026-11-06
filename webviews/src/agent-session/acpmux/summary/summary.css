@@ -144,22 +144,6 @@
    container's first/last-child margin resets across that extra box. */
 .cv-md>.cv-block-tail:first-child>div:first-child>:first-child{margin-top:0}
 .cv-md>.cv-block-tail:last-child>div:first-child>:last-child{margin-bottom:0}
-/* The recap card above the composer (RecapCard.tsx): when the last turn ended on a question, the answer's last paragraph muted and clamped to three lines, the question, then Yes (accent) and Not now (quiet), × at the top right. On the composer card's two edges, as the running tray is (bottomStack.css --acpmux-stack-outset), and its corner. */
-.acpmux-recap{padding:0 0 var(--ds-space-2);padding-inline:calc(var(--cv-inset) - var(--acpmux-stack-outset,0px)) calc(var(--cv-inset-end,var(--cv-inset)) - var(--acpmux-stack-outset,0px));font-size:var(--text-control);line-height:var(--text-control--line-height);letter-spacing:var(--text-control--letter-spacing)}
-.acpmux-quick .acpmux-recap{padding:var(--ds-space-2) var(--ds-space-2) 0}
-.acpmux-recap__card{position:relative;padding:var(--ds-space-3) calc(var(--ds-space-6) + var(--ds-space-1)) var(--ds-space-3) var(--ds-space-3);border:var(--cmux-hairline, .5px) solid var(--agent-border);border-radius:var(--acpmux-composer-radius,11px);background:var(--acpmux-composer-tray);color:var(--agent-text)}
-.acpmux-recap__summary{margin:0 0 var(--ds-space-2);color:var(--agent-muted);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden;overflow-wrap:anywhere}
-.acpmux-recap__question{margin:0;overflow-wrap:anywhere}
-.acpmux-recap__actions{display:flex;flex-wrap:wrap;gap:var(--ds-space-2);margin-top:var(--ds-space-2)}
-.acpmux-recap__button{display:inline-flex;align-items:center;height:26px;padding:0 var(--ds-space-2);border:0;border-radius:var(--ds-radius-control);font:inherit;font-size:var(--text-control);white-space:nowrap;letter-spacing:var(--text-control--letter-spacing)}
-.acpmux-recap__yes{background:var(--agent-accent);color:var(--agent-accent-text,#fff)}
-.acpmux-recap__yes:hover{background:color-mix(in srgb,var(--agent-accent) 88%,var(--agent-text))}
-.acpmux-recap__yes .acpmux-keycap{margin:0 0 0 var(--ds-space-2)}
-.acpmux-recap__later{background:none;color:var(--agent-muted)}
-.acpmux-recap__later:hover{background:var(--acpmux-composer-hover);color:var(--agent-text)}
-.acpmux-recap__button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
-.acpmux-recap__dismiss{position:absolute;top:var(--ds-space-2);right:var(--ds-space-2)}
-.acpmux-recap__error{margin:var(--ds-space-2) 0 0;color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height);letter-spacing:var(--text-detail--letter-spacing)}
 /* The summary card's Background tasks (SummaryTasks.tsx): every command is a compact card so its
    description and state stay visible; long lists use the View all row instead of hiding completed
    work behind an aggregate count. */

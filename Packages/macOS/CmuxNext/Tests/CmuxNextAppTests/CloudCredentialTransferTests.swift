@@ -57,6 +57,17 @@ struct CloudCredentialTransferTests {
 
     /// A Release copy whose switch went off, or whose consent was taken back, during the confirm or
     /// the sign-in: the last check before the write stops it, and nothing reaches the machine.
+    /// A Keychain that does not answer is not "no cached login": the start's record must tell them apart.
+    @Test func anUnreadableCacheIsNotAMissingOne() async {
+        #expect(await CloudCredentialTransfer.cachedLogin { Self.token } == .cached)
+        #expect(await CloudCredentialTransfer.cachedLogin { nil } == .none)
+        #expect(await CloudCredentialTransfer.cachedLogin { throw CloudCredentialTransfer.Failure.storeFailed } == .unreadable)
+        #expect(await CloudCredentialTransfer.cachedLogin(provider: .codex, teamID: "team", userID: "user") == .none)
+        // The start records which one it was.
+        #expect(CloudCredentialTransfer.CachedLogin.cached.startOutcome == nil)
+        #expect(CloudCredentialTransfer.CachedLogin.unreadable.startOutcome != CloudCredentialTransfer.CachedLogin.none.startOutcome)
+    }
+
     @Test func aCopyTurnedOffBeforeTheWriteWritesNothing() async {
         let r = Recorder()
         r.cached = Self.token

@@ -49,6 +49,10 @@ pub trait Http {
     fn get(&self, _url: &str, _bearer: Option<&str>) -> Result<(u16, Value), String> {
         Err("GET is not supported by this transport".to_owned())
     }
+
+    /// Drops any pooled connection, so the next request dials a fresh one (after a pause, a pooled connection is
+    /// dead and nothing says so). A transport with no pool does nothing.
+    fn reset(&self) {}
 }
 
 #[derive(Deserialize)]
@@ -315,6 +319,11 @@ impl<H: Http> CloudClient<H> {
 
     pub fn bound(&self) -> &Bound {
         &self.bound
+    }
+
+    /// The next request (a bearer mint included) goes on a fresh connection: see [`Http::reset`].
+    pub fn reset_transport(&self) {
+        self.http.reset();
     }
 
     pub(super) fn url(&self, path: &str) -> String {
