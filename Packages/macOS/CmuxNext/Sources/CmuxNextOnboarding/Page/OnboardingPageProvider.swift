@@ -45,7 +45,8 @@ final class OnboardingPageProvider: PageProvider {
         case "cmux.onboarding.import.toggleKeepInSync": importer.toggleKeepInSync()
         case "cmux.onboarding.import.setTarget": importer.setTarget(params["target"]?.stringValue, for: try profile(params))
         case "cmux.onboarding.import.askAccess":
-            guard let browser = ImportBrowser(rawValue: try Self.string(params, "browser")) else {
+            let raw = try Self.string(params, "browser")
+            guard let browser = importer.awaitingAccess.first(where: { $0.rawValue == raw }) else {
                 throw PageError.invalidParams("unknown browser")
             }
             importer.askAccess(browser)

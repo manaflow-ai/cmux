@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextBrowserImport
 import CmuxNextCompat
 import CmuxNextIcons
 import Observation
