@@ -65,6 +65,10 @@ final class PaneHostView: NSView, RestingPlacement {
         self.holdsContentInMotion = holdsContentInMotion
     }
 
+    /// Whether the provider holds this pane's content at its rest size while a spring moves it (an agent chat): a pane
+    /// opening on its right slides in (``PaneArrival/slidingIn(target:clipMaxX:)``).
+    var holdsContentWhileMoving: Bool { holdsContentInMotion() }
+
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
