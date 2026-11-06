@@ -106,6 +106,14 @@ def wait_log(pattern, since, seconds):
     return None
 
 
+def ids_in(value, prefix):
+    """Every string id in a socket answer that starts with `prefix`."""
+    if isinstance(value, str):
+        return {value} if value.startswith(prefix) else set()
+    items = value.values() if isinstance(value, dict) else value if isinstance(value, list) else []
+    return set().union(*(ids_in(item, prefix) for item in items)) if items else set()
+
+
 def seed(path, out):
     """Two terminals in a second workspace (NEXT's newSurface action), each running a long command
     and with its shell's pid in a file: a terminal kept across a restart is the same shell, so the
@@ -114,18 +122,24 @@ def seed(path, out):
     # and its red and blue are what the snapshots count.
     home = rpc_at(path, "snapshot.get", timeout=10) or {}
     first = next((w.get("id") for w in (home.get("topology") or {}).get("workspaces") or [] if w.get("id")), None)
+    had = ids_in(home, "tab_")
     created = rpc_at(path, "action.run", {"action": "workspace.newAtBottom"}, timeout=30) or {}
+    print(f"live-mode-swift: seed: workspace.newAtBottom answered {json.dumps(created)[:400]}", flush=True)
     workspace = next((str(i) for i in created.get("created") or [] if str(i).startswith("ws_")), None)
     if workspace:
         rpc_at(path, "action.run", {"action": "goToWorkspace", "args": {"workspace": workspace}}, timeout=30)
     tabs = [str(i) for i in created.get("created") or [] if str(i).startswith("tab_")]
-    while len(tabs) < 2:
-        made = rpc_at(path, "action.run", {"action": "newSurface"}, timeout=30) or {}
-        new_tabs = [str(i) for i in made.get("created") or [] if str(i).startswith("tab_")]
-        if not new_tabs:
+    for _ in range(4):
+        if len(tabs) >= 2:
             break
-        tabs += new_tabs
+        made = rpc_at(path, "action.run", {"action": "newSurface"}, timeout=30) or {}
+        print(f"live-mode-swift: seed: newSurface answered {json.dumps(made)[:400]}", flush=True)
+        tabs += [str(i) for i in made.get("created") or [] if str(i).startswith("tab_") and str(i) not in tabs]
     time.sleep(3)
+    # An answer without the ids it made: the tabs the snapshot has now and had not before.
+    if len(tabs) < 2:
+        tabs += [t for t in sorted(ids_in(rpc_at(path, "snapshot.get", timeout=10) or {}, "tab_") - had) if t not in tabs]
+    print(f"live-mode-swift: seed: tabs {tabs}", flush=True)
     files = []
     for n, tab in enumerate(tabs):
         pid_file = os.path.join(out, f"shell-{n}.pid")
