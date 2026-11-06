@@ -454,12 +454,10 @@
 .acpmux-project-button>span:not(.acpmux-project-badge){min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-project-button:hover,.acpmux-project-button[aria-expanded="true"]{color:var(--agent-text);background:none}
 .acpmux-project-button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}@media (prefers-reduced-motion:no-preference){.acpmux-project-button{transition:background-color var(--agent-motion-hover) var(--agent-ease-out)}}.acpmux-project-button:active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}
-/* As wide as its fullest row (design/menus.md menu-fit), from the location menus' 200 px floor to 300 px. */
-.ui-popup.acpmux-project-menu{position:relative;inset:auto;width:max-content;min-width:200px;max-width:min(300px,calc(100vw - 32px));max-height:none;overflow:visible;font-size:13px;--acpmux-project-menu-edge:4px}
+/* As wide as its fullest row (design/menus.md menu-fit), from the folder menus' 184 px floor to 300 px. */
+.ui-popup.acpmux-project-menu{position:relative;inset:auto;width:max-content;min-width:184px;max-width:min(300px,calc(100vw - 32px));max-height:none;overflow:visible;font-size:13px;--acpmux-project-menu-edge:4px}
 .acpmux-project-menu .acpmux-menu-item{padding-inline:var(--acpmux-project-menu-edge)}
 .acpmux-project-menu .acpmux-project-search{padding-inline:var(--acpmux-project-menu-edge)}
-/* The search field takes the rows' width; its own default size never widens the menu. */
-.acpmux-project-menu .acpmux-project-search-field{contain:inline-size}
 .acpmux-project-menu .acpmux-project-browse{padding-inline:var(--acpmux-project-menu-edge)}
 .acpmux-project-menu .acpmux-icon{flex:none;color:var(--agent-muted)}
 /* Every badge sits on the same quiet neutral tile, so a dark or a white icon reads in either theme
@@ -478,7 +476,8 @@
 .acpmux-project-search input{flex:1;min-width:0;height:100%;padding:0;border:0;background:none;color:var(--agent-text);font:inherit;outline:none}
 .acpmux-project-search input::placeholder{color:var(--acpmux-composer-dim)}
 /* The shared Combobox has the same project field as the old inline chooser, without a wrapper. */
-.acpmux-project-menu .acpmux-project-search-field{display:block;box-sizing:border-box;appearance:none;width:100%;min-width:0;height:32px;margin:0 0 4px;padding:0 var(--acpmux-project-menu-edge);border:0;border-bottom:.5px solid var(--acpmux-composer-edge);border-radius:0;background:none;color:var(--agent-text);font:inherit;outline:none}
+/* The rows set the menu's width; the field's default size (about 210 px) never does. */
+.acpmux-project-menu .acpmux-project-search-field{display:block;box-sizing:border-box;appearance:none;width:0;min-width:100%;height:32px;margin:0 0 4px;padding:0 var(--acpmux-project-menu-edge);border:0;border-bottom:.5px solid var(--acpmux-composer-edge);border-radius:0;background:none;color:var(--agent-text);font:inherit;outline:none}
 .acpmux-project-menu .acpmux-project-search-field::placeholder{color:var(--acpmux-composer-dim)}
 .acpmux-project-empty{padding:6px 8px;color:var(--acpmux-composer-dim)}
 .acpmux-project-browse{display:block;width:100%;margin-top:4px;padding:7px 8px;border:0;border-top:.5px solid var(--acpmux-composer-edge);background:none;color:var(--agent-text);font:inherit;text-align:left;cursor:default}

@@ -1088,8 +1088,10 @@
 .acpmux-menu.acpmux-location-menu.acpmux-folder-popover {
   display: flex;
   flex-direction: column;
-  /* No floor of its own: the location menu's 200 px, so a short folder list is no wider than its
-     fullest row plus the menu-fit spare (design/menus.md, gallery invariants.ts menu-fit). */
+  /* A lower floor than the location menu's 200 px: with only short rows (Add folder…, No folder,
+     short names), the menu is no wider than its fullest row plus the menu-fit spare (design/menus.md,
+     gallery invariants.ts menu-fit). */
+  min-width: 184px;
   max-height: min(360px, calc(100dvh - 36px));
   overflow: hidden;
 }
@@ -1110,7 +1112,9 @@
      compressed field grow back to its row height and moves every result under the caret. */
   flex-shrink: 0;
   box-sizing: border-box;
-  width: 100%;
+  /* The rows set the menu's width; the field's default size (about 218 px) never does. */
+  width: 0;
+  min-width: 100%;
   height: var(--ui-row-height);
   margin: 0 0 4px;
   padding: 0 var(--ui-row-padding-inline);
