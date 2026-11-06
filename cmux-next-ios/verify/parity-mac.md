@@ -464,6 +464,7 @@ test, fmt and clippy on rbx.
 | Settings > Mobile "Status" | Settings > **Transport** | works | Phone-only setting. |
 | Notification kinds | Settings > **Notifications**: Questions and permissions, Finished tasks, Errors | works | Match the push kinds. |
 | Settings > General > "Retry After Errors" (`agents.autoRetry.enabled`, `intervalSeconds`, `attempts`) | (none) | partial | The loop runs in the Mac's acpmux, so a chat started or watched from the phone retries the same way, and the error card's Retry works there. The three keys are edited on the Mac (Settings, the palette, `cmux settings set`), like Sub-sessions; the phone has no editor for them. |
+| Settings > Agent Sessions > "Suggest Next Prompt" (`agents.promptSuggestions`: Claude Code's next-prompt suggestion, an extra model call per turn) | (none) | partial | The Mac's acpmux reads the key at each Claude start, so the key covers every Claude chat that daemon starts, phone-started ones included. The key is edited on the Mac (Settings, the palette, `cmux settings set`), like Retry After Errors; the phone has no editor for it. |
 
 ### 6. Team switching
 
