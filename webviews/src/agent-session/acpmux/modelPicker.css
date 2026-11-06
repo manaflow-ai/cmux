@@ -438,3 +438,55 @@
 .ui-menu-item.acpmux-quick-offer {
   padding-inline-start: calc(var(--ui-row-padding-inline) + 12px);
 }
+
+/* What a started chat ran, beside a held pick of another harness's model (QuickModelMenu
+   UsedMark, Leo 2026-11-06): a quiet mark in secondary ink on the chat's own model row, provider
+   row and harness tab. `glyph` ships (the history glyph; its tab a hairline ring); `dot` and
+   `caption` are the gallery's other versions. */
+.acpmux-used-mark {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  margin-inline-start: 4px;
+  color: var(--agent-muted);
+}
+.acpmux-used-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.acpmux-used-caption {
+  flex: none;
+  margin-inline-start: 8px;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+  white-space: nowrap;
+}
+.acpmux-quick-rail-tab[data-used="glyph"],
+.acpmux-mp-rail-tab[data-used="glyph"] {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-muted) 55%, transparent);
+}
+.acpmux-mp-rail-tab[data-used="dot"],
+.acpmux-mp-rail-tab[data-used="caption"] { position: relative; }
+.acpmux-mp-rail-tab[data-used="dot"]::after,
+.acpmux-mp-rail-tab[data-used="caption"]::after {
+  content: "";
+  position: absolute;
+  inset-block-end: 1px;
+  inset-inline-end: 1px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--agent-muted);
+}
+
+/* The model button with another harness's model held for the next message (forkHold.ts): the
+   held model's name and effort, then a small fork glyph in secondary ink. */
+.acpmux-model .acpmux-model-fork {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  color: var(--agent-muted);
+}

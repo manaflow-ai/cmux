@@ -2,6 +2,7 @@
 import { componentEntry } from "../../gallery/format";
 import type { ChatAccounts } from "./chatAccounts";
 import type { ModelPickerProps } from "./modelPickerLayout";
+import type { UsedLook } from "./QuickModelMenu";
 import type { Play } from "../../gallery/play";
 import { BUNDLED_MODEL_CATALOG } from "./modelCatalogData";
 import { topModelsFor } from "./topModels";
@@ -185,19 +186,44 @@ const quickSlider: ModelPickerProps = {
 };
 
 /// A started Claude chat that can fork, on a Mac with a second Claude account (its own profile).
+/// Every harness's models list and pick as a New Tab's do (Leo 2026-11-06: "Everybody wants to see
+/// the models"); a pick of another harness's is held for the next message, which forks.
 const startedFork: ModelPickerProps = {
   ...quick,
+  harness: "claude",
+  model: curated.catalog.find((entry) => entry.id === "claude")!.models[0]!.id,
   catalog: [
     ...curated.catalog,
     { ...curated.catalog.find((entry) => entry.id === "claude")!, id: "claude-work", name: "Claude (work)" },
   ],
   harnessFixed: true,
-  fork: { to: () => undefined, ready: true },
+  fork: { hold: () => undefined },
 };
+
+/// The same chat with a Codex model held for its next message: the chip names it with its effort
+/// and the fork mark, and the menus mark what the chat ran in `used`'s look. `glyph` ships (the
+/// history glyph after the running model and its provider, a hairline ring on the chat's own tab);
+/// `dot` and `caption` are the versions it was chosen over.
+const heldCodex = curated.catalog.find((entry) => entry.id === "codex")!.models[0]!;
+const startedHeld = (used: UsedLook): ModelPickerProps => ({
+  ...startedFork,
+  label: heldCodex.name ?? heldCodex.id,
+  detail: "High",
+  fork: { hold: () => undefined, held: { harness: "codex", model: heldCodex.id, name: "Codex" }, used },
+});
 
 const openQuick: Play = async (ctx) => {
   await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-menu") !== null);
+};
+
+/// Opens the compact menu on the chat's own tab, where the "used here" marks show beside the hold.
+const openOwnTab: Play = async (ctx) => {
+  await openQuick(ctx);
+  await ctx.click({ selector: '.acpmux-quick-rail-tab[aria-label="Claude Code"]' });
+  await ctx.waitFor(
+    () => ctx.document.querySelector(".acpmux-quick-list :is(.acpmux-used-mark, .acpmux-used-caption)") !== null,
+  );
 };
 
 const openQuickSlider: Play = async (ctx) => {
@@ -417,14 +443,33 @@ export default componentEntry<GalleryProps>({
       },
       play: openQuick,
     },
-    // The same chat where it can fork (Leo 2026-10-22: "can expose as fork"): the whole rail, and
-    // the Codex tab offers Fork to Codex in place of its models.
+    // The same chat where it can fork (Leo 2026-10-22: "can expose as fork"; 2026-11-06: "it should
+    // only need to necessarily fork when you enter a message on that new model"): the whole rail,
+    // and the Codex tab lists Codex's models to browse and pick, as a New Tab's does.
     "started-chat-fork": {
       props: startedFork,
       play: async (ctx) => {
         await openQuick(ctx);
         await ctx.click({ selector: '.acpmux-quick-rail-tab[aria-label="Codex"]' });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-fork") !== null);
+        await ctx.waitFor(() => ctx.document.querySelectorAll('.acpmux-quick-list [role="menuitemradio"]').length > 0);
+      },
+    },
+    // A Codex model held for the next message: the chip names it with the fork mark, and the menu
+    // opens on the Codex tab with the held row checked. Shipped look (`glyph`).
+    "started-chat-held": { props: startedHeld("glyph"), play: openQuick },
+    // The "used here" mark's versions, each on the chat's own tab beside the held Codex pick.
+    // C, shipped: the history glyph after the running model, a hairline ring on its tab.
+    "started-chat-used-glyph": { props: startedHeld("glyph"), play: openOwnTab },
+    // A: a dot after the running model's name and on its tab.
+    "started-chat-used-dot": { props: startedHeld("dot"), play: openOwnTab },
+    // B: "In this chat" in the row's detail slot and under its tab's name.
+    "started-chat-used-caption": { props: startedHeld("caption"), play: openOwnTab },
+    // The full picker with the same hold: the rail's Claude tab carries the ring, Codex's row the check.
+    "started-chat-held-full": {
+      props: { ...startedHeld("glyph"), quick: undefined },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Model" });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-mp-harness[data-used="glyph"]') !== null);
       },
     },
     // Its Account row contains signed-in routes, separate from named launch harnesses.

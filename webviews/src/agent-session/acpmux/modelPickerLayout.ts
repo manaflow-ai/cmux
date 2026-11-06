@@ -1,7 +1,7 @@
 // The composer's model picker's props, the combos it lands, and its height bounds (ModelPicker.tsx).
 import type { AcpmuxSnapshot } from "./model";
 import type { Choice, Combo } from "./ComposerPickers";
-import type { QuickMenuExtras } from "./QuickModelMenu";
+import type { QuickMenuExtras, UsedLook } from "./QuickModelMenu";
 import type { PickerProfile } from "./pickerProfiles";
 import type { SpeedTiers } from "./FastToggle";
 
@@ -68,10 +68,19 @@ export type ModelPickerProps = {
   /// yet leaves it unset and keeps the whole rail.
   harnessFixed?: boolean;
   /// With `harnessFixed`, the started chat can fork to another harness (Leo 2026-10-22: "need to be
-  /// able to switch to different harnesses, can expose as fork"): the compact menu keeps the whole
-  /// rail, and another harness's tab, or another account of the chat's own, offers Fork to it.
-  /// `to` gets the acpmux profile id; `ready` false (a turn running, a queued prompt) disables it.
-  fork?: { to(harness: string): void; ready: boolean };
+  /// able to switch to different harnesses, can expose as fork"). Both menus then list every
+  /// harness's models as a New Tab does, browsable and pickable (Leo 2026-11-06: "it should only
+  /// need to necessarily fork when you enter a message on that new model"): a pick of another
+  /// harness's model goes through `onCombo`, which holds it for the next message (forkHold.ts), and
+  /// a launch tab (another account of any harness) through `hold`, with the acpmux profile id.
+  /// `held`: the held pick, which the chip draws with a fork mark and the menus check, `harness`
+  /// its acpmux id, `name` its harness's name. `used`: how the menus mark what the chat ran
+  /// (QuickModelMenu UsedMark); the gallery compares versions, the composer draws `glyph`.
+  fork?: {
+    hold(harness: string): void;
+    held?: { harness: string; model?: string; name: string };
+    used?: UsedLook;
+  };
   /// The installed acpmux profiles each catalog entry stands for, by its id (pickerProfiles.ts): the
   /// launch configurations shown as named harness entries. An entry with none listed is its own profile.
   profiles?: Readonly<Record<string, readonly PickerProfile[]>>;

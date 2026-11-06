@@ -1,9 +1,12 @@
 // Leo 2026-10-22: "why did you guys even remove the fucking harness model picker in the first place
 // down here?", "the harnes picker exists but it's ass and it's not per-account available...?" and
-// "need to be able to switch to different harnesses, can expose as fork". A started chat's model
-// menu keeps the New Tab's harness rail: another harness's tab forks the chat there, and each
-// launch configuration is a distinct, readable harness entry rather than a Profile submenu. The
-// real composer, catalog and menu, in JSDOM.
+// "need to be able to switch to different harnesses, can expose as fork". Leo 2026-11-06: "So
+// forking behavior. Nobody likes seeing this. Everybody wants to see the models." ... "it should
+// only need to necessarily fork when you enter a message on that new model". A started chat's model
+// menu keeps the New Tab's harness rail with every harness's models: a pick of another harness's
+// model is held for the next message (forkHold.ts), which forks through Continue In…; each launch
+// configuration is a distinct, readable harness entry rather than a Profile submenu. The real
+// composer, catalog and menu, in JSDOM.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -70,8 +73,9 @@ beforeAll(() => {
   host = dom.window.document.getElementById("root")!;
 });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
+  (await import("../src/agent-session/acpmux/forkHold")).clearHeldFork("s1");
   root = undefined;
   host.replaceChildren();
   dom.window.localStorage.clear();
@@ -141,10 +145,11 @@ function chat(catalog: Snapshot["catalog"], turnCount: number, extra: Partial<Sn
   } as Snapshot;
 }
 
-/// A Claude chat on the composer's model menu, `turnCount` turns in. `fork` is the chat's fork.
+/// A Claude chat on the composer's model menu, `turnCount` turns in. `fork`: the chat can fork, to
+/// `targets` when named.
 async function mount(
   turnCount: number,
-  fork?: { ready: boolean },
+  fork?: { targets?: string[] },
   activeHarness = "claude",
   suppliedCatalog?: Snapshot["catalog"],
 ) {
@@ -154,8 +159,8 @@ async function mount(
   const { usePickerCatalog } = await import("../src/agent-session/acpmux/modelCatalogHost");
   const { ChatAccountsContext } = await import("../src/agent-session/acpmux/chatAccounts");
   const catalog = suppliedCatalog ?? (await acpmuxCatalog());
-  const forked: string[] = [];
   const switched: string[] = [];
+  const models: string[] = [];
   const accounts = { list: async () => ({ accounts: [] }), set: async () => undefined };
   function Host() {
     const snapshot = chat(catalog, turnCount);
@@ -166,11 +171,11 @@ async function mount(
       <ComposerPickers
         snapshot={snapshot}
         pickerCatalog={picker.catalog}
-        onModel={() => undefined}
+        onModel={(model) => models.push(model)}
         onMode={() => undefined}
         onEffort={() => undefined}
         onHarness={(harness) => switched.push(harness)}
-        {...(fork ? { fork: { to: (harness: string) => forked.push(harness), ready: fork.ready } } : {})}
+        {...(fork ? { fork } : {})}
         showPlan={false}
       />
     );
@@ -185,8 +190,12 @@ async function mount(
       </QueryClientProvider>,
     ),
   );
-  return { forked, switched };
+  return { switched, models };
 }
+
+/// The harness the chat's next message forks to, if a pick is held.
+const heldHarness = async () => (await import("../src/agent-session/acpmux/forkHold")).heldFork("s1")?.harness;
+const forkMark = () => host.querySelector(".acpmux-model-fork");
 
 const doc = () => dom.window.document;
 const settle = () => act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
@@ -227,27 +236,69 @@ test("the active Unii Chief chat keeps its own harness entry", async () => {
   expect(railTabs().map((tab) => tab.getAttribute("aria-label"))).toContain("UniiChat");
 });
 
-test("a started chat's model menu keeps the harness rail, and another harness's tab forks the chat there", async () => {
-  const { forked, switched } = await mount(1, { ready: true });
+test("a started chat lists another harness's models, and picking one holds it for the next message", async () => {
+  const { switched, models } = await mount(1, {});
   await open();
   const tabs = railTabs().map((tab) => tab.getAttribute("aria-label"));
   expect(tabs).toContain("Claude Code");
   expect(tabs).toContain("Codex");
   await showTab("Codex");
-  // No Codex model is offered as a pick in place: the chat's harness can't change.
-  expect(menu()!.querySelectorAll('.acpmux-quick-item[role="menuitemradio"]:not(.acpmux-quick-profile)')).toHaveLength(
-    0,
-  );
-  const fork = itemsOf(menu()!).find((item) => labelOf(item) === "Fork to Codex");
-  expect(fork).toBeDefined();
-  await act(async () => fork!.click());
+  // Codex's models list as a New Tab's do, and no Fork to row stands in for them.
+  const rows = [...menu()!.querySelectorAll<HTMLElement>('.acpmux-quick-list [role="menuitemradio"]')];
+  expect(rows.length).toBeGreaterThan(0);
+  expect(
+    itemsOf(menu()!)
+      .map(labelOf)
+      .some((label) => label.startsWith("Fork to")),
+  ).toBe(false);
+  await act(async () => rows[0]!.click());
   await settle();
-  expect(forked).toEqual(["codex"]);
+  // Held, not forked: no switch, no model change here, and the chip draws the fork mark.
+  expect(await heldHarness()).toBe("codex");
   expect(switched).toEqual([]);
+  expect(models).toEqual([]);
+  expect(forkMark()?.getAttribute("aria-label")).toBe("Your next message forks this chat to Codex");
+  // The menu opens again on the held tab, the chat's own tab still marked as used here.
+  await open();
+  expect(
+    railTabs()
+      .find((tab) => tab.getAttribute("aria-pressed") === "true")
+      ?.getAttribute("aria-label"),
+  ).toBe("Codex");
+  expect(railTabs().find((tab) => tab.getAttribute("aria-label") === "Claude Code")?.dataset.used).toBe("glyph");
+});
+
+test("picking the chat's own model again drops the held pick", async () => {
+  await mount(1, {});
+  await open();
+  await showTab("Codex");
+  await act(async () => menu()!.querySelector<HTMLElement>('.acpmux-quick-list [role="menuitemradio"]')!.click());
+  await settle();
+  expect(await heldHarness()).toBe("codex");
+  await open();
+  await showTab("Claude Code");
+  // The running row carries the "used here" mark, and is a pick again while another model is held.
+  const running = [...menu()!.querySelectorAll<HTMLElement>('.acpmux-quick-list [role="menuitemradio"]')].find(
+    (row) => row.querySelector(".acpmux-used-mark") !== null,
+  );
+  expect(running).toBeDefined();
+  await act(async () => running!.click());
+  await settle();
+  expect(await heldHarness()).toBeUndefined();
+  expect(forkMark()).toBeNull();
+});
+
+test("a harness Continue In… can't take is never held", async () => {
+  await mount(1, { targets: ["claude-work"] });
+  await open();
+  await showTab("Codex");
+  await act(async () => menu()!.querySelector<HTMLElement>('.acpmux-quick-list [role="menuitemradio"]')!.click());
+  await settle();
+  expect(await heldHarness()).toBeUndefined();
 });
 
 test("launch configurations are named rail entries and never a Profile submenu", async () => {
-  const { forked } = await mount(1, { ready: true });
+  const { switched } = await mount(1, {});
   await open();
   expect(itemsOf(menu()!).map(labelOf)).not.toContain("Profile");
   const labels = railTabs().map((tab) => tab.getAttribute("aria-label"));
@@ -258,20 +309,20 @@ test("launch configurations are named rail entries and never a Profile submenu",
   expect(launch).toBeDefined();
   await act(async () => launch!.click());
   await settle();
-  expect(forked).toHaveLength(1);
-  expect(forked[0]).toMatch(/^claude-/);
+  expect(await heldHarness()).toMatch(/^claude-/);
+  expect(switched).toEqual([]);
 });
 
 for (const [id, name, family] of [
   ["claude-work", "Claude (work)", "claude-work"],
   ["claude-sr", "Claude (sr)", "claude"],
 ])
-  test(`a started chat can keyboard-fork to the launch profile ${id}`, async () => {
+  test(`a started chat can keyboard-hold the launch profile ${id}`, async () => {
     const catalog = [
       { id: "claude", name: "Claude Code", family: "claude", models: [{ id: "opus", name: "Opus" }] },
       { id: id!, name: name!, family: family!, models: [{ id: "opus", name: "Opus" }] },
     ] as Snapshot["catalog"];
-    const { forked, switched } = await mount(1, { ready: true }, "claude", catalog);
+    const { switched } = await mount(1, {}, "claude", catalog);
     await open();
     for (let remaining = railTabs().length; remaining > 0; remaining--) {
       if (
@@ -290,28 +341,24 @@ for (const [id, name, family] of [
         .find((tab) => tab.getAttribute("aria-pressed") === "true")
         ?.getAttribute("aria-label"),
     ).toBe(name);
-    expect(forked).toEqual([]);
-    expect(menu()!.querySelectorAll('.acpmux-quick-item[role="menuitemradio"]')).toHaveLength(0);
-    expect(itemsOf(menu()!).map(labelOf)).toContain(`Fork to ${name}`);
+    expect(await heldHarness()).toBeUndefined();
+    // Enter in the search field takes the launch tab: held for the next message, no fork now.
+    const field = menu()!.querySelector<HTMLInputElement>(".acpmux-quick-search input")!;
     await act(async () =>
-      itemsOf(menu()!)
-        .find((item) => labelOf(item) === `Fork to ${name}`)!
-        .click(),
+      field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
     );
     await settle();
-    expect(forked).toEqual([id!]);
+    expect(await heldHarness()).toBe(id!);
     expect(switched).toEqual([]);
   });
 
-test("while the chat can't fork (a turn running), Fork to is disabled and does nothing", async () => {
-  const { forked } = await mount(1, { ready: false });
+test("a running turn still lets the chat browse and hold another harness's model", async () => {
+  await mount(1, {});
   await open();
   await showTab("Codex");
-  const fork = itemsOf(menu()!).find((item) => labelOf(item) === "Fork to Codex")!;
-  expect(fork.hasAttribute("data-disabled")).toBe(true);
-  await act(async () => fork.click());
+  await act(async () => menu()!.querySelector<HTMLElement>('.acpmux-quick-list [role="menuitemradio"]')!.click());
   await settle();
-  expect(forked).toEqual([]);
+  expect(await heldHarness()).toBe("codex");
 });
 
 test("a new chat launches a named harness entry from the rail", async () => {
@@ -326,36 +373,45 @@ test("a new chat launches a named harness entry from the rail", async () => {
   expect(switched[0]).toBe("claude-work");
 });
 
-test("the chat composer forks through Continue In…'s chat.handoff.prepare", async () => {
-  const { createRoot } = await import("react-dom/client");
-  const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
-  const { ChatComposerChips } = await import("../src/agent-session/acpmux/App");
-  const calls: { method: string; params: unknown }[] = [];
-  (dom.window as unknown as { cmuxAcpmuxActions: unknown }).cmuxAcpmuxActions = new Proxy(
-    {},
-    { get: (_target, method) => async (params: unknown) => void calls.push({ method: String(method), params }) },
+test("the chat composer's pick of another harness's model sends nothing until a message", async () => {
+  const calls = await mountChat(
+    chat(await acpmuxCatalog(), 1, { canHandoff: true, handoff: { ready: true } } as Partial<Snapshot>),
   );
-  const snapshot = chat(await acpmuxCatalog(), 1, { canHandoff: true, handoff: { ready: true } } as Partial<Snapshot>);
-  root = createRoot(host);
-  await act(async () =>
-    root!.render(
-      <QueryClientProvider client={new QueryClient()}>
-        <ChatComposerChips snapshot={snapshot} />
-      </QueryClientProvider>,
-    ),
-  );
-  await settle();
   await open();
   await showTab("Codex");
-  await act(async () =>
-    itemsOf(menu()!)
-      .find((item) => labelOf(item) === "Fork to Codex")!
-      .click(),
-  );
+  await act(async () => menu()!.querySelector<HTMLElement>('.acpmux-quick-list [role="menuitemradio"]')!.click());
   await settle();
-  expect(calls.filter((call) => call.method.startsWith("chat."))).toEqual([
-    { method: "chat.handoff.prepare", params: { harness: "codex" } },
-  ]);
+  expect(await heldHarness()).toBe("codex");
+  expect(calls.filter((call) => call.method.startsWith("chat."))).toEqual([]);
+});
+
+test("a send with a held pick forks through Continue In…'s chat.handoff.prepare, carrying the message", async () => {
+  const { holdFork, heldFork, sendHeldFork } = await import("../src/agent-session/acpmux/forkHold");
+  const calls: Record<string, unknown>[] = [];
+  const cleared: string[] = [];
+  const prepare = async (params: Record<string, unknown>) => {
+    calls.push(params);
+    return "s2";
+  };
+  // Nothing held: the send goes on as usual.
+  expect(sendHeldFork("s1", "hi", { images: 0, ready: true, prepare })).toBeUndefined();
+  holdFork({ sessionId: "s1", harness: "codex", model: "gpt-6.1-sol", effort: "high" });
+  // The chat can't fork now (a turn running, a review open), or the message has images: kept.
+  expect(sendHeldFork("s1", "hi", { images: 0, ready: false, prepare })).toBe(false);
+  expect(sendHeldFork("s1", "hi", { images: 1, ready: true, prepare })).toBe(false);
+  expect(calls).toEqual([]);
+  await expect(
+    sendHeldFork("s1", "fix the build", { images: 0, ready: true, prepare, sent: (id) => cleared.push(id) }),
+  ).resolves.toBe("s2");
+  expect(calls).toEqual([{ harness: "codex", model: "gpt-6.1-sol", effort: "high", message: "fix the build" }]);
+  expect(heldFork("s1")).toBeUndefined();
+  expect(cleared).toEqual(["s1"]);
+  // A prepare that made no review rejects, so the composer keeps the message; the pick stays.
+  holdFork({ sessionId: "s1", harness: "codex" });
+  await expect(
+    sendHeldFork("s1", "again", { images: 0, ready: true, prepare: async () => undefined }),
+  ).rejects.toThrow();
+  expect(heldFork("s1")?.harness).toBe("codex");
 });
 
 // Catalog joining folds aliases for model data, while the picker keeps each installed launch
@@ -365,16 +421,16 @@ for (const [id, label] of [
   ["claude-sr", "Claude Code (sr)"],
   ["claude_work", "Claude Code (work)"],
 ]) {
-  test(`a folded family forks to the exact ${id} launch entry`, async () => {
+  test(`a folded family holds the exact ${id} launch entry`, async () => {
     const catalog = [
       { id: "claude", name: "Claude Code", family: "claude", models: [{ id: "opus", name: "Opus" }] },
       { id: id!, name: id!, family: "claude", models: [{ id: "opus", name: "Opus" }] },
     ] as Snapshot["catalog"];
-    const { forked, switched } = await mount(1, { ready: true }, "claude", catalog);
+    const { switched } = await mount(1, {}, "claude", catalog);
     await open();
     expect(itemsOf(menu()!).map(labelOf)).not.toContain("Profile");
     await showTab(label!);
-    expect(forked).toEqual([id!]);
+    expect(await heldHarness()).toBe(id!);
     expect(switched).toEqual([]);
   });
 }
@@ -433,9 +489,9 @@ test("familyProfiles lists every global profile of the running profile's family"
   expect(familyProfiles(catalog, "gemini")).toEqual([]);
 });
 
-// Codex review of #24355 (BLOCK at 443c6a9): the composer's Fork to read its own readiness, not
-// Continue In…'s, so it stayed on while the chat's handoff review was open or no harness could take
-// the chat, and sent chat.handoff.prepare anyway. The pane's own chips, from the snapshot alone.
+// Codex review of #24355 (BLOCK at 443c6a9): the composer's fork read its own readiness, not
+// Continue In…'s. The fork now runs on send (sendHeldFork, ready from canContinueIn); a harness no
+// Continue In… target is never held. The pane's own chips, from the snapshot alone.
 async function mountChat(snapshot: Snapshot) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
@@ -457,34 +513,20 @@ async function mountChat(snapshot: Snapshot) {
   return calls;
 }
 
-async function forkToCodexDisabled(calls: { method: string }[]) {
-  await open();
-  await showTab("Codex");
-  const fork = itemsOf(menu()!).find((item) => labelOf(item) === "Fork to Codex");
-  expect(fork, `Fork to Codex in ${itemsOf(menu()!).map(labelOf).join(", ")}`).toBeDefined();
-  expect(fork!.hasAttribute("data-disabled")).toBe(true);
-  await act(async () => fork!.click());
-  await settle();
-  expect(calls.filter((call) => call.method.startsWith("chat."))).toEqual([]);
-}
-
-test("while the chat's handoff review is open, the composer's Fork to is disabled and sends nothing", async () => {
-  const snapshot = chat(await acpmuxCatalog(), 1, {
-    sessionId: "s1",
-    canHandoff: true,
-    handoff: { ready: true, record: { target: { sessionId: "s1" }, state: "draft" } },
-  } as unknown as Partial<Snapshot>);
-  await forkToCodexDisabled(await mountChat(snapshot));
-});
-
-test("when no other harness can take the chat, the composer's Fork to is disabled and sends nothing", async () => {
+test("when no other harness can take the chat, the composer holds no pick of one", async () => {
   // A harness whose probe failed stays in the picker's rail (ComposerPickers) but is no Continue In…
   // target (continueTargets): here every harness but the chat's own.
   const catalog = (await acpmuxCatalog()).map((harness) =>
     harness.id === "claude" ? harness : { ...harness, unavailable: "probe failed", probeFailed: true },
   ) as Snapshot["catalog"];
-  const snapshot = chat(catalog, 1, { canHandoff: true, handoff: { ready: true } } as Partial<Snapshot>);
-  await forkToCodexDisabled(await mountChat(snapshot));
+  const calls = await mountChat(chat(catalog, 1, { canHandoff: true, handoff: { ready: true } } as Partial<Snapshot>));
+  await open();
+  await showTab("Codex");
+  const row = menu()!.querySelector<HTMLElement>('.acpmux-quick-list [role="menuitemradio"]:not([data-disabled])');
+  if (row) await act(async () => row.click());
+  await settle();
+  expect(await heldHarness()).toBeUndefined();
+  expect(calls.filter((call) => call.method.startsWith("chat."))).toEqual([]);
 });
 
 test("canContinueIn is Continue In…'s whole check", async () => {

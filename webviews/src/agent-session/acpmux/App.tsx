@@ -96,7 +96,15 @@ import type { RowsChange } from "./threadMinimap/model";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
 import { preserveScrollAnchorTop, scrollAnchorBase } from "./conversation/scrollAnchor";
 import { setBookmarkTransport } from "./threadMinimap/bookmarks";
-import { composerDraft, DRAFT_SETTLE_MS, notifyDraftActionsChanged, settleDraftWithin } from "./composerDraft";
+import {
+  composerDraft,
+  DRAFT_SETTLE_MS,
+  notifyDraftActionsChanged,
+  settleDraftWithin,
+  writePersistedDraft,
+} from "./composerDraft";
+import { clearHeldFork, sendHeldFork } from "./forkHold";
+import { HELD_EFFORT_ID, HELD_FAST_ID, HELD_FAST_ON } from "./heldOptions";
 import { paneContext } from "./paneContext";
 import {
   createPaneQueryClient,
@@ -4306,15 +4314,12 @@ function DefaultComposerChips({
       }
       // A started chat forks to another harness through Continue In… (Leo 2026-10-22: "need to be
       // able to switch to different harnesses, can expose as fork"): the chat menu's own path, its
-      // review in this tab, then the new chat in a tab of its own. Not while a turn or queue runs.
+      // review in this tab, then the new chat in a tab of its own. A pick of another harness's model
+      // only holds it (forkHold.ts); the next message forks (Leo 2026-11-06: "it should only need to
+      // necessarily fork when you enter a message on that new model"), the composer's send below.
+      // `targets`: the harnesses Continue In… can take; a pick of another is not held.
       {...(!startsChat && snapshot.canHandoff
-        ? {
-            fork: {
-              to: (harness: string) => void callNative("chat.handoff.prepare", { harness }).catch(() => undefined),
-              // Continue In…'s own check: no fork while a review is open or no harness can take it.
-              ready: canContinueIn(snapshot),
-            },
-          }
+        ? { fork: { targets: continueTargets(snapshot.catalog, snapshot.summary?.harness).map((target) => target.id) } }
         : {})}
       {...(cwd ? { folder: cwd } : {})}
       // Sent from the pick's own handler: the host's Enable confirmation needs the gesture.
@@ -7726,9 +7731,33 @@ function AcpmuxPane() {
           },
           // The review shows in this tab while the tab stays the chat's; Start opens the new chat in
           // its own tab and brings this one back to the chat.
-          "chat.handoff.prepare": async ({ harness }) => {
+          // From the composer's send with a held pick of another harness's model (forkHold.ts), it also
+          // lands that model on the new chat (it runs that harness now, so in place, as a model pick
+          // does) and adds the typed message to the review's context, after a blank line. The review's
+          // checkpoint stays as the draft has it: the person still confirms it before Start.
+          "chat.handoff.prepare": async ({ harness, model, effort, fast, message }) => {
             harnessSwitch.cancel();
-            return client.continueIn(String(harness));
+            const target = await client.continueIn(String(harness));
+            if (!target) return target;
+            if (typeof model === "string" && model)
+              void harnessSwitch.pickModel(model, { sessionId: target }).then(async (landed) => {
+                if (!landed || client.selectedSession !== target) return;
+                if (typeof effort === "string" && effort)
+                  await client.setConfig(HELD_EFFORT_ID, effort).catch(() => undefined);
+                if (fast === true) await client.setConfig(HELD_FAST_ID, HELD_FAST_ON).catch(() => undefined);
+              });
+            const record = client.handoff.state.record;
+            if (typeof message === "string" && message.trim() && record?.target.sessionId === target) {
+              await client.saveHandoff({
+                capsule: record.capsule.text.trim() ? `${record.capsule.text}\n\n${message}` : message,
+                checkpoint: { reference: record.capsule.checkpoint?.ref ?? "", confirmed: !!record.capsule.checkpoint },
+                approvedMemoryReferences: record.capsule.memoryRefs,
+                revision: record.revision,
+              });
+              // The review drew the draft before the message joined it: it draws it again.
+              setReviewReload((value) => value + 1);
+            }
+            return target;
           },
           "chat.handoff.get": () => client.refreshHandoff(),
           "chat.handoff.draft": ({ review }) => client.saveHandoff(review as HandoffReviewInput),
@@ -9261,6 +9290,24 @@ function AcpmuxPane() {
               }
               // Until acpmux connects nothing takes a prompt; the composer keeps it.
               if (!window.cmuxAcpmuxActions?.["chat.send"]) return false;
+              // A held pick of another harness's model (forkHold.ts; Leo 2026-11-06: "it should only
+              // need to necessarily fork when you enter a message on that new model"): this message
+              // forks the chat there through Continue In…, whose review it joins, and the model lands
+              // on the new chat. The composer keeps the message until the review is ready, and keeps
+              // it when the fork can't start (a turn running, a review open) or fails. Images can't
+              // join the review's text, so a message with them stays too.
+              if (snapshot.sessionId && surfaceRef.current !== "quick") {
+                // A chat that can no longer hand off (its host lost the support) drops the pick.
+                if (!snapshot.canHandoff) clearHeldFork(snapshot.sessionId);
+                const forked = sendHeldFork(snapshot.sessionId, text, {
+                  images: chips?.length ?? 0,
+                  ready: canContinueIn(snapshot),
+                  prepare: (params) => callNative<string | undefined>("chat.handoff.prepare", params),
+                  // The composer leaves with the chat: its prompt is not the source chat's draft now.
+                  sent: (source) => writePersistedDraft(source, ""),
+                });
+                if (forked !== undefined) return forked;
+              }
               // Shell mode's chips carry their commands' output as it is now.
               const attachments = shellContextAttachments(chips ?? [], (id) => shellRuns.get(id));
               if (!snapshot.sessionId) claimShellRuns.current = true;

@@ -25,7 +25,7 @@ import { groupVariants } from "./modelVariants";
 import { registerPicker } from "./pickerOpeners";
 import { OnNewTab } from "./newTabComposer";
 import { relevantModelSections } from "./relevantModels";
-import { QuickModelMenu, type QuickFamily, type QuickModel } from "./QuickModelMenu";
+import { QuickModelMenu, UsedMark, type QuickFamily, type QuickModel } from "./QuickModelMenu";
 import type { PickerProfile } from "./pickerProfiles";
 import { useUiAnchor } from "../../ui/anchor";
 import { useEscapeCloses } from "../../ui/escapeDismiss";
@@ -468,18 +468,24 @@ export function ModelPicker(props: ModelPickerProps) {
     [catalog, harness],
   );
   // A started chat lists its own harness alone. One acpmux has not listed yet (the first open after
-  // launch) keeps the whole rail rather than an empty menu.
+  // launch) keeps the whole rail rather than an empty menu. One that can fork lists every harness's
+  // models, as a New Tab does: a pick of another's is held for the next message (Leo 2026-11-06:
+  // "it should only need to necessarily fork when you enter a message on that new model").
   const ownHarness = useMemo(
     () => allHarnesses.filter((entry) => entry.ids.includes(harness ?? "")),
     [allHarnesses, harness],
   );
-  const harnessFixed = props.harnessFixed === true && ownHarness.length > 0;
+  const harnessFixed = props.harnessFixed === true && ownHarness.length > 0 && !fork;
   const harnesses = harnessFixed ? ownHarness : allHarnesses;
+  // A started chat that can fork marks what it ran (UsedMark), and the pick its next message forks to.
+  const used = fork ? (fork.used ?? "glyph") : undefined;
+  const held = fork?.held;
+  const heldEntry = held ? allHarnesses.find((entry) => entry.ids.includes(held.harness)) : undefined;
   // Folder profiles remain available for the current machine's models and trust/enable state, but
   // they are not harness choices and never become tabs in the picker rail.
   const railHarnesses = useMemo(() => harnesses.filter((entry) => !entry.folder), [harnesses]);
-  // A started chat offers no other harness, so it has no Add harness… row either.
-  const onAddAgent = harnessFixed ? undefined : props.onAddAgent;
+  // A started chat offers no Add harness… row: it adds no harness to the chat.
+  const onAddAgent = props.harnessFixed ? undefined : props.onAddAgent;
   const navigableHarnesses = useMemo(
     () =>
       railHarnesses
@@ -609,11 +615,13 @@ export function ModelPicker(props: ModelPickerProps) {
     focusPrompt();
   }, [quickOpen, focusPrompt]);
   const show = useCallback(() => {
-    setSelectedHarness(harness ?? current?.id);
+    // A held pick of another harness opens on its tab: the picker shows what the next message runs.
+    const openOn = heldEntry ?? current;
+    setSelectedHarness(heldEntry?.id ?? harness ?? current?.id);
     setActiveHarness(
       Math.max(
         0,
-        railHarnesses.findIndex((entry) => entry.ids.includes(harness ?? "")),
+        railHarnesses.findIndex((entry) => entry === openOn),
       ),
     );
     setQuery("");
@@ -632,7 +640,7 @@ export function ModelPicker(props: ModelPickerProps) {
     setOpen(true);
     if (open) search.current?.focus();
     else trigger.current?.focus();
-  }, [current, harness, open, props.model, railHarnesses]);
+  }, [current, harness, heldEntry, open, props.model, railHarnesses]);
   const showRef = useRef(show);
   showRef.current = show;
   const toggle = open ? (_next: boolean) => close() : setOpen;
@@ -779,12 +787,10 @@ export function ModelPicker(props: ModelPickerProps) {
     // opens the full picker, which has no rail either.
     // A folder profile is a machine choice, so its current models stay in the plain compact list
     // while the harness-only rail remains absent.
-    if (!quick || (harnessFixed && !fork) || current?.folder) return undefined;
+    if (!quick || harnessFixed || current?.folder) return undefined;
     const row = (entry: HarnessChoice, model: ModelChoice) => quickRow(entry.id, model);
     // A started chat that forks lists every harness, as a New Tab does; its own stays the chat's.
-    const startable = (fork ? allHarnesses : harnesses).filter(
-      (entry) => !entry.folder && entry.pickable && !blockedProfile(entry),
-    );
+    const startable = harnesses.filter((entry) => !entry.folder && entry.pickable && !blockedProfile(entry));
     const list: QuickFamily[] = [];
     const starred = startable
       .filter((entry) => loginFor(entry) === undefined)
@@ -812,25 +818,12 @@ export function ModelPicker(props: ModelPickerProps) {
           : {}),
       });
     }
-    const rail = railByHarness(list, harness ?? current?.id, props.profiles, (id) => signedOut?.[id] !== undefined);
-    if (!harnessFixed) return rail;
-    // A started chat (Leo 2026-10-22: "can expose as fork"): another harness's tab is Fork to it,
-    // Starred keeps the chat's own models, and another launch profile of any harness forks there.
-    return rail.flatMap((family): QuickFamily[] => {
-      const own = family;
-      if (family.starred) {
-        const models = family.models.filter((model) => model.family === current?.id);
-        return models.length ? [{ ...family, models }] : [];
-      }
-      if (family.id === current?.id || family.note) return [own];
-      if (family.launch) return [{ ...own, models: [], more: [], fork: true }];
-      return [{ ...own, models: [], more: [], fork: true }];
-    });
+    // A started chat lists every tab's models too (Leo 2026-11-06: "Everybody wants to see the
+    // models"): a pick of another harness's is held for the next message, never a fork now.
+    return railByHarness(list, harness ?? current?.id, props.profiles, (id) => signedOut?.[id] !== undefined);
   }, [
     quick,
     harnessFixed,
-    fork,
-    allHarnesses,
     harnesses,
     current?.id,
     current?.folder,
@@ -866,16 +859,16 @@ export function ModelPicker(props: ModelPickerProps) {
     quickPicked.current = true;
     pickQuick(model);
   };
-  /// An Account pick: the harness's other profile starts a chat there, or forks a started chat there.
-  /// `id` is an acpmux profile: one a tab folded (pickerProfiles.ts) is no harness entry of its own.
+  /// A launch tab's pick: the harness's other profile starts a chat there, or, in a started chat, is
+  /// held as the next message's fork target. `id` is an acpmux profile: one a tab folded
+  /// (pickerProfiles.ts) is no harness entry of its own.
   const pickProfile = (id: string) => {
     if (id === harness || signedOut?.[id] !== undefined) return;
     const owner = allHarnesses.find((entry) => entry.id === id);
     if (owner && loginFor(owner) !== undefined) return;
     const target = owner?.acpmuxHarness ?? id;
-    if (harnessFixed) {
-      if (fork?.ready) fork.to(target);
-    } else onHarness?.(target);
+    if (fork) fork.hold(target);
+    else if (!harnessFixed) onHarness?.(target);
   };
   const addHarness = () => {
     close();
@@ -1010,7 +1003,10 @@ export function ModelPicker(props: ModelPickerProps) {
       harnesses.find((entry) => entry.ids.includes(switchingTo.harness))?.mark ??
       switchingTo.harness)
     : undefined;
-  const chipHarness = switchingMark ?? current?.mark ?? current?.id ?? harness;
+  // A held pick of another harness draws that harness's mark: the chip names what the next message runs.
+  const heldMark = held && !switchingTo ? (heldEntry?.mark ?? heldEntry?.id ?? held.harness) : undefined;
+  const chipHarness = switchingMark ?? heldMark ?? current?.mark ?? current?.id ?? harness;
+  const forkText = held ? t("picker.forkNext", { harness: held.name }) : undefined;
   const chipLabel = switchingTo?.name ?? label;
   // The controls row's forms of the chip (composerRowFit.ts); a switch draws its target's name whole.
   const rowChip = switchingTo ? undefined : chip;
@@ -1046,7 +1042,10 @@ export function ModelPicker(props: ModelPickerProps) {
     const mark = entry.mark ?? agentBrand(entry.id) ?? entry.id;
     const shared = (markCounts.get(mark) ?? 0) > 1 && entry.name !== entry.id;
     const signIn = loginFor(entry) !== undefined ? t("harnesses.signedOut") : undefined;
-    return [shared ? `${entry.name} (${entry.id})` : entry.name, folderNote(entry), signIn].filter(Boolean).join(" · ");
+    const ran = used && entry === current ? t("picker.usedHere") : undefined;
+    return [shared ? `${entry.name} (${entry.id})` : entry.name, folderNote(entry), signIn, ran]
+      .filter(Boolean)
+      .join(" · ");
   };
   const chipFace = (
     <>
@@ -1078,6 +1077,13 @@ export function ModelPicker(props: ModelPickerProps) {
       )}
     </>
   );
+  // The held pick's fork mark (Leo 2026-11-06: "it should only need to necessarily fork when you
+  // enter a message on that new model"): the next message forks the chat, and the mark says so.
+  const forkGlyph = forkText && (
+    <span className="acpmux-model-fork" role="img" aria-label={forkText}>
+      <Icon name="agent.fork" size={12} />
+    </span>
+  );
   return (
     <span
       ref={root}
@@ -1104,7 +1110,7 @@ export function ModelPicker(props: ModelPickerProps) {
               "data-menu": modelText,
               label: modelText,
               /* tooltip-allow: the chip drops the vendor its mark draws; the title keeps the full name */
-              title: [chipLabel, usage, updateText].filter(Boolean).join(" · "),
+              title: [chipLabel, forkText, usage, updateText].filter(Boolean).join(" · "),
             }}
             menu={{
               ...quick,
@@ -1129,10 +1135,11 @@ export function ModelPicker(props: ModelPickerProps) {
                       current: current?.id,
                       onPick: pickQuickToPrompt,
                       ...(onAddAgent ? { onAddHarness: onAddAgent } : {}),
-                      ...(harnessFixed ? {} : onHarness ? { onLaunch: pickProfile } : {}),
-                      ...(harnessFixed && fork
-                        ? { onLaunch: pickProfile, onFork: pickProfile, forkReady: fork.ready }
+                      ...(fork || (!harnessFixed && onHarness) ? { onLaunch: pickProfile } : {}),
+                      ...(held
+                        ? { held: { family: heldEntry?.id ?? held.harness, ...(held.model ? { id: held.model } : {}) } }
                         : {}),
+                      ...(used ? { used } : {}),
                     },
                   }
                 : {}),
@@ -1158,6 +1165,7 @@ export function ModelPicker(props: ModelPickerProps) {
                 data-label={detailShort}
               />
             )}
+            {forkGlyph}
           </QuickModelMenu>
           {speed && <FastToggle speed={speed} inline />}
         </>
@@ -1170,7 +1178,7 @@ export function ModelPicker(props: ModelPickerProps) {
             data-menu={modelText}
             aria-label={modelText}
             /* tooltip-allow: the chip drops the vendor its mark draws; the title keeps the full name */
-            title={[chipLabel, usage, updateText].filter(Boolean).join(" · ")}
+            title={[chipLabel, forkText, usage, updateText].filter(Boolean).join(" · ")}
             aria-haspopup="dialog"
             aria-expanded={open}
             aria-controls={open ? menuId : undefined}
@@ -1189,6 +1197,7 @@ export function ModelPicker(props: ModelPickerProps) {
             {...press}
           >
             {chipFace}
+            {forkGlyph}
             <ChevronIcon />
           </PickerButton>
           {speed && <FastToggle speed={speed} inline />}
@@ -1252,6 +1261,8 @@ export function ModelPicker(props: ModelPickerProps) {
                     disabled={!entry.pickable}
                     data-harness-index={index}
                     className={`acpmux-mp-harness ${railTab}`}
+                    // A started chat's own harness: the "used here" mark (UsedMark), drawn by the tab.
+                    data-used={used && entry === current ? used : undefined}
                     title={railTitle(entry)}
                     selected={entry.ids.includes(selectedHarness ?? "")}
                     keyboard={(event) => {
@@ -1407,52 +1418,63 @@ export function ModelPicker(props: ModelPickerProps) {
                         : noMatchesText}
                   </div>
                 ) : (
-                  visible.map((model, index) => (
-                    <div className="group relative flex items-center" key={`${owners.get(model)?.id}:${model.id}`}>
-                      <PickerOption
-                        type="button"
-                        id={modelRowId(model.id)}
-                        data-key={`model:${model.id}`}
-                        selected={index === active}
-                        aria-checked={model.id === props.model && owners.get(model)?.ids.includes(harness ?? "")}
-                        className={`acpmux-mp-row ${modelRow} ${rowFill(index === active)} ${model.id === props.model ? "pr-14" : "pr-8"}${index === active ? " acpmux-mp-active" : ""}`}
-                        onPointerEnter={() => setActive(index)}
-                        disabled={Boolean(model.unavailable)}
-                        onClick={() => selectModel(model)}
-                        active={index === active}
-                      >
-                        {(starredView || searching) && (
-                          <AgentMark agent={owners.get(model)?.mark ?? owners.get(model)?.id} size={14} reserve />
-                        )}
-                        <span className="acpmux-menu-label min-w-0 flex-1 truncate">{model.name}</span>
-                        {searching && (parsed.effort || parsed.fast) && (
-                          <span className="acpmux-mp-combo flex-none text-detail text-dim">
-                            {[modelEffort(model, parsed.effort), parsed.fast ? fastText : undefined]
-                              .filter(Boolean)
-                              .join(" · ")}
-                          </span>
-                        )}
-                        {model.unavailable && <span className="flex-none text-detail text-dim">{unavailableText}</span>}
-                      </PickerOption>
-                      <span className="pointer-events-none absolute right-1.5 flex items-center">
-                        <button
+                  visible.map((model, index) => {
+                    const ran = model.id === props.model && !!owners.get(model)?.ids.includes(harness ?? "");
+                    // The checked row is what the next message runs: a held pick, else the chat's model.
+                    const checked = held
+                      ? model.id === held.model && !!owners.get(model)?.ids.includes(held.harness)
+                      : ran;
+                    return (
+                      <div className="group relative flex items-center" key={`${owners.get(model)?.id}:${model.id}`}>
+                        <PickerOption
                           type="button"
-                          className={`acpmux-mp-favorite pointer-events-auto grid size-6 cursor-pointer place-items-center rounded-md border-0 bg-transparent p-0 text-muted hover:text-fg ${favorites.has(model.id) ? "" : "invisible group-hover:visible focus-visible:visible"}`}
-                          aria-label={`${starredText}: ${model.name}`}
-                          aria-pressed={favorites.has(model.id)}
-                          title={t(favorites.has(model.id) ? "picker.unstar" : "picker.star")}
-                          onClick={() => toggleFavorite(model.id)}
+                          id={modelRowId(model.id)}
+                          data-key={`model:${model.id}`}
+                          selected={index === active}
+                          aria-checked={checked}
+                          className={`acpmux-mp-row ${modelRow} ${rowFill(index === active)} ${checked ? "pr-14" : "pr-8"}${index === active ? " acpmux-mp-active" : ""}`}
+                          onPointerEnter={() => setActive(index)}
+                          disabled={Boolean(model.unavailable)}
+                          onClick={() => selectModel(model)}
+                          active={index === active}
                         >
-                          <StarGlyph filled={favorites.has(model.id)} size={13} />
-                        </button>
-                        {model.id === props.model && owners.get(model)?.ids.includes(harness ?? "") && (
-                          <span className="grid size-6 place-items-center text-muted">
-                            <CheckIcon />
-                          </span>
-                        )}
-                      </span>
-                    </div>
-                  ))
+                          {(starredView || searching) && (
+                            <AgentMark agent={owners.get(model)?.mark ?? owners.get(model)?.id} size={14} reserve />
+                          )}
+                          <span className="acpmux-menu-label min-w-0 truncate">{model.name}</span>
+                          {ran && used && <UsedMark look={used} />}
+                          <span className="flex-1" />
+                          {searching && (parsed.effort || parsed.fast) && (
+                            <span className="acpmux-mp-combo flex-none text-detail text-dim">
+                              {[modelEffort(model, parsed.effort), parsed.fast ? fastText : undefined]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </span>
+                          )}
+                          {model.unavailable && (
+                            <span className="flex-none text-detail text-dim">{unavailableText}</span>
+                          )}
+                        </PickerOption>
+                        <span className="pointer-events-none absolute right-1.5 flex items-center">
+                          <button
+                            type="button"
+                            className={`acpmux-mp-favorite pointer-events-auto grid size-6 cursor-pointer place-items-center rounded-md border-0 bg-transparent p-0 text-muted hover:text-fg ${favorites.has(model.id) ? "" : "invisible group-hover:visible focus-visible:visible"}`}
+                            aria-label={`${starredText}: ${model.name}`}
+                            aria-pressed={favorites.has(model.id)}
+                            title={t(favorites.has(model.id) ? "picker.unstar" : "picker.star")}
+                            onClick={() => toggleFavorite(model.id)}
+                          >
+                            <StarGlyph filled={favorites.has(model.id)} size={13} />
+                          </button>
+                          {checked && (
+                            <span className="grid size-6 place-items-center text-muted">
+                              <CheckIcon />
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    );
+                  })
                 )}
                 {olderCount > 0 && !(selectedOther && selected?.folder && visible.length === 0) && (
                   <button
