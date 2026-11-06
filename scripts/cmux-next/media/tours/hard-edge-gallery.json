@@ -1,0 +1,469 @@
+{
+ "title": "Hard-edge chrome gallery: every value in light and dark, then the transitions",
+ "settings": {
+  "appearance": {
+   "density": "comfortable"
+  }
+ },
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "Today's chrome",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "chrome.hardEdge",
+     "value": "off"
+    }
+   },
+   "wait": 1,
+   "shot": false,
+   "optional": "debug.tunables is DEBUG only"
+  },
+  {
+   "title": "Workspace docs",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "docs",
+    "--cwd",
+    "/tmp"
+   ],
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "A plain $ prompt in docs",
+   "cmux": [
+    "workspace",
+    "name:docs",
+    "screen",
+    "current",
+    "pane",
+    "current",
+    "tab",
+    "current",
+    "terminal",
+    "current",
+    "write",
+    "--text",
+    "\u0015export PS1='$ ' PROMPT='$ '; clear\r"
+   ],
+   "wait": 1,
+   "shot": false,
+   "daemon": true
+  },
+  {
+   "title": "Workspace api",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "api",
+    "--cwd",
+    "/tmp"
+   ],
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "A plain $ prompt in api",
+   "cmux": [
+    "workspace",
+    "name:api",
+    "screen",
+    "current",
+    "pane",
+    "current",
+    "tab",
+    "current",
+    "terminal",
+    "current",
+    "write",
+    "--text",
+    "\u0015export PS1='$ ' PROMPT='$ '; clear\r"
+   ],
+   "wait": 1,
+   "shot": false,
+   "daemon": true
+  },
+  {
+   "title": "Workspace Corner",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Corner",
+    "--cwd",
+    "/tmp"
+   ],
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "A plain $ prompt in Corner",
+   "cmux": [
+    "workspace",
+    "name:Corner",
+    "screen",
+    "current",
+    "pane",
+    "current",
+    "tab",
+    "current",
+    "terminal",
+    "current",
+    "write",
+    "--text",
+    "\u0015export PS1='$ ' PROMPT='$ '; clear\r"
+   ],
+   "wait": 1,
+   "shot": false,
+   "daemon": true
+  },
+  {
+   "title": "Show Corner",
+   "cmux": [
+    "workspace",
+    "name:Corner",
+    "focus"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Browser tab",
+   "cmux": [
+    "tab",
+    "new-browser",
+    "--url",
+    "https://example.com"
+   ],
+   "wait": 4,
+   "shot": false
+  },
+  {
+   "title": "Second browser tab",
+   "cmux": [
+    "tab",
+    "new-browser",
+    "--url",
+    "https://example.org"
+   ],
+   "wait": 4,
+   "shot": false
+  },
+  {
+   "title": "Today (baseline), light",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "chrome.hardEdge",
+     "value": "off"
+    }
+   },
+   "wait": 1,
+   "shot": false,
+   "optional": "debug.tunables is DEBUG only"
+  },
+  {
+   "title": "Today (baseline), light",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "light"
+    }
+   },
+   "wait": 2,
+   "shot": true,
+   "optional": "debug.appearance is DEBUG only"
+  },
+  {
+   "title": "Today (baseline), dark",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "dark"
+    }
+   },
+   "wait": 2,
+   "shot": true,
+   "optional": "debug.appearance is DEBUG only"
+  },
+  {
+   "title": "Chamfer: one 45\u00b0 shape, no curves, light",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "chrome.hardEdge",
+     "value": "chamfer"
+    }
+   },
+   "wait": 1,
+   "shot": false,
+   "optional": "debug.tunables is DEBUG only"
+  },
+  {
+   "title": "Chamfer: one 45\u00b0 shape, no curves, light",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "light"
+    }
+   },
+   "wait": 2,
+   "shot": true,
+   "optional": "debug.appearance is DEBUG only"
+  },
+  {
+   "title": "Chamfer: one 45\u00b0 shape, no curves, dark",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "dark"
+    }
+   },
+   "wait": 2,
+   "shot": true,
+   "optional": "debug.appearance is DEBUG only"
+  },
+  {
+   "title": "Blade: cuts with lit accent lines, light",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "chrome.hardEdge",
+     "value": "blade"
+    }
+   },
+   "wait": 1,
+   "shot": false,
+   "optional": "debug.tunables is DEBUG only"
+  },
+  {
+   "title": "Blade: cuts with lit accent lines, light",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "light"
+    }
+   },
+   "wait": 2,
+   "shot": true,
+   "optional": "debug.appearance is DEBUG only"
+  },
+  {
+   "title": "Blade: cuts with lit accent lines, dark",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "dark"
+    }
+   },
+   "wait": 2,
+   "shot": true,
+   "optional": "debug.appearance is DEBUG only"
+  },
+  {
+   "title": "HUD: layered frames with diamond rivets, light",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "chrome.hardEdge",
+     "value": "hud"
+    }
+   },
+   "wait": 1,
+   "shot": false,
+   "optional": "debug.tunables is DEBUG only"
+  },
+  {
+   "title": "HUD: layered frames with diamond rivets, light",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "light"
+    }
+   },
+   "wait": 2,
+   "shot": true,
+   "optional": "debug.appearance is DEBUG only"
+  },
+  {
+   "title": "HUD: layered frames with diamond rivets, dark",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "dark"
+    }
+   },
+   "wait": 2,
+   "shot": true,
+   "optional": "debug.appearance is DEBUG only"
+  },
+  {
+   "title": "Light for the transitions",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "light"
+    }
+   },
+   "wait": 2,
+   "shot": false,
+   "optional": "debug.appearance is DEBUG only"
+  },
+  {
+   "title": "Transitions start: today",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "chrome.hardEdge",
+     "value": "off"
+    }
+   },
+   "wait": 2,
+   "shot": true,
+   "optional": "debug.tunables is DEBUG only"
+  },
+  {
+   "title": "off \u2192 chamfer",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "chrome.hardEdge",
+     "value": "chamfer"
+    }
+   },
+   "wait": 2,
+   "shot": true,
+   "optional": "debug.tunables is DEBUG only"
+  },
+  {
+   "title": "chamfer \u2192 blade",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "chrome.hardEdge",
+     "value": "blade"
+    }
+   },
+   "wait": 2,
+   "shot": true,
+   "optional": "debug.tunables is DEBUG only"
+  },
+  {
+   "title": "blade \u2192 hud",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "chrome.hardEdge",
+     "value": "hud"
+    }
+   },
+   "wait": 2,
+   "shot": true,
+   "optional": "debug.tunables is DEBUG only"
+  },
+  {
+   "title": "hud \u2192 blade",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "chrome.hardEdge",
+     "value": "blade"
+    }
+   },
+   "wait": 2,
+   "shot": true,
+   "optional": "debug.tunables is DEBUG only"
+  },
+  {
+   "title": "Next tab",
+   "cmux": [
+    "action",
+    "run",
+    "tab.next"
+   ],
+   "wait": 2,
+   "shot": true
+  },
+  {
+   "title": "Next tab again",
+   "cmux": [
+    "action",
+    "run",
+    "tab.next"
+   ],
+   "wait": 2,
+   "shot": true
+  },
+  {
+   "title": "Another workspace",
+   "cmux": [
+    "workspace",
+    "name:api",
+    "focus"
+   ],
+   "wait": 2,
+   "shot": true
+  },
+  {
+   "title": "Back to Corner",
+   "cmux": [
+    "workspace",
+    "name:Corner",
+    "focus"
+   ],
+   "wait": 2,
+   "shot": true
+  },
+  {
+   "title": "Hide the sidebar",
+   "cmux": [
+    "action",
+    "run",
+    "toggleSidebar"
+   ],
+   "wait": 2,
+   "shot": true
+  },
+  {
+   "title": "Show the sidebar",
+   "cmux": [
+    "action",
+    "run",
+    "toggleSidebar"
+   ],
+   "wait": 2,
+   "shot": true
+  },
+  {
+   "title": "Dark, blade",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "dark"
+    }
+   },
+   "wait": 2,
+   "shot": true,
+   "optional": "debug.appearance is DEBUG only"
+  }
+ ]
+}
