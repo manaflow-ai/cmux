@@ -4,7 +4,6 @@ import CmuxNextAgentActivity
 @testable import CmuxNextApps
 @testable import CmuxNextBrowser
 @testable import CmuxNextDesign
-@testable import CmuxNextFeed
 @testable import CmuxNextRemoteView
 @testable import CmuxNextServer
 @testable import CmuxNextTasks
@@ -36,14 +35,6 @@ import Testing
         Self.expect(colors.attention, Self.app.attention, "attention")
         Self.expect(colors.danger, Self.app.danger, "danger")
         Self.expect(colors.success, Self.app.success, "success")
-    }
-
-    @Test func theFeedStartsInTheAppTheme() {
-        let colors = FeedColors()
-        Self.expect(colors.primary, Self.app.textPrimary, "primary")
-        Self.expect(colors.tertiary, Self.app.textTertiary, "tertiary")
-        Self.expect(colors.selection, Self.app.selectionFill, "selection")
-        Self.expect(colors.danger, Self.app.danger, "danger")
     }
 
     @Test func theServerUIStartsInTheAppTheme() {

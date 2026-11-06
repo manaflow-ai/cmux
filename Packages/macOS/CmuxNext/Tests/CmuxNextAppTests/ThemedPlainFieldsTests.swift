@@ -1,7 +1,6 @@
 import AppKit
 @testable import CmuxNextApps
 import CmuxNextDesign
-@testable import CmuxNextFeed
 @testable import CmuxNextTasks
 import CmuxNextTestSupport
 import Foundation
@@ -11,8 +10,7 @@ import Testing
 /// Theme sweep 3, batch G: the SwiftUI `.plain` text fields that sit in their own chrome (a row, a
 /// capsule search, a filled reply box) were SwiftUI's stock fields, so their placeholder drew
 /// macOS's gray, and their text and caret the appearance's, whatever the room's theme: the new-task
-/// field, the app store search, the feed inbox filter, the feed's reply field and an app scene's
-/// text field. Hosted in a purple room, each draws the scope's text and hint inks.
+/// field, the app store search and an app scene's text field. Hosted in a purple room, each draws the scope's text and hint inks.
 @MainActor @Suite(.serialized, .closesItsWindows) struct ThemedPlainFieldsTests {
     /// `view` hosted in a window whose content roots the purple room.
     private static func host(_ view: some View, _ scope: ThemeScope, size: NSSize = NSSize(width: 520, height: 320)) -> (NSWindow, NSView) {
@@ -62,34 +60,6 @@ import Testing
         try Self.expectThemedField(in: root, scope, placeholder: TasksStrings.newTaskPlaceholder, "new task")
     }
 
-    @Test func theFeedInboxFilterDrawsTheTheme() throws {
-        let scope = try ThemedOverlayColorsTests.purpleRoom()
-        let header = FeedInboxHeader(filter: .constant(FeedInboxFilter()), hasUnread: true, canRefresh: true, canAddConnection: false,
-                                     markRead: {}, refresh: {}, addConnection: {})
-        let (window, root) = Self.host(header, scope)
-        defer { window.contentView = nil; window.close() }
-        try Self.expectThemedField(in: root, scope, placeholder: FeedStrings.filterInbox, "feed filter")
-    }
-
-    /// The Feed inbox's Reports tab (the reports basket) hides the item search, which belongs to the items.
-    @Test func theFeedReportsTabHidesTheItemSearch() throws {
-        let scope = try ThemedOverlayColorsTests.purpleRoom()
-        for (connection, fields) in [(FeedInboxFilter.Connection.feed, 1), (.reports, 0)] {
-            let header = FeedInboxHeader(filter: .constant(FeedInboxFilter(connection: connection)), hasUnread: true, canRefresh: true,
-                                         canAddConnection: false, markRead: {}, refresh: {}, addConnection: {}, showsReports: true)
-            let (window, root) = Self.host(header, scope)
-            defer { window.contentView = nil; window.close() }
-            #expect(HomeSheetThemeTests.editableFields(in: root).count == fields, "\(connection): \(fields) search field(s)")
-        }
-    }
-
-    @Test func theFeedReplyFieldDrawsTheTheme() throws {
-        let scope = try ThemedOverlayColorsTests.purpleRoom()
-        let (window, root) = Self.host(FeedTextField(placeholder: FeedStrings.reply, text: .constant("")), scope)
-        defer { window.contentView = nil; window.close() }
-        try Self.expectThemedField(in: root, scope, placeholder: FeedStrings.reply, "feed reply")
-    }
-
     @Test func anAppSceneTextFieldDrawsTheTheme() throws {
         let scope = try ThemedOverlayColorsTests.purpleRoom()
         let model = AppSceneModel()
@@ -97,25 +67,6 @@ import Testing
         let (window, root) = Self.host(AppSceneNodeView(model: model, id: "name"), scope, size: NSSize(width: 240, height: 60))
         defer { window.contentView = nil; window.close() }
         try Self.expectThemedField(in: root, scope, placeholder: "Name", "app scene field")
-    }
-
-    /// VoiceOver still names a field once it holds text: the stock field's title was its label, and
-    /// the themed placeholder alone disappears when text is typed.
-    @Test func aFieldWithTextKeepsItsPlaceholderAsItsLabel() throws {
-        let scope = try ThemedOverlayColorsTests.purpleRoom()
-        let header = FeedInboxHeader(filter: .constant(FeedInboxFilter(query: "bug")), hasUnread: true, canRefresh: true,
-                                     canAddConnection: false, markRead: {}, refresh: {}, addConnection: {})
-        let (window, root) = Self.host(header, scope)
-        defer { window.contentView = nil; window.close() }
-        let field = try #require(HomeSheetThemeTests.editableFields(in: root).first)
-        #expect(field.stringValue == "bug")
-        #expect(field.accessibilityLabel() == FeedStrings.filterInbox, "label: \(String(describing: field.accessibilityLabel()))")
-
-        let reply = FeedTextField(placeholder: FeedStrings.reply, text: .constant("Looks good"))
-        let (replyWindow, replyRoot) = Self.host(reply, scope)
-        defer { replyWindow.contentView = nil; replyWindow.close() }
-        let replyField = try #require(HomeSheetThemeTests.editableFields(in: replyRoot).first)
-        #expect(replyField.accessibilityLabel() == FeedStrings.reply, "label: \(String(describing: replyField.accessibilityLabel()))")
     }
 
     /// New Task still puts the keyboard in the field, and Escape still clears it and lets go.
