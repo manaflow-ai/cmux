@@ -14,6 +14,7 @@ export function PanelToggle({
   onToggle,
   className,
   icon = "view.list.short",
+  selectedGlyph = false,
 }: {
   label: string;
   shown: boolean;
