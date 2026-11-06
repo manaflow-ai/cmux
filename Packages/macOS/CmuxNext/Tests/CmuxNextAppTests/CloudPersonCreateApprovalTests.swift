@@ -19,6 +19,7 @@ import Testing
         /// The hold was answered elsewhere: this Mac finds its feed item closed, and the op goes on (or not).
         var closedElsewhere = false
         var answersAfterClose = true
+        var sent: [JSONValue] = []
     }
 
     private nonisolated static let machine: JSONValue = .object(["id": .string("vm_00000000000000000009"), "status": .string("provisioning")])
@@ -75,12 +76,11 @@ import Testing
     /// checked against the backend's capabilities, never sent: an approval of what was sent is the one this Mac answers.
     @Test func optionsThisMacAppliesAreCheckedButNotSentSoTheHeldApprovalMatches() async throws {
         let calls = Calls()
-        var sent: [JSONValue] = []
         var checked: [JSONValue] = []
         var answered: [JSONValue] = []
         var create = CloudMachineCreateFlow(
             run: { _, args, _, _ in
-                await MainActor.run { sent.append(args) }
+                await MainActor.run { calls.sent.append(args) }
                 if await MainActor.run(body: { calls.pending }) {
                     throw CloudAppOpFailure(code: CloudAppOpFailure.approvalPending, message: "", details: .object(["request": .string("apr_1")]))
                 }
@@ -93,6 +93,7 @@ import Testing
         var request = CloudMachineRequest(name: "box", size: "medium", memoryMb: 8192, persistent: true, repo: CloudMachineRepo(owner: "o", name: "r"))
         request.script = CloudMachineBootstrap(kind: .plain, contents: CloudMachineBootstrap.noScript, repo: request.repo)
         _ = try await create.create(name: "box", startedByPerson: true, request: request)
+        let sent = calls.sent
         guard case .object(let options)? = checked.first else { Issue.record("no options were checked"); return }
         #expect(options["bootstrap"] != nil && options["size_name"] == .string("medium") && options["idle_seconds"] == .number(0))
         #expect(sent.count == 2)
