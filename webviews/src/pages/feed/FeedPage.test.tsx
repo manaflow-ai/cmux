@@ -266,7 +266,7 @@ test("Needs you: rows with one-click answers, cards, and the one-line bar", asyn
   const choice = all(".feed-needs-row").find((row) => row.dataset.item === "fi_claude_choice")!;
   expect(choice.querySelector(".feed-needs-answers")).toBeNull();
   await click(host.querySelector<HTMLElement>(".feed-needs-more")!);
-  expect(provider.calls.at(-1)!.params).toEqual({ action: "feed.show", args: {} });
+  expect(provider.calls.at(-1)!.params).toEqual({ action: "feed.openItem", args: {} });
   act(() => root?.unmount());
 
   await mount("#/needs-you?style=cards");

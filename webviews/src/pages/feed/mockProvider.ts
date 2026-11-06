@@ -9,6 +9,7 @@ import { LINK_CLOSED, MockPageStreams } from "../shared/pageStreams";
 import {
   ACTION_RUN,
   FeedOps,
+  OPERATION_FAILED,
   type FeedEntry,
   type FeedGroup,
   type FeedIntentParams,
@@ -20,6 +21,14 @@ import {
   type GitHubDetail,
   type ViewItem,
 } from "./types";
+
+/** A feed refusal as the daemon sends it through the relay: the catalog's `operation.failed`
+ * with the feed code (and `feed.closed`'s item) in `details.extra`. */
+export function feedRefusal(code: string, reason: string, item?: ViewItem): Error {
+  const extra: Record<string, unknown> = { code };
+  if (item) extra.details = { item };
+  return pageError(OPERATION_FAILED, reason, false, { operation: "feed.intent", reason, extra });
+}
 
 /** An item as the owner stores it: the view adds `row` and `pending`. */
 export type MockItem = Omit<ViewItem, "row" | "pending">;
@@ -370,7 +379,7 @@ export class MockFeedProvider implements PageClient {
   private intent(params: FeedIntentParams): { settled: true } {
     if (this.options.refuse) {
       const item = this.items.find((other) => other.id === params.item);
-      throw pageError(this.options.refuse, "refused", false, item ? { item: this.toView(item) } : undefined);
+      throw feedRefusal(this.options.refuse, "refused", item ? this.toView(item) : undefined);
     }
     const now = this.now();
     const change = (ids: readonly string[], patch: (item: MockItem) => MockItem) => {
@@ -381,7 +390,7 @@ export class MockFeedProvider implements PageClient {
       case "answer": {
         const item = this.items.find((other) => other.id === params.item);
         if (!item || item.state !== "open")
-          throw pageError("feed.closed", "closed", false, item ? { item: this.toView(item) } : undefined);
+          throw feedRefusal("feed.closed", "closed", item ? this.toView(item) : undefined);
         change([item.id], (other) => ({
           ...other,
           state: "answered",

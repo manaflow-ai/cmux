@@ -277,14 +277,22 @@ export const FeedActions = {
   openItem: "feed.openItem",
   /** A GitHub item's action (`{item, action, comment?}`). */
   githubAction: "feed.githubAction",
-  /** Settings at the GitHub connection (Add connection). */
-  addConnection: "feed.addConnection",
+  /** Settings (Add connection opens Notifications at the GitHub setting). */
+  openSettings: "openSettings",
 } as const;
+
+/** Add connection's Settings place: the GitHub connection's switch. */
+export const ADD_CONNECTION_SETTINGS = { section: "notifications", setting: "feed.github.enabled" } as const;
+
+/** The catalog refusal a feed refusal arrives in (the relay prefixes `cmux.`); its feed code is
+ * `details.extra.code`, and `feed.closed`'s item `details.extra.details.item`. */
+export const OPERATION_FAILED = "cmux.operation.failed";
 
 /** Refusal codes of `feed.intent` (feed-page.md section 2). */
 export const FeedRejectCodes = {
   closed: "feed.closed",
   moving: "feed.moving",
   disconnected: "feed.disconnected",
-  invalid: "validation.invalid",
+  rejected: "feed.rejected",
+  invalid: "cmux.validation.invalid",
 } as const;

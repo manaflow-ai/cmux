@@ -37,7 +37,9 @@ import {
 } from "./model";
 import {
   ACTION_RUN,
+  ADD_CONNECTION_SETTINGS,
   FeedActions,
+  OPERATION_FAILED,
   FeedOps,
   FeedRejectCodes,
   type FeedApproveScope,
@@ -314,17 +316,22 @@ export class FeedStore {
     this.run(FeedActions.openItem, { item: id });
   }
 
-  /** Opens the Feed (Needs you's "N more", its bar with more than one request). */
+  /** Opens the Inbox (Needs you's "N more", its bar with more than one request): `feed.openItem`
+   * without an item. */
   showFeed(): void {
-    this.run("feed.show", {});
+    this.run(FeedActions.openItem, {});
   }
 
+  /** Settings > Notifications at the GitHub connection. */
   addConnection(): void {
-    this.run(FeedActions.addConnection, {});
+    this.run(FeedActions.openSettings, { ...ADD_CONNECTION_SETTINGS });
   }
 
   refresh(): void {
-    if (this.client) void this.client.call(FeedOps.githubRefresh, {}).catch((error: unknown) => this.fail(error));
+    if (this.client)
+      void this.client
+        .call(FeedOps.githubRefresh, { idempotency_key: this.key() })
+        .catch((error: unknown) => this.fail(error));
   }
 
   private run(action: string, args: Record<string, unknown>): void {
@@ -504,6 +511,8 @@ export class FeedStore {
         session: reply.session,
         text: reply.text,
         prompt_id: reply.promptId,
+        // The same reply sent again is the same mutation: acpmux delivers it once.
+        idempotency_key: reply.promptId,
       });
       sent = result?.sent === true;
     } catch {
@@ -546,12 +555,21 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** A refusal frame as the page's reject (FeedWireEncode.reject). */
+/** The feed's refusal code and details: a feed refusal is the catalog's `operation.failed` with the
+ * code in `details.extra` (feed-page.md section 2); any other refusal is its own code. */
+export function feedRefusal(error: { code: string; details?: unknown }): { code: string; details?: unknown } {
+  if (error.code !== OPERATION_FAILED) return { code: error.code, details: error.details };
+  const extra = (error.details as { extra?: { code?: unknown; details?: unknown } } | undefined)?.extra;
+  return typeof extra?.code === "string" ? { code: extra.code, details: extra.details } : { code: error.code };
+}
+
+/** A refusal as the page's reject (FeedWireEncode.reject). */
 export function rejectOf(error: unknown): FeedReject {
   if (!isPageError(error)) return { kind: "refused", message: message(error) };
-  switch (error.code) {
+  const refusal = feedRefusal(error);
+  switch (refusal.code) {
     case FeedRejectCodes.closed: {
-      const details = error.details as { item?: ViewItem } | undefined;
+      const details = refusal.details as { item?: ViewItem } | undefined;
       return { kind: "closed", item: details?.item };
     }
     case FeedRejectCodes.moving:

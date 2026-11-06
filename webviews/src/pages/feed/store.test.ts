@@ -6,9 +6,9 @@ import { pageError, type PageClient } from "../shared/pageClient";
 import { formatString } from "../shared/i18n";
 import generated from "./generated/strings.json";
 import { rejectText } from "./FeedPage";
-import { MockFeedProvider, sampleFeed } from "./mockProvider";
-import { FeedStore } from "./store";
-import { ACTION_RUN, FeedOps, type FeedIntentParams, type FeedView, type FeedViewParams } from "./types";
+import { feedRefusal, MockFeedProvider, sampleFeed } from "./mockProvider";
+import { FeedStore, rejectOf } from "./store";
+import { ACTION_RUN, FeedOps, type FeedIntentParams, type FeedView, type FeedViewParams, type ViewItem } from "./types";
 
 const en = (generated as Record<string, Record<string, string>>).en!;
 const strings = {
@@ -262,7 +262,10 @@ describe("intents", () => {
     ok.store.addConnection();
     await settle();
     expect(ok.provider.calls.some((call) => call.op === FeedOps.githubRefresh)).toBe(true);
-    expect(ok.provider.calls.at(-1)!.params).toEqual({ action: "feed.addConnection", args: {} });
+    expect(ok.provider.calls.at(-1)!.params).toEqual({
+      action: "openSettings",
+      args: { section: "notifications", setting: "feed.github.enabled" },
+    });
   });
 });
 
@@ -277,8 +280,8 @@ describe("reports basket", () => {
     await store.sendReportReply();
     const replies = provider.calls.filter((call) => call.op === FeedOps.reportsReply).map((call) => call.params);
     expect(replies).toEqual([
-      { session: "mini-3:codex-infra", text: "Go ahead", prompt_id: "k1" },
-      { session: "mini-3:codex-infra", text: "Go ahead", prompt_id: "k1" },
+      { session: "mini-3:codex-infra", text: "Go ahead", prompt_id: "k1", idempotency_key: "k1" },
+      { session: "mini-3:codex-infra", text: "Go ahead", prompt_id: "k1", idempotency_key: "k1" },
     ]);
     const ok = setup();
     await ok.store.start();
@@ -309,5 +312,20 @@ describe("reports basket", () => {
     const store = new FeedStore(client, "#/inbox", { clock: () => NOW });
     await store.start();
     expect(store.getSnapshot()).toMatchObject({ reportsLoaded: true, reports: [], link: "connected" });
+  });
+});
+
+describe("refusals", () => {
+  test("a feed refusal is read from operation.failed's details.extra", () => {
+    const item = { id: "fi_1", state: "answered" } as unknown as ViewItem;
+    expect(rejectOf(feedRefusal("feed.closed", "closed", item))).toEqual({ kind: "closed", item });
+    expect(rejectOf(feedRefusal("feed.moving", "moving"))).toEqual({ kind: "moving" });
+    expect(rejectOf(feedRefusal("feed.disconnected", "offline"))).toEqual({ kind: "disconnected" });
+    expect(rejectOf(feedRefusal("feed.rejected", "no"))).toEqual({ kind: "refused", message: "no" });
+    expect(rejectOf(pageError("cmux.validation.invalid", "bad answer"))).toEqual({
+      kind: "refused",
+      message: "bad answer",
+    });
+    expect(rejectOf(pageError("cmux.operation.failed", "gone"))).toEqual({ kind: "refused", message: "gone" });
   });
 });
