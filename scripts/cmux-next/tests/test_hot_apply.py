@@ -80,7 +80,8 @@ class HotApplyRust(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         plan = json.loads(done.stdout)
         self.assertEqual(plan["parts"], ["rust"])
-        self.assertEqual(plan["left"], {})
+        # cmux-mobile-host builds from cmux-wg too: it keeps the nightly's build, and says so.
+        self.assertEqual(list(plan["left"]), ["bundled helpers (cmux-mobile-host, ...)"])
         self.assertEqual(plan["tree_key"], self.key)
 
     def test_apply_then_rollback_restores_the_prior_sha(self):
@@ -96,6 +97,44 @@ class HotApplyRust(unittest.TestCase):
         self.assertTrue(receipt["ok"])
         self.assertEqual(receipt["steps"]["rust"]["running_sha256"], self.old)
         self.assertEqual(self.sha(), self.old)
+
+    def test_a_nightly_s_short_commit_stamp_is_resolved(self):
+        with open(self.app / "Contents/Info.plist", "wb") as handle:
+            plistlib.dump({"CMUXCommit": self.base[:11]}, handle)
+        done = subprocess.run([sys.executable, str(SCRIPT), "plan", FIX, "--app", str(self.app)],
+                              capture_output=True, text=True, env=self.env)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(json.loads(done.stdout)["base"], self.base)
+
+    def test_a_rollback_that_fails_can_be_tried_again(self):
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app))
+        self.assertEqual(code, 0, err)
+        kept = self.tmp / "state/builds" / self.old / "cmux"
+        good = kept.read_bytes()
+        kept.write_bytes(b"#!/bin/sh\necho damaged\n")
+        code, receipt, _ = self.hot("rollback")
+        self.assertEqual(code, 1)
+        self.assertFalse(receipt["ok"])
+        self.assertIn("rust", receipt["undo"])
+        kept.write_bytes(good)
+        code, receipt, err = self.hot("rollback")
+        self.assertEqual(code, 0, err)
+        self.assertTrue(receipt["ok"])
+        self.assertEqual(self.sha(), self.old)
+
+    def test_an_acpmux_home_restarts_its_own_daemon_not_an_inherited_socket_s(self):
+        log = self.tmp / "acpmux.log"
+        acpmux = self.app / "Contents/Resources/bin/acpmux"
+        acpmux.write_text(f'#!/bin/sh\necho "$ACPMUX_HOME|${{ACPMUX_SOCKET:-}}|$*" >> {log}\n')
+        acpmux.chmod(0o755)
+        self.env["ACPMUX_SOCKET"] = str(self.tmp / "other.sock")
+        code, _, err = self.hot("apply", FIX, "--app", str(self.app), "--acpmux-home", str(self.tmp / "home"))
+        self.assertEqual(code, 0, err)
+        code, receipt, err = self.hot("rollback")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(receipt["steps"]["rust"]["acpmux"], [{"home": str(self.tmp / "home"), "restarted": True}])
+        # Once for the apply, once for the rollback, each on the home and never on the inherited socket.
+        self.assertEqual(log.read_text().splitlines(), [f"{self.tmp / 'home'}||daemon restart"] * 2)
 
     def test_a_binary_that_does_not_hash_to_its_published_sha_changes_nothing(self):
         self.publish(b"#!/bin/sh\necho tampered\n", self.new)
