@@ -226,8 +226,8 @@ fn withdraw(n: i64, prompt_id: &str) -> Message {
 async fn a_withdraw_keeps_the_order_of_lines_past_the_cap() {
     let (t, mut q) = stepping().await;
     let big = |i: usize| format!("{i}:{}", "x".repeat(BATCH_MAX_BYTES * 2 / 5));
-    for i in 0..3 {
-        write(&t, &mut q, &from(i as i64 + 2, SENDERS[i], &big(i))).await;
+    for (i, sender) in SENDERS.iter().enumerate() {
+        write(&t, &mut q, &from(i as i64 + 2, sender, &big(i))).await;
         q.settle(&t).await;
     }
     write(&t, &mut q, &from(5, "lane-d", "text 5")).await;
