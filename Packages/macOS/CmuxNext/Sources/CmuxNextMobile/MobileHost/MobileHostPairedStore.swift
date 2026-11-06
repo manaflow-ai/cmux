@@ -267,7 +267,7 @@ public final class MobileHostPairedStore: Sendable {
         for device in next.devices where stored?.denied.contains(where: { $0.id == device.id }) == true { return false }
         // A device whose kind, keys or grants changed is written: kept in memory, the stored list would
         // grant the old ones again at the next launch.
-        for (id, device) in before where after[id].map({ $0.sameKeys(as: device) && $0.grants == device.grants }) != true { return false }
+        for (id, device) in before where after.first(where: { $0.key == id }).map({ $0.value.sameKeys(as: device) && $0.value.grants == device.grants }) != true { return false }
         for (id, device) in after where !before.keys.contains(id) {
             if let old = kept[id], !old.sameKeys(as: device) { return false }
         }
