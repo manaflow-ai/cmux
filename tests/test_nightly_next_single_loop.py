@@ -42,9 +42,13 @@ else:
         failures.append("retry-nightly-next dispatches nightly.yml: it needs actions: write")
     body = "\n".join(str(step.get("run", "")) for step in retry.get("steps", []))
     for piece in ("git/ref/heads/nightly-next", '"$head" != "$SHA"', '-gt 2', "nightly_next_loop_retry=",
-                  "nightly_next_unsigned_run=", "gh workflow run nightly.yml"):
+                  "gh workflow run nightly.yml"):
         if piece not in body:
             failures.append(f"retry-nightly-next must check the head, cap at two and dispatch ({piece})")
+    # A push can land between the head check and the dispatch and lose its pending place to the retry;
+    # the retry then runs at that newer head, so resuming this run's unsigned app would publish the older one.
+    if "nightly_next_unsigned_run" in body:
+        failures.append("retry-nightly-next must build the head again, never resume this run's unsigned app")
     runs_on = str(retry.get("runs-on", ""))
     if "blacksmith" in runs_on.lower() or "ubuntu-24.04' ||" in runs_on.replace("'ubuntu-24.04' || vars", ""):
         failures.append("retry-nightly-next stays on the nightly mini")
