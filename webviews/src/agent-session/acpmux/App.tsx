@@ -2588,15 +2588,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [mentionsKey],
   );
   // Each session reference's hover card reads the session from one store (started/SessionHoverCard.tsx).
+  // Every reference to one of the reader's chats has it (an agent link, a session name, a sender's
+  // name; Leo, 2026-11-05), with started session cards on or off: the experiment draws the cards and
+  // the name chips of started chats, not the hover.
   const hoverStore = useRef<SessionHoverStore | null>(null);
   hoverStore.current ??= new SessionHoverStore();
   useLayoutEffect(() => {
-    if (startedOn) hoverStore.current!.set(snapshot.sessions);
-  }, [startedOn, snapshot.sessions]);
-  const sessionHover = useMemo<SessionHover | null>(
-    () => (startedOn ? { store: hoverStore.current!, open: openOfferChat } : null),
-    [startedOn],
-  );
+    hoverStore.current!.set(snapshot.sessions);
+  }, [snapshot.sessions]);
+  const sessionHover = useMemo<SessionHover>(() => ({ store: hoverStore.current!, open: openOfferChat }), []);
   // The transcript's sub-session cards read each sub-session's state from one store, so a session
   // changing never redraws a turn (subagents/subsessions.ts); a name opens its chat beside this one.
   const subsessionStore = useRef<SubsessionStore | null>(null);
@@ -2758,8 +2758,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const planInHat = subagentTray && !pinnedPlan && !sessionStatus && !quick && !childRows && snapshot.isWorking;
   const hatPlanRow = useMemo(() => (planInHat ? liveTurnPlan(turnRowsShown) : undefined), [planInHat, turnRowsShown]);
   // A running turn with no list of its own yet keeps the agent's earlier list with steps left in
-  // sight, marked as from before the person's last message (turns.ts earlierTurnPlan; Claude desktop's
-  // pinned task list). It stays folded in its own turn too; the copy goes once the agent writes a list.
+  // sight, marked as from before the person's last message (turns.ts earlierTurnPlan). It stays folded in its own turn too; the copy goes once the agent writes a list.
   const earlierPlanRow = useMemo(
     () =>
       snapshot.isWorking && !quick && !childRows && !liveTurnPlan(turnRowsShown)

@@ -225,7 +225,7 @@ public final class PaletteController {
         captureContext()
         let flow = PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: sources.targets,
                                        captured: capturedTargets, preview: sources.argumentPreview,
-                                       swatches: sources.argumentSwatches, ask: ask)
+                                       swatches: sources.argumentSwatches, ask: ask, creators: sources.targetCreators)
         let effect = flow.effect(collected: invocation)
         if case .perform(let handler) = effect {
             // Nothing left to ask.

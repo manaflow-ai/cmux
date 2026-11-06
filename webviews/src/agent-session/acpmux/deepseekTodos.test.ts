@@ -178,3 +178,11 @@ test("a list cleared in the next turn ends the earlier list's carry-over", async
   expect(earlier?.planCleared).toBe(true);
   expect(earlierTurnPlan(rows.map((row) => ({ ...row, turnEnded: row.kind === "plan" })) as never)).toBeUndefined();
 });
+
+test("a later call under a todo call's id draws its own row", async () => {
+  // An adapter that numbers calls per run reuses an id; the new call is not the hidden todo call.
+  const rows = await turnRows(
+    turn(PROMPT, todoCall("c1", START), todoDone("c1"), plan(START), ...read("c1"), say("Read it.")),
+  );
+  expect(titles(rows)).toEqual(["read"]);
+});
