@@ -309,7 +309,8 @@ input-principles.md, hold-shortcuts-ux.md, repeat-runoff.md). Keys go out on the
 each, stamped with their scheduled time, so a main thread that falls behind sees a queue of old repeats as with a
 real held key; `debug.key {repeat: true}` sends an auto-repeat (the app's repeat gate reads that key as down).
 Steps: `spam_remember`, `hold_key` (one press, repeats every 33 ms from 250 ms, then the key is up; keeps the counts
-one frame after the key-up as `AS_release`), `hammer_key` (N physical presses within T seconds). Conditions:
+one frame after the key-up as `AS_release`), `hammer_key` (N physical presses within T seconds), `hammer_keys` (a pattern of
+shortcuts, such as Cmd-T then Cmd-W, played N times within T seconds). Conditions:
 `spam_counts` (tabs, panes, the focused pane's tabs, workspaces against a remembered count, by a delta or by the
 runs a hold reported), `spam_unchanged` (negative: nothing changed after the key-up, with `settle`),
 `spam_selected` (the selection moved N places, for Ctrl-Tab and Cmd-Shift-[ ]), `spam_runs`. The docstring has

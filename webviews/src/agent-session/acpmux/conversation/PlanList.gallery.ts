@@ -5,12 +5,35 @@
 // earlier the composer hat is kinda ok?"); Settings > Agent Chat > Pin Task List in Chat pins it under
 // the latest message instead (`pinned-setting`). Once the turn ends it folds, where it stood, to its
 // "3 of 3 tasks done" line. With Debug Settings agent.sessionStatus on, the activity line under it names what
-// the agent is doing now (ActivityLine.tsx, cx-ncc.102).
+// the agent is doing now (ActivityLine.tsx, cx-ncc.102). A new prompt whose turn has no list of its
+// own yet keeps the earlier list with steps left in sight, "From before your last message", as Claude
+// desktop does (`earlier-*`; turns.ts earlierTurnPlan; Leo, 2026-11-05: "i like these plans too...").
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import type { AcpmuxPlanEntry } from "../model";
 
 const todo = (content: string, status: AcpmuxPlanEntry["status"]): AcpmuxPlanEntry => ({ content, status });
+
+/// A turn stopped with steps left, then the person's next message, whose turn runs with no list yet.
+const earlierTurn = (extra: ReturnType<typeof row>[] = []) =>
+  chat(
+    [
+      user("Add retry to the uploader, cover it and update the docs", 8),
+      row("plan", 7.9, {
+        plan: [
+          todo("Add retry to the uploader", "completed"),
+          todo("Cover it with a test", "in_progress"),
+          todo("Update the docs", "pending"),
+        ],
+      }),
+      assistant("Retry is in. Stopped before the test.", 7),
+      summary(7, { status: "cancelled", durationMs: 41_000, toolCount: 3 }),
+      user("Use 250 ms for the first backoff, then carry on", 0.4),
+      assistant("Switching the first backoff to 250 ms.", 0.2),
+      ...extra,
+    ],
+    { isWorking: true },
+  );
 
 export default agentPaneEntry({
   id: "agent-pane.plan-list",
@@ -122,6 +145,48 @@ export default agentPaneEntry({
         ],
         { isWorking: true },
       ),
+    },
+    "earlier-hat": {
+      note: 'The person wrote again after a turn stopped with steps left, and the new turn has no list yet: the hat keeps the earlier one, "Earlier plan · 1 of 3", naming no step at work.',
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
+        const title = ctx.find({ selector: ".acpmux-running-tray__title" }).textContent;
+        if (title !== "Earlier plan · 1 of 3") throw new Error(`unexpected hat: ${title}`);
+      },
+      snapshot: earlierTurn(),
+    },
+    "earlier-hat-open": {
+      note: 'The hat opened on the earlier list: its line says "From before your last message", the steps read muted and nothing spins.',
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
+        await ctx.click({ selector: ".acpmux-running-tray__head" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray .cv-plan[data-earlier]"));
+        if (ctx.document.querySelector(".acpmux-running-tray .cv-plan .cv-spinner__arc"))
+          throw new Error("an earlier list never spins");
+      },
+      snapshot: earlierTurn(),
+    },
+    "earlier-pinned": {
+      note: "Pin Task List in Chat on: the earlier list pins under the running turn's latest message, over the live line, marked as from before the last message; its own turn keeps its folded line.",
+      display: { "agentPane.display.pinnedPlan": true },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-plan[data-earlier]"));
+        if (ctx.document.querySelector(".acpmux-running-tray")) throw new Error("no hat: the list is pinned");
+      },
+      snapshot: earlierTurn(),
+    },
+    "earlier-replaced": {
+      note: "The new turn wrote its own list: only that one shows, as the running turn's, and the earlier one stays folded in its turn.",
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
+        const title = ctx.find({ selector: ".acpmux-running-tray__title" }).textContent;
+        if (title !== "0 of 2 · Change the first backoff to 250 ms") throw new Error(`unexpected hat: ${title}`);
+      },
+      snapshot: earlierTurn([
+        row("plan", 0.1, {
+          plan: [todo("Change the first backoff to 250 ms", "in_progress"), todo("Cover it with a test", "pending")],
+        }),
+      ]),
     },
     "pinned-setting": {
       note: "Settings > Agent Chat > Pin Task List in Chat on: the list is pinned under the latest message with the live line under it, and the hat shows no plan.",

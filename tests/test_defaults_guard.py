@@ -19,8 +19,10 @@ from unittest.mock import patch
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/defaults_guard.py"
+GRAMMAR = ROOT / "scripts/ci/receipt_grammar.py"
 AUTHOR = "teamleaderleo"
 OWNERS = {"cmux-next": ["lawrencecchen", "austinywang", "teamleaderleo"]}
+REVIEWER = "austinywang"  # a member account other than the author: a receipt from it keeps the rule from before Author-agent
 PRIVATE_MEMBER = "hq-reviewer"  # a private org member with write access who is no call owner
 
 
@@ -82,6 +84,7 @@ class DefaultsGuardTests(unittest.TestCase):
         self.repo = Repo(pathlib.Path(self.tmp.name))
         self.repo.git("init", "-q")
         self.repo.write("scripts/ci/defaults_guard.py", SCRIPT.read_text(encoding="utf-8"))
+        self.repo.write("scripts/ci/receipt_grammar.py", GRAMMAR.read_text(encoding="utf-8"))
         self.repo.write(".github/defaults-call-owners.json", json.dumps(OWNERS))
         self.repo.sources(BASE_ACTIONS, BASE_SETTINGS)
         self.base = self.repo.commit("base")
@@ -98,8 +101,8 @@ class DefaultsGuardTests(unittest.TestCase):
         self.repo.git("checkout", "-q", self.base)  # the workflow runs the base's guard and owners
         return head
 
-    def check(self, head, reviews=(), author=AUTHOR, comments=()):
-        pull = {"author": {"login": author}, "headRefOid": head, "merged": False,
+    def check(self, head, reviews=(), author=AUTHOR, comments=(), body=""):
+        pull = {"author": {"login": author}, "body": body, "headRefOid": head, "merged": False,
                 "reviews": {"nodes": [{"author": {"login": who}, "state": state, "commit": {"oid": oid}}
                                       for who, state, oid in reviews]},
                 "comments": {"nodes": [self.comment_node(n, item)
@@ -555,7 +558,7 @@ struct Flags: TunableFactory {
     # An independent review receipt on the head passes any change (Leo 2026-10-21).
 
     def receipt(self, text, at="2026-10-21T10:00:00Z", association="MEMBER", kind="User",
-                login=AUTHOR, node_id=None):
+                login=REVIEWER, node_id=None):
         return (text, at, association, kind, login, node_id)
 
     def test_a_ship_receipt_on_the_head_passes_without_a_teammate(self):
@@ -566,10 +569,13 @@ struct Flags: TunableFactory {
 
     def test_a_ship_receipt_posted_as_a_review_body_passes(self):
         head = self.changed_head()
-        pull = {"author": {"login": AUTHOR}, "headRefOid": head, "merged": False, "comments": {"nodes": []},
+        # From the author's own account, so it names the reviewer agent and its starter (receipt_grammar).
+        pull = {"author": {"login": AUTHOR}, "body": "Author-agent: claude-author", "headRefOid": head,
+                "merged": False, "comments": {"nodes": []},
                 "reviews": {"nodes": [{"author": {"login": AUTHOR, "__typename": "User"}, "authorAssociation": "MEMBER",
                                        "state": "COMMENTED", "submittedAt": "2026-10-21T10:00:00Z",
-                                       "body": f"Review (subagent): SHIP at {head}", "commit": {"oid": head}}]}}
+                                       "body": f"Review (subagent, started by lead): SHIP at {head}",
+                                       "commit": {"oid": head}}]}}
         path = self.repo.root.parent / f"{self.repo.root.name}-review-pull.json"
         path.write_text(json.dumps(pull), encoding="utf-8")
         result = self.repo.guard("check", "--base", self.base, "--head", head, "--pull-json", str(path))
@@ -601,6 +607,51 @@ struct Flags: TunableFactory {
                                      login="outsider"),
                         self.receipt(f"Review (subagent): SHIP at {head}", kind="Bot")):
             self.assertEqual(self.check(head, comments=[receipt]).returncode, 1, receipt)
+
+    # cmux-ad m25 item 7: a SHIP from the author's own account names its reviewer agent and who started it, neither
+    # of them the description's `Author-agent:` (receipt_grammar). #36311: the author agent's own subagent posted
+    # `Review (claude-review-subagent): SHIP at ...` from the author's account and the guard read it as independent.
+
+    def same_account(self, head, text, body="Author-agent: claude-author", extra=()):
+        return self.check(head, body=body, comments=[self.receipt(text, login=AUTHOR), *extra])
+
+    def test_the_author_agent_as_its_own_reviewer_is_refused(self):
+        head = self.changed_head()
+        for text in (f"Review (claude-author, started by lead): SHIP at {head}",
+                     f"Review (claude-review-subagent): SHIP at {head}"):
+            result = self.same_account(head, text)
+            self.assertEqual(result.returncode, 1, text)
+            self.assertIn("Needs a review", result.summary)
+
+    def test_a_reviewer_the_author_agent_started_is_refused(self):
+        head = self.changed_head()
+        result = self.same_account(head, f"Review (claude-review-subagent, started by claude-author): SHIP at {head}")
+        self.assertEqual(result.returncode, 1, result.stdout)
+
+    def test_an_independent_agent_the_lead_started_counts(self):
+        head = self.changed_head()
+        result = self.same_account(head, f"Review (codex-reviewer-7, started by lead): SHIP at {head}")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("Signed off on this commit by `review (codex-reviewer-7, started by lead)`", result.summary)
+        refused = self.same_account(head, f"Review (codex-reviewer-7, started by claude-author): SHIP at {head}")
+        self.assertEqual(refused.returncode, 1, refused.stdout)
+
+    def test_a_same_account_ship_without_an_author_agent_line_is_refused_and_a_block_still_holds(self):
+        head = self.changed_head()
+        result = self.same_account(head, f"Review (codex-reviewer-7, started by lead): SHIP at {head}", body="no agent")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        ship = self.receipt(f"Review (codex): SHIP at {head}", at="2026-10-21T09:00:00Z")
+        blocked = self.same_account(head, f"Review (claude-review-subagent): BLOCK at {head}", body="no agent",
+                                    extra=[ship])
+        self.assertEqual(blocked.returncode, 1, blocked.stdout)
+        self.assertIn("BLOCK from `review (claude-review-subagent)`", blocked.summary)
+
+    def test_a_receipt_from_another_account_keeps_the_old_rule(self):
+        head = self.changed_head()
+        line = f"Review (claude-review-subagent): SHIP at {head}"
+        other = self.check(head, body="Author-agent: claude-author", comments=[self.receipt(line)])
+        self.assertEqual(other.returncode, 0, other.stdout)
+        self.assertEqual(self.same_account(head, line).returncode, 1)
 
     # A SHIP carried across base merges (2026-11-02: #30961, #31798, #27745 waited on a SHIP one base merge back).
 

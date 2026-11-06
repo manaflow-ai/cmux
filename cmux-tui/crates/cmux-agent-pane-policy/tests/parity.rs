@@ -88,34 +88,13 @@ fn frames() {
     cases("frames.json").as_array().unwrap().iter().for_each(check_frame);
 }
 
-fn facts_json(facts: &cmux_agent_pane_policy::Facts) -> Value {
-    use cmux_agent_pane_policy::check::SettingAsk;
-    let setting = facts.setting.as_ref().map(|s| {
-        let asked = match &s.asked {
-            SettingAsk::Mode(v) => serde_json::json!({"mode": v}),
-            SettingAsk::Option { id, value } => serde_json::json!({"option": {"id": id, "value": value}}),
-        };
-        serde_json::json!({"session_id": s.session_id, "config_id": s.config_id, "value": s.value, "asked": asked})
-    });
-    let pick =
-        facts.pick.as_ref().map(|p| serde_json::json!({"method": p.method, "params": p.params}));
-    serde_json::json!({
-        "is_first": facts.is_first, "method": facts.method, "page_id": facts.page_id,
-        "ticket": facts.ticket, "other_meta": facts.other_meta, "pick": pick,
-        "session_id": facts.session_id, "needs_gesture": facts.needs_gesture,
-        "needs_path_check": facts.needs_path_check, "setting": setting,
-        "attach_session": facts.attach_session, "foreign_source": facts.foreign_source,
-        "handoff_id": facts.handoff_id, "harness_enable": facts.harness_enable, "free": facts.free(),
-    })
-}
-
 /// The full check in Swift's order (tests/cases/check.json). Only this crate
 /// runs the file: no Swift test reads it, so `AgentPaneTransport.checkOne` has
 /// its own Swift tests (for example `AgentPaneForkRelayTests`).
 #[test]
 fn full_check_order() {
     let all = cases("check.json");
-    assert_eq!(all.as_array().unwrap().len(), 63, "check.json: the full order's 63 cases");
+    assert_eq!(all.as_array().unwrap().len(), 65, "check.json: the full order's 65 cases");
     for c in all.as_array().unwrap() {
         let s = &c["state"];
         let modes: Option<BTreeSet<String>> = s["mode_fields"]
@@ -166,6 +145,7 @@ fn full_check_order() {
         }
         let state = FrameState {
             is_first: s["first"].as_bool().unwrap(),
+            remote_wire: s.get("remote_wire").and_then(Value::as_bool).unwrap_or(false),
             local_app_token: s["token"].as_str(),
             mode_fields: modes.as_ref(),
             scope: &scope,
@@ -187,7 +167,7 @@ fn full_check_order() {
             }
             (Checked::Frame { frame, facts }, None) => {
                 assert_eq!(&Value::Object(frame.clone()), &expect["frame"], "{} frame", name(c));
-                assert_eq!(facts_json(facts), expect["facts"], "{} facts", name(c));
+                assert_eq!(facts.to_json(), expect["facts"], "{} facts", name(c));
             }
             _ => panic!("{}: got {got:?}, expected {expect}", name(c)),
         }
@@ -209,6 +189,7 @@ fn debug_output_is_redacted() {
         is_first: true,
         local_app_token: Some(&token),
         mode_fields: None,
+        remote_wire: false,
         scope: &scope,
         options: &options,
     };

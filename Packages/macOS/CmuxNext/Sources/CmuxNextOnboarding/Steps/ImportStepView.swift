@@ -87,20 +87,30 @@ final class ImportStepView: NSView {
         separator.fill = { Palette.separator }
         let fileLinks = NSStackView(views: [fromFiles, passwordsCSV])
         fileLinks.spacing = 16
-        listViews = [scroll, separator, kinds, keepInSync, fileLinks]
+        // The list's slot in the stack; the scroll view reaches the rows' inset past it on each side, so a
+        // row's icon and trailing control stand on the edges the title, the checkboxes and the links share,
+        // and only the hover fill reaches past them.
+        let listSlot = NSView()
+        listSlot.translatesAutoresizingMaskIntoConstraints = false
+        listSlot.addSubview(scroll)
+        listViews = [listSlot, separator, kinds, keepInSync, fileLinks]
         consent.isHidden = true
         access.isHidden = true
-        let stack = NSStackView(views: [scroll, separator, kinds, keepInSync, consent, access, status, fileLinks])
+        let stack = NSStackView(views: [listSlot, separator, kinds, keepInSync, consent, access, status, fileLinks])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 14
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
+        let outset = ImportProfileRow.contentInset
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: leadingAnchor), stack.trailingAnchor.constraint(equalTo: trailingAnchor),
             stack.topAnchor.constraint(equalTo: topAnchor), stack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor),
-            scroll.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            scroll.heightAnchor.constraint(equalToConstant: 4 * ImportProfileRow.height + 6),
+            listSlot.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            listSlot.heightAnchor.constraint(equalToConstant: 4 * ImportProfileRow.height + 6),
+            scroll.leadingAnchor.constraint(equalTo: listSlot.leadingAnchor, constant: -outset),
+            scroll.trailingAnchor.constraint(equalTo: listSlot.trailingAnchor, constant: outset),
+            scroll.topAnchor.constraint(equalTo: listSlot.topAnchor), scroll.bottomAnchor.constraint(equalTo: listSlot.bottomAnchor),
             document.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
             list.leadingAnchor.constraint(equalTo: document.leadingAnchor), list.trailingAnchor.constraint(equalTo: document.trailingAnchor),
             list.topAnchor.constraint(equalTo: document.topAnchor), list.bottomAnchor.constraint(equalTo: document.bottomAnchor),

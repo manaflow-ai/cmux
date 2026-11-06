@@ -157,6 +157,28 @@ import CmuxNextWakeups
         store.stopAging(section)
     }
 
+    /// Removing the last visible section while a covered one stays registered stops the deadline: the
+    /// covered window never wakes for the section that went.
+    @Test func removingTheLastVisibleSectionLeavesACoveredOneNoDeadline() async {
+        let fake = Fake()
+        fake.rows = [JoinedMachine(id: "m_1", name: "a", state: .online, heartbeatAt: Date().addingTimeInterval(-10))]
+        let store = fake.store()
+        await store.refresh()
+        let shown = NSObject(), covered = NSObject()
+        store.startAging(covered) { false }
+        store.startAging(shown) { true }
+        #expect(store.isAging)
+        store.stopAging(shown)
+        #expect(!store.isAging, "only a covered section is left: the deadline is cancelled and never fires")
+        store.startAging(shown) { true }
+        let other = NSObject()
+        store.startAging(other) { true }
+        store.stopAging(shown)
+        #expect(store.isAging, "another section is still on screen: the deadline stays")
+        store.stopAging(other)
+        store.stopAging(covered)
+    }
+
     /// While visible, a fire reads the list once; a row the read did not renew ages offline.
     @Test func aFireReadsOnceAndAgesWhatTheReadDidNotRenew() async {
         let past = Date().addingTimeInterval(-200)
