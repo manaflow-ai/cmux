@@ -20,7 +20,7 @@ struct AgentTabContent {
         let services = pane.services
         let focused = pane.workspace?.focus.state.pane
         let deferred = services.agentTabs.deferAtLaunch(
-            key, reveal: services.launchReveal, focusedPane: focused, pane: pane.paneKey,
+            key, machine: pane.daemon.machineID, reveal: services.launchReveal, focusedPane: focused, pane: pane.paneKey,
             focusedDraws: focused.flatMap { key in pane.workspace?.panes.values.first { $0.paneKey == key } }?.showsLiveTerminal ?? false
         ) { [weak pane] in
             if let pane, pane.currentTabKey == key { pane.showSelected() }
@@ -29,8 +29,8 @@ struct AgentTabContent {
             drawLastPage(key, until: nil)
             return nil
         }
-        guard let view = services.agentTabs.view(for: key) else {
-            return services.agentTabs.notice(for: key).map(TabContent.notice)
+        guard let view = services.agentTabs.view(for: key, machine: pane.daemon.machineID) else {
+            return services.agentTabs.notice(for: key, machine: pane.daemon.machineID).map(TabContent.notice)
         }
         // Set on each show, so a tab moved to another pane opens files there.
         // A file or preview the person clicks in the chat opens beside it (LinkOpener,

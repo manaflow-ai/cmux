@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextDaemon
+import CmuxNextTabs
 
 /// Where a forked chat opens (``AgentForkDestination``): every fork entry point (the palette's
 /// Fork Conversation step, the chat's right-click menu, its shortcut, the chat page's own Fork)
@@ -8,7 +9,7 @@ import CmuxNextDaemon
 extension AgentTabStore {
     /// Opens acpmux session `session` (a fork of chat tab `provisional`, or a started Continue in…)
     /// at `destination`, then gives its composer the keyboard. False when no tab opened.
-    func openFork(_ session: String, at destination: AgentForkDestination, beside provisional: String) -> Bool {
+    func openFork(_ session: String, at destination: AgentForkDestination, beside provisional: String, machine: String? = nil) -> Bool {
         let open: AgentTabOpen = { [weak self] pane, daemon, split in
             guard let self else { throw CancellationError() }
             return try self.open(in: pane, of: daemon, session: session, split: split)
@@ -23,21 +24,22 @@ extension AgentTabStore {
         // Else a tab after the chat's, and for a workspace or a window then moved there as Move Tab
         // to New Workspace / New Window moves one; for a strip column or row, moved into a new one
         // beside the chat (`DaemonService.placeFork`).
-        return openBeside(provisional, split: destination.splitDirection != nil, direction: destination.splitDirection ?? "right",
+        return openBeside(provisional, machine: machine, split: destination.splitDirection != nil, direction: destination.splitDirection ?? "right",
                           open: open, created: { [weak self] key in
             opened.key = key
             if let move { _ = self?.actionRegistry?.perform(move, invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: key), origin: .user)) }
-            if case let .column(left) = TerminalForkPlacement(destination), let self { placeFork(key, resolve(provisional), left) } else if destination == .row, let self { placeFork(key, resolve(provisional), nil) }
+            if case let .column(left) = TerminalForkPlacement(destination), let self { placeForkScoped(AgentTabKey(machine: machine ?? "", key: key), self.tabKey(provisional, machine: machine), left) } else if destination == .row, let self { placeForkScoped(AgentTabKey(machine: machine ?? "", key: key), self.tabKey(provisional, machine: machine), nil) }
         }, finished: { [weak self] _ in
-            if let key = opened.key { self?.focusForkComposer(key) }
+            if let key = opened.key { self?.focusForkComposer(key, machine: machine) }
         })
     }
 
     /// The fork's composer takes the keyboard: the person's next words go to the fork, not the chat.
-    private func focusForkComposer(_ key: String) {
-        let tab = resolve(key)
+    private func focusForkComposer(_ key: String, machine: String? = nil) {
+        let scoped = tabKey(key, machine: machine)
+        let tab = scoped.key
         _ = actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab), origin: .user))
-        existingView(tab)?.focusComposer()
+        existingView(tab, machine: scoped.machine)?.focusComposer()
     }
 }
 

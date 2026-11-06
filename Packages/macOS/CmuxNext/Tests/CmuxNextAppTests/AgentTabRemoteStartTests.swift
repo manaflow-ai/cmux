@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextCloud
 @testable import CmuxNextApp
 import CmuxNextDaemon
+import CmuxNextTabs
 import Darwin
 import Foundation
 import Testing
@@ -142,7 +143,8 @@ struct AgentTabRemoteStartTests {
             "CMUX_NEXT_AGENT_PANE_MOCK": "1",
         ], showcase: true)
         tabs.lookup = { key in store.tab(id: key)?.agentSession.map { ($0, store) } }
-        tabs.remoteSeeds[key] = AgentPaneSeedSource(AgentPaneSeed(cwd: seedCwd, harness: "claude", model: "claude-seed-model"))
+        tabs.lookupScoped = { scoped in store.tab(id: scoped.key)?.agentSession.map { ($0, store) } }
+        tabs.remoteSeeds[AgentTabKey(machine: "Cloud fixture", key: key)] = AgentPaneSeedSource(AgentPaneSeed(cwd: seedCwd, harness: "claude", model: "claude-seed-model"))
         return (tabs, key)
     }
 

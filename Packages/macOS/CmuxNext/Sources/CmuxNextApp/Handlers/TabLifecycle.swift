@@ -134,7 +134,7 @@ enum TabLifecycle {
         let user = invocation.origin == .user
         // Agent tabs and pages count as a kind for the user only: a script's
         // `tab new` always gets a terminal or browser it can drive.
-        let onAgentTab = user && controller != nil && selectedID.map(ctx.services.agentTabs.isAgentTab) == true
+        let onAgentTab = user && controller != nil && selectedID.map { ctx.services.agentTabs.isAgentTab($0) } == true
         // Cmd-T opens a tab in the current workspace, like a browser, also in a pane that hides its
         // tab bar (an agent chat alone): Lawrence decided 2026-10-11 (cx-04fy), replacing the
         // "follows the tab bar" rule of cx-xt5k. New Workspace (Cmd-N) opens one in a new workspace.
