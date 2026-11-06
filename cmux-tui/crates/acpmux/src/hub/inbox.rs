@@ -147,6 +147,9 @@ pub(super) struct Item {
     /// Its sender's name, and its session when it has one here (`sender_session`).
     pub(super) from: String,
     pub(super) from_session: Option<String>,
+    /// Additive, daemon-derived sender identity. Old records derive this on restore and are not
+    /// rewritten.
+    pub(super) sender: Value,
     pub(super) class: PromptClass,
     /// A report of work this chat gave (a lane's report, a task's result): it wakes the chat
     /// as its parent's action does.
@@ -177,6 +180,7 @@ impl Item {
             thread: format!("from:{from}"),
             from: from.to_owned(),
             from_session: None,
+            sender: crate::prompt_provenance::sender_record(None, None, None),
             class: PromptClass::Result,
             report: false,
             at: now_ms(),
@@ -474,6 +478,9 @@ fn first_pr(line: &str) -> Option<u64> {
 
 /// How a thread reads in a notice: `#N`, the topic, or "messages".
 fn label(key: &str) -> String {
+    if let Some(name) = key.strip_prefix("declared:") {
+        return format!("{name} (self-declared, unauthenticated)");
+    }
     if let Some(n) = key.strip_prefix("pr:") {
         return format!("#{n}");
     }
@@ -499,6 +506,44 @@ pub(super) fn sender_session(provenance: Option<&Value>) -> Option<String> {
         return None;
     }
     Some(from.strip_prefix("acp:").unwrap_or(from).to_owned())
+}
+
+/// A sender's display name keeps a self-declared label visibly separate from a real session.
+fn display_sender(sender: &Value, fallback: &str) -> String {
+    let label = sender.get("label").and_then(Value::as_str).filter(|v| !v.is_empty());
+    let declared = sender.get("labelDeclared").and_then(Value::as_bool) == Some(true);
+    let authenticated = sender.get("authenticated").and_then(Value::as_bool) == Some(true);
+    match (label, declared, authenticated) {
+        (Some(label), true, false) => format!("{label} (self-declared, unauthenticated)"),
+        (Some(label), true, true) if fallback.is_empty() => label.to_owned(),
+        (Some(label), true, true) => format!("{fallback} (label: {label})"),
+        _ => fallback.to_owned(),
+    }
+}
+
+fn thread_sender(provenance: Option<&Value>, sender: &str) -> String {
+    let identity = crate::prompt_provenance::sender_record(
+        provenance,
+        sender_session(provenance).as_deref(),
+        None,
+    );
+    if identity.get("authenticated") == Some(&Value::Bool(false))
+        && identity.get("labelDeclared") == Some(&Value::Bool(true))
+    {
+        if let Some(label) = identity.get("label").and_then(Value::as_str) {
+            return format!("declared:{label}");
+        }
+    }
+    sender.to_owned()
+}
+
+/// Re-key a historical bare sender thread in memory when its old provenance proves that the
+/// name was only self-declared. The append-only event keeps its original thread id unchanged.
+fn legacy_thread_key(provenance: Option<&Value>, from: &str, thread: String) -> String {
+    let prefix = format!("from:{from}");
+    let Some(suffix) = thread.strip_prefix(&prefix) else { return thread };
+    let declared = thread_sender(provenance, from);
+    declared.strip_prefix("declared:").map(|_| format!("{declared}{suffix}")).unwrap_or(thread)
 }
 
 /// Whether a message reports work this chat gave: a lane's report (`lane_reports.rs`) or a task's
@@ -563,10 +608,11 @@ pub(super) fn render(items: &[&Item]) -> (String, Value) {
     let mut parts = Vec::new();
     for (key, list) in &threads {
         let last = list.iter().max_by_key(|i| i.at).copied();
-        let mut from: Vec<&str> = Vec::new();
+        let mut from: Vec<String> = Vec::new();
         for i in list {
-            if !from.contains(&i.from.as_str()) {
-                from.push(&i.from);
+            let shown = display_sender(&i.sender, &i.from);
+            if !from.contains(&shown) {
+                from.push(shown);
             }
         }
         let tag = if blocker(list) { "[blocker] " } else { "" };
@@ -586,7 +632,8 @@ pub(super) fn render(items: &[&Item]) -> (String, Value) {
                     text.push_str("\n  >");
                 }
                 // Several messages each name their sender first.
-                let lead = if list.len() > 1 { format!("{}: ", item.from) } else { String::new() };
+                let shown = display_sender(&item.sender, &item.from);
+                let lead = if list.len() > 1 { format!("{shown}: ") } else { String::new() };
                 // A message of no text still gets its quote line, so none goes missing.
                 let mut lines: Vec<&str> = body(&item.text).lines().collect();
                 if lines.is_empty() {
@@ -609,6 +656,9 @@ pub(super) fn render(items: &[&Item]) -> (String, Value) {
             "promptIds": ids, "blocker": blocker(list),
             "preview": last.map(|i| preview(&i.text)), "newestAt": newest(list),
         });
+        if let Some(last) = last.filter(|item| item.sender.is_object()) {
+            part.set("sender", last.sender.clone());
+        }
         if let Some(session) = last.and_then(|i| i.from_session.as_deref()) {
             part.set("fromSession", json!(session));
         }
@@ -620,7 +670,12 @@ pub(super) fn render(items: &[&Item]) -> (String, Value) {
             let messages: Vec<Value> = list
                 .iter()
                 .map(|i| {
-                    let mut m = json!({"promptId": i.prompt_id, "from": i.from, "at": i.at, "text": i.text});
+                    let shown = display_sender(&i.sender, &i.from);
+                    let mut m =
+                        json!({"promptId": i.prompt_id, "from": shown, "at": i.at, "text": i.text});
+                    if i.sender.is_object() {
+                        m.set("sender", i.sender.clone());
+                    }
                     if let Some(notice) = &i.tool_notice {
                         m.set("notice", notice.clone());
                     }
@@ -802,7 +857,16 @@ impl Hub {
         accept: &mut impl FnMut(Value),
     ) -> Result<Value, RpcError> {
         let text = prompt_text(blocks);
-        let thread = thread_key(explicit, sender, &text);
+        let sender_session = sender_session(provenance);
+        let sender_meta = sender_session
+            .as_deref()
+            .and_then(|id| self.resolve(id).ok().map(|session| session.meta()));
+        let sender_identity = crate::prompt_provenance::sender_record(
+            provenance,
+            sender_session.as_deref(),
+            sender_meta.as_ref(),
+        );
+        let thread = thread_key(explicit, &thread_sender(provenance, sender), &text);
         let (tx, mut rx) = tokio::sync::watch::channel(None);
         let mut resent: Option<Option<super::queue::Answer>> = None;
         let mut withdrawn = false;
@@ -851,7 +915,8 @@ impl Hub {
                             answered: None,
                             thread: thread.clone(),
                             from: sender.to_owned(),
-                            from_session: sender_session(provenance),
+                            from_session: sender_session.clone(),
+                            sender: sender_identity.clone(),
                             class,
                             report: is_report(provenance),
                             at: now_ms(),
@@ -892,8 +957,8 @@ impl Hub {
             tx.send_replace(Some(answer));
         }
         if fresh {
-            let mut msg = json!({"promptId": prompt_id, "threadId": thread, "from": sender, "class": class, "kind": kind_of(class), "client": client, "text": text, "prompt": blocks});
-            if let Some(from) = sender_session(provenance) {
+            let mut msg = json!({"promptId": prompt_id, "threadId": thread, "from": sender, "class": class, "kind": kind_of(class), "client": client, "text": text, "prompt": blocks, "sender": sender_identity});
+            if let Some(from) = sender_session {
                 msg.set("fromSession", json!(from));
             }
             if is_report(provenance) {
@@ -931,7 +996,9 @@ impl Hub {
         provenance: &Value,
     ) {
         let from = provenance.get("fromName").and_then(Value::as_str).unwrap_or(lane);
-        let thread = thread_key(None, from, text);
+        let sender_identity =
+            crate::prompt_provenance::sender_record(Some(provenance), Some(lane), None);
+        let thread = thread_key(None, &thread_sender(Some(provenance), from), text);
         let at = now_ms();
         let fresh = {
             let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
@@ -947,6 +1014,7 @@ impl Hub {
                     thread: thread.clone(),
                     from: from.to_owned(),
                     from_session: Some(lane.to_owned()),
+                    sender: sender_identity.clone(),
                     class: PromptClass::Result,
                     report: true,
                     at,
@@ -980,6 +1048,7 @@ impl Hub {
         super::message_events::embed_message_context(&mut opts, message.as_ref(), &session.id);
         let msg = json!({
             "promptId": prompt_id, "threadId": thread, "from": from, "fromSession": lane,
+            "sender": sender_identity,
             "class": "result", "kind": kind_of(PromptClass::Result), "client": "acpmux", "text": text,
             "prompt": [{"type": "text", "text": text}], "report": true, "deliveredRead": true,
         });
@@ -1454,26 +1523,37 @@ impl Hub {
                     let field = |k: &str| e.msg.get(k).and_then(Value::as_str).unwrap_or("");
                     let class =
                         crate::prompt_class::recorded(&e.msg).unwrap_or(PromptClass::Result);
+                    let provenance = crate::prompt_provenance::recorded(&e.msg);
+                    let from_session =
+                        e.msg.get("fromSession").and_then(Value::as_str).map(str::to_owned);
+                    let stored_sender = e.msg.get("sender");
+                    let sender = stored_sender.cloned().unwrap_or_else(|| {
+                        crate::prompt_provenance::sender_record(
+                            provenance.as_ref(),
+                            from_session.as_deref(),
+                            None,
+                        )
+                    });
+                    let thread = field("threadId").to_owned();
+                    let thread = if stored_sender.is_none() {
+                        legacy_thread_key(provenance.as_ref(), field("from"), thread)
+                    } else {
+                        thread
+                    };
                     items.push(Item {
                         prompt_id: field("promptId").to_owned(),
                         notice: None,
                         answered: None,
-                        thread: field("threadId").to_owned(),
+                        thread,
                         from: field("from").to_owned(),
-                        from_session: e
-                            .msg
-                            .get("fromSession")
-                            .and_then(Value::as_str)
-                            .map(str::to_owned),
+                        from_session,
+                        sender,
                         class,
                         report: e.msg.get("report") == Some(&Value::Bool(true)),
                         at: e.at,
                         text: field("text").to_owned(),
-                        details: crate::prompt_provenance::recorded(&e.msg)
-                            .and_then(|p| p.get("details").cloned()),
-                        tool_notice: tool_notice_of(
-                            crate::prompt_provenance::recorded(&e.msg).as_ref(),
-                        ),
+                        details: provenance.as_ref().and_then(|p| p.get("details").cloned()),
+                        tool_notice: tool_notice_of(provenance.as_ref()),
                         noticed: e.msg.get("deliveredRead") == Some(&Value::Bool(true)),
                         read: e.msg.get("deliveredRead") == Some(&Value::Bool(true)),
                         answer: None,
@@ -1651,10 +1731,11 @@ impl Hub {
         let rows: Vec<Value> = threads
             .iter()
             .map(|(key, list)| {
-                let mut from: Vec<&str> = Vec::new();
+                let mut from: Vec<String> = Vec::new();
                 for i in list {
-                    if !from.contains(&i.from.as_str()) {
-                        from.push(&i.from);
+                    let shown = display_sender(&i.sender, &i.from);
+                    if !from.contains(&shown) {
+                        from.push(shown);
                     }
                 }
                 let unread: Vec<&&Item> = list.iter().filter(|i| !i.read).collect();
@@ -1671,6 +1752,7 @@ impl Hub {
                     "unread": unread.len(), "new": list.iter().filter(|i| !i.noticed).count(),
                     "count": list.len(), "newestAt": newest(list),
                     "newestPreview": last.map(|i| preview(&i.text)), "class": class,
+                    "sender": last.map(|i| i.sender.clone()),
                 })
             })
             .collect();
@@ -1685,7 +1767,8 @@ impl Hub {
             let mut messages = Vec::new();
             for item in inbox.items.iter_mut().rev().filter(|i| i.thread == thread) {
                 messages.push(json!({
-                    "promptId": item.prompt_id, "from": item.from, "fromSession": item.from_session,
+                    "promptId": item.prompt_id, "from": display_sender(&item.sender, &item.from), "fromSession": item.from_session,
+                    "sender": item.sender,
                     "class": item.class, "kind": kind_of(item.class), "at": item.at,
                     "text": item.text, "read": item.read, "details": item.details,
                     "notice": item.tool_notice,

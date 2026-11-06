@@ -219,11 +219,14 @@ pub(super) fn message_context(
     {
         return None;
     }
-    let sender = if let Some(sender) = opts.message_sender.as_ref() {
+    let mut sender = if let Some(sender) = opts.message_sender.as_ref() {
         sender.clone()
     } else {
         json!({"name": name, "sessionId": sender_session, "host": host_label()})
     };
+    if let Some(label) = crate::prompt_provenance::declared_label(opts.provenance.as_ref()) {
+        sender.set("label", json!(label));
+    }
     let message_id = opts
         .message_id
         .clone()
@@ -287,6 +290,9 @@ pub(super) fn ensure_message_provenance(opts: &mut PromptOptions, target_id: &st
     let Some(name) = sender.get("name").and_then(Value::as_str) else { return };
     let mut provenance = crate::prompt_provenance::named_sender(name, target_id);
     provenance.set("sessionId", json!(id));
+    if let Some(label) = sender.get("label").and_then(Value::as_str) {
+        provenance = crate::prompt_provenance::stamp_declared(provenance, Some(label));
+    }
     opts.provenance = Some(provenance);
 }
 
