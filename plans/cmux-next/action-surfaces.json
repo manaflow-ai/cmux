@@ -13907,7 +13907,7 @@
       "args" : [
         {
           "kind" : "int",
-          "max" : 7,
+          "max" : 9,
           "min" : 0,
           "name" : "state",
           "required" : false
@@ -18048,6 +18048,37 @@
       "palette_suggested" : null,
       "title" : "Clear Resume Command",
       "title_key" : "action.resumeCommandClear",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "terminal run-last-command-again",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "terminalSelection"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "terminal.runLastCommandAgain",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.terminal",
+        "order" : 105,
+        "title" : "Terminal",
+        "title_key" : "category.terminal",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Run Last Command Again",
+      "title_key" : "action.terminal.runLastCommandAgain",
       "title_table" : "ActionCatalog"
     },
     {
@@ -56799,9 +56830,26 @@
           "children" : [
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.terminalOpenDirectory",
+              "id" : "terminal.runLastCommandAgain",
               "kind" : "action",
               "order" : 0,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+                  "terminalFocused"
+                ]
+              }
+            },
+            {
+              "kind" : "separator",
+              "order" : 1
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "palette.terminalOpenDirectory",
+              "kind" : "action",
+              "order" : 2,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -56812,13 +56860,13 @@
             },
             {
               "kind" : "separator",
-              "order" : 1
+              "order" : 3
             },
             {
               "enabled_when" : "can_perform",
               "id" : "palette.copyIdentifiers",
               "kind" : "action",
-              "order" : 2,
+              "order" : 4,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -56831,7 +56879,7 @@
               "enabled_when" : "can_perform",
               "id" : "palette.copySurfaceLink",
               "kind" : "action",
-              "order" : 3,
+              "order" : 5,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
