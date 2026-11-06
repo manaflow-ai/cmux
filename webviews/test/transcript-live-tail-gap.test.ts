@@ -133,6 +133,7 @@ async function pane(events: (after: number, call: number) => Rec[]) {
     lagged: () => notify("_acpmux/lagged", { dropped: 1, reason: "output_queue_full" }),
     reply: () => rows.find((row) => row.kind === "assistant")?.text,
     replies: () => rows.filter((row) => row.kind === "assistant").map((row) => row.text),
+    order: () => rows.filter((row) => row.kind === "assistant" || row.kind === "user").map((row) => row.kind),
     until,
   };
 }
@@ -228,4 +229,49 @@ test("a finished reply whose stored text the pane already has reads it once and 
   await p.until(() => p.reply() === PARTS.join(""));
   expect(reads).toBe(1);
   expect(p.reply()).toBe(PARTS.join(""));
+});
+
+test("a reply whose first chunks were dropped before a steer is whole above the steer", async () => {
+  // Leo, 2026-11-06 07:02Z, "how is your text getting cut off?": no reply above his message, and
+  // below it a fragment from mid-sentence ("on a usage or rate limit ...") to a lone "If".
+  const steer = mux(5, "user_message", { text: "why is this still happening", promptId: "p-2", steer: true });
+  const texts = [
+    "Revive only the sessions that stopped ",
+    "on a usage or rate limit and list the work each one holds. ",
+    "If one holds a PR, keep it.",
+  ];
+  const reply = [chunk(3, texts[0]!), chunk(4, texts[1]!), chunk(6, texts[2]!)];
+  const end = mux(7, "turn_result", { promptId: "p-1", turnId: "turn-1", status: "completed" });
+  const history = [...opened, reply[0]!, reply[1]!, steer, reply[2]!, end];
+  let lagged = false;
+  let failed = false;
+  const p = await pane((after) => {
+    // The busy daemon fails the first read after the marker.
+    if (lagged && !failed) {
+      failed = true;
+      throw new Error("timed out");
+    }
+    return history.filter((record) => record.seq > after);
+  });
+  // The reply's first chunks are dropped and the marker takes their place; the steer and the rest arrive.
+  lagged = true;
+  p.lagged();
+  for (const record of [steer, reply[2]!]) p.live(record);
+  await p.until(() => p.replies()[0] === texts.join(""));
+  expect(failed).toBe(true);
+  expect(p.replies()).toEqual([texts.join("")]);
+  expect(p.order()).toEqual(["user", "assistant", "user"]);
+});
+
+test("the same reply with no marker at all is whole above the steer once its turn ends", async () => {
+  const steer = mux(5, "user_message", { text: "why is this still happening", promptId: "p-2", steer: true });
+  const texts = ["Revive only the sessions that stopped ", "on a usage or rate limit. ", "If one holds a PR, keep it."];
+  const reply = [chunk(3, texts[0]!), chunk(4, texts[1]!), chunk(6, texts[2]!)];
+  const end = mux(7, "turn_result", { promptId: "p-1", turnId: "turn-1", status: "completed" });
+  const history = [...opened, reply[0]!, reply[1]!, steer, reply[2]!, end];
+  const p = await pane((after) => history.filter((record) => record.seq > after));
+  for (const record of [steer, reply[2]!, end]) p.live(record);
+  await p.until(() => p.replies()[0] === texts.join(""));
+  expect(p.replies()).toEqual([texts.join("")]);
+  expect(p.order()).toEqual(["user", "assistant", "user"]);
 });
