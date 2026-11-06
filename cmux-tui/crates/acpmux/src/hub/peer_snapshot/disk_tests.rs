@@ -49,6 +49,14 @@ unsafe impl GlobalAlloc for AllocationCounter {
 #[global_allocator]
 static ALLOCATOR: AllocationCounter = AllocationCounter;
 
+/// `run`'s result and how many allocations it made on this thread.
+pub(crate) fn thread_allocations<T>(run: impl FnOnce() -> T) -> (T, usize) {
+    let outer = RECORD_BYTES_ALLOCS.with(|count| count.replace(Some(0)));
+    let value = run();
+    let made = RECORD_BYTES_ALLOCS.with(|count| count.replace(outer)).unwrap_or(0);
+    (value, made)
+}
+
 fn key(mux: &str) -> Key {
     ("huge-blue".to_owned(), mux.to_owned())
 }
