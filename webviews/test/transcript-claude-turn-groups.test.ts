@@ -125,13 +125,37 @@ test("the recorded Claude turn ends as Claude desktop draws it: a line per run, 
   expect(view[summary]?.folded).toBe(false);
 });
 
-test("the same turn in a Codex chat folds all its work and chatter under one Worked for", async () => {
+test("the same turn in a Codex chat folds its work and chatter under one Worked for, never a longer message", async () => {
   const rows = await replayRows();
   const view = turnView(rows, new Set(), { now: history.at(-1).at + 60_000, liveRuns: true, agentFamily: "codex" });
   expect(view.filter((row) => row.kind === WORKED)).toHaveLength(1);
-  expect(view.some((row) => row.kind === "activity" && !row.merged)).toBe(false);
-  expect(assistants(view).map(longAt)).toEqual([17]);
+  // The longer messages stay in sight (Leo, 2026-11-06: "your intermediate message got lost. that can
+  // never happen"); the work around them folds into one closed line each, and no short note shows.
+  expect(
+    assistants(view)
+      .filter((row) => LONG.test(row.text ?? ""))
+      .map(longAt),
+  ).toEqual([14, 16, 17]);
+  expect(assistants(view).some((row) => SHORT.test(row.text ?? ""))).toBe(false);
+  const lines = view.filter((row) => row.kind === "activity" && !row.merged);
+  expect(lines.every((row) => row.foldRun === true && row.id.endsWith(":around"))).toBe(true);
   expect(view.find((row) => row.kind === "turnSummary")?.folded).toBe(true);
+});
+
+test("the recorded turn restored in a Claude chat, folded by default, keeps every longer message", async () => {
+  globalThis.cmuxExperiments = {};
+  try {
+    const rows = await replayRows();
+    const view = turnView(rows, new Set(), { now: history.at(-1).at + 60_000, liveRuns: true, agentFamily: "claude" });
+    expect(view.filter((row) => row.kind === WORKED)).toHaveLength(1);
+    expect(
+      assistants(view)
+        .filter((row) => LONG.test(row.text ?? ""))
+        .map(longAt),
+    ).toEqual([14, 16, 17]);
+  } finally {
+    globalThis.cmuxExperiments = { "claude-turn-fold": "runs" };
+  }
 });
 
 /// A turn steered once: two runs and a note, a reply, a run, the steer, then a note between two runs.

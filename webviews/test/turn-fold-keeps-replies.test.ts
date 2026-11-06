@@ -21,20 +21,17 @@ const row = (id: string, kind: string, second: number, extra: Partial<AcpmuxRow>
 });
 const calls = (id: string, second: number, count: number): AcpmuxRow =>
   row(id, "activity", second, {
-    items: Array.from(
-      { length: count },
-      (_, index): AcpmuxActivity => ({
-        kind: "tool",
-        text: "",
-        tool: {
-          id: `${id}-${index}`,
-          title: `git status ${index}`,
-          kind: "execute",
-          status: "completed",
-          command: `git status ${index}`,
-        },
-      }),
-    ),
+    items: Array.from({ length: count }, (_, index): AcpmuxActivity => ({
+      kind: "tool",
+      text: "",
+      tool: {
+        id: `${id}-${index}`,
+        title: `git status ${index}`,
+        kind: "execute",
+        status: "completed",
+        command: `git status ${index}`,
+      },
+    })),
   });
 
 const REPLIES = {
@@ -117,7 +114,8 @@ for (const family of FAMILIES)
     // Every reply, the one between two tool groups included, draws, in the order it was said, with
     // its own words; the work before and after each folds into its own line.
     expect(outline(view)).toEqual(["a-start", "run:3", "a-middle", "run:4", "a-notice", "run:1", "a-final"]);
-    for (const id of REPLY_IDS) expect(view.find((shown) => shown.id === id)?.text).toBe(turn.find((r) => r.id === id)!.text);
+    for (const id of REPLY_IDS)
+      expect(view.find((shown) => shown.id === id)?.text).toBe(turn.find((r) => r.id === id)!.text);
     // The line sits over the turn's first reply.
     expect(view.indexOf(worked!)).toBeLessThan(view.findIndex((shown) => shown.id === "a-start"));
   });
