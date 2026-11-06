@@ -23,6 +23,7 @@ Packages/macOS/CmuxNext CmuxNextAppTests.SidebarMultiViewHomeTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SidebarMultiViewWindowTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SidebarNewRowInPlaceTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SidebarPriorityMotionTests
+Packages/macOS/CmuxNext CmuxNextAppTests.SidebarRowFadeOnRenderServerTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SidebarRowsMoveOnRenderServerTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SidebarTabGapCleanupTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SleepySceneCostTests
