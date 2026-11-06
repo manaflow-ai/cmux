@@ -37,7 +37,7 @@ case "status", "grant":
     // `grant` raises macOS's own Accessibility and Screen Recording prompts
     // for this app (a person answers them in System Settings); `status` only reads.
     let prompt = mode == "grant"
-    let ax = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue(): prompt] as CFDictionary)
+    let ax = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": prompt] as CFDictionary)
     var screen = CGPreflightScreenCaptureAccess()
     if prompt, !screen { screen = CGRequestScreenCaptureAccess() }
     print("accessibility=\(ax ? "granted" : "missing") screen_recording=\(screen ? "granted" : "missing")")
