@@ -15,7 +15,8 @@ per main-actor turn paced by the clock (not one socket round trip, a display fra
               (p50/p95/p99/max), each move's main-thread ms (event delivery and every handler it ran),
               and how many moves left their row hovered. Only rows the pointer really hovers are swept
               (each is checked once first); the sweep is reported invalid when the swept pages did not
-              all freeze or hibernate first.
+              all freeze or hibernate first. --profile DIR records a Time Profiler trace over the sweep
+              and prints the app's heaviest main-thread frames (PERF-HOVER-PROFILE).
   (b) click   one workspace with --panes browser panes, hibernated by the timeout. --trials times
               each: "cold" (select it from another workspace, no hover) and "dwell" (the pointer
               rests --dwell-ms on its row, then select). Time to content: from the select until
@@ -26,7 +27,7 @@ per main-actor turn paced by the clock (not one socket round trip, a display fra
 
 Usage (a fleet mini, never a laptop; DEV or bench build):
   bench_hover_preload.py --app BUNDLE [--engine webkit|chromium] [--workspaces 40] [--crossings 200]
-      [--hz 120] [--panes 2] [--trials 5] [--dwell-ms 150] [--out FILE.json]
+      [--hz 120] [--panes 2] [--trials 5] [--dwell-ms 150] [--out FILE.json] [--profile DIR]
 Prints PERF-HOVER lines.
 """
 from __future__ import annotations
@@ -36,10 +37,13 @@ import http.server
 import json
 import os
 import shutil
+import collections
 import signal
+import subprocess
 import sys
 import threading
 import time
+import xml.etree.ElementTree as ET
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bench_memory as bm  # noqa: E402  (launch, App, sample, end_bundle, wait_gone)
@@ -107,8 +111,8 @@ def wait_for(predicate, seconds: float, step: float = 0.25):
 
 
 class Bench:
-    def __init__(self, sock: str, app: bm.App):
-        self.sock, self.app = sock, app
+    def __init__(self, sock: str, app: bm.App, pid: int = 0):
+        self.sock, self.app, self.pid = sock, app, pid
         self.titles: dict[str, str] = {}  # daemon workspace id -> the unique title the bench gave it
         self.mapped_by = "none"  # how row_keys mapped them: by "title", or by "order" when a rename was refused
 
@@ -239,6 +243,83 @@ class Bench:
         return result
 
 
+class Profile:
+    """`--profile`: an Instruments Time Profiler recording over the sweep only, then the heaviest
+    main-thread frames (self and inclusive ms) as PERF-HOVER-PROFILE lines. What the hover path runs on main per
+    crossing, by name (as scripts/measure/pane-main-profile.sh reads its trace)."""
+
+    def __init__(self, pid: int, directory: str, label: str):
+        os.makedirs(directory, exist_ok=True)
+        self.pid, self.trace = pid, os.path.join(directory, f"sweep-{label}-{pid}.trace")
+        # Every process, as pane-main-profile.sh records (an attach needs a grant a fleet step may lack); rows are
+        # kept for this app's main thread only.
+        self.proc = subprocess.Popen(["xcrun", "xctrace", "record", "--template", "Time Profiler", "--all-processes",
+                                      "--time-limit", "300s", "--output", self.trace, "--no-prompt"],
+                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        self.started = threading.Event()
+        self.lines: list[str] = []
+        threading.Thread(target=self.read, daemon=True).start()
+        if not self.started.wait(120):
+            print(f"PERF-HOVER-PROFILE error=not_started output={json.dumps(self.lines[-5:])}", flush=True)
+
+    def read(self):
+        for line in self.proc.stdout or []:
+            self.lines.append(line.strip())
+            if "Starting recording" in line or "Ctrl-C to stop" in line:
+                self.started.set()
+
+    def stop(self) -> dict:
+        self.proc.send_signal(signal.SIGINT)
+        try:
+            self.proc.wait(180)
+        except subprocess.TimeoutExpired:
+            self.proc.kill()
+            return {"error": "xctrace did not stop"}
+        table = self.trace + ".xml"
+        with open(table, "w") as handle:
+            subprocess.run(["xcrun", "xctrace", "export", "--input", self.trace, "--xpath",
+                            '/trace-toc/run[@number="1"]/data/table[@schema="time-profile"]'], stdout=handle, check=False,
+                           timeout=300)
+        return main_thread_frames(table, self.pid)
+
+
+def main_thread_frames(table: str, pid: int, top: int = 30) -> dict:
+    """Self and inclusive main-thread ms per frame name in an exported time-profile table."""
+    byid: dict[str, ET.Element] = {}
+    own, inclusive, total = collections.Counter(), collections.Counter(), 0
+    threads = collections.Counter()  # main threads seen, for a report whose pid matched none
+
+    def resolve(element):
+        ref = element.get("ref")
+        return byid.get(ref, element) if ref else element
+    for _, element in ET.iterparse(table, events=("end",)):
+        if element.get("id"):
+            byid[element.get("id")] = element
+        if element.tag != "row":
+            continue
+        thread = element.find("thread")
+        thread_name = resolve(thread).get("fmt", "") if thread is not None else ""
+        if "Main Thread" in thread_name:
+            threads[thread_name] += 1
+        if "Main Thread" not in thread_name or f"pid: {pid}" not in thread_name:
+            continue
+        weight = element.find("weight")
+        weight = resolve(weight) if weight is not None else None
+        ns = int(weight.text) if weight is not None and weight.text and weight.text.isdigit() else 1_000_000
+        backtrace = element.find("backtrace")
+        backtrace = resolve(backtrace) if backtrace is not None else None
+        names = [resolve(frame).get("name", "?") for frame in backtrace.findall("frame")] if backtrace is not None else []
+        if not names:
+            continue
+        total += ns
+        own[names[0]] += ns
+        for name in set(names):
+            inclusive[name] += ns
+    return {"main_ms": round(total / 1e6, 1), "threads": [name for name, _ in threads.most_common(3)] if not total else [],
+            "self": [[round(ns / 1e6, 1), name[:160]] for name, ns in own.most_common(top)],
+            "inclusive": [[round(ns / 1e6, 1), name[:160]] for name, ns in inclusive.most_common(top * 2)]}
+
+
 def sweep(bench: Bench, args, report: dict, rows: list[str]):
     if len(rows) < 2:
         report["sweep"] = {"error": f"rows={len(rows)}"}
@@ -251,10 +332,28 @@ def sweep(bench: Bench, args, report: dict, rows: list[str]):
         if not 0 <= index + step < len(rows):
             step = -step
         index += step
+    profile = None
+    if args.profile:
+        try:
+            profile = Profile(bench.pid, args.profile, args.label)
+        except Exception as error:  # a profile that cannot start never costs the arm its sweep
+            report["sweep_profile"] = {"error": repr(error)}
     bench.rpc("debug.frames", {"action": "start"})
     moved = bench.rpc("debug.pointer_sweep", {"path": path, "hz": args.hz}, timeout=90)
     time.sleep(0.5)  # test script: past the dwell, so a pending intent would have fired
     frames = bench.rpc("debug.frames", {"action": "stop", "raw": True})
+    if profile:
+        try:
+            frames_of_profile = profile.stop()
+        except Exception as error:  # an export that fails or does not parse keeps the sweep's numbers
+            profile.proc.kill()
+            frames_of_profile = {"error": repr(error)}
+        report["sweep_profile"] = frames_of_profile
+        print(f"PERF-HOVER-PROFILE main_ms={frames_of_profile.get('main_ms')} error={frames_of_profile.get('error')} "
+              f"unmatched_threads={json.dumps(frames_of_profile.get('threads'))}", flush=True)
+        for kind in ("self", "inclusive"):
+            for ms, name in frames_of_profile.get(kind) or []:
+                print(f"PERF-HOVER-PROFILE {kind} {ms:8.1f} ms  {name}", flush=True)
     main_ms = [float(v) for v in frames.get("main_ms") or []]
     move_ms = [float(v) for v in moved.get("move_ms") or []]
     after = bench.hibernation()
@@ -372,6 +471,8 @@ def main():
     # The arm's name in the report (the fleet entry runs the base build as "off" and the head as "on").
     parser.add_argument("--label", default="on")
     parser.add_argument("--out")
+    # A directory: record a Time Profiler trace of the app over the sweep and print its heaviest main-thread frames.
+    parser.add_argument("--profile")
     args = parser.parse_args()
     phases = set(args.phases.split(","))
     # Hidden pages discard after 0.5 min (a timeout written, so the hover may restore them) and freeze after 5 s.
@@ -381,7 +482,7 @@ def main():
     bp.wipe_state(bundle)
     pid, sock, scratch = bm.launch(bundle, config)
     app = bm.App(bundle, sock)
-    bench = Bench(sock, app)
+    bench = Bench(sock, app, pid)
     sites = Sites(args.engine)
     report = {"app": bundle, "engine": args.engine, "label": args.label, "config": config}
     print(f"PERF-HOVER-ARM label={args.label}", flush=True)
