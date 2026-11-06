@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// Layer hosting (fork API 26) of the page window over one ``CEFHostView``:
 /// asks the fork for the page window's Core Animation context and shows it in
@@ -119,6 +120,28 @@ final class CEFLayerHosting {
 
     /// Runs a block later on the main actor.
     typealias Scheduler = (_ block: @escaping @MainActor @Sendable () -> Void) -> Void
+    /// Runs a block after this run-loop pass's frame commit (``AfterFrameCommit``); tests run it when they choose.
+    private let afterCommit: Scheduler
+    /// Runs a block once the window's next display frame came (a ``FrameClient`` tick on the view's window), after
+    /// that pass's commit; nil uses the view's ``FrameScheduler``. Tests run it when they choose.
+    private let afterFrameShown: Scheduler?
+    /// The one-tick client of ``afterFrameShown`` while it waits.
+    private var shownFrame: FrameClient?
+
+    /// A page shown in this turn whose input window was out of the window (``pageAppeared(windowInWindow:then:)``).
+    enum FirstFrameHold: Equatable {
+        case none
+        /// Detached until the frame it showed in came: its pixels show from the hosted context and no window is ordered.
+        case detached
+        /// Attached after that frame: the fork orders the window in at its next run-loop observer, so a focus grant
+        /// waits until after that.
+        case attaching
+    }
+
+    /// Where a page shown in this turn is on its way back into the window.
+    private(set) var firstFrameHold = FirstFrameHold.none
+    /// What runs once that page's window is in (its kept focus ask).
+    private var afterFirstFrame: (@MainActor () -> Void)?
 
     /// - Parameters:
     ///   - isEnabled: whether hosting is wanted; always by default (tests pass their own).
@@ -134,8 +157,12 @@ final class CEFLayerHosting {
          liveResizeDeadlineMs: @escaping () -> Int32 = { 0 },
          dragResizeDeadlineMs: @escaping () -> Int32 = { 0 },
          refreshIntervals: @escaping () -> [Double] = { NSScreen.screens.map(\.minimumRefreshInterval) },
-         holdsFocus: (() -> Bool)? = nil) {
+         holdsFocus: (() -> Bool)? = nil,
+         afterCommit: @escaping Scheduler = { AfterFrameCommit().run($0) },
+         afterFrameShown: Scheduler? = nil) {
         self.holdsFocus = holdsFocus ?? { false }
+        self.afterCommit = afterCommit
+        self.afterFrameShown = afterFrameShown
         self.isEnabled = isEnabled
         self.resizeDeadlineMs = resizeDeadlineMs
         self.liveResizeDeadlineMs = liveResizeDeadlineMs
@@ -171,6 +198,7 @@ final class CEFLayerHosting {
     func pageShown(browser: Int32) { // perf-hot: 10ms tab-switch (every Chromium tab show)
         guard let fork else { return }
         self.browser = browser
+        if attachOwed { attachIfOwed() }
         let wanted = isEnabled()
         if wanted == (page != nil) {
             syncDeadline()
@@ -213,12 +241,13 @@ final class CEFLayerHosting {
     /// The new window's live resize state replaces the old one: AppKit tells only
     /// the views in a window when its live resize starts and ends.
     func windowDidChange() {
+        _ = holdsFirstFrame()
         let wasInMotion = inResizeMotion
         inLiveResize = view?.window?.inLiveResize ?? false
         if isDetached {
             // The old window never ends a live resize or a drag for a view that left it, and a detached page takes no
             // input: it attaches at once, at its new place, and stays attached for the rest of the motion.
-            setDetached(false)
+            attachOwed = !setDetached(false) && isDetached
             motionKeepsAttached = inResizeMotion
         } else if wasInMotion, !inResizeMotion {
             motionKeepsAttached = false
@@ -234,6 +263,7 @@ final class CEFLayerHosting {
     func windowBrowsersChanged(_ browsers: [Int32]) {
         guard let browser, !browsers.contains(browser) else { return }
         self.browser = browsers.first
+        if attachOwed { attachIfOwed() }
     }
 
     /// The window starts or ends a live resize (`CEFHostView.viewWillStartLiveResize`). Fork API 27 never lets a page
@@ -270,6 +300,7 @@ final class CEFLayerHosting {
     /// The fork's tracker read the host view (`-cmuxClipPath`): it is attached
     /// to the page window now, so a refused request may succeed.
     func trackerDidRead() { // perf-hot: 1us cef-geometry (each tracker read)
+        if attachOwed { attachIfOwed() }
         guard pending == .armed else { return }
         request(retry: true)
     }
@@ -288,6 +319,12 @@ final class CEFLayerHosting {
     /// Whether the page holds the keyboard (its window is key, or a focus ask waits for it). The page's own window
     /// being key by default; ``CEFPaneHost`` adds its shown tab's waiting ask.
     var holdsFocus: () -> Bool
+
+    /// A motion ended and the fork refused to bring the page window back (a busy fork, or a browser that went with a
+    /// renderer restart): the page still shows its pixels in the layer tree but its window is headless and off screen,
+    /// so it takes no click. Nothing else ends a motion, so the attach is retried at the next show, browser change,
+    /// window change and tracker read (``attachIfOwed()``) until the fork takes it.
+    private(set) var attachOwed = false
 
     /// The view is in a resize motion: a live resize of its window or a motion of its pane.
     var inResizeMotion: Bool { inLiveResize || motionHolders > 0 }
@@ -321,8 +358,82 @@ final class CEFLayerHosting {
             if !motionKeepsAttached { setDetached(true) }
         } else {
             motionKeepsAttached = false
-            setDetached(false)
+            attachOwed = !setDetached(false) && isDetached
         }
+    }
+
+    // MARK: The frame a page shows in (SWITCH STALL 5)
+
+    /// A hosted page shows in this turn (`CEFPaneHost.present`: Cmd-N's page built before the key, a workspace or pane
+    /// shown again) and its input window is not in the window (`windowInWindow` false). Ordering it in (addChildWindow,
+    /// then the overlay panel's re-add above it) is window-server work: the fork defers it to a run-loop observer meant
+    /// for after the commit, but on macOS 27 the commit runs later (the update cycle) and that observer fires first, 7.6
+    /// ms before the first frame on every Cmd-N (Time Profiler, cmux22, macOS 27.0, 60 Hz). Chrome shows the frame
+    /// first and wires input after it. So the page is detached for this turn (the fork shows it from its hosted context
+    /// with no window order) and attached once the window's next display frame came, after that pass's commit: right
+    /// after the key's commit was too soon (v1: the order-in and its commit then ran before that frame's display tick,
+    /// which came 30 to 40 ms after the key in half the presses). `grant` runs once the fork ordered the window in.
+    /// A page in a resize motion, already detached, or not hosted is left as it is.
+    func pageAppeared(windowInWindow: Bool, then grant: @escaping @MainActor () -> Void) {
+        guard !windowInWindow, firstFrameHold == .none, !isDetached, !inResizeMotion, setDetached(true) else { return }
+        firstFrameHold = .detached
+        afterFirstFrame = grant
+        runAfterFrameShown { [weak self] in self?.attachAfterFirstFrame() }
+    }
+
+    /// Whether a page shown in a recent turn is still on its way back into the window (``firstFrameHold``): it has no
+    /// window to make key yet, so a focus grant keeps its ask and the hold's end grants it (one grant, no grant per
+    /// pass). A hold whose frame tick was dropped (its window closed: the scheduler lets its clients go without a call)
+    /// attaches now, so no page stays detached and no grant waits forever.
+    func holdsFirstFrame() -> Bool {
+        if firstFrameHold == .detached, let shownFrame, !shownFrame.isActive {
+            self.shownFrame = nil
+            attachAfterFirstFrame()
+        }
+        return firstFrameHold != .none
+    }
+
+    private func runAfterFrameShown(_ block: @escaping @MainActor @Sendable () -> Void) {
+        if let afterFrameShown { return afterFrameShown(block) }
+        shownFrame?.deactivate()
+        let client = FrameClient(owner: "cef.first-frame-attach", isAnimation: false,
+                                 scheduler: { [weak view] in view.map(FrameScheduler.forView) ?? .app }) { [weak self] _ in
+            self?.shownFrame = nil
+            self?.afterCommit(block)
+            return false
+        }
+        shownFrame = client
+        client.activate()
+    }
+
+    private func attachAfterFirstFrame() {
+        guard firstFrameHold == .detached else { return }
+        // A motion that began meanwhile owns the detached page: its landing attaches it, a grant attaches it now.
+        guard !inResizeMotion else { return endFirstFrameHold() }
+        // Attached already when its view changed windows or a motion landed meanwhile; the order-in still comes next pass.
+        if isDetached { attachOwed = !setDetached(false) && isDetached }
+        firstFrameHold = .attaching
+        // The fork's order-in observer was added in this pass: it runs in the next one, before this block.
+        afterCommit { [weak self] in
+            guard let self, self.firstFrameHold == .attaching else { return }
+            self.endFirstFrameHold()
+        }
+    }
+
+    private func endFirstFrameHold() {
+        let grant = afterFirstFrame
+        firstFrameHold = .none
+        afterFirstFrame = nil
+        // The fork refused the attach: the page has no window to make key. The ask stays kept (the tab's pending
+        // focus) for the next grant, after ``attachIfOwed()`` brings the window back.
+        if attachOwed, isDetached { return }
+        grant?()
+    }
+
+    /// Retries an attach a landing could not make (``attachOwed``); a new motion owns the page window again instead.
+    private func attachIfOwed() {
+        guard !inResizeMotion else { return attachOwed = false }
+        attachOwed = !setDetached(false) && isDetached
     }
 
     /// Detaches the hosted page's window or attaches it again; the fork's attach places it at the view's rect then,
@@ -429,6 +540,11 @@ final class CEFLayerHosting {
     private func dropPage() {
         // The fork ends detached hosting when hosting goes off or the page window goes.
         isDetached = false
+        attachOwed = false
+        firstFrameHold = .none
+        afterFirstFrame = nil
+        shownFrame?.deactivate()
+        shownFrame = nil
         guard let page else { return }
         page.removeFromSuperview()
         self.page = nil

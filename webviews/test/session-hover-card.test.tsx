@@ -477,6 +477,102 @@ test("an agent link that resolves while its card is up shows the chat's card in 
   }
 });
 
+// A chat that leaves the list while its card is up takes the card with it; the reference loses its
+// card's handlers then, so a blur in that time reaches no one. The chat coming back draws no card
+// until the reference is hovered or focused again (review of #36360 at 1bc9da1e, F1).
+test("a chat that leaves the list and comes back draws no card until it is hovered or focused again", async () => {
+  const { act } = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const { UiProvider } = await import("../src/ui/UiProvider");
+  const { SessionHoverContext, useSessionHover } = await import("../src/agent-session/acpmux/started/SessionHoverCard");
+  const { AgentTag } = await import("../src/agent-session/acpmux/conversation/AgentTag");
+  const rootElement = dom.window.document.getElementById("root")!;
+  const root = createRoot(rootElement);
+  const store = new SessionHoverStore();
+  store.set([entry({ indicator: "done", updatedAt: Date.now() })]);
+  function Name() {
+    const { trigger, card } = useSessionHover(ID);
+    return (
+      <>
+        <AgentTag name={ID} title={`Open ${ID}`} hover={trigger} onClick={() => undefined} />
+        {card}
+      </>
+    );
+  }
+  const card = () => rootElement.querySelector<HTMLElement>(".acpmux-session-hover-card");
+  try {
+    await act(async () => {
+      root.render(
+        <UiProvider container={rootElement}>
+          <SessionHoverContext.Provider value={{ store, open: () => undefined }}>
+            <Name />
+          </SessionHoverContext.Provider>
+        </UiProvider>,
+      );
+    });
+    const name = rootElement.querySelector<HTMLButtonElement>("button.cv-agent-tag")!;
+    await act(async () => name.focus());
+    expect(card()).not.toBeNull();
+    await act(async () => store.set([]));
+    expect(card()).toBeNull();
+    await act(async () => name.blur());
+    await act(async () => store.set([entry({ indicator: "done", updatedAt: Date.now() })]));
+    expect(card()).toBeNull();
+    expect(name.hasAttribute("aria-describedby")).toBe(false);
+    // Focus again: the card is back.
+    await act(async () => name.focus());
+    expect(card()).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+// An agent link whose chat leaves the list while the link has focus gives the link back to the
+// site's card at once, with no need to leave the link and come back (review of #36360 at 1bc9da1e, F2).
+test("an agent link whose chat leaves the list gives the link back to the site's card", async () => {
+  const { act } = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const { UiProvider } = await import("../src/ui/UiProvider");
+  const { SessionHoverContext } = await import("../src/agent-session/acpmux/started/SessionHoverCard");
+  const { UrlChip } = await import("../src/agent-session/acpmux/chips/LinkChips");
+  const { SubsessionContext, SubsessionStore } = await import("../src/agent-session/acpmux/subagents/subsessions");
+  const refs = await import("../src/agent-session/acpmux/conversation/sessionRefs");
+  refs.setSessionRefResolver(async () => ({ session: { sessionId: ID } }));
+  await refs.resolveSessionRef(ID);
+  const rootElement = dom.window.document.getElementById("root")!;
+  const root = createRoot(rootElement);
+  const store = new SessionHoverStore();
+  store.set([entry({ indicator: "done", updatedAt: Date.now() })]);
+  const href = `https://cmux.com/deeplink/agent?session=${ID}`;
+  try {
+    await act(async () => {
+      root.render(
+        <UiProvider container={rootElement}>
+          <SubsessionContext.Provider value={{ store: new SubsessionStore(), open: () => undefined }}>
+            <SessionHoverContext.Provider value={{ store, open: () => undefined }}>
+              <p>
+                See <UrlChip href={href}>{href}</UrlChip>.
+              </p>
+            </SessionHoverContext.Provider>
+          </SubsessionContext.Provider>
+        </UiProvider>,
+      );
+    });
+    const link = rootElement.querySelector<HTMLAnchorElement>("a.cv-chip")!;
+    await act(async () => link.focus());
+    expect(rootElement.querySelector(".acpmux-session-hover-card")).not.toBeNull();
+    expect(rootElement.querySelector(".cv-link-preview")).toBeNull();
+    await act(async () => store.set([]));
+    expect(rootElement.querySelector(".acpmux-session-hover-card")).toBeNull();
+    expect(rootElement.querySelector(".cv-link-preview")).not.toBeNull();
+    expect(dom.window.document.activeElement).toBe(link);
+  } finally {
+    await act(async () => root.unmount());
+    refs.setSessionRefResolver(undefined);
+    refs.resetSessionRefs();
+  }
+});
+
 test("a session listed twice is one card: an unchanged list tells no one", () => {
   const store = new SessionHoverStore();
   const twice = [entry(), entry()];

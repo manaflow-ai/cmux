@@ -304,6 +304,10 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onUploadStage: (@MainActor () -> AgentPaneUploadStager?)?
     /// App-owned, explicitly confirmed provider credential setup for this pane's Cloud chat.
     @ObservationIgnored public var onCloudCredentialTransfer: (@MainActor (AgentPaneCloudCredentialTransferRequest) async -> Bool)?
+    /// Runs the Cloud machine + latest transcript fork and opens its sibling without selecting this chat.
+    /// The session is the one this pane showed when the click arrived, so a pane that switched
+    /// sessions meanwhile never forks the newly selected chat.
+    @ObservationIgnored public var onTryAnotherApproach: (@MainActor (_ throughSeq: Int, _ session: String) async throws -> [String: Any])?
     /// The application-owned marked-tab list shared by this page and the palette.
     @ObservationIgnored public let attentionTabs: AgentPaneAttentionTabs?
 
@@ -654,6 +658,19 @@ public final class AgentPaneModel {
             // Preserve the original click's one-use, session/prompt-scoped grant and expiry.
             released = true
             return AgentPaneReply.success(["transferred": true, "promptId": request.retryPromptID, "ticket": ticket])
+        case .tryAnotherApproach(let request):
+            guard remoteChat, newTab == nil, let session = sessionId, let onTryAnotherApproach else {
+                return Self.unsupported(AgentPaneTryAnotherApproach.method)
+            }
+            // A Cloud machine snapshot plus a durable sibling chat: only the person's click starts
+            // one (the host's authenticated click, or the legacy bridge's one-use gesture credit).
+            guard userGesture || transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+            do {
+                return AgentPaneReply.success(try await onTryAnotherApproach(request.throughSeq, session))
+            } catch {
+                return AgentPaneReply.failure(code: "try_another_approach_failed", message: error.localizedDescription,
+                                              details: nil, retryable: true, origin: "native")
+            }
         case .btwInline(let question, let sessionId):
             // Handshake-attached panes keep the daemon path in `acpmuxSocket`; direct
             // transport tests and pre-handshake calls retain the connection path.
@@ -720,7 +737,7 @@ public final class AgentPaneModel {
             // whether it can take one. Refusing it as unsupported told the page this host is too old
             // to stream, so a recording over the one-frame size failed with Retry (#28647).
             guard let stager = onUploadStage?() else { return Self.unsupported("chat.upload.stage") }
-            if case .begin(_, _, let batchToken, _) = stage, batchToken == nil, !transport.gestures.consume() { return Self.transportFailure(.gestureRequired) }
+            if case .begin(_, _, let batchToken, _) = stage, batchToken == nil, !transport.gestures.consumeUpload() { return Self.transportFailure(.gestureRequired) }
             return await stager(stage, sessionId)
         case .unsupported(let method): return Self.unsupported(method)
         }

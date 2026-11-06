@@ -110,7 +110,8 @@ const LIST_LABEL = {
 } as const;
 
 /// The breakdown's bar, its rows and its folds, as Session Info and the ring's details draw them.
-export function ContextBreakdownView({ breakdown }: { breakdown: Breakdown }) {
+/// Without `bar`, its rows and folds alone (Session Info's Context fold: its head has the meter).
+export function ContextBreakdownView({ breakdown, bar = true }: { breakdown: Breakdown; bar?: boolean }) {
   const t = useT();
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const tokens = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
@@ -123,18 +124,20 @@ export function ContextBreakdownView({ breakdown }: { breakdown: Breakdown }) {
     });
   return (
     <div className="acpmux-context-breakdown">
-      <div className="acpmux-session-info-context__bar" aria-hidden="true">
-        {breakdown.rows
-          .filter((row) => (row.kind === "used" || row.kind === "buffer") && (row.share ?? 0) > 0)
-          .map((row, index) => (
-            <span
-              key={`${row.name}-${index}`}
-              data-kind={row.kind}
-              data-tone={row.tone}
-              style={{ width: `${(row.share ?? 0) * 100}%` }}
-            />
-          ))}
-      </div>
+      {bar && (
+        <div className="acpmux-session-info-context__bar" aria-hidden="true">
+          {breakdown.rows
+            .filter((row) => (row.kind === "used" || row.kind === "buffer") && (row.share ?? 0) > 0)
+            .map((row, index) => (
+              <span
+                key={`${row.name}-${index}`}
+                data-kind={row.kind}
+                data-tone={row.tone}
+                style={{ width: `${(row.share ?? 0) * 100}%` }}
+              />
+            ))}
+        </div>
+      )}
       <ul className="acpmux-session-info-list">
         {breakdown.rows.map((row, index) => (
           <li key={`${row.name}-${index}`} className="acpmux-session-info-row" data-kind={row.kind}>
@@ -189,11 +192,16 @@ export function ContextSection({
   breakdown: reported,
   onCompact,
   onViewPrompt,
+  rowsOnly = false,
 }: {
   usage: { used: number; size: number };
   percent: number;
   /// Claude Code's /context, as acpmux kept it (`summary.contextBreakdown`).
   breakdown?: unknown;
+  /// Its rows alone, from the first one down (Messages, or Used): Session Info's Context fold, whose
+  /// head has the total and the meter (Lucas, 2026-11-06: "the expansion should show the messages and
+  /// below").
+  rowsOnly?: boolean;
   /// Sends the chat's agent its `/compact` (App.tsx `compactChat`); unset where the agent lists no
   /// compact command or the chat cannot be sent to, so no Compact shows.
   onCompact?: () => void;
@@ -214,23 +222,27 @@ export function ContextSection({
   const label = (id: ContextPart["id"]) => t(id === "used" ? "sessionInfo.context.used" : "sessionInfo.context.free");
   return (
     <div className="acpmux-session-info-context" data-section="context">
-      <div className="acpmux-session-info-context__total">
-        <span>{t("context.percent", { percent })}</span>
-        <span className="acpmux-session-info-context__tokens">
-          {tokens.format(usage.used)} / {tokens.format(usage.size)}
-        </span>
-      </div>
+      {!rowsOnly && (
+        <div className="acpmux-session-info-context__total">
+          <span>{t("context.percent", { percent })}</span>
+          <span className="acpmux-session-info-context__tokens">
+            {tokens.format(usage.used)} / {tokens.format(usage.size)}
+          </span>
+        </div>
+      )}
       {breakdown ? (
-        <ContextBreakdownView breakdown={breakdown} />
+        <ContextBreakdownView breakdown={breakdown} bar={!rowsOnly} />
       ) : (
         <>
-          <div className="acpmux-session-info-context__bar" aria-hidden="true">
-            {parts
-              .filter((part) => part.id !== "free" && part.share > 0)
-              .map((part) => (
-                <span key={part.id} data-part={part.id} style={{ width: `${part.share * 100}%` }} />
-              ))}
-          </div>
+          {!rowsOnly && (
+            <div className="acpmux-session-info-context__bar" aria-hidden="true">
+              {parts
+                .filter((part) => part.id !== "free" && part.share > 0)
+                .map((part) => (
+                  <span key={part.id} data-part={part.id} style={{ width: `${part.share * 100}%` }} />
+                ))}
+            </div>
+          )}
           <ul className="acpmux-session-info-list">
             {parts.map((part) => (
               <li key={part.id} className="acpmux-session-info-row" data-part={part.id}>

@@ -394,7 +394,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     // MARK: LayoutPaneContentProvider
 
     func makeContentView(for pane: LayoutPaneID) -> NSView {
-        guard let handle = handles.panes[pane], let model = daemon.store.pane(handle) else { return NSView() }
+        guard let handle = handles.panes[pane], let model = daemon.store.pane(handle) ?? workspace.pane(handle) else { return NSView() } // its own model: a reserved one is in no index
         let spare = ProvisionalPane.isStandIn(handle) ? paneSpare.take() : nil // a stand-in pane (a key's create) adopts the views made ahead
         let controller = PaneController(pane: model, daemon: daemon, layoutPaneID: pane, services: services, state: state, workspace: self, spare: spare)
         AfterFrameCommit().run { [weak self] in self?.refillPaneSpare() } // after the key's frame; a motion that started refills when it lands

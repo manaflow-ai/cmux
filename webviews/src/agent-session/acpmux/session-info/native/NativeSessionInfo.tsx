@@ -278,11 +278,14 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
     onSet: setRunningLimit,
   });
   const local = opensProcessTerminal(summary);
+  // A command's row shows its call where its terminal cannot open; a wakeup or cron job's row shows
+  // the call that made it on any chat (tasks.ts `scheduledRow`).
   const showsCalls =
     shown &&
-    !local &&
     !!props.onShowCall &&
-    sessionInfoLists(props.processes, props.transcriptTasks, props.listed).tasks.some((task) => task.toolCallId);
+    ((!local &&
+      sessionInfoLists(props.processes, props.transcriptTasks, props.listed).tasks.some((task) => task.toolCallId)) ||
+      (props.made?.scheduled?.length ?? 0) > 0);
   const calls = useMemo(
     () =>
       showsCalls

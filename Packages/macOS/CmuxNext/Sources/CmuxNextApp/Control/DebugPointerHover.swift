@@ -24,13 +24,12 @@ enum DebugPointerHover {
             window = (services.windows.active ?? services.windows.controllers.first)?.window
         }
         guard let window, window.contentView != nil else { return .object(["error": .string("no window")]) }
-        let controller = services.windows.controllers.first { $0.window === window }
-        let coords = params["point"]?.arrayValue?.compactMap(\.doubleValue)
-        let row = params["row"]?.stringValue.flatMap { controller?.sidebar.container.sidebarView.debugRowCenterInWindow(workspace: $0) }
-        if params["row"] != nil, row == nil { return .object(["error": .string("the row is not drawn")]) }
+        let sidebar = services.windows.controllers.first { $0.window === window }?.sidebar.container.sidebarView, rowID = params["row"]?.stringValue
+        let coords = params["point"]?.arrayValue?.compactMap(\.doubleValue), row = rowID.flatMap { sidebar?.debugRowCenterInWindow(workspace: $0) }
+        if let rowID, row == nil { return JSONValue(foundation: ["error": "the row is not drawn", "why": sidebar?.debugRowMiss(workspace: rowID) ?? ["controller": "none"]] as [String: Any]) ?? .null }
         let given = coords.flatMap { $0.count == 2 ? CGPoint(x: $0[0], y: $0[1]) : nil } ?? row ?? railPoint(params, in: window, services: services)
         guard given == nil, let badge = usageWarningPoint(params, in: window, services: services) else {
-            return move(to: given, in: window, sidebar: controller?.sidebar.container.sidebarView)
+            return move(to: given, in: window, sidebar: sidebar)
         }
         // Hovering a row moves its warning badge left of the row's hover controls: hover it, let the
         // row lay out, then aim at where the badge is now, so the pointer rests on it (its tooltip).

@@ -13859,6 +13859,55 @@
         {
           "kind" : "int",
           "max" : 7,
+          "min" : 1,
+          "name" : "variant",
+          "required" : false
+        },
+        {
+          "kind" : "int",
+          "max" : 1,
+          "min" : 0,
+          "name" : "row",
+          "required" : false
+        },
+        {
+          "kind" : "bool",
+          "name" : "dark",
+          "required" : false
+        }
+      ],
+      "cli" : "devOnly",
+      "cli_name" : "action home-compare-table-playground",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.compareTablePlayground",
+      "main_menu" : "debug",
+      "mcp" : "devOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Before\/After Table Playground",
+      "title_key" : "action.home.compareTablePlayground",
+      "title_table" : "HomeActions"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "int",
+          "max" : 9,
           "min" : 0,
           "name" : "state",
           "required" : false
@@ -17999,6 +18048,37 @@
       "palette_suggested" : null,
       "title" : "Clear Resume Command",
       "title_key" : "action.resumeCommandClear",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "terminal run-last-command-again",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "terminalSelection"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "terminal.runLastCommandAgain",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.terminal",
+        "order" : 105,
+        "title" : "Terminal",
+        "title_key" : "category.terminal",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Run Last Command Again",
+      "title_key" : "action.terminal.runLastCommandAgain",
       "title_table" : "ActionCatalog"
     },
     {
@@ -27449,12 +27529,7 @@
           ]
         }
       ],
-      "default_shortcut" : {
-        "key" : "i",
-        "modifiers" : [
-          "cmd"
-        ]
-      },
+      "default_shortcut" : null,
       "id" : "palette.newAgentChat",
       "main_menu" : "file",
       "mcp" : "offered",
@@ -32736,46 +32811,6 @@
     {
       "args" : [
         {
-          "kind" : "string",
-          "name" : "teammate",
-          "required" : false
-        },
-        {
-          "kind" : "bool",
-          "name" : "revoke",
-          "required" : false
-        }
-      ],
-      "cli" : "offered",
-      "cli_name" : "cloud share-machine",
-      "context_menu" : "offered",
-      "context_menus" : [
-        "cloudMachine"
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "cloudShareMachine",
-      "main_menu" : null,
-      "mcp" : "offered",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.cloud",
-        "order" : 110,
-        "title" : "Cloud and Account",
-        "title_key" : "category.cloud",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Share Machine…",
-      "title_key" : "action.cloudShareMachine",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "args" : [
-        {
           "kind" : "bool",
           "name" : "confirm",
           "required" : false
@@ -35414,6 +35449,68 @@
       "palette_suggested" : null,
       "title" : "Stop Editing cmux Live",
       "title_key" : "action.liveWeb.stop",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "guiOnly",
+      "cli_name" : "action live-swift-start",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "liveSwift.start",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Start Swift Live Mode",
+      "title_key" : "action.liveSwift.start",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "guiOnly",
+      "cli_name" : "action live-swift-stop",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "liveSwift.stop",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Stop Swift Live Mode",
+      "title_key" : "action.liveSwift.stop",
       "title_table" : "ActionCatalog"
     },
     {
@@ -40873,6 +40970,290 @@
       "palette_suggested" : null,
       "title" : "Toggle Dock Corners",
       "title_key" : "action.window.toggleDockOrientation",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "home open-chief-dock",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "i",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "id" : "home.openChiefDock",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Open Chief Dock",
+      "title_key" : "action.home.openChiefDock",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "pane move-to-dock",
+      "context_menu" : "pointerMenuTrim",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "window.movePaneToDock",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.pane",
+        "order" : 102,
+        "title" : "Panes",
+        "title_key" : "category.pane",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move Pane to Dock",
+      "title_key" : "action.window.movePaneToDock",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "window toggle-dock",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "window.toggleDock",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show\/Hide Dock",
+      "title_key" : "action.window.toggleDock",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "window toggle-dock-tab-bar",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "window.toggleDockTabBar",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show\/Hide Dock Tab Bar",
+      "title_key" : "action.window.toggleDockTabBar",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "window focus-dock",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "window.focusDock",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Focus Dock",
+      "title_key" : "action.window.focusDock",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "window dock-edge-left",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "window.dockEdgeLeft",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move Dock to Left",
+      "title_key" : "action.window.dockEdgeLeft",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "window dock-edge-right",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "window.dockEdgeRight",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move Dock to Right",
+      "title_key" : "action.window.dockEdgeRight",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "window dock-edge-top",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "window.dockEdgeTop",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move Dock to Top",
+      "title_key" : "action.window.dockEdgeTop",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "window dock-edge-bottom",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "window.dockEdgeBottom",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move Dock to Bottom",
+      "title_key" : "action.window.dockEdgeBottom",
       "title_table" : "LayoutActions"
     },
     {
@@ -50112,21 +50493,8 @@
           }
         },
         {
-          "enabled_when" : "can_perform",
-          "id" : "cloudShareMachine",
-          "kind" : "action",
-          "order" : 6,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : "cloud",
-            "requires" : [
-
-            ]
-          }
-        },
-        {
           "kind" : "separator",
-          "order" : 7
+          "order" : 6
         },
         {
           "children" : [
@@ -50414,14 +50782,14 @@
           ],
           "folder" : "connection",
           "kind" : "folder",
-          "order" : 8,
+          "order" : 7,
           "title" : "Connection",
           "title_key" : "menu.folder.connection",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 9
+          "order" : 8
         },
         {
           "children" : [
@@ -50467,7 +50835,7 @@
           ],
           "folder" : "copy",
           "kind" : "folder",
-          "order" : 10,
+          "order" : 9,
           "title" : "Copy",
           "title_key" : "menu.folder.copy",
           "title_table" : "Localizable"
@@ -50741,20 +51109,20 @@
           ],
           "folder" : "tools",
           "kind" : "folder",
-          "order" : 11,
+          "order" : 10,
           "title" : "Tools",
           "title_key" : "menu.folder.tools",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 12
+          "order" : 11
         },
         {
           "enabled_when" : "can_perform",
           "id" : "cloudKillMachine",
           "kind" : "action",
-          "order" : 13,
+          "order" : 12,
           "visible_when" : {
             "debug_only" : false,
             "feature" : "cloud",
@@ -56471,9 +56839,26 @@
           "children" : [
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.terminalOpenDirectory",
+              "id" : "terminal.runLastCommandAgain",
               "kind" : "action",
               "order" : 0,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+                  "terminalFocused"
+                ]
+              }
+            },
+            {
+              "kind" : "separator",
+              "order" : 1
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "palette.terminalOpenDirectory",
+              "kind" : "action",
+              "order" : 2,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -56484,13 +56869,13 @@
             },
             {
               "kind" : "separator",
-              "order" : 1
+              "order" : 3
             },
             {
               "enabled_when" : "can_perform",
               "id" : "palette.copyIdentifiers",
               "kind" : "action",
-              "order" : 2,
+              "order" : 4,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -56503,7 +56888,7 @@
               "enabled_when" : "can_perform",
               "id" : "palette.copySurfaceLink",
               "kind" : "action",
-              "order" : 3,
+              "order" : 5,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -58446,174 +58831,164 @@
               "order" : 12
             },
             {
-              "children" : [
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "palette.closeOtherWorkspaces",
-                  "kind" : "action",
-                  "order" : 0,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "workspace.closeOthersInGroup",
-                  "kind" : "action",
-                  "order" : 1,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "palette.closeWorkspacesBelow",
-                  "kind" : "action",
-                  "order" : 2,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "palette.closeWorkspacesAbove",
-                  "kind" : "action",
-                  "order" : 3,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "workspace.closeAll",
-                  "kind" : "action",
-                  "order" : 4,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "reopenClosedWorkspace",
-                  "kind" : "action",
-                  "order" : 5,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "workspace.stash",
-                  "kind" : "action",
-                  "order" : 6,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "window.stash",
-                  "kind" : "action",
-                  "order" : 7,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "kind" : "separator",
-                  "order" : 8
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "workspace.archiveOtherWorkspaces",
-                  "kind" : "action",
-                  "order" : 9,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "workspace.archiveOthersInGroup",
-                  "kind" : "action",
-                  "order" : 10,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "workspace.archiveWorkspacesBelow",
-                  "kind" : "action",
-                  "order" : 11,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "workspace.archiveWorkspacesAbove",
-                  "kind" : "action",
-                  "order" : 12,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                }
-              ],
-              "folder" : "close",
-              "kind" : "folder",
+              "enabled_when" : "can_perform",
+              "id" : "palette.closeOtherWorkspaces",
+              "kind" : "action",
               "order" : 13,
-              "title" : "Close",
-              "title_key" : "menu.folder.close",
-              "title_table" : "Localizable"
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "workspace.closeOthersInGroup",
+              "kind" : "action",
+              "order" : 14,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "palette.closeWorkspacesBelow",
+              "kind" : "action",
+              "order" : 15,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "palette.closeWorkspacesAbove",
+              "kind" : "action",
+              "order" : 16,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "workspace.closeAll",
+              "kind" : "action",
+              "order" : 17,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "reopenClosedWorkspace",
+              "kind" : "action",
+              "order" : 18,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "workspace.stash",
+              "kind" : "action",
+              "order" : 19,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "window.stash",
+              "kind" : "action",
+              "order" : 20,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "kind" : "separator",
+              "order" : 21
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "workspace.archiveOtherWorkspaces",
+              "kind" : "action",
+              "order" : 22,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "workspace.archiveOthersInGroup",
+              "kind" : "action",
+              "order" : 23,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "workspace.archiveWorkspacesBelow",
+              "kind" : "action",
+              "order" : 24,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "workspace.archiveWorkspacesAbove",
+              "kind" : "action",
+              "order" : 25,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
             }
           ],
           "folder" : "more",

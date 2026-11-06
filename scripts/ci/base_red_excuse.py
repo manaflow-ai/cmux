@@ -871,6 +871,8 @@ def validate_run_rollup(name: str, children: list[dict], repo: str = HOME_REPO) 
 # head", even when the base failed the same tests. The status is judged by the job that gave it: the job of the
 # same name without the " (same-tree)" suffix, in the run its target_url links (else the newest run that tested
 # the head and has that job). It is then compared per test like any job; a run that cannot be found is refused.
+# Once excused, its audit line names the status context too (cmux#37038 at 1f4963c0): merge_hold covers each red
+# at the head only by a line naming it, and named only the job, it refused 'cmux-next daemon tests (same-tree)'.
 SAME_TREE_SUFFIX = " (same-tree)"
 
 
@@ -1001,6 +1003,9 @@ def base_status(repo: str, base: str, name: str, state: str, description: str, g
 def last_real_jobs(repo: str, run: int, github) -> list[dict]:
     jobs = [job for page in github.json(f"repos/{repo}/actions/runs/{run}/jobs?filter=all&per_page=100", paginate=True)
             for job in page.get("jobs") or []]
+    for job in jobs:
+        # glaeda's slim job list names no run_id; the run read is the job's run (superseding_check reads it)
+        job.setdefault("run_id", run)
     newest: dict[str, int] = {}
     for job in jobs:
         newest[job.get("name", "")] = max(newest.get(job.get("name", ""), 0), job.get("run_attempt") or 1)
@@ -1128,15 +1133,128 @@ def base_run_jobs(repo: str, run: dict, github) -> list[dict]:
     return jobs
 
 
+# A cancelled job with a newer run of its name: the newest completed run of a check name is its verdict, as glaeda-gh
+# reads a head ("superseded: ... cancelled (not counted)"). cmux#36965 at 004465b3: run 42179149655's 'risk evidence'
+# was cancelled by concurrency while run 42179187468 of the same workflow passed it, and the cancelled one refused the
+# merge as a red with no verdict. Only a cancelled (or stale) job is passed over, and only for a newer run of the same
+# workflow on the same head: a failure is a verdict and stays red whatever a later run says (merge_hold's
+# _superseded_cancels, router-review F1 at 241b0da0).
+SUPERSEDABLE = ("cancelled", "stale")
+GREEN = ("success", "skipped", "neutral")
+ACTIONS_JOB_URL = r"https://github\.com/{repo}/actions/runs/(\d+)/job/(\d+)"
+
+
+def linked_checks(repo: str, sha: str, name: str, github, seen: dict) -> list[tuple[int, int, dict]]:
+    """(Actions job id, run id, check run) of each GitHub Actions check run of NAME on SHA, every attempt, newest job
+    first. Recency is the job id each check run links (its details URL), never the check run's own id: one kind of id
+    whatever the check run's own is. SEEN keeps the head's check runs for one judge call."""
+    if "checks" not in seen:
+        listed = github.json(f"repos/{repo}/commits/{sha}/check-runs?filter=all&per_page=100", paginate=True)
+        seen["checks"] = [check for page in listed for check in page.get("check_runs") or []
+                          if (check.get("app") or {}).get("slug") == "github-actions"]
+    url = re.compile(ACTIONS_JOB_URL.format(repo=re.escape(repo)))
+    linked = [(int(match[2]), int(match[1]), check) for check in seen["checks"]
+              if check.get("name") == name and (match := url.fullmatch(check.get("details_url") or ""))]
+    return sorted(linked, key=lambda found: found[0], reverse=True)
+
+
+def rest_run(repo: str, run: int, github, seen: dict | None = None) -> dict:
+    """RUN's REST record. A lane VM's gh chain can answer `actions/runs/ID` with glaeda's 12-field run summary, which
+    has the run's head_sha but no workflow_id or path: base_red_excuse then asked `actions/workflows/None/runs` (a 404
+    that refused cmux#37033), and a cancelled run superseded by newer greens of its workflow was read as having none
+    (cmux#36971 at b265fe8c, risk-tier's 42191711726). Such a record is completed from `actions/runs?head_sha=SHA`,
+    one read per head kept in SEEN, which names every run at it. The workflow is only GitHub's workflow_id, never a
+    name two workflows can share; a list that does not name the run leaves the summary, whose workflow_id is None."""
+    found = github.json(f"repos/{repo}/actions/runs/{run}")
+    sha = found.get("head_sha") if isinstance(found, dict) else None
+    if not isinstance(found, dict) or "workflow_id" in found or not re.fullmatch(r"[0-9a-f]{40}", str(sha or "")):
+        return found
+    seen = {} if seen is None else seen
+    key = ("runs-at", sha)
+    if key not in seen:
+        listed = github.json(f"repos/{repo}/actions/runs?head_sha={sha}&per_page=100", paginate=True)
+        seen[key] = {listed_run.get("id"): listed_run for page in listed
+                     for listed_run in page.get("workflow_runs") or [] if isinstance(listed_run, dict)}
+    full = seen[key].get(run)
+    return full if isinstance(full, dict) and isinstance(full.get("workflow_id"), int) else found
+
+
+def run_workflow(repo: str, run: int, github, seen: dict):
+    """RUN's workflow id, read once per judge call (SEEN); None when GitHub's answer names none (rest_run)."""
+    if run not in seen:
+        seen[run] = rest_run(repo, run, github, seen).get("workflow_id")
+    return seen[run]
+
+
+def superseding_check(repo: str, sha: str, job: dict, github, seen: dict) -> dict | None:
+    """The newest check run of JOB's name on SHA in a newer run of JOB's workflow, when it has completed with a
+    verdict; None when there is none, it is still running, it was cancelled too, or a workflow cannot be read."""
+    mine = None
+    for job_id, run, check in linked_checks(repo, sha, job.get("name", ""), github, seen):
+        if job_id <= job["id"] or run == job["run_id"]:
+            continue  # older, or a later attempt of the same run (last_real_jobs reads those)
+        mine = run_workflow(repo, job["run_id"], github, seen) if mine is None else mine
+        if mine is None or run_workflow(repo, run, github, seen) != mine:
+            continue
+        # The newest run of this workflow and name decides; it must have finished with a verdict of its own.
+        if check.get("status") != "completed" or check.get("conclusion") in SUPERSEDABLE:
+            return None
+        return {**check, "job_id": job_id}
+    return None
+
+
+def superseded_by_green(repo: str, sha: str, job: dict, github, seen: dict) -> list[dict]:
+    """The older red check runs of green JOB's name on SHA when every one is a cancelled (or stale) run of JOB's own
+    workflow, so JOB, the newest, supersedes them all; [] when there is none, or any is a failure (a verdict that
+    stays red whatever a later run says) or another workflow's or a still-running run's."""
+    mine = run_workflow(repo, job["run_id"], github, seen)
+    older = [(job_id, run, check) for job_id, run, check in linked_checks(repo, sha, job.get("name", ""), github, seen)
+             if job_id < job["id"]]
+    reds = [(run, check) for _, run, check in older if check.get("conclusion") not in GREEN]
+    if mine is None or not reds:
+        return []
+    for run, check in reds:
+        if (check.get("status") != "completed" or check.get("conclusion") not in SUPERSEDABLE
+                or run_workflow(repo, run, github, seen) != mine):
+            return []
+    return [check for _, check in reds]
+
+
 def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *, base: str | None = None,
-              excused: list[str] | None = None, suites: SuiteChecks | None = None) -> list[dict]:
-    """Failed head jobs; a check that is a jobless status red the base shares adds its line to EXCUSED."""
+              excused: list[str] | None = None, suites: SuiteChecks | None = None,
+              ignored: list[str] | None = None, seen: dict | None = None) -> list[dict]:
+    """Failed head jobs; a check that is a jobless status red the base shares adds its line to EXCUSED, and a cancelled
+    job a newer run of its workflow passed adds its line to IGNORED (superseding_check)."""
     jobs: dict[int, dict] = {}
+    contexts: dict[int, list[str]] = {}  # the status contexts each job was judged for (status_job)
+    seen = {} if seen is None else seen
     for run in runs:
         guards = []
         run_rollups = []
         children = []
         for job in last_real_jobs(repo, run, github):
+            if (job.get("status") == "completed" and job.get("conclusion") in SUPERSEDABLE
+                    and (newer := superseding_check(repo, sha, job, github, seen)) is not None):
+                name = job.get("name", "")
+                if newer.get("conclusion") in GREEN:
+                    if ignored is not None:
+                        ignored.append(f"ignored '{name}': its {job['conclusion']} job in run {run} is superseded by "
+                                       f"job {newer['job_id']} of the same workflow, {newer['conclusion']} on {sha}; "
+                                       "the newest completed run is the verdict")
+                    continue
+                # The newer run's red is the verdict: judge that job, not the cancelled one.
+                job = job_for(repo, newer, sha, github)
+                if is_aggregate(name, repo):
+                    if job.get("conclusion") != "failure":
+                        raise Refused(f"'{name}': the newest aggregate job is {job.get('conclusion')}, not failure")
+                    found = head_jobs(repo, sha, [job["run_id"]], [], github, ignored=ignored, seen=seen)
+                    if not found:
+                        raise Refused(f"run {job['run_id']}: its aggregate check failed with no failed job to "
+                                      "compare with the base")
+                    jobs.update((child["id"], child) for child in found)
+                    continue
+                jobs[job["id"]] = job
+                continue
             if is_aggregate(job.get("name", ""), repo):
                 if job.get("conclusion") not in ("success", "skipped", "neutral", None):
                     (run_rollups if job.get("name") in rollups(repo)["run"] else guards).append(job)
@@ -1164,6 +1282,7 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
                     excused.append(job)
                     continue
                 jobs[job["id"]] = job
+                contexts.setdefault(job["id"], []).append(name)
                 continue
             job = job_for(repo, latest[name], sha, github)
             if is_aggregate(name, repo):
@@ -1178,20 +1297,39 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
                     continue
                 aggregate_jobs.append(job)
             else:
+                if job.get("conclusion") in GREEN and (cancelled := superseded_by_green(repo, sha, job, github, seen)):
+                    # The newest run of the name passed; the reds GitHub still lists for it are cancelled runs of
+                    # its workflow that it superseded (cmux#36965's 'risk evidence').
+                    if ignored is not None:
+                        ignored.append(f"ignored '{name}': its newest job {job['id']} on {sha} is "
+                                       f"{job['conclusion']}, superseding {len(cancelled)} cancelled run(s) of the "
+                                       "same workflow; the newest completed run is the verdict")
+                    continue
+                if (job.get("conclusion") in SUPERSEDABLE
+                        and (newer := superseding_check(repo, sha, job, github, seen)) is not None):
+                    # GitHub's latest is by check run id; a newer job of the name decides (linked_checks).
+                    if newer.get("conclusion") in GREEN:
+                        if ignored is not None:
+                            ignored.append(f"ignored '{name}': its {job['conclusion']} job {job['id']} is superseded "
+                                           f"by job {newer['job_id']} of the same workflow, {newer['conclusion']} on "
+                                           f"{sha}; the newest completed run is the verdict")
+                        continue
+                    job = job_for(repo, newer, sha, github)
                 jobs[job["id"]] = job
         for name, run in aggregate_runs:
-            found = head_jobs(repo, sha, [run], [], github)
+            found = head_jobs(repo, sha, [run], [], github, ignored=ignored, seen=seen)
             if not found:
                 raise Refused(f"run {run}: its aggregate check failed with no failed job to compare with the base")
             validate_run_rollup(name, found, repo)
             jobs.update((job["id"], job) for job in found)
         for guard in aggregate_jobs:
-            found = head_jobs(repo, sha, [guard["run_id"]], [], github)
+            found = head_jobs(repo, sha, [guard["run_id"]], [], github, ignored=ignored, seen=seen)
             if not found:
                 raise Refused(f"run {guard['run_id']}: its aggregate check failed with no failed job to compare with the base")
             validate_guard_routes(repo, sha, guard, found, github)
             jobs.update((job["id"], job) for job in found)
-    return list(jobs.values())
+    # Kept apart until here, so a later entry for the same job (another status, or its check run) drops none.
+    return [dict(job, status_contexts=contexts[key]) if key in contexts else job for key, job in jobs.items()]
 
 
 def tip_suite_verdicts(repo: str, base: str, workflow, name: str, github, base_jobs: dict[int, list[dict] | None],
@@ -1939,6 +2077,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
     job_reads: dict[int, int] = {}
     suites = SuiteChecks(github)
     merge_bases: dict[str, str] = {}
+    run_reads: dict = {}  # head_jobs' SEEN: the head's check runs, each run's workflow, each head's run list
     load_rollups(repo, base, github)
     checks = list(checks)
     if repo in WS_CHECK_REPOS and (WS_CHECK in checks or not (runs or checks)):
@@ -1952,7 +2091,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         # here as "no failed job found", and a merge check that asks about every head refused every green PR). A red
         # run or check that was named and shows no failed job is still refused below.
         return audit or [f"no red run or check named on {sha}: no failure to excuse"]
-    jobs = head_jobs(repo, sha, runs, checks, github, base=base, excused=audit, suites=suites)
+    jobs = head_jobs(repo, sha, runs, checks, github, base=base, excused=audit, suites=suites, ignored=audit,
+                     seen=run_reads)
     if not jobs and not audit:
         # A red run or check with no failed job to show has nothing the base can excuse.
         raise Refused("no failed job found on the head to compare with the base")
@@ -1983,8 +2123,12 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         if own.crashes or (own.truncated and not chromium_without_diagnostics):
             raise Refused(f"'{name}': " + "; ".join(own.crashes + own.truncated[:1])[:800]
                           + " (a crash or a cut-short run is never a base red)")
-        workflow_info = github.json(f"repos/{repo}/actions/runs/{job['run_id']}")
+        workflow_info = rest_run(repo, job["run_id"], github, run_reads)
         workflow = workflow_info.get("workflow_id")
+        if not isinstance(workflow, int):
+            # never `actions/workflows/None/runs` (cmux#37033's 404): a run whose workflow is unread has no base
+            raise Refused(f"'{name}': run {job['run_id']} came back without its workflow_id; nothing to compare "
+                          "with the base")
         # This supplement uses only measured base observations with an active public quarantine issue. It can
         # bridge a green base run; it never changes the deterministic comparison when state is absent or invalid.
         known = test_reds.flaky_failures(head_log, name, workflow_info.get("name", ""), flake_state)
@@ -2048,6 +2192,15 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                     raise
                 read += 1
                 window.append(red(run, found))
+    # A status judged by its job (status_job) is named too, the way merge_hold reads the head's reds: by the
+    # status's own context. Every job above was excused or ignored, or judge() raised.
+    for job in jobs:
+        for context in job.get("status_contexts", ()):
+            name = job.get("name", "")
+            verb = next((line.split(" ", 1)[0] for line in reversed(audit)
+                         if line.startswith((f"excused '{name}'", f"ignored '{name}'"))), "excused")
+            audit.append(f"{verb} '{context}': its status is the verdict of job '{name}' {job['id']} in run "
+                         f"{job.get('run_id')}, {verb} above")
     return audit
 
 

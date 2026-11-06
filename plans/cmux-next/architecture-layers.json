@@ -69,6 +69,7 @@
     "CmuxNextDevices": {"layer": "domain", "mixes": ["service"], "plan": "the hub client, socket, identity and relay sealing are service; DeviceHub (@MainActor @Observable) is the domain model"},
     "CmuxNextAgentLanes": {"layer": "ui", "mixes": ["domain"], "plan": "lane feed (domain) apart from the Priority view"},
     "CmuxNextHistory": {"layer": "ui", "mixes": ["domain", "service"]},
+    "CmuxNextHistoryDaemon": {"layer": "ui", "mixes": ["service"]},
     "CmuxNextBookmarks": {"layer": "ui", "mixes": ["domain", "service"]},
     "CmuxNextTasks": {"layer": "ui", "mixes": ["domain"]},
     "CmuxNextFeed": {"layer": "ui", "mixes": ["domain"]},

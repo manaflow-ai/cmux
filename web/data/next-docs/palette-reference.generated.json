@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1317,
+    "entries": 1329,
     "shortcuts": 189
   },
   "sections": [
@@ -38,6 +38,12 @@
           "title": "Automations",
           "shortcut": null,
           "command": "cmux automation show-page"
+        },
+        {
+          "id": "home.compareTablePlayground",
+          "title": "Before/After Table Playground",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "home.chatColors",
@@ -140,6 +146,12 @@
           "title": "Enable Channels",
           "shortcut": null,
           "command": "cmux home enable-channels"
+        },
+        {
+          "id": "window.focusDock",
+          "title": "Focus Dock",
+          "shortcut": null,
+          "command": "cmux window focus-dock"
         },
         {
           "id": "gallery.openStage",
@@ -262,6 +274,30 @@
           "command": null
         },
         {
+          "id": "window.dockEdgeBottom",
+          "title": "Move Dock to Bottom",
+          "shortcut": null,
+          "command": "cmux window dock-edge-bottom"
+        },
+        {
+          "id": "window.dockEdgeLeft",
+          "title": "Move Dock to Left",
+          "shortcut": null,
+          "command": "cmux window dock-edge-left"
+        },
+        {
+          "id": "window.dockEdgeRight",
+          "title": "Move Dock to Right",
+          "shortcut": null,
+          "command": "cmux window dock-edge-right"
+        },
+        {
+          "id": "window.dockEdgeTop",
+          "title": "Move Dock to Top",
+          "shortcut": null,
+          "command": "cmux window dock-edge-top"
+        },
+        {
           "id": "home.createChannel",
           "title": "New Channel…",
           "shortcut": null,
@@ -314,6 +350,12 @@
           "title": "Open Chief",
           "shortcut": null,
           "command": "cmux home open-chief"
+        },
+        {
+          "id": "home.openChiefDock",
+          "title": "Open Chief Dock",
+          "shortcut": "⌘I",
+          "command": "cmux home open-chief-dock"
         },
         {
           "id": "history.open",
@@ -536,6 +578,18 @@
           "title": "Show/Hide All Windows",
           "shortcut": "⌃⌥⌘.",
           "command": null
+        },
+        {
+          "id": "window.toggleDock",
+          "title": "Show/Hide Dock",
+          "shortcut": null,
+          "command": "cmux window toggle-dock"
+        },
+        {
+          "id": "window.toggleDockTabBar",
+          "title": "Show/Hide Dock Tab Bar",
+          "shortcut": null,
+          "command": "cmux window toggle-dock-tab-bar"
         },
         {
           "id": "palette.sleepyMode",
@@ -2026,6 +2080,12 @@
           "command": "cmux column move-right"
         },
         {
+          "id": "window.movePaneToDock",
+          "title": "Move Pane to Dock",
+          "shortcut": null,
+          "command": "cmux pane move-to-dock"
+        },
+        {
           "id": "pane.moveToNewWindow",
           "title": "Move Pane to New Window",
           "shortcut": null,
@@ -3488,6 +3548,12 @@
           "title": "Reset Terminal Theme",
           "shortcut": null,
           "command": "cmux terminal clear-theme"
+        },
+        {
+          "id": "terminal.runLastCommandAgain",
+          "title": "Run Last Command Again",
+          "shortcut": null,
+          "command": "cmux terminal run-last-command-again"
         },
         {
           "id": "terminal.scrollPageDown",
@@ -6150,7 +6216,7 @@
         {
           "id": "palette.newAgentChat",
           "title": "New Agent Chat",
-          "shortcut": "⌘I",
+          "shortcut": null,
           "command": "cmux agent new-chat"
         },
         {
@@ -6878,12 +6944,6 @@
           "title": "Share Machine Preview…",
           "shortcut": null,
           "command": "cmux cloud preview-share"
-        },
-        {
-          "id": "cloudShareMachine",
-          "title": "Share Machine…",
-          "shortcut": null,
-          "command": "cmux cloud share-machine"
         },
         {
           "id": "palette.auth.signIn",
@@ -7642,6 +7702,12 @@
           "command": "cmux settings open-sign-in-pages-in-cmux"
         },
         {
+          "id": "liveSwift.start",
+          "title": "Start Swift Live Mode",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "liveWeb.stop",
           "title": "Stop Editing cmux Live",
           "shortcut": null,
@@ -7650,6 +7716,12 @@
         {
           "id": "server.stopServing",
           "title": "Stop Serving",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "liveSwift.stop",
+          "title": "Stop Swift Live Mode",
           "shortcut": null,
           "command": null
         },

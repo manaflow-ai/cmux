@@ -100,9 +100,21 @@ class FakeGitHub:
                 event = route.split("&event=", 1)[1].split("&", 1)[0]
                 runs = [run for run in runs if run.get("event") == event]
             return {"workflow_runs": runs}
+        if route.endswith(f"commits/{HEAD}/check-runs?filter=all&per_page=100"):
+            # A cancelled head job asks whether a newer run of its name superseded it (superseding_check).
+            return [{"check_runs": [{"id": job["id"], "name": job["name"], "status": job["status"],
+                                     "conclusion": job["conclusion"], "app": {"slug": "github-actions"},
+                                     "details_url": f"https://github.com/{REPO}/actions/runs/{job['run_id']}"
+                                                    f"/job/{job['id']}"}
+                                    for job in self.jobs.values() if job["head_sha"] == HEAD]}]
+        if "/actions/jobs/" in route:
+            return copy.deepcopy(self.jobs[int(route.rsplit("/", 1)[1])])
         if "/actions/runs/" in route:
-            return {"id": int(route.rsplit("/", 1)[1]), "workflow_id": 7}
+            run = int(route.rsplit("/", 1)[1])
+            return {"id": run, "workflow_id": self.workflows.get(run, 7)}
         raise AssertionError(route)
+
+    workflows: dict[int, int] = {}
 
     def log(self, repo, job):
         return self.logs[job["id"]]
@@ -1313,6 +1325,214 @@ class Excusing(unittest.TestCase):
 
 
 
+class SupersededCancelledRun(unittest.TestCase):
+    """cmux#36965 at 004465b3: run 42179149655's 'risk evidence' was cancelled by concurrency while the newer run
+    42179187468 of the same workflow passed it. The newest completed run of a check name is its verdict."""
+
+    def setUp(self):
+        self.gh = FakeGitHub()
+        self.gh.workflows = {}
+
+    def judge(self, runs=(10,)):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, list(runs), self.gh)
+
+    def newer(self, conclusion, run=11):
+        self.gh.jobs[5] = dict(failed_job(5, run, HEAD), conclusion=conclusion)
+        self.gh.logs[5] = self.gh.logs[1]
+
+    def test_a_cancelled_run_with_a_newer_green_run_of_its_name_is_not_a_red(self):
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.newer("success")
+        lines = self.judge()
+        self.assertEqual(len(lines), 1, lines)
+        self.assertTrue(lines[0].startswith(f"ignored '{SWIFT}': its cancelled job in run 10 is superseded by job 5"),
+                        lines)
+        # Nothing was compared with the base: no base run was listed.
+        self.assertFalse(any("/workflows/7/runs?" in route for route in self.gh.routes), self.gh.routes)
+
+    def test_recency_is_the_linked_job_id_not_the_check_run_id(self):
+        # A check run's own id need not be its job's: the newer run's check run here has the lower id.
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.gh.jobs[5] = dict(failed_job(5, 11, HEAD), conclusion="success")
+        checks = [{"id": 900, "name": SWIFT, "status": "completed", "conclusion": "cancelled",
+                   "app": {"slug": "github-actions"},
+                   "details_url": f"https://github.com/{REPO}/actions/runs/10/job/1"},
+                  {"id": 3, "name": SWIFT, "status": "completed", "conclusion": "success",
+                   "app": {"slug": "github-actions"},
+                   "details_url": f"https://github.com/{REPO}/actions/runs/11/job/5"}]
+        original = self.gh.json
+
+        def json(route, *, paginate=False):
+            if route.endswith(f"commits/{HEAD}/check-runs?filter=all&per_page=100"):
+                return [{"check_runs": copy.deepcopy(checks)}]
+            return original(route, paginate=paginate)
+
+        self.gh.json = json
+        lines = self.judge()
+        self.assertTrue(lines[0].startswith(f"ignored '{SWIFT}': its cancelled job in run 10 is superseded by job 5 "),
+                        lines)
+        # The other way round, the newer check run's job is older than the cancelled one: it supersedes nothing.
+        checks[1]["details_url"] = f"https://github.com/{REPO}/actions/runs/11/job/0"
+        with self.assertRaisesRegex(excuse.Refused, "cancelled"):
+            self.judge()
+
+    def check(self, name=SWIFT):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[name])
+
+    def test_a_check_named_whose_newest_run_passed_a_cancelled_one_is_not_a_red(self):
+        # gh-merge-green names a red required check by --check: GitHub's latest of the name is the green one.
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.newer("success")
+        lines = self.check()
+        self.assertEqual(len(lines), 1, lines)
+        self.assertTrue(lines[0].startswith(f"ignored '{SWIFT}': its newest job 5 on {HEAD} is success, superseding 1 "
+                                            "cancelled run(s)"), lines)
+
+    def test_a_check_named_whose_newest_run_passed_a_failure_stays_a_red(self):
+        self.newer("success")
+        with self.assertRaisesRegex(excuse.Refused, "success"):
+            self.check()
+
+    def test_a_check_named_whose_cancelled_run_is_another_workflows_stays_a_red(self):
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.newer("success")
+        self.gh.workflows = {11: 8}
+        with self.assertRaisesRegex(excuse.Refused, "success"):
+            self.check()
+
+    def test_a_cancelled_run_with_nothing_newer_stays_a_red(self):
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        with self.assertRaisesRegex(excuse.Refused, "cancelled"):
+            self.judge()
+
+    def test_a_newer_run_of_another_workflow_supersedes_nothing(self):
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.newer("success")
+        self.gh.workflows = {11: 8}
+        with self.assertRaisesRegex(excuse.Refused, "cancelled"):
+            self.judge()
+
+    def test_a_newer_run_still_running_supersedes_nothing(self):
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.newer(None)
+        self.gh.jobs[5]["status"] = "in_progress"
+        with self.assertRaisesRegex(excuse.Refused, "cancelled"):
+            self.judge()
+
+    def test_a_cancelled_run_with_a_newer_failure_is_judged_by_that_failure(self):
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.newer("failure")
+        lines = "\n".join(self.judge())
+        self.assertIn(f"excused '{SWIFT}'", lines)
+        self.assertNotIn("ignored", lines)
+
+    def test_a_newer_failure_after_an_older_success_is_still_a_red(self):
+        self.gh.jobs[1]["conclusion"] = "success"
+        self.newer("failure")
+        lines = "\n".join(self.judge(runs=(11,)))
+        self.assertIn(f"excused '{SWIFT}'", lines)
+        self.assertNotIn("ignored", lines)
+        self.gh.logs[2] = log(SWIFT, TEST_STEP, OTHER, "##[error]1 red test: palette()")
+        with self.assertRaises(excuse.Refused):
+            self.judge(runs=(11,))
+
+    def test_a_failure_with_a_newer_green_run_stays_a_red(self):
+        # A failure is a verdict: a later run's green never launders it (merge_hold's _superseded_cancels).
+        self.newer("success")
+        lines = "\n".join(self.judge())
+        self.assertIn(f"excused '{SWIFT}'", lines)
+        self.assertNotIn("ignored", lines)
+
+
+class SlimRunRecordGitHub(FakeGitHub):
+    """A lane VM's gh chain: `actions/runs/ID` answers glaeda's 12-field run summary (no workflow_id or path), and a
+    run's job list names no run_id; `actions/runs?head_sha=SHA` is REST's list (LISTED, or every run in workflow 7)."""
+
+    SLIM = ("id", "name", "display_title", "status", "conclusion", "html_url", "head_sha", "head_branch", "event",
+            "run_attempt", "created_at", "updated_at")
+
+    def __init__(self):
+        super().__init__()
+        self.listed: list[dict] | None = None
+        self.logged: list[int] = []
+
+    def json(self, route, *, paginate=False):
+        if "/actions/runs?head_sha=" in route:
+            self.routes.append(route)
+            sha = route.split("head_sha=", 1)[1].split("&", 1)[0]
+            runs = self.listed if self.listed is not None else [
+                {"id": run, "workflow_id": self.workflows.get(run, 7), "head_sha": sha, "event": "pull_request"}
+                for run in sorted({job["run_id"] for job in self.jobs.values() if job["head_sha"] == sha})]
+            return [{"total_count": len(runs), "workflow_runs": copy.deepcopy(runs)}]
+        found = super().json(route, paginate=paginate)
+        if route.endswith(("/jobs?filter=latest&per_page=100", "/jobs?filter=all&per_page=100")):
+            return [{"jobs": [{k: v for k, v in job.items() if k != "run_id"} for page in found
+                              for job in page["jobs"]]}]
+        if "/actions/runs/" in route and "/jobs" not in route:
+            run = int(route.rsplit("/", 1)[1])
+            sha = next((job["head_sha"] for job in self.jobs.values() if job["run_id"] == run), HEAD)
+            return {key: {"id": run, "name": "risk tier", "head_sha": sha, "event": "pull_request",
+                          "status": "completed"}.get(key) for key in self.SLIM}
+        return found
+
+    def log(self, repo, job):
+        self.logged.append(job["id"])
+        return super().log(repo, job)
+
+
+class SlimRunRecord(unittest.TestCase):
+    """cmux#36971 at b265fe8c: on a lane VM, `actions/runs/ID` came back as glaeda's summary with no workflow_id, so a
+    cancelled run that newer greens of its workflow superseded (risk-tier's 42191711726) stayed red, and cmux#37033
+    asked `actions/workflows/None/runs`. The summary is completed from the head's run list (rest_run)."""
+
+    def setUp(self):
+        self.gh = SlimRunRecordGitHub()
+        self.gh.workflows = {}
+
+    def judge(self):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
+
+    def test_a_cancel_a_newer_green_superseded_is_ignored_unlogged(self):
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.gh.jobs[5] = dict(failed_job(5, 11, HEAD), conclusion="success")
+        lines = self.judge()
+        self.assertEqual(len(lines), 1, lines)
+        self.assertTrue(lines[0].startswith(f"ignored '{SWIFT}': its cancelled job in run 10 is superseded by job 5"),
+                        lines)
+        self.assertEqual(self.gh.logged, [])  # the superseded cancel's log is never read
+        self.assertEqual(len([r for r in self.gh.routes if "runs?head_sha=" in r]), 1)  # one list for the head
+
+    def test_a_cancel_with_nothing_newer_stays_red(self):
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        with self.assertRaisesRegex(excuse.Refused, "cancelled"):
+            self.judge()
+
+    def test_another_workflows_green_of_the_name_supersedes_nothing(self):
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.gh.jobs[5] = dict(failed_job(5, 11, HEAD), conclusion="success")
+        self.gh.workflows = {11: 8}
+        with self.assertRaisesRegex(excuse.Refused, "cancelled"):
+            self.judge()
+
+    def test_a_list_that_does_not_name_the_run_keeps_the_red(self):
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.gh.jobs[5] = dict(failed_job(5, 11, HEAD), conclusion="success")
+        self.gh.listed = [{"id": 11, "workflow_id": 7, "head_sha": HEAD, "event": "pull_request"}]
+        with self.assertRaisesRegex(excuse.Refused, "cancelled"):
+            self.judge()
+
+    def test_a_failure_is_compared_with_its_workflows_base_runs(self):
+        lines = "\n".join(self.judge())
+        self.assertIn(f"excused '{SWIFT}'", lines)
+        self.assertFalse([r for r in self.gh.routes if "/workflows/None/" in r], self.gh.routes)
+
+    def test_a_failure_whose_workflow_stays_unread_is_refused_not_asked_of_none(self):
+        self.gh.listed = []
+        with self.assertRaisesRegex(excuse.Refused, "without its workflow_id"):
+            self.judge()
+        self.assertFalse([r for r in self.gh.routes if "/workflows/None/" in r], self.gh.routes)
+
+
 class StatusOnlyChecks(unittest.TestCase):
     """A same-tree run posts 'cmux-next daemon tests (same-tree)' as a commit status, not a check run (cmux#30294):
     it is judged by the job behind it, in the run its target_url links."""
@@ -1358,6 +1578,30 @@ class StatusOnlyChecks(unittest.TestCase):
         text = "\n".join(self.judge())
         self.assertIn(self.DAEMON, text)
         self.assertIn("run 20", text)
+
+    def test_an_excused_status_red_is_named_by_its_status_context(self):
+        # merge_hold covers a red only by an audit line that starts with its own name (cmux#37038 at 1f4963c0 was
+        # refused: "never named 'cmux-next daemon tests (same-tree)'" while its job's line was excused).
+        lines = self.judge()
+        self.assertTrue(any(line.startswith(f"excused '{self.CONTEXT}'") for line in lines), lines)
+        self.assertTrue(any(line.startswith(f"excused '{self.DAEMON}'") for line in lines), lines)
+
+    def test_every_status_judged_by_one_job_is_named(self):
+        # Two contexts whose verdict is the same job: a later one must not drop the earlier one's name.
+        other = dict(self.status, context=self.DAEMON)
+        original = self.gh.json
+
+        def json(route, *, paginate=False):
+            found = original(route, paginate=paginate)
+            if route.endswith(f"commits/{HEAD}/status?per_page=100"):
+                found["statuses"].append(copy.deepcopy(other))
+            return found
+
+        self.gh.json = json
+        lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[self.CONTEXT, self.DAEMON])
+        for context in (self.CONTEXT, self.DAEMON):
+            self.assertTrue(any(line.startswith(f"excused '{context}': its status") for line in lines),
+                            (context, lines))
 
     def test_a_status_red_not_on_the_base_blocks_per_test(self):
         self.gh.logs[1] = log(self.DAEMON, self.STEP, OTHER.replace("palettePages", "somethingNew"))
