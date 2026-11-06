@@ -78,9 +78,12 @@ impl Hub {
                     if !exact_all.is_empty() {
                         (None, exact_all)
                     } else if names_hosts
+                        && !(crate::beads::is_bead_id(query)
+                            && !by_bead(&summaries, query).is_empty())
                         && let Some(route) = self.key_route(query)?.filter(|route| route != query)
                     {
-                        // No exact name or id: the one session every other command finds for it
+                        // No exact name or id, and no session carries it as a bead (`by_key`
+                        // reads those first): the one session every other command finds for it
                         // (`hub/key_route.rs`: another case before a prefix, a prefix here before
                         // a name without separators); several are refused, never picked.
                         return self.locate(&route, false, names_hosts);

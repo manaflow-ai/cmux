@@ -135,3 +135,17 @@ async fn a_sub_sessions_short_name_in_another_case_finds_it() {
         assert_eq!(hub.key_route(key).unwrap().as_deref(), Some("lanevm-7/0199aaaa-1111"), "{key}");
     }
 }
+
+/// Review of #36919: a bead id one session carries finds that session in `resolve`, never
+/// another session whose name only starts with the id.
+#[tokio::test]
+async fn resolve_takes_the_session_carrying_a_bead_over_a_name_it_starts() {
+    let hub = test_hub();
+    let carrier = named(&hub, "fixer").await;
+    named(&hub, "cx-ab1.2-worker").await;
+    let tags = json!({ crate::beads::tag_key("cx-ab1.2"): "1" });
+    hub.set_tags(&carrier, tags.as_object(), &[], None);
+    let found = hub.locate("cx-ab1.2", false, true).unwrap();
+    assert_eq!(found["matches"].as_array().unwrap().len(), 1, "{found}");
+    assert_eq!(found["session"]["sessionId"], carrier.id.as_str(), "{found}");
+}
