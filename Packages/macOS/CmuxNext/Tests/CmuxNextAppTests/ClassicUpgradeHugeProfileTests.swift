@@ -80,12 +80,18 @@ struct ClassicUpgradeHugeProfileTests {
                          Double(after.events.count - before.events.count) / perWorkspace,
                          Double(after.events.bytes - before.events.bytes) / perWorkspace))
             for (command, now) in after.replies.sorted(by: { $0.value.total - (before.replies[$0.key]?.total ?? 0) > $1.value.total - (before.replies[$1.key]?.total ?? 0) }) {
-                let was = before.replies[command] ?? (0, 0, 0)
+                let was = before.replies[command] ?? (0, 0, 0, 0)
                 let count = now.count - was.count
                 guard count > 0 else { continue }
-                print(String(format: "CLASSIC-PROFILE %@ reply %@ n=%.2f/ws mean=%.1fms total=%.0fms/ws longest=%.0fms", label, command,
+                print(String(format: "CLASSIC-PROFILE %@ reply %@ n=%.2f/ws mean=%.1fms total=%.0fms/ws longest=%.0fms bytes=%.0f/reply", label, command,
                              Double(count) / perWorkspace, (now.total - was.total) * 1000 / Double(count),
-                             (now.total - was.total) * 1000 / perWorkspace, now.longest * 1000))
+                             (now.total - was.total) * 1000 / perWorkspace, now.longest * 1000, Double(now.bytes - was.bytes) / Double(count)))
+            }
+            for (name, now) in after.eventsByName.sorted(by: { $0.value.bytes - (before.eventsByName[$0.key]?.bytes ?? 0) > $1.value.bytes - (before.eventsByName[$1.key]?.bytes ?? 0) }).prefix(12) {
+                let was = before.eventsByName[name] ?? (0, 0)
+                guard now.count > was.count else { continue }
+                print(String(format: "CLASSIC-PROFILE %@ event %@ n=%.2f/ws bytes=%.0f/event", label, name,
+                             Double(now.count - was.count) / perWorkspace, Double(now.bytes - was.bytes) / Double(now.count - was.count)))
             }
         }
         printHeavy("APP-\(label)", report ?? "")
