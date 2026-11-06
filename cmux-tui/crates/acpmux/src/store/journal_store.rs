@@ -657,8 +657,13 @@ impl Store for JournalStore {
         }
         // Refused only if the writer stopped since the check: the line is in the log without its
         // record, as after a crash between the two.
-        let lsn =
-            inner.journal.append(KIND_LOG, class, &payload).map_err(JournalStore::journal_error)?;
+        // A kept change's line is synced in the journal's idle time (`cmux_journal` crate docs).
+        let lsn = if kind == RecordClass::Kept {
+            inner.journal.append_kept(KIND_LOG, &payload)
+        } else {
+            inner.journal.append(KIND_LOG, class, &payload)
+        }
+        .map_err(JournalStore::journal_error)?;
         match kind {
             RecordClass::Acked => inner.acked.store(lsn, std::sync::atomic::Ordering::SeqCst),
             RecordClass::Kept => inner.kept.store(lsn, std::sync::atomic::Ordering::SeqCst),
@@ -906,6 +911,17 @@ impl Store for JournalStore {
     /// The folder's path only: no lock, no wait, no write (review of #35483, P3 1).
     fn session_path(&self, id: &str) -> Option<PathBuf> {
         Store::session_dir(&self.inner.local, id)
+    }
+    /// The log's own segment `000000` (`LocalStore::history_writer`): synced and renamed in whole
+    /// at its commit, so it needs no record of its own. Its lines are all below the fork's first
+    /// own `seq`, where a replay's repair of the fork's log starts (`journal_store/repair.rs`
+    /// `read_from`). Without it every fork on this store, the only disk store since #37118,
+    /// copied its history again (review of #37020, F2).
+    fn writes_history(&self) -> bool {
+        Store::writes_history(&self.inner.local)
+    }
+    fn history_writer(&self, id: &str) -> Result<Option<Box<dyn HistoryWriter + '_>>> {
+        Store::history_writer(&self.inner.local, id)
     }
     fn handoff_dir(&self) -> Option<PathBuf> {
         Store::handoff_dir(&self.inner.local)

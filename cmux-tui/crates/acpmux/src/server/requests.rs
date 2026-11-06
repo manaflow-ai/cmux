@@ -2727,7 +2727,7 @@ async fn dispatch_request_with_identity(
             if params.get("cancelFork").and_then(Value::as_bool) == Some(true)
                 && let Some(token) = params.get("cancelToken").and_then(Value::as_str)
             {
-                return Ok(json!({"cancelled": hub.cancel_pending_fork(token).await}));
+                return Ok(json!({"cancelled": hub.cancel_pending_fork(token).await?}));
             }
             let s = hub.resolve(session_key(&params)?)?;
             // A Fork Conversation the person cancelled before using it (`hub/fork_cancel.rs`).

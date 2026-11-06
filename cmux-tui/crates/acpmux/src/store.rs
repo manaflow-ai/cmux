@@ -24,6 +24,8 @@ mod superseded;
 pub use superseded::{Superseded, starts_prompt};
 mod kind_index;
 pub use kind_index::INDEXED_KINDS;
+mod fork_view;
+pub use fork_view::{ForkView, HISTORY_KINDS, HistoryRef, HistoryWriter};
 mod shared_value;
 mod text_index;
 pub use shared_value::SharedValue;
@@ -203,6 +205,16 @@ pub struct SessionMeta {
     pub fork_seq: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fork_before: Option<ForkBefore>,
+    /// A fork's history, read from the chat it came from until written into its own log
+    /// (`store/fork_view.rs`). None: its log holds all it shows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub history_from: Option<HistoryRef>,
+    /// The seq through which this log holds a chat's history under that chat's own seqs, so it
+    /// skips seqs there: a fork by reference whose history was written into it
+    /// (`store/fork_view.rs` `materialize`, `transfer.rs` `export`). Edit and resend's proof of
+    /// the log allows those skips (`hub/fork_before.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub history_kept_through: Option<u64>,
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub fork_requests: std::collections::BTreeMap<String, ForkRequest>,
     /// Whether this daemon verified the local parent link when the fork was made. Imported
@@ -952,6 +964,24 @@ pub trait Store: Send + Sync {
     fn briefs_path(&self) -> Option<PathBuf> {
         None
     }
+    /// Whether [`Store::history_writer`] can write a fork's history into its log
+    /// (`store/fork_view.rs`). False: forks copy their history as records.
+    fn writes_history(&self) -> bool {
+        false
+    }
+    /// Names `fork` a fork of `reference` before its meta is saved, so a delete or compaction of
+    /// the chat from now on writes the history into it first (`store/fork_view.rs`). An error:
+    /// the chat is gone.
+    fn reserve_reference(&self, _fork: &str, _reference: &HistoryRef) -> Result<()> {
+        Ok(())
+    }
+    /// Takes back a [`Store::reserve_reference`] of a fork that was not made.
+    fn forget_reference(&self, _fork: &str) {}
+    /// A writer of the history a fork referenced, as its log's first segment. None: this store
+    /// writes none ([`Store::writes_history`]).
+    fn history_writer(&self, _id: &str) -> Result<Option<Box<dyn HistoryWriter + '_>>> {
+        Ok(None)
+    }
 }
 
 /// One record as [`Store::scan_heads`] passes it: the fields a log line holds before its `msg`,
@@ -1245,7 +1275,10 @@ impl LocalStore {
         crate::config::private_state_dir(&self.dir(id))?;
         crate::config::private_state_dir(&dir)?;
         let segs = self.segments(id)?;
-        let (index, path) = match segs.last() {
+        // Never segment `000000`: it holds only a fork's history, written whole and renamed in
+        // place (`history_writer`), which would replace a record appended to it (review of
+        // #37020). A log whose only segment it is goes on in `000001`.
+        let (index, path) = match segs.last().filter(|(i, _)| *i > 0) {
             Some((i, p)) => (*i, p.clone()),
             None => (1, dir.join("000001.ndjson")),
         };
@@ -1508,6 +1541,39 @@ impl LocalStore {
     }
 }
 
+/// [`LocalStore::history_writer`]'s segment `000000`.
+struct SegmentZero {
+    /// Taken by `commit`.
+    file: Option<std::io::BufWriter<File>>,
+    tmp: PathBuf,
+    path: PathBuf,
+    dir: PathBuf,
+}
+
+impl HistoryWriter for SegmentZero {
+    fn write(&mut self, record: &EventRecord) -> Result<()> {
+        let Some(file) = self.file.as_mut() else { anyhow::bail!("history segment committed") };
+        serde_json::to_writer(&mut *file, record)?;
+        file.write_all(b"\n")?;
+        Ok(())
+    }
+    fn commit(mut self: Box<Self>) -> Result<()> {
+        let Some(file) = self.file.take() else { anyhow::bail!("history segment committed") };
+        let file = file.into_inner().map_err(|e| anyhow::anyhow!("{e}"))?;
+        file.sync_all()?;
+        std::fs::rename(&self.tmp, &self.path)?;
+        sync_directory(&self.dir)?;
+        Ok(())
+    }
+}
+
+impl Drop for SegmentZero {
+    /// One never committed leaves nothing; a committed one was renamed away.
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.tmp);
+    }
+}
+
 impl Store for LocalStore {
     fn list(&self) -> Result<Vec<SessionMeta>> {
         let Ok(rd) = std::fs::read_dir(&self.root) else {
@@ -1592,6 +1658,23 @@ impl Store for LocalStore {
         let mut line = serde_json::to_string(record)?;
         line.push('\n');
         self.append_line(id, line.as_bytes())
+    }
+
+    fn writes_history(&self) -> bool {
+        true
+    }
+
+    /// Segment `000000`, written beside the log under a temporary name and renamed in whole.
+    fn history_writer(&self, id: &str) -> Result<Option<Box<dyn HistoryWriter + '_>>> {
+        let _open = self.writable()?;
+        let dir = self.dir(id).join("events");
+        crate::config::private_state_dir(&self.dir(id))?;
+        crate::config::private_state_dir(&dir)?;
+        let path = dir.join("000000.ndjson");
+        let tmp = dir.join("000000.ndjson.history");
+        let _ = std::fs::remove_file(&tmp);
+        let file = std::io::BufWriter::with_capacity(256 * 1024, open_private_append(&tmp)?);
+        Ok(Some(Box::new(SegmentZero { file: Some(file), tmp, path, dir })))
     }
 
     /// Reads only past `after`: a segment whose successor starts at or before `after + 1`
